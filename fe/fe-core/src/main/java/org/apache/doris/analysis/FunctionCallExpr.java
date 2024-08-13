@@ -686,6 +686,17 @@ public class FunctionCallExpr extends Expr {
             sb.append(((FunctionCallExpr) expr).fnName);
             sb.append(" ");
             sb.append(children.get(1).toSql());
+        } else if (fnName.getFunction().equalsIgnoreCase("encryptkeyref")) {
+            sb.append("key ");
+            for (int i = 0; i < children.size(); i++) {
+                String str = ((StringLiteral) children.get(i)).getValue();
+                if (str.isEmpty()) {
+                    continue;
+                }
+                sb.append(str);
+                sb.append(".");
+            }
+            sb.deleteCharAt(sb.length() - 1);
         } else {
             sb.append(((FunctionCallExpr) expr).fnName);
             sb.append(paramsToSql());
@@ -1591,6 +1602,14 @@ public class FunctionCallExpr extends Expr {
                         argTypes[i] = assignmentCompatibleType;
                     }
                 }
+            } else if (assignmentCompatibleType.isDateV2OrDateTimeV2()) {
+                for (int i = 0; i < childTypes.length; i++) {
+                    if (assignmentCompatibleType.isDateV2OrDateTimeV2()
+                            && !childTypes[i].equals(assignmentCompatibleType)) {
+                        uncheckedCastChild(assignmentCompatibleType, i);
+                        argTypes[i] = assignmentCompatibleType;
+                    }
+                }
             }
             fn = getBuiltinFunction(fnName.getFunction(), argTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
@@ -1825,7 +1844,7 @@ public class FunctionCallExpr extends Expr {
                                 .toSql());
             }
         }
-        if (fn.getFunctionName().getFunction().equals("timediff")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("timediff")) {
             fn.getReturnType().getPrimitiveType().setTimeType();
             ScalarType left = (ScalarType) argTypes[0];
             ScalarType right = (ScalarType) argTypes[1];
@@ -1836,17 +1855,17 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        if (fn.getFunctionName().getFunction().equals("from_microsecond")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("from_microsecond")) {
             Type ret = ScalarType.createDatetimeV2Type(6);
             fn.setReturnType(ret);
         }
 
-        if (fn.getFunctionName().getFunction().equals("from_millisecond")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("from_millisecond")) {
             Type ret = ScalarType.createDatetimeV2Type(3);
             fn.setReturnType(ret);
         }
 
-        if (fn.getFunctionName().getFunction().equals("from_second")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("from_second")) {
             Type ret = ScalarType.createDatetimeV2Type(0);
             fn.setReturnType(ret);
         }
@@ -1873,7 +1892,7 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        if (fn.getFunctionName().getFunction().equals("struct_element")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("struct_element")) {
             if (children.size() < 2) {
                 throw new AnalysisException(fnName.getFunction() + " needs two parameters: " + this.toSql());
             }
@@ -1898,7 +1917,7 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        if (fn.getFunctionName().getFunction().equals("sha2")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("sha2")) {
             if ((children.size() != 2) || (getChild(1).isConstant() == false)
                     || !(getChild(1) instanceof IntLiteral)) {
                 throw new AnalysisException(
@@ -2056,7 +2075,7 @@ public class FunctionCallExpr extends Expr {
          * SELECT str_to_date("2020-09-01", "%Y-%m-%d %H:%i:%s");
          * Return type is DATETIME
          */
-        if (fn.getFunctionName().getFunction().equals("str_to_date")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("str_to_date")) {
             Expr child1Result = getChild(1).getResultValue(false);
             if (child1Result instanceof StringLiteral) {
                 if (DateLiteral.hasTimePart(child1Result.getStringValue())) {
@@ -2095,7 +2114,7 @@ public class FunctionCallExpr extends Expr {
 
         // cast(xx as char(N)/varchar(N)) will be handled as substr(cast(xx as char, varchar), 1, N),
         // but type is varchar(*), we change it to varchar(N);
-        if (fn.getFunctionName().getFunction().equals("substr")
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("substr")
                 && children.size() == 3
                 && children.get(1) instanceof IntLiteral
                 && children.get(2) instanceof IntLiteral) {
@@ -2428,7 +2447,6 @@ public class FunctionCallExpr extends Expr {
         int result = super.hashCode();
         result = 31 * result + Objects.hashCode(opcode);
         result = 31 * result + Objects.hashCode(fnName);
-        result = 31 * result + Objects.hashCode(fnParams);
         return result;
     }
 

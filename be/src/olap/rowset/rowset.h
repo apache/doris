@@ -118,7 +118,7 @@ private:
 
 class Rowset : public std::enable_shared_from_this<Rowset> {
 public:
-    virtual ~Rowset() = default;
+    virtual ~Rowset();
 
     // Open all segment files in this rowset and load necessary metadata.
     // - `use_cache` : whether to use fd cache, only applicable to alpha rowset now
@@ -132,9 +132,13 @@ public:
 
     const RowsetMetaSharedPtr& rowset_meta() const { return _rowset_meta; }
 
+    void merge_rowset_meta(const RowsetMeta& other);
+
     bool is_pending() const { return _is_pending; }
 
     bool is_local() const { return _rowset_meta->is_local(); }
+
+    const std::string& tablet_path() const { return _tablet_path; }
 
     // publish rowset to make it visible to read
     void make_visible(Version version);
@@ -164,12 +168,12 @@ public:
     int64_t newest_write_timestamp() const { return rowset_meta()->newest_write_timestamp(); }
     bool is_segments_overlapping() const { return rowset_meta()->is_segments_overlapping(); }
     KeysType keys_type() { return _schema->keys_type(); }
+    RowsetStatePB rowset_meta_state() const { return rowset_meta()->rowset_state(); }
+    bool produced_by_compaction() const { return rowset_meta()->produced_by_compaction(); }
 
     // remove all files in this rowset
     // TODO should we rename the method to remove_files() to be more specific?
     virtual Status remove() = 0;
-
-    virtual std::string segment_file_path(int segment_id) const = 0;
 
     // close to clear the resource owned by rowset
     // including: open files, indexes and so on
@@ -204,21 +208,16 @@ public:
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
     virtual Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
                                  size_t new_rowset_start_seg_id = 0,
-                                 std::set<int32_t>* without_index_uids = nullptr) = 0;
+                                 std::set<int64_t>* without_index_uids = nullptr) = 0;
 
     // copy all files to `dir`
     virtual Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) = 0;
 
-    virtual Status upload_to(io::RemoteFileSystem* dest_fs, const RowsetId& new_rowset_id) {
-        return Status::OK();
-    }
+    virtual Status upload_to(const StorageResource& dest_fs, const RowsetId& new_rowset_id) = 0;
 
     virtual Status remove_old_files(std::vector<std::string>* files_to_remove) = 0;
 
-    // return whether `path` is one of the files in this rowset
-    virtual bool check_path(const std::string& path) = 0;
-
-    virtual bool check_file_exist() = 0;
+    virtual Status check_file_exist() = 0;
 
     bool need_delete_file() const { return _need_delete_file; }
 
@@ -305,12 +304,15 @@ public:
 
     void clear_cache();
 
+    Result<std::string> segment_path(int64_t seg_id);
+
 protected:
     friend class RowsetFactory;
 
     DISALLOW_COPY_AND_ASSIGN(Rowset);
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
-    Rowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta);
+    Rowset(const TabletSchemaSPtr& schema, RowsetMetaSharedPtr rowset_meta,
+           std::string tablet_path);
 
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
     virtual Status init() = 0;
@@ -321,13 +323,17 @@ protected:
     // release resources in this api
     virtual void do_close() = 0;
 
-    virtual bool check_current_rowset_segment() = 0;
+    virtual Status check_current_rowset_segment() = 0;
 
-    virtual void clear_inverted_index_cache() { LOG(INFO) << "should not reach here"; }
+    virtual void clear_inverted_index_cache() = 0;
 
     TabletSchemaSPtr _schema;
 
     RowsetMetaSharedPtr _rowset_meta;
+
+    // Local rowset requires a tablet path to obtain the absolute path on the local fs
+    std::string _tablet_path;
+
     // init in constructor
     bool _is_pending;    // rowset is pending iff it's not in visible state
     bool _is_cumulative; // rowset is cumulative iff it's visible and start version < end version

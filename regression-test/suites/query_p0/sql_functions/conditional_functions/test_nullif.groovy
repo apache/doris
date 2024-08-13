@@ -158,7 +158,7 @@ suite("test_nullif") {
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName2} (
                 c_int int NULL COMMENT "",
-                c_pv bitmap BITMAP_UNION NULL COMMENT ""
+                c_pv bitmap BITMAP_UNION  COMMENT ""
             )
             AGGREGATE KEY(c_int)
             DISTRIBUTED BY HASH(c_int) BUCKETS 1

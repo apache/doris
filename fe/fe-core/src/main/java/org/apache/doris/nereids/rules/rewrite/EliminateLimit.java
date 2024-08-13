@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 
@@ -44,10 +43,7 @@ public class EliminateLimit implements RewriteRuleFactory {
                         .then(limit -> limit.getLimit() > 0 && limit.getOffset() == 0
                                 ? limit.child() : new LogicalEmptyRelation(StatementScopeIdGenerator.newRelationId(),
                                 limit.child().getOutput()))
-                        .toRule(RuleType.ELIMINATE_LIMIT_ON_ONE_ROW_RELATION),
-                logicalLimit(logicalEmptyRelation())
-                        .then(UnaryNode::child)
-                        .toRule(RuleType.ELIMINATE_LIMIT_ON_EMPTY_RELATION)
+                        .toRule(RuleType.ELIMINATE_LIMIT_ON_ONE_ROW_RELATION)
         );
     }
 }

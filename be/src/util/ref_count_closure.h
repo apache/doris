@@ -71,16 +71,6 @@ public:
 template <typename T>
 concept HasStatus = requires(T* response) { response->status(); };
 
-template <typename Response>
-void process_status(Response* response) {}
-
-template <HasStatus Response>
-void process_status(Response* response) {
-    if (auto status = Status::create(response->status()); !status) {
-        LOG(WARNING) << "RPC meet error status: " << status;
-    }
-}
-
 template <typename Request, typename Callback>
 class AutoReleaseClosure : public google::protobuf::Closure {
     using Weak = typename std::shared_ptr<Callback>::weak_type;
@@ -105,9 +95,9 @@ public:
             tmp->call();
         }
         if (cntl_->Failed()) {
-            LOG(WARNING) << "RPC meet failed: " << cntl_->ErrorText();
+            _process_if_rpc_failed();
         } else {
-            process_status<ResponseType>(response_.get());
+            _process_status<ResponseType>(response_.get());
         }
     }
 
@@ -120,7 +110,25 @@ public:
     std::shared_ptr<Request> request_;
     std::shared_ptr<ResponseType> response_;
 
+protected:
+    virtual void _process_if_rpc_failed() {
+        LOG(WARNING) << "RPC meet failed: " << cntl_->ErrorText();
+    }
+
+    virtual void _process_if_meet_error_status(const Status& status) {
+        LOG(WARNING) << "RPC meet error status: " << status;
+    }
+
 private:
+    template <typename Response>
+    void _process_status(Response* response) {}
+
+    template <HasStatus Response>
+    void _process_status(Response* response) {
+        if (auto status = Status::create(response->status()); !status) {
+            _process_if_meet_error_status(status);
+        }
+    }
     // Use a weak ptr to keep the callback, so that the callback can be deleted if the main
     // thread is freed.
     Weak callback_;

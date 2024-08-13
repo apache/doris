@@ -19,7 +19,6 @@ package org.apache.doris.jdbc;
 
 import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.exception.InternalException;
-import org.apache.doris.common.exception.UdfRuntimeException;
 import org.apache.doris.common.jni.utils.UdfUtils;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
@@ -27,7 +26,6 @@ import org.apache.doris.common.jni.vec.VectorColumn;
 import org.apache.doris.common.jni.vec.VectorTable;
 import org.apache.doris.thrift.TJdbcExecutorCtorParams;
 import org.apache.doris.thrift.TJdbcOperation;
-import org.apache.doris.thrift.TOdbcTableType;
 
 import com.google.common.base.Preconditions;
 import com.zaxxer.hikari.HikariDataSource;
@@ -58,14 +56,12 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     private static final TBinaryProtocol.Factory PROTOCOL_FACTORY = new TBinaryProtocol.Factory();
     private HikariDataSource hikariDataSource = null;
     private final byte[] hikariDataSourceLock = new byte[0];
-    private TOdbcTableType tableType;
     private JdbcDataSourceConfig config;
     private Connection conn = null;
     protected PreparedStatement preparedStatement = null;
     protected Statement stmt = null;
     protected ResultSet resultSet = null;
     protected ResultSetMetaData resultSetMetaData = null;
-    protected List<String> resultColumnTypeNames = null;
     protected List<Object[]> block = null;
     protected VectorTable outputTable = null;
     protected int batchSizeNum = 0;
@@ -79,7 +75,6 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         } catch (TException e) {
             throw new InternalException(e.getMessage());
         }
-        tableType = request.table_type;
         this.config = new JdbcDataSourceConfig()
                 .setCatalogId(request.catalog_id)
                 .setJdbcUser(request.jdbc_user)
@@ -159,35 +154,31 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         }
     }
 
-    public void testConnection() throws UdfRuntimeException {
+    public void testConnection() throws JdbcExecutorException {
         try {
             resultSet = ((PreparedStatement) stmt).executeQuery();
             if (!resultSet.next()) {
-                throw new UdfRuntimeException(
+                throw new JdbcExecutorException(
                         "Failed to test connection in BE: query executed but returned no results.");
             }
         } catch (SQLException e) {
-            throw new UdfRuntimeException("Failed to test connection in BE: ", e);
+            throw new JdbcExecutorException("Failed to test connection in BE: ", e);
         }
     }
 
-    public int read() throws UdfRuntimeException {
+    public int read() throws JdbcExecutorException {
         try {
             resultSet = ((PreparedStatement) stmt).executeQuery();
             resultSetMetaData = resultSet.getMetaData();
             int columnCount = resultSetMetaData.getColumnCount();
-            resultColumnTypeNames = new ArrayList<>(columnCount);
             block = new ArrayList<>(columnCount);
-            for (int i = 0; i < columnCount; ++i) {
-                resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
-            }
             return columnCount;
         } catch (SQLException e) {
-            throw new UdfRuntimeException("JDBC executor sql has error: ", e);
+            throw new JdbcExecutorException("JDBC executor sql has error: ", e);
         }
     }
 
-    public long getBlockAddress(int batchSize, Map<String, String> outputParams) throws UdfRuntimeException {
+    public long getBlockAddress(int batchSize, Map<String, String> outputParams) throws JdbcExecutorException {
         try {
             if (outputTable != null) {
                 outputTable.close();
@@ -229,7 +220,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             }
         } catch (Exception e) {
             LOG.warn("jdbc get block address exception: ", e);
-            throw new UdfRuntimeException("jdbc get block address: ", e);
+            throw new JdbcExecutorException("jdbc get block address: ", e);
         } finally {
             block.clear();
         }
@@ -243,67 +234,63 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         }
     }
 
-    public int write(Map<String, String> params) throws UdfRuntimeException {
+    public int write(Map<String, String> params) throws JdbcExecutorException {
         VectorTable batchTable = VectorTable.createReadableTable(params);
         // Can't release or close batchTable, it's released by c++
         try {
             insert(batchTable);
         } catch (SQLException e) {
-            throw new UdfRuntimeException("JDBC executor sql has error: ", e);
+            throw new JdbcExecutorException("JDBC executor sql has error: ", e);
         }
         return batchTable.getNumRows();
     }
 
-    public void openTrans() throws UdfRuntimeException {
+    public void openTrans() throws JdbcExecutorException {
         try {
             if (conn != null) {
                 conn.setAutoCommit(false);
             }
         } catch (SQLException e) {
-            throw new UdfRuntimeException("JDBC executor open transaction has error: ", e);
+            throw new JdbcExecutorException("JDBC executor open transaction has error: ", e);
         }
     }
 
-    public void commitTrans() throws UdfRuntimeException {
+    public void commitTrans() throws JdbcExecutorException {
         try {
             if (conn != null) {
                 conn.commit();
             }
         } catch (SQLException e) {
-            throw new UdfRuntimeException("JDBC executor commit transaction has error: ", e);
+            throw new JdbcExecutorException("JDBC executor commit transaction has error: ", e);
         }
     }
 
-    public void rollbackTrans() throws UdfRuntimeException {
+    public void rollbackTrans() throws JdbcExecutorException {
         try {
             if (conn != null) {
                 conn.rollback();
             }
         } catch (SQLException e) {
-            throw new UdfRuntimeException("JDBC executor rollback transaction has error: ", e);
+            throw new JdbcExecutorException("JDBC executor rollback transaction has error: ", e);
         }
-    }
-
-    public List<String> getResultColumnTypeNames() {
-        return resultColumnTypeNames;
     }
 
     public int getCurBlockRows() {
         return curBlockRows;
     }
 
-    public boolean hasNext() throws UdfRuntimeException {
+    public boolean hasNext() throws JdbcExecutorException {
         try {
             if (resultSet == null) {
                 return false;
             }
             return resultSet.next();
         } catch (SQLException e) {
-            throw new UdfRuntimeException("resultSet to get next error: ", e);
+            throw new JdbcExecutorException("resultSet to get next error: ", e);
         }
     }
 
-    private void init(JdbcDataSourceConfig config, String sql) throws UdfRuntimeException {
+    private void init(JdbcDataSourceConfig config, String sql) throws JdbcExecutorException {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         String hikariDataSourceKey = config.createCacheKey();
         try {
@@ -353,13 +340,14 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             initializeStatement(conn, config, sql);
 
         } catch (MalformedURLException e) {
-            throw new UdfRuntimeException("MalformedURLException to load class about " + config.getJdbcDriverUrl(), e);
+            throw new JdbcExecutorException("MalformedURLException to load class about "
+                    + config.getJdbcDriverUrl(), e);
         } catch (SQLException e) {
-            throw new UdfRuntimeException("Initialize datasource failed: ", e);
+            throw new JdbcExecutorException("Initialize datasource failed: ", e);
         } catch (FileNotFoundException e) {
-            throw new UdfRuntimeException("FileNotFoundException failed: ", e);
+            throw new JdbcExecutorException("FileNotFoundException failed: ", e);
         } catch (Exception e) {
-            throw new UdfRuntimeException("Initialize datasource failed: ", e);
+            throw new JdbcExecutorException("Initialize datasource failed: ", e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }

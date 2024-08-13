@@ -60,7 +60,7 @@ public class EliminateGroupBy extends OneRewriteRuleFactory {
                     }
                     Plan child = agg.child();
                     boolean unique = child.getLogicalProperties()
-                            .getFunctionalDependencies()
+                            .getTrait()
                             .isUniqueAndNotNull(groupBySlots.build());
                     if (!unique) {
                         return null;

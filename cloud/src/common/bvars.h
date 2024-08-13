@@ -126,6 +126,9 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_abort_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_current_max_txn_id;
 extern BvarLatencyRecorderWithTag g_bvar_ms_check_txn_conflict;
+extern BvarLatencyRecorderWithTag g_bvar_ms_abort_txn_with_coordinator;
+extern BvarLatencyRecorderWithTag g_bvar_ms_begin_sub_txn;
+extern BvarLatencyRecorderWithTag g_bvar_ms_abort_sub_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_clean_txn_label;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_version;
 extern BvarLatencyRecorderWithTag g_bvar_ms_batch_get_version;
@@ -146,6 +149,7 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_drop_partition;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_tablet_stats;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_obj_store_info;
 extern BvarLatencyRecorderWithTag g_bvar_ms_alter_obj_store_info;
+extern BvarLatencyRecorderWithTag g_bvar_ms_alter_storage_vault;
 extern BvarLatencyRecorderWithTag g_bvar_ms_create_instance;
 extern BvarLatencyRecorderWithTag g_bvar_ms_alter_instance;
 extern BvarLatencyRecorderWithTag g_bvar_ms_alter_cluster;
@@ -171,7 +175,9 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_get_cluster_status;
 extern BvarLatencyRecorderWithTag g_bvar_ms_set_cluster_status;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_instance;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_rl_task_commit_attach;
+extern BvarLatencyRecorderWithTag g_bvar_ms_reset_rl_progress;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_txn_id;
+extern BvarLatencyRecorderWithTag g_bvar_ms_check_kv;
 
 // txn_kv's bvars
 extern bvar::LatencyRecorder g_bvar_txn_kv_get;

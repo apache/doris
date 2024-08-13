@@ -23,7 +23,7 @@
 #include <mutex>
 
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "http/http_channel.h"
 #include "http/http_request.h"
 #include "http/http_status.h"
@@ -96,6 +96,32 @@ void register_suites() {
             auto& [ret_status, should_ret] = *try_any_cast<std::pair<Status, bool>*>(args.back());
             ret_status = Status::InternalError("read hdfs error");
             should_ret = true;
+        });
+    });
+    suite_map.emplace("test_cancel_node_channel", [] {
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("VNodeChannel::try_send_block", [](auto&& args) {
+            LOG(INFO) << "injection VNodeChannel::try_send_block";
+            auto* arg0 = try_any_cast<Status*>(args[0]);
+            *arg0 = Status::InternalError<false>("test_cancel_node_channel injection error");
+        });
+        sp->set_call_back("VOlapTableSink::close",
+                          [](auto&&) { std::this_thread::sleep_for(std::chrono::seconds(5)); });
+    });
+    suite_map.emplace("test_file_segment_cache_corruption", [] {
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("Segment::open:corruption", [](auto&& args) {
+            LOG(INFO) << "injection Segment::open:corruption";
+            auto* arg0 = try_any_cast<Status*>(args[0]);
+            *arg0 = Status::Corruption<false>("test_file_segment_cache_corruption injection error");
+        });
+    });
+    suite_map.emplace("test_file_segment_cache_corruption1", [] {
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("Segment::open:corruption1", [](auto&& args) {
+            LOG(INFO) << "injection Segment::open:corruption1";
+            auto* arg0 = try_any_cast<Status*>(args[0]);
+            *arg0 = Status::Corruption<false>("test_file_segment_cache_corruption injection error");
         });
     });
 }
@@ -203,17 +229,16 @@ void handle_set(HttpRequest* req) {
 }
 
 void handle_clear(HttpRequest* req) {
-    auto& point = req->param("name");
+    const auto& point = req->param("name");
+    auto* sp = SyncPoint::get_instance();
+    LOG(INFO) << "clear injection point : " << (point.empty() ? "(all points)" : point);
     if (point.empty()) {
-        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, "empty point name");
-        return;
-    }
-    auto sp = SyncPoint::get_instance();
-    if (point == "all") {
+        // If point name is emtpy, clear all
         sp->clear_all_call_backs();
         HttpChannel::send_reply(req, HttpStatus::OK, "OK");
         return;
     }
+
     sp->clear_call_back(point);
     HttpChannel::send_reply(req, HttpStatus::OK, "OK");
 }
@@ -234,14 +259,22 @@ void handle_suite(HttpRequest* req) {
     HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, "unknown suite: " + suite);
 }
 
-} // namespace
-
-InjectionPointAction::InjectionPointAction() {
+void handle_enable(HttpRequest* req) {
     SyncPoint::get_instance()->enable_processing();
+    HttpChannel::send_reply(req, HttpStatus::OK, "OK");
 }
 
+void handle_disable(HttpRequest* req) {
+    SyncPoint::get_instance()->disable_processing();
+    HttpChannel::send_reply(req, HttpStatus::OK, "OK");
+}
+
+} // namespace
+
+InjectionPointAction::InjectionPointAction() = default;
+
 void InjectionPointAction::handle(HttpRequest* req) {
-    LOG(INFO) << req->debug_string();
+    LOG(INFO) << "handle InjectionPointAction " << req->debug_string();
     auto& op = req->param("op");
     if (op == "set") {
         handle_set(req);
@@ -252,7 +285,14 @@ void InjectionPointAction::handle(HttpRequest* req) {
     } else if (op == "apply_suite") {
         handle_suite(req);
         return;
+    } else if (op == "enable") {
+        handle_enable(req);
+        return;
+    } else if (op == "disable") {
+        handle_disable(req);
+        return;
     }
+
     HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, "unknown op: " + op);
 }
 

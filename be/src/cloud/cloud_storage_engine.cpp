@@ -38,6 +38,7 @@
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "io/cache/block_file_cache_downloader.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
@@ -48,6 +49,7 @@
 #include "olap/memtable_flush_executor.h"
 #include "olap/storage_policy.h"
 #include "runtime/memory/cache_manager.h"
+#include "util/parse_util.h"
 
 namespace doris {
 
@@ -101,12 +103,13 @@ static Status vault_process_error(std::string_view id,
 }
 
 struct VaultCreateFSVisitor {
-    VaultCreateFSVisitor(const std::string& id) : id(id) {}
+    VaultCreateFSVisitor(const std::string& id, const cloud::StorageVaultPB_PathFormat& path_format)
+            : id(id), path_format(path_format) {}
     Status operator()(const S3Conf& s3_conf) const {
         LOG(INFO) << "get new s3 info: " << s3_conf.to_string() << " resource_id=" << id;
 
         auto fs = DORIS_TRY(io::S3FileSystem::create(s3_conf, id));
-        put_storage_resource(id, {std::move(fs), 0});
+        put_storage_resource(id, {std::move(fs), path_format}, 0);
         LOG_INFO("successfully create s3 vault, vault id {}", id);
         return Status::OK();
     }
@@ -114,20 +117,21 @@ struct VaultCreateFSVisitor {
     // TODO(ByteYue): Make sure enable_java_support is on
     Status operator()(const cloud::HdfsVaultInfo& vault) const {
         auto hdfs_params = io::to_hdfs_params(vault);
-        auto fs =
-                DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id, nullptr,
-                                                     vault.has_prefix() ? vault.prefix() : ""));
-        put_storage_resource(id, {std::move(fs), 0});
+        auto fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id,
+                                                       nullptr, vault.prefix()));
+        put_storage_resource(id, {std::move(fs), path_format}, 0);
         LOG_INFO("successfully create hdfs vault, vault id {}", id);
         return Status::OK();
     }
 
     const std::string& id;
+    const cloud::StorageVaultPB_PathFormat& path_format;
 };
 
 struct RefreshFSVaultVisitor {
-    RefreshFSVaultVisitor(const std::string& id, io::FileSystemSPtr fs)
-            : id(id), fs(std::move(fs)) {}
+    RefreshFSVaultVisitor(const std::string& id, io::FileSystemSPtr fs,
+                          const cloud::StorageVaultPB_PathFormat& path_format)
+            : id(id), fs(std::move(fs)), path_format(path_format) {}
 
     Status operator()(const S3Conf& s3_conf) const {
         DCHECK_EQ(fs->type(), io::FileSystemType::S3) << id;
@@ -146,12 +150,13 @@ struct RefreshFSVaultVisitor {
                 DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id, nullptr,
                                                      vault.has_prefix() ? vault.prefix() : ""));
         auto hdfs = std::static_pointer_cast<io::HdfsFileSystem>(hdfs_fs);
-        put_storage_resource(id, {std::move(hdfs), 0});
+        put_storage_resource(id, {std::move(hdfs), path_format}, 0);
         return Status::OK();
     }
 
     const std::string& id;
     io::FileSystemSPtr fs;
+    const cloud::StorageVaultPB_PathFormat& path_format;
 };
 
 Status CloudStorageEngine::open() {
@@ -166,8 +171,9 @@ Status CloudStorageEngine::open() {
         std::this_thread::sleep_for(5s);
     } while (vault_infos.empty());
 
-    for (auto& [id, vault_info] : vault_infos) {
-        if (auto st = std::visit(VaultCreateFSVisitor {id}, vault_info); !st.ok()) [[unlikely]] {
+    for (auto& [id, vault_info, path_format] : vault_infos) {
+        if (auto st = std::visit(VaultCreateFSVisitor {id, path_format}, vault_info); !st.ok())
+                [[unlikely]] {
             return vault_process_error(id, vault_info, std::move(st));
         }
     }
@@ -176,14 +182,21 @@ Status CloudStorageEngine::open() {
     // TODO(plat1ko): DeleteBitmapTxnManager
 
     _memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
-    // TODO(plat1ko): Use file cache disks number?
-    _memtable_flush_executor->init(1);
+    // Use file cache disks number
+    _memtable_flush_executor->init(io::FileCacheFactory::instance()->get_cache_instance_size());
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor->init();
 
-    _txn_delete_bitmap_cache =
-            std::make_unique<CloudTxnDeleteBitmapCache>(config::delete_bitmap_agg_cache_capacity);
+    // The default cache is set to 100MB, use memory limit to dynamic adjustment
+    bool is_percent = false;
+    int64_t delete_bitmap_agg_cache_cache_limit =
+            ParseUtil::parse_mem_spec(config::delete_bitmap_dynamic_agg_cache_limit,
+                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
+    _txn_delete_bitmap_cache = std::make_unique<CloudTxnDeleteBitmapCache>(
+            delete_bitmap_agg_cache_cache_limit > config::delete_bitmap_agg_cache_capacity
+                    ? delete_bitmap_agg_cache_cache_limit
+                    : config::delete_bitmap_agg_cache_capacity);
     RETURN_IF_ERROR(_txn_delete_bitmap_cache->init());
 
     _file_cache_block_downloader = std::make_unique<io::FileCacheBlockDownloader>(*this);
@@ -191,6 +204,10 @@ Status CloudStorageEngine::open() {
     _cloud_warm_up_manager = std::make_unique<CloudWarmUpManager>(*this);
 
     _tablet_hotspot = std::make_unique<TabletHotspot>();
+
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            init_stream_load_recorder(ExecEnv::GetInstance()->store_paths()[0].path),
+            "init StreamLoadRecorder failed");
 
     return ThreadPoolBuilder("SyncLoadForTabletsThreadPool")
             .set_max_threads(config::sync_load_for_tablets_thread)
@@ -301,8 +318,7 @@ void CloudStorageEngine::_check_file_cache_ttl_block_valid() {
             int64_t ttl_seconds = tablet->tablet_meta()->ttl_seconds();
             if (rowset->newest_write_timestamp() + ttl_seconds <= UnixSeconds()) continue;
             for (int64_t seg_id = 0; seg_id < rowset->num_segments(); seg_id++) {
-                auto seg_path = rowset->segment_file_path(seg_id);
-                auto hash = io::BlockFileCache::hash(io::Path(seg_path).filename().native());
+                auto hash = Segment::file_cache_key(rowset->rowset_id().to_string(), seg_id);
                 auto* file_cache = io::FileCacheFactory::instance()->get_by_path(hash);
                 file_cache->update_ttl_atime(hash);
             }
@@ -323,15 +339,16 @@ void CloudStorageEngine::sync_storage_vault() {
     }
 
     if (vault_infos.empty()) {
-        LOG(WARNING) << "no storage vault info";
+        LOG(WARNING) << "empty storage vault info";
         return;
     }
 
-    for (auto& [id, vault_info] : vault_infos) {
+    for (auto& [id, vault_info, path_format] : vault_infos) {
         auto fs = get_filesystem(id);
         auto st = (fs == nullptr)
-                          ? std::visit(VaultCreateFSVisitor {id}, vault_info)
-                          : std::visit(RefreshFSVaultVisitor {id, std::move(fs)}, vault_info);
+                          ? std::visit(VaultCreateFSVisitor {id, path_format}, vault_info)
+                          : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format},
+                                       vault_info);
         if (!st.ok()) [[unlikely]] {
             LOG(WARNING) << vault_process_error(id, vault_info, std::move(st));
         }

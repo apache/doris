@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
@@ -137,7 +138,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             if (stmtContext != null) {
                 for (Slot key : keys) {
                     if (key instanceof SlotReference) {
-                        ((SlotReference) key).getColumn().ifPresent(stmtContext::addKeyColumn);
+                        stmtContext.addKeySlot((SlotReference) key);
                     }
                 }
             }
@@ -240,6 +241,30 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     @Override
     public Plan visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, PruneContext context) {
         return super.visitLogicalCTEConsumer(cteConsumer, context);
+    }
+
+    @Override
+    public Plan visitLogicalWindow(LogicalWindow<? extends Plan> window, PruneContext context) {
+        boolean pruned = false;
+        boolean reserved = false;
+        ImmutableList.Builder<NamedExpression> reservedWindowExpressions = ImmutableList.builder();
+        for (NamedExpression windowExpression : window.getWindowExpressions()) {
+            if (context.requiredSlots.contains(windowExpression.toSlot())) {
+                reservedWindowExpressions.add(windowExpression);
+                reserved = true;
+            } else {
+                pruned = true;
+            }
+        }
+        if (!pruned) {
+            return pruneChildren(window, context.requiredSlots);
+        }
+        if (!reserved) {
+            return window.child().accept(this, context);
+        }
+        LogicalWindow<? extends Plan> prunedWindow
+                = window.withExpressionsAndChild(reservedWindowExpressions.build(), window.child());
+        return pruneChildren(prunedWindow, context.requiredSlots);
     }
 
     private Plan pruneAggregate(Aggregate<?> agg, PruneContext context) {

@@ -25,7 +25,7 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "olap/olap_common.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
@@ -267,6 +267,10 @@ int32_t CloudTimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
                 total_size = 0;
                 continue;
             }
+            return transient_size;
+        } else if (
+                *compaction_score >=
+                config::compaction_max_rowset_count) { // If the number of rowsets is too large: FDB_ERROR_CODE_TXN_TOO_LARGE
             return transient_size;
         }
     }

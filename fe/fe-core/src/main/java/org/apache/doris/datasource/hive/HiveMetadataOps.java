@@ -32,6 +32,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.info.SimpleTableInfo;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
@@ -60,11 +62,14 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     private static final int MIN_CLIENT_POOL_SIZE = 8;
     private final HMSCachedClient client;
     private final HMSExternalCatalog catalog;
+    private HadoopAuthenticator hadoopAuthenticator;
 
     public HiveMetadataOps(HiveConf hiveConf, JdbcClientConfig jdbcClientConfig, HMSExternalCatalog catalog) {
         this(catalog, createCachedClient(hiveConf,
                 Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size),
                 jdbcClientConfig));
+        hadoopAuthenticator = catalog.getAuthenticator();
+        client.setHadoopAuthenticator(hadoopAuthenticator);
     }
 
     @VisibleForTesting
@@ -81,10 +86,11 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         return catalog;
     }
 
-    public static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize,
-                                                     JdbcClientConfig jdbcClientConfig) {
+    private static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize,
+            JdbcClientConfig jdbcClientConfig) {
         if (hiveConf != null) {
-            return new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize);
+            ThriftHMSCachedClient client = new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize);
+            return client;
         }
         Preconditions.checkNotNull(jdbcClientConfig, "hiveConf and jdbcClientConfig are both null");
         String dbType = JdbcClient.parseDbType(jdbcClientConfig.getJdbcUrl());
@@ -147,7 +153,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void createTable(CreateTableStmt stmt) throws UserException {
+    public boolean createTable(CreateTableStmt stmt) throws UserException {
         String dbName = stmt.getDbName();
         String tblName = stmt.getTableName();
         ExternalDatabase<?> db = catalog.getDbNullable(dbName);
@@ -157,7 +163,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         if (tableExist(dbName, tblName)) {
             if (stmt.isSetIfNotExists()) {
                 LOG.info("create table[{}] which already exists", tblName);
-                return;
+                return true;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tblName);
             }
@@ -225,6 +231,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         } catch (Exception e) {
             throw new UserException(e.getMessage(), e);
         }
+        return false;
     }
 
     @Override
@@ -251,6 +258,22 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
+    public void truncateTable(String dbName, String tblName, List<String> partitions) throws DdlException {
+        ExternalDatabase<?> db = catalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + catalog.getName());
+        }
+        try {
+            client.truncateTable(dbName, tblName, partitions);
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tblName);
+        db.setLastUpdateTime(System.currentTimeMillis());
+        db.setUnInitialized(true);
+    }
+
+    @Override
     public List<String> listTableNames(String dbName) {
         return client.getAllTables(dbName);
     }
@@ -265,30 +288,33 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         return listDatabaseNames().contains(dbName);
     }
 
+    @Override
+    public void close() {
+        client.close();
+    }
+
     public List<String> listDatabaseNames() {
         return client.getAllDatabases();
     }
 
     public void updateTableStatistics(
-            String dbName,
-            String tableName,
+            SimpleTableInfo tableInfo,
             Function<HivePartitionStatistics, HivePartitionStatistics> update) {
-        client.updateTableStatistics(dbName, tableName, update);
+        client.updateTableStatistics(tableInfo.getDbName(), tableInfo.getTbName(), update);
     }
 
     void updatePartitionStatistics(
-            String dbName,
-            String tableName,
+            SimpleTableInfo tableInfo,
             String partitionName,
             Function<HivePartitionStatistics, HivePartitionStatistics> update) {
-        client.updatePartitionStatistics(dbName, tableName, partitionName, update);
+        client.updatePartitionStatistics(tableInfo.getDbName(), tableInfo.getTbName(), partitionName, update);
     }
 
-    public void addPartitions(String dbName, String tableName, List<HivePartitionWithStatistics> partitions) {
-        client.addPartitions(dbName, tableName, partitions);
+    public void addPartitions(SimpleTableInfo tableInfo, List<HivePartitionWithStatistics> partitions) {
+        client.addPartitions(tableInfo.getDbName(), tableInfo.getTbName(), partitions);
     }
 
-    public void dropPartition(String dbName, String tableName, List<String> partitionValues, boolean deleteData) {
-        client.dropPartition(dbName, tableName, partitionValues, deleteData);
+    public void dropPartition(SimpleTableInfo tableInfo, List<String> partitionValues, boolean deleteData) {
+        client.dropPartition(tableInfo.getDbName(), tableInfo.getTbName(), partitionValues, deleteData);
     }
 }

@@ -109,5 +109,4 @@ suite("column_stats") {
             """
         notContains("planed with unknown column statistics")
     }
-    sql "set global enable_auto_analyze=true;"
 }

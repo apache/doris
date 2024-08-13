@@ -19,6 +19,7 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.info.SimpleTableInfo;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.TestHMSCachedClient;
 import org.apache.doris.fs.FileSystem;
@@ -142,9 +143,9 @@ public class HmsCommitTest {
 
         // create table for tbWithoutPartition
         HiveTableMetadata tableMetadata2 = new HiveTableMetadata(
-                    dbName, tbWithoutPartition, Optional.of(dbLocation + tbWithPartition + UUID.randomUUID()),
-                    columns, new ArrayList<>(),
-                    new HashMap<>(), fileFormat, "");
+                dbName, tbWithoutPartition, Optional.of(dbLocation + tbWithPartition + UUID.randomUUID()),
+                columns, new ArrayList<>(),
+                new HashMap<>(), fileFormat, "");
         hmsClient.createTable(tableMetadata2, true);
 
         // context
@@ -178,7 +179,6 @@ public class HmsCommitTest {
         assertNumRows(3, table);
 
         genQueryID();
-        System.out.println(DebugUtil.printId(connectContext.queryId()));
         List<THivePartitionUpdate> pus2 = new ArrayList<>();
         pus2.add(createRandomAppend(null));
         pus2.add(createRandomAppend(null));
@@ -364,22 +364,22 @@ public class HmsCommitTest {
 
     public THivePartitionUpdate createRandomNew(String partition) throws IOException {
         return partition == null ? genOnePartitionUpdate(TUpdateMode.NEW) :
-            genOnePartitionUpdate("c3=" + partition, TUpdateMode.NEW);
+                genOnePartitionUpdate("c3=" + partition, TUpdateMode.NEW);
     }
 
     public THivePartitionUpdate createRandomAppend(String partition) throws IOException {
         return partition == null ? genOnePartitionUpdate(TUpdateMode.APPEND) :
-            genOnePartitionUpdate("c3=" + partition, TUpdateMode.APPEND);
+                genOnePartitionUpdate("c3=" + partition, TUpdateMode.APPEND);
     }
 
     public THivePartitionUpdate createRandomOverwrite(String partition) throws IOException {
         return partition == null ? genOnePartitionUpdate(TUpdateMode.OVERWRITE) :
-            genOnePartitionUpdate("c3=" + partition, TUpdateMode.OVERWRITE);
+                genOnePartitionUpdate("c3=" + partition, TUpdateMode.OVERWRITE);
     }
 
     public void commit(String dbName,
-                       String tableName,
-                       List<THivePartitionUpdate> hivePUs) {
+            String tableName,
+            List<THivePartitionUpdate> hivePUs) {
         HMSTransaction hmsTransaction = new HMSTransaction(hmsOps, fileSystemProvider, fileSystemExecutor);
         hmsTransaction.setHivePartitionUpdates(hivePUs);
         HiveInsertCommandContext ctx = new HiveInsertCommandContext();
@@ -387,7 +387,7 @@ public class HmsCommitTest {
         ctx.setQueryId(queryId);
         ctx.setWritePath(writeLocation + queryId + "/");
         hmsTransaction.beginInsertTable(ctx);
-        hmsTransaction.finishInsertTable(dbName, tableName);
+        hmsTransaction.finishInsertTable(new SimpleTableInfo(dbName, tableName));
         hmsTransaction.commit();
     }
 
@@ -405,11 +405,11 @@ public class HmsCommitTest {
         new MockUp<HMSTransaction>(HMSTransaction.class) {
             @Mock
             private void wrapperAsyncRenameDirWithProfileSummary(Executor executor,
-                                                                 List<CompletableFuture<?>> renameFileFutures,
-                                                                 AtomicBoolean cancelled,
-                                                                 String origFilePath,
-                                                                 String destFilePath,
-                                                                 Runnable runWhenPathNotExist) {
+                    List<CompletableFuture<?>> renameFileFutures,
+                    AtomicBoolean cancelled,
+                    String origFilePath,
+                    String destFilePath,
+                    Runnable runWhenPathNotExist) {
                 runnable.run();
                 throw new RuntimeException("failed to rename dir");
             }

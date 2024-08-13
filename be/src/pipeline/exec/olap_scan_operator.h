@@ -45,8 +45,9 @@ public:
     TOlapScanNode& olap_scan_node() const;
 
     std::string name_suffix() const override {
-        return fmt::format(" (id={}. table name = {})", std::to_string(_parent->node_id()),
-                           olap_scan_node().table_name);
+        return fmt::format(" (id={}. nereids_id={}. table name = {})",
+                           std::to_string(_parent->node_id()),
+                           std::to_string(_parent->nereids_id()), olap_scan_node().table_name);
     }
 
 private:
@@ -62,29 +63,23 @@ private:
                                              vectorized::VExprContext* expr_ctx,
                                              StringRef* constant_str,
                                              doris::FunctionContext** fn_ctx,
-                                             vectorized::VScanNode::PushDownType& pdt) override;
+                                             PushDownType& pdt) override;
 
-    vectorized::VScanNode::PushDownType _should_push_down_bloom_filter() override {
-        return vectorized::VScanNode::PushDownType::ACCEPTABLE;
-    }
+    PushDownType _should_push_down_bloom_filter() override { return PushDownType::ACCEPTABLE; }
 
-    vectorized::VScanNode::PushDownType _should_push_down_bitmap_filter() override {
-        return vectorized::VScanNode::PushDownType::ACCEPTABLE;
-    }
+    PushDownType _should_push_down_bitmap_filter() override { return PushDownType::ACCEPTABLE; }
 
-    vectorized::VScanNode::PushDownType _should_push_down_is_null_predicate() override {
-        return vectorized::VScanNode::PushDownType::ACCEPTABLE;
-    }
+    PushDownType _should_push_down_is_null_predicate() override { return PushDownType::ACCEPTABLE; }
 
-    bool _should_push_down_common_expr() override;
+    bool _should_push_down_common_expr(const vectorized::VExprSPtr& expr) override;
 
     bool _storage_no_merge() override;
 
     bool _push_down_topn(const vectorized::RuntimePredicate& predicate) override {
-        if (!predicate.target_is_slot()) {
+        if (!predicate.target_is_slot(_parent->node_id())) {
             return false;
         }
-        return _is_key_column(predicate.get_col_name()) || _storage_no_merge();
+        return _is_key_column(predicate.get_col_name(_parent->node_id())) || _storage_no_merge();
     }
 
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
@@ -140,6 +135,7 @@ private:
 
     RuntimeProfile::Counter* _block_fetch_timer = nullptr;
     RuntimeProfile::Counter* _delete_bitmap_get_agg_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_timer = nullptr;
     RuntimeProfile::Counter* _block_load_timer = nullptr;
     RuntimeProfile::Counter* _block_load_counter = nullptr;
     // Add more detail seek timer and counter profile
@@ -178,6 +174,7 @@ private:
 
     RuntimeProfile::Counter* _inverted_index_filter_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_filter_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_query_null_bitmap_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_cache_miss_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_timer = nullptr;
@@ -185,6 +182,8 @@ private:
     RuntimeProfile::Counter* _inverted_index_query_bitmap_op_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_open_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_search_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_searcher_cache_hit_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_searcher_cache_miss_counter = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 

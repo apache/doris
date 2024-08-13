@@ -19,12 +19,17 @@
 
 suite("q1.1") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
+    if (isCloudMode()) {
+        return
+    }
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_distribute_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G' 
     sql 'SET enable_pipeline_engine = true'
     sql 'set parallel_pipeline_task_num=8'
+    sql "set enable_parallel_result_sink=false;"
     
 sql 'set be_number_for_test=3'
 sql 'set enable_runtime_filter_prune=false'

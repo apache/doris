@@ -80,7 +80,7 @@ public class PaimonExternalTable extends ExternalTable {
         List<DataField> columns = schema.fields();
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
         for (DataField field : columns) {
-            tmpSchema.add(new Column(field.name(),
+            tmpSchema.add(new Column(field.name().toLowerCase(),
                     paimonTypeToDorisType(field.type()), true, null, true, field.description(), true,
                     field.id()));
         }
@@ -88,6 +88,7 @@ public class PaimonExternalTable extends ExternalTable {
     }
 
     private Type paimonPrimitiveTypeToDorisType(org.apache.paimon.types.DataType dataType) {
+        int tsScale = 3; // default
         switch (dataType.getTypeRoot()) {
             case BOOLEAN:
                 return Type.BOOLEAN;
@@ -114,15 +115,26 @@ public class PaimonExternalTable extends ExternalTable {
             case DATE:
                 return ScalarType.createDateV2Type();
             case TIMESTAMP_WITHOUT_TIME_ZONE:
-            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
-                int scale = 3; // default
                 if (dataType instanceof org.apache.paimon.types.TimestampType) {
-                    scale = ((org.apache.paimon.types.TimestampType) dataType).getPrecision();
-                    if (scale > 6) {
-                        scale = 6;
+                    tsScale = ((org.apache.paimon.types.TimestampType) dataType).getPrecision();
+                    if (tsScale > 6) {
+                        tsScale = 6;
+                    }
+                } else if (dataType instanceof org.apache.paimon.types.LocalZonedTimestampType) {
+                    tsScale = ((org.apache.paimon.types.LocalZonedTimestampType) dataType).getPrecision();
+                    if (tsScale > 6) {
+                        tsScale = 6;
                     }
                 }
-                return ScalarType.createDatetimeV2Type(scale);
+                return ScalarType.createDatetimeV2Type(tsScale);
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                if (dataType instanceof org.apache.paimon.types.LocalZonedTimestampType) {
+                    tsScale = ((org.apache.paimon.types.LocalZonedTimestampType) dataType).getPrecision();
+                    if (tsScale > 6) {
+                        tsScale = 6;
+                    }
+                }
+                return ScalarType.createDatetimeV2Type(tsScale);
             case ARRAY:
                 ArrayType arrayType = (ArrayType) dataType;
                 Type innerType = paimonPrimitiveTypeToDorisType(arrayType.getElementType());
@@ -175,22 +187,17 @@ public class PaimonExternalTable extends ExternalTable {
     @Override
     public long fetchRowCount() {
         makeSureInitialized();
-        try {
-            long rowCount = 0;
-            Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
-            Table paimonTable = schemaCacheValue.map(value -> ((PaimonSchemaCacheValue) value).getPaimonTable())
-                    .orElse(null);
-            if (paimonTable == null) {
-                return -1;
-            }
-            List<Split> splits = paimonTable.newReadBuilder().newScan().plan().splits();
-            for (Split split : splits) {
-                rowCount += split.rowCount();
-            }
-            return rowCount;
-        } catch (Exception e) {
-            LOG.warn("Fail to collect row count for db {} table {}", dbName, name, e);
+        long rowCount = 0;
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+        Table paimonTable = schemaCacheValue.map(value -> ((PaimonSchemaCacheValue) value).getPaimonTable())
+                .orElse(null);
+        if (paimonTable == null) {
+            return -1;
         }
-        return -1;
+        List<Split> splits = paimonTable.newReadBuilder().newScan().plan().splits();
+        for (Split split : splits) {
+            rowCount += split.rowCount();
+        }
+        return rowCount;
     }
 }

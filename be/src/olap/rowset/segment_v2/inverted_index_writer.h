@@ -64,18 +64,17 @@ public:
                                     size_t count) = 0;
 
     virtual Status add_nulls(uint32_t count) = 0;
+    virtual Status add_array_nulls(uint32_t row_id) = 0;
 
     virtual Status finish() = 0;
 
     virtual int64_t size() const = 0;
 
-    virtual int64_t file_size() const = 0;
-
     virtual void close_on_error() = 0;
 
     // check if the column is valid for inverted index, some columns
     // are generated from variant, but not all of them are supported
-    static bool check_column_valid(const TabletColumn& column) {
+    static bool check_support_inverted_index(const TabletColumn& column) {
         // bellow types are not supported in inverted index for extracted columns
         static std::set<FieldType> invalid_types = {
                 FieldType::OLAP_FIELD_TYPE_DOUBLE,
@@ -106,11 +105,9 @@ public:
 
     Status init() {
         for (auto& tmp_file_dir : _tmp_file_dirs) {
-            bool exists = true;
-            RETURN_IF_ERROR(io::global_local_filesystem()->exists(tmp_file_dir, &exists));
-            if (!exists) {
-                RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(tmp_file_dir));
-            }
+            // delete the tmp dir to avoid the tmp files left by last crash
+            RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tmp_file_dir));
+            RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(tmp_file_dir));
         }
         return Status::OK();
     };

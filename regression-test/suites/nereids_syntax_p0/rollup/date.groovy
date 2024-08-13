@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
+
 suite("date", "rollup") {
 
     sql """set enable_nereids_planner=true"""
@@ -43,77 +46,58 @@ suite("date", "rollup") {
 
     int max_try_secs = 120
     sql "CREATE materialized VIEW amt_max1 AS SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id;"
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
+    String res = "NOT_FINISHED"
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return true;
         }
-    }
-    Thread.sleep(2000)
-    max_try_secs = 120
-    sql "CREATE materialized VIEW amt_max2 AS SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id;"
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
-    Thread.sleep(2000)
-    max_try_secs = 120
-    sql "CREATE materialized VIEW amt_max3 AS SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id;"
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
-    Thread.sleep(2000)
-    max_try_secs = 120
-    sql "CREATE materialized VIEW amt_max4 AS SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id;"
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
+        return false;
+    });
+    assertEquals("FINISHED",res)
 
+    sql "CREATE materialized VIEW amt_max2 AS SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id;"
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        res = getJobState(tbName1)
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
+            return true;
+        } 
+        return false;
+    });
+    assertEquals("FINISHED",res)
+
+    sql "CREATE materialized VIEW amt_max3 AS SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id;"
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        res = getJobState(tbName1)
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
+            return true;
+        }
+        return false;
+    });
+    assertEquals("FINISHED",res)
+
+    sql "CREATE materialized VIEW amt_max4 AS SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id;"
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        res = getJobState(tbName1)
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
+            return true;
+        }
+        return false;
+    });
+    assertEquals("FINISHED",res)
 
     sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName1}';"
     sql "insert into ${tbName1} values(1, 1, 1, '2020-05-30', '2020-05-30', '2020-05-30 11:11:11.111111', '2020-05-30 11:11:11.111111', '2020-05-30 11:11:11.111111',100);"
     sql "insert into ${tbName1} values(2, 1, 1, '2020-05-30', '2020-05-30', '2020-04-30 11:11:11.111111', '2020-04-30 11:11:11.111111', '2020-04-30 11:11:11.111111',100);"
     Thread.sleep(2000)
+
+    sql "analyze table ${tbName1} with sync;"
+    sql """set enable_stats=false;"""
+
     explain{
         sql("SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id")
         contains("(amt_max1)")
@@ -130,6 +114,24 @@ suite("date", "rollup") {
         sql("SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id")
         contains("(amt_max4)")
     }
+    sql """set enable_stats=true;"""
+    explain{
+        sql("SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id")
+        contains("(amt_max1)")
+    }
+    explain{
+        sql("SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id")
+        contains("(amt_max2)")
+    }
+    explain{
+        sql("SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id")
+        contains("(amt_max3)")
+    }
+    explain{
+        sql("SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id")
+        contains("(amt_max4)")
+    }
+
     qt_sql """ SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id """
     qt_sql """ SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id """
     qt_sql """ SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id """

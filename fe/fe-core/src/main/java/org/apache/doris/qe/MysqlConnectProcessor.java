@@ -18,15 +18,25 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.ExecuteStmt;
-import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.MysqlColType;
+import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlProto;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.PlaceholderId;
+import org.apache.doris.nereids.trees.plans.commands.ExecuteCommand;
+import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -81,35 +91,12 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         }
     }
 
-    // process COM_EXECUTE, parse binary row data
-    // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_execute.html
-    private void handleExecute() {
-        // debugPacket();
-        packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
-        // parse stmt_id, flags, params
-        int stmtId = packetBuf.getInt();
-        // flag
-        packetBuf.get();
-        // iteration_count always 1,
-        packetBuf.getInt();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("execute prepared statement {}", stmtId);
-        }
-        PrepareStmtContext prepareCtx = ctx.getPreparedStmt(String.valueOf(stmtId));
-        if (prepareCtx == null) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("No such statement in context, stmtId:{}", stmtId);
-            }
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR,
-                    "msg: Not supported such prepared statement");
-            return;
-        }
-        ctx.setStartTime();
-        if (prepareCtx.stmt.getInnerStmt() instanceof QueryStmt) {
+    private void handleExecute(PrepareStmt prepareStmt, long stmtId) {
+        if (prepareStmt.getInnerStmt() instanceof QueryStmt) {
             ctx.getState().setIsQuery(true);
         }
-        prepareCtx.stmt.setIsPrepared();
-        int paramCount = prepareCtx.stmt.getParmCount();
+        prepareStmt.setIsPrepared();
+        int paramCount = prepareStmt.getParmCount();
         LOG.debug("execute prepared statement {}, paramCount {}", stmtId, paramCount);
         // null bitmap
         String stmtStr = "";
@@ -124,7 +111,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                     for (int i = 0; i < paramCount; ++i) {
                         int typeCode = packetBuf.getChar();
                         LOG.debug("code {}", typeCode);
-                        prepareCtx.stmt.placeholders().get(i).setTypeCode(typeCode);
+                        prepareStmt.placeholders().get(i).setTypeCode(typeCode);
                     }
                 }
                 // parse param data
@@ -133,8 +120,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                         realValueExprs.add(new NullLiteral());
                         continue;
                     }
-                    LiteralExpr l = prepareCtx.stmt.placeholders().get(i).createLiteralFromType();
-                    l.setupParamFromBinary(packetBuf);
+                    LiteralExpr l = prepareStmt.placeholders().get(i).createLiteralFromType();
+                    boolean isUnsigned = prepareStmt.placeholders().get(i).isUnsigned();
+                    l.setupParamFromBinary(packetBuf, isUnsigned);
                     realValueExprs.add(l);
                 }
             }
@@ -148,24 +136,131 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             executor = new StmtExecutor(ctx, executeStmt);
             ctx.setExecutor(executor);
             executor.execute();
-            PrepareStmtContext preparedStmtContext = ConnectContext.get().getPreparedStmt(String.valueOf(stmtId));
-            if (preparedStmtContext != null && !(preparedStmtContext.stmt.getInnerStmt() instanceof InsertStmt)) {
-                stmtStr = executeStmt.toSql();
+            //For the `insert into` statements during group commit load via JDBC.
+            //Printing audit logs can severely impact performance.
+            //Therefore, we have introduced a session variable to control whether to print audit logs.
+            //It is recommended to turn off audit logs only during group commit load via JDBC.
+            if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
+                PrepareStmtContext preparedStmtContext = ConnectContext.get().getPreparedStmt(String.valueOf(stmtId));
+                if (preparedStmtContext != null) {
+                    stmtStr = executeStmt.toSql();
+                }
             }
-        } catch (Throwable e)  {
+        } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe doris bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + e.getMessage());
         }
-        if (!stmtStr.isEmpty()) {
-            auditAfterExec(stmtStr, prepareCtx.stmt.getInnerStmt(), null, false);
+        if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
+            auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+        }
+    }
+
+    private void handleExecute(PrepareCommand prepareCommand, long stmtId, PreparedStatementContext prepCtx) {
+        int paramCount = prepareCommand.placeholderCount();
+        LOG.debug("execute prepared statement {}, paramCount {}", stmtId, paramCount);
+        // null bitmap
+        String stmtStr = "";
+        try {
+            StatementContext statementContext = prepCtx.statementContext;
+            if (paramCount > 0) {
+                byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
+                packetBuf.get(nullbitmapData);
+                // new_params_bind_flag
+                if ((int) packetBuf.get() != 0) {
+                    List<Placeholder> typedPlaceholders = new ArrayList<>();
+                    // parse params's types
+                    for (int i = 0; i < paramCount; ++i) {
+                        int typeCode = packetBuf.getChar();
+                        LOG.debug("code {}", typeCode);
+                        // assign type to placeholders
+                        typedPlaceholders.add(
+                                prepareCommand.getPlaceholders().get(i).withNewMysqlColType(typeCode));
+                    }
+                    // rewrite with new prepared statment with type info in placeholders
+                    prepCtx.command = prepareCommand.withPlaceholders(typedPlaceholders);
+                    prepareCommand = (PrepareCommand) prepCtx.command;
+                }
+                // parse param data
+                for (int i = 0; i < paramCount; ++i) {
+                    PlaceholderId exprId = prepareCommand.getPlaceholders().get(i).getPlaceholderId();
+                    if (isNull(nullbitmapData, i)) {
+                        statementContext.getIdToPlaceholderRealExpr().put(exprId,
+                                    new org.apache.doris.nereids.trees.expressions.literal.NullLiteral());
+                        continue;
+                    }
+                    MysqlColType type = prepareCommand.getPlaceholders().get(i).getMysqlColType();
+                    boolean isUnsigned = prepareCommand.getPlaceholders().get(i).isUnsigned();
+                    Literal l = Literal.getLiteralByMysqlType(type, isUnsigned, packetBuf);
+                    statementContext.getIdToPlaceholderRealExpr().put(exprId, l);
+                }
+            }
+            ExecuteCommand executeStmt = new ExecuteCommand(String.valueOf(stmtId), prepareCommand, statementContext);
+            // TODO set real origin statement
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("executeStmt {}", executeStmt);
+            }
+            StatementBase stmt = new LogicalPlanAdapter(executeStmt, statementContext);
+            stmt.setOrigStmt(prepareCommand.getOriginalStmt());
+            executor = new StmtExecutor(ctx, stmt);
+            ctx.setExecutor(executor);
+            executor.execute();
+            if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
+                stmtStr = executeStmt.toSql();
+            }
+        } catch (Throwable e) {
+            // Catch all throwable.
+            // If reach here, maybe doris bug.
+            LOG.warn("Process one query failed because unknown reason: ", e);
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
+                    e.getClass().getSimpleName() + ", msg: " + e.getMessage());
+        }
+        if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
+            auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+        }
+    }
+
+    // process COM_EXECUTE, parse binary row data
+    // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_execute.html
+    private void handleExecute() {
+        if (LOG.isDebugEnabled()) {
+            debugPacket();
+        }
+        packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
+        // parse stmt_id, flags, params
+        int stmtId = packetBuf.getInt();
+        // flag
+        packetBuf.get();
+        // iteration_count always 1,
+        packetBuf.getInt();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("execute prepared statement {}", stmtId);
+        }
+
+        PrepareStmtContext prepareCtx = ctx.getPreparedStmt(String.valueOf(stmtId));
+        ctx.setStartTime();
+        if (prepareCtx != null) {
+            // get from lagacy planner context, to be removed
+            handleExecute((PrepareStmt) prepareCtx.stmt, stmtId);
+        } else {
+            // nererids
+            PreparedStatementContext preparedStatementContext = ctx.getPreparedStementContext(String.valueOf(stmtId));
+            if (preparedStatementContext == null) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("No such statement in context, stmtId:{}", stmtId);
+                }
+                ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR,
+                        "msg: Not supported such prepared statement");
+                return;
+            }
+            handleExecute(preparedStatementContext.command, stmtId, preparedStatementContext);
         }
     }
 
     // Process COM_QUERY statement,
-    private void handleQuery(MysqlCommand mysqlCommand) {
+    private void handleQuery(MysqlCommand mysqlCommand) throws ConnectionException {
         // convert statement to Java string
         byte[] bytes = packetBuf.array();
         int ending = packetBuf.limit() - 1;
@@ -227,7 +322,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         }
     }
 
-    private void handleFieldList() {
+    private void handleFieldList() throws ConnectionException {
         String tableName = new String(MysqlProto.readNulTerminateString(packetBuf), StandardCharsets.UTF_8);
         handleFieldList(tableName);
     }
@@ -236,6 +331,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
     public void processOnce() throws IOException {
         // set status of query to OK.
         ctx.getState().reset();
+        ctx.setGroupCommit(false);
         executor = null;
 
         // reset sequence id of MySQL protocol
@@ -247,6 +343,11 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             if (packetBuf == null) {
                 LOG.warn("Null packet received from network. remote: {}", channel.getRemoteHostPortString());
                 throw new IOException("Error happened when receiving packet.");
+            }
+            if (!packetBuf.hasRemaining()) {
+                LOG.info("No more data to be read. Close connection. remote={}", channel.getRemoteHostPortString());
+                ctx.setKilled();
+                return;
             }
         } catch (AsynchronousCloseException e) {
             // when this happened, timeout checker close this channel

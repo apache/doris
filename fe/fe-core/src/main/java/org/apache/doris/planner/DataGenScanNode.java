@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.DataGenTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionTask;
@@ -57,6 +58,10 @@ public class DataGenScanNode extends ExternalScanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
+    }
+
+    public DataGenTableValuedFunction getTvf() {
+        return tvf;
     }
 
     @Override
@@ -118,6 +123,14 @@ public class DataGenScanNode extends ExternalScanNode {
     // by multi-processes or multi-threads. So we assign instance number to 1.
     @Override
     public int getNumInstances() {
+        if (ConnectContext.get().getSessionVariable().isIgnoreStorageDataDistribution()) {
+            return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+        }
+        return 1;
+    }
+
+    @Override
+    public int getScanRangeNum() {
         return 1;
     }
 

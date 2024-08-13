@@ -24,7 +24,7 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "gen_cpp/cloud.pb.h"
 #include "olap/compaction.h"
 #include "olap/rowset/beta_rowset.h"
@@ -149,7 +149,13 @@ Status CloudFullCompaction::execute_compact() {
 
     using namespace std::chrono;
     auto start = steady_clock::now();
-    RETURN_IF_ERROR(CloudCompactionMixin::execute_compact());
+    auto res = CloudCompactionMixin::execute_compact();
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
+                     << ", tablet=" << _tablet->tablet_id()
+                     << ", output_version=" << _output_version;
+        return res;
+    }
     LOG_INFO("finish CloudFullCompaction, tablet_id={}, cost={}ms", _tablet->tablet_id(),
              duration_cast<milliseconds>(steady_clock::now() - start).count())
             .tag("job_id", _uuid)
@@ -233,7 +239,7 @@ Status CloudFullCompaction::modify_rowsets() {
         // Try to make output rowset visible immediately in tablet cache, instead of waiting for next synchronization from meta-service.
         cloud_tablet()->delete_rowsets(_input_rowsets, wrlock);
         cloud_tablet()->add_rowsets({_output_rowset}, false, wrlock);
-        cloud_tablet()->set_base_compaction_cnt(cloud_tablet()->base_compaction_cnt() + 1);
+        cloud_tablet()->set_base_compaction_cnt(stats.base_compaction_cnt());
         cloud_tablet()->set_cumulative_layer_point(stats.cumulative_point());
         if (output_rowset_delete_bitmap) {
             _tablet->tablet_meta()->delete_bitmap().merge(*output_rowset_delete_bitmap);
@@ -327,6 +333,16 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
     }
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*cloud_tablet(), -1, initiator,
                                                             delete_bitmap.get()));
+    LOG_INFO("update delete bitmap in CloudFullCompaction, tablet_id={}, range=[{}-{}]",
+             _tablet->tablet_id(), _input_rowsets.front()->start_version(),
+             _input_rowsets.back()->end_version())
+            .tag("job_id", _uuid)
+            .tag("initiator", initiator)
+            .tag("input_rowsets", _input_rowsets.size())
+            .tag("input_rows", _input_row_num)
+            .tag("input_segments", _input_segments)
+            .tag("input_data_size", _input_rowsets_size)
+            .tag("update_bitmap_size", delete_bitmap->delete_bitmap.size());
     _tablet->tablet_meta()->delete_bitmap().merge(*delete_bitmap);
     return Status::OK();
 }

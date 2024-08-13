@@ -22,8 +22,8 @@ suite("test_bitmap_filter_nereids") {
     
         CREATE TABLE bitmap_table_nereids (
         `k1` int(11) NULL,
-        `k2` bitmap BITMAP_UNION NULL,
-        `k3` bitmap BITMAP_UNION NULL
+        `k2` bitmap BITMAP_UNION ,
+        `k3` bitmap BITMAP_UNION 
         ) ENGINE=OLAP
         AGGREGATE KEY(`k1`)
         COMMENT 'OLAP'
@@ -92,5 +92,8 @@ suite("test_bitmap_filter_nereids") {
         notContains "RF000[bitmap]"
     }  
     sql "set parallel_pipeline_task_num=6;"
-    qt_sql1 "select k1, k2 from test_query_db.bigtable where k1 in (select k2 from bitmap_table_nereids) order by k1;"
+    qt_sql15 "select k1, k2 from test_query_db.bigtable where k1 in (select k2 from bitmap_table_nereids) order by k1;"
+
+    //mark join
+    qt_sq16 "select k1, k2 from test_query_db.bigtable where k1 in (select k2 from bitmap_table_nereids) or k1=2 order by k1"
 }

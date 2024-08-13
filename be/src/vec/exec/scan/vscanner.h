@@ -45,8 +45,6 @@ class ScanLocalStateBase;
 
 namespace doris::vectorized {
 
-class VScanNode;
-
 // Counter for load
 struct ScannerCounter {
     ScannerCounter() : num_rows_filtered(0), num_rows_unselected(0) {}
@@ -57,7 +55,6 @@ struct ScannerCounter {
 
 class VScanner {
 public:
-    VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, RuntimeProfile* profile);
     VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
              RuntimeProfile* profile);
 
@@ -72,7 +69,8 @@ public:
     }
 
     virtual Status init() { return Status::OK(); }
-
+    // Not virtual, all child will call this method explictly
+    virtual Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
     virtual Status open(RuntimeState* state) { return Status::OK(); }
 
     Status get_block(RuntimeState* state, Block* block, bool* eos);
@@ -101,12 +99,7 @@ protected:
 
     Status _do_projections(vectorized::Block* origin_block, vectorized::Block* output_block);
 
-    // Not virtual, all child will call this method explictly
-    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
-
 public:
-    VScanNode* get_parent() { return _parent; }
-
     int64_t get_time_cost_ns() const { return _per_scanner_timer; }
 
     int64_t projection_time() const { return _projection_timer; }
@@ -132,11 +125,7 @@ public:
 
     int64_t get_scanner_wait_worker_timer() const { return _scanner_wait_worker_timer; }
 
-    void update_scan_cpu_timer() {
-        int64_t cpu_time = _cpu_watch.elapsed_time();
-        _scan_cpu_timer += cpu_time;
-        _query_statistics->add_cpu_nanos(cpu_time);
-    }
+    void update_scan_cpu_timer();
 
     RuntimeState* runtime_state() { return _state; }
 
@@ -175,7 +164,6 @@ protected:
     }
 
     RuntimeState* _state = nullptr;
-    VScanNode* _parent = nullptr;
     pipeline::ScanLocalStateBase* _local_state = nullptr;
     QueryStatistics* _query_statistics = nullptr;
 

@@ -30,26 +30,17 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 public class PushDownFilterThroughProject extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
+        filter = (PhysicalFilter<? extends Plan>) super.visit(filter, context);
         Plan child = filter.child();
         if (!(child instanceof PhysicalProject)) {
-            Plan newChild = child.accept(this, context);
-            if (newChild == child) {
-                return filter;
-            } else {
-                return ((AbstractPhysicalPlan) filter.withChildren(child.accept(this, context)))
-                        .copyStatsAndGroupIdFrom(filter);
-            }
+            return filter;
         }
 
         PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) child;
-        if (project.hasPushedDownToProjectionFunctions()) {
-            // ignore project which is pulled up from LogicalOlapScan
-            return filter;
-        }
         PhysicalFilter<? extends Plan> newFilter = filter.withConjunctsAndChild(
                 ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
                 project.child());
-        return ((PhysicalProject) project.withChildren(newFilter.accept(this, context)))
+        return ((AbstractPhysicalPlan) project.withChildren(newFilter.accept(this, context)))
                 .copyStatsAndGroupIdFrom(project);
     }
 }

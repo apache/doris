@@ -73,22 +73,9 @@ suite("test_is_ip_address_in_range_function") {
     // scalar vs vector
     qt_sql "select id, is_ip_address_in_range('192.168.100.0', cidr) from test_is_ip_address_in_range_function order by id"
 
-    test {
-        sql "SELECT is_ip_address_in_range('::ffff:192.168.0.1', NULL)"
-        // check exception message contains
-        exception "The arguments of function is_ip_address_in_range must be String, not NULL"
-    }
+    qt_sql "SELECT is_ip_address_in_range('::ffff:192.168.0.1', NULL)"
 
-    test {
-        sql "SELECT is_ip_address_in_range(NULL, '::ffff:192.168.0.4/128')"
-        // check exception message contains
-        exception "The arguments of function is_ip_address_in_range must be String, not NULL"
-    }
+    qt_sql "SELECT is_ip_address_in_range(NULL, '::ffff:192.168.0.4/128')"
 
-    test {
-        sql "SELECT is_ip_address_in_range(NULL, NULL)"
-        // check exception message contains
-        exception "The arguments of function is_ip_address_in_range must be String, not NULL"
-    }
-    sql """ DROP TABLE IF EXISTS test_is_ip_address_in_range_function """
+    qt_sql "SELECT is_ip_address_in_range(NULL, NULL)"
 }

@@ -109,7 +109,7 @@ public class InternalSchemaInitializer extends Thread {
             return;
         }
         while (true) {
-            int backendNum = Env.getCurrentSystemInfo().getBackendNumFromDiffHosts(true);
+            int backendNum = Env.getCurrentSystemInfo().getStorageBackendNumFromDiffHosts(true);
             if (FeConstants.runningUnitTest) {
                 backendNum = Env.getCurrentSystemInfo().getAllBackendIds().size();
             }
@@ -169,7 +169,7 @@ public class InternalSchemaInitializer extends Thread {
                     Lists.newArrayList("id", "catalog_id", "db_id", "tbl_id", "idx_id", "col_id", "part_id")));
         Env.getCurrentEnv().getInternalCatalog().createTable(
                 buildStatisticsTblStmt(StatisticConstants.PARTITION_STATISTIC_TBL_NAME,
-                    Lists.newArrayList("catalog_id", "db_id", "tbl_id", "idx_id", "part_id", "col_id")));
+                    Lists.newArrayList("catalog_id", "db_id", "tbl_id", "idx_id", "part_name", "part_id", "col_id")));
         // audit table
         Env.getCurrentEnv().getInternalCatalog().createTable(buildAuditTblStmt());
     }

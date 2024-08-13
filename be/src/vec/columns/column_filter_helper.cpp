@@ -33,11 +33,6 @@ void ColumnFilterHelper::insert_value(doris::vectorized::UInt8 value) {
     _null_map_column.get_data().push_back(0);
 }
 
-void ColumnFilterHelper::insert_null() {
-    _value_column.insert_default();
-    _null_map_column.get_data().push_back(1);
-}
-
 void ColumnFilterHelper::reserve(size_t size) {
     _value_column.reserve(size);
     _null_map_column.reserve(size);

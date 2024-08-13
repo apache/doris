@@ -66,6 +66,10 @@ public class StatisticsJobAppender extends MasterDaemon {
         if (!Env.getCurrentEnv().isMaster()) {
             return;
         }
+        if (!StatisticsUtil.statsTblAvailable()) {
+            LOG.info("Stats table not available, skip");
+            return;
+        }
         if (Env.isCheckpointThread()) {
             return;
         }
@@ -94,7 +98,7 @@ public class StatisticsJobAppender extends MasterDaemon {
                 table = StatisticsUtil.findTable(column.catalogId, column.dbId, column.tblId);
             } catch (Exception e) {
                 LOG.warn("Fail to find table {}.{}.{} for column {}",
-                        column.catalogId, column.dbId, column.tblId, column.colName, e);
+                        column.catalogId, column.dbId, column.tblId, column.colName);
                 continue;
             }
             if (StatisticConstants.SYSTEM_DBS.contains(table.getDatabase().getFullName())) {

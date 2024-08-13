@@ -72,7 +72,7 @@ Status ByteArrayDictDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t 
 }
 
 Status ByteArrayDictDecoder::read_dict_values_to_column(MutableColumnPtr& doris_column) {
-    doris_column->insert_many_strings_overflow(&_dict_items[0], _dict_items.size(),
+    doris_column->insert_many_strings_overflow(_dict_items.data(), _dict_items.size(),
                                                _max_value_length);
     return Status::OK();
 }
@@ -94,7 +94,7 @@ MutableColumnPtr ByteArrayDictDecoder::convert_dict_column_to_string_column(
     for (size_t i = 0; i < dict_column->size(); ++i) {
         dict_values[i] = _dict_items[data[i]];
     }
-    res->insert_many_strings_overflow(&dict_values[0], dict_values.size(), _max_value_length);
+    res->insert_many_strings_overflow(dict_values.data(), dict_values.size(), _max_value_length);
     return res;
 }
 
@@ -115,11 +115,11 @@ Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, Data
     if (doris_column->is_column_dictionary()) {
         ColumnDictI32& dict_column = assert_cast<ColumnDictI32&>(*doris_column);
         if (dict_column.dict_size() == 0) {
-            dict_column.insert_many_dict_data(&_dict_items[0], _dict_items.size());
+            dict_column.insert_many_dict_data(_dict_items.data(), _dict_items.size());
         }
     }
     _indexes.resize(non_null_size);
-    _index_batch_decoder->GetBatch(&_indexes[0], non_null_size);
+    _index_batch_decoder->GetBatch(_indexes.data(), non_null_size);
 
     if (doris_column->is_column_dictionary() || is_dict_filter) {
         return _decode_dict_values<has_filter>(doris_column, select_vector, is_dict_filter);
@@ -136,7 +136,7 @@ Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, Data
             for (size_t i = 0; i < run_length; ++i) {
                 string_values.emplace_back(_dict_items[_indexes[dict_index++]]);
             }
-            doris_column->insert_many_strings_overflow(&string_values[0], run_length,
+            doris_column->insert_many_strings_overflow(string_values.data(), run_length,
                                                        _max_value_length);
             break;
         }

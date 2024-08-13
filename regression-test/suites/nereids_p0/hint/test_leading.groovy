@@ -24,7 +24,12 @@ suite("test_leading") {
     sql 'use test_leading'
 
     // setting planner to nereids
+    sql 'set exec_mem_limit=21G'
+    sql 'set be_number_for_test=1'
+    sql 'set parallel_pipeline_task_num=1'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_distribute_planner=false'
     sql "set ignore_shape_nodes='PhysicalProject'"
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set runtime_filter_mode=OFF'
@@ -999,24 +1004,24 @@ suite("test_leading") {
     qt_select95_1 """explain shape plan select /*+ leading(t1 broadcast t2 t3) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
     explain {
         sql """shape plan select /*+ leading(t1 broadcast {t2 t3}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
-        contains("UnUsed: [broadcast]_2 leading(t1 broadcast { t2 t3 })")
+        contains("UnUsed: leading(t1 broadcast { t2 t3 })")
     }
     explain {
         sql """shape plan select /*+ leading(t1 broadcast {t3 t2}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
-        contains("UnUsed: [broadcast]_2 leading(t1 broadcast { t3 t2 })")
+        contains("UnUsed: leading(t1 broadcast { t3 t2 })")
     }
     qt_select95_4 """explain shape plan select /*+ leading(t2 broadcast t1 t3) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
     explain {
         sql """shape plan select /*+ leading(t2 broadcast {t1 t3}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
-        contains("UnUsed: [broadcast]_2 leading(t2 broadcast { t1 t3 })")
+        contains("UnUsed: leading(t2 broadcast { t1 t3 })")
     }
     explain {
         sql """shape plan select /*+ leading(t2 broadcast {t3 t1}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
-        contains("UnUsed: [broadcast]_2 leading(t2 broadcast { t3 t1 })")
+        contains("UnUsed: leading(t2 broadcast { t3 t1 })")
     }
     explain {
         sql """shape plan select /*+ leading(t3 broadcast t1 t2) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
-        contains("UnUsed:  leading(t3 broadcast t1 t2)")
+        contains("UnUsed: leading(t3 broadcast t1 t2)")
     }
     qt_select95_8 """explain shape plan select /*+ leading(t3 broadcast {t1 t2}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
     qt_select95_9 """explain shape plan select /*+ leading(t3 broadcast {t2 t1}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
@@ -1024,24 +1029,24 @@ suite("test_leading") {
     qt_select96_1 """explain shape plan select /*+ leading(t1 shuffle t2 broadcast t3) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
     explain {
         sql """shape plan select /*+ leading(t1 shuffle {t2 broadcast t3}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
-        contains("UnUsed: [shuffle]_2 [broadcast]_3 leading(t1 shuffle { t2 broadcast t3 })")
+        contains("UnUsed: leading(t1 shuffle { t2 broadcast t3 })")
     }
     explain {
         sql """shape plan select /*+ leading(t1 shuffle {t3 broadcast t2}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
-        contains("UnUsed: [shuffle]_2 [broadcast]_3 leading(t1 shuffle { t3 broadcast t2 })")
+        contains("UnUsed: leading(t1 shuffle { t3 broadcast t2 })")
     }
     qt_select96_4 """explain shape plan select /*+ leading(t2 shuffle t1 broadcast t3) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
     explain {
         sql """shape plan select /*+ leading(t2 shuffle {t1 broadcast t3}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
-        contains("UnUsed: [shuffle]_2  leading(t2 shuffle { t1 broadcast t3 })")
+        contains("UnUsed: leading(t2 shuffle { t1 broadcast t3 })")
     }
     explain {
         sql """shape plan select /*+ leading(t2 shuffle {t3 broadcast t1}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
-        contains("UnUsed: [shuffle]_2  leading(t2 shuffle { t3 broadcast t1 })")
+        contains("UnUsed: leading(t2 shuffle { t3 broadcast t1 })")
     }
     explain {
         sql """shape plan select /*+ leading(t3 shuffle t1 broadcast t2) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
-        contains("UnUsed:  [broadcast]_3 leading(t3 shuffle t1 broadcast t2)")
+        contains("UnUsed: leading(t3 shuffle t1 broadcast t2)")
     }
     qt_select96_8 """explain shape plan select /*+ leading(t3 shuffle {t1 broadcast t2}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
     qt_select96_9 """explain shape plan select /*+ leading(t3 shuffle {t2 broadcast t1}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
@@ -1049,24 +1054,24 @@ suite("test_leading") {
     qt_select97_1 """explain shape plan select /*+ leading(t1 broadcast t2 shuffle t3) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
     explain {
         sql """shape plan select /*+ leading(t1 broadcast {t2 shuffle t3}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
-        contains("UnUsed: [broadcast]_2 [shuffle]_3 leading(t1 broadcast { t2 shuffle t3 })")
+        contains("UnUsed: leading(t1 broadcast { t2 shuffle t3 })")
     }
     explain {
         sql """shape plan select /*+ leading(t1 broadcast {t3 shuffle t2}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
-        contains("UnUsed: [broadcast]_2 [shuffle]_3 leading(t1 broadcast { t3 shuffle t2 })")
+        contains("UnUsed: leading(t1 broadcast { t3 shuffle t2 })")
     }
     qt_select97_4 """explain shape plan select /*+ leading(t2 broadcast t1 shuffle t3) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
     explain {
         sql """shape plan select /*+ leading(t2 broadcast {t1 shuffle t3}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
-        contains("UnUsed: [broadcast]_2  leading(t2 broadcast { t1 shuffle t3 })")
+        contains("UnUsed: leading(t2 broadcast { t1 shuffle t3 })")
     }
     explain {
         sql """shape plan select /*+ leading(t2 broadcast {t3 shuffle t1}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
-        contains("UnUsed: [broadcast]_2  leading(t2 broadcast { t3 shuffle t1 })")
+        contains("UnUsed: leading(t2 broadcast { t3 shuffle t1 })")
     }
     explain {
         sql """shape plan select /*+ leading(t3 broadcast t1 shuffle t2) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
-        contains("UnUsed:  [shuffle]_3 leading(t3 broadcast t1 shuffle t2)")
+        contains("UnUsed: leading(t3 broadcast t1 shuffle t2)")
     }
     qt_select97_8 """explain shape plan select /*+ leading(t3 broadcast {t1 shuffle t2}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
     qt_select97_9 """explain shape plan select /*+ leading(t3 broadcast {t2 shuffle t1}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""

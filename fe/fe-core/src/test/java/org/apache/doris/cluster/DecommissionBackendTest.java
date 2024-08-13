@@ -49,7 +49,6 @@ public class DecommissionBackendTest extends TestWithFeService {
     @Override
     protected void beforeCluster() {
         FeConstants.runningUnitTest = true;
-        needCleanDir = false;
     }
 
     @BeforeAll
@@ -75,7 +74,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         // 1. create connect context
         connectContext = createDefaultCtx();
 
-        ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         Assertions.assertEquals(backendNum(), idToBackendRef.size());
 
         // 2. create database db1
@@ -99,18 +98,18 @@ public class DecommissionBackendTest extends TestWithFeService {
         }
 
         Assertions.assertNotNull(srcBackend);
-        String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
+        String decommissionStmtStr = "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
         AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
 
         Assertions.assertTrue(srcBackend.isDecommissioned());
         long startTimestamp = System.currentTimeMillis();
         while (System.currentTimeMillis() - startTimestamp < 90000
-            && Env.getCurrentSystemInfo().getIdToBackend().containsKey(srcBackend.getId())) {
+            && Env.getCurrentSystemInfo().getAllBackendsByAllCluster().containsKey(srcBackend.getId())) {
             Thread.sleep(1000);
         }
 
-        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
+        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
 
         // For now, we have pre-built internal table: analysis_job and column_statistics
         Assertions.assertEquals(tabletNum,
@@ -118,14 +117,14 @@ public class DecommissionBackendTest extends TestWithFeService {
 
         // 6. add backend
         addNewBackend();
-        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
+        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
     }
 
     @Test
     public void testDecommissionBackendById() throws Exception {
         // 1. create connect context
         connectContext = createDefaultCtx();
-        ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         Assertions.assertEquals(backendNum(), idToBackendRef.size());
 
         // 2. create database db1
@@ -159,15 +158,15 @@ public class DecommissionBackendTest extends TestWithFeService {
         Assertions.assertTrue(srcBackend.isDecommissioned());
         long startTimestamp = System.currentTimeMillis();
         while (System.currentTimeMillis() - startTimestamp < 90000
-                && Env.getCurrentSystemInfo().getIdToBackend().containsKey(srcBackend.getId())) {
+                && Env.getCurrentSystemInfo().getAllBackendsByAllCluster().containsKey(srcBackend.getId())) {
             Thread.sleep(1000);
         }
 
-        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
+        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
 
         // add backend
         addNewBackend();
-        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
+        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
 
     }
 
@@ -178,7 +177,7 @@ public class DecommissionBackendTest extends TestWithFeService {
 
         SystemInfoService infoService = Env.getCurrentSystemInfo();
 
-        ImmutableMap<Long, Backend> idToBackendRef = infoService.getIdToBackend();
+        ImmutableMap<Long, Backend> idToBackendRef = infoService.getAllBackendsByAllCluster();
         Assertions.assertEquals(backendNum(), idToBackendRef.size());
 
         // 2. create database db3
@@ -214,19 +213,19 @@ public class DecommissionBackendTest extends TestWithFeService {
         dropTable("db3.tbl1", false);
 
         // 6. execute decommission
-        String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
+        String decommissionStmtStr = "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
         AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
         Assertions.assertTrue(srcBackend.isDecommissioned());
 
         long startTimestamp = System.currentTimeMillis();
         while (System.currentTimeMillis() - startTimestamp < 90000
-            && Env.getCurrentSystemInfo().getIdToBackend().containsKey(srcBackend.getId())) {
+            && Env.getCurrentSystemInfo().getAllBackendsByAllCluster().containsKey(srcBackend.getId())) {
             Thread.sleep(1000);
         }
 
         // BE has been dropped successfully
-        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
+        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
 
         // tbl1 has been dropped successfully
         final String sql = "show create table db3.tbl1;";
@@ -243,7 +242,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         dropTable("db3.tbl1", false);
 
         addNewBackend();
-        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
+        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
     }
 
     @Test
@@ -251,7 +250,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         // 1. create connect context
         connectContext = createDefaultCtx();
 
-        ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         Assertions.assertEquals(backendNum(), idToBackendRef.size());
 
         // 2. create database db1
@@ -263,8 +262,8 @@ public class DecommissionBackendTest extends TestWithFeService {
                 + " `c1` varchar(20) NULL,\n"
                 + " `c2` bigint(20) NULL,\n"
                 + " `c3` int(20) not NULL,\n"
-                + " `k4` bitmap BITMAP_UNION NULL,\n"
-                + " `k5` bitmap BITMAP_UNION NULL\n"
+                + " `k4` bitmap BITMAP_UNION,\n"
+                + " `k5` bitmap BITMAP_UNION\n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`c1`, `c2`, `c3`)\n"
                 + "COMMENT 'OLAP'\n"
@@ -275,8 +274,8 @@ public class DecommissionBackendTest extends TestWithFeService {
                 + " `c1` bigint(20) NULL,\n"
                 + " `c2` bigint(20) NULL,\n"
                 + " `c3` bigint(20) not NULL,\n"
-                + " `k4` bitmap BITMAP_UNION NULL,\n"
-                + " `k5` bitmap BITMAP_UNION NULL\n"
+                + " `k4` bitmap BITMAP_UNION,\n"
+                + " `k5` bitmap BITMAP_UNION\n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`c1`, `c2`, `c3`)\n"
                 + "COMMENT 'OLAP'\n"
@@ -314,19 +313,18 @@ public class DecommissionBackendTest extends TestWithFeService {
         // 4. query tablet num
         int tabletNum = Env.getCurrentInvertedIndex().getTabletMetaMap().size();
 
-        String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:"
-                + srcBackend.getHeartbeatPort() + "\"";
+        String decommissionStmtStr = "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
         AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
 
         Assertions.assertTrue(srcBackend.isDecommissioned());
         long startTimestamp = System.currentTimeMillis();
         while (System.currentTimeMillis() - startTimestamp < 90000
-            && Env.getCurrentSystemInfo().getIdToBackend().containsKey(srcBackend.getId())) {
+            && Env.getCurrentSystemInfo().getAllBackendsByAllCluster().containsKey(srcBackend.getId())) {
             Thread.sleep(1000);
         }
 
-        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
+        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
 
         // For now, we have pre-built internal table: analysis_job and column_statistics
         Assertions.assertEquals(tabletNum,
@@ -338,6 +336,6 @@ public class DecommissionBackendTest extends TestWithFeService {
 
         // 6. add backend
         addNewBackend();
-        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
+        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
     }
 }

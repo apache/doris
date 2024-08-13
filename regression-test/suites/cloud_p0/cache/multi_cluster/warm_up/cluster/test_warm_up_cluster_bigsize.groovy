@@ -65,7 +65,8 @@ suite("test_warm_up_cluster_bigsize") {
         |"AWS_ACCESS_KEY" = "${getS3AK()}",
         |"AWS_SECRET_KEY" = "${getS3SK()}",
         |"AWS_ENDPOINT" = "${getS3Endpoint()}",
-        |"AWS_REGION" = "${getS3Region()}")
+        |"AWS_REGION" = "${getS3Region()}",
+        |"provider" = "${getS3Provider()}")
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",
         |"load_parallelism" = "3")""".stripMargin()
@@ -75,9 +76,9 @@ suite("test_warm_up_cluster_bigsize") {
     def clearFileCache = { ip, port ->
         httpTest {
             endpoint ""
-            uri ip + ":" + port + """/api/clear_file_cache"""
-            op "post"
-            body "{\"sync\"=\"true\"}"
+            uri ip + ":" + port + """/api/file_cache?op=clear&sync=true"""
+            op "get"
+            body ""
         }
     }
 

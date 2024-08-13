@@ -29,6 +29,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
@@ -109,16 +110,20 @@ public:
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
-    void test_string(std::string testname, Field* field) {
+    void test_string(std::string_view rowset_id, int seg_id, Field* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
-        std::string filename = kTestDir + "/" + testname;
+        std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+                local_segment_path(kTestDir, rowset_id, seg_id))};
+        int index_id = 26033;
+        std::string index_path =
+                InvertedIndexDescriptor::get_index_file_path_v1(index_path_prefix, index_id, "");
         auto fs = io::global_local_filesystem();
 
         io::FileWriterPtr file_writer;
-        EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
+        EXPECT_TRUE(fs->create_file(index_path, &file_writer).ok());
         auto index_meta_pb = std::make_unique<TabletIndexPB>();
         index_meta_pb->set_index_type(IndexType::INVERTED);
-        index_meta_pb->set_index_id(26033);
+        index_meta_pb->set_index_id(index_id);
         index_meta_pb->set_index_name("index_inverted_arr1");
         index_meta_pb->clear_col_unique_id();
         index_meta_pb->add_col_unique_id(0);
@@ -127,7 +132,7 @@ public:
         idx_meta.index_type();
         idx_meta.init_from_pb(*index_meta_pb.get());
         auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, file_writer->path().parent_path(), file_writer->path().filename(),
+                fs, index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V1);
         std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
         EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
@@ -197,12 +202,7 @@ public:
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
         EXPECT_EQ(index_file_writer->close(), Status::OK());
 
-        {
-            std::cout << "dir: " << file_writer->path().parent_path().string() << std::endl;
-            string idx_file_name = file_writer->path().filename().string() + "_26033.idx";
-            std::cout << "file: " << file_writer->path().filename().string() << std::endl;
-            check_terms_stats(file_writer->path().parent_path().string(), idx_file_name);
-        }
+        check_terms_stats(file_writer->path().parent_path(), file_writer->path().filename());
     }
 };
 
@@ -217,7 +217,7 @@ TEST_F(InvertedIndexArrayTest, ArrayString) {
     arraySubColumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     arrayTabletColumn.add_sub_column(arraySubColumn);
     Field* field = FieldFactory::create(arrayTabletColumn);
-    test_string("InvertedIndexArray", field);
+    test_string("rowset_id", 0, field);
     delete field;
 }
 

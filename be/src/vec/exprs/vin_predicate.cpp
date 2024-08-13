@@ -78,6 +78,7 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
 
     VExpr::register_function_context(state, context);
     _prepare_finished = true;
+    _can_fast_execute = can_fast_execute();
     return Status::OK();
 }
 
@@ -116,6 +117,16 @@ Status VInPredicate::execute(VExprContext* context, Block* block, int* result_co
     size_t num_columns_without_result = block->columns();
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
+
+    if (_can_fast_execute) {
+        auto can_fast_execute = fast_execute(*block, arguments, num_columns_without_result,
+                                             block->rows(), _function->get_name());
+        if (can_fast_execute) {
+            *result_column_id = num_columns_without_result;
+            return Status::OK();
+        }
+    }
+
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;

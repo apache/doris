@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
@@ -202,9 +202,9 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
             return UnboundLogicalProperties.INSTANCE;
         } else {
             Supplier<List<Slot>> outputSupplier = Suppliers.memoize(this::computeOutput);
-            Supplier<FunctionalDependencies> fdSupplier = () -> this instanceof LogicalPlan
-                    ? ((LogicalPlan) this).computeFuncDeps()
-                    : FunctionalDependencies.EMPTY_FUNC_DEPS;
+            Supplier<DataTrait> fdSupplier = () -> this instanceof LogicalPlan
+                    ? ((LogicalPlan) this).computeDataTrait()
+                    : DataTrait.EMPTY_TRAIT;
             return new LogicalProperties(outputSupplier, fdSupplier);
         }
     }

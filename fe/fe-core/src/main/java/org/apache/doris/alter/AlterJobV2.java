@@ -196,7 +196,7 @@ public abstract class AlterJobV2 implements Writable {
     }
 
     // /api/debug_point/add/{name}?value=100
-    private void stateWait(final String name) {
+    protected void stateWait(final String name) {
         long waitTimeMs = DebugPointUtil.getDebugParamOrDefault(name, 0);
         if (waitTimeMs > 0) {
             try {

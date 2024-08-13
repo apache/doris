@@ -33,6 +33,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.qe.SessionVariable;
 
@@ -133,6 +134,10 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 tbl.getDatabase();
                 minTimes = 0;
                 result = db;
+
+                tbl.getDlaType();
+                minTimes = 0;
+                result = DLAType.HIVE;
             }
         };
 

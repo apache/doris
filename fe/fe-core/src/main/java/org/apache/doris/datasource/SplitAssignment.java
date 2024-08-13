@@ -18,68 +18,160 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TScanRangeLocations;
 
-import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * When file splits are supplied in batch mode, splits are generated lazily and assigned in each call of `getNextBatch`.
  * `SplitGenerator` provides the file splits, and `FederationBackendPolicy` assigns these splits to backends.
  */
 public class SplitAssignment {
-    // magic number to estimate how many splits are allocated to BE in each batch
-    private static final int NUM_SPLITS_PER_BE = 1024;
-    // magic number to estimate how many splits are generated of each partition in each batch.
-    private static final int NUM_SPLITS_PER_PARTITION = 10;
-
+    private final Set<Long> sources = new HashSet<>();
     private final FederationBackendPolicy backendPolicy;
     private final SplitGenerator splitGenerator;
-    // Store the current assignment of file splits
-    private final Multimap<Backend, Split> assignment;
-    private final int maxBatchSize;
+    private final ConcurrentHashMap<Backend, BlockingQueue<Collection<TScanRangeLocations>>> assignment
+            = new ConcurrentHashMap<>();
+    private final SplitToScanRange splitToScanRange;
+    private final Map<String, String> locationProperties;
+    private final List<String> pathPartitionKeys;
+    private final Object assignLock = new Object();
+    private Split sampleSplit = null;
+    private final AtomicBoolean isStop = new AtomicBoolean(false);
+    private final AtomicBoolean scheduleFinished = new AtomicBoolean(false);
 
-    public SplitAssignment(FederationBackendPolicy backendPolicy, SplitGenerator splitGenerator) {
+    private UserException exception = null;
+
+    public SplitAssignment(
+            FederationBackendPolicy backendPolicy,
+            SplitGenerator splitGenerator,
+            SplitToScanRange splitToScanRange,
+            Map<String, String> locationProperties,
+            List<String> pathPartitionKeys) {
         this.backendPolicy = backendPolicy;
         this.splitGenerator = splitGenerator;
-        this.assignment = ArrayListMultimap.create();
-        int numPartitions = ConnectContext.get().getSessionVariable().getNumPartitionsInBatchMode();
-        maxBatchSize = Math.min(NUM_SPLITS_PER_PARTITION * numPartitions,
-                NUM_SPLITS_PER_BE * backendPolicy.numBackends());
+        this.splitToScanRange = splitToScanRange;
+        this.locationProperties = locationProperties;
+        this.pathPartitionKeys = pathPartitionKeys;
     }
 
     public void init() throws UserException {
-        if (assignment.isEmpty() && splitGenerator.hasNext()) {
-            assignment.putAll(backendPolicy.computeScanRangeAssignment(splitGenerator.getNextBatch(maxBatchSize)));
+        splitGenerator.startSplit();
+        synchronized (assignLock) {
+            while (sampleSplit == null && waitFirstSplit()) {
+                try {
+                    assignLock.wait(100);
+                } catch (InterruptedException e) {
+                    throw new UserException(e.getMessage(), e);
+                }
+            }
+        }
+        if (exception != null) {
+            throw exception;
         }
     }
 
-    public Multimap<Backend, Split> getCurrentAssignment() {
-        return assignment;
+    private boolean waitFirstSplit() {
+        return !scheduleFinished.get() && !isStop.get() && exception == null;
     }
 
-    public int numApproximateSplits() {
-        return splitGenerator.numApproximateSplits();
-    }
-
-    public synchronized Collection<Split> getNextBatch(Backend backend) throws UserException {
-        // Each call should consume all splits
-        Collection<Split> splits = assignment.removeAll(backend);
-        while (splits.isEmpty()) {
-            // Get the next batch of splits, and assign to backends
-            // If there is data skewing, it maybe causes splits to accumulate on some BE
-            if (!splitGenerator.hasNext()) {
-                return splits;
+    private void appendBatch(Multimap<Backend, Split> batch) throws UserException {
+        for (Backend backend : batch.keySet()) {
+            Collection<Split> splits = batch.get(backend);
+            List<TScanRangeLocations> locations = new ArrayList<>(splits.size());
+            for (Split split : splits) {
+                locations.add(splitToScanRange.getScanRange(backend, locationProperties, split, pathPartitionKeys));
             }
-            // todo: In each batch, it's to find the optimal assignment for partial splits,
-            //  how to solve the global data skew?
-            assignment.putAll(backendPolicy.computeScanRangeAssignment(splitGenerator.getNextBatch(maxBatchSize)));
-            splits = assignment.removeAll(backend);
+            if (!assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>()).offer(locations)) {
+                throw new UserException("Failed to offer batch split");
+            }
+        }
+    }
+
+    public void registerSource(long uniqueId) {
+        sources.add(uniqueId);
+    }
+
+    public Set<Long> getSources() {
+        return sources;
+    }
+
+    public Split getSampleSplit() {
+        return sampleSplit;
+    }
+
+    public void addToQueue(List<Split> splits) {
+        if (splits.isEmpty()) {
+            return;
+        }
+        Multimap<Backend, Split> batch = null;
+        synchronized (assignLock) {
+            if (sampleSplit == null) {
+                sampleSplit = splits.get(0);
+                assignLock.notify();
+            }
+            try {
+                batch = backendPolicy.computeScanRangeAssignment(splits);
+            } catch (UserException e) {
+                exception = e;
+            }
+        }
+        if (batch != null) {
+            try {
+                appendBatch(batch);
+            } catch (UserException e) {
+                exception = e;
+            }
+        }
+    }
+
+    private void notifyAssignment() {
+        synchronized (assignLock) {
+            assignLock.notify();
+        }
+    }
+
+    public BlockingQueue<Collection<TScanRangeLocations>> getAssignedSplits(Backend backend) throws UserException {
+        if (exception != null) {
+            throw exception;
+        }
+        BlockingQueue<Collection<TScanRangeLocations>> splits = assignment.computeIfAbsent(backend,
+                be -> new LinkedBlockingQueue<>());
+        if (scheduleFinished.get() && splits.isEmpty() || isStop.get()) {
+            return null;
         }
         return splits;
+    }
+
+    public void setException(UserException e) {
+        exception = e;
+        notifyAssignment();
+    }
+
+    public void finishSchedule() {
+        scheduleFinished.set(true);
+        notifyAssignment();
+    }
+
+    public void stop() {
+        isStop.set(true);
+        notifyAssignment();
+    }
+
+    public boolean isStop() {
+        return isStop.get();
     }
 }

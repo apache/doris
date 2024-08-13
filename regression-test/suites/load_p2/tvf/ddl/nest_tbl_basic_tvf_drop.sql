@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS nest_tbl_basic_tvf

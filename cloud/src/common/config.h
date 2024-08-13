@@ -62,6 +62,8 @@ CONF_Strings(recycle_whitelist, ""); // Comma seprated list
 CONF_Strings(recycle_blacklist, ""); // Comma seprated list
 CONF_mInt32(instance_recycler_worker_pool_size, "1");
 CONF_Bool(enable_checker, "false");
+// The parallelism for parallel recycle operation
+CONF_Int32(recycle_pool_parallelism, "10");
 // Currently only used for recycler test
 CONF_Bool(enable_inverted_check, "false");
 // interval for scanning instances to do checks and inspections
@@ -72,14 +74,15 @@ CONF_mInt32(check_object_interval_seconds, "43200"); // 12hours
 CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
 CONF_mInt64(recycle_task_threshold_seconds, "10800");    // 3h
 
-CONF_String(test_s3_ak, "ak");
-CONF_String(test_s3_sk, "sk");
-CONF_String(test_s3_endpoint, "endpoint");
-CONF_String(test_s3_region, "region");
-CONF_String(test_s3_bucket, "bucket");
+CONF_String(test_s3_ak, "");
+CONF_String(test_s3_sk, "");
+CONF_String(test_s3_endpoint, "");
+CONF_String(test_s3_region, "");
+CONF_String(test_s3_bucket, "");
+CONF_String(test_s3_prefix, "");
 
-CONF_String(test_hdfs_prefix, "prefix");
-CONF_String(test_hdfs_fs_name, "fs_name");
+CONF_String(test_hdfs_prefix, "");
+CONF_String(test_hdfs_fs_name, "");
 // CONF_Int64(a, "1073741824");
 // CONF_Bool(b, "true");
 
@@ -186,5 +189,16 @@ CONF_mBool(enable_distinguish_hdfs_path, "true");
 // e.g. 10.10.10.0/24;192.168.0.1/24
 // If no IP match this rule, a random IP is used (usually it is the IP binded to hostname).
 CONF_String(priority_networks, "");
+
+CONF_Bool(enable_cluster_name_check, "false");
+
+// http scheme in S3Client to use. E.g. http or https
+CONF_String(s3_client_http_scheme, "http");
+CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
+    return config == "http" || config == "https";
+});
+
+// Max retry times for object storage request
+CONF_mInt64(max_s3_client_retry, "10");
 
 } // namespace doris::cloud::config

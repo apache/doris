@@ -65,6 +65,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collection;
@@ -522,9 +523,7 @@ public class ExpressionUtils {
         ImmutableList<Literal> literals =
                 ImmutableList.of(new NullLiteral(BooleanType.INSTANCE), BooleanLiteral.FALSE);
         List<MarkJoinSlotReference> markJoinSlotReferenceList =
-                ((Set<MarkJoinSlotReference>) predicate
-                        .collect(MarkJoinSlotReference.class::isInstance)).stream()
-                                .collect(Collectors.toList());
+                new ArrayList<>((predicate.collect(MarkJoinSlotReference.class::isInstance)));
         int markSlotSize = markJoinSlotReferenceList.size();
         int maxMarkSlotCount = 4;
         // if the conjunct has mark slot, and maximum 4 mark slots(for performance)
@@ -698,6 +697,15 @@ public class ExpressionUtils {
             set.addAll(expr.collectToList(predicate));
         }
         return set.build();
+    }
+
+    public static <E> List<E> collectToList(Collection<? extends Expression> expressions,
+            Predicate<TreeNode<Expression>> predicate) {
+        ImmutableList.Builder<E> list = ImmutableList.builder();
+        for (Expression expr : expressions) {
+            list.addAll(expr.collectToList(predicate));
+        }
+        return list.build();
     }
 
     /**

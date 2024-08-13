@@ -17,9 +17,18 @@
 
 #include "runtime/record_batch_queue.h"
 
+#include "pipeline/dependency.h"
 #include "util/spinlock.h"
 
 namespace doris {
+
+bool RecordBatchQueue::blocking_get(std::shared_ptr<arrow::RecordBatch>* result) {
+    auto res = _queue.blocking_get(result);
+    if (_dep && size() <= 10) {
+        _dep->set_ready();
+    }
+    return res;
+}
 
 void RecordBatchQueue::update_status(const Status& status) {
     if (status.ok()) {

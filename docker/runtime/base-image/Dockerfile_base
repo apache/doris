@@ -32,7 +32,7 @@ RUN sed -i -e 's/^APT/# APT/' -e 's/^DPkg/# DPkg/' /etc/apt/apt.conf.d/docker-cl
     curl wget less vim htop iproute2 numactl jq iotop sysstat \
     tcpdump iputils-ping dnsutils strace lsof blktrace tzdata \
     bpfcc-tools linux-headers-realtime linux-tools-realtime silversearcher-ag \
-    net-tools && apt-get clean && rm -rf /var/lib/apt/lists/* && mkdir -p /usr/lib/jvm/ && \
+    net-tools ca-certificates openssl && apt-get clean && rm -rf /var/lib/apt/lists/* && mkdir -p /usr/lib/jvm/ && \
     if echo $TARGETARCH | grep 'arm64' >>/dev/null ; then \
         wget -c http://selectdb-doris-1308700295.cos.ap-beijing.myqcloud.com/toolkit/jdk/bisheng-jdk-17.0.10-linux-aarch64.tar.gz  -O - | tar -xz -C /usr/lib/jvm/ && mv /usr/lib/jvm/bisheng-jdk-17.0.10/ /usr/lib/jvm/jdk-17 && \
         wget -c http://selectdb-doris-1308700295.cos.ap-beijing.myqcloud.com/toolkit/jdk/bisheng-jdk-8u352-linux-aarch64.tar.gz  -O - | tar -xz -C /usr/lib/jvm/ && mv /usr/lib/jvm/bisheng-jdk1.8.0_352/ /usr/lib/jvm/jdk-8; \

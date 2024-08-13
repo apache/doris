@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property.constants;
 
-import org.apache.doris.datasource.credentials.CloudCredential;
+import org.apache.doris.common.credentials.CloudCredential;
 
 import com.amazonaws.glue.catalog.util.AWSGlueConfig;
 

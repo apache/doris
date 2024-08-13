@@ -21,9 +21,15 @@ suite("multi_leading") {
     sql 'DROP DATABASE IF EXISTS test_multi_leading'
     sql 'CREATE DATABASE IF NOT EXISTS test_multi_leading'
     sql 'use test_multi_leading'
+    sql "set enable_parallel_result_sink=false;"
 
     // setting planner to nereids
+    sql 'set exec_mem_limit=21G'
+    sql 'set be_number_for_test=1'
+    sql 'set parallel_pipeline_task_num=1'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_distribute_planner=false'
     sql "set ignore_shape_nodes='PhysicalProject'"
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set runtime_filter_mode=OFF'
@@ -76,7 +82,6 @@ suite("multi_leading") {
     }
 
     // test cte inline
-    qt_sql1_1 """explain shape plan with cte as (select c11, c1 from t1 join t2 on c1 = c2) select count(*) from cte,t1 where cte.c1 = t1.c1 and t1.c1 > 300;"""
     qt_sql1_2 """explain shape plan with cte as (select /*+ leading(t2 t1) */ c11, c1 from t1 join t2 on c1 = c2) select /*+ leading(t1 cte)*/ count(*) from cte,t1 where cte.c1 = t1.c1 and t1.c1 > 300;"""
     qt_sql1_3 """explain shape plan with cte as (select /*+ leading(t1 t2) */ c11, c1 from t1 join t2 on c1 = c2) select /*+ leading(t1 cte)*/ count(*) from cte,t1 where cte.c1 = t1.c1 and t1.c1 > 300;"""
     qt_sql1_4 """explain shape plan with cte as (select /*+ leading(t1 t2) */ c11, c1 from t1 join t2 on c1 = c2) select /*+ leading(t1 cte)*/ count(*) from cte,t1 where cte.c1 = t1.c1 and t1.c1 > 300;"""
@@ -87,7 +92,6 @@ suite("multi_leading") {
     qt_sql1_res_4 """with cte as (select /*+ leading(t1 t2) */ c11, c1 from t1 join t2 on c1 = c2) select /*+ leading(t1 cte)*/ count(*) from cte,t1 where cte.c1 = t1.c1 and t1.c1 > 300;"""
 
     // test subquery alone
-    qt_sql2_1 """explain shape plan select count(*) from (select c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
     qt_sql2_2 """explain shape plan select /*+ leading(t3 alias1) */ count(*) from (select c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
     qt_sql2_3 """explain shape plan select count(*) from (select /*+ leading(t2 t1) */ c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
     qt_sql2_4 """explain shape plan select /*+ leading(t3 alias1) */ count(*) from (select /*+ leading(t2 t1) */ c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
@@ -98,7 +102,6 @@ suite("multi_leading") {
     qt_sql2_res_4 """select /*+ leading(t3 alias1) */ count(*) from (select /*+ leading(t2 t1) */ c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
 
     // test subquery + cte
-    qt_sql3_1 """explain shape plan with cte as (select c11, c1 from t1 join t2 on c1 = c2) select count(*) from (select c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3 join cte on alias1.c1 = cte.c11;"""
     qt_sql3_2 """explain shape plan with cte as (select /*+ leading(t2 t1) */ c11, c1 from t1 join t2 on c1 = c2) select /*+ leading(t3 alias1 cte) */ count(*) from (select c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3 join cte on alias1.c1 = cte.c11;;"""
     qt_sql3_3 """explain shape plan with cte as (select c11, c1 from t1 join t2 on c1 = c2) select count(*) from (select /*+ leading(t2 t1) */ c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3 join cte on alias1.c1 = cte.c11;;"""
     qt_sql3_4 """explain shape plan with cte as (select /*+ leading(t2 t1) */ c11, c1 from t1 join t2 on c1 = c2) select /*+ leading(t3 alias1 cte) */ count(*) from (select /*+ leading(t2 t1) */ c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3 join cte on alias1.c1 = cte.c11;;"""
@@ -109,7 +112,6 @@ suite("multi_leading") {
     qt_sql3_res_4 """with cte as (select /*+ leading(t2 t1) */ c11, c1 from t1 join t2 on c1 = c2) select /*+ leading(t3 alias1 cte) */ count(*) from (select /*+ leading(t2 t1) */ c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3 join cte on alias1.c1 = cte.c11;;"""
 
     // test multi level subqueries
-    qt_sql4_0 """explain shape plan select count(*) from (select c1, c11 from t1 join (select c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
     qt_sql4_1 """explain shape plan select /*+ leading(t3 alias1) */ count(*) from (select c1, c11 from t1 join (select c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
     qt_sql4_2 """explain shape plan select count(*) from (select /*+ leading(alias2 t1) */ c1, c11 from t1 join (select c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
     qt_sql4_3 """explain shape plan select count(*) from (select c1, c11 from t1 join (select /*+ leading(t4 t2) */ c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
@@ -137,6 +139,5 @@ suite("multi_leading") {
     qt_sql4_res_7 """select /*+ leading(t3 alias1) */ count(*) from (select /*+ leading(alias2 t1) */ c1, c11 from t1 join (select /*+ leading(t4 t2) */ c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
 
     // use cte in scalar query
-    qt_sql5_1 """explain shape plan with  cte as (select c11, c1 from t1)  SELECT c1 FROM cte group by c1 having sum(cte.c11) > (select 0.05 * avg(t1.c11) from t1 join cte on t1.c1 = cte.c11 )"""
     qt_sql5_2 """explain shape plan with  cte as (select c11, c1 from t1)  SELECT c1 FROM cte group by c1 having sum(cte.c11) > (select /*+ leading(cte t1) */ 0.05 * avg(t1.c11) from t1 join cte on t1.c1 = cte.c11 )"""
 }

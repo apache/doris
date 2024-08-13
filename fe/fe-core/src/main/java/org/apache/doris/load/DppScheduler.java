@@ -206,9 +206,10 @@ public class DppScheduler {
         List<String> hadoopRunCmdList = Util.shellSplit(hadoopRunCmd);
         String[] hadoopRunCmds = hadoopRunCmdList.toArray(new String[0]);
         BufferedReader errorReader = null;
+        Process p = null;
         long startTime = System.currentTimeMillis();
         try {
-            Process p = Runtime.getRuntime().exec(hadoopRunCmds);
+            p = Runtime.getRuntime().exec(hadoopRunCmds);
             errorReader = new BufferedReader(new InputStreamReader(p.getErrorStream()));
             for (int i = 0; i < 1000; i++) {
                 outputLine = errorReader.readLine();
@@ -226,7 +227,6 @@ public class DppScheduler {
                 if (outputLine.indexOf("Running job") != -1) {
                     String[] arr = outputLine.split(":");
                     etlJobId = arr[arr.length - 1].trim();
-                    p.destroy();
                     break;
                 }
             }
@@ -239,6 +239,9 @@ public class DppScheduler {
             Util.deleteDirectory(configDir);
             long endTime = System.currentTimeMillis();
             LOG.info("finished submit hadoop job: {}. cost: {} ms", jobId, endTime - startTime);
+            if (p != null) {
+                p.destroy();
+            }
             if (errorReader != null) {
                 try {
                     errorReader.close();

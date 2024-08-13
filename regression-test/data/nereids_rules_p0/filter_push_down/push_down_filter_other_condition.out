@@ -241,5 +241,5 @@ PhysicalResultSink
 ------PhysicalOlapScan[t1]
 ----PhysicalLimit[GLOBAL]
 ------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[t2]
+--------PhysicalStorageLayerAggregate[t2]
 

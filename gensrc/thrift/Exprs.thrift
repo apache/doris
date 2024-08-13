@@ -159,6 +159,8 @@ struct TMatchPredicate {
   1: required string parser_type;
   2: required string parser_mode;
   3: optional map<string, string> char_filter_map;
+  4: optional bool parser_lowercase = true;
+  5: optional string parser_stopwords = "";
 }
 
 struct TLiteralPredicate {
@@ -253,7 +255,7 @@ struct TExprNode {
   26: optional Types.TFunction fn
   // If set, child[vararg_start_idx] is the first vararg child.
   27: optional i32 vararg_start_idx
-  28: optional Types.TPrimitiveType child_type
+  28: optional Types.TPrimitiveType child_type // Deprecated
 
   // For vectorized engine
   29: optional bool is_nullable

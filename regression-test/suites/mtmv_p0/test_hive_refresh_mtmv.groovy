@@ -95,7 +95,7 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
         assertTrue(showPartitionsResult.toString().contains("p_2020"))
 
         sql """
-                REFRESH MATERIALIZED VIEW ${mvName} complete
+                REFRESH MATERIALIZED VIEW ${mvName} auto
             """
         def jobName = getJobName(dbName, mvName);
         waitingMTMVTaskFinished(jobName)
@@ -108,7 +108,7 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
                 REFRESH catalog ${catalog_name}
             """
         sql """
-            REFRESH MATERIALIZED VIEW ${mvName} complete
+            REFRESH MATERIALIZED VIEW ${mvName} auto
         """
         waitingMTMVTaskFinished(jobName)
         order_qt_mtmv_2 "SELECT * FROM ${mvName} order by user_id"
@@ -124,7 +124,7 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
                 REFRESH catalog ${catalog_name}
             """
         sql """
-            REFRESH MATERIALIZED VIEW ${mvName} complete
+            REFRESH MATERIALIZED VIEW ${mvName} auto
         """
         waitingMTMVTaskFinished(jobName)
         showPartitionsResult = sql """show partitions from ${mvName}"""
@@ -143,7 +143,7 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
                 REFRESH catalog ${catalog_name}
             """
             sql """
-                REFRESH MATERIALIZED VIEW ${mvName} complete
+                REFRESH MATERIALIZED VIEW ${mvName} auto
             """
             waitingMTMVTaskFinished(jobName)
             showPartitionsResult = sql """show partitions from ${mvName}"""

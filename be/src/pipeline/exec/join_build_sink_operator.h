@@ -28,7 +28,9 @@ class JoinBuildSinkLocalState : public PipelineXSinkLocalState<SharedStateType> 
 public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
-    const std::vector<IRuntimeFilter*>& runtime_filters() const { return _runtime_filters; }
+    const std::vector<std::shared_ptr<IRuntimeFilter>>& runtime_filters() const {
+        return _runtime_filters;
+    }
 
 protected:
     JoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -41,7 +43,7 @@ protected:
     RuntimeProfile::Counter* _publish_runtime_filter_timer = nullptr;
     RuntimeProfile::Counter* _runtime_filter_compute_timer = nullptr;
     RuntimeProfile::Counter* _runtime_filter_init_timer = nullptr;
-    std::vector<IRuntimeFilter*> _runtime_filters;
+    std::vector<std::shared_ptr<IRuntimeFilter>> _runtime_filters;
 };
 
 template <typename LocalStateType>
@@ -57,7 +59,7 @@ protected:
     friend class JoinBuildSinkLocalState;
 
     const TJoinOp::type _join_op;
-    vectorized::JoinOpVariants _join_op_variants;
+    JoinOpVariants _join_op_variants;
 
     const bool _have_other_join_conjunct;
     const bool _match_all_probe; // output all rows coming from the probe input. Full/Left Join

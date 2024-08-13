@@ -21,10 +21,10 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
-#include <stdint.h>
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <ctime>
 #include <map>
 #include <memory>
@@ -75,6 +75,8 @@ class SnapshotManager;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
+using CumuCompactionPolicyTable =
+        std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>;
 
 class StorageEngine;
 class CloudStorageEngine;
@@ -131,6 +133,14 @@ public:
 
     int64_t memory_limitation_bytes_per_thread_for_schema_change() const;
 
+    int get_disk_num() { return _disk_num; }
+
+    Status init_stream_load_recorder(const std::string& stream_load_record_path);
+
+    const std::shared_ptr<StreamLoadRecorder>& get_stream_load_recorder() {
+        return _stream_load_recorder;
+    }
+
 protected:
     void _evict_querying_rowset();
     void _evict_quring_rowset_thread_callback();
@@ -153,6 +163,48 @@ protected:
     scoped_refptr<Thread> _evict_quering_rowset_thread;
 
     int64_t _memory_limitation_bytes_for_schema_change;
+
+    int _disk_num {-1};
+
+    std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
+};
+
+class CompactionSubmitRegistry {
+    using TabletSet = std::unordered_set<TabletSharedPtr>;
+    using Registry = std::map<DataDir*, TabletSet>;
+
+public:
+    CompactionSubmitRegistry() = default;
+    CompactionSubmitRegistry(CompactionSubmitRegistry&& r);
+
+    // create a snapshot for current registry, operations to the snapshot can be lock-free.
+    CompactionSubmitRegistry create_snapshot();
+
+    void reset(const std::vector<DataDir*>& stores);
+
+    uint32_t count_executing_compaction(DataDir* dir, CompactionType compaction_type);
+    uint32_t count_executing_cumu_and_base(DataDir* dir);
+
+    bool has_compaction_task(DataDir* dir, CompactionType compaction_type);
+
+    bool insert(TabletSharedPtr tablet, CompactionType compaction_type);
+
+    void remove(TabletSharedPtr tablet, CompactionType compaction_type,
+                std::function<void()> wakeup_cb);
+
+    void jsonfy_compaction_status(std::string* result);
+
+    std::vector<TabletSharedPtr> pick_topn_tablets_for_compaction(
+            TabletManager* tablet_mgr, DataDir* data_dir, CompactionType compaction_type,
+            const CumuCompactionPolicyTable& cumu_compaction_policies, uint32_t* disk_max_score);
+
+private:
+    TabletSet& _get_tablet_set(DataDir* dir, CompactionType compaction_type);
+
+    std::mutex _tablet_submitted_compaction_mutex;
+    Registry _tablet_submitted_cumu_compaction;
+    Registry _tablet_submitted_base_compaction;
+    Registry _tablet_submitted_full_compaction;
 };
 
 class StorageEngine final : public BaseStorageEngine {
@@ -246,13 +298,10 @@ public:
         return _stream_load_recorder;
     }
 
-    Status get_compaction_status_json(std::string* result);
-
-    // check cumulative compaction config
-    void check_cumulative_compaction_config();
+    void get_compaction_status_json(std::string* result);
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                  bool force);
+                                  bool force, bool eager = true);
     Status submit_seg_compaction_task(std::shared_ptr<SegcompactionWorker> worker,
                                       SegCompactionCandidatesSharedPtr segments);
 
@@ -299,6 +348,8 @@ private:
 
     void _clean_unused_pending_publish_info();
 
+    void _clean_unused_partial_update_info();
+
     Status _do_sweep(const std::string& scan_root, const time_t& local_tm_now,
                      const int32_t expire);
 
@@ -311,9 +362,6 @@ private:
 
     // delete tablet with io error process function
     void _disk_stat_monitor_thread_callback();
-
-    // clean file descriptors cache
-    void _cache_clean_callback();
 
     // path gc process function
     void _path_gc_thread_callback(DataDir* data_dir);
@@ -340,12 +388,8 @@ private:
                                                             bool check_score);
     void _update_cumulative_compaction_policy();
 
-    bool _push_tablet_into_submitted_compaction(TabletSharedPtr tablet,
-                                                CompactionType compaction_type);
     void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet,
                                                CompactionType compaction_type);
-
-    Status _init_stream_load_recorder(const std::string& stream_load_record_path);
 
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
                                    bool force);
@@ -445,11 +489,7 @@ private:
 
     CompactionPermitLimiter _permit_limiter;
 
-    std::mutex _tablet_submitted_compaction_mutex;
-    // a tablet can do base and cumulative compaction at same time
-    std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_cumu_compaction;
-    std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_base_compaction;
-    std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_full_compaction;
+    CompactionSubmitRegistry _compaction_submit_registry;
 
     std::mutex _low_priority_task_nums_mutex;
     std::unordered_map<DataDir*, int32_t> _low_priority_task_nums;
@@ -464,11 +504,8 @@ private:
     std::mutex _compaction_producer_sleep_mutex;
     std::condition_variable _compaction_producer_sleep_cv;
 
-    std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
-
     // we use unordered_map to store all cumulative compaction policy sharded ptr
-    std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>
-            _cumulative_compaction_policies;
+    CumuCompactionPolicyTable _cumulative_compaction_policies;
 
     scoped_refptr<Thread> _cooldown_tasks_producer_thread;
     scoped_refptr<Thread> _remove_unused_remote_files_thread;
@@ -490,9 +527,6 @@ private:
     scoped_refptr<Thread> _async_publish_thread;
     std::shared_mutex _async_publish_lock;
 
-    bool _clear_segment_cache = false;
-    bool _clear_page_cache = false;
-
     std::atomic<bool> _need_clean_trash {false};
 
     // next index for create tablet
@@ -506,7 +540,7 @@ private:
 // lru cache for create tabelt round robin in disks
 // key: partitionId_medium
 // value: index
-class CreateTabletIdxCache : public LRUCachePolicy {
+class CreateTabletIdxCache : public LRUCachePolicyTrackingManual {
 public:
     // get key, delimiter with DELIMITER '-'
     static std::string get_key(int64_t partition_id, TStorageMedium::type medium) {
@@ -520,15 +554,13 @@ public:
 
     class CacheValue : public LRUCacheValueBase {
     public:
-        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE) {}
-
         int idx = 0;
     };
 
     CreateTabletIdxCache(size_t capacity)
-            : LRUCachePolicy(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE, capacity,
-                             LRUCacheType::NUMBER,
-                             /*stale_sweep_time_s*/ 30 * 60) {}
+            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE,
+                                           capacity, LRUCacheType::NUMBER,
+                                           /*stale_sweep_time_s*/ 30 * 60) {}
 };
 
 struct DirInfo {

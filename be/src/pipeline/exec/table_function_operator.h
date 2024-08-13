@@ -21,7 +21,7 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "vec/exec/vtable_function_node.h"
+#include "vec/exprs/table_function/table_function.h"
 
 namespace doris {
 class RuntimeState;

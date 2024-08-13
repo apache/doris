@@ -23,6 +23,7 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
+#include <boost/algorithm/string/split.hpp>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 #include <stack>
@@ -598,6 +599,71 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
     auto column = ColumnConst::create(_constant_col->column_ptr, block->rows());
     block->insert({std::move(column), _data_type, expr_name});
     return Status::OK();
+}
+
+bool VExpr::fast_execute(Block& block, const ColumnNumbers& arguments, size_t result,
+                         size_t input_rows_count, const std::string& function_name) {
+    std::string result_column_name = gen_predicate_result_sign(block, arguments, function_name);
+    if (!block.has(result_column_name)) {
+        DBUG_EXECUTE_IF("segment_iterator.fast_execute", {
+            auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
+                    "segment_iterator._read_columns_by_index", "column_name", "");
+
+            std::vector<std::string> column_names;
+            boost::split(column_names, debug_col_name, boost::algorithm::is_any_of(","));
+
+            std::string column_name = block.get_by_position(arguments[0]).name;
+            auto it = std::find(column_names.begin(), column_names.end(), column_name);
+            if (it == column_names.end()) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>("fast_execute failed: {}",
+                                                                result_column_name);
+            }
+        })
+        return false;
+    }
+
+    auto result_column =
+            block.get_by_name(result_column_name).column->convert_to_full_column_if_const();
+    auto& result_info = block.get_by_position(result);
+    if (result_info.type->is_nullable()) {
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(result_column),
+                                                         ColumnUInt8::create(input_rows_count, 0)));
+    } else {
+        block.replace_by_position(result, std::move(result_column));
+    }
+
+    return true;
+}
+
+std::string VExpr::gen_predicate_result_sign(Block& block, const ColumnNumbers& arguments,
+                                             const std::string& function_name) const {
+    std::string pred_result_sign;
+    if (this->node_type() == TExprNodeType::FUNCTION_CALL) {
+        pred_result_sign =
+                BeConsts::BLOCK_TEMP_COLUMN_PREFIX + std::to_string(this->index_unique_id());
+    } else {
+        std::string column_name = block.get_by_position(arguments[0]).name;
+        pred_result_sign +=
+                BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_" + function_name + "_";
+        if (function_name == "in" || function_name == "not_in") {
+            // Generating 'result_sign' from 'inlist' requires sorting the values.
+            std::set<std::string> values;
+            for (size_t i = 1; i < arguments.size(); i++) {
+                const auto& entry = block.get_by_position(arguments[i]);
+                values.insert(entry.type->to_string(*entry.column, 0));
+            }
+            pred_result_sign += boost::join(values, ",");
+        } else {
+            const auto& entry = block.get_by_position(arguments[1]);
+            pred_result_sign += entry.type->to_string(*entry.column, 0);
+        }
+    }
+    return pred_result_sign;
+}
+
+bool VExpr::equals(const VExpr& other) {
+    return false;
 }
 
 } // namespace doris::vectorized

@@ -20,7 +20,6 @@ package org.apache.doris.qe;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.proto.InternalService;
@@ -30,8 +29,6 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.task.StreamLoadTask;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
-import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -70,53 +67,34 @@ public class InsertStreamTxnExecutor {
         // StreamLoadTask's id == request's load_id
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
         StreamLoadPlanner planner = new StreamLoadPlanner((Database) txnEntry.getDb(), table, streamLoadTask);
-        boolean enablePipelineLoad = Config.enable_pipeline_load;
+        boolean isMowTable = ((OlapTable) txnEntry.getTable()).getEnableUniqueKeyMergeOnWrite();
         TPipelineFragmentParamsList pipelineParamsList = new TPipelineFragmentParamsList();
-        TExecPlanFragmentParamsList paramsList = new TExecPlanFragmentParamsList();
         if (!table.tryReadLock(1, TimeUnit.MINUTES)) {
             throw new UserException("get table read lock timeout, database=" + table.getDatabase().getId() + ",table="
                     + table.getName());
         }
         try {
             // Will using load id as query id in fragment
-            if (enablePipelineLoad) {
-                TPipelineFragmentParams tRequest = planner.planForPipeline(streamLoadTask.getId());
-                tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
-                for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.local_params.get(0)
-                        .per_node_scan_ranges.entrySet()) {
-                    for (TScanRangeParams scanRangeParams : entry.getValue()) {
-                        scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(
-                                TFileFormatType.FORMAT_PROTO);
-                        scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setCompressType(
-                                TFileCompressType.PLAIN);
-                    }
+            TPipelineFragmentParams tRequest = planner.plan(streamLoadTask.getId());
+            tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
+            tRequest.setIsMowTable(isMowTable);
+            for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.local_params.get(0).per_node_scan_ranges
+                    .entrySet()) {
+                for (TScanRangeParams scanRangeParams : entry.getValue()) {
+                    scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(
+                            TFileFormatType.FORMAT_PROTO);
+                    scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setCompressType(
+                            TFileCompressType.PLAIN);
                 }
-                txnConf.setFragmentInstanceId(tRequest.local_params.get(0).fragment_instance_id);
-                this.loadId = request.getLoadId();
-                this.txnEntry.setpLoadId(Types.PUniqueId.newBuilder()
-                        .setHi(loadId.getHi())
-                        .setLo(loadId.getLo()).build());
-
-                pipelineParamsList.addToParamsList(tRequest);
-            } else {
-                TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
-                tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
-                for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.params.per_node_scan_ranges
-                        .entrySet()) {
-                    for (TScanRangeParams scanRangeParams : entry.getValue()) {
-                        scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(
-                                TFileFormatType.FORMAT_PROTO);
-                        scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setCompressType(
-                                TFileCompressType.PLAIN);
-                    }
-                }
-                txnConf.setFragmentInstanceId(tRequest.params.fragment_instance_id);
-                this.loadId = request.getLoadId();
-                this.txnEntry.setpLoadId(Types.PUniqueId.newBuilder()
-                        .setHi(loadId.getHi())
-                        .setLo(loadId.getLo()).build());
-                paramsList.addToParamsList(tRequest);
             }
+            txnConf.setFragmentInstanceId(tRequest.local_params.get(0).fragment_instance_id);
+            this.loadId = request.getLoadId();
+            this.txnEntry.setpLoadId(Types.PUniqueId.newBuilder()
+                    .setHi(loadId.getHi())
+                    .setLo(loadId.getLo()).build());
+
+            pipelineParamsList.addToParamsList(tRequest);
+
             TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(table.getDatabase().getId(), streamLoadTask.getTxnId());
             if (transactionState != null) {
@@ -132,17 +110,13 @@ public class InsertStreamTxnExecutor {
             throw new UserException("No available backend to match the policy: " + policy);
         }
 
-        Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(beIds.get(0));
+        Backend backend = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().get(beIds.get(0));
         txnConf.setUserIp(backend.getHost());
         txnEntry.setBackend(backend);
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
             Future<InternalService.PExecPlanFragmentResult> future;
-            if (enablePipelineLoad) {
-                future = BackendServiceProxy.getInstance().execPlanFragmentsAsync(address, pipelineParamsList, false);
-            } else {
-                future = BackendServiceProxy.getInstance().execPlanFragmentsAsync(address, paramsList, false);
-            }
+            future = BackendServiceProxy.getInstance().execPlanFragmentsAsync(address, pipelineParamsList, false);
             InternalService.PExecPlanFragmentResult result = future.get(5, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {

@@ -22,6 +22,7 @@ import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Sets;
 import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -39,7 +40,9 @@ import java.util.Set;
  * The job checks the privilege by auth info.
  */
 public class AuthorizationInfo implements Writable {
+    @SerializedName(value = "dn")
     private String dbName;
+    @SerializedName(value = "tn")
     private Set<String> tableNameList;
 
     // only for persist

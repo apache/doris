@@ -106,7 +106,8 @@ Status SchemaWorkloadSchedulePolicyScanner::_get_workload_schedule_policy_block_
     return Status::OK();
 }
 
-Status SchemaWorkloadSchedulePolicyScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaWorkloadSchedulePolicyScanner::get_next_block_internal(vectorized::Block* block,
+                                                                    bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -127,7 +128,7 @@ Status SchemaWorkloadSchedulePolicyScanner::get_next_block(vectorized::Block* bl
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
     vectorized::MutableBlock mblock = vectorized::MutableBlock::build_mutable_block(block);
-    mblock.add_rows(_block.get(), _row_idx, current_batch_rows);
+    RETURN_IF_ERROR(mblock.add_rows(_block.get(), _row_idx, current_batch_rows));
     _row_idx += current_batch_rows;
 
     *eos = _row_idx == _total_rows;

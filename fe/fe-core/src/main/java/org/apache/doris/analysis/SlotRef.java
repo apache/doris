@@ -271,7 +271,7 @@ public class SlotRef extends Expr {
             // virtual slot of an alias function
             // when we try to translate an alias function to Nereids style, the desc in the place holding slotRef
             // is null, and we just need the name of col.
-            return col;
+            return "`" + col + "`";
         } else if (desc.getSourceExprs() != null) {
             if (!disableTableName && (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId())) {
                 if (desc.getId().asInt() != 1) {
@@ -679,6 +679,11 @@ public class SlotRef extends Expr {
 
     @Override
     public void replaceSlot(TupleDescriptor tuple) {
+        // do not analyze slot after replaceSlot to avoid duplicate columns in desc
         desc = tuple.getColumnSlot(col);
+        type = desc.getType();
+        if (!isAnalyzed) {
+            analysisDone();
+        }
     }
 }

@@ -112,16 +112,10 @@ public class CreateStageStmt extends DdlStmt {
             remote.headObject("1");
             remote.listObjects(null);
         } catch (Exception e) {
-            LOG.warn("Failed check object storage info={}", stageProperties.getObjectStoreInfoPB(), e);
-            String message = e.getMessage();
-            if (message != null) {
-                int index = message.indexOf("Error message=");
-                if (index != -1) {
-                    message = message.substring(index);
-                }
-            }
+            LOG.warn("Failed to access object storage, proto={}, err={}",
+                    stageProperties.getObjectStoreInfoPB(), e.toString());
             throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
-                    "Incorrect object storage info, " + message);
+                    "Failed to access object storage", e);
         } finally {
             if (remote != null) {
                 remote.close();

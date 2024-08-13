@@ -111,7 +111,7 @@ jobs:
             echo "changed_p1=false" | tee -a "$GITHUB_OUTPUT"
           fi
           if file_changed_performance; then
-            echo "changed_performance=false" | tee -a "$GITHUB_OUTPUT"
+            echo "changed_performance=true" | tee -a "$GITHUB_OUTPUT"
           else
             echo "changed_performance=false" | tee -a "$GITHUB_OUTPUT"
           fi
@@ -149,7 +149,9 @@ jobs:
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set -x
         if [[ "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'master'" ||
-              "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'branch-2.0'" ]]; then
+              "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'branch-2.0'" ||
+              "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'branch-3.0'"  ||
+              "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'branch-2.1'" ]]; then
           trigger_or_skip_build \
             "${{ steps.changes.outputs.changed_fe_ut }}" \
             "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -157,7 +159,13 @@ jobs:
             "feut" \
             "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
         else
-          echo "PR target branch is not in (master, branch-2.0), skip run feut"
+          echo "PR target branch is not in (master, branch-2.0, branch-2.1, branch-3.0), skip run feut"
+          trigger_or_skip_build \
+            "false" \
+            "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
+            "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
+            "feut" \
+            "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
         fi
 
 
@@ -167,7 +175,9 @@ jobs:
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set -x
         if [[ "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'master'" ||
-              "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'branch-2.0'" ]]; then
+              "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'branch-2.0'" ||
+              "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'branch-3.0'" ||
+              "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'branch-2.1'" ]]; then
           trigger_or_skip_build \
             "${{ steps.changes.outputs.changed_be_ut }}" \
             "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -175,7 +185,13 @@ jobs:
             "beut" \
             "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
         else
-          echo "PR target branch is not in (master, branch-2.0), skip run beut"
+          echo "PR target branch is not in (master, branch-2.0, branch-2.1, branch-3.0), skip run beut"
+          trigger_or_skip_build \
+            "false" \
+            "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
+            "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
+            "beut" \
+            "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
         fi
 
     - name: "Trigger or Skip cloudut"
@@ -183,7 +199,8 @@ jobs:
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set -x
-        if [[ "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'master'" ]]; then
+        if [[ "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'master'" ||
+              "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'branch-3.0'" ]]; then
           trigger_or_skip_build \
             "${{ steps.changes.outputs.changed_cloud_ut }}" \
             "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -191,7 +208,7 @@ jobs:
             "cloudut" \
             "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
         else
-          echo "PR target branch is not master, skip run cloudut"
+          echo "PR target branch is not in (master, branch-3.0), skip run cloudut"
         fi
 
     - name: "Trigger or Skip compile"
@@ -265,8 +282,9 @@ jobs:
           echo "COMMENT_TRIGGER_TYPE is buildall, trigger compile is enough, compile will trigger cloud_p0" && exit
         fi
         set -x
-        if [[ "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'master'" ]]; then
-          echo "PR target branch in (master), need run cloud_p0"
+        if [[ "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'master'" ||
+              "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'branch-3.0'" ]]; then
+          echo "PR target branch is in (master, branch-3.0), need run cloud_p0"
           trigger_or_skip_build \
             "${{ steps.changes.outputs.changed_cloud_p0 }}" \
             "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -274,7 +292,7 @@ jobs:
             "cloud_p0" \
             "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
         else
-          echo "PR target branch not in (master), skip run cloud_p0"
+          echo "PR target branch is not in (master, branch-3.0), skip run cloud_p0"
           trigger_or_skip_build \
             "false" \
             "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -291,8 +309,9 @@ jobs:
           echo "COMMENT_TRIGGER_TYPE is buildall, trigger compile is enough, compile will trigger cloud_p1" && exit
         fi
         set -x
-        if [[ "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'master'" ]]; then
-          echo "PR target branch in (master), need run cloud_p1"
+        if [[ "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'master'" ||
+              "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'branch-3.0'" ]]; then
+          echo "PR target branch is in (master, branch-3.0), need run cloud_p1"
           trigger_or_skip_build \
             "${{ steps.changes.outputs.changed_cloud_p1 }}" \
             "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -300,7 +319,7 @@ jobs:
             "cloud_p1" \
             "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
         else
-          echo "PR target branch not in (master), skip run cloud_p1"
+          echo "PR target branch is not in (master, branch-3.0), skip run cloud_p1"
           trigger_or_skip_build \
             "false" \
             "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -327,8 +346,9 @@ jobs:
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set -x
         if [[ "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'master'" ||
+              "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'branch-3.0'" ||
               "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'branch-2.0'" ]]; then
-          echo "PR target branch in (master, branch-2.0), need run performance"
+          echo "PR target branch is in (master, branch-2.0, branch-3.0), need run performance"
           trigger_or_skip_build \
             "${{ steps.changes.outputs.changed_performance }}" \
             "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -336,7 +356,7 @@ jobs:
             "performance" \
             "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
         else
-          echo "PR target branch not in (master, branch-2.0), skip run performance"
+          echo "PR target branch is not in (master, branch-2.0, branch-3.0), skip run performance"
           trigger_or_skip_build \
             "false" \
             "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \

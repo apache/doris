@@ -428,10 +428,11 @@ public interface TableIf {
      * Doris table type.
      */
     enum TableType {
-        MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE, ICEBERG, @Deprecated HUDI, JDBC,
+        MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE,
+        @Deprecated ICEBERG, @Deprecated HUDI, JDBC,
         TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
         ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, PAIMON_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE,
-        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE;
+        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE;
 
         public String toEngineName() {
             switch (this) {
@@ -489,7 +490,6 @@ public interface TableIf {
                     return "SYSTEM VIEW";
                 case INLINE_VIEW:
                 case VIEW:
-                case MATERIALIZED_VIEW:
                     return "VIEW";
                 case OLAP:
                 case MYSQL:
@@ -505,6 +505,7 @@ public interface TableIf {
                 case ES_EXTERNAL_TABLE:
                 case ICEBERG_EXTERNAL_TABLE:
                 case PAIMON_EXTERNAL_TABLE:
+                case MATERIALIZED_VIEW:
                     return "BASE TABLE";
                 default:
                     return null;
@@ -538,10 +539,6 @@ public interface TableIf {
 
     default boolean isManagedTable() {
         return getType() == TableType.OLAP || getType() == TableType.MATERIALIZED_VIEW;
-    }
-
-    default long getLastUpdateTime() {
-        return -1L;
     }
 
     default long getDataSize(boolean singleReplica) {

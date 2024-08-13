@@ -42,6 +42,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaWorkloadGroupsScanner::_s_tbls_colu
         {"SPILL_THRESHOLD_LOW_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
         {"SPILL_THRESHOLD_HIGH_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
         {"TAG", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"READ_BYTES_PER_SECOND", TYPE_BIGINT, sizeof(int64_t), true},
+        {"REMOTE_READ_BYTES_PER_SECOND", TYPE_BIGINT, sizeof(int64_t), true},
 };
 
 SchemaWorkloadGroupsScanner::SchemaWorkloadGroupsScanner()
@@ -114,7 +116,7 @@ Status SchemaWorkloadGroupsScanner::_get_workload_groups_block_from_fe() {
     return Status::OK();
 }
 
-Status SchemaWorkloadGroupsScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaWorkloadGroupsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -135,7 +137,7 @@ Status SchemaWorkloadGroupsScanner::get_next_block(vectorized::Block* block, boo
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
     vectorized::MutableBlock mblock = vectorized::MutableBlock::build_mutable_block(block);
-    mblock.add_rows(_workload_groups_block.get(), _row_idx, current_batch_rows);
+    RETURN_IF_ERROR(mblock.add_rows(_workload_groups_block.get(), _row_idx, current_batch_rows));
     _row_idx += current_batch_rows;
 
     *eos = _row_idx == _total_rows;

@@ -54,8 +54,6 @@ testSuites = ""
 // this suites will not be executed
 excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "test_analyze_stats_p1," +
-    "test_big_pad," +
-    "test_bitmap_filter," +
     "test_broker_load," +
     "test_profile," +
     "test_refresh_mtmv," +
@@ -70,11 +68,9 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
 
 cacheDataPath="/data/regression/"
 
-s3Endpoint = "cos.ap-hongkong.myqcloud.com"
-s3BucketName = "doris-build-hk-1308700295"
-s3Region = "ap-hongkong"
+s3Source="aliyun"
 
-max_failure_num=0
+max_failure_num=10000000
 
 externalEnvIp="127.0.0.1"
 

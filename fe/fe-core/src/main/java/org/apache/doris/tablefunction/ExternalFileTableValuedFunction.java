@@ -26,12 +26,14 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
@@ -40,6 +42,7 @@ import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.InternalService;
@@ -68,6 +71,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -124,6 +128,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected String filePath;
 
     protected TFileFormatType fileFormatType;
+
+    protected Optional<String> resourceName = Optional.empty();
+
     private TFileCompressType compressionType;
     private String headerType = "";
 
@@ -174,9 +181,19 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     //The keys in properties map need to be lowercase.
     protected Map<String, String> parseCommonProperties(Map<String, String> properties) throws AnalysisException {
+        Map<String, String> mergedProperties = Maps.newHashMap();
+        if (properties.containsKey("resource")) {
+            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(properties.get("resource"));
+            if (resource == null) {
+                throw new AnalysisException("Can not find resource: " + properties.get("resource"));
+            }
+            this.resourceName = Optional.of(properties.get("resource"));
+            mergedProperties = resource.getCopiedProperties();
+        }
+        mergedProperties.putAll(properties);
         // Copy the properties, because we will remove the key from properties.
         Map<String, String> copiedProps = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        copiedProps.putAll(properties);
+        copiedProps.putAll(mergedProperties);
 
         String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
         String defaultColumnSeparator = FileFormatConstants.DEFAULT_COLUMN_SEPARATOR;
@@ -380,9 +397,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     protected Backend getBackend() {
         // For the http stream task, we should obtain the be for processing the task
+        ImmutableMap<Long, Backend> beIdToBe;
+        try {
+            beIdToBe = Env.getCurrentSystemInfo().getBackendsByCurrentCluster();
+        } catch (AnalysisException e) {
+            LOG.warn("get backend failed, ", e);
+            return null;
+        }
+
         if (getTFileType() == TFileType.FILE_STREAM) {
             long backendId = ConnectContext.get().getBackendId();
-            Backend be = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
+            Backend be = beIdToBe.get(backendId);
             if (be == null || !be.isAlive()) {
                 LOG.warn("Backend {} is not alive", backendId);
                 return null;
@@ -390,7 +415,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 return be;
             }
         }
-        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+        for (Backend be : beIdToBe.values()) {
             if (be.isAlive()) {
                 return be;
             }
@@ -455,7 +480,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // HACK(tsy): path columns are all treated as STRING type now, after BE supports reading all columns
         //  types by all format readers from file meta, maybe reading path columns types from BE then.
         for (String colName : pathPartitionKeys) {
-            columns.add(new Column(colName, Type.STRING, false));
+            columns.add(new Column(colName, ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH), false));
         }
     }
 
@@ -484,7 +509,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // get first file, used to parse table schema
         TBrokerFileStatus firstFile = null;
         for (TBrokerFileStatus fileStatus : fileStatuses) {
-            if (fileStatus.isIsDir() || fileStatus.size == 0) {
+            if (isFileContentEmpty(fileStatus)) {
                 continue;
             }
             firstFile = fileStatus;
@@ -515,6 +540,55 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRange.setParams(fileScanRangeParams);
         return InternalService.PFetchTableSchemaRequest.newBuilder()
                 .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
+    }
+
+    private boolean isFileContentEmpty(TBrokerFileStatus fileStatus) {
+        if (fileStatus.isIsDir() || fileStatus.size == 0) {
+            return true;
+        }
+        if (Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON) {
+            int magicNumberBytes = 0;
+            switch (compressionType) {
+                case GZ:
+                    magicNumberBytes = 20;
+                    break;
+                case LZO:
+                case LZOP:
+                    magicNumberBytes = 42;
+                    break;
+                case DEFLATE:
+                    magicNumberBytes = 8;
+                    break;
+                case SNAPPYBLOCK:
+                case LZ4BLOCK:
+                case LZ4FRAME:
+                    magicNumberBytes = 4;
+                    break;
+                case BZ2:
+                    magicNumberBytes = 14;
+                    break;
+                case UNKNOWN:
+                case PLAIN:
+                default:
+                    break;
+            }
+            // fileStatus.size may be -1 in http_stream
+            if (fileStatus.size >= 0 && fileStatus.size <= magicNumberBytes) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void checkAuth(ConnectContext ctx) {
+        if (resourceName.isPresent()) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkResourcePriv(ctx, resourceName.get(), PrivPredicate.USAGE)) {
+                String message = ErrorCode.ERR_RESOURCE_ACCESS_DENIED_ERROR.formatErrorMsg(
+                        PrivPredicate.USAGE.getPrivs().toString(), resourceName.get());
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(message);
+            }
+        }
     }
 }
 

@@ -26,7 +26,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.FileSplit.FileSplitCreator;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
@@ -39,6 +38,7 @@ import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
+import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Preconditions;
@@ -63,14 +63,13 @@ import java.util.stream.Collectors;
 public abstract class FileScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(FileScanNode.class);
 
-    public static final long DEFAULT_SPLIT_SIZE = 8 * 1024 * 1024; // 8MB
+    public static final long DEFAULT_SPLIT_SIZE = 64 * 1024 * 1024; // 64MB
 
     // For explain
-    protected long inputSplitsNum = 0;
     protected long totalFileSize = 0;
     protected long totalPartitionNum = 0;
-    protected long readPartitionNum = 0;
     protected long fileSplitSize;
+    protected boolean isSplitSizeSetBySession = false;
 
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
             boolean needCheckColumnPriv) {
@@ -80,7 +79,15 @@ public abstract class FileScanNode extends ExternalScanNode {
 
     @Override
     public void init() throws UserException {
+        initFileSplitSize();
+    }
+
+    private void initFileSplitSize() {
         this.fileSplitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
+        this.isSplitSizeSetBySession = this.fileSplitSize > 0;
+        if (this.fileSplitSize <= 0) {
+            this.fileSplitSize = DEFAULT_SPLIT_SIZE;
+        }
     }
 
     @Override
@@ -97,6 +104,13 @@ public abstract class FileScanNode extends ExternalScanNode {
         super.toThrift(planNode);
     }
 
+    public long getPushDownCount() {
+        // 1. Do not use `0`: If the number of entries in the table is 0,
+        //                    it is unclear whether optimization has been performed.
+        // 2. Do not use `null` or `-`: This makes it easier for the program to parse the `explain` data.
+        return -1;
+    }
+
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
@@ -109,9 +123,13 @@ public abstract class FileScanNode extends ExternalScanNode {
             output.append(getRuntimeFilterExplainString(false));
         }
 
-        output.append(prefix).append("inputSplitNum=").append(inputSplitsNum).append(", totalFileSize=")
+        output.append(prefix);
+        if (isBatchMode()) {
+            output.append("(approximate)");
+        }
+        output.append("inputSplitNum=").append(selectedSplitNum).append(", totalFileSize=")
             .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size()).append("\n");
-        output.append(prefix).append("partition=").append(readPartitionNum).append("/").append(totalPartitionNum)
+        output.append(prefix).append("partition=").append(selectedPartitionNum).append("/").append(totalPartitionNum)
             .append("\n");
 
         if (detailLevel == TExplainLevel.VERBOSE) {
@@ -168,7 +186,14 @@ public abstract class FileScanNode extends ExternalScanNode {
             output.append(String.format("avgRowSize=%s, ", avgRowSize));
         }
         output.append(String.format("numNodes=%s", numNodes)).append("\n");
-        output.append(prefix).append(String.format("pushdown agg=%s", pushDownAggNoGroupingOp)).append("\n");
+
+        // pushdown agg
+        output.append(prefix).append(String.format("pushdown agg=%s", pushDownAggNoGroupingOp));
+        if (pushDownAggNoGroupingOp.equals(TPushAggOp.COUNT)) {
+            output.append(" (").append(getPushDownCount()).append(")");
+        }
+        output.append("\n");
+
         if (useTopnFilter()) {
             String topnFilterSources = String.join(",",
                     topnFilterSortNodes.stream()
@@ -180,6 +205,7 @@ public abstract class FileScanNode extends ExternalScanNode {
 
     protected void setDefaultValueExprs(TableIf tbl,
                                         Map<String, SlotDescriptor> slotDescByName,
+                                        Map<String, Expr> exprByName,
                                         TFileScanRangeParams params,
                                         boolean useVarcharAsNull) throws UserException {
         Preconditions.checkNotNull(tbl);
@@ -207,6 +233,13 @@ public abstract class FileScanNode extends ExternalScanNode {
                     expr = null;
                 }
             }
+            // if there is already an expr , just skip it.
+            // eg:
+            // (a, b, c, c=hll_hash(c)) in stream load
+            // c will be filled with hll_hash(column c) , don't need to specify it.
+            if (exprByName != null && exprByName.containsKey(column.getName())) {
+                continue;
+            }
             SlotDescriptor slotDesc = slotDescByName.get(column.getName());
             // if slot desc is null, which mean it is an unrelated slot, just skip.
             // eg:
@@ -225,12 +258,6 @@ public abstract class FileScanNode extends ExternalScanNode {
     }
 
     protected List<Split> splitFile(Path path, long blockSize, BlockLocation[] blockLocations, long length,
-            long modificationTime, boolean splittable, List<String> partitionValues) throws IOException {
-        return splitFile(path, blockSize, blockLocations, length, modificationTime, splittable, partitionValues,
-                FileSplitCreator.DEFAULT);
-    }
-
-    protected List<Split> splitFile(Path path, long blockSize, BlockLocation[] blockLocations, long length,
             long modificationTime, boolean splittable, List<String> partitionValues, SplitCreator splitCreator)
             throws IOException {
         if (blockLocations == null) {
@@ -246,11 +273,11 @@ public abstract class FileScanNode extends ExternalScanNode {
             result.add(splitCreator.create(path, 0, length, length, modificationTime, hosts, partitionValues));
             return result;
         }
-        if (fileSplitSize <= 0) {
-            fileSplitSize = blockSize;
+        // if file split size is set by session variable, use session variable.
+        // Otherwise, use max(file split size, block size)
+        if (!isSplitSizeSetBySession) {
+            fileSplitSize = Math.max(fileSplitSize, blockSize);
         }
-        // Min split size is DEFAULT_SPLIT_SIZE(128MB).
-        fileSplitSize = Math.max(fileSplitSize, DEFAULT_SPLIT_SIZE);
         long bytesRemaining;
         for (bytesRemaining = length; (double) bytesRemaining / (double) fileSplitSize > 1.1D;
                 bytesRemaining -= fileSplitSize) {
@@ -285,9 +312,5 @@ public abstract class FileScanNode extends ExternalScanNode {
         BlockLocation last = blkLocations[blkLocations.length - 1];
         long fileLength = last.getOffset() + last.getLength() - 1L;
         throw new IllegalArgumentException(String.format("Offset %d is outside of file (0..%d)", offset, fileLength));
-    }
-
-    public long getReadPartitionNum() {
-        return this.readPartitionNum;
     }
 }

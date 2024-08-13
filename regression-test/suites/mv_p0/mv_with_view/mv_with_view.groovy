@@ -36,9 +36,12 @@ suite ("mv_with_view") {
     sql """insert into d_table select 1,1,1,'a';"""
     sql """insert into d_table select 2,2,2,'b';"""
 
-    createMV("create materialized view k132 as select k1,k3,k2 from d_table;")
+    createMV("create materialized view k312 as select k3,k1,k2 from d_table;")
 
     sql """insert into d_table select 3,-3,null,'c';"""
+
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
 
     explain {
         sql("select * from d_table order by k1;")
@@ -47,17 +50,17 @@ suite ("mv_with_view") {
     qt_select_star "select * from d_table order by k1;"
 
     sql """
-        drop view if exists v_k132;
+        drop view if exists v_k312;
     """
 
     sql """
-        create view v_k132 as select k1,k3,k2 from d_table where k1 = 1;
+        create view v_k312 as select k1,k3,k2 from d_table where k3 = 1;
     """
     explain {
-        sql("select * from v_k132 order by k1;")
-        contains "(k132)"
+        sql("select * from v_k312 order by k1;")
+        contains "(k312)"
     }
-    qt_select_mv "select * from v_k132 order by k1;"
+    qt_select_mv "select * from v_k312 order by k1;"
 
     sql """
         drop view if exists v_k124;
@@ -71,4 +74,34 @@ suite ("mv_with_view") {
         contains "(d_table)"
     }
     qt_select_mv "select * from v_k124 order by k1;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from d_table order by k1;")
+        contains "(d_table)"
+    }
+
+    sql """
+        drop view if exists v_k312;
+    """
+
+    sql """
+        create view v_k312 as select k1,k3,k2 from d_table where k3 = 1;
+    """
+    explain {
+        sql("select * from v_k312 order by k1;")
+        contains "(k312)"
+    }
+
+    sql """
+        drop view if exists v_k124;
+    """
+
+    sql """
+        create view v_k124 as select k1,k2,k4 from d_table where k1 = 1;
+    """
+    explain {
+        sql("select * from v_k124 order by k1;")
+        contains "(d_table)"
+    }
 }

@@ -18,8 +18,6 @@
 package org.apache.doris.journal.bdbje;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.persist.OperationType;
@@ -37,7 +35,6 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.RepeatedTest;
 
-import java.io.DataOutput;
 import java.io.File;
 import java.io.IOException;
 import java.net.DatagramSocket;
@@ -153,14 +150,8 @@ public class BDBDebuggerTest {
 
         journal.rollJournal();
         for (int i = 0; i < 10; i++) {
-            String data = "OperationType.OP_TIMESTAMP";
-            Writable writable = new Writable() {
-                @Override
-                public void write(DataOutput out) throws IOException {
-                    Text.writeString(out, data);
-                }
-            };
-            journal.write(OperationType.OP_TIMESTAMP, writable);
+            Timestamp ts = new Timestamp();
+            journal.write(OperationType.OP_TIMESTAMP, ts);
         }
         JournalEntity journalEntity = journal.read(1);
         Assertions.assertEquals(OperationType.OP_TIMESTAMP, journalEntity.getOpCode());

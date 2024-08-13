@@ -205,6 +205,7 @@ suite("test_nestedtypes_json_insert_into_with_s3", "p0") {
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
                 "format" = "json",
+                "provider" = "${getS3Provider()}",
                 "read_json_by_line"="true") order by k1 limit 1;
             """
 
@@ -213,6 +214,7 @@ suite("test_nestedtypes_json_insert_into_with_s3", "p0") {
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
                 "format" = "json",
+                "provider" = "${getS3Provider()}",
                 "read_json_by_line"="true")
              """
 
@@ -229,6 +231,7 @@ suite("test_nestedtypes_json_insert_into_with_s3", "p0") {
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
                 "format" = "json",
+                "provider" = "${getS3Provider()}",
                 "read_json_by_line"="true") order by k1 limit 1;
             """
 

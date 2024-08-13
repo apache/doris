@@ -129,14 +129,13 @@ public class DescribeStmt extends ShowStmt {
             for (Column column : columns) {
                 List<String> row = Arrays.asList(
                         column.getName(),
-                        column.getOriginType().toString(),
+                        column.getOriginType().hideVersionForVersionColumn(true),
                         column.isAllowNull() ? "Yes" : "No",
                         ((Boolean) column.isKey()).toString(),
                         column.getDefaultValue() == null
                                 ? FeConstants.null_string : column.getDefaultValue(),
                         "NONE"
                 );
-                row.set(1, column.getOriginType().hideVersionForVersionColumn(false));
                 totalRows.add(row);
             }
             return;

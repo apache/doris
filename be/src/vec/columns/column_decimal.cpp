@@ -46,7 +46,7 @@ namespace doris::vectorized {
 
 template <typename T>
 int ColumnDecimal<T>::compare_at(size_t n, size_t m, const IColumn& rhs_, int) const {
-    auto& other = assert_cast<const Self&>(rhs_);
+    auto& other = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs_);
     const T& a = data[n];
     const T& b = other.data[m];
 
@@ -86,11 +86,28 @@ void ColumnDecimal<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_ro
 
 template <typename T>
 void ColumnDecimal<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                                   const uint8_t* null_map) const {
-    for (size_t i = 0; i < num_rows; ++i) {
-        if (null_map[i] == 0) {
-            memcpy_fixed<T>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
-            keys[i].size += sizeof(T);
+                                                   const UInt8* null_map) const {
+    DCHECK(null_map != nullptr);
+    const bool has_null = simd::contain_byte(null_map, num_rows, 1);
+    if (has_null) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* __restrict dest = const_cast<char*>(keys[i].data + +keys[i].size);
+            // serialize null first
+            memcpy(dest, null_map + i, sizeof(UInt8));
+            if (null_map[i] == 0) {
+                memcpy_fixed<T>(dest + 1, (char*)&data[i]);
+            }
+
+            keys[i].size += sizeof(UInt8) + (1 - null_map[i]) * sizeof(T);
+        }
+    } else {
+        for (size_t i = 0; i < num_rows; ++i) {
+            if (null_map[i] == 0) {
+                char* __restrict dest = const_cast<char*>(keys[i].data + +keys[i].size);
+                memset(dest, 0, 1);
+                memcpy_fixed<T>(dest + 1, (char*)&data[i]);
+                keys[i].size += sizeof(T) + sizeof(UInt8);
+            }
         }
     }
 }
@@ -114,15 +131,6 @@ void ColumnDecimal<T>::deserialize_vec_with_null_map(std::vector<StringRef>& key
         } else {
             insert_default();
         }
-    }
-}
-
-template <typename T>
-UInt64 ColumnDecimal<T>::get64(size_t n) const {
-    if constexpr (sizeof(T) > sizeof(UInt64)) {
-        LOG(FATAL) << "Method get64 is not supported for " << get_family_name();
-    } else {
-        return static_cast<typename T::NativeType>(data[n]);
     }
 }
 
@@ -235,7 +243,9 @@ template <typename T>
 ColumnPtr ColumnDecimal<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
     size_t size = limit ? std::min(data.size(), limit) : data.size();
     if (perm.size() < size) {
-        LOG(FATAL) << "Size of permutation is less than required.";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation ({}) is less than required ({})", perm.size(),
+                               limit);
         __builtin_unreachable();
     }
 
@@ -491,11 +501,6 @@ Decimal128V3 ColumnDecimal<Decimal128V3>::get_scale_multiplier() const {
 template <>
 Decimal256 ColumnDecimal<Decimal256>::get_scale_multiplier() const {
     return Decimal256(common::exp10_i256(scale));
-}
-
-template <typename T>
-ColumnPtr ColumnDecimal<T>::index(const IColumn& indexes, size_t limit) const {
-    return select_index_impl(*this, indexes, limit);
 }
 
 template <typename T>

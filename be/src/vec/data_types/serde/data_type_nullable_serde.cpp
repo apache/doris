@@ -127,6 +127,28 @@ Status DataTypeNullableSerDe::deserialize_column_from_hive_text_vector(
     return Status::OK();
 }
 
+Status DataTypeNullableSerDe::deserialize_column_from_fixed_json(
+        IColumn& column, Slice& slice, int rows, int* num_deserialized,
+        const FormatOptions& options) const {
+    auto& col = static_cast<ColumnNullable&>(column);
+    Status st = deserialize_one_cell_from_json(column, slice, options);
+    if (!st.ok()) {
+        return st;
+    }
+    if (rows - 1 != 0) {
+        auto& null_map = col.get_null_map_data();
+        auto& nested_column = col.get_nested_column();
+
+        uint8_t val = null_map.back();
+        size_t new_sz = null_map.size() + rows - 1;
+        null_map.resize_fill(new_sz,
+                             val); // data_type_nullable::insert_column_last_value_multiple_times()
+        nested_serde->insert_column_last_value_multiple_times(nested_column, rows - 1);
+    }
+    *num_deserialized = rows;
+    return Status::OK();
+}
+
 Status DataTypeNullableSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                              const FormatOptions& options) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);
@@ -238,13 +260,13 @@ void DataTypeNullableSerDe::write_one_cell_to_jsonb(const IColumn& column, Jsonb
                                                     Arena* mem_pool, int32_t col_id,
                                                     int row_num) const {
     auto& nullable_col = assert_cast<const ColumnNullable&>(column);
-    if (nullable_col.is_null_at(row_num)) {
-        // do not insert to jsonb
-        return;
-    }
     result.writeKey(col_id);
-    nested_serde->write_one_cell_to_jsonb(nullable_col.get_nested_column(), result, mem_pool,
-                                          col_id, row_num);
+    if (nullable_col.is_null_at(row_num)) {
+        result.writeNull();
+    } else {
+        nested_serde->write_one_cell_to_jsonb(nullable_col.get_nested_column(), result, mem_pool,
+                                              col_id, row_num);
+    }
 }
 
 void DataTypeNullableSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
@@ -287,7 +309,8 @@ void DataTypeNullableSerDe::read_column_from_arrow(IColumn& column, const arrow:
 template <bool is_binary_format>
 Status DataTypeNullableSerDe::_write_column_to_mysql(const IColumn& column,
                                                      MysqlRowBuffer<is_binary_format>& result,
-                                                     int row_idx, bool col_const) const {
+                                                     int row_idx, bool col_const,
+                                                     const FormatOptions& options) const {
     const auto& col = assert_cast<const ColumnNullable&>(column);
     const auto col_index = index_check_const(row_idx, col_const);
     if (col.has_null() && col.is_null_at(col_index)) {
@@ -296,22 +319,24 @@ Status DataTypeNullableSerDe::_write_column_to_mysql(const IColumn& column,
         }
     } else {
         const auto& nested_col = col.get_nested_column();
-        RETURN_IF_ERROR(
-                nested_serde->write_column_to_mysql(nested_col, result, col_index, col_const));
+        RETURN_IF_ERROR(nested_serde->write_column_to_mysql(nested_col, result, col_index,
+                                                            col_const, options));
     }
     return Status::OK();
 }
 
 Status DataTypeNullableSerDe::write_column_to_mysql(const IColumn& column,
                                                     MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                                    bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                    bool col_const,
+                                                    const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeNullableSerDe::write_column_to_mysql(const IColumn& column,
                                                     MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                                    bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                    bool col_const,
+                                                    const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,

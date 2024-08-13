@@ -21,11 +21,14 @@
 #include <mutex>
 
 #include "common/logging.h"
-#include "pipeline/local_exchange/local_exchanger.h"
+#include "exprs/runtime_filter.h"
+#include "pipeline/exec/multi_cast_data_streamer.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
+#include "vec/exprs/vectorized_agg_fn.h"
+#include "vec/exprs/vslot_ref.h"
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
@@ -79,16 +82,17 @@ Dependency* Dependency::is_blocked_by(PipelineTask* task) {
 
 std::string Dependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}{}: id={}, block task = {}, ready={}, _always_ready={}",
-                   std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
-                   _ready, _always_ready);
+    fmt::format_to(debug_string_buffer,
+                   "{}this={}, {}: id={}, block task = {}, ready={}, _always_ready={}",
+                   std::string(indentation_level * 2, ' '), (void*)this, _name, _node_id,
+                   _blocked_task.size(), _ready, _always_ready);
     return fmt::to_string(debug_string_buffer);
 }
 
 std::string CountedFinishDependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
-                   "{}{}: id={}, block task = {}, ready={}, _always_ready={}, count={}",
+                   "{}{}: id={}, block_task={}, ready={}, _always_ready={}, count={}",
                    std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
                    _ready, _always_ready, _counter);
     return fmt::to_string(debug_string_buffer);
@@ -119,6 +123,27 @@ void RuntimeFilterTimer::call_ready() {
     _parent->set_ready();
 }
 
+// should check rf timeout in two case:
+// 1. the rf is ready just remove the wait queue
+// 2. if the rf have local dependency, the rf should start wait when all local dependency is ready
+bool RuntimeFilterTimer::should_be_check_timeout() {
+    if (!_parent->ready() && !_local_runtime_filter_dependencies.empty()) {
+        bool all_ready = true;
+        for (auto& dep : _local_runtime_filter_dependencies) {
+            if (!dep->ready()) {
+                all_ready = false;
+                break;
+            }
+        }
+        if (all_ready) {
+            _local_runtime_filter_dependencies.clear();
+            _registration_time = MonotonicMillis();
+        }
+        return all_ready;
+    }
+    return true;
+}
+
 void RuntimeFilterTimerQueue::start() {
     while (!_stop) {
         std::unique_lock<std::mutex> lk(cv_m);
@@ -135,14 +160,18 @@ void RuntimeFilterTimerQueue::start() {
             for (auto& it : _que) {
                 if (it.use_count() == 1) {
                     // `use_count == 1` means this runtime filter has been released
-                } else if (it->_parent->is_blocked_by(nullptr)) {
-                    // This means runtime filter is not ready, so we call timeout or continue to poll this timer.
-                    int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
-                    if (ms_since_registration > it->wait_time_ms()) {
-                        it->call_timeout();
-                    } else {
-                        new_que.push_back(std::move(it));
+                } else if (it->should_be_check_timeout()) {
+                    if (it->_parent->is_blocked_by(nullptr)) {
+                        // This means runtime filter is not ready, so we call timeout or continue to poll this timer.
+                        int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
+                        if (ms_since_registration > it->wait_time_ms()) {
+                            it->call_timeout();
+                        } else {
+                            new_que.push_back(std::move(it));
+                        }
                     }
+                } else {
+                    new_que.push_back(std::move(it));
                 }
             }
             new_que.swap(_que);
@@ -159,16 +188,102 @@ void LocalExchangeSharedState::sub_running_sink_operators() {
     }
 }
 
+void LocalExchangeSharedState::sub_running_source_operators(
+        LocalExchangeSourceLocalState& local_state) {
+    std::unique_lock<std::mutex> lc(le_lock);
+    if (exchanger->_running_source_operators.fetch_sub(1) == 1) {
+        _set_always_ready();
+        exchanger->finalize(local_state);
+    }
+}
+
 LocalExchangeSharedState::LocalExchangeSharedState(int num_instances) {
     source_deps.resize(num_instances, nullptr);
     mem_trackers.resize(num_instances, nullptr);
+}
+
+vectorized::MutableColumns AggSharedState::_get_keys_hash_table() {
+    return std::visit(
+            vectorized::Overload {
+                    [&](std::monostate& arg) {
+                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                        return vectorized::MutableColumns();
+                    },
+                    [&](auto&& agg_method) -> vectorized::MutableColumns {
+                        vectorized::MutableColumns key_columns;
+                        for (int i = 0; i < probe_expr_ctxs.size(); ++i) {
+                            key_columns.emplace_back(
+                                    probe_expr_ctxs[i]->root()->data_type()->create_column());
+                        }
+                        auto& data = *agg_method.hash_table;
+                        bool has_null_key = data.has_null_key_data();
+                        const auto size = data.size() - has_null_key;
+                        using KeyType = std::decay_t<decltype(agg_method.iterator->get_first())>;
+                        std::vector<KeyType> keys(size);
+
+                        size_t num_rows = 0;
+                        auto iter = aggregate_data_container->begin();
+                        {
+                            while (iter != aggregate_data_container->end()) {
+                                keys[num_rows] = iter.get_key<KeyType>();
+                                ++iter;
+                                ++num_rows;
+                            }
+                        }
+                        agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
+                        if (has_null_key) {
+                            key_columns[0]->insert_data(nullptr, 0);
+                        }
+                        return key_columns;
+                    }},
+            agg_data->method_variant);
+}
+
+void AggSharedState::build_limit_heap(size_t hash_table_size) {
+    limit_columns = _get_keys_hash_table();
+    for (size_t i = 0; i < hash_table_size; ++i) {
+        limit_heap.emplace(i, limit_columns, order_directions, null_directions);
+    }
+    while (hash_table_size > limit) {
+        limit_heap.pop();
+        hash_table_size--;
+    }
+    limit_columns_min = limit_heap.top()._row_id;
+}
+
+bool AggSharedState::do_limit_filter(vectorized::Block* block, size_t num_rows,
+                                     const std::vector<int>* key_locs) {
+    if (num_rows) {
+        cmp_res.resize(num_rows);
+        need_computes.resize(num_rows);
+        memset(need_computes.data(), 0, need_computes.size());
+        memset(cmp_res.data(), 0, cmp_res.size());
+
+        const auto key_size = null_directions.size();
+        for (int i = 0; i < key_size; i++) {
+            block->get_by_position(key_locs ? key_locs->operator[](i) : i)
+                    .column->compare_internal(limit_columns_min, *limit_columns[i],
+                                              null_directions[i], order_directions[i], cmp_res,
+                                              need_computes.data());
+        }
+
+        auto set_computes_arr = [](auto* __restrict res, auto* __restrict computes, int rows) {
+            for (int i = 0; i < rows; ++i) {
+                computes[i] = computes[i] == res[i];
+            }
+        };
+        set_computes_arr(cmp_res.data(), need_computes.data(), num_rows);
+
+        return std::find(need_computes.begin(), need_computes.end(), 0) != need_computes.end();
+    }
+
+    return false;
 }
 
 Status AggSharedState::reset_hash_table() {
     return std::visit(
             vectorized::Overload {
                     [&](std::monostate& arg) -> Status {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
                         return Status::InternalError("Uninited hash table");
                     },
                     [&](auto& agg_method) {
@@ -184,7 +299,13 @@ Status AggSharedState::reset_hash_table() {
                             }
                         });
 
-                        aggregate_data_container.reset(new vectorized::AggregateDataContainer(
+                        if (hash_table.has_null_key_data()) {
+                            auto st = _destroy_agg_status(hash_table.template get_null_key_data<
+                                                          vectorized::AggregateDataPtr>());
+                            RETURN_IF_ERROR(st);
+                        }
+
+                        aggregate_data_container.reset(new AggregateDataContainer(
                                 sizeof(typename HashTableType::key_type),
                                 ((total_size_of_aggregate_states + align_aggregate_states - 1) /
                                  align_aggregate_states) *
@@ -257,4 +378,27 @@ void SpillSortSharedState::close() {
     }
     sorted_streams.clear();
 }
+
+MultiCastSharedState::MultiCastSharedState(const RowDescriptor& row_desc, ObjectPool* pool,
+                                           int cast_sender_count)
+        : multi_cast_data_streamer(std::make_unique<pipeline::MultiCastDataStreamer>(
+                  row_desc, pool, cast_sender_count, true)) {}
+
+int AggSharedState::get_slot_column_id(const vectorized::AggFnEvaluator* evaluator) {
+    auto ctxs = evaluator->input_exprs_ctxs();
+    CHECK(ctxs.size() == 1 && ctxs[0]->root()->is_slot_ref())
+            << "input_exprs_ctxs is invalid, input_exprs_ctx[0]="
+            << ctxs[0]->root()->debug_string();
+    return ((vectorized::VSlotRef*)ctxs[0]->root().get())->column_id();
+}
+
+Status AggSharedState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
+    for (int i = 0; i < aggregate_evaluators.size(); ++i) {
+        aggregate_evaluators[i]->function()->destroy(data + offsets_of_aggregate_states[i]);
+    }
+    return Status::OK();
+}
+
+LocalExchangeSharedState::~LocalExchangeSharedState() = default;
+
 } // namespace doris::pipeline

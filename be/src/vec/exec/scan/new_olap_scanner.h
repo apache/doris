@@ -43,11 +43,13 @@ class FunctionFilter;
 class RuntimeProfile;
 class RuntimeState;
 class TPaloScanRange;
+namespace pipeline {
+class ScanLocalStateBase;
+struct FilterPredicates;
+} // namespace pipeline
 
 namespace vectorized {
 
-class NewOlapScanNode;
-struct FilterPredicates;
 class Block;
 
 class NewOlapScanner : public VScanner {
@@ -65,16 +67,13 @@ public:
         bool aggregation;
     };
 
-    template <class T>
-    NewOlapScanner(T* parent, Params&& params);
+    NewOlapScanner(pipeline::ScanLocalStateBase* parent, Params&& params);
 
     Status init() override;
 
     Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
-
-    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
 
     void set_compound_filters(const std::vector<TCondition>& compound_filters);
 
@@ -89,7 +88,7 @@ private:
 
     Status _init_tablet_reader_params(const std::vector<OlapScanRange*>& key_ranges,
                                       const std::vector<TCondition>& filters,
-                                      const FilterPredicates& filter_predicates,
+                                      const pipeline::FilterPredicates& filter_predicates,
                                       const std::vector<FunctionFilter>& function_filters);
 
     [[nodiscard]] Status _init_return_columns();

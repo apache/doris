@@ -24,12 +24,13 @@
 #include "olap/partial_update_info.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet_meta.h"
+#include "olap/txn_manager.h"
 #include "util/countdown_latch.h"
 
 namespace doris {
 
 // Record transaction related delete bitmaps using a lru cache.
-class CloudTxnDeleteBitmapCache : public LRUCachePolicy {
+class CloudTxnDeleteBitmapCache : public LRUCachePolicyTrackingManual {
 public:
     CloudTxnDeleteBitmapCache(size_t size_in_bytes);
 
@@ -40,7 +41,9 @@ public:
     Status get_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
                                RowsetSharedPtr* rowset, DeleteBitmapPtr* delete_bitmap,
                                RowsetIdUnorderedSet* rowset_ids, int64_t* txn_expiration,
-                               std::shared_ptr<PartialUpdateInfo>* partial_update_info);
+                               std::shared_ptr<PartialUpdateInfo>* partial_update_info,
+                               std::shared_ptr<PublishStatus>* publish_status,
+                               TxnPublishInfo* previous_publish_info);
 
     void set_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
                              DeleteBitmapPtr delete_bitmap, const RowsetIdUnorderedSet& rowset_ids,
@@ -49,9 +52,20 @@ public:
 
     void update_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
                                 DeleteBitmapPtr delete_bitmap,
-                                const RowsetIdUnorderedSet& rowset_ids);
+                                const RowsetIdUnorderedSet& rowset_ids,
+                                PublishStatus publish_status, TxnPublishInfo publish_info = {});
 
     void remove_expired_tablet_txn_info();
+
+    void remove_unused_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id);
+
+    // !!!ATTENTION!!!: the delete bitmap stored in CloudTxnDeleteBitmapCache contains sentinel marks,
+    // and the version in BitmapKey is DeleteBitmap::TEMP_VERSION_COMMON.
+    // when using delete bitmap from this cache, the caller should manually remove these marks if don't need it
+    // and should replace versions in BitmapKey by the correct version
+    Status get_delete_bitmap(TTransactionId transaction_id, int64_t tablet_id,
+                             DeleteBitmapPtr* delete_bitmap, RowsetIdUnorderedSet* rowset_ids,
+                             std::shared_ptr<PublishStatus>* publish_status);
 
 private:
     void _clean_thread_callback();
@@ -63,9 +77,7 @@ private:
         RowsetIdUnorderedSet rowset_ids;
 
         DeleteBitmapCacheValue(DeleteBitmapPtr delete_bitmap_, const RowsetIdUnorderedSet& ids_)
-                : LRUCacheValueBase(CachePolicy::CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE),
-                  delete_bitmap(std::move(delete_bitmap_)),
-                  rowset_ids(ids_) {}
+                : delete_bitmap(std::move(delete_bitmap_)), rowset_ids(ids_) {}
     };
 
     struct TxnKey {
@@ -80,12 +92,17 @@ private:
         RowsetSharedPtr rowset;
         int64_t txn_expiration;
         std::shared_ptr<PartialUpdateInfo> partial_update_info;
+        std::shared_ptr<PublishStatus> publish_status = nullptr;
+        // used to determine if the retry needs to re-calculate the delete bitmap
+        TxnPublishInfo publish_info;
         TxnVal() : txn_expiration(0) {};
         TxnVal(RowsetSharedPtr rowset_, int64_t txn_expiration_,
-               std::shared_ptr<PartialUpdateInfo> partial_update_info_)
+               std::shared_ptr<PartialUpdateInfo> partial_update_info_,
+               std::shared_ptr<PublishStatus> publish_status_)
                 : rowset(std::move(rowset_)),
                   txn_expiration(txn_expiration_),
-                  partial_update_info(std::move(partial_update_info_)) {}
+                  partial_update_info(std::move(partial_update_info_)),
+                  publish_status(std::move(publish_status_)) {}
     };
 
     std::map<TxnKey, TxnVal> _txn_map;

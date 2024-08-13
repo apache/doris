@@ -119,7 +119,7 @@ public:
     // execute current expr with inverted index to filter block. Given a roaringbitmap of match rows
     virtual Status eval_inverted_index(
             VExprContext* context,
-            const std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair,
+            const std::unordered_map<ColumnId, std::pair<vectorized::IndexFieldNameAndTypePair,
                                                          segment_v2::InvertedIndexIterator*>>&
                     colid_to_inverted_index_iter,
             uint32_t num_rows, roaring::Roaring* bitmap) const {
@@ -145,6 +145,7 @@ public:
     TypeDescriptor type() { return _type; }
 
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
+    virtual bool is_literal() const { return false; }
 
     TExprNodeType::type node_type() const { return _node_type; }
 
@@ -231,6 +232,23 @@ public:
         return nullptr;
     }
 
+    // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
+    bool fast_execute(Block& block, const ColumnNumbers& arguments, size_t result,
+                      size_t input_rows_count, const std::string& function_name);
+
+    std::string gen_predicate_result_sign(Block& block, const ColumnNumbers& arguments,
+                                          const std::string& function_name) const;
+
+    virtual bool can_push_down_to_index() const { return false; }
+    virtual bool can_fast_execute() const { return false; }
+    virtual Status eval_inverted_index(VExprContext* context, segment_v2::FuncExprParams& params,
+                                       std::shared_ptr<roaring::Roaring>& result) {
+        return Status::NotSupported("Not supported execute_with_inverted_index");
+    }
+    virtual bool equals(const VExpr& other);
+    void set_index_unique_id(uint32_t index_unique_id) { _index_unique_id = index_unique_id; }
+    uint32_t index_unique_id() const { return _index_unique_id; }
+
 protected:
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {
@@ -295,6 +313,10 @@ protected:
     // for concrete classes
     bool _prepare_finished = false;
     bool _open_finished = false;
+
+    // ensuring uniqueness during index traversal
+    uint32_t _index_unique_id = 0;
+    bool _can_fast_execute = false;
 };
 
 } // namespace vectorized
@@ -435,10 +457,10 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_float_literal(float_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DOUBLE));
     } else if constexpr ((T == TYPE_STRING) || (T == TYPE_CHAR) || (T == TYPE_VARCHAR)) {
-        const auto* origin_value = reinterpret_cast<const StringRef*>(data);
+        const auto* origin_value = reinterpret_cast<const std::string*>(data);
         (*node).__set_node_type(TExprNodeType::STRING_LITERAL);
         TStringLiteral string_literal;
-        string_literal.__set_value(origin_value->to_string());
+        string_literal.__set_value(*origin_value);
         (*node).__set_string_literal(string_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_STRING));
     } else {

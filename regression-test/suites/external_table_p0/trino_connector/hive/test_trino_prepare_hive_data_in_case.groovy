@@ -16,20 +16,20 @@
 // under the License.
 
 suite("test_trino_prepare_hive_data_in_case", "p0,external,hive,external_docker,external_docker_hive") {
-    def host_ips = new ArrayList()
-    String[][] backends = sql """ show backends """
-    for (def b in backends) {
-        host_ips.add(b[1])
-    }
-    String [][] frontends = sql """ show frontends """
-    for (def f in frontends) {
-        host_ips.add(f[1])
-    }
-    dispatchTrinoConnectors(host_ips.unique())
-    
+
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     def catalog_name = "test_trino_prepare_hive_data_in_case"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def host_ips = new ArrayList()
+        String[][] backends = sql """ show backends """
+        for (def b in backends) {
+            host_ips.add(b[1])
+        }
+        String [][] frontends = sql """ show frontends """
+        for (def f in frontends) {
+            host_ips.add(f[1])
+        }
+        dispatchTrinoConnectors(host_ips.unique())
         try {
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
             String hms_port = context.config.otherConfigs.get("hive2HmsPort")
@@ -48,8 +48,8 @@ suite("test_trino_prepare_hive_data_in_case", "p0,external,hive,external_docker,
             sql """
                 create catalog if not exists ${catalog_name} properties (
                     "type"="trino-connector",
-                    "connector.name"="hive",
-                    'hive.metastore.uri' = 'thrift://${externalEnvIp}:${hms_port}'
+                    "trino.connector.name"="hive",
+                    'trino.hive.metastore.uri' = 'thrift://${externalEnvIp}:${hms_port}'
                 );
             """
             def values2 = sql """select count(*) from ${catalog_name}.`default`.${catalog_name};"""

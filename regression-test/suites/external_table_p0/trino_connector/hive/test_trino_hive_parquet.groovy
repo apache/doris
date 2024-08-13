@@ -16,17 +16,7 @@
 // under the License.
 
 suite("test_trino_hive_parquet", "p0,external,hive,external_docker,external_docker_hive") {
-    def host_ips = new ArrayList()
-    String[][] backends = sql """ show backends """
-    for (def b in backends) {
-        host_ips.add(b[1])
-    }
-    String [][] frontends = sql """ show frontends """
-    for (def f in frontends) {
-        host_ips.add(f[1])
-    }
-    dispatchTrinoConnectors(host_ips.unique())
-    
+
     def q01 = {
         qt_q01 """
         select * from partition_table order by l_orderkey, l_partkey, l_suppkey;
@@ -182,6 +172,16 @@ suite("test_trino_hive_parquet", "p0,external,hive,external_docker,external_dock
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def host_ips = new ArrayList()
+        String[][] backends = sql """ show backends """
+        for (def b in backends) {
+            host_ips.add(b[1])
+        }
+        String [][] frontends = sql """ show frontends """
+        for (def f in frontends) {
+            host_ips.add(f[1])
+        }
+        dispatchTrinoConnectors(host_ips.unique())
         try {
             String hms_port = context.config.otherConfigs.get("hive2HmsPort")
             String catalog_name = "test_trino_hive_parquet"
@@ -191,8 +191,8 @@ suite("test_trino_hive_parquet", "p0,external,hive,external_docker,external_dock
             sql """
                 create catalog if not exists ${catalog_name} properties (
                     "type"="trino-connector",
-                    "connector.name"="hive",
-                    'hive.metastore.uri' = 'thrift://${externalEnvIp}:${hms_port}'
+                    "trino.connector.name"="hive",
+                    'trino.hive.metastore.uri' = 'thrift://${externalEnvIp}:${hms_port}'
                 );
             """
 

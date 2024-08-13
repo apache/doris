@@ -24,7 +24,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
@@ -39,10 +38,6 @@ import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunctio
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -65,7 +60,6 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
             checkAllSlotReferenceFromChildren(plan);
             checkUnexpectedExpression(plan);
             checkMetricTypeIsUsedCorrectly(plan);
-            checkMatchIsUsedCorrectly(plan);
             return null;
         }).toRule(RuleType.CHECK_ANALYSIS);
     }
@@ -180,23 +174,6 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             });
-        }
-    }
-
-    private void checkMatchIsUsedCorrectly(Plan plan) {
-        for (Expression expression : plan.getExpressions()) {
-            if (expression instanceof Match) {
-                if (plan instanceof LogicalFilter && (plan.child(0) instanceof LogicalOlapScan
-                        || plan.child(0) instanceof LogicalDeferMaterializeOlapScan
-                        || plan.child(0) instanceof LogicalProject
-                        && ((LogicalProject<?>) plan.child(0)).hasPushedDownToProjectionFunctions())) {
-                    return;
-                } else {
-                    throw new AnalysisException(String.format(
-                            "Not support match in %s in plan: %s, only support in olapScan filter",
-                            plan.child(0), plan));
-                }
-            }
         }
     }
 }

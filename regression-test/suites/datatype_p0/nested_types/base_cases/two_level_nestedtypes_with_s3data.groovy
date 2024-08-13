@@ -105,6 +105,7 @@ suite("two_level_nestedtypes_with_s3data") {
                     "s3.secret_key" = "${sk}",
                     "format" = "${format}",
                     "column_separator"="|",
+                    "provider" = "${getS3Provider()}",
                     "read_json_by_line"="true") order by c1 limit 10; """
             sql """
             insert into ${table_name} select * from s3(
@@ -113,6 +114,7 @@ suite("two_level_nestedtypes_with_s3data") {
                     "s3.secret_key" = "${sk}",
                     "format" = "${format}",
                     "column_separator"="|",
+                    "provider" = "${getS3Provider()}",
                     "read_json_by_line"="true") order by c1; """
         } else {
             order_qt_sql_s3 """select c_bool, c_double, c_decimal, c_date, c_char from s3(
@@ -120,6 +122,7 @@ suite("two_level_nestedtypes_with_s3data") {
                     "s3.access_key"= "${ak}",
                     "s3.secret_key" = "${sk}",
                     "format" = "${format}",
+                    "provider" = "${getS3Provider()}",
                     "read_json_by_line"="true") order by k1 limit 10;"""
             sql """
             insert into ${table_name} select * from s3(
@@ -127,6 +130,7 @@ suite("two_level_nestedtypes_with_s3data") {
                     "s3.access_key"= "${ak}",
                     "s3.secret_key" = "${sk}",
                     "format" = "${format}",
+                    "provider" = "${getS3Provider()}",
                     "read_json_by_line"="true") order by k1; """
         }
         // where to filter different format data

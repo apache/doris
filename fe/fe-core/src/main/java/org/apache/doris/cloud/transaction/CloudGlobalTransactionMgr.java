@@ -28,8 +28,14 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.cloud.proto.Cloud.AbortSubTxnRequest;
+import org.apache.doris.cloud.proto.Cloud.AbortSubTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.AbortTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.AbortTxnResponse;
+import org.apache.doris.cloud.proto.Cloud.AbortTxnWithCoordinatorRequest;
+import org.apache.doris.cloud.proto.Cloud.AbortTxnWithCoordinatorResponse;
+import org.apache.doris.cloud.proto.Cloud.BeginSubTxnRequest;
+import org.apache.doris.cloud.proto.Cloud.BeginSubTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.BeginTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.BeginTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.CheckTxnConflictRequest;
@@ -50,7 +56,9 @@ import org.apache.doris.cloud.proto.Cloud.LoadJobSourceTypePB;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.proto.Cloud.PrecommitTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.PrecommitTxnResponse;
+import org.apache.doris.cloud.proto.Cloud.SubTxnInfo;
 import org.apache.doris.cloud.proto.Cloud.TableStatsPB;
+import org.apache.doris.cloud.proto.Cloud.TabletIndexPB;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.proto.Cloud.TxnStatusPB;
 import org.apache.doris.cloud.proto.Cloud.UniqueIdPB;
@@ -63,6 +71,7 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
@@ -70,9 +79,12 @@ import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.event.DataChangeEvent;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.EditLog;
@@ -122,10 +134,12 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
@@ -133,10 +147,9 @@ import java.util.stream.Collectors;
 public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     private static final Logger LOG = LogManager.getLogger(CloudGlobalTransactionMgr.class);
     private static final String NOT_SUPPORTED_MSG = "Not supported in cloud mode";
-    private static final int DELETE_BITMAP_LOCK_EXPIRATION_SECONDS = 10;
-    private static final int CALCULATE_DELETE_BITMAP_TASK_TIMEOUT_SECONDS = 15;
 
     private TxnStateCallbackFactory callbackFactory;
+    private final Map<Long, Long> subTxnIdToTxnId = new ConcurrentHashMap<>();
 
     public CloudGlobalTransactionMgr() {
         this.callbackFactory = new TxnStateCallbackFactory();
@@ -185,6 +198,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
         }
 
+        MTMVUtil.checkModifyMTMVData(db, tableIdList, ConnectContext.get());
+
         switch (sourceType) {
             case BACKEND_STREAMING:
                 checkValidTimeoutSecond(timeoutSecond, Config.max_stream_load_timeout_second,
@@ -225,7 +240,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     .setCloudUniqueId(Config.cloud_unique_id)
                     .build();
 
-            while (retryTime < Config.cloud_meta_service_rpc_failed_retry_times) {
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("retryTime:{}, beginTxnRequest:{}", retryTime, beginTxnRequest);
                 }
@@ -326,7 +341,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         commitTransaction(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false);
     }
 
+    /**
+     * Post process of commitTxn
+     * 1. update some stats
+     * 2. produce event for further processes like async MV
+     * @param commitTxnResponse commit txn call response from meta-service
+     */
     public void afterCommitTxnResp(CommitTxnResponse commitTxnResponse) {
+        // ========================================
+        // update some table stats
+        // ========================================
         long dbId = commitTxnResponse.getTxnInfo().getDbId();
         long txnId = commitTxnResponse.getTxnInfo().getTxnId();
         // 1. update rowCountfor AnalysisManager
@@ -362,7 +386,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (partition == null) {
                 continue;
             }
-            partition.setCachedVisibleVersion(version);
+            partition.setCachedVisibleVersion(version, commitTxnResponse.getVersionUpdateTimeMs());
+            LOG.info("Update Partition. transactionId:{}, table_id:{}, partition_id:{}, version:{}, update time:{}",
+                    txnId, tableId, partition.getId(), version, commitTxnResponse.getVersionUpdateTimeMs());
         }
         env.getAnalysisManager().setNewPartitionLoaded(
                 tablePartitionMap.keySet().stream().collect(Collectors.toList()));
@@ -377,6 +403,25 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         if (sb.length() > 0) {
             LOG.info("notify partition first load. {}", sb);
+        }
+
+        // ========================================
+        // produce event
+        // ========================================
+        List<Long> tableList = commitTxnResponse.getTxnInfo().getTableIdsList()
+                .stream().distinct().collect(Collectors.toList());
+        // Here, we only wait for the EventProcessor to finish processing the event,
+        // but regardless of the success or failure of the result,
+        // it does not affect the logic of transaction
+        try {
+            for (Long tableId : tableList) {
+                Env.getCurrentEnv().getEventProcessor().processEvent(
+                    new DataChangeEvent(InternalCatalog.INTERNAL_CATALOG_ID, dbId, tableId));
+            }
+        } catch (Throwable t) {
+            // According to normal logic, no exceptions will be thrown,
+            // but in order to avoid bugs affecting the original logic, all exceptions are caught
+            LOG.warn("produceEvent failed, db {}, tables {} ", dbId, tableList, t);
         }
     }
 
@@ -451,11 +496,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
 
         final CommitTxnRequest commitTxnRequest = builder.build();
+        commitTxn(commitTxnRequest, transactionId, is2PC, dbId, tableList);
+    }
+
+    private void commitTxn(CommitTxnRequest commitTxnRequest, long transactionId, boolean is2PC, long dbId,
+            List<Table> tableList) throws UserException {
         CommitTxnResponse commitTxnResponse = null;
         int retryTime = 0;
 
         try {
-            while (retryTime < Config.cloud_meta_service_rpc_failed_retry_times) {
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("retryTime:{}, commitTxnRequest:{}", retryTime, commitTxnRequest);
                 }
@@ -479,6 +529,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new UserException("commitTxn() failed, errMsg:" + e.getMessage());
         }
 
+        if (is2PC && (commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_VISIBLE
+                || commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_ABORTED)) {
+            throw new UserException(commitTxnResponse.getStatus().getMsg());
+        }
         if (commitTxnResponse.getStatus().getCode() != MetaServiceCode.OK
                 && commitTxnResponse.getStatus().getCode() != MetaServiceCode.TXN_ALREADY_VISIBLE) {
             LOG.warn("commitTxn failed, transactionId:{}, retryTime:{}, commitTxnResponse:{}",
@@ -494,9 +548,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             internalMsgBuilder.append(" code:");
             internalMsgBuilder.append(commitTxnResponse.getStatus().getCode());
             throw new UserException("internal error, " + internalMsgBuilder.toString());
-        }
-        if (is2PC && commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_VISIBLE) {
-            throw new UserException(commitTxnResponse.getStatus().getMsg());
         }
 
         TransactionState txnState = TxnUtil.transactionStateFromPb(commitTxnResponse.getTxnInfo());
@@ -533,16 +584,24 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         Map<Long, Map<Long, List<Long>>> backendToPartitionTablets = Maps.newHashMap();
         Map<Long, Partition> partitions = Maps.newHashMap();
         Map<Long, Set<Long>> tableToPartitions = Maps.newHashMap();
-        getPartitionInfo(tableList, tabletCommitInfos, tableToPartitions, partitions, backendToPartitionTablets);
+        Map<Long, List<Long>> tableToTabletList = Maps.newHashMap();
+        Map<Long, TabletMeta> tabletToTabletMeta = Maps.newHashMap();
+        getPartitionInfo(tableList, tabletCommitInfos, tableToPartitions, partitions, backendToPartitionTablets,
+                tableToTabletList, tabletToTabletMeta);
         if (backendToPartitionTablets.isEmpty()) {
             throw new UserException("The partition info is empty, table may be dropped, txnid=" + transactionId);
         }
 
-        getDeleteBitmapUpdateLock(tableToPartitions, transactionId);
+        Map<Long, Long> baseCompactionCnts = Maps.newHashMap();
+        Map<Long, Long> cumulativeCompactionCnts = Maps.newHashMap();
+        Map<Long, Long> cumulativePoints = Maps.newHashMap();
+        getDeleteBitmapUpdateLock(tableToPartitions, transactionId, tableToTabletList, tabletToTabletMeta,
+                baseCompactionCnts, cumulativeCompactionCnts, cumulativePoints);
         Map<Long, Long> partitionVersions = getPartitionVersions(partitions);
 
         Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = getCalcDeleteBitmapInfo(
-                backendToPartitionTablets, partitionVersions);
+                backendToPartitionTablets, partitionVersions, baseCompactionCnts, cumulativeCompactionCnts,
+                        cumulativePoints);
         sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos);
     }
 
@@ -550,7 +609,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             List<TabletCommitInfo> tabletCommitInfos,
             Map<Long, Set<Long>> tableToParttions,
             Map<Long, Partition> partitions,
-            Map<Long, Map<Long, List<Long>>> backendToPartitionTablets) {
+            Map<Long, Map<Long, List<Long>>> backendToPartitionTablets,
+            Map<Long, List<Long>> tableToTabletList,
+            Map<Long, TabletMeta> tabletToTabletMeta) {
         Map<Long, OlapTable> tableMap = Maps.newHashMap();
         for (OlapTable olapTable : tableList) {
             tableMap.put(olapTable.getId(), olapTable);
@@ -566,6 +627,13 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (!tableMap.containsKey(tableId)) {
                 continue;
             }
+
+            tabletToTabletMeta.put(tabletIds.get(i), tabletMeta);
+
+            if (!tableToTabletList.containsKey(tableId)) {
+                tableToTabletList.put(tableId, Lists.newArrayList());
+            }
+            tableToTabletList.get(tableId).add(tabletIds.get(i));
 
             long partitionId = tabletMeta.getPartitionId();
             long backendId = tabletCommitInfos.get(i).getBackendId();
@@ -598,15 +666,32 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private Map<Long, List<TCalcDeleteBitmapPartitionInfo>> getCalcDeleteBitmapInfo(
-            Map<Long, Map<Long, List<Long>>> backendToPartitionTablets, Map<Long, Long> partitionVersions) {
+            Map<Long, Map<Long, List<Long>>> backendToPartitionTablets, Map<Long, Long> partitionVersions,
+                    Map<Long, Long> baseCompactionCnts, Map<Long, Long> cumulativeCompactionCnts,
+                            Map<Long, Long> cumulativePoints) {
         Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = Maps.newHashMap();
         for (Map.Entry<Long, Map<Long, List<Long>>> entry : backendToPartitionTablets.entrySet()) {
             List<TCalcDeleteBitmapPartitionInfo> partitionInfos = Lists.newArrayList();
-            for (Map.Entry<Long, List<Long>> partitionToTables : entry.getValue().entrySet()) {
-                Long partitionId = partitionToTables.getKey();
+            for (Map.Entry<Long, List<Long>> partitionToTablets : entry.getValue().entrySet()) {
+                Long partitionId = partitionToTablets.getKey();
+                List<Long> tabletList = partitionToTablets.getValue();
                 TCalcDeleteBitmapPartitionInfo partitionInfo = new TCalcDeleteBitmapPartitionInfo(partitionId,
                         partitionVersions.get(partitionId),
-                        partitionToTables.getValue());
+                        tabletList);
+                if (!baseCompactionCnts.isEmpty() && !cumulativeCompactionCnts.isEmpty()
+                        && !cumulativePoints.isEmpty()) {
+                    List<Long> reqBaseCompactionCnts = Lists.newArrayList();
+                    List<Long> reqCumulativeCompactionCnts = Lists.newArrayList();
+                    List<Long> reqCumulativePoints = Lists.newArrayList();
+                    for (long tabletId : tabletList) {
+                        reqBaseCompactionCnts.add(baseCompactionCnts.get(tabletId));
+                        reqCumulativeCompactionCnts.add(cumulativeCompactionCnts.get(tabletId));
+                        reqCumulativePoints.add(cumulativePoints.get(tabletId));
+                    }
+                    partitionInfo.setBaseCompactionCnts(reqBaseCompactionCnts);
+                    partitionInfo.setCumulativeCompactionCnts(reqCumulativeCompactionCnts);
+                    partitionInfo.setCumulativePoints(reqCumulativePoints);
+                }
                 partitionInfos.add(partitionInfo);
             }
             backendToPartitionInfos.put(entry.getKey(), partitionInfos);
@@ -614,21 +699,66 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         return backendToPartitionInfos;
     }
 
-    private void getDeleteBitmapUpdateLock(Map<Long, Set<Long>> tableToParttions, long transactionId)
-            throws UserException {
+    private void getDeleteBitmapUpdateLock(Map<Long, Set<Long>> tableToParttions, long transactionId,
+            Map<Long, List<Long>> tableToTabletList, Map<Long, TabletMeta> tabletToTabletMeta,
+                    Map<Long, Long> baseCompactionCnts, Map<Long, Long> cumulativeCompactionCnts,
+                            Map<Long, Long> cumulativePoints) throws UserException {
+        if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.sleep")) {
+            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                    "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.sleep");
+            int t = debugPoint.param("sleep_time", 8);
+            try {
+                Thread.sleep(t * 1000);
+            } catch (InterruptedException e) {
+                LOG.info("error ", e);
+            }
+        }
+        if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")) {
+            LOG.info("debug point: block at CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait");
+            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                    "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait");
+            String token = debugPoint.param("token", "invalid_token");
+            while (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")) {
+                DebugPoint blockDebugPoint = DebugPointUtil.getDebugPoint(
+                        "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block");
+                String passToken = blockDebugPoint.param("pass_token", "");
+                if (token.equals(passToken)) {
+                    break;
+                }
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    LOG.info("error ", e);
+                }
+            }
+            LOG.info("debug point: leave CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait");
+        }
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
+        int totalRetryTime = 0;
         for (Map.Entry<Long, Set<Long>> entry : tableToParttions.entrySet()) {
             GetDeleteBitmapUpdateLockRequest.Builder builder = GetDeleteBitmapUpdateLockRequest.newBuilder();
             builder.setTableId(entry.getKey())
                     .setLockId(transactionId)
                     .setInitiator(-1)
-                    .setExpiration(DELETE_BITMAP_LOCK_EXPIRATION_SECONDS);
+                    .setExpiration(Config.delete_bitmap_lock_expiration_seconds)
+                    .setRequireCompactionStats(true);
+            List<Long> tabletList = tableToTabletList.get(entry.getKey());
+            for (Long tabletId : tabletList) {
+                TabletMeta tabletMeta = tabletToTabletMeta.get(tabletId);
+                TabletIndexPB.Builder tabletIndexBuilder = TabletIndexPB.newBuilder();
+                tabletIndexBuilder.setDbId(tabletMeta.getDbId());
+                tabletIndexBuilder.setTableId(tabletMeta.getTableId());
+                tabletIndexBuilder.setIndexId(tabletMeta.getIndexId());
+                tabletIndexBuilder.setPartitionId(tabletMeta.getPartitionId());
+                tabletIndexBuilder.setTabletId(tabletId);
+                builder.addTabletIndexes(tabletIndexBuilder);
+            }
             final GetDeleteBitmapUpdateLockRequest request = builder.build();
             GetDeleteBitmapUpdateLockResponse response = null;
 
             int retryTime = 0;
-            while (retryTime++ < Config.meta_service_rpc_retry_times) {
+            while (retryTime++ < Config.metaServiceRpcRetryTimes()) {
                 try {
                     response = MetaServiceProxy.getInstance().getDeleteBitmapUpdateLock(request);
                     if (LOG.isDebugEnabled()) {
@@ -667,10 +797,30 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 }
                 throw new UserException("Failed to get delete bitmap lock, code: " + response.getStatus().getCode());
             }
+
+            // record tablet's latest compaction stats from meta service and send them to BEs
+            // to let BEs eliminate unnecessary sync_rowsets() calls if possible
+            List<Long> respBaseCompactionCnts = response.getBaseCompactionCntsList();
+            List<Long> respCumulativeCompactionCnts = response.getCumulativeCompactionCntsList();
+            List<Long> respCumulativePoints = response.getCumulativePointsList();
+            if (!respBaseCompactionCnts.isEmpty() && !respCumulativeCompactionCnts.isEmpty()
+                    && !respCumulativePoints.isEmpty()) {
+                for (int i = 0; i < tabletList.size(); i++) {
+                    long tabletId = tabletList.get(i);
+                    baseCompactionCnts.put(tabletId, respBaseCompactionCnts.get(i));
+                    cumulativeCompactionCnts.put(tabletId, respCumulativeCompactionCnts.get(i));
+                    cumulativePoints.put(tabletId, respCumulativePoints.get(i));
+                }
+            }
+            totalRetryTime += retryTime;
         }
         stopWatch.stop();
-        LOG.info("get delete bitmap lock successfully. txns: {}. time cost: {} ms.",
-                 transactionId, stopWatch.getTime());
+        if (totalRetryTime > 0 || stopWatch.getTime() > 20) {
+            LOG.info(
+                    "get delete bitmap lock successfully. txns: {}. totalRetryTime: {}. "
+                            + "partitionSize: {}. time cost: {} ms.",
+                    transactionId, totalRetryTime, tableToParttions.size(), stopWatch.getTime());
+        }
     }
 
     private void sendCalcDeleteBitmaptask(long dbId, long transactionId,
@@ -701,7 +851,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
         boolean ok;
         try {
-            ok = countDownLatch.await(CALCULATE_DELETE_BITMAP_TASK_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            ok = countDownLatch.await(Config.calculate_delete_bitmap_task_timeout_seconds, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             LOG.warn("InterruptedException: ", e);
             ok = false;
@@ -764,7 +914,35 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public boolean commitAndPublishTransaction(DatabaseIf db, long transactionId,
             List<SubTransactionState> subTransactionStates, long timeoutMillis) throws UserException {
-        throw new UnsupportedOperationException("commitAndPublishTransaction is not supported in cloud");
+        if (Config.disable_load_job) {
+            throw new TransactionCommitFailedException(
+                    "disable_load_job is set to true, all load jobs are not allowed");
+        }
+        LOG.info("try to commit transaction, txnId: {}, subTxnStates: {}", transactionId, subTransactionStates);
+        cleanSubTransactions(transactionId);
+        CommitTxnRequest.Builder builder = CommitTxnRequest.newBuilder();
+        builder.setDbId(db.getId())
+                .setTxnId(transactionId)
+                .setIs2Pc(false)
+                .setCloudUniqueId(Config.cloud_unique_id)
+                .setIsTxnLoad(true);
+        // add sub txn infos
+        for (SubTransactionState subTransactionState : subTransactionStates) {
+            builder.addSubTxnInfos(SubTxnInfo.newBuilder().setSubTxnId(subTransactionState.getSubTransactionId())
+                    .setTableId(subTransactionState.getTable().getId())
+                    .addAllBaseTabletIds(
+                            getBaseTabletsFromTables(Lists.newArrayList(subTransactionState.getTable()),
+                                    subTransactionState.getTabletCommitInfos().stream()
+                                            .map(c -> new TabletCommitInfo(c.getTabletId(), c.getBackendId()))
+                                            .collect(Collectors.toList())))
+                    .build());
+        }
+
+        final CommitTxnRequest commitTxnRequest = builder.build();
+        commitTxn(commitTxnRequest, transactionId, false, db.getId(),
+                subTransactionStates.stream().map(SubTransactionState::getTable)
+                        .collect(Collectors.toList()));
+        return true;
     }
 
     @Override
@@ -793,6 +971,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public void abortTransaction(Long dbId, Long transactionId, String reason) throws UserException {
+        cleanSubTransactions(transactionId);
         abortTransaction(dbId, transactionId, reason, null, null);
     }
 
@@ -811,7 +990,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         AbortTxnResponse abortTxnResponse = null;
         int retryTime = 0;
         try {
-            while (retryTime < Config.cloud_meta_service_rpc_failed_retry_times) {
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("retryTime:{}, abortTxnRequest:{}", retryTime, abortTxnRequest);
                 }
@@ -862,7 +1041,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         int retryTime = 0;
 
         try {
-            while (retryTime < Config.cloud_meta_service_rpc_failed_retry_times) {
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("retyTime:{}, abortTxnRequest:{}", retryTime, abortTxnRequest);
                 }
@@ -925,6 +1104,42 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public void finishTransaction(long dbId, long transactionId, Map<Long, Long> partitionVisibleVersions,
             Map<Long, Set<Long>> backendPartitions) throws UserException {
         throw new UserException("Disallow to call finishTransaction()");
+    }
+
+    public List<TransactionState> getUnFinishedPreviousLoad(long endTransactionId, long dbId, List<Long> tableIdList)
+            throws UserException {
+        LOG.info("getUnFinishedPreviousLoad(), endTransactionId:{}, dbId:{}, tableIdList:{}",
+                endTransactionId, dbId, tableIdList);
+
+        if (endTransactionId <= 0) {
+            throw new UserException("Invaid endTransactionId:" + endTransactionId);
+        }
+        CheckTxnConflictRequest.Builder builder = CheckTxnConflictRequest.newBuilder();
+        builder.setDbId(dbId);
+        builder.setEndTxnId(endTransactionId);
+        builder.addAllTableIds(tableIdList);
+        builder.setCloudUniqueId(Config.cloud_unique_id);
+
+        final CheckTxnConflictRequest checkTxnConflictRequest = builder.build();
+        CheckTxnConflictResponse checkTxnConflictResponse = null;
+        try {
+            LOG.info("CheckTxnConflictRequest:{}", checkTxnConflictRequest);
+            checkTxnConflictResponse = MetaServiceProxy
+                .getInstance().checkTxnConflict(checkTxnConflictRequest);
+            LOG.info("CheckTxnConflictResponse: {}", checkTxnConflictResponse);
+        } catch (RpcException e) {
+            throw new UserException(e.getMessage());
+        }
+
+        if (checkTxnConflictResponse.getStatus().getCode() != MetaServiceCode.OK) {
+            throw new UserException(checkTxnConflictResponse.getStatus().getMsg());
+        }
+        List<TxnInfoPB> conflictTxnInfoPbs = checkTxnConflictResponse.getConflictTxnsList();
+        List<TransactionState> conflictTxns = new ArrayList<>();
+        for (TxnInfoPB infoPb : conflictTxnInfoPbs) {
+            conflictTxns.add(TxnUtil.transactionStateFromPb(infoPb));
+        }
+        return conflictTxns;
     }
 
     @Override
@@ -1098,13 +1313,61 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
-    public void abortTxnWhenCoordinateBeDown(String coordinateHost, int limit) {
+    public void abortTxnWhenCoordinateBeRestart(long coordinateBeId, String coordinateHost, long beStartTime) {
+        AbortTxnWithCoordinatorRequest.Builder builder = AbortTxnWithCoordinatorRequest.newBuilder();
+        builder.setIp(coordinateHost);
+        builder.setId(coordinateBeId);
+        builder.setStartTime(beStartTime);
+        final AbortTxnWithCoordinatorRequest request = builder.build();
+        AbortTxnWithCoordinatorResponse response = null;
+        try {
+            response = MetaServiceProxy
+                .getInstance().abortTxnWithCoordinator(request);
+            LOG.info("AbortTxnWithCoordinatorResponse: {}", response);
+        } catch (RpcException e) {
+            LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
+        }
+    }
+
+    @Override
+    public void abortTxnWhenCoordinateBeDown(long coordinateBeId, String coordinateHost, int limit) {
         // do nothing in cloud mode
     }
 
     @Override
     public TransactionStatus getLabelState(long dbId, String label) throws AnalysisException {
-        throw new AnalysisException(NOT_SUPPORTED_MSG);
+        GetTxnRequest.Builder builder = GetTxnRequest.newBuilder();
+        builder.setDbId(dbId).setCloudUniqueId(Config.cloud_unique_id).setLabel(label);
+        final GetTxnRequest getTxnRequest = builder.build();
+        GetTxnResponse getTxnResponse = null;
+        int retryTime = 0;
+
+        try {
+            while (retryTime < 3) {
+                getTxnResponse = MetaServiceProxy.getInstance().getTxn(getTxnRequest);
+                if (getTxnResponse.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+                LOG.info("getLabelState KV_TXN_CONFLICT, dbId:{}, label:{}, retryTime:{}", dbId, label, retryTime);
+                backoff();
+                retryTime++;
+                continue;
+            }
+
+            Preconditions.checkNotNull(getTxnResponse);
+            Preconditions.checkNotNull(getTxnResponse.getStatus());
+        } catch (Exception e) {
+            LOG.warn("getLabelState failed, dbId:{}, exception:", dbId, e);
+            throw new AnalysisException("getLabelState failed, errMsg:" + e.getMessage());
+        }
+
+        if (getTxnResponse.getStatus().getCode() != MetaServiceCode.OK) {
+            LOG.warn("getLabelState failed, dbId:{} label:{} retryTime:{} getTxnResponse:{}",
+                    dbId, label, retryTime, getTxnResponse);
+            throw new AnalysisException("getLabelState failed, errMsg:" + getTxnResponse.getStatus().getMsg());
+        }
+
+        return TxnUtil.transactionStateFromPb(getTxnResponse.getTxnInfo()).getTransactionStatus();
     }
 
     @Override
@@ -1114,6 +1377,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public TransactionState getTransactionState(long dbId, long transactionId) {
+        if (subTxnIdToTxnId.containsKey(transactionId)) {
+            LOG.info("try to get transaction state, subTxnId:{}, transactionId:{}", transactionId,
+                    subTxnIdToTxnId.get(transactionId));
+            transactionId = subTxnIdToTxnId.get(transactionId);
+        }
         LOG.info("try to get transaction state, dbId:{}, transactionId:{}", dbId, transactionId);
         GetTxnRequest.Builder builder = GetTxnRequest.newBuilder();
         builder.setDbId(dbId);
@@ -1332,11 +1600,101 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public void addSubTransaction(long dbId, long transactionId, long subTransactionId) {
-        throw new UnsupportedOperationException("addSubTransaction is not supported in cloud");
+        subTxnIdToTxnId.put(subTransactionId, transactionId);
     }
 
     @Override
     public void removeSubTransaction(long dbId, long subTransactionId) {
-        throw new UnsupportedOperationException("removeSubTransaction is not supported in cloud");
+        subTxnIdToTxnId.remove(subTransactionId);
+    }
+
+    private void cleanSubTransactions(long transactionId) {
+        Iterator<Entry<Long, Long>> iterator = subTxnIdToTxnId.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Entry<Long, Long> entry = iterator.next();
+            if (entry.getValue() == transactionId) {
+                iterator.remove();
+            }
+        }
+    }
+
+    public Pair<Long, TransactionState> beginSubTxn(long txnId, long dbId, Set<Long> tableIds, String label,
+            long subTxnNum) throws UserException {
+        LOG.info("try to begin sub transaction, txnId: {}, dbId: {}, tableIds: {}, label: {}, subTxnNum: {}", txnId,
+                dbId, tableIds, label, subTxnNum);
+        BeginSubTxnRequest request = BeginSubTxnRequest.newBuilder().setCloudUniqueId(Config.cloud_unique_id)
+                .setTxnId(txnId).setDbId(dbId).addAllTableIds(tableIds).setLabel(label).setSubTxnNum(subTxnNum).build();
+        BeginSubTxnResponse response = null;
+        int retryTime = 0;
+        try {
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("retryTime:{}, beginSubTxnRequest:{}", retryTime, request);
+                }
+                response = MetaServiceProxy.getInstance().beginSubTxn(request);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("retryTime:{}, beginSubTxnResponse:{}", retryTime, response);
+                }
+
+                if (response.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+                LOG.info("beginSubTxn KV_TXN_CONFLICT, retryTime:{}", retryTime);
+                backoff();
+                retryTime++;
+            }
+
+            Preconditions.checkNotNull(response);
+            Preconditions.checkNotNull(response.getStatus());
+        } catch (Exception e) {
+            LOG.warn("beginSubTxn failed, exception:", e);
+            throw new UserException("beginSubTxn failed, errMsg:" + e.getMessage());
+        }
+
+        if (response.getStatus().getCode() != MetaServiceCode.OK) {
+            throw new UserException(response.getStatus().getMsg());
+        }
+        return Pair.of(response.hasSubTxnId() ? response.getSubTxnId() : 0,
+                TxnUtil.transactionStateFromPb(response.getTxnInfo()));
+    }
+
+    public TransactionState abortSubTxn(long txnId, long subTxnId, long dbId, Set<Long> tableIds, long subTxnNum)
+            throws UserException {
+        LOG.info("try to abort sub transaction, txnId: {}, subTxnId: {}, dbId: {}, tableIds: {}, subTxnNum: {}", txnId,
+                subTxnId, dbId, tableIds, subTxnNum);
+        AbortSubTxnRequest request = AbortSubTxnRequest.newBuilder().setCloudUniqueId(Config.cloud_unique_id)
+                .setTxnId(txnId).setSubTxnId(subTxnId).setDbId(dbId).addAllTableIds(tableIds).setSubTxnNum(subTxnId)
+                .build();
+        AbortSubTxnResponse response = null;
+        int retryTime = 0;
+        try {
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("retryTime:{}, abortSubTxnRequest:{}", retryTime, request);
+                }
+                response = MetaServiceProxy.getInstance().abortSubTxn(request);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("retryTime:{}, abortSubTxnResponse:{}", retryTime, response);
+                }
+
+                if (response.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+                LOG.info("abortSubTxn KV_TXN_CONFLICT, retryTime:{}", retryTime);
+                backoff();
+                retryTime++;
+            }
+
+            Preconditions.checkNotNull(response);
+            Preconditions.checkNotNull(response.getStatus());
+        } catch (Exception e) {
+            LOG.warn("abortSubTxn failed, exception:", e);
+            throw new UserException("abortSubTxn failed, errMsg:" + e.getMessage());
+        }
+
+        if (response.getStatus().getCode() != MetaServiceCode.OK) {
+            throw new UserException(response.getStatus().getMsg());
+        }
+        return TxnUtil.transactionStateFromPb(response.getTxnInfo());
     }
 }

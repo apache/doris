@@ -16,16 +16,6 @@
 // under the License.
 
 suite("test_trino_hive_other", "external,hive,external_docker,external_docker_hive") {
-    def host_ips = new ArrayList()
-    String[][] backends = sql """ show backends """
-    for (def b in backends) {
-        host_ips.add(b[1])
-    }
-    String [][] frontends = sql """ show frontends """
-    for (def f in frontends) {
-        host_ips.add(f[1])
-    }
-    dispatchTrinoConnectors(host_ips.unique())
 
     def q01 = {
         qt_q24 """ select name, count(1) as c from student group by name order by name desc;"""
@@ -62,6 +52,16 @@ suite("test_trino_hive_other", "external,hive,external_docker,external_docker_hi
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def host_ips = new ArrayList()
+        String[][] backends = sql """ show backends """
+        for (def b in backends) {
+            host_ips.add(b[1])
+        }
+        String [][] frontends = sql """ show frontends """
+        for (def f in frontends) {
+            host_ips.add(f[1])
+        }
+        dispatchTrinoConnectors(host_ips.unique())
         String hms_port = context.config.otherConfigs.get("hive2HmsPort")
         String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -71,8 +71,8 @@ suite("test_trino_hive_other", "external,hive,external_docker,external_docker_hi
         sql """drop catalog if exists ${catalog_name}"""
         sql """create catalog if not exists ${catalog_name} properties (
             "type"="trino-connector",
-            "connector.name"="hive",
-            'hive.metastore.uri' = 'thrift://${externalEnvIp}:${hms_port}'
+            "trino.connector.name"="hive",
+            'trino.hive.metastore.uri' = 'thrift://${externalEnvIp}:${hms_port}'
         );"""
 
         // test user's grants on external catalog

@@ -35,8 +35,8 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service_helper.h"
@@ -234,8 +234,8 @@ TEST(MetaServiceTest, GetInstanceIdTest) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id_err", [&](void* args) {
-        std::string* err = reinterpret_cast<std::string*>(args);
+    sp->set_call_back("get_instance_id_err", [&](auto&& args) {
+        std::string* err = try_any_cast<std::string*>(args[0]);
         *err = "can't find node from cache";
     });
     sp->enable_processing();
@@ -289,12 +289,14 @@ TEST(MetaServiceTest, CreateInstanceTest) {
         req.mutable_obj_info()->CopyFrom(obj);
 
         auto sp = SyncPoint::get_instance();
-        sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                          [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-        sp->set_call_back("encrypt_ak_sk:get_encryption_key",
-                          [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
-        sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                          [](void* p) { *reinterpret_cast<int*>(p) = 1; });
+        sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+            auto* ret = try_any_cast<int*>(args[0]);
+            *ret = 0;
+            auto* key = try_any_cast<std::string*>(args[1]);
+            *key = "test";
+            auto* key_id = try_any_cast<int64_t*>(args[2]);
+            *key_id = 1;
+        });
         sp->enable_processing();
         CreateInstanceResponse res;
         meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
@@ -314,12 +316,14 @@ TEST(MetaServiceTest, CreateInstanceTest) {
         req.set_name("test_name");
 
         auto sp = SyncPoint::get_instance();
-        sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                          [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-        sp->set_call_back("encrypt_ak_sk:get_encryption_key",
-                          [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
-        sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                          [](void* p) { *reinterpret_cast<int*>(p) = 1; });
+        sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+            auto* ret = try_any_cast<int*>(args[0]);
+            *ret = 0;
+            auto* key = try_any_cast<std::string*>(args[1]);
+            *key = "test";
+            auto* key_id = try_any_cast<int64_t*>(args[2]);
+            *key_id = 1;
+        });
         sp->enable_processing();
         CreateInstanceResponse res;
         meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
@@ -347,12 +351,14 @@ TEST(MetaServiceTest, CreateInstanceTest) {
         req.mutable_vault()->CopyFrom(vault);
 
         auto sp = SyncPoint::get_instance();
-        sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                          [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-        sp->set_call_back("encrypt_ak_sk:get_encryption_key",
-                          [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
-        sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                          [](void* p) { *reinterpret_cast<int*>(p) = 1; });
+        sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+            auto* ret = try_any_cast<int*>(args[0]);
+            *ret = 0;
+            auto* key = try_any_cast<std::string*>(args[1]);
+            *key = "test";
+            auto* key_id = try_any_cast<int64_t*>(args[2]);
+            *key_id = 1;
+        });
         sp->enable_processing();
         CreateInstanceResponse res;
         meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
@@ -420,6 +426,110 @@ TEST(MetaServiceTest, CreateInstanceTest) {
                                    &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
+}
+
+TEST(MetaServiceTest, AlterS3StorageVaultTest) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    std::pair<std::string, std::string> pair;
+    sp->set_call_back("extract_object_storage_info:get_aksk_pair", [&](auto&& args) {
+        auto* ret = try_any_cast<std::pair<std::string, std::string>*>(args[0]);
+        pair = *ret;
+    });
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    std::string val;
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+
+    ObjectStoreInfoPB obj_info;
+    obj_info.set_id("1");
+    obj_info.set_ak("ak");
+    obj_info.set_sk("sk");
+    StorageVaultPB vault;
+    vault.mutable_obj_info()->MergeFrom(obj_info);
+    vault.set_name("test_alter_s3_vault");
+    vault.set_id("2");
+    InstanceInfoPB instance;
+    instance.add_storage_vault_names(vault.name());
+    instance.add_resource_ids(vault.id());
+    instance.set_instance_id("GetObjStoreInfoTestInstance");
+    val = instance.SerializeAsString();
+    txn->put(key, val);
+    txn->put(storage_vault_key({instance.instance_id(), "2"}), vault.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    txn = nullptr;
+
+    auto get_test_instance = [&](InstanceInfoPB& i) {
+        std::string key;
+        std::string val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        InstanceKeyInfo key_info {"test_instance"};
+        instance_key(key_info, &key);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        i.ParseFromString(val);
+    };
+
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        StorageVaultPB vault;
+        vault.mutable_obj_info()->set_ak("new_ak");
+        vault.set_name("test_alter_s3_vault");
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(storage_vault_key({instance.instance_id(), "2"}), &val),
+                  TxnErrorCode::TXN_OK);
+        StorageVaultPB get_obj;
+        get_obj.ParseFromString(val);
+        ASSERT_EQ(get_obj.obj_info().ak(), "new_ak") << get_obj.obj_info().ak();
+    }
+
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        StorageVaultPB vault;
+        ObjectStoreInfoPB obj;
+        obj_info.set_ak("new_ak");
+        vault.mutable_obj_info()->MergeFrom(obj);
+        vault.set_name("test_alter_s3_vault_non_exist");
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_NE(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+    }
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
 }
 
 TEST(MetaServiceTest, AlterClusterTest) {
@@ -688,7 +798,7 @@ TEST(MetaServiceTest, BeginTxnTest) {
         std::mutex go_mutex;
         std::condition_variable go_cv;
         bool go = false;
-        auto sp = cloud::SyncPoint::get_instance();
+        auto sp = SyncPoint::get_instance();
         std::unique_ptr<int, std::function<void(int*)>> defer(
                 (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
 
@@ -702,8 +812,8 @@ TEST(MetaServiceTest, BeginTxnTest) {
 
         std::atomic<int32_t> success_txn = {0};
 
-        sp->set_call_back("begin_txn:before:commit_txn:1", [&](void* args) {
-            std::string label = *reinterpret_cast<std::string*>(args);
+        sp->set_call_back("begin_txn:before:commit_txn:1", [&](auto&& args) {
+            const auto& label = *try_any_cast<std::string*>(args[0]);
             std::unique_lock<std::mutex> _lock(go_mutex);
             count_txn1++;
             LOG(INFO) << "count_txn1:" << count_txn1 << " label=" << label;
@@ -722,8 +832,8 @@ TEST(MetaServiceTest, BeginTxnTest) {
             }
         });
 
-        sp->set_call_back("begin_txn:after:commit_txn:1", [&](void* args) {
-            std::string label = *reinterpret_cast<std::string*>(args);
+        sp->set_call_back("begin_txn:after:commit_txn:1", [&](auto&& args) {
+            const auto& label = *try_any_cast<std::string*>(args[0]);
             std::unique_lock<std::mutex> _lock(go_mutex);
             count_txn2++;
             LOG(INFO) << "count_txn2:" << count_txn2 << " label=" << label;
@@ -742,8 +852,8 @@ TEST(MetaServiceTest, BeginTxnTest) {
             }
         });
 
-        sp->set_call_back("begin_txn:after:commit_txn:2", [&](void* args) {
-            int64_t txn_id = *reinterpret_cast<int64_t*>(args);
+        sp->set_call_back("begin_txn:after:commit_txn:2", [&](auto&& args) {
+            int64_t txn_id = *try_any_cast<int64_t*>(args[0]);
             count_txn3++;
             LOG(INFO) << "count_txn3:" << count_txn3 << " txn_id=" << txn_id;
         });
@@ -835,7 +945,7 @@ TEST(MetaServiceTest, BeginTxnTest) {
         std::mutex go_mutex;
         std::condition_variable go_cv;
         bool go = false;
-        auto sp = cloud::SyncPoint::get_instance();
+        auto sp = SyncPoint::get_instance();
         std::unique_ptr<int, std::function<void(int*)>> defer(
                 (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
 
@@ -851,8 +961,8 @@ TEST(MetaServiceTest, BeginTxnTest) {
 
         std::atomic<int32_t> success_txn = {0};
 
-        sp->set_call_back("begin_txn:before:commit_txn:1", [&](void* args) {
-            std::string label = *reinterpret_cast<std::string*>(args);
+        sp->set_call_back("begin_txn:before:commit_txn:1", [&](auto&& args) {
+            std::string label = *try_any_cast<std::string*>(args[0]);
             if (count_txn1.load() == 1) {
                 std::unique_lock<std::mutex> flow_lock_1(flow_mutex_1);
                 flow_cv_1.wait(flow_lock_1);
@@ -861,8 +971,8 @@ TEST(MetaServiceTest, BeginTxnTest) {
             LOG(INFO) << "count_txn1:" << count_txn1 << " label=" << label;
         });
 
-        sp->set_call_back("begin_txn:after:commit_txn:2", [&](void* args) {
-            int64_t txn_id = *reinterpret_cast<int64_t*>(args);
+        sp->set_call_back("begin_txn:after:commit_txn:2", [&](auto&& args) {
+            int64_t txn_id = *try_any_cast<int64_t*>(args[0]);
             while (count_txn2.load() == 0 && count_txn1.load() == 1) {
                 sleep(1);
                 flow_cv_1.notify_all();
@@ -1332,6 +1442,571 @@ TEST(MetaServiceTest, CommitTxnExpiredTest) {
     }
 }
 
+static void create_and_commit_rowset(MetaServiceProxy* meta_service, int64_t table_id,
+                                     int64_t index_id, int64_t partition_id, int64_t tablet_id,
+                                     int64_t txn_id) {
+    create_tablet(meta_service, table_id, index_id, partition_id, tablet_id);
+    auto tmp_rowset = create_rowset(txn_id, tablet_id, partition_id);
+    CreateRowsetResponse res;
+    commit_rowset(meta_service, tmp_rowset, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+}
+
+TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
+    auto meta_service = get_meta_service();
+    int64_t db_id = 98131;
+    int64_t txn_id = -1;
+    int64_t t1 = 10;
+    int64_t t1_index = 100;
+    int64_t t1_p1 = 11;
+    int64_t t1_p1_t1 = 12;
+    int64_t t1_p1_t2 = 13;
+    int64_t t1_p2 = 14;
+    int64_t t1_p2_t1 = 15;
+    int64_t t2 = 16;
+    int64_t t2_index = 101;
+    int64_t t2_p3 = 17;
+    int64_t t2_p3_t1 = 18;
+    [[maybe_unused]] int64_t t2_p4 = 19;
+    [[maybe_unused]] int64_t t2_p4_t1 = 20;
+    std::string label = "test_label";
+    std::string label2 = "test_label_0";
+    // begin txn
+    {
+        brpc::Controller cntl;
+        BeginTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_db_id(db_id);
+        txn_info_pb.set_label(label);
+        txn_info_pb.add_table_ids(t1);
+        txn_info_pb.set_timeout_ms(36000);
+        req.mutable_txn_info()->CopyFrom(txn_info_pb);
+        BeginTxnResponse res;
+        meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        txn_id = res.txn_id();
+    }
+
+    // mock rowset and tablet: for sub_txn1
+    int64_t sub_txn_id1 = txn_id;
+    create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p1, t1_p1_t1, sub_txn_id1);
+    create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p1, t1_p1_t2, sub_txn_id1);
+    create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p2, t1_p2_t1, sub_txn_id1);
+
+    // begin_sub_txn2
+    int64_t sub_txn_id2 = -1;
+    {
+        brpc::Controller cntl;
+        BeginSubTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_txn_id(txn_id);
+        req.set_sub_txn_num(0);
+        req.set_db_id(db_id);
+        req.set_label(label2);
+        req.mutable_table_ids()->Add(t1);
+        req.mutable_table_ids()->Add(t2);
+        BeginSubTxnResponse res;
+        meta_service->begin_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.txn_info().table_ids().size(), 2);
+        ASSERT_EQ(res.txn_info().sub_txn_ids().size(), 1);
+        ASSERT_TRUE(res.has_sub_txn_id());
+        sub_txn_id2 = res.sub_txn_id();
+        ASSERT_EQ(sub_txn_id2, res.txn_info().sub_txn_ids()[0]);
+    }
+    // mock rowset and tablet: for sub_txn3
+    create_and_commit_rowset(meta_service.get(), t2, t2_index, t2_p3, t2_p3_t1, sub_txn_id2);
+
+    // begin_sub_txn3
+    int64_t sub_txn_id3 = -1;
+    {
+        brpc::Controller cntl;
+        BeginSubTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_txn_id(txn_id);
+        req.set_sub_txn_num(1);
+        req.set_db_id(db_id);
+        req.set_label("test_label_1");
+        req.mutable_table_ids()->Add(t1);
+        req.mutable_table_ids()->Add(t2);
+        req.mutable_table_ids()->Add(t1);
+        BeginSubTxnResponse res;
+        meta_service->begin_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.txn_info().table_ids().size(), 3);
+        ASSERT_EQ(res.txn_info().sub_txn_ids().size(), 2);
+        ASSERT_TRUE(res.has_sub_txn_id());
+        sub_txn_id3 = res.sub_txn_id();
+        ASSERT_EQ(sub_txn_id3, res.txn_info().sub_txn_ids()[1]);
+    }
+    // mock rowset and tablet: for sub_txn3
+    create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p1, t1_p1_t1, sub_txn_id3);
+    create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p1, t1_p1_t2, sub_txn_id3);
+
+    // commit txn
+    CommitTxnRequest req;
+    {
+        brpc::Controller cntl;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(666);
+        req.set_txn_id(txn_id);
+        req.set_is_txn_load(true);
+
+        SubTxnInfo sub_txn_info1;
+        sub_txn_info1.set_sub_txn_id(sub_txn_id1);
+        sub_txn_info1.set_table_id(t1);
+        sub_txn_info1.mutable_base_tablet_ids()->Add(t1_p1_t1);
+        sub_txn_info1.mutable_base_tablet_ids()->Add(t1_p1_t2);
+        sub_txn_info1.mutable_base_tablet_ids()->Add(t1_p2_t1);
+
+        SubTxnInfo sub_txn_info2;
+        sub_txn_info2.set_sub_txn_id(sub_txn_id2);
+        sub_txn_info2.set_table_id(t2);
+        sub_txn_info2.mutable_base_tablet_ids()->Add(t2_p3_t1);
+
+        SubTxnInfo sub_txn_info3;
+        sub_txn_info3.set_sub_txn_id(sub_txn_id3);
+        sub_txn_info3.set_table_id(t1);
+        sub_txn_info3.mutable_base_tablet_ids()->Add(t1_p1_t1);
+        sub_txn_info3.mutable_base_tablet_ids()->Add(t1_p1_t2);
+
+        req.mutable_sub_txn_infos()->Add(std::move(sub_txn_info1));
+        req.mutable_sub_txn_infos()->Add(std::move(sub_txn_info2));
+        req.mutable_sub_txn_infos()->Add(std::move(sub_txn_info3));
+        CommitTxnResponse res;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        // std::cout << res.DebugString() << std::endl;
+        ASSERT_EQ(res.table_ids().size(), 3);
+
+        ASSERT_EQ(res.table_ids()[0], t2);
+        ASSERT_EQ(res.partition_ids()[0], t2_p3);
+        ASSERT_EQ(res.versions()[0], 2);
+
+        ASSERT_EQ(res.table_ids()[1], t1);
+        ASSERT_EQ(res.partition_ids()[1], t1_p2);
+        ASSERT_EQ(res.versions()[1], 2);
+
+        ASSERT_EQ(res.table_ids()[2], t1);
+        ASSERT_EQ(res.partition_ids()[2], t1_p1);
+        ASSERT_EQ(res.versions()[2], 3);
+    }
+
+    // doubly commit txn
+    {
+        brpc::Controller cntl;
+        CommitTxnResponse res;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::TXN_ALREADY_VISIBLE);
+        auto found = res.status().msg().find(
+                fmt::format("transaction is already visible: db_id={} txn_id={}", db_id, txn_id));
+        ASSERT_TRUE(found != std::string::npos);
+    }
+
+    // check kv
+    {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = meta_service->txn_kv()->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        // txn_info
+        std::string info_key = txn_info_key({mock_instance, db_id, txn_id});
+        std::string info_val;
+        ASSERT_EQ(txn->get(info_key, &info_val), TxnErrorCode::TXN_OK);
+        TxnInfoPB txn_info;
+        txn_info.ParseFromString(info_val);
+        ASSERT_EQ(txn_info.status(), TxnStatusPB::TXN_STATUS_VISIBLE);
+
+        info_key = txn_info_key({mock_instance, db_id, sub_txn_id2});
+        ASSERT_EQ(txn->get(info_key, &info_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+        // txn_index
+        std::string index_key = txn_index_key({mock_instance, txn_id});
+        std::string index_val;
+        ASSERT_EQ(txn->get(index_key, &index_val), TxnErrorCode::TXN_OK);
+        TxnIndexPB txn_index;
+        txn_index.ParseFromString(index_val);
+        ASSERT_TRUE(txn_index.has_tablet_index());
+
+        index_key = txn_index_key({mock_instance, sub_txn_id3});
+        ASSERT_EQ(txn->get(index_key, &index_val), TxnErrorCode::TXN_OK);
+        txn_index.ParseFromString(index_val);
+        ASSERT_FALSE(txn_index.has_tablet_index());
+
+        // txn_label
+        std::string label_key = txn_label_key({mock_instance, db_id, label});
+        std::string label_val;
+        ASSERT_EQ(txn->get(label_key, &label_val), TxnErrorCode::TXN_OK);
+
+        label_key = txn_label_key({mock_instance, db_id, label2});
+        ASSERT_EQ(txn->get(label_key, &label_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+        // txn_running
+        std::string running_key = txn_running_key({mock_instance, db_id, txn_id});
+        std::string running_val;
+        ASSERT_EQ(txn->get(running_key, &running_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+        running_key = txn_running_key({mock_instance, db_id, sub_txn_id3});
+        ASSERT_EQ(txn->get(running_key, &running_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+        // tmp rowset
+        int64_t ids[] = {txn_id, sub_txn_id1, sub_txn_id2, sub_txn_id3};
+        for (auto id : ids) {
+            MetaRowsetTmpKeyInfo rs_tmp_key_info0 {mock_instance, id, 0};
+            MetaRowsetTmpKeyInfo rs_tmp_key_info1 {mock_instance, id + 1, 0};
+            std::string rs_tmp_key0;
+            std::string rs_tmp_key1;
+            meta_rowset_tmp_key(rs_tmp_key_info0, &rs_tmp_key0);
+            meta_rowset_tmp_key(rs_tmp_key_info1, &rs_tmp_key1);
+            std::unique_ptr<RangeGetIterator> it;
+            ASSERT_EQ(txn->get(rs_tmp_key0, rs_tmp_key1, &it, true), TxnErrorCode::TXN_OK);
+            ASSERT_FALSE(it->has_next());
+        }
+
+        // partition version
+        std::string ver_key = partition_version_key({mock_instance, db_id, t2, t2_p3});
+        std::string ver_val;
+        ASSERT_EQ(txn->get(ver_key, &ver_val), TxnErrorCode::TXN_OK);
+        VersionPB version;
+        version.ParseFromString(ver_val);
+        ASSERT_EQ(version.version(), 2);
+
+        ver_key = partition_version_key({mock_instance, db_id, t1, t1_p2});
+        ASSERT_EQ(txn->get(ver_key, &ver_val), TxnErrorCode::TXN_OK);
+        version.ParseFromString(ver_val);
+        ASSERT_EQ(version.version(), 2);
+
+        ver_key = partition_version_key({mock_instance, db_id, t1, t1_p1});
+        ASSERT_EQ(txn->get(ver_key, &ver_val), TxnErrorCode::TXN_OK);
+        version.ParseFromString(ver_val);
+        ASSERT_EQ(version.version(), 3);
+
+        // table version
+        std::string table_ver_key = table_version_key({mock_instance, db_id, t1});
+        std::string table_ver_val;
+        ASSERT_EQ(txn->get(table_ver_key, &table_ver_val), TxnErrorCode::TXN_OK);
+        auto val_int = *reinterpret_cast<const int64_t*>(table_ver_val.data());
+        ASSERT_EQ(val_int, 1);
+
+        table_version_key({mock_instance, db_id, t2});
+        ASSERT_EQ(txn->get(table_ver_key, &table_ver_val), TxnErrorCode::TXN_OK);
+        val_int = *reinterpret_cast<const int64_t*>(table_ver_val.data());
+        ASSERT_EQ(val_int, 1);
+    }
+}
+
+TEST(MetaServiceTest, CommitTxnWithSubTxnTest2) {
+    auto meta_service = get_meta_service();
+    int64_t db_id = 99131;
+    int64_t txn_id = -1;
+    int64_t t1 = 20;
+    int64_t t1_index = 200;
+    int64_t t1_p1 = 21;
+    int64_t t1_p1_t1 = 22;
+    int64_t t1_p1_t2 = 23;
+    int64_t t1_p2 = 24;
+    int64_t t1_p2_t1 = 25;
+    int64_t t2 = 26;
+    int64_t t2_index = 201;
+    int64_t t2_p3 = 27;
+    int64_t t2_p3_t1 = 28;
+    [[maybe_unused]] int64_t t2_p4 = 29;
+    [[maybe_unused]] int64_t t2_p4_t1 = 30;
+    std::string label = "test_label_10";
+    std::string label2 = "test_label_11";
+    // begin txn
+    {
+        brpc::Controller cntl;
+        BeginTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_db_id(db_id);
+        txn_info_pb.set_label(label);
+        txn_info_pb.add_table_ids(t1);
+        txn_info_pb.set_timeout_ms(36000);
+        req.mutable_txn_info()->CopyFrom(txn_info_pb);
+        BeginTxnResponse res;
+        meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        txn_id = res.txn_id();
+    }
+
+    std::vector<SubTxnInfo> sub_txn_infos;
+    for (int i = 0; i < 500; i++) {
+        int64_t sub_txn_id1 = -1;
+        if (i == 0) {
+            sub_txn_id1 = txn_id;
+        } else {
+            brpc::Controller cntl;
+            BeginSubTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_txn_id(txn_id);
+            req.set_sub_txn_num(sub_txn_infos.size() - 1);
+            req.set_db_id(db_id);
+            req.set_label(label2);
+            req.mutable_table_ids()->Add(t1);
+            if (i > 0) {
+                req.mutable_table_ids()->Add(t2);
+            }
+            BeginSubTxnResponse res;
+            meta_service->begin_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                        &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(res.txn_info().table_ids().size(), i == 0 ? 1 : 2);
+            ASSERT_EQ(res.txn_info().sub_txn_ids().size(), sub_txn_infos.size());
+            ASSERT_TRUE(res.has_sub_txn_id());
+            sub_txn_id1 = res.sub_txn_id();
+            ASSERT_EQ(sub_txn_id1,
+                      res.txn_info().sub_txn_ids()[res.txn_info().sub_txn_ids().size() - 1]);
+        }
+        // mock rowset and tablet: for
+        create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p1, t1_p1_t1, sub_txn_id1);
+        create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p1, t1_p1_t2, sub_txn_id1);
+        create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p2, t1_p2_t1, sub_txn_id1);
+        // generate sub_txn_info
+        {
+            SubTxnInfo sub_txn_info1;
+            sub_txn_info1.set_sub_txn_id(sub_txn_id1);
+            sub_txn_info1.set_table_id(t1);
+            sub_txn_info1.mutable_base_tablet_ids()->Add(t1_p1_t1);
+            sub_txn_info1.mutable_base_tablet_ids()->Add(t1_p1_t2);
+            sub_txn_info1.mutable_base_tablet_ids()->Add(t1_p2_t1);
+            sub_txn_infos.push_back(sub_txn_info1);
+        }
+
+        // begin_sub_txn2
+        int64_t sub_txn_id2 = -1;
+        {
+            brpc::Controller cntl;
+            BeginSubTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_txn_id(txn_id);
+            req.set_sub_txn_num(sub_txn_infos.size() - 1);
+            req.set_db_id(db_id);
+            req.set_label(label2);
+            req.mutable_table_ids()->Add(t1);
+            req.mutable_table_ids()->Add(t2);
+            BeginSubTxnResponse res;
+            meta_service->begin_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                        &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(res.txn_info().table_ids().size(), 2);
+            ASSERT_EQ(res.txn_info().sub_txn_ids().size(), sub_txn_infos.size());
+            ASSERT_TRUE(res.has_sub_txn_id());
+            sub_txn_id2 = res.sub_txn_id();
+        }
+        // mock rowset and tablet: for sub_txn3
+        create_and_commit_rowset(meta_service.get(), t2, t2_index, t2_p3, t2_p3_t1, sub_txn_id2);
+        {
+            SubTxnInfo sub_txn_info2;
+            sub_txn_info2.set_sub_txn_id(sub_txn_id2);
+            sub_txn_info2.set_table_id(t2);
+            sub_txn_info2.mutable_base_tablet_ids()->Add(t2_p3_t1);
+            sub_txn_infos.push_back(sub_txn_info2);
+        }
+
+        // begin_sub_txn3
+        int64_t sub_txn_id3 = -1;
+        {
+            brpc::Controller cntl;
+            BeginSubTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_txn_id(txn_id);
+            req.set_sub_txn_num(sub_txn_infos.size() - 1);
+            req.set_db_id(db_id);
+            req.set_label(label2);
+            req.mutable_table_ids()->Add(t1);
+            req.mutable_table_ids()->Add(t2);
+            BeginSubTxnResponse res;
+            meta_service->begin_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                        &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(res.txn_info().table_ids().size(), 2);
+            ASSERT_EQ(res.txn_info().sub_txn_ids().size(), sub_txn_infos.size());
+            ASSERT_TRUE(res.has_sub_txn_id());
+            sub_txn_id3 = res.sub_txn_id();
+        }
+        // mock rowset and tablet: for sub_txn3
+        create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p1, t1_p1_t1, sub_txn_id3);
+        create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p1, t1_p1_t2, sub_txn_id3);
+        {
+            SubTxnInfo sub_txn_info3;
+            sub_txn_info3.set_sub_txn_id(sub_txn_id3);
+            sub_txn_info3.set_table_id(t1);
+            sub_txn_info3.mutable_base_tablet_ids()->Add(t1_p1_t1);
+            sub_txn_info3.mutable_base_tablet_ids()->Add(t1_p1_t2);
+            sub_txn_infos.push_back(sub_txn_info3);
+        }
+    }
+
+    // commit txn
+    CommitTxnRequest req;
+    {
+        brpc::Controller cntl;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(666);
+        req.set_txn_id(txn_id);
+        req.set_is_txn_load(true);
+
+        for (const auto& sub_txn_info : sub_txn_infos) {
+            req.add_sub_txn_infos()->CopyFrom(sub_txn_info);
+        }
+        CommitTxnResponse res;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        std::cout << res.DebugString() << std::endl;
+        ASSERT_EQ(res.table_ids().size(), 3);
+
+        ASSERT_EQ(res.table_ids()[0], t2);
+        ASSERT_EQ(res.partition_ids()[0], t2_p3);
+        ASSERT_EQ(res.versions()[0], 501);
+
+        ASSERT_EQ(res.table_ids()[1], t1);
+        ASSERT_EQ(res.partition_ids()[1], t1_p2);
+        ASSERT_EQ(res.versions()[1], 501);
+
+        ASSERT_EQ(res.table_ids()[2], t1);
+        ASSERT_EQ(res.partition_ids()[2], t1_p1);
+        ASSERT_EQ(res.versions()[2], 1001);
+    }
+}
+
+TEST(MetaServiceTest, BeginAndAbortSubTxnTest) {
+    auto meta_service = get_meta_service();
+    long db_id = 98762;
+    int64_t txn_id = -1;
+    // begin txn
+    {
+        brpc::Controller cntl;
+        BeginTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_db_id(db_id);
+        txn_info_pb.set_label("test_label");
+        txn_info_pb.add_table_ids(1234);
+        txn_info_pb.set_timeout_ms(36000);
+        req.mutable_txn_info()->CopyFrom(txn_info_pb);
+        BeginTxnResponse res;
+        meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        txn_id = res.txn_id();
+    }
+    // case: begin 2 sub txn
+    int64_t sub_txn_id1 = -1;
+    int64_t sub_txn_id2 = -1;
+    for (int i = 0; i < 2; i++) {
+        {
+            brpc::Controller cntl;
+            BeginSubTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_txn_id(txn_id);
+            req.set_sub_txn_num(i);
+            req.set_db_id(db_id);
+            req.set_label("test_label_" + std::to_string(i));
+            req.mutable_table_ids()->Add(1234);
+            req.mutable_table_ids()->Add(1235);
+            if (i == 1) {
+                req.mutable_table_ids()->Add(1235);
+            }
+            BeginSubTxnResponse res;
+            meta_service->begin_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                        &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(res.txn_info().table_ids().size(), i == 0 ? 2 : 3);
+            ASSERT_EQ(res.txn_info().sub_txn_ids().size(), i == 0 ? 1 : 2);
+            ASSERT_TRUE(res.has_sub_txn_id());
+            if (i == 0) {
+                sub_txn_id1 = res.sub_txn_id();
+                ASSERT_EQ(sub_txn_id1, res.txn_info().sub_txn_ids()[0]);
+            } else {
+                sub_txn_id2 = res.sub_txn_id();
+                ASSERT_EQ(sub_txn_id1, res.txn_info().sub_txn_ids()[0]);
+                ASSERT_EQ(sub_txn_id2, res.txn_info().sub_txn_ids()[1]);
+            }
+        }
+        // get txn state
+        {
+            brpc::Controller cntl;
+            GetTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_txn_id(txn_id);
+            GetTxnResponse res;
+            meta_service->get_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                  &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(res.txn_info().table_ids().size(), i == 0 ? 2 : 3);
+            ASSERT_EQ(res.txn_info().table_ids()[0], 1234);
+            ASSERT_EQ(res.txn_info().table_ids()[1], 1235);
+            if (i == 1) {
+                ASSERT_EQ(res.txn_info().table_ids()[2], 1235);
+            }
+        }
+    }
+    // case: abort sub txn2 twice
+    {
+        for (int i = 0; i < 2; i++) {
+            brpc::Controller cntl;
+            AbortSubTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_txn_id(txn_id);
+            req.set_sub_txn_id(sub_txn_id2);
+            req.set_sub_txn_num(2);
+            req.set_db_id(db_id);
+            req.mutable_table_ids()->Add(1234);
+            req.mutable_table_ids()->Add(1235);
+            AbortSubTxnResponse res;
+            meta_service->abort_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                        &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            // check txn state
+            ASSERT_EQ(res.txn_info().table_ids().size(), 2);
+            ASSERT_EQ(res.txn_info().sub_txn_ids().size(), 2);
+            ASSERT_EQ(sub_txn_id1, res.txn_info().sub_txn_ids()[0]);
+            ASSERT_EQ(sub_txn_id2, res.txn_info().sub_txn_ids()[1]);
+        }
+        // get txn state
+        {
+            brpc::Controller cntl;
+            GetTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_txn_id(txn_id);
+            GetTxnResponse res;
+            meta_service->get_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                  &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(res.txn_info().table_ids().size(), 2);
+            ASSERT_EQ(res.txn_info().table_ids()[0], 1234);
+            ASSERT_EQ(res.txn_info().table_ids()[1], 1235);
+        }
+    }
+    // check label key does not exist
+    for (int i = 0; i < 2; i++) {
+        std::string key =
+                txn_label_key({"test_instance", db_id, "test_label_" + std::to_string(i)});
+        std::string val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+    // check txn index key exist
+    for (auto i : {sub_txn_id1, sub_txn_id2}) {
+        std::string key = txn_index_key({"test_instance", i});
+        std::string val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+    }
+}
+
 TEST(MetaServiceTest, AbortTxnTest) {
     auto meta_service = get_meta_service();
 
@@ -1483,6 +2158,77 @@ TEST(MetaServiceTest, GetCurrentMaxTxnIdTest) {
     ASSERT_GE(max_txn_id_res.current_max_txn_id(), begin_txn_res.txn_id());
 }
 
+TEST(MetaServiceTest, AbortTxnWithCoordinatorTest) {
+    auto meta_service = get_meta_service();
+
+    const int64_t db_id = 666;
+    const int64_t table_id = 777;
+    const std::string label = "test_label";
+    const std::string cloud_unique_id = "test_cloud_unique_id";
+    const int64_t coordinator_id = 15623;
+    int64_t cur_time = std::chrono::duration_cast<std::chrono::seconds>(
+                               std::chrono::steady_clock::now().time_since_epoch())
+                               .count();
+    std::string host = "127.0.0.1:15586";
+    int64_t txn_id = -1;
+
+    brpc::Controller begin_txn_cntl;
+    BeginTxnRequest begin_txn_req;
+    BeginTxnResponse begin_txn_res;
+    TxnInfoPB txn_info_pb;
+    TxnCoordinatorPB coordinator;
+
+    begin_txn_req.set_cloud_unique_id(cloud_unique_id);
+    txn_info_pb.set_db_id(db_id);
+    txn_info_pb.set_label(label);
+    txn_info_pb.add_table_ids(table_id);
+    txn_info_pb.set_timeout_ms(36000);
+    coordinator.set_id(coordinator_id);
+    coordinator.set_ip(host);
+    coordinator.set_sourcetype(::doris::cloud::TxnSourceTypePB::TXN_SOURCE_TYPE_BE);
+    coordinator.set_start_time(cur_time);
+    txn_info_pb.mutable_coordinator()->CopyFrom(coordinator);
+    begin_txn_req.mutable_txn_info()->CopyFrom(txn_info_pb);
+
+    meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl),
+                            &begin_txn_req, &begin_txn_res, nullptr);
+    ASSERT_EQ(begin_txn_res.status().code(), MetaServiceCode::OK);
+    txn_id = begin_txn_res.txn_id();
+    ASSERT_GT(txn_id, -1);
+
+    brpc::Controller abort_txn_cntl;
+    AbortTxnWithCoordinatorRequest abort_txn_req;
+    AbortTxnWithCoordinatorResponse abort_txn_resp;
+
+    abort_txn_req.set_id(coordinator_id);
+    abort_txn_req.set_ip(host);
+    abort_txn_req.set_start_time(cur_time + 3600);
+
+    // first time to check txn conflict
+    meta_service->abort_txn_with_coordinator(
+            reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl), &abort_txn_req,
+            &abort_txn_resp, nullptr);
+    ASSERT_EQ(abort_txn_resp.status().code(), MetaServiceCode::OK);
+
+    brpc::Controller abort_txn_conflict_cntl;
+    CheckTxnConflictRequest check_txn_conflict_req;
+    CheckTxnConflictResponse check_txn_conflict_res;
+
+    check_txn_conflict_req.set_cloud_unique_id(cloud_unique_id);
+    check_txn_conflict_req.set_db_id(db_id);
+    check_txn_conflict_req.set_end_txn_id(txn_id + 1);
+    check_txn_conflict_req.add_table_ids(table_id);
+
+    // first time to check txn conflict
+    meta_service->check_txn_conflict(
+            reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl),
+            &check_txn_conflict_req, &check_txn_conflict_res, nullptr);
+
+    ASSERT_EQ(check_txn_conflict_res.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(check_txn_conflict_res.finished(), true);
+    ASSERT_EQ(check_txn_conflict_res.conflict_txns_size(), 0);
+}
+
 TEST(MetaServiceTest, CheckTxnConflictTest) {
     auto meta_service = get_meta_service();
 
@@ -1526,6 +2272,8 @@ TEST(MetaServiceTest, CheckTxnConflictTest) {
 
     ASSERT_EQ(check_txn_conflict_res.status().code(), MetaServiceCode::OK);
     ASSERT_EQ(check_txn_conflict_res.finished(), false);
+    ASSERT_EQ(check_txn_conflict_res.conflict_txns_size(), 1);
+    check_txn_conflict_res.clear_conflict_txns();
 
     // mock rowset and tablet
     int64_t tablet_id_base = 123456;
@@ -1554,6 +2302,7 @@ TEST(MetaServiceTest, CheckTxnConflictTest) {
 
     ASSERT_EQ(check_txn_conflict_res.status().code(), MetaServiceCode::OK);
     ASSERT_EQ(check_txn_conflict_res.finished(), true);
+    ASSERT_EQ(check_txn_conflict_res.conflict_txns_size(), 0);
 
     {
         std::string running_key = txn_running_key({mock_instance, db_id, txn_id});
@@ -2027,9 +2776,10 @@ TEST(MetaServiceTest, CleanTxnLabelTest) {
 
         // inject internal_clean_label err = TXN_CONFLICT
         {
-            auto sp = cloud::SyncPoint::get_instance();
-            sp->set_call_back("internal_clean_label:err", [&](void* args) {
-                *reinterpret_cast<TxnErrorCode*>(args) = TxnErrorCode::TXN_CONFLICT;
+            auto sp = SyncPoint::get_instance();
+            sp->set_call_back("internal_clean_label:err", [&](auto&& args) {
+                auto* err = try_any_cast<TxnErrorCode*>(args[0]);
+                *err = TxnErrorCode::TXN_CONFLICT;
             });
             sp->enable_processing();
             int64_t txn_id = -1;
@@ -2093,9 +2843,9 @@ TEST(MetaServiceTest, CleanTxnLabelTest) {
 
         // create 12 committed txns and clean label by id
         {
-            auto sp = cloud::SyncPoint::get_instance();
-            sp->set_call_back("clean_txn_label:limit", [&](void* args) {
-                int* limit = reinterpret_cast<int*>(args);
+            auto sp = SyncPoint::get_instance();
+            sp->set_call_back("clean_txn_label:limit", [](auto&& args) {
+                int* limit = try_any_cast<int*>(args[0]);
                 *limit = 5;
             });
             sp->enable_processing();
@@ -2254,8 +3004,11 @@ TEST(MetaServiceTest, CopyJobTest) {
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     // generate a begin copy request
@@ -2482,18 +3235,25 @@ TEST(MetaServiceTest, FilterCopyFilesTest) {
     auto stage_id = "test_stage_id";
     int64_t table_id = 100;
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "test";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* key = try_any_cast<std::string*>(args[0]);
+        *key = "test";
+        auto* ret = try_any_cast<int*>(args[1]);
+        *ret = 0;
+    });
     sp->enable_processing();
 
     FilterCopyFilesRequest request;
@@ -2722,18 +3482,25 @@ TEST(MetaServiceTest, StageTest) {
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "test";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* key = try_any_cast<std::string*>(args[0]);
+        *key = "test";
+        auto* ret = try_any_cast<int*>(args[1]);
+        *ret = 0;
+    });
     sp->enable_processing();
 
     ObjectStoreInfoPB obj;
@@ -2782,13 +3549,20 @@ TEST(MetaServiceTest, StageTest) {
 
         get_stage_req.set_cloud_unique_id(cloud_unique_id);
         // no instance_id
-        sp->clear_call_back("get_instance_id");
-        sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = ""; });
+        sp->set_call_back("get_instance_id", [&](auto&& args) {
+            auto* ret = try_any_cast_ret<std::string>(args);
+            ret->first = "";
+            ret->second = true;
+        });
         meta_service->get_stage(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                 &get_stage_req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
         sp->clear_call_back("get_instance_id");
-        sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+        sp->set_call_back("get_instance_id", [&](auto&& args) {
+            auto* ret = try_any_cast_ret<std::string>(args);
+            ret->first = instance_id;
+            ret->second = true;
+        });
 
         // no stage type
         meta_service->get_stage(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
@@ -3046,18 +3820,25 @@ TEST(MetaServiceTest, GetIamTest) {
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "test";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* key = try_any_cast<std::string*>(args[0]);
+        *key = "test";
+        auto* ret = try_any_cast<int*>(args[1]);
+        *ret = 0;
+    });
     sp->enable_processing();
 
     config::arn_id = "iam_arn";
@@ -3122,18 +3903,25 @@ TEST(MetaServiceTest, AlterRamTest) {
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "test";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* key = try_any_cast<std::string*>(args[0]);
+        *key = "test";
+        auto* ret = try_any_cast<int*>(args[1]);
+        *ret = 0;
+    });
     sp->enable_processing();
 
     config::arn_id = "iam_arn";
@@ -4108,9 +4896,9 @@ TEST(MetaServiceTest, BatchGetVersionFallback) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("batch_get_version_err", [&](void* args) {
+    sp->set_call_back("batch_get_version_err", [&](auto&& args) {
         if (i++ == N / 10) {
-            *reinterpret_cast<TxnErrorCode*>(args) = TxnErrorCode::TXN_TOO_OLD;
+            *try_any_cast<TxnErrorCode*>(args) = TxnErrorCode::TXN_TOO_OLD;
         }
     });
 
@@ -4154,8 +4942,11 @@ TEST(MetaServiceTest, IsDroppedTablet) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     meta_service = get_meta_service();
@@ -4232,8 +5023,11 @@ TEST(MetaServiceTest, IndexRequest) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     auto reset_meta_service = [&meta_service] { meta_service = get_meta_service(); };
@@ -4472,8 +5266,11 @@ TEST(MetaServiceTest, PartitionRequest) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     auto reset_meta_service = [&meta_service] { meta_service = get_meta_service(); };
@@ -4676,6 +5473,70 @@ TEST(MetaServiceTest, PartitionRequest) {
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(txn->get(partition_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
     req.add_index_ids(index_id);
+    // ------------Test check partition-----------
+    // Normal
+    req.set_db_id(1);
+    req.set_table_id(table_id + 1);
+    req.add_index_ids(index_id + 1);
+    req.add_partition_ids(partition_id + 1);
+    meta_service->prepare_partition(&ctrl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    meta_service->commit_partition(&ctrl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    CheckKVRequest req_check;
+    CheckKVResponse res_check;
+    meta_service->check_kv(&ctrl, &req_check, &res_check, nullptr);
+    ASSERT_EQ(res_check.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    res_check.Clear();
+    req_check.set_op(CheckKVRequest::CREATE_PARTITION_AFTER_FE_COMMIT);
+    CheckKeyInfos check_keys_pb;
+    check_keys_pb.add_table_ids(table_id + 1);
+    check_keys_pb.add_index_ids(index_id + 1);
+    check_keys_pb.add_partition_ids(partition_id + 1);
+    req_check.mutable_check_keys()->CopyFrom(check_keys_pb);
+    meta_service->check_kv(&ctrl, &req_check, &res_check, nullptr);
+    ASSERT_EQ(res_check.status().code(), MetaServiceCode::OK);
+    res_check.Clear();
+    // AbNomal not commit
+    req.Clear();
+    req.set_db_id(1);
+    req.set_table_id(table_id + 2);
+    req.add_index_ids(index_id + 2);
+    req.add_partition_ids(partition_id + 2);
+    meta_service->prepare_partition(&ctrl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    req_check.Clear();
+    req_check.set_op(CheckKVRequest::CREATE_PARTITION_AFTER_FE_COMMIT);
+    check_keys_pb.Clear();
+    check_keys_pb.add_table_ids(table_id + 2);
+    check_keys_pb.add_index_ids(index_id + 2);
+    check_keys_pb.add_partition_ids(partition_id + 2);
+    req_check.mutable_check_keys()->CopyFrom(check_keys_pb);
+    meta_service->check_kv(&ctrl, &req_check, &res_check, nullptr);
+    ASSERT_EQ(res_check.status().code(), MetaServiceCode::UNDEFINED_ERR);
+
+    // ------------Test check index-----------
+    // Normal
+    IndexRequest req_index;
+    IndexResponse res_index;
+    req_index.set_db_id(1);
+    req_index.set_table_id(table_id + 3);
+    req_index.add_index_ids(index_id + 3);
+    meta_service->prepare_index(&ctrl, &req_index, &res_index, nullptr);
+    ASSERT_EQ(res_index.status().code(), MetaServiceCode::OK);
+    meta_service->commit_index(&ctrl, &req_index, &res_index, nullptr);
+    ASSERT_EQ(res_index.status().code(), MetaServiceCode::OK);
+    req_check.Clear();
+    res_check.Clear();
+    req_check.set_op(CheckKVRequest::CREATE_INDEX_AFTER_FE_COMMIT);
+    check_keys_pb.Clear();
+    check_keys_pb.add_table_ids(table_id + 3);
+    check_keys_pb.add_index_ids(index_id + 3);
+    req_check.mutable_check_keys()->CopyFrom(check_keys_pb);
+    meta_service->check_kv(&ctrl, &req_check, &res_check, nullptr);
+    ASSERT_EQ(res_check.status().code(), MetaServiceCode::OK);
+    res_check.Clear();
+
     // ------------Test drop partition------------
     reset_meta_service();
     req.Clear();
@@ -4792,10 +5653,11 @@ TEST(MetaServiceTest, PartitionRequest) {
 
 TEST(MetaServiceTxnStoreRetryableTest, MockGetVersion) {
     size_t index = 0;
-    SyncPoint::get_instance()->set_call_back("get_version_code", [&](void* arg) {
+    SyncPoint::get_instance()->set_call_back("get_version_code", [&](auto&& args) {
         LOG(INFO) << "GET_VERSION_CODE";
         if (++index < 2) {
-            *reinterpret_cast<MetaServiceCode*>(arg) = MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE;
+            *doris::try_any_cast<MetaServiceCode*>(args[0]) =
+                    MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE;
         }
     });
     SyncPoint::get_instance()->enable_processing();
@@ -4824,8 +5686,9 @@ TEST(MetaServiceTxnStoreRetryableTest, MockGetVersion) {
 }
 
 TEST(MetaServiceTxnStoreRetryableTest, DoNotReturnRetryableCode) {
-    SyncPoint::get_instance()->set_call_back("get_version_code", [&](void* arg) {
-        *reinterpret_cast<MetaServiceCode*>(arg) = MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE;
+    SyncPoint::get_instance()->set_call_back("get_version_code", [&](auto&& args) {
+        *doris::try_any_cast<MetaServiceCode*>(args[0]) =
+                MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE;
     });
     SyncPoint::get_instance()->enable_processing();
     int32_t retry_times = config::txn_store_retry_times;
@@ -4922,12 +5785,13 @@ TEST(MetaServiceTest, GetClusterStatusTest) {
 
 TEST(MetaServiceTest, DecryptInfoTest) {
     auto meta_service = get_meta_service();
-    auto sp = cloud::SyncPoint::get_instance();
+    auto sp = SyncPoint::get_instance();
     sp->enable_processing();
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](void* p) {
-        *reinterpret_cast<std::string*>(p) = "selectdbselectdbselectdbselectdb";
+    sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* key = try_any_cast<std::string*>(args[0]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* ret = try_any_cast<int*>(args[1]);
+        *ret = 0;
     });
     InstanceInfoPB instance;
 
@@ -5018,15 +5882,17 @@ TEST(MetaServiceTest, DecryptInfoTest) {
 TEST(MetaServiceTest, LegacyUpdateAkSkTest) {
     auto meta_service = get_meta_service();
 
-    auto sp = cloud::SyncPoint::get_instance();
+    auto sp = SyncPoint::get_instance();
     sp->enable_processing();
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](void* p) {
-        *reinterpret_cast<std::string*>(p) = "selectdbselectdbselectdbselectdb";
+
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
     });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -5122,7 +5988,7 @@ TEST(MetaServiceTest, NormalizeHdfsConfTest) {
     EXPECT_EQ(prefix, "test");
     prefix = "  /test// ";
     EXPECT_TRUE(normalize_hdfs_prefix(prefix));
-    EXPECT_EQ(prefix, "/test");
+    EXPECT_EQ(prefix, "test");
     prefix = "/";
     EXPECT_TRUE(normalize_hdfs_prefix(prefix));
     EXPECT_EQ(prefix, "");
@@ -5137,15 +6003,17 @@ TEST(MetaServiceTest, NormalizeHdfsConfTest) {
 TEST(MetaServiceTest, AddObjInfoTest) {
     auto meta_service = get_meta_service();
 
-    auto sp = cloud::SyncPoint::get_instance();
+    auto sp = SyncPoint::get_instance();
     sp->enable_processing();
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](void* p) {
-        *reinterpret_cast<std::string*>(p) = "selectdbselectdbselectdbselectdb";
+
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
     });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -5189,10 +6057,10 @@ TEST(MetaServiceTest, AddObjInfoTest) {
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_op(AlterObjStoreInfoRequest::ADD_OBJ_INFO);
         auto sp = SyncPoint::get_instance();
-        sp->set_call_back("create_object_info_with_encrypt",
-                          [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-        sp->set_call_back("create_object_info_with_encrypt::pred",
-                          [](void* p) { *((bool*)p) = true; });
+        sp->set_call_back("create_object_info_with_encrypt", [](auto&& args) {
+            auto* ret = try_any_cast<int*>(args[0]);
+            *ret = 0;
+        });
         sp->enable_processing();
 
         ObjectStoreInfoPB obj_info;
@@ -5229,15 +6097,16 @@ TEST(MetaServiceTest, AddObjInfoTest) {
 TEST(MetaServiceTest, AddHdfsInfoTest) {
     auto meta_service = get_meta_service();
 
-    auto sp = cloud::SyncPoint::get_instance();
+    auto sp = SyncPoint::get_instance();
     sp->enable_processing();
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](void* p) {
-        *reinterpret_cast<std::string*>(p) = "selectdbselectdbselectdbselectdb";
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
     });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -5294,13 +6163,13 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         // Invalid fs name
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
         req.mutable_vault()->mutable_hdfs_info()->mutable_build_conf()->set_fs_name(
                 "hdfs://ip:port");
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
 
@@ -5325,7 +6194,7 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED) << res.status().msg();
     }
@@ -5345,7 +6214,7 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
@@ -5361,15 +6230,16 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
 TEST(MetaServiceTest, DropHdfsInfoTest) {
     auto meta_service = get_meta_service();
 
-    auto sp = cloud::SyncPoint::get_instance();
+    auto sp = SyncPoint::get_instance();
     sp->enable_processing();
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](void* p) {
-        *reinterpret_cast<std::string*>(p) = "selectdbselectdbselectdbselectdb";
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
     });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -5414,7 +6284,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
     }
@@ -5433,7 +6303,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::STORAGE_VAULT_NOT_FOUND)
                 << res.status().msg();
@@ -5453,7 +6323,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
@@ -5485,7 +6355,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
@@ -5512,7 +6382,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
@@ -5538,7 +6408,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
@@ -5561,7 +6431,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
@@ -5599,7 +6469,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
@@ -5644,10 +6514,10 @@ TEST(MetaServiceTest, GetDefaultVaultTest) {
         req.mutable_vault()->CopyFrom(vault);
 
         auto sp = SyncPoint::get_instance();
-        sp->set_call_back("create_object_info_with_encrypt",
-                          [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-        sp->set_call_back("create_object_info_with_encrypt::pred",
-                          [](void* p) { *((bool*)p) = true; });
+        sp->set_call_back("create_object_info_with_encrypt", [](auto&& args) {
+            auto* ret = try_any_cast<int*>(args[0]);
+            *ret = 0;
+        });
         sp->enable_processing();
         CreateInstanceResponse res;
         meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
@@ -5694,15 +6564,14 @@ TEST(MetaServiceTest, GetDefaultVaultTest) {
         req.mutable_obj_info()->CopyFrom(obj_info);
 
         auto sp = SyncPoint::get_instance();
-        sp->set_call_back("create_object_info_with_encrypt", [](void* p) {
-            std::tuple<int*, MetaServiceCode*, std::string*>& ret_tuple =
-                    *reinterpret_cast<std::tuple<int*, MetaServiceCode*, std::string*>*>(p);
-            *std::get<0>(ret_tuple) = 0;
-            *std::get<1>(ret_tuple) = MetaServiceCode::OK;
-            *std::get<2>(ret_tuple) = "";
+        sp->set_call_back("create_object_info_with_encrypt", [](auto&& args) {
+            auto* ret = try_any_cast<int*>(args[0]);
+            *ret = 0;
+            auto* code = try_any_cast<MetaServiceCode*>(args[1]);
+            *code = MetaServiceCode::OK;
+            auto* msg = try_any_cast<std::string*>(args[2]);
+            *msg = "";
         });
-        sp->set_call_back("create_object_info_with_encrypt::pred",
-                          [](void* p) { *((bool*)p) = true; });
         sp->enable_processing();
         CreateInstanceResponse res;
         meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
@@ -5746,12 +6615,14 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
     req.mutable_vault()->CopyFrom(vault);
 
     auto sp = SyncPoint::get_instance();
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "test";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
     sp->enable_processing();
     CreateInstanceResponse res;
     meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
@@ -5781,7 +6652,7 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
 
@@ -5790,7 +6661,7 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
         set_default_req.set_op(AlterObjStoreInfoRequest::SET_DEFAULT_VAULT);
         set_default_req.mutable_vault()->CopyFrom(hdfs);
         AlterObjStoreInfoResponse set_default_res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &set_default_req,
                 &set_default_res, nullptr);
         ASSERT_EQ(set_default_res.status().code(), MetaServiceCode::OK)
@@ -5814,7 +6685,7 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
         set_default_req.set_op(AlterObjStoreInfoRequest::SET_DEFAULT_VAULT);
         set_default_req.mutable_vault()->CopyFrom(hdfs);
         AlterObjStoreInfoResponse set_default_res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &set_default_req,
                 &set_default_res, nullptr);
         ASSERT_NE(set_default_res.status().code(), MetaServiceCode::OK)
@@ -5829,15 +6700,16 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
 TEST(MetaServiceTest, GetObjStoreInfoTest) {
     auto meta_service = get_meta_service();
 
-    auto sp = cloud::SyncPoint::get_instance();
+    auto sp = SyncPoint::get_instance();
     sp->enable_processing();
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](void* p) {
-        *reinterpret_cast<std::string*>(p) = "selectdbselectdbselectdbselectdb";
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
     });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -5892,7 +6764,7 @@ TEST(MetaServiceTest, GetObjStoreInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
@@ -5935,15 +6807,16 @@ TEST(MetaServiceTest, GetObjStoreInfoTest) {
 TEST(MetaServiceTest, CreateTabletsVaultsTest) {
     auto meta_service = get_meta_service();
 
-    auto sp = cloud::SyncPoint::get_instance();
+    auto sp = SyncPoint::get_instance();
     sp->enable_processing();
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](void* p) {
-        *reinterpret_cast<std::string*>(p) = "selectdbselectdbselectdbselectdb";
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
     });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -6012,7 +6885,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
 
@@ -6038,7 +6911,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
         set_default_req.mutable_vault()->CopyFrom(hdfs);
         AlterObjStoreInfoResponse set_default_res;
         brpc::Controller cntl;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &set_default_req,
                 &set_default_res, nullptr);
         ASSERT_EQ(set_default_res.status().code(), MetaServiceCode::OK)
@@ -6053,8 +6926,8 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
         req.add_tablet_metas();
 
         auto sp = SyncPoint::get_instance();
-        sp->set_call_back("create_tablets::pred",
-                          [](void* pred) { *reinterpret_cast<bool*>(pred) = true; });
+        sp->set_call_back("create_tablets",
+                          [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
         sp->enable_processing();
 
         brpc::Controller cntl;
@@ -6065,7 +6938,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
         ASSERT_EQ(res.storage_vault_id(), "1");
         ASSERT_EQ(res.storage_vault_name(), "built_in_storage_vault");
 
-        sp->clear_call_back("create_tablets::pred");
+        sp->clear_call_back("create_tablets");
     }
 
     // try to use one non-existent vault
@@ -6076,8 +6949,10 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
         req.add_tablet_metas();
 
         auto sp = SyncPoint::get_instance();
-        sp->set_call_back("create_tablets::pred",
-                          [](void* pred) { *reinterpret_cast<bool*>(pred) = true; });
+        SyncPoint::CallbackGuard guard;
+        sp->set_call_back(
+                "create_tablets", [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; },
+                &guard);
         sp->enable_processing();
 
         brpc::Controller cntl;
@@ -6085,8 +6960,6 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
         meta_service->create_tablets(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
-
-        sp->clear_call_back("create_tablets::pred");
     }
 
     SyncPoint::get_instance()->disable_processing();
@@ -6096,15 +6969,16 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
 TEST(MetaServiceTest, UpdateAkSkTest) {
     auto meta_service = get_meta_service();
 
-    auto sp = cloud::SyncPoint::get_instance();
+    auto sp = SyncPoint::get_instance();
     sp->enable_processing();
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](void* p) {
-        *reinterpret_cast<std::string*>(p) = "selectdbselectdbselectdbselectdb";
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
     });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
 
     auto get_test_instance = [&](InstanceInfoPB& i) {
         std::string key;
@@ -6176,15 +7050,16 @@ TEST(MetaServiceTest, UpdateAkSkTest) {
 TEST(MetaServiceTest, AlterIamTest) {
     auto meta_service = get_meta_service();
 
-    auto sp = cloud::SyncPoint::get_instance();
+    auto sp = SyncPoint::get_instance();
     sp->enable_processing();
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](void* p) {
-        *reinterpret_cast<std::string*>(p) = "selectdbselectdbselectdbselectdb";
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
     });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
 
     std::string cipher_sk = "JUkuTDctR+ckJtnPkLScWaQZRcOtWBhsLLpnCRxQLxr734qB8cs6gNLH6grE1FxO";
     std::string plain_sk = "Hx60p12123af234541nsVsffdfsdfghsdfhsdf34t";
@@ -6245,8 +7120,11 @@ TEST(MetaServiceTest, UpdateTmpRowsetTest) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     {

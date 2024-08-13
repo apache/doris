@@ -19,6 +19,9 @@ package org.apache.doris.cloud.rpc;
 
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
 
 import org.apache.logging.log4j.LogManager;
@@ -32,9 +35,29 @@ import java.util.concurrent.TimeoutException;
 public class VersionHelper {
     private static final Logger LOG = LogManager.getLogger(VersionHelper.class);
 
+    // Call get_version() from meta service, and save the elapsed to summary profile.
+    public static Cloud.GetVersionResponse getVersionFromMeta(Cloud.GetVersionRequest req)
+            throws RpcException {
+        long startAt = System.nanoTime();
+        boolean isTableVersion = req.getIsTableVersion();
+        try {
+            return getVisibleVersion(req);
+        } finally {
+            SummaryProfile profile = getSummaryProfile();
+            if (profile != null) {
+                long elapsed = System.nanoTime() - startAt;
+                if (isTableVersion) {
+                    profile.addGetTableVersionTime(elapsed);
+                } else {
+                    profile.addGetPartitionVersionTime(elapsed);
+                }
+            }
+        }
+    }
+
     public static Cloud.GetVersionResponse getVisibleVersion(Cloud.GetVersionRequest request) throws RpcException {
         int tryTimes = 0;
-        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
             Cloud.GetVersionResponse resp = getVisibleVersionInternal(request,
                     Config.default_get_version_from_ms_timeout_second * 1000);
             if (resp != null) {
@@ -50,7 +73,7 @@ public class VersionHelper {
                         resp.getStatus(), tryTimes);
             }
             // sleep random millis, retry rpc failed
-            if (tryTimes > Config.meta_service_rpc_retry_times / 2) {
+            if (tryTimes > Config.metaServiceRpcRetryTimes() / 2) {
                 sleepSeveralMs(500, 1000);
             } else {
                 sleepSeveralMs(20, 200);
@@ -65,8 +88,7 @@ public class VersionHelper {
         long deadline = System.currentTimeMillis() + timeoutMs;
         Cloud.GetVersionResponse resp = null;
         try {
-            Future<Cloud.GetVersionResponse> future =
-                    MetaServiceProxy.getInstance().getVisibleVersionAsync(request);
+            Future<Cloud.GetVersionResponse> future = MetaServiceProxy.getInstance().getVisibleVersionAsync(request);
 
             while (resp == null) {
                 try {
@@ -89,4 +111,16 @@ public class VersionHelper {
             LOG.warn("get snapshot from meta service: sleep get interrupted exception");
         }
     }
+
+    private static SummaryProfile getSummaryProfile() {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null) {
+            StmtExecutor executor = ctx.getExecutor();
+            if (executor != null) {
+                return executor.getSummaryProfile();
+            }
+        }
+        return null;
+    }
+
 }

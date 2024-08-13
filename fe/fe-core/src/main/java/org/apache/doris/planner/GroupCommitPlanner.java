@@ -17,18 +17,17 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.NativeInsertStmt;
-import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FormatOptions;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
@@ -40,13 +39,13 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.StreamLoadTask;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
-import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TMergeType;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPipelineFragmentParams;
+import org.apache.doris.thrift.TPipelineFragmentParamsList;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
@@ -60,7 +59,6 @@ import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -71,12 +69,13 @@ import java.util.stream.Collectors;
 // we only support OlapTable now.
 public class GroupCommitPlanner {
     private static final Logger LOG = LogManager.getLogger(GroupCommitPlanner.class);
+    public static final String SCHEMA_CHANGE = " is blocked on schema change";
 
     protected Database db;
     protected OlapTable table;
     protected TUniqueId loadId;
     protected Backend backend;
-    private TExecPlanFragmentParamsList paramsList;
+    private TPipelineFragmentParamsList paramsList;
     private ByteString execPlanFragmentParamsBytes;
 
     public GroupCommitPlanner(Database db, OlapTable table, List<String> targetColumnNames, TUniqueId queryId,
@@ -85,7 +84,7 @@ public class GroupCommitPlanner {
         this.db = db;
         this.table = table;
         if (Env.getCurrentEnv().getGroupCommitManager().isBlock(this.table.getId())) {
-            String msg = "insert table " + this.table.getId() + " is blocked on schema change";
+            String msg = "insert table " + this.table.getId() + SCHEMA_CHANGE;
             LOG.info(msg);
             throw new DdlException(msg);
         }
@@ -98,7 +97,8 @@ public class GroupCommitPlanner {
         }
         streamLoadPutRequest
                 .setDb(db.getFullName())
-                .setMaxFilterRatio(ConnectContext.get().getSessionVariable().enableInsertStrict ? 0 : 1)
+                .setMaxFilterRatio(ConnectContext.get().getSessionVariable().enableInsertStrict ? 0
+                        : ConnectContext.get().getSessionVariable().insertMaxFilterRatio)
                 .setTbl(table.getName())
                 .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
                 .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(queryId)
@@ -108,8 +108,9 @@ public class GroupCommitPlanner {
         StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
         // Will using load id as query id in fragment
         // TODO support pipeline
-        TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
-        for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.params.per_node_scan_ranges.entrySet()) {
+        TPipelineFragmentParams tRequest = planner.plan(streamLoadTask.getId());
+        for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.local_params.get(0)
+                .per_node_scan_ranges.entrySet()) {
             for (TScanRangeParams scanRangeParams : entry.getValue()) {
                 scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(
                         TFileFormatType.FORMAT_PROTO);
@@ -117,13 +118,12 @@ public class GroupCommitPlanner {
                         TFileCompressType.PLAIN);
             }
         }
-        tRequest.query_options.setEnablePipelineEngine(false);
-        List<TScanRangeParams> scanRangeParams = tRequest.params.per_node_scan_ranges.values().stream()
+        List<TScanRangeParams> scanRangeParams = tRequest.local_params.get(0).per_node_scan_ranges.values().stream()
                 .flatMap(Collection::stream).collect(Collectors.toList());
         Preconditions.checkState(scanRangeParams.size() == 1);
         loadId = queryId;
         // see BackendServiceProxy#execPlanFragmentsAsync
-        paramsList = new TExecPlanFragmentParamsList();
+        paramsList = new TPipelineFragmentParamsList();
         paramsList.addToParamsList(tRequest);
         execPlanFragmentParamsBytes = ByteString.copyFrom(new TSerializer().serialize(paramsList));
     }
@@ -136,7 +136,7 @@ public class GroupCommitPlanner {
         PGroupCommitInsertRequest request = PGroupCommitInsertRequest.newBuilder()
                 .setExecPlanFragmentRequest(InternalService.PExecPlanFragmentRequest.newBuilder()
                         .setRequest(execPlanFragmentParamsBytes)
-                        .setCompact(false).setVersion(InternalService.PFragmentRequestVersion.VERSION_2).build())
+                        .setCompact(false).setVersion(InternalService.PFragmentRequestVersion.VERSION_3).build())
                 .setLoadId(Types.PUniqueId.newBuilder().setHi(loadId.hi).setLo(loadId.lo)
                 .build()).addAllData(rows)
                 .build();
@@ -145,62 +145,12 @@ public class GroupCommitPlanner {
         return future.get();
     }
 
-    // cloud override
     protected void selectBackends(ConnectContext ctx) throws DdlException {
-        backend = ctx.getInsertGroupCommit(this.table.getId());
-        if (backend != null && backend.isAlive() && !backend.isDecommissioned()) {
-            return;
-        }
-
-        List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-        if (allBackendIds.isEmpty()) {
-            throw new DdlException("No alive backend");
-        }
-        Collections.shuffle(allBackendIds);
-        for (Long beId : allBackendIds) {
-            backend = Env.getCurrentSystemInfo().getBackend(beId);
-            if (!backend.isDecommissioned()) {
-                ctx.setInsertGroupCommit(this.table.getId(), backend);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("choose new be {}", backend.getId());
-                }
-                return;
-            }
-        }
-
-        throw new DdlException("No suitable backend");
-    }
-
-    // only for nereids use
-    public static InternalService.PDataRow getRowStringValue(List<Expr> cols, int filterSize) throws UserException {
-        if (cols.isEmpty()) {
-            return null;
-        }
-        InternalService.PDataRow.Builder row = InternalService.PDataRow.newBuilder();
-        List<Expr> exprs = cols.subList(0, cols.size() - filterSize);
-        for (Expr expr : exprs) {
-            if (!expr.isLiteralOrCastExpr() && !(expr instanceof CastExpr)) {
-                if (expr.getChildren().get(0) instanceof NullLiteral) {
-                    row.addColBuilder().setValue(StmtExecutor.NULL_VALUE_FOR_LOAD);
-                    continue;
-                }
-                throw new UserException(
-                        "do not support non-literal expr in transactional insert operation: " + expr.toSql());
-            }
-            processExprVal(expr, row);
-        }
-        return row.build();
-    }
-
-    private static void processExprVal(Expr expr, InternalService.PDataRow.Builder row) {
-        if (expr instanceof NullLiteral) {
-            row.addColBuilder().setValue(StmtExecutor.NULL_VALUE_FOR_LOAD);
-        } else if (expr.getType() instanceof ArrayType) {
-            row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValueForArray()));
-        } else if (!expr.getChildren().isEmpty()) {
-            expr.getChildren().forEach(child -> processExprVal(child, row));
-        } else {
-            row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValue()));
+        try {
+            backend = Env.getCurrentEnv().getGroupCommitManager()
+                    .selectBackendForGroupCommit(this.table.getId(), ctx, false);
+        } catch (LoadException e) {
+            throw new DdlException("No suitable backend");
         }
     }
 
@@ -208,7 +158,7 @@ public class GroupCommitPlanner {
         return backend;
     }
 
-    public TExecPlanFragmentParamsList getParamsList() {
+    public TPipelineFragmentParamsList getParamsList() {
         return paramsList;
     }
 
@@ -217,7 +167,7 @@ public class GroupCommitPlanner {
         SelectStmt selectStmt = (SelectStmt) (stmt.getQueryStmt());
         if (selectStmt.getValueList() != null) {
             for (List<Expr> row : selectStmt.getValueList().getRows()) {
-                InternalService.PDataRow data = StmtExecutor.getRowStringValue(row);
+                InternalService.PDataRow data = StmtExecutor.getRowStringValue(row, FormatOptions.getDefault());
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
                             .collect(Collectors.joining(",")));
@@ -233,7 +183,7 @@ public class GroupCommitPlanner {
                     exprList.add(resultExpr);
                 }
             }
-            InternalService.PDataRow data = StmtExecutor.getRowStringValue(exprList);
+            InternalService.PDataRow data = StmtExecutor.getRowStringValue(exprList, FormatOptions.getDefault());
             if (LOG.isDebugEnabled()) {
                 LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
                         .collect(Collectors.joining(",")));

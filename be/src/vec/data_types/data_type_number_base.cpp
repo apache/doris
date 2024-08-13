@@ -51,20 +51,38 @@ void DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_num,
     row_num = result.second;
 
     if constexpr (std::is_same<T, UInt128>::value) {
-        std::string hex =
-                int128_to_string(assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num));
+        std::string hex = int128_to_string(
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*ptr).get_element(
+                        row_num));
         ostr.write(hex.data(), hex.size());
     } else if constexpr (std::is_same_v<T, float>) {
         // fmt::format_to maybe get inaccurate results at float type, so we use gutil implement.
         char buf[MAX_FLOAT_STR_LENGTH + 2];
-        int len = FloatToBuffer(assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num),
-                                MAX_FLOAT_STR_LENGTH + 2, buf);
+        int len = FloatToBuffer(
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*ptr).get_element(
+                        row_num),
+                MAX_FLOAT_STR_LENGTH + 2, buf);
         ostr.write(buf, len);
     } else if constexpr (std::is_integral<T>::value || std::numeric_limits<T>::is_iec559) {
-        ostr.write_number(assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num));
+        ostr.write_number(
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*ptr).get_element(
+                        row_num));
     }
 }
 
+template <typename T>
+std::string DataTypeNumberBase<T>::to_string(const T& value) const {
+    if constexpr (std::is_same<T, int128_t>::value || std::is_same<T, uint128_t>::value ||
+                  std::is_same<T, UInt128>::value) {
+        return int128_to_string(value);
+    } else if constexpr (std::is_integral<T>::value) {
+        return std::to_string(value);
+    } else if constexpr (std::numeric_limits<T>::is_iec559) {
+        fmt::memory_buffer buffer; // only use in size-predictable type.
+        fmt::format_to(buffer, "{}", value);
+        return std::string(buffer.data(), buffer.size());
+    }
+}
 template <typename T>
 Status DataTypeNumberBase<T>::from_string(ReadBuffer& rb, IColumn* column) const {
     auto* column_data = static_cast<ColumnVector<T>*>(column);
@@ -149,13 +167,19 @@ std::string DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_n
 
     if constexpr (std::is_same<T, int128_t>::value || std::is_same<T, uint128_t>::value ||
                   std::is_same<T, UInt128>::value) {
-        return int128_to_string(assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num));
+        return int128_to_string(
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*ptr).get_element(
+                        row_num));
     } else if constexpr (std::is_integral<T>::value) {
-        return std::to_string(assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num));
+        return std::to_string(
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*ptr).get_element(
+                        row_num));
     } else if constexpr (std::numeric_limits<T>::is_iec559) {
         fmt::memory_buffer buffer; // only use in size-predictable type.
-        fmt::format_to(buffer, "{}",
-                       assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num));
+        fmt::format_to(
+                buffer, "{}",
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*ptr).get_element(
+                        row_num));
         return std::string(buffer.data(), buffer.size());
     }
 }

@@ -32,7 +32,7 @@
 #include "cloud/cloud_tablet_mgr.h"
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "olap/rowset/beta_rowset.h"
@@ -147,11 +147,9 @@ void FileCacheBlockDownloader::download_file_cache_block(
             return;
         }
 
-        auto fs = find_it->second->fs();
-        if (!fs) {
-            LOG(WARNING) << "failed to get fs. tablet_id=" << meta.tablet_id()
-                         << " rowset_id=" << find_it->second->rowset_id()
-                         << " resource_id=" << find_it->second->resource_id();
+        auto storage_resource = find_it->second->remote_storage_resource();
+        if (!storage_resource) {
+            LOG(WARNING) << storage_resource.error();
             return;
         }
 
@@ -171,12 +169,13 @@ void FileCacheBlockDownloader::download_file_cache_block(
         };
 
         DownloadFileMeta download_meta {
-                .path = BetaRowset::remote_segment_path(meta.tablet_id(), meta.rowset_id(),
-                                                        meta.segment_id()),
-                .file_size = meta.offset() + meta.size(), // To avoid trigger get file size IO
+                .path = storage_resource.value()->remote_segment_path(*find_it->second,
+                                                                      meta.segment_id()),
+                .file_size = meta.has_file_size() ? meta.file_size()
+                                                  : -1, // To avoid trigger get file size IO
                 .offset = meta.offset(),
                 .download_size = meta.size(),
-                .file_system = std::move(fs),
+                .file_system = storage_resource.value()->fs,
                 .ctx =
                         {
                                 .is_index_data = meta.cache_type() == ::doris::FileCacheType::INDEX,
@@ -193,6 +192,7 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
     FileReaderOptions opts {
             .cache_type = FileCachePolicy::FILE_BLOCK_CACHE,
             .is_doris_table = true,
+            .cache_base_path {},
             .file_size = meta.file_size,
     };
     auto st = meta.file_system->open_file(meta.path, &file_reader, &opts);

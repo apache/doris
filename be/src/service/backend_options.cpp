@@ -33,9 +33,9 @@ static const std::string PRIORITY_CIDR_SEPARATOR = ";";
 
 std::string BackendOptions::_s_localhost;
 std::vector<CIDR> BackendOptions::_s_priority_cidrs;
-TBackend BackendOptions::_backend;
 bool BackendOptions::_bind_ipv6 = false;
 const char* _service_bind_address = "0.0.0.0";
+int64_t BackendOptions::_s_backend_id = 0;
 
 bool BackendOptions::init() {
     if (!analyze_priority_cidrs(config::priority_networks, &_s_priority_cidrs)) {
@@ -72,15 +72,17 @@ std::string BackendOptions::get_be_endpoint() {
 }
 
 TBackend BackendOptions::get_local_backend() {
-    _backend.__set_host(_s_localhost);
-    _backend.__set_be_port(config::be_port);
-    _backend.__set_http_port(config::webserver_port);
-    _backend.__set_brpc_port(config::brpc_port);
-    return _backend;
+    TBackend backend;
+    backend.__set_host(_s_localhost);
+    backend.__set_be_port(config::be_port);
+    backend.__set_http_port(config::webserver_port);
+    backend.__set_brpc_port(config::brpc_port);
+    backend.__set_id(_s_backend_id);
+    return backend;
 }
 
 void BackendOptions::set_backend_id(int64_t backend_id) {
-    _backend.__set_id(backend_id);
+    _s_backend_id = backend_id;
 }
 
 void BackendOptions::set_localhost(const std::string& host) {

@@ -22,7 +22,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
 import org.apache.doris.proto.InternalService.PAlterVaultSyncResponse;
@@ -246,10 +245,11 @@ public class BackendServiceProxy {
     }
 
     public ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(TNetworkAddress address,
-            TUniqueId finstId, Status cancelReason) throws RpcException {
+            Status cancelReason) throws RpcException {
         final InternalService.PCancelPlanFragmentRequest pRequest =
                 InternalService.PCancelPlanFragmentRequest.newBuilder()
-                        .setFinstId(Types.PUniqueId.newBuilder().setHi(finstId.hi).setLo(finstId.lo).build())
+                        // instance id is not used, but it is a required field.
+                        .setFinstId(Types.PUniqueId.newBuilder().setHi(0).setLo(0).build())
                         .setCancelReason(cancelReason.getPCancelReason())
                         .setCancelStatus(cancelReason.toPStatus()).build();
         try {
@@ -263,14 +263,13 @@ public class BackendServiceProxy {
     }
 
     public ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelPipelineXPlanFragmentAsync(
-            TNetworkAddress address, PlanFragmentId fragmentId, TUniqueId queryId,
-            Status cancelReason) throws RpcException {
+            TNetworkAddress address, TUniqueId queryId, Status cancelReason) throws RpcException {
         final InternalService.PCancelPlanFragmentRequest pRequest = InternalService.PCancelPlanFragmentRequest
                 .newBuilder()
+                // instance id is not used, but it is a required field.
                 .setFinstId(Types.PUniqueId.newBuilder().setHi(0).setLo(0).build())
                 .setCancelReason(cancelReason.getPCancelReason())
                 .setCancelStatus(cancelReason.toPStatus())
-                .setFragmentId(fragmentId.asInt())
                 .setQueryId(Types.PUniqueId.newBuilder().setHi(queryId.hi).setLo(queryId.lo).build()).build();
         try {
             final BackendServiceClient client = getProxy(address);
@@ -556,5 +555,16 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PGetBeResourceResponse> getBeResourceAsync(TNetworkAddress address, int timeoutSec,
+            InternalService.PGetBeResourceRequest request) {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.getBeResource(request, timeoutSec);
+        } catch (Throwable e) {
+            LOG.warn("get be resource failed, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+        }
+        return null;
+    }
 
 }

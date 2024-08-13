@@ -172,12 +172,14 @@ message ObjectStoreInfoPB {
     // presigned url use
     // oss,aws,cos,obs,bos
     enum Provider {
-        OSS = 0;
-        S3 =  1;
-        COS = 2;
-        OBS = 3;
-        BOS = 4;
-        GCP = 5;
+        UNKONWN = -1;
+        OSS     = 0;
+        S3      = 1;
+        COS     = 2;
+        OBS     = 3;
+        BOS     = 4;
+        GCP     = 5;
+        AZURE   = 6;
     }
     optional int64 ctime = 1;
     optional int64 mtime = 2;
@@ -201,6 +203,13 @@ message StorageVaultPB {
     optional string name = 2;
     optional HdfsVaultInfo hdfs_info = 3; // HdfsResource
     optional ObjectStoreInfoPB obj_info = 4;
+
+    message PathFormat {
+        optional int64 path_version = 1;
+        optional int64 shard_num = 2;
+    }
+
+    optional PathFormat path_format = 5;
 }
 
 message HdfsBuildConf {
@@ -261,6 +270,8 @@ enum TxnStatusPB {
 message TxnCoordinatorPB {
     optional TxnSourceTypePB sourceType = 1;
     optional string ip = 2;
+    optional int64 id = 3;
+    optional int64 start_time = 4;
 }
 
 message RoutineLoadProgressPB {
@@ -378,6 +389,8 @@ message TxnInfoPB {
     optional TxnStatusPB status = 15;
     optional TxnCommitAttachmentPB commit_attachment = 16;
     optional int64 listener_id = 17; //callback id
+    // for transaction load, used for recycler
+    repeated int64 sub_txn_ids = 18;
     // TODO: There are more fields TBD
 }
 
@@ -390,6 +403,7 @@ message TxnRunningPB {
 
 message VersionPB {
     optional int64 version = 1;
+    optional int64 update_time_ms = 2;
 }
 
 message RecycleTxnPB {
@@ -482,6 +496,8 @@ message TabletMetaInfoPB { // For update tablet meta
     optional int64 time_series_compaction_time_threshold_seconds = 10;
     optional int64 time_series_compaction_empty_rowsets_threshold = 11;
     optional int64 time_series_compaction_level_threshold = 12;
+    optional bool disable_auto_compaction = 13;
+    optional bool enable_mow_light_delete = 14;
 }
 
 message TabletCompactionJobPB {
@@ -645,6 +661,15 @@ message CommitTxnRequest {
     // merge-on-write table ids
     repeated int64 mow_table_ids = 6;
     repeated int64 base_tablet_ids= 7; // all tablet from base tables (excluding mv)
+    // for transaction load
+    optional bool is_txn_load = 9;
+    repeated SubTxnInfo sub_txn_infos = 10;
+}
+
+message SubTxnInfo {
+    optional int64 sub_txn_id = 1;
+    optional int64 table_id = 2;
+    repeated int64 base_tablet_ids= 3;
 }
 
 // corresponding to TabletStats in meta_service.h and FrontendServiceImpl.java
@@ -662,6 +687,7 @@ message CommitTxnResponse {
     repeated int64 partition_ids = 4;
     repeated int64 versions = 5;
     repeated TableStatsPB table_stats = 6;
+    optional int64 version_update_time_ms = 7;
 }
 
 message AbortTxnRequest {
@@ -682,6 +708,7 @@ message GetTxnRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 db_id = 2;
     optional int64 txn_id = 3;
+    optional string label = 4;
 }
 
 message GetTxnResponse {
@@ -701,6 +728,41 @@ message GetTxnIdResponse {
     optional int64 txn_id = 2;
 }
 
+message BeginSubTxnRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 txn_id = 2;
+    // all successful or failed sub txn except the first one
+    optional int64 sub_txn_num = 3;
+    optional int64 db_id = 4;
+    // set table_ids in txn_info
+    repeated int64 table_ids = 5;
+    // a random label used to generate a sub_txn_id
+    optional string label = 6;
+}
+
+message BeginSubTxnResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional int64 sub_txn_id = 2;
+    optional TxnInfoPB txn_info = 3;
+}
+
+message AbortSubTxnRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 txn_id = 2;
+    // used for log
+    optional int64 sub_txn_id = 3;
+    // all successful or failed sub txn except the first one
+    optional int64 sub_txn_num = 4;
+    optional int64 db_id = 5;
+    // set table_ids in txn_info
+    repeated int64 table_ids = 6;
+}
+
+message AbortSubTxnResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional TxnInfoPB txn_info = 2;
+}
+
 message GetCurrentMaxTxnRequest {
     optional string cloud_unique_id = 1; // For auth
 }
@@ -708,6 +770,17 @@ message GetCurrentMaxTxnRequest {
 message GetCurrentMaxTxnResponse {
     optional MetaServiceResponseStatus status = 1;
     optional int64 current_max_txn_id = 2;
+}
+
+message AbortTxnWithCoordinatorRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional string ip = 2;
+    optional int64 id = 3;
+    optional int64 start_time = 4;
+}
+
+message AbortTxnWithCoordinatorResponse {
+    optional MetaServiceResponseStatus status = 1;
 }
 
 message CheckTxnConflictRequest {
@@ -721,6 +794,7 @@ message CheckTxnConflictRequest {
 message CheckTxnConflictResponse {
     optional MetaServiceResponseStatus status = 1;
     optional bool finished = 2;
+    repeated TxnInfoPB conflict_txns = 3; 
 }
 
 message CleanTxnLabelRequest {
@@ -759,6 +833,7 @@ message GetVersionResponse {
     repeated int64 table_ids = 4;
     repeated int64 partition_ids = 5;
     repeated int64 versions = 6;
+    repeated int64 version_update_time_ms = 7;
 };
 
 message GetObjStoreInfoRequest {
@@ -777,6 +852,7 @@ message AlterObjStoreInfoRequest {
         ADD_BUILT_IN_VAULT = 102;
         ADD_S3_VAULT = 103;
         DROP_S3_VAULT = 104;
+        ALTER_S3_VAULT = 105;
 
         SET_DEFAULT_VAULT = 200;
         UNSET_DEFAULT_VAULT = 201;
@@ -864,6 +940,7 @@ message CreateRowsetRequest {
     optional string cloud_unique_id = 1; // For auth
     optional doris.RowsetMetaCloudPB rowset_meta = 2;
     optional bool temporary = 3;
+    optional int64 txn_id = 4;
 }
 
 message CreateRowsetResponse {
@@ -1337,10 +1414,15 @@ message GetDeleteBitmapUpdateLockRequest {
     optional int64 lock_id = 4;
     optional int64 initiator = 5;
     optional int64 expiration = 6;
+    optional bool require_compaction_stats = 7 [default = false];
+    repeated TabletIndexPB tablet_indexes = 8;
 }
 
 message GetDeleteBitmapUpdateLockResponse {
     optional MetaServiceResponseStatus status = 1;
+    repeated int64 base_compaction_cnts = 2;
+    repeated int64 cumulative_compaction_cnts = 3;
+    repeated int64 cumulative_points = 4;
 }
 
 message GetRLTaskCommitAttachRequest {
@@ -1354,6 +1436,38 @@ message GetRLTaskCommitAttachResponse {
     optional RLTaskTxnCommitAttachmentPB commit_attach = 2;
 }
 
+message ResetRLProgressRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional int64 job_id = 3;
+}
+
+message ResetRLProgressResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message CheckKeyInfos {
+    repeated int64 db_ids = 1;
+    repeated int64 table_ids = 2;
+    repeated int64 index_ids = 3;
+    repeated int64 partition_ids = 4;
+}
+
+message CheckKVRequest {
+    enum Operation {
+        CREATE_INDEX_AFTER_FE_COMMIT        = 1;
+        CREATE_PARTITION_AFTER_FE_COMMIT    = 2;
+    }
+    optional string cloud_unique_id = 1; // For auth
+    optional CheckKeyInfos check_keys = 2;
+    optional Operation op = 3; 
+}
+
+message CheckKVResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional CheckKeyInfos bad_keys = 2;
+}
+
 service MetaService {
     rpc begin_txn(BeginTxnRequest) returns (BeginTxnResponse);
     rpc precommit_txn(PrecommitTxnRequest) returns (PrecommitTxnResponse);
@@ -1364,6 +1478,9 @@ service MetaService {
     rpc check_txn_conflict(CheckTxnConflictRequest) returns (CheckTxnConflictResponse);
     rpc clean_txn_label(CleanTxnLabelRequest) returns (CleanTxnLabelResponse);
     rpc get_txn_id(GetTxnIdRequest) returns (GetTxnIdResponse);
+    rpc begin_sub_txn(BeginSubTxnRequest) returns (BeginSubTxnResponse);
+    rpc abort_sub_txn(AbortSubTxnRequest) returns (AbortSubTxnResponse);
+    rpc abort_txn_with_coordinator(AbortTxnWithCoordinatorRequest) returns (AbortTxnWithCoordinatorResponse);
 
     rpc get_version(GetVersionRequest) returns (GetVersionResponse);
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);
@@ -1389,6 +1506,7 @@ service MetaService {
 
     rpc get_obj_store_info(GetObjStoreInfoRequest) returns (GetObjStoreInfoResponse);
     rpc alter_obj_store_info(AlterObjStoreInfoRequest) returns (AlterObjStoreInfoResponse);
+    rpc alter_storage_vault(AlterObjStoreInfoRequest) returns (AlterObjStoreInfoResponse);
     rpc update_ak_sk(UpdateAkSkRequest) returns (UpdateAkSkResponse);
     rpc create_instance(CreateInstanceRequest) returns (CreateInstanceResponse);
     rpc alter_instance(AlterInstanceRequest) returns (AlterInstanceResponse);
@@ -1420,6 +1538,10 @@ service MetaService {
 
     // routine load progress
     rpc get_rl_task_commit_attach(GetRLTaskCommitAttachRequest) returns (GetRLTaskCommitAttachResponse);
+    rpc reset_rl_progress(ResetRLProgressRequest) returns (ResetRLProgressResponse);
+
+    // check KV
+    rpc check_kv(CheckKVRequest) returns (CheckKVResponse);
 };
 
 service RecyclerService {

@@ -104,7 +104,7 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation, 
     public List<Slot> computeOutput() {
         return function.getTable().getBaseSchema()
                 .stream()
-                .map(col -> SlotReference.fromColumn(function.getTable(), col, qualifier, this))
+                .map(col -> SlotReference.fromColumn(function.getTable(), col, qualifier))
                 .collect(ImmutableList.toImmutableList());
     }
 

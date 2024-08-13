@@ -23,20 +23,25 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <ctime>
+#include <functional>
 #include <limits>
+#include <memory>
 #include <random>
+#include <string>
 
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/meta_service.h"
+#include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
 
 namespace doris::cloud {
 extern std::unique_ptr<MetaServiceProxy> get_meta_service();
 
 namespace {
-std::string instance_id = "MetaServiceJobTest";
+const std::string instance_id = "MetaServiceJobTest";
 
 void start_compaction_job(MetaService* meta_service, int64_t tablet_id, const std::string& job_id,
                           const std::string& initiator, int base_compaction_cnt,
@@ -246,8 +251,11 @@ TEST(MetaServiceJobTest, StartCompactionArguments) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     auto meta_service = get_meta_service();
@@ -306,8 +314,11 @@ TEST(MetaServiceJobTest, StartFullCompaction) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     auto meta_service = get_meta_service();
@@ -358,8 +369,11 @@ TEST(MetaServiceJobTest, StartSchemaChangeArguments) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     auto meta_service = get_meta_service();
@@ -460,8 +474,11 @@ TEST(MetaServiceJobTest, ProcessCompactionArguments) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     auto meta_service = get_meta_service();
@@ -556,8 +573,11 @@ TEST(MetaServiceJobTest, ProcessSchemaChangeArguments) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     auto meta_service = get_meta_service();
@@ -694,8 +714,11 @@ TEST(MetaServiceJobTest, CompactionJobTest) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     brpc::Controller cntl;
@@ -854,14 +877,14 @@ TEST(MetaServiceJobTest, CompactionJobTest) {
 
         // Input rowsets must exist, and more than 0
         // Check number input rowsets
-        sp->set_call_back("process_compaction_job::loop_input_done", [](void* c) {
-            int& num_input_rowsets = *(int*)c;
-            ASSERT_EQ(num_input_rowsets, 0); // zero existed rowsets
+        sp->set_call_back("process_compaction_job::loop_input_done", [](auto&& args) {
+            auto* num_input_rowsets = try_any_cast<int*>(args[0]);
+            ASSERT_EQ(*num_input_rowsets, 0); // zero existed rowsets
         });
-        sp->set_call_back("process_compaction_job::too_few_rowsets", [](void* c) {
-            auto& need_commit = *(bool*)c;
-            ASSERT_EQ(need_commit, true);
-            need_commit = false; // Donot remove tablet job in order to continue test
+        sp->set_call_back("process_compaction_job::too_few_rowsets", [](auto&& args) {
+            auto* need_commit = try_any_cast<bool*>(args[0]);
+            ASSERT_EQ(*need_commit, true);
+            *need_commit = false; // Donot remove tablet job in order to continue test
         });
 
         meta_service->finish_tablet_job(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
@@ -892,9 +915,9 @@ TEST(MetaServiceJobTest, CompactionJobTest) {
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
         // Check number input rowsets
-        sp->set_call_back("process_compaction_job::loop_input_done", [](void* c) {
-            int& num_input_rowsets = *(int*)c;
-            ASSERT_EQ(num_input_rowsets, 5);
+        sp->set_call_back("process_compaction_job::loop_input_done", [](auto&& args) {
+            auto* num_input_rowsets = try_any_cast<int*>(args[0]);
+            ASSERT_EQ(*num_input_rowsets, 5);
         });
         // No tmp rowset key (output rowset)
         meta_service->finish_tablet_job(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
@@ -1024,8 +1047,11 @@ TEST(MetaServiceJobTest, CompactionJobWithMoWTest) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     brpc::Controller cntl;
@@ -1140,14 +1166,14 @@ TEST(MetaServiceJobTest, CompactionJobWithMoWTest) {
 
         // Input rowsets must exist, and more than 0
         // Check number input rowsets
-        sp->set_call_back("process_compaction_job::loop_input_done", [](void* c) {
-            int& num_input_rowsets = *(int*)c;
-            ASSERT_EQ(num_input_rowsets, 0); // zero existed rowsets
+        sp->set_call_back("process_compaction_job::loop_input_done", [](auto&& args) {
+            auto* num_input_rowsets = try_any_cast<int*>(args[0]);
+            ASSERT_EQ(*num_input_rowsets, 0); // zero existed rowsets
         });
-        sp->set_call_back("process_compaction_job::too_few_rowsets", [](void* c) {
-            auto& need_commit = *(bool*)c;
-            ASSERT_EQ(need_commit, true);
-            need_commit = false; // Donot remove tablet job in order to continue test
+        sp->set_call_back("process_compaction_job::too_few_rowsets", [](auto&& args) {
+            auto* need_commit = try_any_cast<bool*>(args[0]);
+            ASSERT_EQ(*need_commit, true);
+            *need_commit = false; // Donot remove tablet job in order to continue test
         });
 
         // Provide input rowset KVs, boundary test, 5 input rowsets
@@ -1174,9 +1200,9 @@ TEST(MetaServiceJobTest, CompactionJobWithMoWTest) {
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
         // Check number input rowsets
-        sp->set_call_back("process_compaction_job::loop_input_done", [](void* c) {
-            int& num_input_rowsets = *(int*)c;
-            ASSERT_EQ(num_input_rowsets, 5);
+        sp->set_call_back("process_compaction_job::loop_input_done", [](auto&& args) {
+            auto* num_input_rowsets = try_any_cast<int*>(args[0]);
+            ASSERT_EQ(*num_input_rowsets, 5);
         });
         int64_t txn_id = dist(rng);
         compaction->add_txn_id(txn_id);
@@ -1285,8 +1311,11 @@ TEST(MetaServiceJobTest, SchemaChangeJobTest) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     brpc::Controller cntl;
@@ -1495,8 +1524,11 @@ TEST(MetaServiceJobTest, RetrySchemaChangeJobTest) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     brpc::Controller cntl;
@@ -1651,8 +1683,11 @@ TEST(MetaServiceJobTest, SchemaChangeJobWithMoWTest) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     brpc::Controller cntl;
@@ -1745,8 +1780,11 @@ TEST(MetaServiceJobTest, ConcurrentCompactionTest) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     brpc::Controller cntl;
@@ -2077,8 +2115,11 @@ TEST(MetaServiceJobTest, ParallelCumuCompactionTest) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     brpc::Controller cntl;
@@ -2184,6 +2225,72 @@ TEST(MetaServiceJobTest, ParallelCumuCompactionTest) {
     res.Clear();
     start_compaction_job(meta_service.get(), tablet_id, "job14", "BE1", 0, 0,
                          TabletCompactionJobPB::CUMULATIVE, res, {11, 11});
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+}
+
+TEST(MetaServiceJobTest, SchemaChangeJobPersistTest) {
+    auto meta_service = get_meta_service();
+
+    auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    brpc::Controller cntl;
+
+    int64_t table_id = 1;
+    int64_t index_id = 2;
+    int64_t partition_id = 3;
+    int64_t tablet_id = 4;
+
+    ASSERT_NO_FATAL_FAILURE(
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, false));
+
+    StartTabletJobResponse res;
+    start_compaction_job(meta_service.get(), tablet_id, "job1", "BE1", 0, 0,
+                         TabletCompactionJobPB::CUMULATIVE, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    res.Clear();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string job_key =
+            job_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    std::string job_val;
+    TabletJobInfoPB job_pb;
+    ASSERT_EQ(txn->get(job_key, &job_val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(job_pb.ParseFromString(job_val));
+    ASSERT_EQ(job_pb.compaction_size(), 1);
+    ASSERT_EQ(job_pb.compaction(0).id(), "job1");
+    ASSERT_EQ(job_pb.compaction(0).initiator(), "BE1");
+
+    int64_t new_tablet_id = 11;
+    ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
+                                          new_tablet_id, false, true));
+    ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
+                                                    partition_id, tablet_id, new_tablet_id, "job2",
+                                                    "BE1"));
+
+    long now = time(nullptr);
+    FinishTabletJobRequest req;
+    FinishTabletJobResponse finish_res_2;
+    req.set_action(FinishTabletJobRequest::LEASE);
+    auto* compaction = req.mutable_job()->add_compaction();
+    compaction->set_id("job1");
+    compaction->set_initiator("BE1");
+    compaction->set_lease(now + 10);
+    req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+    meta_service->finish_tablet_job(&cntl, &req, &finish_res_2, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    FinishTabletJobResponse finish_res;
+    finish_schema_change_job(meta_service.get(), tablet_id, new_tablet_id, "job1", "BE1", {},
+                             finish_res);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 }
 

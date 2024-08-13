@@ -152,7 +152,6 @@ public class CacheHotspotManager extends MasterDaemon {
                 TGetTopNHotPartitionsResponse resp = respPair.first;
                 if (resp.isSetHotTables()) {
                     resp.getHotTables().forEach((THotTableMessage hotTable) -> {
-                        respPair.second.setfileCacheCapacityBytes(resp.file_cache_size);
                         if (hotTable.isSetHotPartitions()) {
                             hotTable.hot_partitions.forEach((THotPartition partition) -> {
                                 insertIntoTable(clusterToBeList.getKey(), hotTable.table_id,
@@ -337,26 +336,24 @@ public class CacheHotspotManager extends MasterDaemon {
                                         .getBackendsByClusterName(clusterName);
         Long totalFileCache = 0L;
         for (Backend backend : backends) {
-            Long fileCacheSize = backend.getfileCacheCapactiyBytes();
-            if (fileCacheSize == 0) {
-                boolean ok = false;
-                BackendService.Client client = null;
-                TNetworkAddress address = null;
-                try {
-                    address = new TNetworkAddress(backend.getHost(), backend.getBePort());
-                    client = ClientPool.backendPool.borrowObject(address);
-                    TGetTopNHotPartitionsResponse resp = client.getTopNHotPartitions(
-                            new TGetTopNHotPartitionsRequest());
-                    fileCacheSize = resp.file_cache_size;
-                    ok = true;
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                } finally {
-                    if (ok) {
-                        ClientPool.backendPool.returnObject(address, client);
-                    } else {
-                        ClientPool.backendPool.invalidateObject(address, client);
-                    }
+            Long fileCacheSize = 0L;
+            boolean ok = false;
+            BackendService.Client client = null;
+            TNetworkAddress address = null;
+            try {
+                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+                client = ClientPool.backendPool.borrowObject(address);
+                TGetTopNHotPartitionsResponse resp = client.getTopNHotPartitions(
+                        new TGetTopNHotPartitionsRequest());
+                fileCacheSize = resp.file_cache_size;
+                ok = true;
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            } finally {
+                if (ok) {
+                    ClientPool.backendPool.returnObject(address, client);
+                } else {
+                    ClientPool.backendPool.invalidateObject(address, client);
                 }
             }
             totalFileCache += fileCacheSize;

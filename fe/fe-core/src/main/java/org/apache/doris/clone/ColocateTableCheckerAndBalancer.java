@@ -28,6 +28,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.Tablet.TabletHealth;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletChecker.CheckerCounter;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
@@ -334,7 +335,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      *      tablet to TabletScheduler.
      *      Otherwise, mark the group as stable
      */
-    protected void runAfterCatalogReady() {
+    public void runAfterCatalogReady() {
         relocateAndBalanceGroups();
         matchGroups();
     }
@@ -378,7 +379,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      *  A    B    C    D
      */
     private void relocateAndBalanceGroups() {
-        Set<GroupId> groupIds = Sets.newHashSet(Env.getCurrentEnv().getColocateTableIndex().getAllGroupIds());
+        Set<GroupId> groupIds = Env.getCurrentEnv().getColocateTableIndex().getAllGroupIds();
 
         // balance only inside each group, excluded balance between all groups
         Set<GroupId> changeGroups = relocateAndBalanceGroup(groupIds, false);
@@ -410,6 +411,10 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             }
 
             ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
+            if (groupSchema == null) {
+                LOG.info("Not found colocate group {}, maybe delete", groupId);
+                continue;
+            }
             ReplicaAllocation replicaAlloc = groupSchema.getReplicaAlloc();
             try {
                 Env.getCurrentSystemInfo().checkReplicaAllocation(replicaAlloc);
@@ -480,13 +485,18 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         // check each group
         Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : groupIds) {
+            ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
+            if (groupSchema == null) {
+                LOG.info("Not found colocate group {}, maybe delete", groupId);
+                continue;
+            }
+
             List<Long> tableIds = colocateIndex.getAllTableIds(groupId);
             List<Set<Long>> backendBucketsSeq = colocateIndex.getBackendsPerBucketSeqSet(groupId);
             if (backendBucketsSeq.isEmpty()) {
                 continue;
             }
 
-            ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
             ReplicaAllocation replicaAlloc = groupSchema.getReplicaAlloc();
             String unstableReason = null;
             OUT:
@@ -503,6 +513,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 if (olapTable == null || !colocateIndex.isColocateTable(olapTable.getId())) {
                     continue;
                 }
+                boolean isUniqKeyMergeOnWrite = olapTable.isUniqKeyMergeOnWrite();
                 olapTable.readLock();
                 try {
                     for (Partition partition : olapTable.getPartitions()) {
@@ -521,14 +532,18 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                 Preconditions.checkState(bucketsSeq.size() == replicationNum,
                                         bucketsSeq.size() + " vs. " + replicationNum);
                                 Tablet tablet = index.getTablet(tabletId);
-                                TabletStatus st = tablet.getColocateHealthStatus(
+                                TabletHealth tabletHealth = tablet.getColocateHealth(
                                         visibleVersion, replicaAlloc, bucketsSeq);
-                                if (st != TabletStatus.HEALTHY) {
+                                if (tabletHealth.status != TabletStatus.HEALTHY) {
                                     counter.unhealthyTabletNum++;
                                     unstableReason = String.format("get unhealthy tablet %d in colocate table."
-                                            + " status: %s", tablet.getId(), st);
+                                            + " status: %s", tablet.getId(), tabletHealth.status);
                                     if (LOG.isDebugEnabled()) {
                                         LOG.debug(unstableReason);
+                                    }
+
+                                    if (tabletHealth.status == TabletStatus.UNRECOVERABLE) {
+                                        continue;
                                     }
 
                                     if (!tablet.readyToBeRepaired(infoService, Priority.NORMAL)) {
@@ -541,9 +556,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                             db.getId(), tableId, partition.getId(), index.getId(), tablet.getId(),
                                             replicaAlloc, System.currentTimeMillis());
                                     // the tablet status will be set again when being scheduled
-                                    tabletCtx.setTabletStatus(st);
-                                    tabletCtx.setPriority(Priority.NORMAL);
+                                    tabletCtx.setTabletHealth(tabletHealth);
                                     tabletCtx.setTabletOrderIdx(idx);
+                                    tabletCtx.setIsUniqKeyMergeOnWrite(isUniqKeyMergeOnWrite);
 
                                     AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
                                     if (res == AddResult.LIMIT_EXCEED || res == AddResult.DISABLED) {
@@ -588,6 +603,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         for (GroupId groupId : groupIds) {
             ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
             if (groupSchema == null) {
+                LOG.info("Not found colocate group {}, maybe delete", groupId);
                 continue;
             }
             ReplicaAllocation replicaAlloc = groupSchema.getReplicaAlloc();
@@ -718,6 +734,10 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             GlobalColocateStatistic globalColocateStatistic, List<List<Long>> balancedBackendsPerBucketSeq,
             boolean balanceBetweenGroups) {
         ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
+        if (groupSchema == null) {
+            LOG.info("Not found colocate group {}, maybe delete", groupId);
+            return false;
+        }
         short replicaNum = groupSchema.getReplicaAlloc().getReplicaNumByTag(tag);
         List<List<Long>> backendsPerBucketSeq = Lists.newArrayList(
                 colocateIndex.getBackendsPerBucketSeqByTag(groupId, tag));

@@ -89,4 +89,12 @@ suite("test_set_operators", "query,p0,arrow_flight_sql") {
             t3 
             on t2.col1=t3.col1;
     """
+
+    order_qt_select_minus """
+        select col1, col1 from t1 minus select col1, col1 from t2;
+    """
+
+    order_qt_select_except """
+        select col1, col1 from t1 except select col1, col1 from t2;
+    """
 }

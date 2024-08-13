@@ -207,7 +207,8 @@ template <typename T>
 template <bool is_binary_format>
 Status DataTypeDecimalSerDe<T>::_write_column_to_mysql(const IColumn& column,
                                                        MysqlRowBuffer<is_binary_format>& result,
-                                                       int row_idx, bool col_const) const {
+                                                       int row_idx, bool col_const,
+                                                       const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     if constexpr (IsDecimalV2<T>) {
@@ -228,15 +229,17 @@ Status DataTypeDecimalSerDe<T>::_write_column_to_mysql(const IColumn& column,
 template <typename T>
 Status DataTypeDecimalSerDe<T>::write_column_to_mysql(const IColumn& column,
                                                       MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                                      bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                      bool col_const,
+                                                      const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 template <typename T>
 Status DataTypeDecimalSerDe<T>::write_column_to_mysql(const IColumn& column,
                                                       MysqlRowBuffer<false>& row_buffer,
-                                                      int row_idx, bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                      int row_idx, bool col_const,
+                                                      const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 template <typename T>
@@ -271,6 +274,32 @@ Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
         cur_batch->numElements = end - start;
     }
     return Status::OK();
+}
+template <typename T>
+
+Status DataTypeDecimalSerDe<T>::deserialize_column_from_fixed_json(
+        IColumn& column, Slice& slice, int rows, int* num_deserialized,
+        const FormatOptions& options) const {
+    Status st = deserialize_one_cell_from_json(column, slice, options);
+    if (!st.ok()) {
+        return st;
+    }
+
+    DataTypeDecimalSerDe::insert_column_last_value_multiple_times(column, rows - 1);
+    *num_deserialized = rows;
+    return Status::OK();
+}
+
+template <typename T>
+void DataTypeDecimalSerDe<T>::insert_column_last_value_multiple_times(IColumn& column,
+                                                                      int times) const {
+    auto& col = static_cast<ColumnDecimal<T>&>(column);
+    auto sz = col.size();
+
+    T val = col.get_element(sz - 1);
+    for (int i = 0; i < times; i++) {
+        col.insert_value(val);
+    }
 }
 
 template class DataTypeDecimalSerDe<Decimal32>;

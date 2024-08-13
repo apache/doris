@@ -33,7 +33,8 @@ import org.apache.doris.qe.ConnectContext;
 import java.util.List;
 
 // Alter view statement
-public class AlterViewStmt extends BaseViewStmt {
+@Deprecated
+public class AlterViewStmt extends BaseViewStmt implements NotFallbackInParser {
 
     public AlterViewStmt(TableName tbl, List<ColWithComment> cols, QueryStmt queryStmt) {
         super(tbl, cols, queryStmt);
@@ -109,5 +110,10 @@ public class AlterViewStmt extends BaseViewStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 }

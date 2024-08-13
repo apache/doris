@@ -17,6 +17,10 @@
 
 #include "olap/schema_change.h"
 
+#include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
+#include <thrift/protocol/TDebugProtocol.h>
+
 #include <algorithm>
 #include <exception>
 #include <map>
@@ -28,11 +32,11 @@
 
 #include "cloud/cloud_schema_change_job.h"
 #include "cloud/config.h"
+#include "common/consts.h"
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "exec/schema_scanner/schema_metadata_name_ids_scanner.h"
-#include "gutil/hash/hash.h"
 #include "gutil/integral_types.h"
 #include "gutil/strings/numbers.h"
 #include "io/fs/file_system.h"
@@ -153,13 +157,12 @@ public:
 
             for (int i = 0; i < rows; i++) {
                 auto row_ref = row_refs[i];
-
                 for (int j = key_number; j < columns; j++) {
                     const auto* column_ptr = row_ref.get_column(j).get();
                     agg_functions[j - key_number]->add(
                             agg_places[j - key_number],
                             const_cast<const vectorized::IColumn**>(&column_ptr), row_ref.position,
-                            nullptr);
+                            &_arena);
                 }
 
                 if (i == rows - 1 || _cmp.compare(row_refs[i], row_refs[i + 1])) {
@@ -245,6 +248,7 @@ private:
 
     BaseTabletSPtr _tablet;
     RowRefComparator _cmp;
+    vectorized::Arena _arena;
 };
 
 BlockChanger::BlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl)
@@ -285,51 +289,63 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
                 vectorized::VExprContext::filter_block(ctx.get(), ref_block, ref_block->columns()));
     }
 
-    const int row_size = ref_block->rows();
-    const int column_size = new_block->columns();
+    const int row_num = ref_block->rows();
+    const int new_schema_cols_num = new_block->columns();
 
-    // swap ref_block[key] and new_block[value]
+    // will be used for swaping ref_block[entry.first] and new_block[entry.second]
     std::list<std::pair<int, int>> swap_idx_list;
-    for (int idx = 0; idx < column_size; idx++) {
-        if (_schema_mapping[idx].expr != nullptr) {
+    for (int idx = 0; idx < new_schema_cols_num; idx++) {
+        auto expr = _schema_mapping[idx].expr;
+        if (expr != nullptr) {
             vectorized::VExprContextSPtr ctx;
-            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*_schema_mapping[idx].expr, ctx));
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*expr, ctx));
             RETURN_IF_ERROR(ctx->prepare(state.get(), row_desc));
             RETURN_IF_ERROR(ctx->open(state.get()));
 
-            int result_column_id = -1;
-            RETURN_IF_ERROR(ctx->execute(ref_block, &result_column_id));
-            if (ref_block->get_by_position(result_column_id).column == nullptr) {
+            int result_tmp_column_idx = -1;
+            RETURN_IF_ERROR(ctx->execute(ref_block, &result_tmp_column_idx));
+            auto& result_tmp_column_def = ref_block->get_by_position(result_tmp_column_idx);
+            if (result_tmp_column_def.column == nullptr) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                        "{} result column is nullptr",
-                        ref_block->get_by_position(result_column_id).name);
+                        "result column={} is nullptr, input expr={}", result_tmp_column_def.name,
+                        apache::thrift::ThriftDebugString(*expr));
             }
-            ref_block->replace_by_position_if_const(result_column_id);
+            ref_block->replace_by_position_if_const(result_tmp_column_idx);
 
-            if (ref_block->get_by_position(result_column_id).column->size() != row_size) {
+            if (result_tmp_column_def.column->size() != row_num) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                        "{} size invalid, expect={}, real={}", new_block->get_by_position(idx).name,
-                        row_size, ref_block->get_by_position(result_column_id).column->size());
+                        "result size invalid, expect={}, real={}; input expr={}", row_num,
+                        result_tmp_column_def.column->size(),
+                        apache::thrift::ThriftDebugString(*expr));
             }
-            RETURN_IF_ERROR(_check_cast_valid(ref_block->get_by_position(idx).column,
-                                              ref_block->get_by_position(result_column_id).column,
-                                              _type));
-            swap_idx_list.emplace_back(result_column_id, idx);
-        } else if (_schema_mapping[idx].ref_column < 0) {
+
+            if (_type == SCHEMA_CHANGE) {
+                // danger casts (expected to be rejected by upstream caller) may cause data to be null and result in data loss in schema change
+                // for rollup, this check is unecessary, and ref columns are not set in this case, it works on exprs
+
+                // column_idx in base schema
+                int32_t ref_column_idx = _schema_mapping[idx].ref_column_idx;
+                DCHECK_GE(ref_column_idx, 0);
+                auto& ref_column_def = ref_block->get_by_position(ref_column_idx);
+                RETURN_IF_ERROR(
+                        _check_cast_valid(ref_column_def.column, result_tmp_column_def.column));
+            }
+            swap_idx_list.emplace_back(result_tmp_column_idx, idx);
+        } else if (_schema_mapping[idx].ref_column_idx < 0) {
             // new column, write default value
             auto* value = _schema_mapping[idx].default_value;
             auto column = new_block->get_by_position(idx).column->assume_mutable();
             if (value->is_null()) {
                 DCHECK(column->is_nullable());
-                column->insert_many_defaults(row_size);
+                column->insert_many_defaults(row_num);
             } else {
                 auto type_info = get_type_info(_schema_mapping[idx].new_column);
                 DefaultValueColumnIterator::insert_default_data(type_info.get(), value->size(),
-                                                                value->ptr(), column, row_size);
+                                                                value->ptr(), column, row_num);
             }
         } else {
             // same type, just swap column
-            swap_idx_list.emplace_back(_schema_mapping[idx].ref_column, idx);
+            swap_idx_list.emplace_back(_schema_mapping[idx].ref_column_idx, idx);
         }
     }
 
@@ -367,78 +383,90 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
     return Status::OK();
 }
 
-// This check is to prevent schema-change from causing data loss
-Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
-                                       vectorized::ColumnPtr new_column, AlterTabletType type) {
-    if (ref_column->size() != new_column->size()) {
+// This check can prevent schema-change from causing data loss after type cast
+Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr input_column,
+                                       vectorized::ColumnPtr output_column) {
+    if (input_column->size() != output_column->size()) {
         return Status::InternalError(
-                "column size is changed, ref_column_size={}, new_column_size={}",
-                ref_column->size(), new_column->size());
+                "column size is changed, input_column_size={}, output_column_size={}; "
+                "input_column={}",
+                input_column->size(), output_column->size(), input_column->get_name());
     }
-    if (type == ROLLUP) {
-        return Status::OK();
-    }
-    if (ref_column->is_nullable() != new_column->is_nullable()) {
-        if (ref_column->is_nullable()) {
+    DCHECK_EQ(input_column->size(), output_column->size())
+            << "length check should have done before calling this function!";
+
+    if (input_column->is_nullable() != output_column->is_nullable()) {
+        if (input_column->is_nullable()) {
             const auto* ref_null_map =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(ref_column)
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(input_column)
                             ->get_null_map_column()
                             .get_data()
                             .data();
 
             bool is_changed = false;
-            for (size_t i = 0; i < ref_column->size(); i++) {
+            for (size_t i = 0; i < input_column->size(); i++) {
                 is_changed |= ref_null_map[i];
             }
             if (is_changed) {
-                return Status::DataQualityError("Null data is changed to not nullable");
+                return Status::DataQualityError(
+                        "some null data is changed to not null, intput_column={}",
+                        input_column->get_name());
             }
         } else {
             const auto& null_map_column =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(new_column)
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(output_column)
                             ->get_null_map_column();
             const auto& nested_column =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(new_column)
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(output_column)
                             ->get_nested_column();
             const auto* new_null_map = null_map_column.get_data().data();
 
-            if (null_map_column.size() != new_column->size() ||
-                nested_column.size() != new_column->size()) {
-                DCHECK(false);
+            if (null_map_column.size() != output_column->size()) {
                 return Status::InternalError(
-                        "null_map_column size is changed, null_map_column_size={}, "
-                        "new_column_size={}",
-                        null_map_column.size(), new_column->size());
+                        "null_map_column size mismatch output_column_size, "
+                        "null_map_column_size={}, output_column_size={}; input_column={}",
+                        null_map_column.size(), output_column->size(), input_column->get_name());
+            }
+
+            if (nested_column.size() != output_column->size()) {
+                return Status::InternalError(
+                        "nested_column size is changed, nested_column_size={}, "
+                        "ouput_column_size={}; input_column={}",
+                        nested_column.size(), output_column->size(), input_column->get_name());
             }
 
             bool is_changed = false;
-            for (size_t i = 0; i < ref_column->size(); i++) {
+            for (size_t i = 0; i < input_column->size(); i++) {
                 is_changed |= new_null_map[i];
             }
             if (is_changed) {
-                return Status::DataQualityError("Some data is changed to null");
+                return Status::DataQualityError(
+                        "some not null data is changed to null, intput_column={}",
+                        input_column->get_name());
             }
         }
     }
 
-    if (ref_column->is_nullable() && new_column->is_nullable()) {
+    if (input_column->is_nullable() && output_column->is_nullable()) {
         const auto* ref_null_map =
-                vectorized::check_and_get_column<vectorized::ColumnNullable>(ref_column)
+                vectorized::check_and_get_column<vectorized::ColumnNullable>(input_column)
                         ->get_null_map_column()
                         .get_data()
                         .data();
         const auto* new_null_map =
-                vectorized::check_and_get_column<vectorized::ColumnNullable>(new_column)
+                vectorized::check_and_get_column<vectorized::ColumnNullable>(output_column)
                         ->get_null_map_column()
                         .get_data()
                         .data();
 
         bool is_changed = false;
-        for (size_t i = 0; i < ref_column->size(); i++) {
+        for (size_t i = 0; i < input_column->size(); i++) {
             is_changed |= (ref_null_map[i] != new_null_map[i]);
         }
         if (is_changed) {
-            return Status::DataQualityError("is_null of data is changed!");
+            return Status::DataQualityError(
+                    "null map is changed after calculation, input_column={}",
+                    input_column->get_name());
         }
     }
     return Status::OK();
@@ -731,11 +759,14 @@ SchemaChangeJob::SchemaChangeJob(StorageEngine& local_storage_engine,
     if (_base_tablet && _new_tablet) {
         _base_tablet_schema = std::make_shared<TabletSchema>();
         _base_tablet_schema->update_tablet_columns(*_base_tablet->tablet_schema(), request.columns);
+        // The request only include column info, do not include bitmap or bloomfilter index info,
+        // So we also need to copy index info from the real base tablet
+        _base_tablet_schema->update_index_info_from(*_base_tablet->tablet_schema());
         // During a schema change, the extracted columns of a variant should not be included in the tablet schema.
         // This is because the schema change for a variant needs to ignore the extracted columns.
         // Otherwise, the schema types in different rowsets might be inconsistent. When performing a schema change,
         // the complete variant is constructed by reading all the sub-columns of the variant.
-        _new_tablet_schema = _new_tablet->tablet_schema()->copy_without_extracted_columns();
+        _new_tablet_schema = _new_tablet->tablet_schema()->copy_without_variant_extracted_columns();
     }
     _job_id = job_id;
 }
@@ -1112,7 +1143,12 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = _new_tablet_schema;
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
-        context.fs = rs_reader->rowset()->rowset_meta()->fs();
+
+        if (!rs_reader->rowset()->is_local()) {
+            context.storage_resource =
+                    *DORIS_TRY(rs_reader->rowset()->rowset_meta()->remote_storage_resource());
+        }
+
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
         auto result = _new_tablet->create_rowset_writer(context, false);
         if (!result.has_value()) {
@@ -1194,6 +1230,8 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
         column_mapping->new_column = &new_column;
 
+        column_mapping->ref_column_idx = base_tablet_schema->field_index(new_column.name());
+
         if (materialized_function_map.find(column_name_lower) != materialized_function_map.end()) {
             auto mv_param = materialized_function_map.find(column_name_lower)->second;
             column_mapping->expr = mv_param.expr;
@@ -1202,9 +1240,7 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
             }
         }
 
-        int32_t column_index = base_tablet_schema->field_index(new_column.name());
-        if (column_index >= 0) {
-            column_mapping->ref_column = column_index;
+        if (column_mapping->ref_column_idx >= 0) {
             continue;
         }
 
@@ -1227,7 +1263,7 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
             return Status::InternalError("failed due to operate on shadow column");
         }
         // Newly added column go here
-        column_mapping->ref_column = -1;
+        column_mapping->ref_column_idx = -1;
 
         if (i < base_tablet_schema->num_short_key_columns()) {
             *sc_directly = true;
@@ -1256,7 +1292,7 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
             continue;
         }
 
-        if (column_mapping->ref_column != i - num_default_value) {
+        if (column_mapping->ref_column_idx != i - num_default_value) {
             *sc_sorting = true;
             return Status::OK();
         }
@@ -1308,14 +1344,24 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
         return Status::OK();
     }
 
+    // if new tablet enable row store, or new tablet has different row store columns
+    if ((!base_tablet_schema->exist_column(BeConsts::ROW_STORE_COL) &&
+         new_tablet_schema->exist_column(BeConsts::ROW_STORE_COL)) ||
+        !std::equal(new_tablet_schema->row_columns_uids().begin(),
+                    new_tablet_schema->row_columns_uids().end(),
+                    base_tablet_schema->row_columns_uids().begin(),
+                    base_tablet_schema->row_columns_uids().end())) {
+        *sc_directly = true;
+    }
+
     for (size_t i = 0; i < new_tablet_schema->num_columns(); ++i) {
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
         if (column_mapping->expr != nullptr) {
             *sc_directly = true;
             return Status::OK();
-        } else if (column_mapping->ref_column >= 0) {
+        } else if (column_mapping->ref_column_idx >= 0) {
             const auto& column_new = new_tablet_schema->column(i);
-            const auto& column_old = base_tablet_schema->column(column_mapping->ref_column);
+            const auto& column_old = base_tablet_schema->column(column_mapping->ref_column_idx);
             // index changed
             if (column_new.is_bf_column() != column_old.is_bf_column() ||
                 column_new.has_bitmap_index() != column_old.has_bitmap_index() ||

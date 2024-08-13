@@ -51,7 +51,6 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
     private final ImmutableList<Long> selectedPartitionIds;
     private final PreAggStatus preAggStatus;
     private final List<Slot> baseOutputs;
-
     private final Optional<TableSample> tableSample;
 
     /**
@@ -121,10 +120,19 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
     public String toString() {
         StringBuilder builder = new StringBuilder();
         if (!getAppliedRuntimeFilters().isEmpty()) {
-            getAppliedRuntimeFilters()
-                    .stream().forEach(rf -> builder.append(" RF").append(rf.getId().asInt()));
+            getAppliedRuntimeFilters().forEach(rf -> builder.append(" RF").append(rf.getId().asInt()));
         }
-        return Utils.toSqlString("PhysicalOlapScan[" + table.getName() + "]" + getGroupIdWithPrefix(),
+        String index = "";
+        if (selectedIndexId != getTable().getBaseIndexId()) {
+            index = "(" + selectedIndexId + ")";
+        }
+        String partitions = "";
+        int partitionCount = this.table.getPartitionNames().size();
+        if (selectedPartitionIds.size() != partitionCount) {
+            partitions = " partitions(" + selectedPartitionIds.size() + "/" + partitionCount + ")";
+        }
+        return Utils.toSqlString("PhysicalOlapScan[" + table.getName() + index + partitions + "]"
+                        + getGroupIdWithPrefix(),
                 "stats", statistics, "RFs", builder
         );
     }

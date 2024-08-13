@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("default_vault") {
+suite("default_vault", "nonConcurrent") {
     if (!enableStoragevault()) {
         logger.info("skip create storgage vault case")
         return
@@ -92,8 +92,9 @@ suite("default_vault") {
         CREATE STORAGE VAULT IF NOT EXISTS create_default_hdfs_vault
         PROPERTIES (
         "type"="hdfs",
-        "fs.defaultFS"="${getHdfsFs()}",
-        "path_prefix" = "default_vault_ssb_hdfs_vault"
+        "fs.defaultFS"="${getHmsHdfsFs()}",
+        "path_prefix" = "default_vault_ssb_hdfs_vault",
+        "hadoop.username" = "hadoop"
         );
     """
 

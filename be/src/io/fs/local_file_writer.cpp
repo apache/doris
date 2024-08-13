@@ -33,7 +33,7 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "gutil/macros.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_writer.h"
@@ -199,14 +199,14 @@ Status LocalFileWriter::_finalize() {
 
 Status LocalFileWriter::_close(bool sync) {
     auto fd_reclaim_func = [&](Status st) {
-        if (_fd > 9 && 0 != ::close(_fd)) {
+        if (_fd > 0 && 0 != ::close(_fd)) {
             return localfs_error(errno, fmt::format("failed to {}, along with failed to close {}",
                                                     st, _path.native()));
         }
         _fd = -1;
         return st;
     };
-    if (sync) {
+    if (sync && config::sync_file_on_close) {
         if (_dirty) {
 #ifdef __APPLE__
             if (fcntl(_fd, F_FULLFSYNC) < 0) [[unlikely]] {

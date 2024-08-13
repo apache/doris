@@ -37,6 +37,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
+import com.aliyuncs.utils.StringUtils;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -199,7 +200,7 @@ public class RoleManager implements Writable, GsonPostProcessable {
             ));
 
             Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE,
-                        PrivLevel.CLUSTER, PrivLevel.STAGE, PrivLevel.STORAGE_VAULT)
+                        PrivLevel.CLUSTER, PrivLevel.STAGE, PrivLevel.STORAGE_VAULT, PrivLevel.WORKLOAD_GROUP)
                     .forEach(level -> {
                         String infoItem = infoMap.get(level);
                         if (Strings.isNullOrEmpty(infoItem)) {
@@ -208,6 +209,31 @@ public class RoleManager implements Writable, GsonPostProcessable {
                         info.add(infoItem);
                     });
             results.add(info);
+        }
+    }
+
+    public void getRoleWorkloadGroupPrivs(List<List<String>> result, Set<String> limitedRole) {
+        for (Role role : roles.values()) {
+            if (ClusterNamespace.getNameFromFullName(role.getRoleName()).startsWith(DEFAULT_ROLE_PREFIX)) {
+                continue;
+            }
+
+            if (limitedRole != null && !limitedRole.contains(role.getRoleName())) {
+                continue;
+            }
+            String isGrantable = role.checkGlobalPriv(PrivPredicate.ADMIN) ? "YES" : "NO";
+
+            for (Map.Entry<WorkloadGroupPattern, PrivBitSet> entry : role.getWorkloadGroupPatternToPrivs().entrySet()) {
+                List<String> row = Lists.newArrayList();
+                row.add(role.getRoleName());
+                row.add(entry.getKey().getworkloadGroupName());
+                if (StringUtils.isEmpty(entry.getValue().toString())) {
+                    continue;
+                }
+                row.add(entry.getValue().toString());
+                row.add(isGrantable);
+                result.add(row);
+            }
         }
     }
 

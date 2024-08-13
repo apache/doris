@@ -21,10 +21,13 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Log4jConfig;
+import org.apache.doris.common.LogUtils;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.lock.DeadlockMonitor;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.HttpServer;
@@ -58,6 +61,7 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.StandardOpenOption;
+import java.util.concurrent.TimeUnit;
 
 public class DorisFE {
     private static final Logger LOG = LogManager.getLogger(DorisFE.class);
@@ -77,10 +81,27 @@ public class DorisFE {
     private static FileLock processFileLock;
 
     public static void main(String[] args) {
+        // Every doris version should have a final meta version, it should not change
+        // between small releases. Add a check here to avoid mistake.
+        if (Version.DORIS_FE_META_VERSION > 0
+                && FeMetaVersion.VERSION_CURRENT != Version.DORIS_FE_META_VERSION) {
+            System.err.println("This release's fe meta version should be "
+                    + Version.DORIS_FE_META_VERSION
+                    + " but it is " + FeMetaVersion.VERSION_CURRENT
+                    + ". It should not change, or FE could not rollback in this version");
+            return;
+        }
         StartupOptions options = new StartupOptions();
         options.enableHttpServer = true;
         options.enableQeService = true;
         start(DORIS_HOME_DIR, PID_DIR, args, options);
+    }
+
+    private static void startMonitor() {
+        if (Config.enable_deadlock_detection) {
+            DeadlockMonitor deadlockMonitor = new DeadlockMonitor();
+            deadlockMonitor.startMonitoring(Config.deadlock_detection_interval_minute, TimeUnit.MINUTES);
+        }
     }
 
     // entrance for doris frontend
@@ -202,7 +223,7 @@ public class DorisFE {
             }
 
             ThreadPoolManager.registerAllThreadPoolMetric();
-
+            startMonitor();
             while (true) {
                 Thread.sleep(2000);
             }
@@ -215,6 +236,11 @@ public class DorisFE {
     }
 
     private static void checkAllPorts() throws IOException {
+        if (Config.enable_check_compatibility_mode) {
+            // The compatibility mode does not need to listen ports.
+            return;
+        }
+
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.edit_log_port,
                 "Edit log port", NetUtils.EDIT_LOG_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.edit_log_port + " already in use");
@@ -375,17 +401,24 @@ public class DorisFE {
     }
 
     private static void printVersion() {
-        System.out.println("Build version: " + Version.DORIS_BUILD_VERSION);
-        System.out.println("Build time: " + Version.DORIS_BUILD_TIME);
-        System.out.println("Build info: " + Version.DORIS_BUILD_INFO);
-        System.out.println("Build hash: " + Version.DORIS_BUILD_HASH);
-        System.out.println("Java compile version: " + Version.DORIS_JAVA_COMPILE_VERSION);
+        LogUtils.stdout("Build version: " + Version.DORIS_BUILD_VERSION);
+        LogUtils.stdout("Build time: " + Version.DORIS_BUILD_TIME);
+        LogUtils.stdout("Build info: " + Version.DORIS_BUILD_INFO);
+        LogUtils.stdout("Build hash: " + Version.DORIS_BUILD_HASH);
+        LogUtils.stdout("Java compile version: " + Version.DORIS_JAVA_COMPILE_VERSION);
 
         LOG.info("Build version: {}", Version.DORIS_BUILD_VERSION);
         LOG.info("Build time: {}", Version.DORIS_BUILD_TIME);
         LOG.info("Build info: {}", Version.DORIS_BUILD_INFO);
         LOG.info("Build hash: {}", Version.DORIS_BUILD_HASH);
         LOG.info("Java compile version: {}", Version.DORIS_JAVA_COMPILE_VERSION);
+
+        if (Config.isCloudMode()) {
+            LogUtils.stdout("Run FE in the cloud mode, cloud_unique_id: " + Config.cloud_unique_id
+                    + ", meta_service_endpoint: " + Config.meta_service_endpoint);
+        } else {
+            LogUtils.stdout("Run FE in the local mode");
+        }
     }
 
     private static void checkCommandLineOptions(CommandLineOptions cmdLineOpts) {
@@ -402,16 +435,16 @@ public class DorisFE {
         } else if (cmdLineOpts.runImageTool()) {
             File imageFile = new File(cmdLineOpts.getImagePath());
             if (!imageFile.exists()) {
-                System.out.println("image does not exist: " + imageFile.getAbsolutePath()
+                LogUtils.stderr("image does not exist: " + imageFile.getAbsolutePath()
                         + " . Please put an absolute path instead");
                 System.exit(-1);
             } else {
-                System.out.println("Start to load image: ");
+                LogUtils.stdout("Start to load image: ");
                 try {
                     MetaReader.read(imageFile, Env.getCurrentEnv());
-                    System.out.println("Load image success. Image file " + cmdLineOpts.getImagePath() + " is valid");
+                    LogUtils.stdout("Load image success. Image file " + cmdLineOpts.getImagePath() + " is valid");
                 } catch (Exception e) {
-                    System.out.println("Load image failed. Image file " + cmdLineOpts.getImagePath() + " is invalid");
+                    LogUtils.stderr("Load image failed. Image file " + cmdLineOpts.getImagePath() + " is invalid");
                     LOG.warn("", e);
                 } finally {
                     System.exit(0);
@@ -470,9 +503,7 @@ public class DorisFE {
                 + "same time");
     }
 
-
     private static void releaseFileLockAndCloseFileChannel() {
-
         if (processFileLock != null && processFileLock.isValid()) {
             try {
                 processFileLock.release();
@@ -487,7 +518,6 @@ public class DorisFE {
                 LOG.warn("release process lock file failed", ignored);
             }
         }
-
     }
 
     public static void overwriteConfigs() {

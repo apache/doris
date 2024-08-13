@@ -26,9 +26,12 @@ import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.DoubleType;
 
 import java.math.BigInteger;
 import java.security.SecureRandom;
@@ -46,22 +49,22 @@ public class ExecutableFunctions {
      */
     @ExecFunction(name = "abs", argTypes = {"TINYINT"}, returnType = "SMALLINT")
     public static Expression abs(TinyIntLiteral literal) {
-        return new SmallIntLiteral((byte) Math.abs(literal.getValue()));
+        return new SmallIntLiteral((short) Math.abs(literal.getValue()));
     }
 
     @ExecFunction(name = "abs", argTypes = {"SMALLINT"}, returnType = "INT")
     public static Expression abs(SmallIntLiteral literal) {
-        return new IntegerLiteral((short) Math.abs(literal.getValue()));
+        return new IntegerLiteral(Math.abs(literal.getValue()));
     }
 
     @ExecFunction(name = "abs", argTypes = {"INT"}, returnType = "BIGINT")
     public static Expression abs(IntegerLiteral literal) {
-        return new BigIntLiteral(Math.abs(literal.getValue()));
+        return new BigIntLiteral(Math.abs((long) literal.getValue()));
     }
 
     @ExecFunction(name = "abs", argTypes = {"BIGINT"}, returnType = "LARGEINT")
     public static Expression abs(BigIntLiteral literal) {
-        return new LargeIntLiteral(new BigInteger(Long.toString(Math.abs(literal.getValue()))));
+        return new LargeIntLiteral(BigInteger.valueOf(literal.getValue()).abs());
     }
 
     @ExecFunction(name = "abs", argTypes = {"LARGEINT"}, returnType = "LARGEINT")
@@ -79,7 +82,7 @@ public class ExecutableFunctions {
         return new DoubleLiteral(Math.abs(literal.getValue()));
     }
 
-    @ExecFunction(name = "abs", argTypes = {"DECIMAL"}, returnType = "DECIMAL")
+    @ExecFunction(name = "abs", argTypes = {"DECIMALV2"}, returnType = "DECIMALV2")
     public static Expression abs(DecimalLiteral literal) {
         return new DecimalLiteral(literal.getValue().abs());
     }
@@ -89,13 +92,21 @@ public class ExecutableFunctions {
         return new DecimalV3Literal(literal.getValue().abs());
     }
 
+    /**
+     * acos scalar function
+     */
     @ExecFunction(name = "acos", argTypes = {"DOUBLE"}, returnType = "DOUBLE")
     public static Expression acos(DoubleLiteral literal) {
-        return new DoubleLiteral(Math.acos(literal.getValue()));
+        double result = Math.acos(literal.getValue());
+        if (Double.isNaN(result)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        } else {
+            return new DoubleLiteral(result);
+        }
     }
 
-    @ExecFunction(name = "append_trailing_if_char_absent", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
-    public static Expression appendTrailingIfCharAbsent(VarcharLiteral literal, VarcharLiteral chr) {
+    @ExecFunction(name = "append_trailing_char_if_absent", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
+    public static Expression appendTrailingIfCharAbsent(StringLikeLiteral literal, StringLikeLiteral chr) {
         if (literal.getValue().length() != 1) {
             return null;
         }

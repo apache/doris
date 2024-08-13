@@ -63,7 +63,7 @@ Status StreamLoadPipe::read_at_impl(size_t /*offset*/, Slice result, size_t* byt
         }
         // cancelled
         if (_cancelled) {
-            return Status::InternalError<false>("cancelled: {}", _cancelled_reason);
+            return Status::Cancelled("cancelled: {}", _cancelled_reason);
         }
         // finished
         if (_buf_queue.empty()) {
@@ -111,7 +111,9 @@ Status StreamLoadPipe::read_one_message(std::unique_ptr<uint8_t[]>* data, size_t
 }
 
 Status StreamLoadPipe::append_and_flush(const char* data, size_t size, size_t proto_byte_size) {
-    ByteBufferPtr buf = ByteBuffer::allocate(BitUtil::RoundUpToPowerOfTwo(size + 1));
+    SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->stream_load_pipe_tracker());
+    ByteBufferPtr buf;
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(ByteBuffer::create_and_allocate(buf, 128 * 1024));
     buf->put_bytes(data, size);
     buf->flip();
     return _append(buf, proto_byte_size);
@@ -145,7 +147,8 @@ Status StreamLoadPipe::append(const char* data, size_t size) {
     // need to allocate a new chunk, min chunk is 64k
     size_t chunk_size = std::max(_min_chunk_size, size - pos);
     chunk_size = BitUtil::RoundUpToPowerOfTwo(chunk_size);
-    _write_buf = ByteBuffer::allocate(chunk_size);
+    SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->stream_load_pipe_tracker());
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(ByteBuffer::create_and_allocate(_write_buf, chunk_size));
     _write_buf->put_bytes(data + pos, size - pos);
     return Status::OK();
 }
@@ -167,7 +170,7 @@ Status StreamLoadPipe::_read_next_buffer(std::unique_ptr<uint8_t[]>* data, size_
     }
     // cancelled
     if (_cancelled) {
-        return Status::InternalError<false>("cancelled: {}", _cancelled_reason);
+        return Status::Cancelled("cancelled: {}", _cancelled_reason);
     }
     // finished
     if (_buf_queue.empty()) {
@@ -209,7 +212,7 @@ Status StreamLoadPipe::_append(const ByteBufferPtr& buf, size_t proto_byte_size)
             }
         }
         if (_cancelled) {
-            return Status::InternalError<false>("cancelled: {}", _cancelled_reason);
+            return Status::Cancelled("cancelled: {}", _cancelled_reason);
         }
         _buf_queue.push_back(buf);
         if (_use_proto) {

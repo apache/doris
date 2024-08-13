@@ -55,13 +55,12 @@ PhysicalResultSink
 
 -- !left_outer_join_order --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
-------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalTopN[MERGE_SORT]
-----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalOlapScan[t1]
---------PhysicalOlapScan[t2]
+--PhysicalTopN[GATHER_SORT]
+----hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+------PhysicalTopN[MERGE_SORT]
+--------PhysicalTopN[LOCAL_SORT]
+----------PhysicalOlapScan[t1]
+------PhysicalOlapScan[t2]
 
 -- !right_outer_join_order --
 PhysicalResultSink
@@ -75,13 +74,12 @@ PhysicalResultSink
 
 -- !cross_join_order --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
-------NestedLoopJoin[CROSS_JOIN]
---------PhysicalTopN[MERGE_SORT]
-----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalOlapScan[t1]
---------PhysicalOlapScan[t2]
+--PhysicalTopN[GATHER_SORT]
+----NestedLoopJoin[CROSS_JOIN]
+------PhysicalTopN[MERGE_SORT]
+--------PhysicalTopN[LOCAL_SORT]
+----------PhysicalOlapScan[t1]
+------PhysicalOlapScan[t2]
 
 -- !limit_offset_sort_join --
 PhysicalResultSink
@@ -172,12 +170,11 @@ PhysicalResultSink
 
 -- !limit_sort_window --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
-------PhysicalWindow
---------PhysicalQuickSort[MERGE_SORT]
-----------PhysicalQuickSort[LOCAL_SORT]
-------------PhysicalOlapScan[t1]
+--PhysicalTopN[GATHER_SORT]
+----PhysicalWindow
+------PhysicalQuickSort[MERGE_SORT]
+--------PhysicalQuickSort[LOCAL_SORT]
+----------PhysicalOlapScan[t1]
 
 -- !limit_offset_window --
 PhysicalResultSink
@@ -191,12 +188,11 @@ PhysicalResultSink
 
 -- !limit_offset_sort_window --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
-------PhysicalWindow
---------PhysicalQuickSort[MERGE_SORT]
-----------PhysicalQuickSort[LOCAL_SORT]
-------------PhysicalOlapScan[t1]
+--PhysicalTopN[GATHER_SORT]
+----PhysicalWindow
+------PhysicalQuickSort[MERGE_SORT]
+--------PhysicalQuickSort[LOCAL_SORT]
+----------PhysicalOlapScan[t1]
 
 -- !limit_sort_filter --
 PhysicalResultSink
@@ -264,21 +260,19 @@ PhysicalResultSink
 
 -- !limit_window --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
-------PhysicalWindow
---------PhysicalQuickSort[MERGE_SORT]
-----------PhysicalQuickSort[LOCAL_SORT]
-------------PhysicalOlapScan[t1]
+--PhysicalTopN[GATHER_SORT]
+----PhysicalWindow
+------PhysicalQuickSort[MERGE_SORT]
+--------PhysicalQuickSort[LOCAL_SORT]
+----------PhysicalOlapScan[t1]
 
 -- !limit_offset_window --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
-------PhysicalWindow
---------PhysicalQuickSort[MERGE_SORT]
-----------PhysicalQuickSort[LOCAL_SORT]
-------------PhysicalOlapScan[t1]
+--PhysicalTopN[GATHER_SORT]
+----PhysicalWindow
+------PhysicalQuickSort[MERGE_SORT]
+--------PhysicalQuickSort[LOCAL_SORT]
+----------PhysicalOlapScan[t1]
 
 -- !limit_filter --
 PhysicalResultSink
@@ -334,12 +328,11 @@ PhysicalResultSink
 
 -- !limit_subquery_window --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
-------PhysicalWindow
---------PhysicalQuickSort[MERGE_SORT]
-----------PhysicalQuickSort[LOCAL_SORT]
-------------PhysicalOlapScan[t1]
+--PhysicalTopN[GATHER_SORT]
+----PhysicalWindow
+------PhysicalQuickSort[MERGE_SORT]
+--------PhysicalQuickSort[LOCAL_SORT]
+----------PhysicalOlapScan[t1]
 
 -- !limit_nested_subquery --
 PhysicalResultSink
@@ -371,31 +364,28 @@ PhysicalResultSink
 ------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------------PhysicalOlapScan[t1]
 --------------PhysicalOlapScan[t2]
---------PhysicalTopN[MERGE_SORT]
-----------PhysicalTopN[LOCAL_SORT]
-------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=()
---------------PhysicalTopN[MERGE_SORT]
-----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[t3]
---------------PhysicalOlapScan[t4]
+--------PhysicalTopN[GATHER_SORT]
+----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=()
+------------PhysicalTopN[MERGE_SORT]
+--------------PhysicalTopN[LOCAL_SORT]
+----------------PhysicalOlapScan[t3]
+------------PhysicalOlapScan[t4]
 
 -- !limit_union_window --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalTopN[LOCAL_SORT]
 ------PhysicalUnion
---------PhysicalTopN[MERGE_SORT]
-----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalWindow
---------------PhysicalQuickSort[MERGE_SORT]
-----------------PhysicalQuickSort[LOCAL_SORT]
-------------------PhysicalOlapScan[t1]
---------PhysicalTopN[MERGE_SORT]
-----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalWindow
---------------PhysicalQuickSort[MERGE_SORT]
-----------------PhysicalQuickSort[LOCAL_SORT]
-------------------PhysicalOlapScan[t2]
+--------PhysicalTopN[GATHER_SORT]
+----------PhysicalWindow
+------------PhysicalQuickSort[MERGE_SORT]
+--------------PhysicalQuickSort[LOCAL_SORT]
+----------------PhysicalOlapScan[t1]
+--------PhysicalTopN[GATHER_SORT]
+----------PhysicalWindow
+------------PhysicalQuickSort[MERGE_SORT]
+--------------PhysicalQuickSort[LOCAL_SORT]
+----------------PhysicalOlapScan[t2]
 
 -- !limit_subquery_join_filter --
 PhysicalResultSink
@@ -533,12 +523,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----filter((t1.id < 10))
 ------PhysicalOlapScan[t1]
 --PhysicalResultSink
-----PhysicalTopN[MERGE_SORT]
-------PhysicalTopN[LOCAL_SORT]
---------PhysicalWindow
-----------PhysicalQuickSort[MERGE_SORT]
-------------PhysicalQuickSort[LOCAL_SORT]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----PhysicalTopN[GATHER_SORT]
+------PhysicalWindow
+--------PhysicalQuickSort[MERGE_SORT]
+----------PhysicalQuickSort[LOCAL_SORT]
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !limit_project_filter --
 PhysicalResultSink
@@ -567,12 +556,11 @@ PhysicalResultSink
 
 -- !limit_subquery_window --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
-------PhysicalWindow
---------PhysicalQuickSort[MERGE_SORT]
-----------PhysicalQuickSort[LOCAL_SORT]
-------------PhysicalOlapScan[t1]
+--PhysicalTopN[GATHER_SORT]
+----PhysicalWindow
+------PhysicalQuickSort[MERGE_SORT]
+--------PhysicalQuickSort[LOCAL_SORT]
+----------PhysicalOlapScan[t1]
 
 -- !limit_nested_subquery --
 PhysicalResultSink
@@ -589,27 +577,24 @@ PhysicalResultSink
 
 -- !limit_cross_join --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
-------NestedLoopJoin[CROSS_JOIN]
---------PhysicalTopN[MERGE_SORT]
-----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalOlapScan[t1]
---------PhysicalOlapScan[t2]
+--PhysicalTopN[GATHER_SORT]
+----NestedLoopJoin[CROSS_JOIN]
+------PhysicalTopN[MERGE_SORT]
+--------PhysicalTopN[LOCAL_SORT]
+----------PhysicalOlapScan[t1]
+------PhysicalOlapScan[t2]
 
 -- !limit_multiple_left_outer_join --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
-------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
---------PhysicalTopN[MERGE_SORT]
-----------PhysicalTopN[LOCAL_SORT]
-------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------------PhysicalTopN[MERGE_SORT]
-----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[t1]
---------------PhysicalOlapScan[t2]
---------PhysicalOlapScan[t3]
+--PhysicalTopN[GATHER_SORT]
+----hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
+------PhysicalTopN[GATHER_SORT]
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalTopN[MERGE_SORT]
+------------PhysicalTopN[LOCAL_SORT]
+--------------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t2]
+------PhysicalOlapScan[t3]
 
 -- !limit_multiple_right_outer_join --
 PhysicalResultSink
@@ -633,13 +618,12 @@ PhysicalResultSink
 
 -- !limit_subquery_cross_join --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
-------NestedLoopJoin[CROSS_JOIN]
---------PhysicalTopN[MERGE_SORT]
-----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalOlapScan[t1]
---------PhysicalOlapScan[t2]
+--PhysicalTopN[GATHER_SORT]
+----NestedLoopJoin[CROSS_JOIN]
+------PhysicalTopN[MERGE_SORT]
+--------PhysicalTopN[LOCAL_SORT]
+----------PhysicalOlapScan[t1]
+------PhysicalOlapScan[t2]
 
 -- !limit_subquery_multiple_join --
 PhysicalResultSink

@@ -7,18 +7,15 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject
-----------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=()
-------------------PhysicalDistribute[DistributionSpecHash]
+--------------hashJoin[LEFT_ANTI_JOIN broadcast] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=()
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN colocated] hashCondition=((part.p_partkey = partsupp.ps_partkey)) otherCondition=() build RFs:RF0 p_partkey->[ps_partkey]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = partsupp.ps_partkey)) otherCondition=() build RFs:RF0 p_partkey->[ps_partkey]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[partsupp] apply RFs: RF0
-------------------------PhysicalProject
---------------------------filter(( not (p_brand = 'Brand#45')) and ( not (p_type like 'MEDIUM POLISHED%')) and p_size IN (14, 19, 23, 3, 36, 45, 49, 9))
-----------------------------PhysicalOlapScan[part]
-------------------PhysicalDistribute[DistributionSpecHash]
+----------------------PhysicalOlapScan[partsupp] apply RFs: RF0
 --------------------PhysicalProject
-----------------------filter((s_comment like '%Customer%Complaints%'))
-------------------------PhysicalOlapScan[supplier]
+----------------------filter(( not (p_brand = 'Brand#45')) and ( not (p_type like 'MEDIUM POLISHED%')) and p_size IN (14, 19, 23, 3, 36, 45, 49, 9))
+------------------------PhysicalOlapScan[part]
+----------------PhysicalProject
+------------------filter((s_comment like '%Customer%Complaints%'))
+--------------------PhysicalOlapScan[supplier]
 

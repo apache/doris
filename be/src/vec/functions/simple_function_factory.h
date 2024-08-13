@@ -37,7 +37,9 @@ void register_function_hll(SimpleFunctionFactory& factory);
 void register_function_logical(SimpleFunctionFactory& factory);
 void register_function_case(SimpleFunctionFactory& factory);
 void register_function_cast(SimpleFunctionFactory& factory);
+void register_function_encode_varchar(SimpleFunctionFactory& factory);
 void register_function_conv(SimpleFunctionFactory& factory);
+void register_function_decode_as_varchar(SimpleFunctionFactory& factory);
 void register_function_plus(SimpleFunctionFactory& factory);
 void register_function_minus(SimpleFunctionFactory& factory);
 void register_function_multiply(SimpleFunctionFactory& factory);
@@ -95,21 +97,23 @@ void register_function_multi_string_position(SimpleFunctionFactory& factory);
 void register_function_multi_string_search(SimpleFunctionFactory& factory);
 void register_function_width_bucket(SimpleFunctionFactory& factory);
 void register_function_ignore(SimpleFunctionFactory& factory);
-
 void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
 void register_function_hex_variadic(SimpleFunctionFactory& factory);
 void register_function_match(SimpleFunctionFactory& factory);
 void register_function_tokenize(SimpleFunctionFactory& factory);
-
 void register_function_url(SimpleFunctionFactory& factory);
 void register_function_ip(SimpleFunctionFactory& factory);
+void register_function_multi_match(SimpleFunctionFactory& factory);
+void register_function_split_by_regexp(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
     using FunctionCreators = phmap::flat_hash_map<std::string, Creator>;
     using FunctionIsVariadic = phmap::flat_hash_set<std::string>;
-    /// @TEMPORARY: for be_exec_version=5
+    /// @TEMPORARY: for be_exec_version=5.
+    /// whenever change this, please make sure old functions was all cleared. otherwise the version now-1 will think it should do replacement
+    /// which actually should be done by now-2 version.
     constexpr static int NEWEST_VERSION_FUNCTION_SUBSTITUTE = 5;
 
 public:
@@ -146,7 +150,7 @@ public:
         function_alias[alias] = name;
     }
 
-    /// @TEMPORARY: for be_exec_version=3
+    /// @TEMPORARY: for be_exec_version=4
     template <class Function>
     void register_alternative_function() {
         static std::string suffix {"_old_for_version_before_5_0"};
@@ -221,6 +225,8 @@ public:
             register_function_bitmap_variadic(instance);
             register_function_hll(instance);
             register_function_comparison(instance);
+            register_function_encode_varchar(instance);
+            register_function_decode_as_varchar(instance);
             register_function_logical(instance);
             register_function_case(instance);
             register_function_cast(instance);
@@ -286,6 +292,8 @@ public:
             register_function_tokenize(instance);
             register_function_ignore(instance);
             register_function_variant_element(instance);
+            register_function_multi_match(instance);
+            register_function_split_by_regexp(instance);
         });
         return instance;
     }

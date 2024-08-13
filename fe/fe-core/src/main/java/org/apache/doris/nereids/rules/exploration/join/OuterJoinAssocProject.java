@@ -25,17 +25,20 @@ import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * OuterJoinAssocProject.
@@ -50,17 +53,26 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
      */
     public static final OuterJoinAssocProject INSTANCE = new OuterJoinAssocProject();
 
+    // Pair<bottomJoin, topJoin>
+    // newBottomJoin Type = topJoin Type, newTopJoin Type = bottomJoin Type
+    public static Set<Pair<JoinType, JoinType>> VALID_TYPE_PAIR_SET = ImmutableSet.of(
+            Pair.of(JoinType.INNER_JOIN, JoinType.LEFT_OUTER_JOIN),
+            Pair.of(JoinType.LEFT_OUTER_JOIN, JoinType.LEFT_OUTER_JOIN));
+
     @Override
     public Rule build() {
-        return logicalJoin(logicalProject(logicalJoin()), group())
-                .when(join -> OuterJoinAssoc.VALID_TYPE_PAIR_SET.contains(
+        return logicalProject(logicalJoin(logicalProject(logicalJoin()), group())
+                .when(join -> VALID_TYPE_PAIR_SET.contains(
                         Pair.of(join.left().child().getJoinType(), join.getJoinType())))
-                .when(topJoin -> OuterJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
+                .when(topJoin -> OuterJoinLAsscomProject.checkReorder(topJoin, topJoin.left().child()))
                 .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
-                .when(join -> OuterJoinAssoc.checkCondition(join, join.left().child().left().getOutputSet()))
-                .when(join -> join.left().isAllSlots())
+                .when(join -> checkCondition(join, join.left().child().left().getOutputSet()))
+                .when(join -> join.left().isAllSlots()))
                 .thenApply(ctx -> {
-                    LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topJoin = ctx.root;
+                    LogicalProject<LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan>> topProject
+                            = ctx.root;
+                    LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topJoin
+                            = topProject.child();
                     /* ********** init ********** */
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
                     GroupPlan a = bottomJoin.left();
@@ -88,17 +100,46 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                     LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(b, c, null);
                     newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
 
-                    Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
+                    Set<ExprId> topUsedExprIds = new HashSet<>();
+                    topProject.getProjects().forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     bottomJoin.getHashJoinConjuncts().forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
                     bottomJoin.getOtherJoinConjuncts().forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
-                    Plan left = CBOUtils.newProject(topUsedExprIds, a);
+                    Plan left = CBOUtils.newProjectIfNeeded(topUsedExprIds, a);
                     Plan right = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
 
                     LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(left, right, null);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
-                    OuterJoinAssoc.setReorderContext(newTopJoin, newBottomJoin);
+                    setReorderContext(newTopJoin, newBottomJoin);
 
-                    return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
+                    return topProject.withChildren(newTopJoin);
                 }).toRule(RuleType.LOGICAL_OUTER_JOIN_ASSOC_PROJECT);
+    }
+
+    /**
+     * just allow: top (B C), bottom (A B), we can exchange HashConjunct directly.
+     * <p>
+     * Same with OtherJoinConjunct.
+     */
+    public static boolean checkCondition(LogicalJoin<? extends Plan, GroupPlan> topJoin, Set<Slot> aOutputSet) {
+        return Stream.concat(
+                        topJoin.getHashJoinConjuncts().stream(),
+                        topJoin.getOtherJoinConjuncts().stream())
+                .allMatch(expr -> {
+                    Set<Slot> usedSlot = expr.collect(SlotReference.class::isInstance);
+                    return !Utils.isIntersecting(usedSlot, aOutputSet);
+                });
+    }
+
+    /**
+     * Set the reorder context for the new join.
+     */
+    public static void setReorderContext(LogicalJoin topJoin, LogicalJoin bottomJoin) {
+        bottomJoin.getJoinReorderContext().setHasCommute(false);
+        bottomJoin.getJoinReorderContext().setHasRightAssociate(false);
+        bottomJoin.getJoinReorderContext().setHasLeftAssociate(false);
+        bottomJoin.getJoinReorderContext().setHasExchange(false);
+
+        topJoin.getJoinReorderContext().setHasRightAssociate(true);
+        topJoin.getJoinReorderContext().setHasCommute(false);
     }
 }

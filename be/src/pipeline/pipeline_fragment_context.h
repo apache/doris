@@ -76,6 +76,8 @@ public:
 
     uint64_t elapsed_time() const { return _fragment_watcher.elapsed_time(); }
 
+    int timeout_second() const { return _timeout; }
+
     PipelinePtr add_pipeline();
 
     PipelinePtr add_pipeline(PipelinePtr parent, int idx = -1);
@@ -89,9 +91,6 @@ public:
     Status prepare(const doris::TPipelineFragmentParams& request);
 
     Status submit();
-
-    void close_if_prepare_failed(Status st);
-    void close_sink();
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
@@ -107,14 +106,6 @@ public:
 
     Status send_report(bool);
 
-    Status update_status(Status status) {
-        std::lock_guard<std::mutex> l(_status_lock);
-        if (!status.ok() && _query_ctx->exec_status().ok()) {
-            _query_ctx->set_exec_status(status);
-        }
-        return _query_ctx->exec_status();
-    }
-
     void trigger_report_if_necessary();
     void refresh_next_report_time();
 
@@ -125,8 +116,6 @@ public:
     [[nodiscard]] int max_operator_id() const { return _operator_id; }
 
     [[nodiscard]] int next_sink_operator_id() { return _sink_operator_id--; }
-
-    [[nodiscard]] int max_sink_operator_id() const { return _sink_operator_id; }
 
     void instance_ids(std::vector<TUniqueId>& ins_ids) const {
         ins_ids.resize(_fragment_instance_ids.size());
@@ -142,10 +131,13 @@ public:
         }
     }
 
-    void add_merge_controller_handler(
-            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
-        _merge_controller_handlers.emplace_back(handler);
-    }
+    void clear_finished_tasks() {
+        for (size_t j = 0; j < _tasks.size(); j++) {
+            for (size_t i = 0; i < _tasks[j].size(); i++) {
+                _tasks[j][i]->stop_if_finished();
+            }
+        }
+    };
 
 private:
     Status _build_pipelines(ObjectPool* pool, const doris::TPipelineFragmentParams& request,
@@ -207,8 +199,6 @@ private:
     std::atomic_bool _prepared = false;
     bool _submitted = false;
 
-    std::mutex _status_lock;
-
     Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;
     std::mutex _task_mutex;
@@ -224,10 +214,13 @@ private:
 
     std::shared_ptr<QueryContext> _query_ctx;
 
-    QueryThreadContext _query_thread_context;
-
     MonotonicStopWatch _fragment_watcher;
     RuntimeProfile::Counter* _prepare_timer = nullptr;
+    RuntimeProfile::Counter* _init_context_timer = nullptr;
+    RuntimeProfile::Counter* _build_pipelines_timer = nullptr;
+    RuntimeProfile::Counter* _plan_local_shuffle_timer = nullptr;
+    RuntimeProfile::Counter* _prepare_all_pipelines_timer = nullptr;
+    RuntimeProfile::Counter* _build_tasks_timer = nullptr;
 
     std::function<void(RuntimeState*, Status*)> _call_back;
     bool _is_fragment_instance_closed = false;
@@ -253,9 +246,6 @@ private:
     std::vector<std::vector<std::unique_ptr<PipelineTask>>> _tasks;
 
     bool _need_local_merge = false;
-
-    // It is used to manage the lifecycle of RuntimeFilterMergeController
-    std::vector<std::shared_ptr<RuntimeFilterMergeControllerEntity>> _merge_controller_handlers;
 
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context

@@ -52,13 +52,13 @@ TaskScheduler::~TaskScheduler() {
 
 Status TaskScheduler::start() {
     int cores = _task_queue->cores();
-    // Must be mutil number of cpu cores
     RETURN_IF_ERROR(ThreadPoolBuilder(_name)
                             .set_min_threads(cores)
                             .set_max_threads(cores)
                             .set_max_queue_size(0)
                             .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
                             .build(&_fix_thread_pool));
+    LOG_INFO("TaskScheduler set cores").tag("size", cores);
     _markers.resize(cores, true);
     for (size_t i = 0; i < cores; ++i) {
         RETURN_IF_ERROR(_fix_thread_pool->submit_func([this, i] { _do_work(i); }));
@@ -68,7 +68,6 @@ Status TaskScheduler::start() {
 
 Status TaskScheduler::schedule_task(PipelineTask* task) {
     return _task_queue->push_back(task);
-    // TODO control num of task
 }
 
 // after _close_task, task maybe destructed.
@@ -77,6 +76,10 @@ void _close_task(PipelineTask* task, Status exec_status) {
     // Should count the memory to the query or the query's memory will not decrease when part of
     // task finished.
     SCOPED_ATTACH_TASK(task->runtime_state());
+    if (task->is_finalized()) {
+        task->set_running(false);
+        return;
+    }
     // close_a_pipeline may delete fragment context and will core in some defer
     // code, because the defer code will access fragment context it self.
     auto lock_for_context = task->fragment_context()->shared_from_this();
@@ -127,35 +130,28 @@ void TaskScheduler::_do_work(size_t index) {
         bool eos = false;
         auto status = Status::OK();
 
-        try {
-            // This will enable exception handling logic in allocator.h when memory allocate
-            // failed or system memory is not sufficient.
-            doris::enable_thread_catch_bad_alloc++;
-            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};
-            //TODO: use a better enclose to abstracting these
-            if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) {
-                TUniqueId query_id = task->query_context()->query_id();
-                std::string task_name = task->task_name();
 #ifdef __APPLE__
-                uint32_t core_id = 0;
+        uint32_t core_id = 0;
 #else
-                uint32_t core_id = sched_getcpu();
+        uint32_t core_id = sched_getcpu();
 #endif
-                std::thread::id tid = std::this_thread::get_id();
-                uint64_t thread_id = *reinterpret_cast<uint64_t*>(&tid);
-                uint64_t start_time = MonotonicMicros();
+        ASSIGN_STATUS_IF_CATCH_EXCEPTION(
+                //TODO: use a better enclose to abstracting these
+                if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) {
+                    TUniqueId query_id = task->query_context()->query_id();
+                    std::string task_name = task->task_name();
 
-                status = task->execute(&eos);
+                    std::thread::id tid = std::this_thread::get_id();
+                    uint64_t thread_id = *reinterpret_cast<uint64_t*>(&tid);
+                    uint64_t start_time = MonotonicMicros();
 
-                uint64_t end_time = MonotonicMicros();
-                ExecEnv::GetInstance()->pipeline_tracer_context()->record(
-                        {query_id, task_name, core_id, thread_id, start_time, end_time});
-            } else {
-                status = task->execute(&eos);
-            }
-        } catch (const Exception& e) {
-            status = e.to_status();
-        }
+                    status = task->execute(&eos);
+
+                    uint64_t end_time = MonotonicMicros();
+                    ExecEnv::GetInstance()->pipeline_tracer_context()->record(
+                            {query_id, task_name, core_id, thread_id, start_time, end_time});
+                } else { status = task->execute(&eos); },
+                status);
 
         task->set_previous_core_id(index);
 
@@ -175,11 +171,6 @@ void TaskScheduler::_do_work(size_t index) {
         fragment_ctx->trigger_report_if_necessary();
 
         if (eos) {
-            // TODO: pipeline parallel need to wait the last task finish to call finalize
-            //  and find_p_dependency
-            VLOG_DEBUG << fmt::format("Try close task: {}, fragment_ctx->is_canceled(): {}",
-                                      print_id(task->query_context()->query_id()),
-                                      fragment_ctx->is_canceled());
             // is pending finish will add the task to dependency's blocking queue, and then the task will be
             // added to running queue when dependency is ready.
             if (task->is_pending_finish()) {

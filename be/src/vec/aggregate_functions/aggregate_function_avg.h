@@ -123,7 +123,7 @@ public:
     using ColVecResult = std::conditional_t<
             IsDecimalV2<T>, ColumnDecimal<Decimal128V2>,
             std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<typename Data::ResultType>,
-                               ColumnVector<Float64>>>;
+                               ColumnFloat64>>;
 
     /// ctor for native types
     AggregateFunctionAvg(const DataTypes& argument_types_)
@@ -145,7 +145,8 @@ public:
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif
-        const auto& column = assert_cast<const ColVecType&>(*columns[0]);
+        const auto& column =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         if constexpr (IsDecimalNumber<T>) {
             this->data(place).sum += column.get_data()[row_num].value;
         } else {
@@ -244,7 +245,7 @@ public:
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena* arena,
                                    const size_t num_rows) const override {
         this->deserialize_from_column(rhs, *column, arena, num_rows);
         DEFER({ this->destroy_vec(rhs, num_rows); });
@@ -252,7 +253,7 @@ public:
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            AggregateDataPtr rhs, const IColumn* column,
                                             Arena* arena, const size_t num_rows) const override {
         this->deserialize_from_column(rhs, *column, arena, num_rows);
         DEFER({ this->destroy_vec(rhs, num_rows); });

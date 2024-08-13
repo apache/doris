@@ -36,14 +36,13 @@ suite("test_clear_cache_async") {
     assertEquals(backendIdToBackendIP.size(), 1)
 
     backendId = backendIdToBackendIP.keySet()[0]
-    def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/clear_file_cache"""
-    url = url + "?sync=false"
+    def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/file_cache?op=clear&sync=false"""
     logger.info("clear file cache URL:" + url)
     def clearFileCache = { check_func ->
         httpTest {
             endpoint ""
             uri url
-            op "post"
+            op "get"
             body ""
             check check_func
         }
@@ -55,12 +54,11 @@ suite("test_clear_cache_async") {
         |"AWS_ACCESS_KEY" = "${getS3AK()}",
         |"AWS_SECRET_KEY" = "${getS3SK()}",
         |"AWS_ENDPOINT" = "${getS3Endpoint()}",
-        |"AWS_REGION" = "${getS3Region()}")
+        |"AWS_REGION" = "${getS3Region()}",
+        |"provider" = "${getS3Provider()}")
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",
         |"load_parallelism" = "3")""".stripMargin()
-    
-    
 
     def load_customer_once =  { String table ->
         def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
@@ -112,19 +110,19 @@ suite("test_clear_cache_async") {
             String out = "${body}".toString()
             def strs = out.split('\n')
             Boolean flag = false;
-            long total_cache_size = 0;
             for (String line in strs) {
                 if (line.contains("file_cache_cache_size")) {
                     if (line.startsWith("#")) {
                         continue
                     }
                     def i = line.indexOf(' ')
-                    total_cache_size = line.substring(i).toLong()
-                    assertEquals(0, total_cache_size)
+                    long total_cache_size = line.substring(i).toLong()
+                    log.info("remaining file cache size is ${total_cache_size}")
+                    org.junit.Assert.assertTrue("remaining cache size is too large, remaining cache size ${total_cache_size} > 10240", total_cache_size < 10240)
                     flag = true
                     break
                 }
             }
-            assertTrue(flag)
+            org.junit.Assert.assertTrue("file cache size is not found", flag)
     }
 }

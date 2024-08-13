@@ -40,7 +40,6 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
@@ -173,34 +172,6 @@ public class Memo {
         return null;
     }
 
-    private Plan skipProject(Plan plan, Group targetGroup) {
-        // Some top project can't be eliminated
-        if (plan instanceof LogicalProject) {
-            LogicalProject<?> logicalProject = (LogicalProject<?>) plan;
-            if (targetGroup != root) {
-                if (logicalProject.getOutputSet().equals(logicalProject.child().getOutputSet())) {
-                    return skipProject(logicalProject.child(), targetGroup);
-                }
-            } else {
-                if (logicalProject.getOutput().equals(logicalProject.child().getOutput())) {
-                    return skipProject(logicalProject.child(), targetGroup);
-                }
-            }
-        }
-        return plan;
-    }
-
-    private Plan skipProjectGetChild(Plan plan) {
-        if (plan instanceof LogicalProject) {
-            LogicalProject<?> logicalProject = (LogicalProject<?>) plan;
-            Plan child = logicalProject.child();
-            if (logicalProject.getOutputSet().equals(child.getOutputSet())) {
-                return skipProjectGetChild(child);
-            }
-        }
-        return plan;
-    }
-
     public int countMaxContinuousJoin() {
         return countGroupJoin(root).second;
     }
@@ -244,7 +215,7 @@ public class Memo {
         if (rewrite) {
             result = doRewrite(plan, target);
         } else {
-            result = doCopyIn(skipProject(plan, target), target, planTable);
+            result = doCopyIn(plan, target, planTable);
         }
         maybeAddStateId(result);
         return result;
@@ -265,7 +236,7 @@ public class Memo {
         if (rewrite) {
             result = doRewrite(plan, target);
         } else {
-            result = doCopyIn(skipProject(plan, target), target, null);
+            result = doCopyIn(plan, target, null);
         }
         maybeAddStateId(result);
         return result;
@@ -477,7 +448,7 @@ public class Memo {
         List<Group> childrenGroups = Lists.newArrayList();
         for (int i = 0; i < plan.children().size(); i++) {
             // skip useless project.
-            Plan child = skipProjectGetChild(plan.child(i));
+            Plan child = plan.child(i);
             if (child instanceof GroupPlan) {
                 childrenGroups.add(((GroupPlan) child).getGroup());
             } else if (child.getGroupExpression().isPresent()) {
@@ -569,17 +540,22 @@ public class Memo {
             return;
         }
         List<GroupExpression> needReplaceChild = Lists.newArrayList();
-        for (GroupExpression parent : source.getParentGroupExpressions()) {
-            if (parent.getOwnerGroup().equals(destination)) {
+        for (GroupExpression dstParent : destination.getParentGroupExpressions()) {
+            if (dstParent.getOwnerGroup().equals(source)) {
                 // cycle, we should not merge
                 return;
             }
-            Group parentOwnerGroup = parent.getOwnerGroup();
-            HashSet<GroupExpression> enforcers = new HashSet<>(parentOwnerGroup.getEnforcers());
-            if (enforcers.contains(parent)) {
+        }
+        for (GroupExpression srcParent : source.getParentGroupExpressions()) {
+            if (srcParent.getOwnerGroup().equals(destination)) {
+                // cycle, we should not merge
+                return;
+            }
+            Group parentOwnerGroup = srcParent.getOwnerGroup();
+            if (parentOwnerGroup.getEnforcers().containsKey(srcParent)) {
                 continue;
             }
-            needReplaceChild.add(parent);
+            needReplaceChild.add(srcParent);
         }
         GROUP_MERGE_TRACER.log(GroupMergeEvent.of(source, destination, needReplaceChild));
 
@@ -969,7 +945,7 @@ public class Memo {
         List<GroupExpression> exprs = Lists.newArrayList(bestExpr);
         Set<GroupExpression> hasVisited = new HashSet<>();
         hasVisited.add(bestExpr);
-        Stream.concat(group.getPhysicalExpressions().stream(), group.getEnforcers().stream())
+        Stream.concat(group.getPhysicalExpressions().stream(), group.getEnforcers().keySet().stream())
                 .forEach(groupExpression -> {
                     if (!groupExpression.getInputPropertiesListOrEmpty(prop).isEmpty()
                             && !groupExpression.equals(bestExpr) && !hasVisited.contains(groupExpression)) {
@@ -992,7 +968,7 @@ public class Memo {
         res.add(groupExpression.getInputPropertiesList(prop));
 
         // return optimized input for enforcer
-        if (groupExpression.getOwnerGroup().getEnforcers().contains(groupExpression)) {
+        if (groupExpression.getOwnerGroup().getEnforcers().containsKey(groupExpression)) {
             return res;
         }
 

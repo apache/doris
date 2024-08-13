@@ -73,7 +73,6 @@ class InvertedIndexIterator;
 class InvertedIndexQueryCacheHandle;
 class InvertedIndexFileReader;
 struct InvertedIndexQueryInfo;
-
 class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader> {
 public:
     explicit InvertedIndexReader(
@@ -94,12 +93,13 @@ public:
                              const void* query_value, InvertedIndexQueryType query_type,
                              uint32_t* count) = 0;
 
-    Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
+    Status read_null_bitmap(OlapReaderStatistics* stats,
+                            InvertedIndexQueryCacheHandle* cache_handle,
                             lucene::store::Directory* dir = nullptr);
 
     virtual InvertedIndexReaderType type() = 0;
 
-    [[nodiscard]] uint32_t get_index_id() const { return _index_meta.index_id(); }
+    [[nodiscard]] uint64_t get_index_id() const { return _index_meta.index_id(); }
 
     [[nodiscard]] const std::map<string, string>& get_index_properties() const {
         return _index_meta.properties();
@@ -141,14 +141,19 @@ public:
                                         MemTracker* mem_tracker,
                                         InvertedIndexReaderType reader_type);
 
-    Status check_file_exist(const std::string& index_file_key);
-
 protected:
+    Status match_index_search(OlapReaderStatistics* stats, RuntimeState* runtime_state,
+                              InvertedIndexQueryType query_type,
+                              const InvertedIndexQueryInfo& query_info,
+                              const FulltextIndexSearcherPtr& index_searcher,
+                              const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
+
     friend class InvertedIndexIterator;
     std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
     TabletIndex _index_meta;
     bool _has_null = true;
 };
+using InvertedIndexReaderPtr = std::shared_ptr<InvertedIndexReader>;
 
 class FullTextIndexReader : public InvertedIndexReader {
     ENABLE_FACTORY_CREATOR(FullTextIndexReader);
@@ -179,13 +184,6 @@ public:
                                          const std::map<string, string>& properties);
     static void setup_analyzer_use_stopwords(std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
                                              const std::map<string, string>& properties);
-
-private:
-    Status match_index_search(OlapReaderStatistics* stats, RuntimeState* runtime_state,
-                              InvertedIndexQueryType query_type,
-                              const InvertedIndexQueryInfo& query_info,
-                              const FulltextIndexSearcherPtr& index_searcher,
-                              const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
 };
 
 class StringTypeInvertedIndexReader : public InvertedIndexReader {
@@ -375,12 +373,14 @@ public:
 
     Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
                             lucene::store::Directory* dir = nullptr) {
-        return _reader->read_null_bitmap(cache_handle, dir);
+        return _reader->read_null_bitmap(_stats, cache_handle, dir);
     }
 
     [[nodiscard]] InvertedIndexReaderType get_inverted_index_reader_type() const;
     [[nodiscard]] const std::map<string, string>& get_index_properties() const;
     [[nodiscard]] bool has_null() { return _reader->has_null(); };
+
+    const InvertedIndexReaderPtr& reader() { return _reader; }
 
 private:
     OlapReaderStatistics* _stats = nullptr;

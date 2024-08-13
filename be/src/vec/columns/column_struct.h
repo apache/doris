@@ -93,13 +93,14 @@ public:
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
 
-    bool is_default_at(size_t n) const override;
     [[noreturn]] StringRef get_data_at(size_t n) const override {
-        LOG(FATAL) << "Method get_data_at is not supported for " + get_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method get_data_at is not supported for " + get_name());
         __builtin_unreachable();
     }
     [[noreturn]] void insert_data(const char* pos, size_t length) override {
-        LOG(FATAL) << "Method insert_data is not supported for " + get_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method insert_data is not supported for " + get_name());
         __builtin_unreachable();
     }
     void insert(const Field& x) override;
@@ -125,11 +126,6 @@ public:
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                         Permutation& res) const override {
-        LOG(FATAL) << "get_permutation not implemented";
-        __builtin_unreachable();
-    }
     void append_data_by_selector(MutableColumnPtr& res, const Selector& selector) const override {
         return append_data_by_selector_impl<ColumnStruct>(res, selector);
     }
@@ -138,11 +134,8 @@ public:
         return append_data_by_selector_impl<ColumnStruct>(res, selector, begin, end);
     }
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
-    }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data_default is not supported for " << get_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method replace_column_data is not supported for " + get_name());
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
@@ -153,7 +146,6 @@ public:
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
 
-    // ColumnPtr index(const IColumn & indexes, size_t limit) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
 
     MutableColumnPtr get_shrinked_column() override;

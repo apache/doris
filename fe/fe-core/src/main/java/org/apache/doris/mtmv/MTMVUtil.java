@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
@@ -33,7 +34,11 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.qe.ConnectContext;
 
+import org.apache.commons.collections.CollectionUtils;
+
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -80,7 +85,7 @@ public class MTMVUtil {
      * @return
      */
     public static boolean mtmvContainsExternalTable(MTMV mtmv) {
-        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTables();
+        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevel();
         for (BaseTableInfo baseTableInfo : baseTables) {
             if (baseTableInfo.getCtlId() != InternalCatalog.INTERNAL_CATALOG_ID) {
                 return true;
@@ -124,6 +129,26 @@ public class MTMVUtil {
             throw new AnalysisException(
                     String.format("strToDate failed, stringValue: %s, dateFormat: %s",
                             expr.getStringValue(), dateFormat));
+        }
+    }
+
+    public static boolean allowModifyMTMVData(ConnectContext ctx) {
+        if (ctx == null) {
+            return false;
+        }
+        return ctx.getSessionVariable().isAllowModifyMaterializedViewData();
+    }
+
+    public static void checkModifyMTMVData(Database db, List<Long> tableIdList, ConnectContext ctx)
+            throws AnalysisException {
+        if (CollectionUtils.isEmpty(tableIdList)) {
+            return;
+        }
+        for (long tableId : tableIdList) {
+            Optional<Table> table = db.getTable(tableId);
+            if (table.isPresent() && table.get() instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ctx)) {
+                throw new AnalysisException("Not allowed to perform current operation on async materialized view");
+            }
         }
     }
 }

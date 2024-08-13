@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "agent/be_exec_version_manager.h"
 #define POP true
 #define NOTPOP false
 #define NULLABLE true
@@ -106,9 +107,11 @@ struct BaseData {
     }
 
     void add(const IColumn* column_x, const IColumn* column_y, size_t row_num) {
-        const auto& sources_x = assert_cast<const ColumnVector<T>&>(*column_x);
+        const auto& sources_x =
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_x);
         double source_data_x = sources_x.get_data()[row_num];
-        const auto& sources_y = assert_cast<const ColumnVector<T>&>(*column_y);
+        const auto& sources_y =
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_y);
         double source_data_y = sources_y.get_data()[row_num];
 
         sum_x += source_data_x;
@@ -185,7 +188,8 @@ struct BaseDatadecimal {
     }
 
     DecimalV2Value get_source_data(const IColumn* column, size_t row_num) {
-        const auto& sources = assert_cast<const ColumnDecimal<T>&>(*column);
+        const auto& sources =
+                assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(*column);
         Field field = sources[row_num];
         auto decimal_field = field.template get<DecimalField<T>>();
         int128_t value;
@@ -211,8 +215,8 @@ struct BaseDatadecimal {
 
 template <typename T, typename Data>
 struct PopData : Data {
-    using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>,
-                                            ColumnVector<Float64>>;
+    using ColVecResult =
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
         auto& col = assert_cast<ColVecResult&>(to);
         if constexpr (IsDecimalNumber<T>) {
@@ -224,9 +228,9 @@ struct PopData : Data {
 };
 
 template <typename T, typename Data>
-struct SampData : Data {
-    using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>,
-                                            ColumnVector<Float64>>;
+struct SampData_OLDER : Data {
+    using ColVecResult =
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
         ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
         if (this->count == 1 || this->count == 0) {
@@ -239,6 +243,24 @@ struct SampData : Data {
                 col.get_data().push_back(this->get_samp_result());
             }
             nullable_column.get_null_map_data().push_back(0);
+        }
+    }
+};
+
+template <typename T, typename Data>
+struct SampData : Data {
+    using ColVecResult =
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
+    void insert_result_into(IColumn& to) const {
+        auto& col = assert_cast<ColVecResult&>(to);
+        if (this->count == 1 || this->count == 0) {
+            col.insert_default();
+        } else {
+            if constexpr (IsDecimalNumber<T>) {
+                col.get_data().push_back(this->get_samp_result().value());
+            } else {
+                col.get_data().push_back(this->get_samp_result());
+            }
         }
     }
 };
@@ -269,7 +291,11 @@ public:
         if constexpr (is_pop) {
             return Data::get_return_type();
         } else {
-            return make_nullable(Data::get_return_type());
+            if (IAggregateFunction::version < AGG_FUNCTION_NULLABLE) {
+                return make_nullable(Data::get_return_type());
+            } else {
+                return Data::get_return_type();
+            }
         }
     }
 
@@ -278,7 +304,7 @@ public:
         if constexpr (is_pop) {
             this->data(place).add(columns[0], columns[1], row_num);
         } else {
-            if constexpr (is_nullable) {
+            if constexpr (is_nullable) { //this if check could remove with old function
                 const auto* nullable_column_x = check_and_get_column<ColumnNullable>(columns[0]);
                 const auto* nullable_column_y = check_and_get_column<ColumnNullable>(columns[1]);
                 if (!nullable_column_x->is_null_at(row_num) &&
@@ -311,6 +337,14 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
     }
+};
+
+template <typename Data, bool is_nullable>
+class AggregateFunctionSamp_OLDER final
+        : public AggregateFunctionSampCovariance<NOTPOP, Data, is_nullable> {
+public:
+    AggregateFunctionSamp_OLDER(const DataTypes& argument_types_)
+            : AggregateFunctionSampCovariance<NOTPOP, Data, is_nullable>(argument_types_) {}
 };
 
 template <typename Data, bool is_nullable>

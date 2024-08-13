@@ -1,9 +1,8 @@
 testGroups = "p1"
 //exclude groups and exclude suites is more prior than include groups and include suites.
 excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "stress_test_insert_into," +
     "test_analyze_stats_p1," +
-    "test_big_pad," +
-    "test_bitmap_filter," +
     "test_broker_load," +
     "test_profile," +
     "test_refresh_mtmv," +
@@ -20,3 +19,4 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
 
 max_failure_num = 50
 
+s3Source = "aliyun"

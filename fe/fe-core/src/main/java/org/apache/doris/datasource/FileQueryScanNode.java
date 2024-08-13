@@ -19,8 +19,8 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TableSample;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -39,7 +39,6 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.datasource.iceberg.source.IcebergSplit;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
@@ -79,7 +78,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * FileQueryScanNode for querying the file access type of catalog, now only support
@@ -95,6 +93,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected TableSample tableSample;
 
     protected String brokerName;
+
+    protected TableSnapshot tableSnapshot;
 
     /**
      * External file scan node for Query hms table
@@ -173,20 +173,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
             slotInfo.setIsFileSlot(!partitionKeys.contains(slot.getColumn().getName()));
             params.addToRequiredSlots(slotInfo);
         }
-        setDefaultValueExprs(getTargetTable(), destSlotDescByName, params, false);
+        setDefaultValueExprs(getTargetTable(), destSlotDescByName, null, params, false);
         setColumnPositionMapping();
         // For query, set src tuple id to -1.
         params.setSrcTupleId(-1);
-    }
-
-    /**
-     * Reset required_slots in contexts. This is called after Nereids planner do the projection.
-     * In the projection process, some slots may be removed. So call this to update the slots info.
-     */
-    @Override
-    public void updateRequiredSlots(PlanTranslatorContext planTranslatorContext,
-            Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
-        updateRequiredSlots();
     }
 
     private void updateRequiredSlots() throws UserException {
@@ -294,7 +284,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
                 TScanRangeLocation location = new TScanRangeLocation();
                 long backendId = ConnectContext.get().getBackendId();
-                Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
+                Backend backend = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().get(backendId);
                 location.setBackendId(backendId);
                 location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
                 curLocations.addToLocations(location);
@@ -313,30 +303,31 @@ public abstract class FileQueryScanNode extends FileScanNode {
         if (isBatchMode()) {
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
-            SplitAssignment splitAssignment = new SplitAssignment(backendPolicy, this);
+            splitAssignment = new SplitAssignment(
+                    backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys);
             splitAssignment.init();
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
             }
-            if (splitAssignment.getCurrentAssignment().isEmpty() && !(getLocationType() == TFileType.FILE_STREAM)) {
+            if (splitAssignment.getSampleSplit() == null && !(getLocationType() == TFileType.FILE_STREAM)) {
                 return;
             }
-            inputSplitsNum = splitAssignment.numApproximateSplits();
+            selectedSplitNum = numApproximateSplits();
 
             TFileType locationType;
-            FileSplit fileSplit = (FileSplit) splitAssignment.getCurrentAssignment().values().iterator().next();
+            FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
             if (fileSplit instanceof IcebergSplit
                     && ((IcebergSplit) fileSplit).getConfig().containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
                 locationType = TFileType.FILE_BROKER;
             } else {
                 locationType = getLocationType(fileSplit.getPath().toString());
             }
-            totalFileSize = fileSplit.getLength() * inputSplitsNum;
+            totalFileSize = fileSplit.getLength() * selectedSplitNum;
+            long maxWaitTime = ConnectContext.get().getSessionVariable().getFetchSplitsMaxWaitTime();
             // Not accurate, only used to estimate concurrency.
-            int numSplitsPerBE = splitAssignment.numApproximateSplits() / backendPolicy.numBackends();
+            int numSplitsPerBE = numApproximateSplits() / backendPolicy.numBackends();
             for (Backend backend : backendPolicy.getBackends()) {
-                SplitSource splitSource = new SplitSource(
-                        this::splitToScanRange, backend, locationProperties, splitAssignment, pathPartitionKeys);
+                SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime);
                 splitSources.add(splitSource);
                 Env.getCurrentEnv().getSplitSourceManager().registerSplitSource(splitSource);
                 TScanRangeLocations curLocations = newLocations();
@@ -359,7 +350,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
             }
-            inputSplitsNum = inputSplits.size();
+            selectedSplitNum = inputSplits.size();
             if (inputSplits.isEmpty() && !(getLocationType() == TFileType.FILE_STREAM)) {
                 return;
             }
@@ -429,6 +420,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
             transactionalHiveDesc.setDeleteDeltas(deleteDeltaDescs);
             tableFormatFileDesc.setTransactionalHiveParams(transactionalHiveDesc);
+            rangeDesc.setTableFormatParams(tableFormatFileDesc);
+        } else if (fileSplit instanceof HiveSplit) {
+            TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
+            tableFormatFileDesc.setTableFormatType(TableFormatType.HIVE.value());
             rangeDesc.setTableFormatParams(tableFormatFileDesc);
         }
 
@@ -553,7 +548,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
     @Override
     public int getNumInstances() {
         if (ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().getEnablePipelineXEngine()
                 && ConnectContext.get().getSessionVariable().isIgnoreStorageDataDistribution()) {
             return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
         }
@@ -579,4 +573,27 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected abstract TableIf getTargetTable() throws UserException;
 
     protected abstract Map<String, String> getLocationProperties() throws UserException;
+
+    @Override
+    public void stop() {
+        if (splitAssignment != null) {
+            splitAssignment.stop();
+            SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
+            for (Long sourceId : splitAssignment.getSources()) {
+                manager.removeSplitSource(sourceId);
+            }
+        }
+    }
+
+    public void setQueryTableSnapshot(TableSnapshot tableSnapshot) {
+        this.tableSnapshot = tableSnapshot;
+    }
+
+    public TableSnapshot getQueryTableSnapshot() {
+        TableSnapshot snapshot = desc.getRef().getTableSnapshot();
+        if (snapshot != null) {
+            return snapshot;
+        }
+        return this.tableSnapshot;
+    }
 }

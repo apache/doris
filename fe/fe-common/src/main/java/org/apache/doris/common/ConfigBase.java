@@ -224,7 +224,12 @@ public class ConfigBase {
                 continue;
             }
 
-            setConfigField(f, confVal);
+            try {
+                setConfigField(f, confVal);
+            } catch (Exception e) {
+                String msg = String.format("Failed to set config, name: %s, value: %s", f.getName(), confVal);
+                throw new IllegalArgumentException(msg, e);
+            }
         }
     }
 

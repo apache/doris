@@ -58,6 +58,7 @@ public class MTMVPlanUtil {
         ctx.setThreadLocalInfo();
         ctx.getSessionVariable().enableFallbackToOriginalPlanner = false;
         ctx.getSessionVariable().enableNereidsDML = true;
+        ctx.getSessionVariable().allowModifyMaterializedViewData = true;
         Optional<String> workloadGroup = mtmv.getWorkloadGroup();
         if (workloadGroup.isPresent()) {
             ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
@@ -152,6 +153,6 @@ public class MTMVPlanUtil {
         StatementBase parsedStmt = statements.get(0);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        return planner.plan(logicalPlan, PhysicalProperties.ANY, ExplainLevel.NONE);
+        return planner.planWithLock(logicalPlan, PhysicalProperties.ANY, ExplainLevel.NONE);
     }
 }

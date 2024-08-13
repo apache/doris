@@ -18,7 +18,6 @@
 #pragma once
 
 #include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -48,6 +47,7 @@ public:
         CREATE_TABLET_RR_IDX_CACHE = 15,
         CLOUD_TABLET_CACHE = 16,
         CLOUD_TXN_DELETE_BITMAP_CACHE = 17,
+        NONE = 18, // not be used
     };
 
     static std::string type_string(CacheType type) {
@@ -95,6 +95,34 @@ public:
         __builtin_unreachable();
     }
 
+    inline static std::unordered_map<std::string, CacheType> StringToType = {
+            {"DataPageCache", CacheType::DATA_PAGE_CACHE},
+            {"IndexPageCache", CacheType::INDEXPAGE_CACHE},
+            {"PKIndexPageCache", CacheType::PK_INDEX_PAGE_CACHE},
+            {"SchemaCache", CacheType::SCHEMA_CACHE},
+            {"SegmentCache", CacheType::SEGMENT_CACHE},
+            {"InvertedIndexSearcherCache", CacheType::INVERTEDINDEX_SEARCHER_CACHE},
+            {"InvertedIndexQueryCache", CacheType::INVERTEDINDEX_QUERY_CACHE},
+            {"PointQueryLookupConnectionCache", CacheType::LOOKUP_CONNECTION_CACHE},
+            {"PointQueryRowCache", CacheType::POINT_QUERY_ROW_CACHE},
+            {"MowDeleteBitmapAggCache", CacheType::DELETE_BITMAP_AGG_CACHE},
+            {"MowTabletVersionCache", CacheType::TABLET_VERSION_CACHE},
+            {"LastSuccessChannelCache", CacheType::LAST_SUCCESS_CHANNEL_CACHE},
+            {"CommonObjLRUCache", CacheType::COMMON_OBJ_LRU_CACHE},
+            {"ForUT", CacheType::FOR_UT},
+            {"TabletSchemaCache", CacheType::TABLET_SCHEMA_CACHE},
+            {"CreateTabletRRIdxCache", CacheType::CREATE_TABLET_RR_IDX_CACHE},
+            {"CloudTabletCache", CacheType::CLOUD_TABLET_CACHE},
+            {"CloudTxnDeleteBitmapCache", CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE}};
+
+    static CacheType string_to_type(std::string type) {
+        if (StringToType.contains(type)) {
+            return StringToType[type];
+        } else {
+            return CacheType::NONE;
+        }
+    }
+
     CachePolicy(CacheType type, uint32_t stale_sweep_time_s, bool enable_prune);
     virtual ~CachePolicy();
 
@@ -102,30 +130,6 @@ public:
     virtual void prune_all(bool force) = 0;
 
     CacheType type() { return _type; }
-    void init_mem_tracker(const std::string& type_name) {
-        _mem_tracker =
-                std::make_unique<MemTracker>(fmt::format("{}[{}]", type_string(_type), type_name),
-                                             ExecEnv::GetInstance()->details_mem_tracker_set());
-    }
-    MemTracker* mem_tracker() { return _mem_tracker.get(); }
-    void init_mem_tracker_by_allocator(const std::string& type_name) {
-        _mem_tracker_by_allocator = MemTrackerLimiter::create_shared(
-                MemTrackerLimiter::Type::GLOBAL,
-                fmt::format("{}[{}](AllocByAllocator)", type_string(_type), type_name));
-    }
-    std::shared_ptr<MemTrackerLimiter> mem_tracker_by_allocator() const {
-        DCHECK(_mem_tracker_by_allocator != nullptr);
-        return _mem_tracker_by_allocator;
-    }
-    int64_t mem_consumption() {
-        if (_mem_tracker_by_allocator != nullptr) {
-            return _mem_tracker_by_allocator->consumption();
-        } else if (_mem_tracker != nullptr) {
-            return _mem_tracker->consumption();
-        }
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
-    }
     bool enable_prune() const { return _enable_prune; }
     RuntimeProfile* profile() { return _profile.get(); }
 
@@ -141,9 +145,6 @@ protected:
     }
 
     CacheType _type;
-
-    std::unique_ptr<MemTracker> _mem_tracker;
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker_by_allocator;
 
     std::unique_ptr<RuntimeProfile> _profile;
     RuntimeProfile::Counter* _prune_stale_number_counter = nullptr;

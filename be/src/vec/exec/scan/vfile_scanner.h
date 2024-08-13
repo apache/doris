@@ -55,21 +55,17 @@ struct TypeDescriptor;
 
 namespace doris::vectorized {
 
-class NewFileScanNode;
-
 class VFileScanner : public VScanner {
     ENABLE_FACTORY_CREATOR(VFileScanner);
 
 public:
     static constexpr const char* NAME = "VFileScanner";
 
-    VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                 std::shared_ptr<vectorized::SplitSourceConnector> split_source,
-                 RuntimeProfile* profile, ShardedKVCache* kv_cache);
-
     VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
                  std::shared_ptr<vectorized::SplitSourceConnector> split_source,
-                 RuntimeProfile* profile, ShardedKVCache* kv_cache);
+                 RuntimeProfile* profile, ShardedKVCache* kv_cache,
+                 std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+                 const std::unordered_map<std::string, int>* colname_to_slot_id);
 
     Status open(RuntimeState* state) override;
 
@@ -77,9 +73,7 @@ public:
 
     void try_stop() override;
 
-    Status prepare(const VExprContextSPtrs& conjuncts,
-                   std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-                   const std::unordered_map<std::string, int>* colname_to_slot_id);
+    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
 
     std::string get_name() override { return VFileScanner::NAME; }
 
@@ -182,6 +176,7 @@ private:
     RuntimeProfile::Counter* _pre_filter_timer = nullptr;
     RuntimeProfile::Counter* _convert_to_output_block_timer = nullptr;
     RuntimeProfile::Counter* _empty_file_counter = nullptr;
+    RuntimeProfile::Counter* _not_found_file_counter = nullptr;
     RuntimeProfile::Counter* _file_counter = nullptr;
     RuntimeProfile::Counter* _has_fully_rf_file_counter = nullptr;
 
@@ -222,21 +217,9 @@ private:
         _counter.num_rows_filtered = 0;
     }
 
-    TPushAggOp::type _get_push_down_agg_type() {
-        if (get_parent() != nullptr) {
-            return _parent->get_push_down_agg_type();
-        } else {
-            return _local_state->get_push_down_agg_type();
-        }
-    }
+    TPushAggOp::type _get_push_down_agg_type() { return _local_state->get_push_down_agg_type(); }
 
-    int64_t _get_push_down_count() {
-        if (get_parent() != nullptr) {
-            return _parent->get_push_down_count();
-        } else {
-            return _local_state->get_push_down_count();
-        }
-    }
+    int64_t _get_push_down_count() { return _local_state->get_push_down_count(); }
 
     // enable the file meta cache only when
     // 1. max_external_file_meta_cache_num is > 0

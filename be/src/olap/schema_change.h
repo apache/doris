@@ -87,7 +87,7 @@ public:
 
 private:
     static Status _check_cast_valid(vectorized::ColumnPtr ref_column,
-                                    vectorized::ColumnPtr new_column, AlterTabletType type);
+                                    vectorized::ColumnPtr new_column);
 
     // @brief column-mapping specification of new schema
     SchemaMapping _schema_mapping;
@@ -117,8 +117,8 @@ public:
 
         _filtered_rows = 0;
         _merged_rows = 0;
-        RETURN_IF_ERROR(_inner_process(rowset_reader, rowset_writer, new_tablet, base_tablet_schema,
-                                       new_tablet_schema));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_inner_process(rowset_reader, rowset_writer, new_tablet,
+                                                          base_tablet_schema, new_tablet_schema));
 
         // Check row num changes
         if (!_check_row_nums(rowset_reader, *rowset_writer)) {
@@ -269,7 +269,7 @@ struct AlterMaterializedViewParam {
 
 struct SchemaChangeParams {
     AlterTabletType alter_tablet_type;
-    bool enable_unique_key_merge_on_write;
+    bool enable_unique_key_merge_on_write = false;
     std::vector<RowsetReaderSharedPtr> ref_rowset_readers;
     DeleteHandler* delete_handler = nullptr;
     std::unordered_map<std::string, AlterMaterializedViewParam> materialized_params_map;

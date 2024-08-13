@@ -121,6 +121,11 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     _is_strict_mode = pschema.is_strict_mode();
     if (_is_partial_update) {
         _auto_increment_column = pschema.auto_increment_column();
+        if (!_auto_increment_column.empty() && pschema.auto_increment_column_unique_id() == -1) {
+            return Status::InternalError(
+                    "Auto increment column id is not set in FE. Maybe FE is an older version "
+                    "different from BE.");
+        }
         _auto_increment_column_unique_id = pschema.auto_increment_column_unique_id();
     }
     _timestamp_ms = pschema.timestamp_ms();
@@ -187,6 +192,11 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     }
     if (_is_partial_update) {
         _auto_increment_column = tschema.auto_increment_column;
+        if (!_auto_increment_column.empty() && tschema.auto_increment_column_unique_id == -1) {
+            return Status::InternalError(
+                    "Auto increment column id is not set in FE. Maybe FE is an older version "
+                    "different from BE.");
+        }
         _auto_increment_column_unique_id = tschema.auto_increment_column_unique_id;
     }
 
@@ -388,18 +398,21 @@ Status VOlapTablePartitionParam::init() {
     // for both auto/non-auto partition table.
     _is_in_partition = _part_type == TPartitionType::type::LIST_PARTITIONED;
 
-    // initial partitions
+    // initial partitions. if meet dummy partitions only for open BE nodes, not generate key of them for finding
     for (const auto& t_part : _t_param.partitions) {
         VOlapTablePartition* part = nullptr;
         RETURN_IF_ERROR(generate_partition_from(t_part, part));
         _partitions.emplace_back(part);
-        if (_is_in_partition) {
-            for (auto& in_key : part->in_keys) {
-                _partitions_map->emplace(std::tuple {in_key.first, in_key.second, false}, part);
+
+        if (!_t_param.partitions_is_fake) {
+            if (_is_in_partition) {
+                for (auto& in_key : part->in_keys) {
+                    _partitions_map->emplace(std::tuple {in_key.first, in_key.second, false}, part);
+                }
+            } else {
+                _partitions_map->emplace(
+                        std::tuple {part->end_key.first, part->end_key.second, false}, part);
             }
-        } else {
-            _partitions_map->emplace(std::tuple {part->end_key.first, part->end_key.second, false},
-                                     part);
         }
     }
 

@@ -209,13 +209,7 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         return !_filter_map[row] && (null_map == nullptr || null_map[j] == 0);
     };
 
-    switch (type.type) {
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_STRING: {
-        const auto column_string =
-                assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
-
+    auto string_column_checker = [&](const ColumnString* column_string) {
         size_t limit = config::string_type_length_soft_limit_bytes;
         // when type.len is negative, std::min will return overflow value, so we need to check it
         if (type.len > 0) {
@@ -257,6 +251,16 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
                 }
             }
         }
+        return Status::OK();
+    };
+
+    switch (type.type) {
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+    case TYPE_STRING: {
+        const auto column_string =
+                assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
+        RETURN_IF_ERROR(string_column_checker(column_string));
         break;
     }
     case TYPE_JSONB: {
@@ -418,6 +422,13 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         }
         break;
     }
+    case TYPE_AGG_STATE: {
+        auto* column_string = vectorized::check_and_get_column<ColumnString>(*real_column_ptr);
+        if (column_string) {
+            RETURN_IF_ERROR(string_column_checker(column_string));
+        }
+        break;
+    }
     default:
         break;
     }
@@ -494,8 +505,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
     vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
 
     vectorized::ColumnPtr src_column_ptr = block->get_by_position(idx).column;
-    if (const vectorized::ColumnConst* const_column =
-                check_and_get_column<vectorized::ColumnConst>(src_column_ptr)) {
+    if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(src_column_ptr)) {
         // for insert stmt like "insert into tbl1 select null,col1,col2,... from tbl2" or
         // "insert into tbl1 select 1,col1,col2,... from tbl2", the type of literal's column
         // will be `ColumnConst`
@@ -518,7 +528,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
             int64_t value = const_column->get_int(0);
             dst_values.resize_fill(rows, value);
         }
-    } else if (const vectorized::ColumnNullable* src_nullable_column =
+    } else if (const auto* src_nullable_column =
                        check_and_get_column<vectorized::ColumnNullable>(src_column_ptr)) {
         auto src_nested_column_ptr = src_nullable_column->get_nested_column_ptr();
         const auto& null_map_data = src_nullable_column->get_null_map_data();

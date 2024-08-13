@@ -47,16 +47,17 @@ public:
     int compare_at(size_t, size_t, const IColumn&, int) const override { return 0; }
 
     [[noreturn]] Field operator[](size_t) const override {
-        LOG(FATAL) << "Cannot get value from " << get_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Cannot get value from {}", get_name());
         __builtin_unreachable();
     }
 
     void get(size_t, Field&) const override {
-        LOG(FATAL) << "Cannot get value from " << get_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Cannot get value from {}", get_name());
     }
 
     void insert(const Field&) override {
-        LOG(FATAL) << "Cannot insert element into " << get_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Cannot insert element into {}",
+                               get_name());
     }
 
     StringRef get_data_at(size_t) const override { return {}; }
@@ -98,7 +99,8 @@ public:
 
     ColumnPtr permute(const Permutation& perm, size_t limit) const override {
         if (s != perm.size()) {
-            LOG(FATAL) << "Size of permutation doesn't match size of column.";
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Size of permutation doesn't match size of column.");
             __builtin_unreachable();
         }
 
@@ -122,8 +124,9 @@ public:
         size_t num_rows = size();
 
         if (num_rows < selector.size()) {
-            LOG(FATAL) << fmt::format("Size of selector: {}, is larger than size of column:{}",
-                                      selector.size(), num_rows);
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Size of selector: {}, is larger than size of column:{}",
+                                   selector.size(), num_rows);
         }
 
         res->reserve(num_rows);
@@ -136,8 +139,9 @@ public:
         size_t num_rows = size();
 
         if (num_rows < selector.size()) {
-            LOG(FATAL) << fmt::format("Size of selector: {}, is larger than size of column:{}",
-                                      selector.size(), num_rows);
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Size of selector: {}, is larger than size of column:{}",
+                                   selector.size(), num_rows);
         }
 
         res->reserve(num_rows);
@@ -148,26 +152,9 @@ public:
     void addSize(size_t delta) { s += delta; }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "should not call the method in column dummy";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "should not call the method in column dummy");
         __builtin_unreachable();
-    }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "should not call the method in column dummy";
-        __builtin_unreachable();
-    }
-
-    void get_indices_of_non_default_rows(Offsets64&, size_t, size_t) const override {
-        LOG(FATAL) << "should not call the method in column dummy";
-        __builtin_unreachable();
-    }
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override {
-        if (indexes.size() < limit) {
-            LOG(FATAL) << "Size of indexes is less than required.";
-            __builtin_unreachable();
-        }
-        return clone_dummy(limit ? limit : s);
     }
 
 protected:

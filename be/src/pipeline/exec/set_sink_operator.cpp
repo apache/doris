@@ -86,7 +86,7 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
 
     vectorized::materialize_block_inplace(block);
     vectorized::ColumnRawPtrs raw_ptrs(_child_exprs.size());
-    RETURN_IF_ERROR(_extract_build_column(local_state, block, raw_ptrs));
+    RETURN_IF_ERROR(_extract_build_column(local_state, block, raw_ptrs, rows));
 
     std::visit(
             [&](auto&& arg) {
@@ -108,22 +108,40 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::_extract_build_column(
         SetSinkLocalState<is_intersect>& local_state, vectorized::Block& block,
-        vectorized::ColumnRawPtrs& raw_ptrs) {
-    for (size_t i = 0; i < _child_exprs.size(); ++i) {
-        int result_col_id = -1;
-        RETURN_IF_ERROR(_child_exprs[i]->execute(&block, &result_col_id));
+        vectorized::ColumnRawPtrs& raw_ptrs, size_t& rows) {
+    std::vector<int> result_locs(_child_exprs.size(), -1);
+    bool is_all_const = true;
 
-        block.get_by_position(result_col_id).column =
-                block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
-        if (local_state._shared_state->build_not_ignore_null[i]) {
+    for (size_t i = 0; i < _child_exprs.size(); ++i) {
+        RETURN_IF_ERROR(_child_exprs[i]->execute(&block, &result_locs[i]));
+        is_all_const &= is_column_const(*block.get_by_position(result_locs[i]).column);
+    }
+    rows = is_all_const ? 1 : rows;
+
+    for (size_t i = 0; i < _child_exprs.size(); ++i) {
+        int result_col_id = result_locs[i];
+
+        if (is_all_const) {
             block.get_by_position(result_col_id).column =
-                    make_nullable(block.get_by_position(result_col_id).column);
+                    assert_cast<const vectorized::ColumnConst&>(
+                            *block.get_by_position(result_col_id).column)
+                            .get_data_column_ptr();
+        } else {
+            block.get_by_position(result_col_id).column =
+                    block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
+        }
+        // Do make nullable should not change the origin column and type in origin block
+        // which may cause coredump problem
+        if (local_state._shared_state->build_not_ignore_null[i]) {
+            auto column_ptr = make_nullable(block.get_by_position(result_col_id).column, false);
+            block.insert(
+                    {column_ptr, make_nullable(block.get_by_position(result_col_id).type), ""});
+            result_col_id = block.columns() - 1;
         }
 
-        const auto* column = block.get_by_position(result_col_id).column.get();
-        raw_ptrs[i] = column;
+        raw_ptrs[i] = block.get_by_position(result_col_id).column.get();
         DCHECK_GE(result_col_id, 0);
-        local_state._shared_state->build_col_idx.insert({result_col_id, i});
+        local_state._shared_state->build_col_idx.insert({i, result_col_id});
     }
     return Status::OK();
 }
@@ -161,7 +179,7 @@ Status SetSinkLocalState<is_intersect>::open(RuntimeState* state) {
     DCHECK(parent._cur_child_id == 0);
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
     _shared_state->build_not_ignore_null.resize(child_exprs_lists[parent._cur_child_id].size());
-    _shared_state->hash_table_variants = std::make_unique<vectorized::SetHashTableVariants>();
+    _shared_state->hash_table_variants = std::make_unique<SetHashTableVariants>();
 
     for (const auto& ctl : child_exprs_lists) {
         for (int i = 0; i < ctl.size(); ++i) {

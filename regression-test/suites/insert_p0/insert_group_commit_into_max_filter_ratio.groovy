@@ -41,6 +41,19 @@ suite("insert_group_commit_into_max_filter_ratio") {
         }
     }
 
+    def normal_insert = { sql, expected_row_count ->
+        def stmt = prepareStatement """ ${sql}  """
+        def result = stmt.executeUpdate()
+        logger.info("insert result: " + result)
+        def serverInfo = (((StatementImpl) stmt).results).getServerInfo()
+        logger.info("result server info: " + serverInfo)
+        if (result != expected_row_count) {
+            logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
+        }
+        assertTrue(serverInfo.contains("'status':'VISIBLE'"))
+            assertTrue(serverInfo.contains("'label':'label"))
+    }
+
     def group_commit_insert = { sql, expected_row_count ->
         def stmt = prepareStatement """ ${sql}  """
         def result = stmt.executeUpdate()
@@ -80,7 +93,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
                 logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
             }
             // assertEquals(result, expected_row_count)
-            assertTrue(serverInfo.contains("'status':'ABORTED'"))
+            assertTrue(serverInfo.contains("'status':'ABORTED'")/* || serverInfo.contains("too many filtered rows")*/)
             // assertFalse(serverInfo.contains("'label':'group_commit_"))
         } catch (Exception e) {
             logger.info("exception: " + e)
@@ -174,7 +187,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
             if (item == "nereids") {
                 sql """ set enable_nereids_dml = true; """
                 sql """ set enable_nereids_planner=true; """
-                // sql """ set enable_fallback_to_original_planner=false; """
+                sql """ set enable_fallback_to_original_planner=false; """
             } else {
                 sql """ set enable_nereids_dml = false; """
             }
@@ -182,11 +195,16 @@ suite("insert_group_commit_into_max_filter_ratio") {
             sql """ set group_commit = sync_mode; """
             group_commit_insert """ insert into ${dbTableName} values (1, 'a', 10); """, 1
             sql """ set group_commit = async_mode; """
-            group_commit_insert """ insert into ${dbTableName}(id) select 2; """, 1
+            group_commit_insert """ insert into ${dbTableName}(id) values(2); """, 1
             sql """ set group_commit = off_mode; """
             off_mode_group_commit_insert """ insert into ${dbTableName} values (3, 'a', 10); """, 1
+
             sql """ set group_commit = async_mode; """
-            fail_group_commit_insert """ insert into ${dbTableName} values (4, 'abc', 10); """, 0
+            if (item == "nereids") {
+                group_commit_insert """ insert into ${dbTableName} values (4, 'abc', 10); """, 0
+            } else {
+                fail_group_commit_insert """ insert into ${dbTableName} values (4, 'abc', 10); """, 0
+            }
             sql """ set enable_insert_strict = false; """
             group_commit_insert """ insert into ${dbTableName} values (5, 'abc', 10); """, 0
 
@@ -212,11 +230,15 @@ suite("insert_group_commit_into_max_filter_ratio") {
             // TODO should throw exception?
             sql """ set group_commit = async_mode; """
             sql """ set enable_insert_strict = true; """
-            fail_group_commit_insert """ insert into ${dbTableName} values (8, 'a', 'a'); """, 0
-
+            if (item == "nereids") {
+                // will write [8, a, null]
+                // group_commit_insert """ insert into ${dbTableName} values (8, 'a', 'a'); """, 1
+            } else {
+                fail_group_commit_insert """ insert into ${dbTableName} values (8, 'a', 'a'); """, 0
+            }
             sql """ set group_commit = async_mode; """
             sql """ set enable_insert_strict = false; """
-            group_commit_insert """ insert into ${dbTableName} values (9, 'a', 'a'); """, 0
+            group_commit_insert """ insert into ${dbTableName} values (9, 'a', 'a'); """, 1
         }
         if (item == "nereids") {
             get_row_count_with_retry(6)

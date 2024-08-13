@@ -50,9 +50,9 @@ public class PublishVersionTask extends AgentTask {
     private Map<Long, Long> succTablets;
 
     /**
-     * To collect loaded rows for each table from each BE
+     * To collect loaded rows for each tablet from each BE
      */
-    private final Map<Long, Long> tableIdToDeltaNumRows = Maps.newHashMap();
+    private final Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows = Maps.newHashMap();
 
     public PublishVersionTask(long backendId, long transactionId, long dbId,
             List<TPartitionVersionInfo> partitionVersionInfos, long createTime) {
@@ -99,11 +99,16 @@ public class PublishVersionTask extends AgentTask {
         this.errorTablets.addAll(errorTablets);
     }
 
-    public void setTableIdToDeltaNumRows(Map<Long, Long> tabletIdToDeltaNumRows) {
-        this.tableIdToDeltaNumRows.putAll(tabletIdToDeltaNumRows);
+    public void setTableIdTabletsDeltaRows(Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows) {
+        this.tableIdToTabletDeltaRows.putAll(tableIdToTabletDeltaRows);
     }
 
-    public Map<Long, Long> getTableIdToDeltaNumRows() {
-        return tableIdToDeltaNumRows;
+    public Map<Long, Map<Long, Long>> getTableIdToTabletDeltaRows() {
+        return tableIdToTabletDeltaRows;
+    }
+
+    @Override
+    public String toString() {
+        return super.toString() + ", txnId=" + transactionId;
     }
 }

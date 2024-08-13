@@ -61,14 +61,6 @@ suite("test_hive_mtmv", "p0,external,hive,external_docker,external_docker_hive")
             waitingMTMVTaskFinished(jobName)
             order_qt_refresh_one_partition "SELECT * FROM ${mvName} order by id"
 
-            //refresh other partitions
-            // current, for hive, auto refresh will not change data
-            sql """
-                    REFRESH MATERIALIZED VIEW ${mvName} AUTO
-                """
-            waitingMTMVTaskFinished(jobName)
-            order_qt_refresh_other_partition "SELECT * FROM ${mvName} order by id"
-
             //refresh complete
             sql """
                     REFRESH MATERIALIZED VIEW ${mvName} complete

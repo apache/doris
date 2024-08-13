@@ -50,6 +50,9 @@ public:
 
     int init() override;
 
+    std::unique_ptr<FullRangeGetIterator> full_range_get(std::string begin, std::string end,
+                                                         FullRangeGetIteratorOptions opts) override;
+
     TxnErrorCode get_kv(const std::string& key, std::string* val, int64_t version);
     TxnErrorCode get_kv(const std::string& begin, const std::string& end, int64_t version,
                         int limit, bool* more, std::map<std::string, std::string>* kv_list);
@@ -208,7 +211,7 @@ private:
     std::set<std::string> unreadable_keys_;
     std::set<std::string> read_set_;
     std::map<std::string, std::string> writes_;
-    std::list<std::pair<std::string, std::string>> remove_ranges_;
+    std::vector<std::pair<std::string, std::string>> remove_ranges_;
     std::vector<std::tuple<ModifyOpType, std::string, std::string>> op_list_;
 
     int64_t committed_version_ = -1;
@@ -258,6 +261,27 @@ private:
     int kvs_size_;
     int idx_;
     bool more_;
+};
+
+class FullRangeGetIterator final : public cloud::FullRangeGetIterator {
+public:
+    FullRangeGetIterator(std::string begin, std::string end, FullRangeGetIteratorOptions opts);
+
+    ~FullRangeGetIterator() override;
+
+    bool is_valid() override { return is_valid_; }
+
+    bool has_next() override;
+
+    std::optional<std::pair<std::string_view, std::string_view>> next() override;
+
+private:
+    FullRangeGetIteratorOptions opts_;
+    bool is_valid_ {true};
+    std::unique_ptr<cloud::RangeGetIterator> inner_iter_;
+    std::string begin_;
+    std::string end_;
+    std::unique_ptr<cloud::Transaction> txn_;
 };
 
 } // namespace memkv

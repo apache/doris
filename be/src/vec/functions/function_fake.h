@@ -25,6 +25,7 @@
 #include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
 
 namespace doris {
@@ -35,6 +36,16 @@ class Block;
 } // namespace doris
 
 namespace doris::vectorized {
+
+struct UDTFImpl {
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeUInt8>(); //just fake return uint8
+    }
+    static std::string get_error_msg() {
+        return "UDTF function do not support this, it's should execute with lateral view.";
+    }
+};
+
 // FunctionFake is use for some function call expr only work at prepare/open phase, do not support execute().
 template <typename Impl>
 class FunctionFake : public IFunction {
@@ -53,7 +64,12 @@ public:
         return Impl::get_return_type_impl(arguments);
     }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
+    bool use_default_implementation_for_nulls() const override {
+        if constexpr (std::is_same_v<Impl, UDTFImpl>) {
+            return false;
+        }
+        return true;
+    }
 
     bool use_default_implementation_for_constants() const override { return false; }
 
@@ -61,14 +77,6 @@ public:
                         size_t result, size_t input_rows_count) const override {
         return Status::NotSupported(Impl::get_error_msg());
     }
-};
-
-struct UDTFImpl {
-    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        DCHECK(false) << "get_return_type_impl not supported, shouldn't into here.";
-        return nullptr;
-    }
-    static std::string get_error_msg() { return "Fake function do not support execute"; }
 };
 
 } // namespace doris::vectorized

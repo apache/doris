@@ -217,11 +217,14 @@ schemata
 session_variables
 statistics
 table_constraints
+table_options
 table_privileges
 tables
 triggers
 user_privileges
 views
+workload_group_privileges
+workload_group_resource_usage
 workload_groups
 workload_policy
 
@@ -239,15 +242,6 @@ workload_policy
 3	0000-01-01
 
 -- !test_filter_not --
-张三1	11	12345678	123	321312	1999-02-13T00:00	中国	男	0
-张三2	11	12345671	123	321312	1999-02-13T00:00	中国	男	0
-张三3	11	12345673	123	321312	1999-02-13T00:00	中国	男	0
-张三4	11	123456711	123	321312	1999-02-13T00:00	中国	男	0
-张三5	11	1232134567	123	321312	1999-02-13T00:00	中国	男	0
-张三6	11	124314567	123	321312	1999-02-13T00:00	中国	男	0
-张三7	11	123445167	123	321312	1998-02-13T00:00	中国	男	0
-
--- !test_filter_not_old_plan --
 张三1	11	12345678	123	321312	1999-02-13T00:00	中国	男	0
 张三2	11	12345671	123	321312	1999-02-13T00:00	中国	男	0
 张三3	11	12345673	123	321312	1999-02-13T00:00	中国	男	0
@@ -317,38 +311,38 @@ mysql
 203	303	403	503	603	7.14159	8.1415926	9.14159	0	\N	-402	2017	-602	-902	-1102	2012-11-02	\N	2013-10-27T08:11:18	-5.14145	-6.1400000000001	-7.1400	row3	line3	09:11:09.567	text3	0xE86F6C6C6F20576F726C67	{"age": 24, "city": "ChongQing", "name": "ChenQi"}	Option2	0x2F	0x58676C6C6F00000000000000	\N	Value1
 
 -- !ctas_desc --
-bigint	BIGINT	Yes	false	\N	NONE
-bigint_u	LARGEINT	Yes	false	\N	NONE
-binary	TEXT	Yes	false	\N	NONE
-bit	TEXT	Yes	false	\N	NONE
-blob	TEXT	Yes	false	\N	NONE
-boolean	TINYINT	Yes	false	\N	NONE
-char	TEXT	Yes	false	\N	NONE
-date	DATE	Yes	false	\N	NONE
-datetime	DATETIME	Yes	false	\N	NONE
-decimal	DECIMAL(12, 4)	Yes	false	\N	NONE
-decimal_u	DECIMAL(19, 5)	Yes	false	\N	NONE
-double	DOUBLE	Yes	false	\N	NONE
-double_u	DOUBLE	Yes	false	\N	NONE
-enum	TEXT	Yes	false	\N	NONE
-float	FLOAT	Yes	false	\N	NONE
-float_u	FLOAT	Yes	false	\N	NONE
-int	INT	Yes	false	\N	NONE
-int_u	BIGINT	Yes	false	\N	NONE
-json	TEXT	Yes	false	\N	NONE
-mediumint	INT	Yes	false	\N	NONE
-mediumint_u	INT	Yes	true	\N	
-set	TEXT	Yes	false	\N	NONE
-smallint	SMALLINT	Yes	false	\N	NONE
-smallint_u	INT	Yes	true	\N	
-text	TEXT	Yes	false	\N	NONE
-time	TEXT	Yes	false	\N	NONE
-timestamp	DATETIME(4)	Yes	false	\N	NONE
-tinyint	TINYINT	Yes	false	\N	NONE
-tinyint_u	SMALLINT	Yes	true	\N	
-varbinary	TEXT	Yes	false	\N	NONE
-varchar	TEXT	Yes	false	\N	NONE
-year	SMALLINT	Yes	false	\N	NONE
+bigint	bigint	Yes	false	\N	NONE
+bigint_u	largeint	Yes	false	\N	NONE
+binary	text	Yes	false	\N	NONE
+bit	text	Yes	false	\N	NONE
+blob	text	Yes	false	\N	NONE
+boolean	tinyint	Yes	false	\N	NONE
+char	text	Yes	false	\N	NONE
+date	date	Yes	false	\N	NONE
+datetime	datetime	Yes	false	\N	NONE
+decimal	decimal(12,4)	Yes	false	\N	NONE
+decimal_u	decimal(19,5)	Yes	false	\N	NONE
+double	double	Yes	false	\N	NONE
+double_u	double	Yes	false	\N	NONE
+enum	text	Yes	false	\N	NONE
+float	float	Yes	false	\N	NONE
+float_u	float	Yes	false	\N	NONE
+int	int	Yes	false	\N	NONE
+int_u	bigint	Yes	false	\N	NONE
+json	text	Yes	false	\N	NONE
+mediumint	int	Yes	false	\N	NONE
+mediumint_u	int	Yes	true	\N	
+set	text	Yes	false	\N	NONE
+smallint	smallint	Yes	false	\N	NONE
+smallint_u	int	Yes	true	\N	
+text	text	Yes	false	\N	NONE
+time	text	Yes	false	\N	NONE
+timestamp	datetime(4)	Yes	false	\N	NONE
+tinyint	tinyint	Yes	false	\N	NONE
+tinyint_u	smallint	Yes	true	\N	
+varbinary	text	Yes	false	\N	NONE
+varchar	text	Yes	false	\N	NONE
+year	smallint	Yes	false	\N	NONE
 
 -- !mysql_view --
 10086	4294967295	201
@@ -453,4 +447,23 @@ doris
 
 -- !sql --
 1
+
+-- !sql --
+10	\N	7744
+11	\N	-94
+12	16970	95
+13	\N	7023
+14	\N	1
+15	3679	-11
+16	\N	-1079
+17	-22	\N
+18	30995	\N
+19	\N	-79
+5	\N	-127
+6	14680	-26424
+7	-22270	12722
+8	\N	\N
+9	\N	\N
+
+-- !sql --
 

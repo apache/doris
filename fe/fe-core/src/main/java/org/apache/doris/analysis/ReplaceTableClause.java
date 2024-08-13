@@ -76,6 +76,11 @@ public class ReplaceTableClause extends AlterTableClause {
     }
 
     @Override
+    public boolean needChangeMTMVState() {
+        return true;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("REPLACE WITH TABLE ").append(tblName);

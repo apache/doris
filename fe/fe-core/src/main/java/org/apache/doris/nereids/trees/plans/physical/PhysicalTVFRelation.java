@@ -107,7 +107,7 @@ public class PhysicalTVFRelation extends PhysicalRelation implements TVFRelation
     public List<Slot> computeOutput() {
         return function.getTable().getBaseSchema()
                 .stream()
-                .map(col -> SlotReference.fromColumn(function.getTable(), col, ImmutableList.of(), this))
+                .map(col -> SlotReference.fromColumn(function.getTable(), col, ImmutableList.of()))
                 .collect(ImmutableList.toImmutableList());
     }
 

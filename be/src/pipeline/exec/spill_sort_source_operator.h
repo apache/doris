@@ -90,7 +90,6 @@ public:
 
 private:
     friend class SpillSortLocalState;
-    Status _initiate_merge_spill_partition_agg_data(RuntimeState* state);
 
     std::unique_ptr<SortSourceOperatorX> _sort_source_operator;
 };

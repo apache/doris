@@ -18,7 +18,7 @@
 #pragma once
 
 #include "operator.h"
-#include "vec/sink/vhive_table_sink.h"
+#include "vec/sink/writer/vhive_table_writer.h"
 
 namespace doris::pipeline {
 

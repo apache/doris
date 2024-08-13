@@ -30,7 +30,6 @@
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
-#include "vec/sink/vresult_sink.h"
 
 namespace doris {
 class QueryContext;
@@ -64,8 +63,6 @@ public:
     // must be call after all pipeline task is finish to release resource
     Status close(Status exec_status);
 
-    Status close_sink(Status exec_status);
-
     PipelineFragmentContext* fragment_context() { return _fragment_context; }
 
     QueryContext* query_context();
@@ -85,8 +82,6 @@ public:
     }
 
     void finalize();
-
-    bool is_finished() const { return _finished.load(); }
 
     std::string debug_string();
 
@@ -137,14 +132,14 @@ public:
 
     DataSinkOperatorXPtr sink() const { return _sink; }
 
-    OperatorXPtr source() const { return _source; }
-
     int task_id() const { return _index; };
+    bool is_finalized() const { return _finalized; }
 
     void clear_blocking_state() {
+        _state->get_query_ctx()->get_execution_dependency()->set_always_ready();
         // We use a lock to assure all dependencies are not deconstructed here.
-        std::unique_lock<std::mutex> lc(_release_lock);
-        if (!_finished) {
+        std::unique_lock<std::mutex> lc(_dependency_lock);
+        if (!_finalized) {
             _execution_dep->set_always_ready();
             for (auto* dep : _filter_dependencies) {
                 dep->set_always_ready();
@@ -182,6 +177,12 @@ public:
     void set_core_id(int core_id) { this->_core_id = core_id; }
     int get_core_id() const { return this->_core_id; }
 
+    /**
+     * Return true if:
+     * 1. `enable_force_spill` is true which forces this task to spill data.
+     * 2. Or memory consumption reaches the high water mark of current workload group (80% of memory limitation by default) and revocable_mem_bytes is bigger than min_revocable_mem_bytes.
+     * 3. Or memory consumption is higher than the low water mark of current workload group (50% of memory limitation by default) and `query_weighted_consumption >= query_weighted_limit` and revocable memory is big enough.
+     */
     static bool should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes);
 
     void put_in_runnable_queue() {
@@ -224,6 +225,12 @@ public:
 
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
+    void stop_if_finished() {
+        if (_sink->is_finished(_state)) {
+            clear_blocking_state();
+        }
+    }
+
 private:
     friend class RuntimeFilterDependency;
     bool _is_blocked();
@@ -237,7 +244,6 @@ private:
     uint32_t _index;
     PipelinePtr _pipeline;
     bool _has_exceed_timeout = false;
-    bool _prepared;
     bool _opened;
     RuntimeState* _state = nullptr;
     int _previous_schedule_id = -1;
@@ -256,7 +262,6 @@ private:
     // 3 update task statistics(update _queue_level/_core_id)
     int _queue_level = 0;
     int _core_id = 0;
-    Status _open_status = Status::OK();
 
     RuntimeProfile* _parent_profile = nullptr;
     std::unique_ptr<RuntimeProfile> _task_profile;
@@ -268,7 +273,6 @@ private:
     RuntimeProfile::Counter* _get_block_counter = nullptr;
     RuntimeProfile::Counter* _sink_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
-    RuntimeProfile::Counter* _block_counts = nullptr;
     RuntimeProfile::Counter* _schedule_counts = nullptr;
     MonotonicStopWatch _wait_worker_watcher;
     RuntimeProfile::Counter* _wait_worker_timer = nullptr;
@@ -279,8 +283,8 @@ private:
     MonotonicStopWatch _pipeline_task_watcher;
 
     OperatorXs _operators; // left is _source, right is _root
-    OperatorXPtr _source;
-    OperatorXPtr _root;
+    OperatorXBase* _source;
+    OperatorXBase* _root;
     DataSinkOperatorXPtr _sink;
 
     // `_read_dependencies` is stored as same order as `_operators`
@@ -302,8 +306,8 @@ private:
 
     Dependency* _execution_dep = nullptr;
 
-    std::atomic<bool> _finished {false};
-    std::mutex _release_lock;
+    std::atomic<bool> _finalized {false};
+    std::mutex _dependency_lock;
 
     std::atomic<bool> _running {false};
     std::atomic<bool> _eos {false};

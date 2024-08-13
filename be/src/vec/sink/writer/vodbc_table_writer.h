@@ -36,7 +36,9 @@ class VOdbcTableWriter final : public AsyncResultWriter, public ODBCConnector {
 public:
     static ODBCConnectorParam create_connect_param(const TDataSink&);
 
-    VOdbcTableWriter(const doris::TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
+    VOdbcTableWriter(const doris::TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
+                     std::shared_ptr<pipeline::Dependency> dep,
+                     std::shared_ptr<pipeline::Dependency> fin_dep);
 
     // connect to odbc server
     Status open(RuntimeState* state, RuntimeProfile* profile) override {
@@ -44,7 +46,7 @@ public:
         return init_to_write(profile);
     }
 
-    Status write(vectorized::Block& block) override;
+    Status write(RuntimeState* state, vectorized::Block& block) override;
 
     Status finish(RuntimeState* state) override { return ODBCConnector::finish_trans(); }
 

@@ -51,8 +51,8 @@ public:
     int64_t mem_usage() const { return _mem_usage; }
 
 private:
-    static int64_t _avail_mem_lack();
-    static int64_t _proc_mem_extra();
+    static inline bool _sys_avail_mem_less_than_warning_water_mark();
+    static inline bool _process_used_mem_more_than_soft_mem_limit();
 
     bool _soft_limit_reached();
     bool _hard_limit_reached();
@@ -76,7 +76,7 @@ private:
     int64_t _load_soft_mem_limit = -1;
     int64_t _load_safe_mem_permit = -1;
 
-    enum Limit { NONE, SOFT, HARD } _last_limit;
+    enum Limit { NONE, SOFT, HARD } _last_limit = Limit::NONE;
     MonotonicStopWatch _log_timer;
     static const int64_t LOG_INTERVAL = 1 * 1000 * 1000 * 1000; // 1s
 

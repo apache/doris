@@ -35,7 +35,7 @@ suite("regression_test_variant_column_name", "variant_type"){
     // sql """insert into ${table_name} values (2, '{}')"""
     sql "truncate table ${table_name}"
     sql """insert into ${table_name} values (3, '{"": ""}')"""
-    qt_sql """select v[''] from ${table_name} order by k"""
+    qt_sql """select cast(v[''] as text) from ${table_name} order by k"""
     sql """insert into ${table_name} values (4, '{"!@#^&*()": "11111"}')"""
     qt_sql """select cast(v["!@#^&*()"] as string) from ${table_name} order by k"""
     sql """insert into ${table_name} values (5, '{"123": "456", "789": "012"}')"""
@@ -50,4 +50,25 @@ suite("regression_test_variant_column_name", "variant_type"){
     qt_sql "select * from var_column_name where tags['tag_key1'] is not null and cast(tags['tag_key1' ] as text) = '123456' order by k desc limit 1;"    
     qt_sql "select * from var_column_name where Tags['tag_key1'] is not null and cast(tags['tag_key1' ] as text) = '123456' order by k desc limit 1;"    
     qt_sql "select * from var_column_name where Tags['tag_key1'] is not null and cast(Tags['tag_key1' ] as text) = '123456' order by k desc limit 1;"    
+
+    // empty key
+    sql """insert into var_column_name values (7, '{"": "UPPER CASE"}')"""
+    sql """
+        insert into var_column_name values (7, '{"":16,"OpenCapStatus":0,"AccStatus":1,"AccTimeSum":481,"LowVoltage":0,"TowedStatus":0,"EncryptLng":117.23572361077638,"deviceId":"A1100614808888"}')
+    """
+    sql """insert into var_column_name values (7, '{"": ""}')"""
+    sql """insert into var_column_name values (7, '{"": "dkdkdkdkdkd"}')"""
+    sql """insert into var_column_name values (7, '{"": "xmxxmmmmmm"}')"""
+    sql """insert into var_column_name values (7, '{"": "ooaoaaaaaaa"}')"""
+    sql """insert into var_column_name values (7, '{"": 1234566}')"""
+    sql """insert into var_column_name values (7, '{"": 8888888}')"""
+
+    qt_sql "select Tags[''] from var_column_name order by cast(Tags[''] as string)"
+
+    try {
+        sql """insert into var_column_name values (7, '{"": "UPPER CASE", "": "lower case"}')"""
+    } catch(Exception ex) {
+        logger.info("""INSERT INTO ${table_name} failed: """ + ex)
+        assertTrue(ex.toString().contains("may contains duplicated entry"));
+    }
 }

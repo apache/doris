@@ -19,14 +19,15 @@
 
 #include <bthread/countdown_event.h>
 #include <byteswap.h>
-#include <endian.h>
 #include <foundationdb/fdb_c_types.h>
 
 #include <algorithm>
 #include <atomic>
+#include <bit>
 #include <cstring>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
@@ -35,8 +36,8 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/stopwatch.h"
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/txn_kv_error.h"
 
 // =============================================================================
@@ -76,6 +77,67 @@ TxnErrorCode FdbTxnKv::create_txn(std::unique_ptr<Transaction>* txn) {
         LOG(WARNING) << "failed to init txn, ret=" << ret;
     }
     return ret;
+}
+
+TxnErrorCode FdbTxnKv::create_txn_with_system_access(std::unique_ptr<Transaction>* txn) {
+    auto t = std::make_unique<fdb::Transaction>(database_);
+    TxnErrorCode code = t->init();
+    if (code == TxnErrorCode::TXN_OK) {
+        code = t->enable_access_system_keys();
+    }
+    if (code != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to init txn, ret=" << code;
+        return code;
+    }
+
+    *txn = std::move(t);
+    return TxnErrorCode::TXN_OK;
+}
+
+std::unique_ptr<FullRangeGetIterator> FdbTxnKv::full_range_get(std::string begin, std::string end,
+                                                               FullRangeGetIteratorOptions opts) {
+    return std::make_unique<fdb::FullRangeGetIterator>(std::move(begin), std::move(end),
+                                                       std::move(opts));
+}
+
+TxnErrorCode FdbTxnKv::get_partition_boundaries(std::vector<std::string>* boundaries) {
+    boundaries->clear();
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode code = create_txn_with_system_access(&txn);
+    if (code != TxnErrorCode::TXN_OK) {
+        return code;
+    }
+
+    std::string begin_key(fdb_partition_key_prefix());
+    std::string end_key(fdb_partition_key_end());
+
+    std::unique_ptr<RangeGetIterator> iter;
+    do {
+        code = txn->get(begin_key, end_key, &iter, true);
+        if (code != TxnErrorCode::TXN_OK) {
+            if (code == TxnErrorCode::TXN_TOO_OLD) {
+                code = create_txn_with_system_access(&txn);
+                if (code == TxnErrorCode::TXN_OK) {
+                    continue;
+                }
+            }
+            LOG_WARNING("failed to get fdb boundaries")
+                    .tag("code", code)
+                    .tag("begin_key", hex(begin_key))
+                    .tag("end_key", hex(end_key));
+            return code;
+        }
+
+        while (iter->has_next()) {
+            auto&& [key, value] = iter->next();
+            boundaries->emplace_back(key);
+        }
+
+        begin_key = iter->next_begin_key();
+    } while (iter->more());
+
+    return TxnErrorCode::TXN_OK;
 }
 
 } // namespace doris::cloud
@@ -252,6 +314,19 @@ TxnErrorCode Transaction::init() {
     return TxnErrorCode::TXN_OK;
 }
 
+TxnErrorCode Transaction::enable_access_system_keys() {
+    fdb_error_t err = fdb_transaction_set_option(
+            txn_, FDBTransactionOption::FDB_TR_OPTION_ACCESS_SYSTEM_KEYS, nullptr, 0);
+    if (err) {
+        LOG_WARNING("fdb_transaction_set_option error: ")
+                .tag("option", "FDB_TR_OPTION_ACCESS_SYSTEM_KEYS")
+                .tag("code", err)
+                .tag("msg", fdb_get_error(err));
+        return cast_as_txn_code(err);
+    }
+    return TxnErrorCode::TXN_OK;
+}
+
 void Transaction::put(std::string_view key, std::string_view val) {
     StopWatch sw;
     fdb_transaction_set(txn_, (uint8_t*)key.data(), key.size(), (uint8_t*)val.data(), val.size());
@@ -259,7 +334,7 @@ void Transaction::put(std::string_view key, std::string_view val) {
 
     ++num_put_keys_;
     put_bytes_ += key.size() + val.size();
-    approximate_bytes_ = key.size() * 3 + val.size(); // See fdbclient/ReadYourWrites.actor.cpp
+    approximate_bytes_ += key.size() * 3 + val.size(); // See fdbclient/ReadYourWrites.actor.cpp
 }
 
 // return 0 for success otherwise error
@@ -286,7 +361,6 @@ static TxnErrorCode await_future(FDBFuture* fut) {
         return bthread_fdb_future_block_until_ready(fut);
     }
     auto err = fdb_future_block_until_ready(fut);
-    TEST_SYNC_POINT_CALLBACK("fdb_future_block_until_ready_err", &err);
     if (err) [[unlikely]] {
         LOG(WARNING) << "fdb_future_block_until_ready failed: " << fdb_get_error(err);
         return cast_as_txn_code(err);
@@ -420,9 +494,9 @@ bool Transaction::decode_atomic_int(std::string_view data, int64_t* val) {
 
     // ATTN: The FDB_MUTATION_TYPE_ADD stores integers in a little-endian representation.
     std::memcpy(val, data.data(), sizeof(*val));
-#if __BYTE_ORDER == __BIG_ENDIAN
-    *val = bswap_64(*val);
-#endif
+    if constexpr (std::endian::native == std::endian::big) {
+        *val = bswap_64(*val);
+    }
     return true;
 }
 
@@ -584,6 +658,131 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
     }
     DCHECK_EQ(res->size(), num_keys);
     return TxnErrorCode::TXN_OK;
+}
+
+FullRangeGetIterator::FullRangeGetIterator(std::string begin, std::string end,
+                                           FullRangeGetIteratorOptions opts)
+        : opts_(std::move(opts)), begin_(std::move(begin)), end_(std::move(end)) {
+    DCHECK(dynamic_cast<FdbTxnKv*>(opts_.txn_kv.get()));
+    DCHECK(!opts_.txn || dynamic_cast<fdb::Transaction*>(opts_.txn)) << opts_.txn;
+}
+
+FullRangeGetIterator::~FullRangeGetIterator() {
+    if (fut_) {
+        static_cast<void>(fdb::await_future(fut_));
+        fdb_future_destroy(fut_);
+    }
+}
+
+bool FullRangeGetIterator::has_next() {
+    if (!is_valid_) {
+        return false;
+    }
+
+    if (!inner_iter_) {
+        // The first call
+        init();
+        if (!is_valid_) {
+            return false;
+        }
+
+        return inner_iter_->has_next();
+    }
+
+    if (inner_iter_->has_next()) {
+        if (prefetch()) {
+            TEST_SYNC_POINT("fdb.FullRangeGetIterator.has_next_prefetch");
+            async_inner_get(inner_iter_->next_begin_key());
+        }
+        return true;
+    }
+
+    if (!inner_iter_->more()) {
+        return false;
+    }
+
+    if (!fut_) {
+        async_inner_get(inner_iter_->next_begin_key());
+        if (!is_valid_) {
+            return false;
+        }
+    }
+
+    await_future();
+    return is_valid_ ? inner_iter_->has_next() : false;
+}
+
+std::optional<std::pair<std::string_view, std::string_view>> FullRangeGetIterator::next() {
+    if (!has_next()) {
+        return std::nullopt;
+    }
+
+    return inner_iter_->next();
+}
+
+void FullRangeGetIterator::await_future() {
+    auto ret = fdb::await_future(fut_);
+    if (ret != TxnErrorCode::TXN_OK) {
+        is_valid_ = false;
+        return;
+    }
+
+    auto err = fdb_future_get_error(fut_);
+    if (err) {
+        is_valid_ = false;
+        LOG(WARNING) << fdb_get_error(err);
+        return;
+    }
+
+    if (opts_.obj_pool && inner_iter_) {
+        opts_.obj_pool->push_back(std::move(inner_iter_));
+    }
+    inner_iter_ = std::make_unique<RangeGetIterator>(fut_);
+    fut_ = nullptr;
+
+    if (inner_iter_->init() != TxnErrorCode::TXN_OK) {
+        is_valid_ = false;
+    }
+}
+
+void FullRangeGetIterator::init() {
+    async_inner_get(begin_);
+    if (!is_valid_) {
+        return;
+    }
+
+    await_future();
+}
+
+bool FullRangeGetIterator::prefetch() {
+    return opts_.prefetch && is_valid_ && !fut_ && inner_iter_->more();
+}
+
+void FullRangeGetIterator::async_inner_get(std::string_view begin) {
+    DCHECK(!fut_);
+
+    auto* txn = static_cast<Transaction*>(opts_.txn);
+    if (!txn) {
+        // Create a new txn for each inner range get
+        std::unique_ptr<cloud::Transaction> txn1;
+        // TODO(plat1ko): Async create txn
+        TxnErrorCode err = opts_.txn_kv->create_txn(&txn1);
+        if (err != TxnErrorCode::TXN_OK) {
+            is_valid_ = false;
+            return;
+        }
+
+        txn_.reset(static_cast<Transaction*>(txn1.release()));
+        txn = txn_.get();
+    }
+
+    // TODO(plat1ko): Support `Transaction::async_get` api
+    fut_ = fdb_transaction_get_range(
+            txn->txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)begin.data(), begin.size()),
+            FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)end_.data(), end_.size()), opts_.limit,
+            0 /*target_bytes, unlimited*/, FDBStreamingMode::FDB_STREAMING_MODE_WANT_ALL,
+            //       FDBStreamingMode::FDB_STREAMING_MODE_ITERATOR,
+            0 /*iteration*/, opts_.snapshot, false /*reverse*/);
 }
 
 } // namespace doris::cloud::fdb

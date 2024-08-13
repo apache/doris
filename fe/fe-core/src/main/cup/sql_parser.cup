@@ -30,6 +30,7 @@ import java.util.Locale;
 import java.util.Map;
 
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
+import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.SetOperationStmt.Qualifier;
 import org.apache.doris.analysis.SetOperationStmt.Operation;
 import org.apache.doris.analysis.SetOperationStmt.SetOperand;
@@ -42,6 +43,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.GeneratedColumnInfo;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
@@ -61,6 +63,7 @@ import org.apache.doris.resource.workloadschedpolicy.WorkloadActionMeta;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import java_cup.runtime.Symbol;
@@ -260,6 +263,7 @@ terminal String
     KW_ALIAS,
     KW_ALL,
     KW_ALTER,
+    KW_ALWAYS,
     KW_ANALYZE,
     KW_AND,
     KW_ANTI,
@@ -407,6 +411,7 @@ terminal String
     KW_FULL,
     KW_FUNCTION,
     KW_FUNCTIONS,
+    KW_GENERATED,
     KW_GENERIC,
     KW_GLOBAL,
     KW_GRANT,
@@ -929,6 +934,9 @@ nonterminal Long opt_passwd_expire_policy, opt_password_lock_time, passwd_expire
 nonterminal ParseNode load_property;
 nonterminal List<ParseNode> opt_load_property_list;
 
+nonterminal ColumnNullableType opt_nullable_type;
+
+
 // Boolean
 nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local;
 nonterminal String opt_from_rollup, opt_to_rollup;
@@ -999,6 +1007,9 @@ nonterminal CopyFromParam copy_from_param;
 nonterminal String stage_name;
 nonterminal StageAndPattern stage_and_pattern;
 nonterminal List<Expr> copy_select_expr_list;
+
+//genearted column
+nonterminal Boolean opt_generated_always;
 
 precedence nonassoc COMMA;
 precedence nonassoc STRING_LITERAL;
@@ -1683,9 +1694,9 @@ alter_table_clause ::=
     {:
         RESULT = ModifyPartitionClause.createStarClause(properties, isTempPartition);
     :}
-    | KW_REPLACE opt_partition_names:partitions KW_WITH opt_partition_names:tempPartitions opt_properties:properties
+    | KW_REPLACE opt_partition_names:partitions KW_WITH opt_partition_names:tempPartitions opt_force:isForce opt_properties:properties
     {:
-        RESULT = new ReplacePartitionClause(partitions, tempPartitions, properties);
+        RESULT = new ReplacePartitionClause(partitions, tempPartitions, isForce, properties);
     :}
     | KW_REPLACE KW_WITH KW_TABLE ident:tblName opt_properties:properties
     {:
@@ -3265,9 +3276,9 @@ drop_stmt ::=
         RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null, null);
     :}
     /* statistics */
-    | KW_DROP KW_STATS table_name:tbl opt_col_list:cols
+    | KW_DROP KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
     {:
-        RESULT = new DropStatsStmt(tbl, cols);
+        RESULT = new DropStatsStmt(tbl, cols, partitionNames);
     :}
     | KW_DROP KW_EXPIRED KW_STATS
     {:
@@ -3954,14 +3965,19 @@ opt_is_key ::=
     ;
 
 column_definition ::=
-    ident:columnName type_def:typeDef opt_is_key:isKey opt_is_allow_null:isAllowNull opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
+    ident:columnName type_def:typeDef opt_is_key:isKey opt_nullable_type:nullable_type opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, isAllowNull, autoIncInitValue, defaultValue, comment);
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, nullable_type, autoIncInitValue, defaultValue, comment);
         RESULT = columnDef;
     :}
-    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
+    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_nullable_type:nullable_type opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, autoIncInitValue, defaultValue, comment);
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, nullable_type, autoIncInitValue, defaultValue, comment);
+        RESULT = columnDef;
+    :}
+    | ident:columnName type_def:typeDef opt_is_key:isKey opt_generated_always KW_AS LPAREN expr:expr RPAREN opt_nullable_type:nullable_type opt_comment:comment
+    {:
+        ColumnDef columnDef =  new ColumnDef(columnName, typeDef, isKey, nullable_type, comment, Optional.of(new GeneratedColumnInfo(null, expr)));
         RESULT = columnDef;
     :}
     ;
@@ -3977,6 +3993,20 @@ build_index_definition ::=
     KW_INDEX ident:indexName opt_partition_names:partitionNames
     {:
         RESULT = new IndexDef(indexName, partitionNames, true);
+    :}
+    ;
+
+opt_nullable_type ::=
+    {:
+        RESULT = ColumnNullableType.DEFAULT;
+    :}
+    | KW_NULL
+    {:
+        RESULT = ColumnNullableType.NULLABLE;
+    :}
+    | KW_NOT KW_NULL
+    {:
+        RESULT = ColumnNullableType.NOT_NULLABLE;
     :}
     ;
 
@@ -4138,6 +4168,14 @@ show_stmt ::=
     {:
         RESULT = new ShowPolicyStmt(PolicyTypeEnum.STORAGE, null, null);
     :}
+    | KW_SHOW KW_STORAGE KW_POLICY KW_USING
+    {:
+        RESULT = new ShowStoragePolicyUsingStmt(null);
+    :}
+    | KW_SHOW KW_STORAGE KW_POLICY KW_USING KW_FOR ident:policy
+    {:
+        RESULT = new ShowStoragePolicyUsingStmt(policy);
+    :}
     /* show stage */
     | KW_SHOW KW_STAGES
     {:
@@ -4251,6 +4289,10 @@ show_param ::=
     | KW_CREATE KW_VIEW table_name:table
     {:
         RESULT = new ShowCreateTableStmt(table, true, false);
+    :}
+    | KW_CREATE KW_MATERIALIZED KW_VIEW table_name:table
+    {:
+        RESULT = new ShowCreateMTMVStmt(table);
     :}
     /* Create database */
     | KW_CREATE KW_DATABASE db_name:db
@@ -4555,9 +4597,14 @@ show_param ::=
         RESULT = new ShowSyncJobStmt(dbName);
     :}
     /* show table stats */
-    | KW_TABLE opt_cached:cached KW_STATS table_name:tbl opt_partition_names:partitionNames
+    | KW_TABLE opt_cached:cached KW_STATS table_name:tbl opt_partition_names:partitionNames opt_col_list:cols
     {:
-        RESULT = new ShowTableStatsStmt(tbl, partitionNames, cached);
+        RESULT = new ShowTableStatsStmt(tbl, cols, partitionNames, cached, null);
+    :}
+    /* show index stats */
+    | KW_INDEX KW_STATS table_name:tbl ident:id
+    {:
+        RESULT = new ShowTableStatsStmt(tbl, null, null, false, id);
     :}
     /* show column stats */
     | KW_COLUMN opt_cached:cached KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
@@ -7263,6 +7310,20 @@ non_pred_expr ::=
   {: RESULT = new CastExpr(targetType, e); :}
   | KW_KEY encryptkey_name:name
   {: RESULT = new EncryptKeyRef(name); :}
+  | expr:e KW_IS KW_TRUE
+  {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.BOOLEAN), e); :}
+  | expr:e KW_IS KW_NOT KW_TRUE
+  {:
+    e = new CastExpr(TypeDef.create(PrimitiveType.BOOLEAN), e);
+    RESULT = new CompoundPredicate(CompoundPredicate.Operator.NOT, e, null);
+  :}
+  | expr:e KW_IS KW_FALSE
+  {:
+    e = new CastExpr(TypeDef.create(PrimitiveType.BOOLEAN), e);
+    RESULT = new CompoundPredicate(CompoundPredicate.Operator.NOT, e, null);
+  :}
+  | expr:e KW_IS KW_NOT KW_FALSE
+  {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.BOOLEAN), e); :}
   | KW_CONVERT LPAREN expr:e KW_USING ident:character RPAREN
   {: 
     ArrayList<Expr> exprs = new ArrayList<>();
@@ -7912,7 +7973,16 @@ opt_work ::=
         RESULT = null;
     :}
     ;
-
+opt_generated_always ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | KW_GENERATED KW_ALWAYS
+    {:
+        RESULT = null;
+    :}
+    ;
 opt_chain ::=
     {:
         RESULT = null;
@@ -7951,6 +8021,8 @@ type_func_name_keyword ::=
 // Keyword that we allow for identifiers
 keyword ::=
     KW_AFTER:id
+    {: RESULT = id; :}
+    | KW_ALWAYS:id
     {: RESULT = id; :}
     | KW_AGGREGATE:id
     {: RESULT = id; :}
@@ -8111,6 +8183,8 @@ keyword ::=
     | KW_EXTERNAL:id
     {: RESULT = id; :}
     | KW_GLOBAL:id
+    {: RESULT = id; :}
+    | KW_GENERATED:id
     {: RESULT = id; :}
     | KW_GENERIC:id
     {: RESULT = id; :}
@@ -8451,6 +8525,30 @@ keyword ::=
     | KW_MATCH_REGEXP:id
     {: RESULT = id; :}
     | KW_MATCH_PHRASE_EDGE:id
+    {: RESULT = id; :}
+    | KW_SQL:id
+    {: RESULT = id; :}
+    | KW_CACHE:id
+    {: RESULT = id; :}
+    | KW_COLOCATE:id
+    {: RESULT = id; :}
+    | KW_COMPRESS_TYPE:id
+    {: RESULT = id; :}
+    | KW_DORIS_INTERNAL_TABLE_ID:id
+    {: RESULT = id; :}
+    | KW_HOTSPOT:id
+    {: RESULT = id; :}
+    | KW_PRIVILEGES:id
+    {: RESULT = id; :}
+    | KW_RECENT:id
+    {: RESULT = id; :}
+    | KW_STAGES:id
+    {: RESULT = id; :}
+    | KW_WARM:id
+    {: RESULT = id; :}
+    | KW_UP:id
+    {: RESULT = id; :}
+    | KW_CONVERT_LSC:id
     {: RESULT = id; :}
     ;
 

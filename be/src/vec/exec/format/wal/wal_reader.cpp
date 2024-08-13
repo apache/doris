@@ -19,7 +19,7 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "gutil/strings/split.h"
 #include "olap/wal/wal_manager.h"
 #include "runtime/runtime_state.h"
@@ -28,12 +28,6 @@
 namespace doris::vectorized {
 WalReader::WalReader(RuntimeState* state) : _state(state) {
     _wal_id = state->wal_id();
-}
-
-WalReader::~WalReader() {
-    if (_wal_reader.get() != nullptr) {
-        static_cast<void>(_wal_reader->finalize());
-    }
 }
 
 Status WalReader::init_reader(const TupleDescriptor* tuple_descriptor) {

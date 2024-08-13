@@ -19,15 +19,17 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.io.Writable;
 
 import java.util.Comparator;
 import java.util.Map;
 import java.util.Optional;
 
-public abstract class PartitionItem implements Comparable<PartitionItem>, Writable {
+public abstract class PartitionItem implements Comparable<PartitionItem> {
     public static final Comparator<Map.Entry<Long, PartitionItem>> ITEM_MAP_ENTRY_COMPARATOR =
             Comparator.comparing(o -> ((ListPartitionItem) o.getValue()).getItems().iterator().next());
+
+    // get the unique string of the partition item.
+    public abstract String getItemsString();
 
     public abstract <T> T getItems();
 

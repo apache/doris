@@ -51,8 +51,8 @@
 #include "common/logging.h"
 #include "common/stopwatch.h"
 #include "common/string_util.h"
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "keys.h"
 #include "meta-service/codec.h"
 #include "meta-service/doris_txn.h"
@@ -82,10 +82,7 @@ MetaServiceImpl::~MetaServiceImpl() = default;
 // FIXME(gavin): should it be a member function of ResourceManager?
 std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
                             const std::string& cloud_unique_id) {
-    {
-        [[maybe_unused]] std::string tmp_ret;
-        TEST_SYNC_POINT_RETURN_WITH_VALUE("get_instance_id", &tmp_ret);
-    }
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("get_instance_id", std::string {});
 
     std::vector<NodeInfo> nodes;
     std::string err = rc_mgr->get_node(cloud_unique_id, &nodes);
@@ -269,6 +266,7 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                 return;
             }
             response->set_version(version_pb.version());
+            response->add_version_update_time_ms(version_pb.update_time_ms());
         }
         { TEST_SYNC_POINT_CALLBACK("get_version_code", &code); }
         return;
@@ -317,11 +315,14 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
         return;
     }
 
-    size_t num_acquired = request->partition_ids_size();
+    size_t num_acquired =
+            is_table_version ? request->table_ids_size() : request->partition_ids_size();
     response->mutable_versions()->Reserve(num_acquired);
     response->mutable_db_ids()->CopyFrom(request->db_ids());
     response->mutable_table_ids()->CopyFrom(request->table_ids());
-    response->mutable_partition_ids()->CopyFrom(request->partition_ids());
+    if (!is_table_version) {
+        response->mutable_partition_ids()->CopyFrom(request->partition_ids());
+    }
 
     constexpr size_t BATCH_SIZE = 500;
     std::vector<std::string> version_keys;
@@ -329,7 +330,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
     version_keys.reserve(BATCH_SIZE);
     version_values.reserve(BATCH_SIZE);
     while ((code == MetaServiceCode::OK || code == MetaServiceCode::KV_TXN_TOO_OLD) &&
-           response->versions_size() < response->partition_ids_size()) {
+           response->versions_size() < num_acquired) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -345,11 +346,11 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
             for (size_t j = i; j < limit; j++) {
                 int64_t db_id = request->db_ids(j);
                 int64_t table_id = request->table_ids(j);
-                int64_t partition_id = request->partition_ids(j);
                 std::string ver_key;
                 if (is_table_version) {
                     table_version_key({instance_id, db_id, table_id}, &ver_key);
                 } else {
+                    int64_t partition_id = request->partition_ids(j);
                     partition_version_key({instance_id, db_id, table_id, partition_id}, &ver_key);
                 }
                 version_keys.push_back(std::move(ver_key));
@@ -373,6 +374,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                 if (!value.has_value()) {
                     // return -1 if the target version is not exists.
                     response->add_versions(-1);
+                    response->add_version_update_time_ms(-1);
                 } else if (is_table_version) {
                     int64_t version = 0;
                     if (!txn->decode_atomic_int(*value, &version)) {
@@ -389,6 +391,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                         break;
                     }
                     response->add_versions(version_pb.version());
+                    response->add_version_update_time_ms(version_pb.update_time_ms());
                 }
             }
         }
@@ -737,6 +740,9 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
         } else if (tablet_meta_info.has_time_series_compaction_level_threshold()) {
             tablet_meta.set_time_series_compaction_level_threshold(
                     tablet_meta_info.time_series_compaction_level_threshold());
+        } else if (tablet_meta_info.has_disable_auto_compaction()) {
+            tablet_meta.mutable_schema()->set_disable_auto_compaction(
+                    tablet_meta_info.disable_auto_compaction());
         }
         int64_t table_id = tablet_meta.table_id();
         int64_t index_id = tablet_meta.index_id();
@@ -1000,7 +1006,8 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     prepare_rowset.SerializeToString(&val);
     DCHECK_GT(prepare_rowset.expiration(), 0);
     txn->put(prepare_rs_key, val);
-    LOG(INFO) << "xxx put prepare_rs_key " << hex(prepare_rs_key) << " value_size " << val.size();
+    LOG(INFO) << "put prepare_rs_key " << hex(prepare_rs_key) << " value_size " << val.size()
+              << " txn_id " << request->txn_id();
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -1127,8 +1134,9 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
     DCHECK_GT(rowset_meta.txn_expiration(), 0);
     auto tmp_rs_val = rowset_meta.SerializeAsString();
     txn->put(tmp_rs_key, tmp_rs_val);
-    LOG(INFO) << "xxx put tmp_rs_key " << hex(tmp_rs_key) << " delete recycle_rs_key "
-              << hex(recycle_rs_key) << " value_size " << tmp_rs_val.size();
+    LOG(INFO) << "put tmp_rs_key " << hex(tmp_rs_key) << " delete recycle_rs_key "
+              << hex(recycle_rs_key) << " value_size " << tmp_rs_val.size() << " txn_id "
+              << request->txn_id();
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -1208,7 +1216,10 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
         msg = fmt::format("failed to check whether rowset exists, err={}", err);
         return;
     }
-
+    if (rowset_meta.has_variant_type_in_schema()) {
+        write_schema_dict(code, msg, instance_id, txn.get(), &rowset_meta);
+        if (code != MetaServiceCode::OK) return;
+    }
     DCHECK_GT(rowset_meta.txn_expiration(), 0);
     if (!rowset_meta.SerializeToString(&update_val)) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
@@ -1925,6 +1936,32 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
             msg = ss.str();
             code = MetaServiceCode::LOCK_CONFLICT;
             return;
+        }
+    }
+
+    bool require_tablet_stats =
+            request->has_require_compaction_stats() ? request->require_compaction_stats() : false;
+    if (require_tablet_stats) {
+        // this request is from fe when it commits txn for MOW table, we send the compaction stats
+        // along with the GetDeleteBitmapUpdateLockResponse which will be sent to BE later to let
+        // BE eliminate unnecessary sync_rowsets() calls if possible
+        for (const auto& tablet_index : request->tablet_indexes()) {
+            TabletIndexPB idx(tablet_index);
+            TabletStatsPB tablet_stat;
+            internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat, true);
+            if (code != MetaServiceCode::OK) {
+                response->clear_base_compaction_cnts();
+                response->clear_cumulative_compaction_cnts();
+                response->clear_cumulative_points();
+                LOG_WARNING(
+                        "failed to get tablet stats when get_delete_bitmap_update_lock, "
+                        "lock_id={}, initiator={}, tablet_id={}",
+                        request->lock_id(), request->initiator(), tablet_index.tablet_id());
+                return;
+            }
+            response->add_base_compaction_cnts(tablet_stat.base_compaction_cnt());
+            response->add_cumulative_compaction_cnts(tablet_stat.cumulative_compaction_cnt());
+            response->add_cumulative_points(tablet_stat.cumulative_point());
         }
     }
 

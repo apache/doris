@@ -256,18 +256,21 @@ Status VCollectIterator::_topn_next(Block* block) {
         return Status::Error<END_OF_FILE>("");
     }
 
+    // clear TEMP columns to avoid column align problem
+    auto clear_temp_columns = [](Block* block) {
+        auto all_column_names = block->get_names();
+        for (auto& name : all_column_names) {
+            if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
+                // clear TEMP columns from block to prevent from storage engine merge with this
+                // fake column
+                block->erase(name);
+            }
+        }
+    };
+
+    clear_temp_columns(block);
     auto clone_block = block->clone_empty();
     MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
-    // clear TEMP columns to avoid column align problem in mutable_block.add_rows bellow
-    auto all_column_names = mutable_block.get_names();
-    for (auto& name : all_column_names) {
-        if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
-            mutable_block.erase(name);
-            // clear TEMP columns from block to prevent from storage engine merge with this
-            // fake column
-            block->erase(name);
-        }
-    }
 
     if (!_reader->_reader_context.read_orderby_key_columns) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
@@ -301,6 +304,8 @@ Status VCollectIterator::_topn_next(Block* block) {
                 if (status.is<END_OF_FILE>()) {
                     eof = true;
                     if (block->rows() == 0) {
+                        // clear TEMP columns to avoid column align problem in segment iterator
+                        clear_temp_columns(block);
                         break;
                     }
                 } else {
@@ -312,12 +317,7 @@ Status VCollectIterator::_topn_next(Block* block) {
             RETURN_IF_ERROR(VExprContext::filter_block(
                     _reader->_reader_context.filter_block_conjuncts, block, block->columns()));
             // clear TMPE columns to avoid column align problem in mutable_block.add_rows bellow
-            auto all_column_names = block->get_names();
-            for (auto& name : all_column_names) {
-                if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
-                    block->erase(name);
-                }
-            }
+            clear_temp_columns(block);
 
             // update read rows
             read_rows += block->rows();
@@ -377,7 +377,7 @@ Status VCollectIterator::_topn_next(Block* block) {
 
                 size_t base = mutable_block.rows();
                 // append block to mutable_block
-                mutable_block.add_rows(block, 0, rows_to_copy);
+                RETURN_IF_ERROR(mutable_block.add_rows(block, 0, rows_to_copy));
                 // insert appended rows pos in mutable_block to sorted_row_pos and sort it
                 for (size_t i = 0; i < rows_to_copy; i++) {
                     sorted_row_pos.insert(base + i);
@@ -414,7 +414,7 @@ Status VCollectIterator::_topn_next(Block* block) {
             }
 
             // update runtime_predicate
-            if (_reader->_reader_context.use_topn_opt && changed &&
+            if (!_reader->_reader_context.topn_filter_source_node_ids.empty() && changed &&
                 sorted_row_pos.size() >= _topn_limit) {
                 // get field value from column
                 size_t last_sorted_row = *sorted_row_pos.rbegin();
@@ -857,18 +857,18 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
 Status VCollectIterator::Level1Iterator::_normal_next(Block* block) {
     SCOPED_RAW_TIMER(&_reader->_stats.collect_iterator_normal_next_timer);
     auto res = _cur_child->next(block);
+
+    while (res.is<END_OF_FILE>() && !_children.empty()) {
+        _cur_child = std::move(*(_children.begin()));
+        _children.pop_front();
+        res = _cur_child->next(block);
+    }
+
     if (LIKELY(res.ok())) {
         return Status::OK();
     } else if (res.is<END_OF_FILE>()) {
-        // current child has been read, to read next
-        if (!_children.empty()) {
-            _cur_child = std::move(*(_children.begin()));
-            _children.pop_front();
-            return _normal_next(block);
-        } else {
-            _cur_child.reset();
-            return Status::Error<END_OF_FILE>("");
-        }
+        _cur_child.reset();
+        return Status::Error<END_OF_FILE>("");
     } else {
         _cur_child.reset();
         LOG(WARNING) << "failed to get next from child, res=" << res;

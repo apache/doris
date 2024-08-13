@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TTabletInfo;
@@ -30,14 +29,13 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Comparator;
 
 /**
  * This class represents the olap replica related metadata.
  */
-public class Replica implements Writable {
+public class Replica {
     private static final Logger LOG = LogManager.getLogger(Replica.class);
     public static final VersionComparator<Replica> VERSION_DESC_COMPARATOR = new VersionComparator<Replica>();
     public static final LastSuccessVersionComparator<Replica> LAST_SUCCESS_VERSION_COMPARATOR =
@@ -90,37 +88,37 @@ public class Replica implements Writable {
 
     @SerializedName(value = "id")
     private long id;
-    @SerializedName(value = "backendId")
+    @SerializedName(value = "bid", alternate = {"backendId"})
     private long backendId;
     // the version could be queried
-    @SerializedName(value = "version")
+    @SerializedName(value = "v", alternate = {"version"})
     private volatile long version;
     @Deprecated
-    @SerializedName(value = "versionHash")
+    @SerializedName(value = "vh", alternate = {"versionHash"})
     private long versionHash = 0L;
     private int schemaHash = -1;
-    @SerializedName(value = "dataSize")
+    @SerializedName(value = "ds", alternate = {"dataSize"})
     private volatile long dataSize = 0;
-    @SerializedName(value = "remoteDataSize")
+    @SerializedName(value = "rds", alternate = {"remoteDataSize"})
     private volatile long remoteDataSize = 0;
-    @SerializedName(value = "rowCount")
+    @SerializedName(value = "rc", alternate = {"rowCount"})
     private volatile long rowCount = 0;
-    @SerializedName(value = "state")
+    @SerializedName(value = "st", alternate = {"state"})
     private volatile ReplicaState state;
 
     // the last load failed version
-    @SerializedName(value = "lastFailedVersion")
+    @SerializedName(value = "lfv", alternate = {"lastFailedVersion"})
     private long lastFailedVersion = -1L;
     @Deprecated
-    @SerializedName(value = "lastFailedVersionHash")
+    @SerializedName(value = "lfvh", alternate = {"lastFailedVersionHash"})
     private long lastFailedVersionHash = 0L;
     // not serialized, not very important
     private long lastFailedTimestamp = 0;
     // the last load successful version
-    @SerializedName(value = "lastSuccessVersion")
+    @SerializedName(value = "lsv", alternate = {"lastSuccessVersion"})
     private long lastSuccessVersion = -1L;
     @Deprecated
-    @SerializedName(value = "lastSuccessVersionHash")
+    @SerializedName(value = "lsvh", alternate = {"lastSuccessVersionHash"})
     private long lastSuccessVersionHash = 0L;
 
     private volatile long totalVersionCount = -1;
@@ -541,6 +539,15 @@ public class Replica implements Writable {
     }
 
     /*
+     * If a replica is overwritten by a restore job, we need to reset version and lastSuccessVersion to
+     * the restored replica version
+     */
+    public void updateVersionForRestore(long version) {
+        this.version = version;
+        this.lastSuccessVersion = version;
+    }
+
+    /*
      * Check whether the replica's version catch up with the expected version.
      * If ignoreAlter is true, and state is ALTER, and replica's version is
      *  PARTITION_INIT_VERSION, just return true, ignore the version.
@@ -701,22 +708,7 @@ public class Replica implements Writable {
         return strBuffer.toString();
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeLong(id);
-        out.writeLong(backendId);
-        out.writeLong(version);
-        out.writeLong(versionHash);
-        out.writeLong(dataSize);
-        out.writeLong(rowCount);
-        Text.writeString(out, state.name());
-
-        out.writeLong(lastFailedVersion);
-        out.writeLong(lastFailedVersionHash);
-        out.writeLong(lastSuccessVersion);
-        out.writeLong(lastSuccessVersionHash);
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
         backendId = in.readLong();
@@ -731,6 +723,7 @@ public class Replica implements Writable {
         lastSuccessVersionHash = in.readLong();
     }
 
+    @Deprecated
     public static Replica read(DataInput in) throws IOException {
         Replica replica = EnvFactory.getInstance().createReplica();
         replica.readFields(in);

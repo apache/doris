@@ -45,15 +45,15 @@ PredicateType MatchPredicate::type() const {
     return PredicateType::MATCH;
 }
 
-Status MatchPredicate::evaluate(const vectorized::NameAndTypePair& name_with_type,
+Status MatchPredicate::evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                                 InvertedIndexIterator* iterator, uint32_t num_rows,
                                 roaring::Roaring* bitmap) const {
     if (iterator == nullptr) {
         return Status::OK();
     }
-    if (_skip_evaluate(iterator)) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
-                "match predicate evaluate skipped.");
+    if (_check_evaluate(iterator)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+                "phrase queries require setting support_phrase = true");
     }
     auto type = name_with_type.second;
     const std::string& name = name_with_type.first;
@@ -122,13 +122,14 @@ InvertedIndexQueryType MatchPredicate::_to_inverted_index_query_type(MatchType m
     return ret;
 }
 
-bool MatchPredicate::_skip_evaluate(InvertedIndexIterator* iterator) const {
-    if ((_match_type == MatchType::MATCH_PHRASE || _match_type == MatchType::MATCH_PHRASE_PREFIX ||
-         _match_type == MatchType::MATCH_PHRASE_EDGE) &&
-        iterator->get_inverted_index_reader_type() == InvertedIndexReaderType::FULLTEXT &&
-        get_parser_phrase_support_string_from_properties(iterator->get_index_properties()) ==
-                INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO) {
-        return true;
+bool MatchPredicate::_check_evaluate(InvertedIndexIterator* iterator) const {
+    if (_match_type == MatchType::MATCH_PHRASE || _match_type == MatchType::MATCH_PHRASE_PREFIX ||
+        _match_type == MatchType::MATCH_PHRASE_EDGE) {
+        if (iterator->get_inverted_index_reader_type() == InvertedIndexReaderType::FULLTEXT &&
+            get_parser_phrase_support_string_from_properties(iterator->get_index_properties()) ==
+                    INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO) {
+            return true;
+        }
     }
     return false;
 }

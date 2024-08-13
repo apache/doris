@@ -69,6 +69,11 @@ public class PartitionRenameClause extends AlterTableClause {
     }
 
     @Override
+    public boolean needChangeMTMVState() {
+        return false;
+    }
+
+    @Override
     public String toSql() {
         return "RENAME PARTITION " + partitionName + " " + newPartitionName;
     }

@@ -673,7 +673,7 @@ public class Analyzer {
         Calendar currentDate = Calendar.getInstance();
         LocalDateTime localDateTime = LocalDateTime.ofInstant(currentDate.toInstant(),
                 currentDate.getTimeZone().toZoneId());
-        String nowStr = localDateTime.format(TimeUtils.DATETIME_NS_FORMAT);
+        String nowStr = localDateTime.format(TimeUtils.getDatetimeNsFormatWithTimeZone());
         queryGlobals.setNowString(nowStr);
         queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
         return queryGlobals;

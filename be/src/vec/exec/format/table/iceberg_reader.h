@@ -84,13 +84,6 @@ public:
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) final;
 
-    Status set_fill_columns(
-            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                    partition_columns,
-            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) final;
-
-    bool fill_all_columns() const final;
-
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) final;
 
@@ -130,7 +123,8 @@ protected:
     void _gen_new_colname_to_value_range();
     static std::string _delet_file_cache_key(const std::string& path) { return "delete_" + path; }
 
-    Status _position_delete_base(const std::vector<TIcebergDeleteFileDesc>& delete_files);
+    Status _position_delete_base(const std::string data_file_path,
+                                 const std::vector<TIcebergDeleteFileDesc>& delete_files);
     Status _equality_delete_base(const std::vector<TIcebergDeleteFileDesc>& delete_files);
     virtual std::unique_ptr<GenericReader> _create_equality_reader(
             const TFileRangeDesc& delete_desc) = 0;

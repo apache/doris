@@ -25,7 +25,6 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -44,13 +43,16 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.event.DataChangeEvent;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.CleanLabelOperationLog;
@@ -72,6 +74,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -89,7 +92,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -118,7 +121,7 @@ public class DatabaseTransactionMgr {
 
     // the lock is used to control the access to transaction states
     // no other locks should be inside this lock
-    private final ReentrantReadWriteLock transactionLock = new ReentrantReadWriteLock(true);
+    private final MonitoredReentrantReadWriteLock transactionLock = new MonitoredReentrantReadWriteLock(true);
 
     // transactionId -> running TransactionState
     private final Map<Long, TransactionState> idToRunningTransactionState = Maps.newHashMap();
@@ -133,7 +136,7 @@ public class DatabaseTransactionMgr {
 
     // transactionId -> final status TransactionState
     private final Map<Long, TransactionState> idToFinalStatusTransactionState = Maps.newHashMap();
-    private final Map<Long, Long> subTxnIdToTxnId = Maps.newHashMap();
+    private final Map<Long, Long> subTxnIdToTxnId = new ConcurrentHashMap<>();
 
     // The following 2 queues are to store transactionStates with final status
     // These queues are mainly used to avoid traversing all txns and speed up the cleaning time
@@ -349,6 +352,7 @@ public class DatabaseTransactionMgr {
         if (!coordinator.isFromInternal) {
             InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
         }
+        MTMVUtil.checkModifyMTMVData(db, tableIdList, ConnectContext.get());
         checkDatabaseDataQuota();
         Preconditions.checkNotNull(coordinator);
         Preconditions.checkNotNull(label);
@@ -623,6 +627,14 @@ public class DatabaseTransactionMgr {
 
                         int successReplicaNum = tabletSuccReplicas.size();
                         if (successReplicaNum < loadRequiredReplicaNum) {
+                            long now = System.currentTimeMillis();
+                            long lastLoadFailedTime = tablet.getLastLoadFailedTime();
+                            tablet.setLastLoadFailedTime(now);
+                            if (now - lastLoadFailedTime >= 5000L) {
+                                Env.getCurrentEnv().getTabletScheduler().tryAddRepairTablet(
+                                        tablet, db.getId(), table, partition, index, 0);
+                            }
+
                             String writeDetail = getTabletWriteDetail(tabletSuccReplicas, tabletWriteFailedReplicas,
                                     tabletVersionFailedReplicas);
 
@@ -1082,22 +1094,25 @@ public class DatabaseTransactionMgr {
         // a blocking function, the returned result would be the existed table list which hold write lock
         Database db = env.getInternalCatalog().getDbOrMetaException(transactionState.getDbId());
         List<Long> tableIdList;
-        if (transactionState.getSubTransactionStates() == null) {
+        if (transactionState.getSubTxnIds() == null) {
             tableIdList = transactionState.getTableIdList();
         } else {
-            tableIdList = transactionState.getSubTransactionStates().stream().map(s -> s.getTable().getId()).distinct()
+            tableIdList = transactionState.getSubTxnTableCommitInfos().stream().map(s -> s.getTableId()).distinct()
                     .collect(Collectors.toList());
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("finish transaction {} with tables {}", transactionId, tableIdList);
         }
         List<? extends TableIf> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
-        tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
+        if (!MetaLockUtils.tryWriteLockTablesIfExist(tableList, 10, TimeUnit.SECONDS)) {
+            LOG.warn("finish transaction {} failed, get lock timeout with tables {}", transactionId, tableIdList);
+            return;
+        }
         PublishResult publishResult;
         try {
             // add all commit errors and publish errors to a single set
             Set<Long> errorReplicaIds = transactionState.getErrorReplicas();
-            if (transactionState.getSubTransactionStates() == null) {
+            if (transactionState.getSubTxnIds() == null) {
                 List<Pair<OlapTable, Partition>> relatedTblPartitions = Lists.newArrayList();
                 if (!finishCheckPartitionVersion(transactionState, db, relatedTblPartitions)) {
                     return;
@@ -1144,6 +1159,17 @@ public class DatabaseTransactionMgr {
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
         }
+        // Here, we only wait for the EventProcessor to finish processing the event,
+        // but regardless of the success or failure of the result,
+        // it does not affect the logic of transaction
+        try {
+            produceEvent(transactionState, db);
+        } catch (Throwable t) {
+            // According to normal logic, no exceptions will be thrown,
+            // but in order to avoid bugs affecting the original logic, all exceptions are caught
+            LOG.warn("produceEvent failed: ", t);
+        }
+
         // The visible latch should only be counted down after all things are done
         // (finish transaction, write edit log, etc).
         // Otherwise, there is no way for stream load to query the result right after loading finished,
@@ -1154,9 +1180,12 @@ public class DatabaseTransactionMgr {
     }
 
     private void setTableVersion(TransactionState transactionState, Database db) {
-        List<TableCommitInfo> tableCommitInfos = transactionState.getIdToTableCommitInfos().isEmpty()
-                ? transactionState.getSubTxnTableCommitInfos()
-                : Lists.newArrayList(transactionState.getIdToTableCommitInfos().values());
+        List<TableCommitInfo> tableCommitInfos;
+        if (!transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
+            tableCommitInfos = transactionState.getSubTxnTableCommitInfos();
+        } else {
+            tableCommitInfos = Lists.newArrayList(transactionState.getIdToTableCommitInfos().values());
+        }
         for (TableCommitInfo tableCommitInfo : tableCommitInfos) {
             long tableId = tableCommitInfo.getTableId();
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
@@ -1167,6 +1196,26 @@ public class DatabaseTransactionMgr {
             }
             tableCommitInfo.setVersion(table.getNextVersion());
             tableCommitInfo.setVersionTime(System.currentTimeMillis());
+        }
+    }
+
+    private void produceEvent(TransactionState transactionState, Database db) {
+        Collection<TableCommitInfo> tableCommitInfos;
+        if (!transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
+            tableCommitInfos = transactionState.getSubTxnTableCommitInfos();
+        } else {
+            tableCommitInfos = transactionState.getIdToTableCommitInfos().values();
+        }
+        for (TableCommitInfo tableCommitInfo : tableCommitInfos) {
+            long tableId = tableCommitInfo.getTableId();
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            if (table == null) {
+                LOG.warn("table {} does not exist when produceEvent. transaction: {}, db: {}",
+                        tableId, transactionState.getTransactionId(), db.getId());
+                continue;
+            }
+            Env.getCurrentEnv().getEventProcessor().processEvent(
+                    new DataChangeEvent(db.getCatalog().getId(), db.getId(), tableId));
         }
     }
 
@@ -1223,12 +1272,11 @@ public class DatabaseTransactionMgr {
 
     private boolean finishCheckPartitionVersionWithSubTxns(TransactionState transactionState, Database db) {
         List<Pair<OlapTable, Partition>> relatedTblPartitions = new ArrayList<>();
-        Iterator<SubTransactionState> iterator = transactionState.getSubTransactionStates().iterator();
         Map<Long, Long> partitionToVisibleVersion = new HashMap<>();
+        Iterator<Long> iterator = transactionState.getSubTxnIds().iterator();
         while (iterator.hasNext()) {
-            SubTransactionState subTransactionState = iterator.next();
-            TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfoBySubTxnId(
-                    subTransactionState.getSubTransactionId());
+            long subTxnId = iterator.next();
+            TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfoBySubTxnId(subTxnId);
             if (tableCommitInfo == null) {
                 continue;
             }
@@ -1263,15 +1311,14 @@ public class DatabaseTransactionMgr {
                         LOG.debug("for table {} partition {}, transactionId {}, subTransactionId {},"
                                         + " partition commitInfo version {} is not"
                                         + " equal with partition expected version {}, visible version {}, need wait",
-                                table.getId(), partition.getId(), transactionState.getTransactionId(),
-                                subTransactionState.getSubTransactionId(), partitionCommitInfo.getVersion(),
-                                curPartitionVersion + 1, partition.getVisibleVersion());
+                                table.getId(), partition.getId(), transactionState.getTransactionId(), subTxnId,
+                                partitionCommitInfo.getVersion(), curPartitionVersion + 1,
+                                partition.getVisibleVersion());
                     }
                     String errMsg = String.format("wait for publishing partition %d version %d, visible version %d."
                                     + " self version: %d. table %d, transactionId %d, subTransactionId %d", partitionId,
-                            curPartitionVersion + 1,
-                            partition.getVisibleVersion(), partitionCommitInfo.getVersion(), tableId,
-                            transactionState.getTransactionId(), subTransactionState.getSubTransactionId());
+                            curPartitionVersion + 1, partition.getVisibleVersion(), partitionCommitInfo.getVersion(),
+                            tableId, transactionState.getTransactionId(), subTxnId);
                     transactionState.setErrorMsg(errMsg);
                     return false;
                 }
@@ -1298,7 +1345,7 @@ public class DatabaseTransactionMgr {
         List<Replica> tabletSuccReplicas = Lists.newArrayList();
         List<Replica> tabletWriteFailedReplicas = Lists.newArrayList();
         List<Replica> tabletVersionFailedReplicas = Lists.newArrayList();
-        List<String> logs = Lists.newArrayList();
+        TabletsPublishResultLogs logs = new TabletsPublishResultLogs();
 
         Map<Long, List<PublishVersionTask>> publishTasks = transactionState.getPublishVersionTasks();
         PublishResult publishResult = PublishResult.QUORUM_SUCC;
@@ -1322,7 +1369,7 @@ public class DatabaseTransactionMgr {
                 }
             }
 
-            boolean alterReplicaLoadedTxn = isAlterReplicaLoadedTxn(transactionState.getTransactionId(), table);
+            long maxAlterWaterschedTxnId = getMaxAlterWaterschedTxnId(table);
 
             // check success replica number for each tablet.
             // a success replica means:
@@ -1336,17 +1383,25 @@ public class DatabaseTransactionMgr {
                     tabletWriteFailedReplicas.clear();
                     tabletVersionFailedReplicas.clear();
                     for (Replica replica : tablet.getReplicas()) {
-                        for (PublishVersionTask publishVersionTask : publishTasks.get(replica.getBackendId())) {
-                            checkReplicaContinuousVersionSucc(tablet.getId(), replica, alterReplicaLoadedTxn,
-                                    newVersion, publishVersionTask,
-                                    errorReplicaIds, tabletSuccReplicas, tabletWriteFailedReplicas,
-                                    tabletVersionFailedReplicas);
+                        List<PublishVersionTask> publishVersionTasks = publishTasks.get(replica.getBackendId());
+                        Preconditions.checkState(publishVersionTasks == null || publishVersionTasks.size() == 1,
+                                "publish tasks: " + publishVersionTasks);
+                        PublishVersionTask publishVersionTask = null;
+                        if (publishVersionTasks != null) {
+                            publishVersionTask = publishVersionTasks.get(0);
                         }
+                        checkReplicaContinuousVersionSucc(Lists.newArrayList(transactionState.getTransactionId()),
+                                maxAlterWaterschedTxnId, tablet.getId(), replica, newVersion, newVersion,
+                                Lists.newArrayList(publishVersionTask), errorReplicaIds, tabletSuccReplicas,
+                                tabletWriteFailedReplicas, tabletVersionFailedReplicas);
                     }
 
                     publishResult = checkQuorumReplicas(transactionState, tableId, partition, tablet,
                             loadRequiredReplicaNum, allowPublishOneSucc, newVersion, tabletSuccReplicas,
                             tabletWriteFailedReplicas, tabletVersionFailedReplicas, publishResult, logs);
+                    if (publishResult == PublishResult.QUORUM_SUCC) {
+                        tablet.setLastLoadFailedTime(-1L);
+                    }
                 }
             }
         }
@@ -1355,17 +1410,14 @@ public class DatabaseTransactionMgr {
                 || now - transactionState.getLastPublishLogTime() > Config.publish_fail_log_interval_second * 1000L;
         if (needLog) {
             transactionState.setLastPublishLogTime(now);
-            for (String log : logs) {
-                LOG.info("{}. publish times {}, whole txn publish result {}",
-                        log, transactionState.getPublishCount(), publishResult.name());
-            }
+            logs.log();
         }
 
         return publishResult;
     }
 
-    private boolean isAlterReplicaLoadedTxn(long transactionId, OlapTable table) {
-        List<AlterJobV2> unfinishedAlterJobs = null;
+    private long getMaxAlterWaterschedTxnId(OlapTable table) {
+        List<AlterJobV2> unfinishedAlterJobs;
         if (table.getState() == OlapTable.OlapTableState.SCHEMA_CHANGE) {
             unfinishedAlterJobs = Env.getCurrentEnv().getAlterInstance().getSchemaChangeHandler()
                     .getUnfinishedAlterJobV2ByTableId(table.getId());
@@ -1373,54 +1425,38 @@ public class DatabaseTransactionMgr {
             unfinishedAlterJobs = Env.getCurrentEnv().getAlterInstance().getMaterializedViewHandler()
                     .getUnfinishedAlterJobV2ByTableId(table.getId());
         } else {
-            return true;
+            unfinishedAlterJobs = Lists.newArrayList();
         }
-
-        return unfinishedAlterJobs.stream().allMatch(job -> transactionId > job.getWatershedTxnId());
+        return unfinishedAlterJobs.stream().mapToLong(AlterJobV2::getWatershedTxnId).max().orElse(-1);
     }
 
-    private void checkReplicaContinuousVersionSucc(long tabletId, Replica replica, boolean alterReplicaLoadedTxn,
-            long version, PublishVersionTask backendPublishTask,
-            Set<Long> errorReplicaIds, List<Replica> tabletSuccReplicas,
+    private void checkReplicaContinuousVersionSucc(List<Long> subTxnIds, long alterWaterschedTxnId, long tabletId,
+            Replica replica, long minReplicaVersion, long maxReplicaVersion,
+            List<PublishVersionTask> replicaPublishTasks, Set<Long> errorReplicaIds, List<Replica> tabletSuccReplicas,
             List<Replica> tabletWriteFailedReplicas, List<Replica> tabletVersionFailedReplicas) {
-        if (backendPublishTask == null || !backendPublishTask.isFinished()) {
-            errorReplicaIds.add(replica.getId());
-        } else {
-            Map<Long, Long> backendSuccTablets = backendPublishTask.getSuccTablets();
-            // new doris BE will report succ tablets
-            if (backendSuccTablets != null) {
-                if (backendSuccTablets.containsKey(tabletId)) {
-                    errorReplicaIds.remove(replica.getId());
-                } else {
-                    errorReplicaIds.add(replica.getId());
-                }
-            } else {
-                // for compatibility, old doris BE report only error tablets
-                List<Long> backendErrorTablets = backendPublishTask.getErrorTablets();
-                if (backendErrorTablets != null && backendErrorTablets.contains(tabletId)) {
-                    errorReplicaIds.add(replica.getId());
-                }
+        boolean success = true;
+        for (int i = 0; i < subTxnIds.size(); i++) {
+            PublishVersionTask task = replicaPublishTasks.get(i);
+            success = (task != null && task.isFinished() && task.getSuccTablets().containsKey(tabletId)) || (
+                    replica.getState() == Replica.ReplicaState.ALTER && (!Config.publish_version_check_alter_replica
+                            || subTxnIds.get(i) < alterWaterschedTxnId || alterWaterschedTxnId == -1));
+            if (!success) {
+                break;
             }
         }
-
-        // Schema change and rollup has a sched watermark,
-        // it's ensure that alter replicas will load those txns whose txn id > sched watermark.
-        // But for txns before the sched watermark, the alter replicas maynot load the txns,
-        // publish will ignore checking them and treat them as success in advance.
-        // Later be will fill the alter replicas's history data which before sched watermark.
-        // If failed to fill, fe will set the alter replica bad.
-        if (replica.getState() == Replica.ReplicaState.ALTER
-                && (!alterReplicaLoadedTxn || !Config.publish_version_check_alter_replica)) {
+        if (success) {
             errorReplicaIds.remove(replica.getId());
+        } else {
+            errorReplicaIds.add(replica.getId());
         }
 
         if (!errorReplicaIds.contains(replica.getId())) {
-            if (replica.checkVersionCatchUp(version - 1, true)) {
+            if (replica.checkVersionCatchUp(minReplicaVersion - 1, true)) {
                 tabletSuccReplicas.add(replica);
             } else {
                 tabletVersionFailedReplicas.add(replica);
             }
-        } else if (replica.getVersion() >= version) {
+        } else if (replica.getVersion() >= maxReplicaVersion) {
             tabletSuccReplicas.add(replica);
             errorReplicaIds.remove(replica.getId());
         } else {
@@ -1444,35 +1480,25 @@ public class DatabaseTransactionMgr {
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
-                String partitionRange = "";
-                if (tblPartitionInfo.getType() == PartitionType.RANGE
-                        || tblPartitionInfo.getType() == PartitionType.LIST) {
-                    partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
-                }
-                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId, partitionRange, -1, -1);
+                String partitionRange = tblPartitionInfo.getPartitionRangeString(partitionId);
+                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(
+                        partitionId, partitionRange, -1, -1,
+                        table.isTemporaryPartition(partitionId));
                 tableCommitInfo.addPartitionCommitInfo(partitionCommitInfo);
             }
             transactionState.putIdToTableCommitInfo(tableId, tableCommitInfo);
         }
         // persist transactionState
         unprotectUpsertTransactionState(transactionState, false);
-
-        // add publish version tasks. set task to null as a placeholder.
-        // tasks will be created when publishing version.
-        for (long backendId : totalInvolvedBackends) {
-            transactionState.addPublishVersionTask(backendId, null);
-        }
+        transactionState.setInvolvedBackends(totalInvolvedBackends);
     }
 
     private PartitionCommitInfo generatePartitionCommitInfo(OlapTable table, long partitionId, long partitionVersion) {
         PartitionInfo tblPartitionInfo = table.getPartitionInfo();
-        String partitionRange = "";
-        if (tblPartitionInfo.getType() == PartitionType.RANGE
-                || tblPartitionInfo.getType() == PartitionType.LIST) {
-            partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
-        }
+        String partitionRange = tblPartitionInfo.getPartitionRangeString(partitionId);
         return new PartitionCommitInfo(partitionId, partitionRange,
-                partitionVersion, System.currentTimeMillis() /* use as partition visible time */);
+                partitionVersion, System.currentTimeMillis() /* use as partition visible time */,
+                table.isTemporaryPartition(partitionId));
     }
 
     protected void unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
@@ -1492,12 +1518,7 @@ public class DatabaseTransactionMgr {
         }
         // persist transactionState
         unprotectUpsertTransactionState(transactionState, false);
-
-        // add publish version tasks. set task to null as a placeholder.
-        // tasks will be created when publishing version.
-        for (long backendId : totalInvolvedBackends) {
-            transactionState.addPublishVersionTask(backendId, null);
-        }
+        transactionState.setInvolvedBackends(totalInvolvedBackends);
     }
 
     private void checkBeforeUnprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds) {
@@ -1563,16 +1584,15 @@ public class DatabaseTransactionMgr {
                 transactionState.addSubTxnTableCommitInfo(subTransactionState, tableCommitInfo);
             }
         }
-
-        // add publish version tasks. set task to null as a placeholder.
-        // tasks will be created when publishing version.
+        // persist transactionState
+        unprotectUpsertTransactionState(transactionState, false);
         transactionState.setInvolvedBackends(totalInvolvedBackends);
     }
 
     protected void unprotectedCommitTransaction2PC(TransactionState transactionState, Database db) {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PRECOMMITTED) {
-            LOG.warn("Unknow exception. state of transaction [{}] changed, failed to commit transaction",
+            LOG.warn("Unknown exception. state of transaction [{}] changed, failed to commit transaction",
                     transactionState.getTransactionId());
             return;
         }
@@ -1790,11 +1810,10 @@ public class DatabaseTransactionMgr {
                         beId, transactionState.getTransactionId(), Lists.newArrayList());
                 clearTransactionTasks.add(task);
             }
-            if (transactionState.getSubTransactionStates() != null) {
-                for (SubTransactionState subTransactionState : transactionState.getSubTransactionStates()) {
+            if (transactionState.getSubTxnIds() != null) {
+                for (long subTxnId : transactionState.getSubTxnIds()) {
                     for (Long beId : allBeIds) {
-                        ClearTransactionTask task = new ClearTransactionTask(
-                                beId, subTransactionState.getSubTransactionId(), Lists.newArrayList());
+                        ClearTransactionTask task = new ClearTransactionTask(beId, subTxnId, Lists.newArrayList());
                         clearTransactionTasks.add(task);
                     }
                 }
@@ -1826,7 +1845,7 @@ public class DatabaseTransactionMgr {
             }
 
             Iterator<TableCommitInfo> idToTableCommitInfos;
-            if (transactionState.getSubTransactionStates() != null) {
+            if (transactionState.getSubTxnIds() != null) {
                 idToTableCommitInfos = transactionState.getSubTxnTableCommitInfos().iterator();
             } else {
                 idToTableCommitInfos = transactionState.getIdToTableCommitInfos().values().iterator();
@@ -1855,7 +1874,7 @@ public class DatabaseTransactionMgr {
             }
 
             List<PartitionCommitInfo> partitionCommitInfos = new ArrayList<>();
-            if (transactionState.getSubTransactionStates() != null) {
+            if (transactionState.getSubTxnIds() != null) {
                 for (TableCommitInfo tableCommitInfo : transactionState.getSubTxnTableCommitInfos()) {
                     if (tableCommitInfo.getTableId() == tableId) {
                         partitionCommitInfos.addAll(tableCommitInfo.getIdToPartitionCommitInfo().values());
@@ -1992,13 +2011,16 @@ public class DatabaseTransactionMgr {
         return null;
     }
 
-    public List<Pair<Long, Long>> getTransactionIdByCoordinateBe(String coordinateHost, int limit) {
+    public List<Pair<Long, Long>> getPrepareTransactionIdByCoordinateBe(long coordinateBeId,
+            String coordinateHost, int limit) {
         ArrayList<Pair<Long, Long>> txnInfos = new ArrayList<>();
         readLock();
         try {
             idToRunningTransactionState.values().stream()
                     .filter(t -> (t.getCoordinator().sourceType == TransactionState.TxnSourceType.BE
-                            && t.getCoordinator().ip.equals(coordinateHost)))
+                            && t.getTransactionStatus() == TransactionStatus.PREPARE
+                            && t.getCoordinator().ip.equals(coordinateHost)
+                            && (t.getCoordinator().id == 0 || t.getCoordinator().id == coordinateBeId)))
                     .limit(limit)
                     .forEach(t -> txnInfos.add(Pair.of(t.getDbId(), t.getTransactionId())));
         } finally {
@@ -2057,7 +2079,7 @@ public class DatabaseTransactionMgr {
     }
 
     private void updateCatalogAfterCommitted(TransactionState transactionState, Database db, boolean isReplay) {
-        if (transactionState.getSubTransactionStates() != null) {
+        if (transactionState.getSubTxnIds() != null) {
             List<TableCommitInfo> tableCommitInfos = transactionState.getSubTxnTableCommitInfos();
             updatePartitionNextVersion(transactionState, db, isReplay, tableCommitInfos);
         } else {
@@ -2168,6 +2190,8 @@ public class DatabaseTransactionMgr {
         } else {
             tableCommitInfos = transactionState.getIdToTableCommitInfos().values();
         }
+        Map<Long, Triple<Long, Long, Partition>> partitionMap = new HashMap<>();
+        Map<Long, Triple<Long, Long, OlapTable>> tableMap = new HashMap<>();
         for (TableCommitInfo tableCommitInfo : tableCommitInfos) {
             long tableId = tableCommitInfo.getTableId();
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
@@ -2251,40 +2275,47 @@ public class DatabaseTransactionMgr {
                         && version > Partition.PARTITION_INIT_VERSION) {
                     newPartitionLoadedTableIds.add(tableId);
                 }
-                partition.updateVisibleVersionAndTime(version, versionTime);
-                partitionVisibleVersions.put(partition.getId(), version);
-                LOG.debug("set partition={}, visible version={}", partition.getId(), version);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("transaction state {} set partition {}'s version to [{}]",
-                            transactionState, partition.getId(), version);
-                }
+                partitionMap.compute(partitionId, (k, v) -> {
+                    if (v == null || version > v.getLeft()) {
+                        return Triple.of(version, versionTime, partition);
+                    }
+                    return v;
+                });
             }
-            long tableVersion = tableCommitInfo.getVersion();
-            long tableVersionTime = tableCommitInfo.getVersionTime();
-            table.updateVisibleVersionAndTime(tableVersion, tableVersionTime);
+
+            tableMap.compute(tableId, (k, v) -> {
+                if (v == null || tableCommitInfo.getVersion() > v.getLeft()) {
+                    return Triple.of(tableCommitInfo.getVersion(), tableCommitInfo.getVersionTime(), table);
+                }
+                return v;
+            });
         }
-        Map<Long, Long> tableIdToTotalNumDeltaRows = transactionState.getTableIdToTotalNumDeltaRows();
-        Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();
-        tableIdToTotalNumDeltaRows
-                        .forEach((tableId, numRows) -> {
-                            OlapTable table = (OlapTable) db.getTableNullable(tableId);
-                            if (table != null) {
-                                short replicaNum = table.getTableProperty()
-                                        .getReplicaAllocation()
-                                        .getTotalReplicaNum();
-                                tableIdToNumDeltaRows.put(tableId, numRows / replicaNum);
-                            }
-                        });
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("table id to loaded rows:{}", tableIdToNumDeltaRows);
+        for (Entry<Long, Triple<Long, Long, Partition>> entry : partitionMap.entrySet()) {
+            long version = entry.getValue().getLeft();
+            long versionTime = entry.getValue().getMiddle();
+            Partition partition = entry.getValue().getRight();
+            partition.updateVisibleVersionAndTime(version, versionTime);
+            partitionVisibleVersions.put(partition.getId(), version);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("transaction state {} set partition {}'s visible version to [{}]",
+                        transactionState, partition.getId(), version);
+            }
+        }
+        for (Entry<Long, Triple<Long, Long, OlapTable>> entry : tableMap.entrySet()) {
+            long version = entry.getValue().getLeft();
+            long versionTime = entry.getValue().getMiddle();
+            OlapTable table = entry.getValue().getRight();
+            table.updateVisibleVersionAndTime(version, versionTime);
         }
         analysisManager.setNewPartitionLoaded(newPartitionLoadedTableIds);
-        analysisManager.updateUpdatedRows(tableIdToNumDeltaRows);
+        analysisManager.updateUpdatedRows(transactionState.getTableIdToTabletDeltaRows(),
+                db.getId(), transactionState.getTransactionId());
         return true;
     }
 
-    public boolean isPreviousTransactionsFinished(long endTransactionId, List<Long> tableIdList) {
+    public List<TransactionState> getUnFinishedPreviousLoad(long endTransactionId, List<Long> tableIdList) {
         readLock();
+        List<TransactionState> unFishedTxns = new ArrayList<>();
         try {
             for (Map.Entry<Long, TransactionState> entry : idToRunningTransactionState.entrySet()) {
                 if (entry.getValue().getDbId() != dbId || !isIntersectionNotEmpty(entry.getValue().getTableIdList(),
@@ -2296,6 +2327,26 @@ public class DatabaseTransactionMgr {
                         LOG.debug("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
                                 entry.getKey(), dbId, endTransactionId);
                     }
+                    unFishedTxns.add(entry.getValue());
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+        return unFishedTxns;
+    }
+
+    public boolean isPreviousTransactionsFinished(long endTransactionId, List<Long> tableIdList) {
+        readLock();
+        try {
+            for (Map.Entry<Long, TransactionState> entry : idToRunningTransactionState.entrySet()) {
+                if (entry.getValue().getDbId() != dbId || !isIntersectionNotEmpty(entry.getValue().getTableIdList(),
+                        tableIdList) || entry.getValue().getTransactionStatus().isFinalStatus()) {
+                    continue;
+                }
+                if (entry.getKey() <= endTransactionId) {
+                    LOG.info("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
+                            entry.getKey(), dbId, endTransactionId);
                     return false;
                 }
             }
@@ -2558,6 +2609,10 @@ public class DatabaseTransactionMgr {
     }
 
     private PublishResult finishCheckQuorumReplicas(TransactionState transactionState, Set<Long> errorReplicaIds) {
+        Database database = Env.getCurrentInternalCatalog().getDbNullable(transactionState.getDbId());
+        if (database == null) {
+            return PublishResult.QUORUM_SUCC;
+        }
         long now = System.currentTimeMillis();
         long firstPublishVersionTime = transactionState.getFirstPublishVersionTime();
         boolean allowPublishOneSucc = false;
@@ -2565,81 +2620,125 @@ public class DatabaseTransactionMgr {
                 && now >= firstPublishVersionTime + Config.publish_wait_time_second * 1000L) {
             allowPublishOneSucc = true;
         }
-        List<String> logs = Lists.newArrayList();
+        TabletsPublishResultLogs logs = new TabletsPublishResultLogs();
 
         Map<Long, List<PublishVersionTask>> publishTasks = transactionState.getPublishVersionTasks();
         PublishResult publishResult = PublishResult.QUORUM_SUCC;
-        for (SubTransactionState subTransactionState : transactionState.getSubTransactionStates()) {
-            long subTxnId = subTransactionState.getSubTransactionId();
+        Map<Long, List<Long>> partitionToSubTxns = new HashMap<>();
+        for (Long subTxnId : transactionState.getSubTxnIds()) {
             TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfoBySubTxnId(subTxnId);
             if (tableCommitInfo == null) {
                 continue;
             }
-            OlapTable table = (OlapTable) subTransactionState.getTable();
-            long tableId = table.getId();
-            for (Entry<Long, PartitionCommitInfo> entry : tableCommitInfo.getIdToPartitionCommitInfo().entrySet()) {
-                long partitionId = entry.getValue().getPartitionId();
+            Table tableIf = database.getTableNullable(tableCommitInfo.getTableId());
+            if (tableIf == null) {
+                continue;
+            }
+            OlapTable table = (OlapTable) tableIf;
+            for (Entry<Long, PartitionCommitInfo> entry : tableCommitInfo.getIdToPartitionCommitInfo()
+                    .entrySet()) {
+                long partitionId = entry.getKey();
                 Partition partition = table.getPartition(partitionId);
                 if (partition == null) {
                     continue;
                 }
-                int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partitionId);
-
-                // TODO should use sub transaction load indexes
-                List<MaterializedIndex> allIndices;
-                if (transactionState.getLoadedTblIndexes().isEmpty()
-                        || transactionState.getLoadedTblIndexes().get(tableId) == null) {
-                    allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
-                } else {
-                    allIndices = Lists.newArrayList();
-                    for (long indexId : transactionState.getLoadedTblIndexes().get(tableId)) {
-                        MaterializedIndex index = partition.getIndex(indexId);
-                        if (index != null) {
-                            allIndices.add(index);
-                        }
+                partitionToSubTxns.compute(partitionId, (k, v) -> {
+                    if (v == null) {
+                        v = Lists.newArrayList();
+                    }
+                    v.add(subTxnId);
+                    return v;
+                });
+            }
+        }
+        for (Entry<Long, List<Long>> entry : partitionToSubTxns.entrySet()) {
+            long partitionId = entry.getKey();
+            List<Long> subTxnIds = entry.getValue();
+            if (subTxnIds.isEmpty()) {
+                continue;
+            }
+            TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfoBySubTxnId(subTxnIds.get(0));
+            long tableId = tableCommitInfo.getTableId();
+            Table tableIf = database.getTableNullable(tableCommitInfo.getTableId());
+            if (tableIf == null) {
+                continue;
+            }
+            OlapTable table = (OlapTable) tableIf;
+            Partition partition = table.getPartition(partitionId);
+            if (partition == null) {
+                continue;
+            }
+            long maxAlterWaterschedTxnId = getMaxAlterWaterschedTxnId(table);
+            int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partitionId);
+            // TODO should use sub transaction load indexes
+            List<MaterializedIndex> allIndices;
+            if (transactionState.getLoadedTblIndexes().isEmpty()
+                    || transactionState.getLoadedTblIndexes().get(tableId) == null) {
+                allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+            } else {
+                allIndices = Lists.newArrayList();
+                for (long indexId : transactionState.getLoadedTblIndexes().get(tableId)) {
+                    MaterializedIndex index = partition.getIndex(indexId);
+                    if (index != null) {
+                        allIndices.add(index);
                     }
                 }
-
-                boolean alterReplicaLoadedTxn = isAlterReplicaLoadedTxn(transactionState.getTransactionId(), table);
-
-                // check success replica number for each tablet.
-                // a success replica means:
-                //  1. Not in errorReplicaIds: succeed in both commit and publish phase
-                //  2. last failed version < 0: is a health replica before
-                //  3. version catch up: not with a stale version
-                // Here we only check number, the replica version will be updated in updateCatalogAfterVisible()
-                for (MaterializedIndex index : allIndices) {
-                    for (Tablet tablet : partition.getIndex(index.getId()).getTablets()) {
-                        List<Replica> tabletSuccReplicas = Lists.newArrayList();
-                        List<Replica> tabletWriteFailedReplicas = Lists.newArrayList();
-                        List<Replica> tabletVersionFailedReplicas = Lists.newArrayList();
-                        // TODO always use the visible version because the replica version is not changed
-                        long newVersion = partition.getVisibleVersion() + 1;
-                        for (Replica replica : tablet.getReplicas()) {
-                            for (PublishVersionTask publishVersionTask : publishTasks.get(replica.getBackendId())) {
-                                boolean needCheck = publishVersionTask.getTransactionId()
-                                        == subTransactionState.getSubTransactionId()
-                                        && publishVersionTask.getPartitionVersionInfos().stream()
-                                        .anyMatch(s -> s.getPartitionId() == partitionId);
-                                if (needCheck) {
-                                    checkReplicaContinuousVersionSucc(tablet.getId(), replica, alterReplicaLoadedTxn,
-                                            newVersion, publishVersionTask,
-                                            errorReplicaIds, tabletSuccReplicas, tabletWriteFailedReplicas,
-                                            tabletVersionFailedReplicas);
-                                    LOG.debug("after checkReplicaContinuousVersion for txn_id={}, sub_txn_id={}, "
-                                                    + "tablet_id={}, new_version={}, success_replicas={}, "
-                                                    + "error_replicas={}, write_failed_replicas={}, "
-                                                    + "version_failed_replicas={}", transactionState.getTransactionId(),
-                                            subTransactionState.getSubTransactionId(), tablet.getId(), newVersion,
-                                            tabletSuccReplicas, errorReplicaIds, tabletWriteFailedReplicas,
-                                            tabletVersionFailedReplicas);
+            }
+            long minSubTxnId = subTxnIds.get(0);
+            long minVersion = transactionState.getTableCommitInfoBySubTxnId(minSubTxnId).getIdToPartitionCommitInfo()
+                    .get(partitionId).getVersion();
+            long maxSubTxnId = subTxnIds.get(subTxnIds.size() - 1);
+            long maxVersion = transactionState.getTableCommitInfoBySubTxnId(maxSubTxnId).getIdToPartitionCommitInfo()
+                    .get(partitionId).getVersion();
+            LOG.debug("txn_id={}, partition={}, sub_txn_ids={}, min_version={}, max_version={}",
+                    transactionState.getTransactionId(), partitionId, subTxnIds, minVersion, maxVersion);
+            // check success replica number for each tablet.
+            // a success replica means:
+            //  1. Not in errorReplicaIds: succeed in both commit and publish phase
+            //  2. last failed version < 0: is a health replica before
+            //  3. version catch up: not with a stale version
+            // Here we only check number, the replica version will be updated in updateCatalogAfterVisible()
+            for (MaterializedIndex index : allIndices) {
+                for (Tablet tablet : partition.getIndex(index.getId()).getTablets()) {
+                    List<Replica> tabletSuccReplicas = Lists.newArrayList();
+                    List<Replica> tabletWriteFailedReplicas = Lists.newArrayList();
+                    List<Replica> tabletVersionFailedReplicas = Lists.newArrayList();
+                    for (Replica replica : tablet.getReplicas()) {
+                        List<PublishVersionTask> publishVersionTasks = publishTasks.get(replica.getBackendId());
+                        List<PublishVersionTask> replicaTasks = new ArrayList<>();
+                        for (Long subTransactionId : subTxnIds) {
+                            PublishVersionTask publishVersionTask = null;
+                            if (publishVersionTasks != null) {
+                                List<PublishVersionTask> matchedTasks = publishVersionTasks.stream()
+                                        .filter(t -> t != null && t.getTransactionId() == subTransactionId
+                                                && t.getPartitionVersionInfos().stream()
+                                                .anyMatch(s -> s.getPartitionId() == partitionId))
+                                        .collect(Collectors.toList());
+                                Preconditions.checkState(matchedTasks.size() <= 1,
+                                        "matched publish tasks: " + matchedTasks);
+                                if (matchedTasks.size() == 1) {
+                                    publishVersionTask = matchedTasks.get(0);
                                 }
                             }
+                            replicaTasks.add(publishVersionTask);
                         }
+                        checkReplicaContinuousVersionSucc(subTxnIds, maxAlterWaterschedTxnId, tablet.getId(), replica,
+                                minVersion, maxVersion, replicaTasks, errorReplicaIds, tabletSuccReplicas,
+                                tabletWriteFailedReplicas, tabletVersionFailedReplicas);
+                        LOG.debug("after checkReplicaContinuousVersion for txn_id={}, sub_txn_ids={}, "
+                                        + "partition={}, tablet_id={}, replica={}, min_version={}, max_version={}, "
+                                        + "success_replicas={}, error_replicas={}, write_failed_replicas={}, "
+                                        + "version_failed_replicas={}", transactionState.getTransactionId(), subTxnIds,
+                                partition.getId(), tablet.getId(), replica.getId(), minVersion, maxVersion,
+                                tabletSuccReplicas, errorReplicaIds, tabletWriteFailedReplicas,
+                                tabletVersionFailedReplicas);
+                    }
 
-                        publishResult = checkQuorumReplicas(transactionState, tableId, partition, tablet,
-                                loadRequiredReplicaNum, allowPublishOneSucc, newVersion, tabletSuccReplicas,
-                                tabletWriteFailedReplicas, tabletVersionFailedReplicas, publishResult, logs);
+                    publishResult = checkQuorumReplicas(transactionState, tableId, partition, tablet,
+                            loadRequiredReplicaNum, allowPublishOneSucc, maxVersion, tabletSuccReplicas,
+                            tabletWriteFailedReplicas, tabletVersionFailedReplicas, publishResult, logs);
+                    if (publishResult == PublishResult.QUORUM_SUCC) {
+                        tablet.setLastLoadFailedTime(-1L);
                     }
                 }
             }
@@ -2650,19 +2749,55 @@ public class DatabaseTransactionMgr {
                 || LOG.isDebugEnabled();
         if (needLog) {
             transactionState.setLastPublishLogTime(now);
-            for (String log : logs) {
-                LOG.info("{}. publish times {}, whole txn publish result {}",
-                        log, transactionState.getPublishCount(), publishResult.name());
-            }
+            logs.log();
         }
 
         return publishResult;
     }
 
+    private class TabletsPublishResultLogs {
+        public List<String> quorumSuccLogs = Lists.newArrayList();
+        public List<String> timeoutSuccLogs = Lists.newArrayList();
+        public List<String> failedLogs = Lists.newArrayList();
+
+        public void addQuorumSuccLog(String log) {
+            if (quorumSuccLogs.size() < 16) {
+                quorumSuccLogs.add(log);
+            }
+        }
+
+        public void addTimeoutSuccLog(String log) {
+            if (timeoutSuccLogs.size() < 16) {
+                timeoutSuccLogs.add(log);
+            }
+        }
+
+        public void addFailedLog(String log) {
+            if (failedLogs.size() < 16) {
+                failedLogs.add(log);
+            }
+        }
+
+        public void log() {
+            // log failed logs
+            for (String log : failedLogs) {
+                LOG.info(log);
+            }
+            // log timeout succ logs
+            for (String log : timeoutSuccLogs) {
+                LOG.info(log);
+            }
+            // log quorum succ logs
+            for (String log : quorumSuccLogs) {
+                LOG.info(log);
+            }
+        }
+    }
+
     private PublishResult checkQuorumReplicas(TransactionState transactionState, long tableId, Partition partition,
             Tablet tablet, int loadRequiredReplicaNum, boolean allowPublishOneSucc, long newVersion,
             List<Replica> tabletSuccReplicas, List<Replica> tabletWriteFailedReplicas,
-            List<Replica> tabletVersionFailedReplicas, PublishResult publishResult, List<String> logs) {
+            List<Replica> tabletVersionFailedReplicas, PublishResult publishResult, TabletsPublishResultLogs logs) {
         long partitionId = partition.getId();
         int healthReplicaNum = tabletSuccReplicas.size();
         if (healthReplicaNum >= loadRequiredReplicaNum) {
@@ -2670,11 +2805,11 @@ public class DatabaseTransactionMgr {
             if (hasFailedReplica) {
                 String writeDetail = getTabletWriteDetail(tabletSuccReplicas, tabletWriteFailedReplicas,
                         tabletVersionFailedReplicas);
-                logs.add(String.format("publish version quorum succ for transaction %s on tablet %s"
+                logs.addQuorumSuccLog(String.format("publish version quorum succ for transaction %s on tablet %s"
                                 + " with version %s, and has failed replicas, load require replica num %s. "
                                 + "table %s, partition: [ id=%s, commit version=%s ], tablet detail: %s",
-                        transactionState, tablet.getId(), newVersion, loadRequiredReplicaNum, tableId, partitionId,
-                        partition.getCommittedVersion(), writeDetail));
+                                transactionState, tablet.getId(), newVersion, loadRequiredReplicaNum, tableId,
+                                partitionId, partition.getCommittedVersion(), writeDetail));
             }
             return publishResult;
         }
@@ -2694,7 +2829,7 @@ public class DatabaseTransactionMgr {
             // that are being publised exists on a few replicas we should go
             // ahead, otherwise data may be lost and thre
             // publish task hangs forever.
-            logs.add(String.format("publish version timeout succ for transaction %s on tablet %s "
+            logs.addTimeoutSuccLog(String.format("publish version timeout succ for transaction %s on tablet %s "
                             + "with version %s, and has failed replicas, load require replica num %s. "
                             + "table %s, partition %s, tablet detail: %s", transactionState, tablet.getId(), newVersion,
                     loadRequiredReplicaNum, tableId, partitionId, writeDetail));
@@ -2705,7 +2840,7 @@ public class DatabaseTransactionMgr {
                             + " table: %d, partition: %d, publish version: %d", tablet.getId(), healthReplicaNum,
                     loadRequiredReplicaNum, tableId, partitionId, newVersion);
             transactionState.setErrorMsg(errMsg);
-            logs.add(String.format("publish version failed for transaction %s on tablet %s with version"
+            logs.addFailedLog(String.format("publish version failed for transaction %s on tablet %s with version"
                             + " %s, and has failed replicas, load required replica num %s. table %s, "
                             + "partition %s, tablet detail: %s", transactionState, tablet.getId(), newVersion,
                     loadRequiredReplicaNum, tableId, partitionId, writeDetail));

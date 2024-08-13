@@ -62,6 +62,7 @@ CELLARS=(
     pcre
     maven
     llvm@16
+    m4
 )
 for cellar in "\${CELLARS[@]}"; do
     EXPORT_CELLARS="\${HOMEBREW_REPO_PREFIX}/opt/\${cellar}/bin:\${EXPORT_CELLARS}"

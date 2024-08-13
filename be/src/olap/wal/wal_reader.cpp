@@ -50,11 +50,8 @@ Status WalReader::init() {
 }
 
 Status WalReader::finalize() {
-    if (file_reader != nullptr) {
-        auto st = file_reader->close();
-        if (!st.ok()) {
-            LOG(WARNING) << "fail to close wal " << _file_name << " st= " << st.to_string();
-        }
+    if (file_reader) {
+        return file_reader->close();
     }
     return Status::OK();
 }

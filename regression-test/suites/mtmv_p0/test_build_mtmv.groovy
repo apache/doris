@@ -69,7 +69,6 @@ suite("test_build_mtmv") {
     sql """drop materialized view if exists ${mvName};"""
     sql """drop materialized view if exists ${mvNameRenamed};"""
 
-    // show create table
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         (aa comment "aaa",bb)
@@ -84,13 +83,38 @@ suite("test_build_mtmv") {
         SELECT id, username FROM ${tableName};
         """
 
-    def showCreateTableResult = sql """show create table ${mvName}"""
-    logger.info("showCreateTableResult: " + showCreateTableResult.toString())
-    assertTrue(showCreateTableResult.toString().contains("CREATE MATERIALIZED VIEW `multi_mv_test_create_mtmv` (\n  `aa` BIGINT NULL COMMENT 'aaa',\n  `bb` VARCHAR(20) NULL\n) ENGINE=MATERIALIZED_VIEW\nCOMMENT 'comment1'\nDISTRIBUTED BY RANDOM BUCKETS 2\nPROPERTIES"))
+    // not support show create table
+    test {
+          sql """
+              show create table ${mvName};
+          """
+          exception "not support"
+      }
 
+    // desc
     def descTableAllResult = sql """desc ${mvName} all"""
     logger.info("descTableAllResult: " + descTableAllResult.toString())
     assertTrue(descTableAllResult.toString().contains("${mvName}"))
+
+    // show data
+    def showDataResult = sql """show data"""
+    logger.info("showDataResult: " + showDataResult.toString())
+    assertTrue(showDataResult.toString().contains("${mvName}"))
+
+    // show full tables
+    def showFullTablesResult = sql """SHOW FULL TABLES WHERE Table_type = 'BASE TABLE';"""
+    logger.info("showFullTablesResult: " + showFullTablesResult.toString())
+    assertTrue(showFullTablesResult.toString().contains("${mvName}"))
+
+    // views should not contains mtmv
+    def selectViewsResult = sql """ SELECT * from INFORMATION_SCHEMA.VIEWS;"""
+    logger.info("selectViewsResult: " + selectViewsResult.toString())
+    assertFalse(selectViewsResult.toString().contains("${mvName}"))
+
+    // views should not contains mtmv
+    def selectTablesResult = sql """ SELECT * from INFORMATION_SCHEMA.TABLES;"""
+    logger.info("selectTablesResult: " + selectTablesResult.toString())
+    assertTrue(selectTablesResult.toString().contains("${mvName}"))
 
     // if not exist
     try {
@@ -491,12 +515,12 @@ suite("test_build_mtmv") {
     sql """
         DROP MATERIALIZED VIEW ${mvName}
     """
-    def jobs = sql """select count(1) from jobs("type"="mv")  where name= '${jobName}'"""
-    println jobs
-    assertEquals(jobs.get(0).get(0), 0);
-    def tasks = sql """select count(1) from tasks("type"="mv") where jobname = '${jobName}'"""
-    println tasks
-    assertEquals(tasks.get(0).get(0), 0);
+    def jobs = sql """select * from jobs("type"="mv")  where MvName= '${mvName}'"""
+    log.info(jobs.toString())
+    assertEquals(0, jobs.size());
+    def tasks = sql """select * from tasks("type"="mv") where MvName = '${mvName}'"""
+    log.info(tasks.toString())
+    assertEquals(0, tasks.size());
 
     // test bitmap
     sql """drop table if exists `${tableName}`"""

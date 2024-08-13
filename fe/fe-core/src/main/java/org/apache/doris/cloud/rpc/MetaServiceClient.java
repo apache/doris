@@ -200,6 +200,24 @@ public class MetaServiceClient {
         return blockingStub.getCurrentMaxTxnId(request);
     }
 
+    public Cloud.BeginSubTxnResponse beginSubTxn(Cloud.BeginSubTxnRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.BeginSubTxnRequest.Builder builder = Cloud.BeginSubTxnRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.beginSubTxn(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.beginSubTxn(request);
+    }
+
+    public Cloud.AbortSubTxnResponse abortSubTxn(Cloud.AbortSubTxnRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.AbortSubTxnRequest.Builder builder = Cloud.AbortSubTxnRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.abortSubTxn(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.abortSubTxn(request);
+    }
+
     public Cloud.CheckTxnConflictResponse checkTxnConflict(Cloud.CheckTxnConflictRequest request) {
         return blockingStub.checkTxnConflict(request);
     }
@@ -235,6 +253,10 @@ public class MetaServiceClient {
 
     public Cloud.PartitionResponse commitPartition(Cloud.PartitionRequest request) {
         return blockingStub.commitPartition(request);
+    }
+
+    public Cloud.CheckKVResponse checkKv(Cloud.CheckKVRequest request) {
+        return blockingStub.checkKv(request);
     }
 
     public Cloud.PartitionResponse dropPartition(Cloud.PartitionRequest request) {
@@ -299,6 +321,15 @@ public class MetaServiceClient {
         return blockingStub.alterObjStoreInfo(request);
     }
 
+    public Cloud.AlterObjStoreInfoResponse alterStorageVault(Cloud.AlterObjStoreInfoRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.alterStorageVault(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.alterStorageVault(request);
+    }
+
     public Cloud.GetDeleteBitmapUpdateLockResponse getDeleteBitmapUpdateLock(
             Cloud.GetDeleteBitmapUpdateLockRequest request) {
         if (!request.hasCloudUniqueId()) {
@@ -330,6 +361,16 @@ public class MetaServiceClient {
         return blockingStub.getRlTaskCommitAttach(request);
     }
 
+    public Cloud. ResetRLProgressResponse resetRLProgress(Cloud. ResetRLProgressRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud. ResetRLProgressRequest.Builder builder =
+                    Cloud. ResetRLProgressRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.resetRlProgress(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.resetRlProgress(request);
+    }
+
     public Cloud.GetObjStoreInfoResponse
             getObjStoreInfo(Cloud.GetObjStoreInfoRequest request) {
         if (!request.hasCloudUniqueId()) {
@@ -339,5 +380,16 @@ public class MetaServiceClient {
             return blockingStub.getObjStoreInfo(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
         return blockingStub.getObjStoreInfo(request);
+    }
+
+    public Cloud.AbortTxnWithCoordinatorResponse
+            abortTxnWithCoordinator(Cloud.AbortTxnWithCoordinatorRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.AbortTxnWithCoordinatorRequest.Builder builder =
+                    Cloud.AbortTxnWithCoordinatorRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.abortTxnWithCoordinator(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.abortTxnWithCoordinator(request);
     }
 }

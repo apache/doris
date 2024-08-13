@@ -29,6 +29,7 @@ import org.apache.doris.nereids.util.StandardDateFormat;
 import com.google.common.base.Preconditions;
 
 import java.time.LocalDateTime;
+import java.util.Objects;
 
 /**
  * date time v2 literal for nereids
@@ -214,8 +215,14 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         return fromJavaDateType(toJavaDateType().plusSeconds(seconds), getDataType().getScale());
     }
 
+    // When performing addition or subtraction with MicroSeconds, the precision must
+    // be set to 6 to display it completely.
     public Expression plusMicroSeconds(long microSeconds) {
-        return fromJavaDateType(toJavaDateType().plusNanos(microSeconds * 1000L), getDataType().getScale());
+        return fromJavaDateType(toJavaDateType().plusNanos(microSeconds * 1000L), 6);
+    }
+
+    public Expression plusMilliSeconds(long microSeconds) {
+        return plusMicroSeconds(microSeconds * 1000L);
     }
 
     /**
@@ -232,7 +239,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         long newYear = year;
         if (remain != 0) {
             newMicroSecond = Double
-                    .valueOf((microSecond + (Math.pow(10, 6 - newScale)))
+                    .valueOf((microSecond + (int) (Math.pow(10, 6 - newScale)))
                             / (int) (Math.pow(10, 6 - newScale)) * (Math.pow(10, 6 - newScale)))
                     .longValue();
         }
@@ -251,12 +258,12 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     public DateTimeV2Literal roundFloor(int newScale) {
-        // use roundMicroSecond in constructor
-        return new DateTimeV2Literal(DateTimeV2Type.of(newScale), year, month, day, hour, minute, second, microSecond);
+        return new DateTimeV2Literal(DateTimeV2Type.of(newScale), year, month, day, hour, minute, second,
+                microSecond / (int) Math.pow(10, 6 - newScale) * (int) Math.pow(10, 6 - newScale));
     }
 
     public static Expression fromJavaDateType(LocalDateTime dateTime) {
-        return fromJavaDateType(dateTime, 0);
+        return fromJavaDateType(dateTime, 6);
     }
 
     /**
@@ -270,5 +277,20 @@ public class DateTimeV2Literal extends DateTimeLiteral {
                         dateTime.getMonthValue(), dateTime.getDayOfMonth(), dateTime.getHour(),
                         dateTime.getMinute(), dateTime.getSecond(),
                         (dateTime.getNano() / 1000) / value * value);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        DateTimeV2Literal literal = (DateTimeV2Literal) o;
+        return Objects.equals(dataType, literal.dataType);
     }
 }

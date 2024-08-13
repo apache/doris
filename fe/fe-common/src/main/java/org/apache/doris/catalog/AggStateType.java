@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
@@ -76,18 +77,24 @@ public class AggStateType extends Type {
     @Override
     public String toSql(int depth) {
         StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("AGG_STATE<").append(functionName).append("(");
+        stringBuilder.append("agg_state<").append(functionName).append("(");
         for (int i = 0; i < subTypes.size(); i++) {
             if (i > 0) {
                 stringBuilder.append(", ");
             }
             stringBuilder.append(subTypes.get(i).toSql());
             if (subTypeNullables.get(i)) {
-                stringBuilder.append(" NULL");
+                stringBuilder.append(" null");
             }
         }
-        stringBuilder.append(")>");
+        stringBuilder.append(")");
+        stringBuilder.append(">");
         return stringBuilder.toString();
+    }
+
+    @Override
+    public String toString() {
+        return toSql();
     }
 
     @Override
@@ -115,6 +122,7 @@ public class AggStateType extends Type {
         container.setSubTypes(types);
         container.setResultIsNullable(resultIsNullable);
         container.setFunctionName(functionName);
+        container.setBeExecVersion(Config.be_exec_version);
     }
 
     @Override

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("create_vault") {
+suite("create_vault", "nonConcurrent") {
     if (!enableStoragevault()) {
         logger.info("skip create storgage vault case")
         return
@@ -26,8 +26,9 @@ suite("create_vault") {
             CREATE STORAGE VAULT IF NOT EXISTS failed_vault
             PROPERTIES (
             "type"="S3",
-            "fs.defaultFS"="${getHdfsFs()}",
-            "path_prefix" = "ssb_sf1_p2"
+            "fs.defaultFS"="${getHmsHdfsFs()}",
+            "path_prefix" = "ssb_sf1_p2",
+            "hadoop.username" = "hadoop"
             );
         """
     }, "Missing")
@@ -37,8 +38,9 @@ suite("create_vault") {
             CREATE STORAGE VAULT IF NOT EXISTS failed_vault
             PROPERTIES (
             "type"="hdfs",
-            "s3.bucket"="${getHdfsFs()}",
-            "path_prefix" = "ssb_sf1_p2"
+            "s3.bucket"="${getHmsHdfsFs()}",
+            "path_prefix" = "ssb_sf1_p2",
+            "hadoop.username" = "hadoop"
             );
         """
     }, "invalid fs_name")
@@ -56,8 +58,9 @@ suite("create_vault") {
         CREATE STORAGE VAULT IF NOT EXISTS create_hdfs_vault
         PROPERTIES (
         "type"="hdfs",
-        "fs.defaultFS"="${getHdfsFs()}",
-        "path_prefix" = "default_vault_ssb_hdfs_vault"
+        "fs.defaultFS"="${getHmsHdfsFs()}",
+        "path_prefix" = "default_vault_ssb_hdfs_vault",
+        "hadoop.username" = "hadoop"
         );
     """
 
@@ -90,7 +93,7 @@ suite("create_vault") {
             CREATE STORAGE VAULT create_hdfs_vault
             PROPERTIES (
             "type"="hdfs",
-            "fs.defaultFS"="${getHdfsFs()}",
+            "fs.defaultFS"="${getHmsHdfsFs()}",
             "path_prefix" = "default_vault_ssb_hdfs_vault"
             );
         """

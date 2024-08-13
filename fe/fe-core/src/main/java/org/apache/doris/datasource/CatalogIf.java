@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -187,7 +188,13 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     void dropDb(DropDbStmt stmt) throws DdlException;
 
-    void createTable(CreateTableStmt stmt) throws UserException;
+    /**
+     * @return if org.apache.doris.analysis.CreateTableStmt.ifNotExists is true, return true if table exists,
+     * return false otherwise
+     */
+    boolean createTable(CreateTableStmt stmt) throws UserException;
 
     void dropTable(DropTableStmt stmt) throws DdlException;
+
+    void truncateTable(TruncateTableStmt truncateTableStmt) throws DdlException;
 }

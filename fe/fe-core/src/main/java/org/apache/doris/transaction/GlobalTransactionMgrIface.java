@@ -134,7 +134,9 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public void updateDatabaseUsedQuotaData(long dbId, long usedQuotaDataBytes) throws AnalysisException;
 
-    public void abortTxnWhenCoordinateBeDown(String coordinateHost, int limit);
+    public void abortTxnWhenCoordinateBeRestart(long coordinateBeId, String coordinateHost, long beStartTime);
+
+    public void abortTxnWhenCoordinateBeDown(long coordinateBeId, String coordinateHost, int limit);
 
     public TransactionStatus getLabelState(long dbId, String label) throws AnalysisException;
 
@@ -195,4 +197,7 @@ public interface GlobalTransactionMgrIface extends Writable {
     public void addSubTransaction(long dbId, long transactionId, long subTransactionId);
 
     public void removeSubTransaction(long dbId, long subTransactionId);
+
+    public List<TransactionState> getUnFinishedPreviousLoad(long endTransactionId,
+                long dbId, List<Long> tableIdList) throws UserException;
 }

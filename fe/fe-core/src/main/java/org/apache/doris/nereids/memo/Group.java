@@ -59,7 +59,7 @@ public class Group {
 
     private final List<GroupExpression> logicalExpressions = Lists.newArrayList();
     private final List<GroupExpression> physicalExpressions = Lists.newArrayList();
-    private final List<GroupExpression> enforcers = Lists.newArrayList();
+    private final Map<GroupExpression, GroupExpression> enforcers = Maps.newHashMap();
     private boolean isStatsReliable = true;
     private LogicalProperties logicalProperties;
 
@@ -73,7 +73,10 @@ public class Group {
 
     private PhysicalProperties chosenProperties;
 
-    private List<Integer> chosenGroupExpressionId = new ArrayList<>();
+    private int chosenGroupExpressionId = -1;
+
+    private List<PhysicalProperties> chosenEnforcerPropertiesList = new ArrayList<>();
+    private List<Integer> chosenEnforcerIdList = new ArrayList<>();
 
     private StructInfoMap structInfoMap = new StructInfoMap();
 
@@ -213,16 +216,11 @@ public class Group {
      * @return {@link Optional} of cost and {@link GroupExpression} of physical plan pair.
      */
     public Optional<Pair<Cost, GroupExpression>> getLowestCostPlan(PhysicalProperties physicalProperties) {
-        chosenProperties = physicalProperties;
         if (physicalProperties == null || lowestCostPlans.isEmpty()) {
-            chosenGroupExpressionId.clear();
             return Optional.empty();
         }
         Optional<Pair<Cost, GroupExpression>> costAndGroupExpression =
                 Optional.ofNullable(lowestCostPlans.get(physicalProperties));
-        if (costAndGroupExpression.isPresent()) {
-            chosenGroupExpressionId.add(costAndGroupExpression.get().second.getId().asInt());
-        }
         return costAndGroupExpression;
     }
 
@@ -241,10 +239,10 @@ public class Group {
 
     public void addEnforcer(GroupExpression enforcer) {
         enforcer.setOwnerGroup(this);
-        enforcers.add(enforcer);
+        enforcers.put(enforcer, enforcer);
     }
 
-    public List<GroupExpression> getEnforcers() {
+    public Map<GroupExpression, GroupExpression> getEnforcers() {
         return enforcers;
     }
 
@@ -348,9 +346,9 @@ public class Group {
         parentExpressions.keySet().forEach(parent -> target.addParentExpression(parent));
 
         // move enforcers Ownership
-        enforcers.forEach(ge -> ge.children().set(0, target));
+        enforcers.forEach((k, v) -> k.children().set(0, target));
         // TODO: dedup?
-        enforcers.forEach(enforcer -> target.addEnforcer(enforcer));
+        enforcers.forEach((k, v) -> target.addEnforcer(k));
         enforcers.clear();
 
         // move LogicalExpression PhysicalExpression Ownership
@@ -460,10 +458,17 @@ public class Group {
             str.append("    ").append(physicalExpression).append("\n");
         }
         str.append("  enforcers:\n");
-        for (GroupExpression enforcer : enforcers) {
+        for (GroupExpression enforcer : enforcers.keySet()) {
             str.append("    ").append(enforcer).append("\n");
         }
-        if (!chosenGroupExpressionId.isEmpty()) {
+        if (!chosenEnforcerIdList.isEmpty()) {
+            str.append("  chosen enforcer(id, requiredProperties):\n");
+            for (int i = 0; i < chosenEnforcerIdList.size(); i++) {
+                str.append("      (").append(i).append(")").append(chosenEnforcerIdList.get(i)).append(",  ")
+                        .append(chosenEnforcerPropertiesList.get(i)).append("\n");
+            }
+        }
+        if (chosenGroupExpressionId != -1) {
             str.append("  chosen expression id: ").append(chosenGroupExpressionId).append("\n");
             str.append("  chosen properties: ").append(chosenProperties).append("\n");
         }
@@ -471,19 +476,15 @@ public class Group {
         str.append(getStatistics() == null ? "" : getStatistics().detail("    "));
 
         str.append("  lowest Plan(cost, properties, plan, childrenRequires)");
-        getAllProperties().forEach(
-                prop -> {
-                    Optional<Pair<Cost, GroupExpression>> costAndGroupExpression = getLowestCostPlan(prop);
-                    if (costAndGroupExpression.isPresent()) {
-                        Cost cost = costAndGroupExpression.get().first;
-                        GroupExpression child = costAndGroupExpression.get().second;
-                        str.append("\n\n    ").append(cost.getValue()).append(" ").append(prop)
-                                .append("\n     ").append(child).append("\n     ")
-                                .append(child.getInputPropertiesListOrEmpty(prop));
-                    }
-                }
-        );
-
+        for (Map.Entry<PhysicalProperties, Pair<Cost, GroupExpression>> entry : lowestCostPlans.entrySet()) {
+            PhysicalProperties prop = entry.getKey();
+            Pair<Cost, GroupExpression> costGroupExpressionPair = entry.getValue();
+            Cost cost = costGroupExpressionPair.first;
+            GroupExpression child = costGroupExpressionPair.second;
+            str.append("\n\n    ").append(cost.getValue()).append(" ").append(prop)
+                .append("\n     ").append(child).append("\n     ")
+                .append(child.getInputPropertiesListOrEmpty(prop));
+        }
         str.append("\n").append("  struct info map").append("\n");
         str.append(structInfoMap);
 
@@ -558,5 +559,27 @@ public class Group {
         };
 
         return TreeStringUtils.treeString(this, toString, getChildren, getExtraPlans, displayExtraPlan);
+    }
+
+    public PhysicalProperties getChosenProperties() {
+        return chosenProperties;
+    }
+
+    public void setChosenProperties(PhysicalProperties chosenProperties) {
+        this.chosenProperties = chosenProperties;
+    }
+
+    public void setChosenGroupExpressionId(int chosenGroupExpressionId) {
+        Preconditions.checkArgument(this.chosenGroupExpressionId == -1,
+                "chosenGroupExpressionId is already set");
+        this.chosenGroupExpressionId = chosenGroupExpressionId;
+    }
+
+    public void addChosenEnforcerProperties(PhysicalProperties chosenEnforcerProperties) {
+        this.chosenEnforcerPropertiesList.add(chosenEnforcerProperties);
+    }
+
+    public void addChosenEnforcerId(int chosenEnforcerId) {
+        this.chosenEnforcerIdList.add(chosenEnforcerId);
     }
 }

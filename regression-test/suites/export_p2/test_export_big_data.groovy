@@ -105,6 +105,7 @@ suite("test_export_big_data", "p2") {
             "uri" = "https://${bucket}.${s3_endpoint}/regression/export_p2/export_orc/test_export_big_data_dataset.orc",
             "s3.access_key"= "${ak}",
             "s3.secret_key" = "${sk}",
+            "provider" = "${getS3Provider()}",
             "format" = "orc");
         """
 

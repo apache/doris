@@ -27,11 +27,14 @@ namespace segment_v2 {
 
 // Encode page use frame-of-reference coding
 template <FieldType Type>
-class FrameOfReferencePageBuilder : public PageBuilder {
+class FrameOfReferencePageBuilder : public PageBuilderHelper<FrameOfReferencePageBuilder<Type>> {
 public:
-    explicit FrameOfReferencePageBuilder(const PageBuilderOptions& options)
-            : _options(options), _count(0), _finished(false) {
+    using Self = FrameOfReferencePageBuilder<Type>;
+    friend class PageBuilderHelper<Self>;
+
+    Status init() override {
         _encoder.reset(new ForEncoder<CppType>(&_buf));
+        return Status::OK();
     }
 
     bool is_page_full() override { return _encoder->len() >= _options.data_page_size; }
@@ -58,10 +61,11 @@ public:
         return _buf.build();
     }
 
-    void reset() override {
+    Status reset() override {
         _count = 0;
         _finished = false;
         _encoder->clear();
+        return Status::OK();
     }
 
     size_t count() const override { return _count; }
@@ -85,6 +89,9 @@ public:
     }
 
 private:
+    explicit FrameOfReferencePageBuilder(const PageBuilderOptions& options)
+            : _options(options), _count(0), _finished(false) {}
+
     typedef typename TypeTraits<Type>::CppType CppType;
     PageBuilderOptions _options;
     size_t _count;

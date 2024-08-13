@@ -37,7 +37,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -53,7 +52,8 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
-public class DeleteStmt extends DdlStmt {
+@Deprecated
+public class DeleteStmt extends DdlStmt implements NotFallbackInParser {
 
     private static final List<ExprRewriteRule> EXPR_NORMALIZE_RULES = ImmutableList.of(
             BetweenToCompoundRule.INSTANCE
@@ -123,7 +123,8 @@ public class DeleteStmt extends DdlStmt {
         }
 
         // analyze predicate
-        if (fromClause == null) {
+        if ((fromClause == null && !((OlapTable) targetTable).getEnableUniqueKeyMergeOnWrite())
+                || (fromClause == null && ((OlapTable) targetTable).getEnableMowLightDelete())) {
             if (wherePredicate == null) {
                 throw new AnalysisException("Where clause is not set");
             }
@@ -148,7 +149,7 @@ public class DeleteStmt extends DdlStmt {
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isInDebugMode()) {
             throw new AnalysisException("Delete is forbidden since current session is in debug mode."
                     + " Please check the following session variables: "
-                    + String.join(", ", SessionVariable.DEBUG_VARIABLES));
+                    + ConnectContext.get().getSessionVariable().printDebugModeVariables());
         }
         boolean isMow = ((OlapTable) targetTable).getEnableUniqueKeyMergeOnWrite();
         for (Column column : targetTable.getColumns()) {
@@ -168,6 +169,7 @@ public class DeleteStmt extends DdlStmt {
         }
 
         FromClause fromUsedInInsert;
+        targetTableRef.setPartitionNames(partitionNames);
         if (fromClause == null) {
             fromUsedInInsert = new FromClause(Lists.newArrayList(targetTableRef));
         } else {
@@ -461,5 +463,10 @@ public class DeleteStmt extends DdlStmt {
         }
         sb.append(" WHERE ").append(wherePredicate.toSql());
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DELETE;
     }
 }

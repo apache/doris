@@ -135,14 +135,10 @@ void InvertedIndexQueryCache::insert(const CacheKey& key, std::shared_ptr<roarin
         return;
     }
 
-    auto* lru_handle = LRUCachePolicy::insert(key.encode(), (void*)cache_value_ptr.release(),
-                                              bitmap->getSizeInBytes(), bitmap->getSizeInBytes(),
-                                              CachePriority::NORMAL);
+    auto* lru_handle = LRUCachePolicyTrackingManual::insert(
+            key.encode(), (void*)cache_value_ptr.release(), bitmap->getSizeInBytes(),
+            bitmap->getSizeInBytes(), CachePriority::NORMAL);
     *handle = InvertedIndexQueryCacheHandle(this, lru_handle);
-}
-
-int64_t InvertedIndexQueryCache::mem_consumption() {
-    return LRUCachePolicy::mem_consumption();
 }
 
 } // namespace doris::segment_v2

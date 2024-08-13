@@ -19,7 +19,6 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "exec/exec_node.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
@@ -34,11 +33,14 @@
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
 #include "pipeline/exec/group_commit_block_sink_operator.h"
+#include "pipeline/exec/group_commit_scan_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/hive_table_sink_operator.h"
+#include "pipeline/exec/iceberg_table_sink_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
+#include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
 #include "pipeline/exec/multi_cast_data_stream_source.h"
@@ -73,6 +75,7 @@
 #include "pipeline/local_exchange/local_exchange_source_operator.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
+#include "util/string_util.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/utils/util.hpp"
@@ -94,12 +97,22 @@ Status OperatorBase::close(RuntimeState* state) {
 
 template <typename SharedStateArg>
 std::string PipelineXLocalState<SharedStateArg>::name_suffix() const {
-    return " (id=" + std::to_string(_parent->node_id()) + ")";
+    return " (id=" + std::to_string(_parent->node_id()) + [&]() -> std::string {
+        if (_parent->nereids_id() == -1) {
+            return "";
+        }
+        return " , nereids_id=" + std::to_string(_parent->nereids_id());
+    }() + ")";
 }
 
 template <typename SharedStateArg>
 std::string PipelineXSinkLocalState<SharedStateArg>::name_suffix() {
-    return " (id=" + std::to_string(_parent->node_id()) + ")";
+    return " (id=" + std::to_string(_parent->node_id()) + [&]() -> std::string {
+        if (_parent->nereids_id() == -1) {
+            return "";
+        }
+        return " , nereids_id=" + std::to_string(_parent->nereids_id());
+    }() + ")";
 }
 
 DataDistribution DataSinkOperatorXBase::required_data_distribution() const {
@@ -138,6 +151,7 @@ std::string OperatorXBase::debug_string(RuntimeState* state, int indentation_lev
 
 Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
     std::string node_name = print_plan_node_type(tnode.node_type);
+    _nereids_id = tnode.nereids_id;
     if (!tnode.intermediate_output_tuple_id_list.empty()) {
         if (!tnode.__isset.output_tuple_id) {
             return Status::InternalError("no final output tuple id");
@@ -247,7 +261,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     vectorized::Block input_block = *origin_block;
 
     std::vector<int> result_column_ids;
-    for (const auto& projections : _intermediate_projections) {
+    for (const auto& projections : local_state->_intermediate_projections) {
         result_column_ids.resize(projections.size());
         for (int i = 0; i < projections.size(); i++) {
             RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
@@ -297,19 +311,28 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
 
 Status OperatorXBase::get_block_after_projects(RuntimeState* state, vectorized::Block* block,
                                                bool* eos) {
-    auto local_state = state->get_local_state(operator_id());
+    DBUG_EXECUTE_IF("Pipeline::return_empty_block", {
+        if (this->_op_name == "AGGREGATION_OPERATOR" || this->_op_name == "HASH_JOIN_OPERATOR" ||
+            this->_op_name == "PARTITIONED_AGGREGATION_OPERATOR" ||
+            this->_op_name == "PARTITIONED_HASH_JOIN_OPERATOR" ||
+            this->_op_name == "CROSS_JOIN_OPERATOR" || this->_op_name == "SORT_OPERATOR") {
+            if (_debug_point_count++ % 2 == 0) {
+                return Status::OK();
+            }
+        }
+    });
+
+    auto* local_state = state->get_local_state(operator_id());
     if (_output_row_descriptor) {
         local_state->clear_origin_block();
         auto status = get_block(state, &local_state->_origin_block, eos);
-        if (UNLIKELY(!status.ok())) return status;
+        if (UNLIKELY(!status.ok())) {
+            return status;
+        }
         return do_projections(state, &local_state->_origin_block, block);
     }
     local_state->_peak_memory_usage_counter->set(local_state->_mem_tracker->peak_consumption());
     return get_block(state, block, eos);
-}
-
-bool PipelineXLocalStateBase::reached_limit() const {
-    return _parent->_limit != -1 && _num_rows_returned >= _parent->_limit;
 }
 
 void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, bool* eos) {
@@ -317,6 +340,16 @@ void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, bool* eos)
         block->set_num_rows(_parent->_limit - _num_rows_returned);
         *eos = true;
     }
+
+    DBUG_EXECUTE_IF("Pipeline::reached_limit_early", {
+        auto op_name = to_lower(_parent->_op_name);
+        auto arg_op_name = dp->param<std::string>("op_name");
+        arg_op_name = to_lower(arg_op_name);
+
+        if (op_name == arg_op_name) {
+            *eos = true;
+        }
+    });
 
     if (auto rows = block->rows()) {
         _num_rows_returned += rows;
@@ -350,9 +383,8 @@ Status DataSinkOperatorXBase::init(const TDataSink& tsink) {
 
 Status DataSinkOperatorXBase::init(const TPlanNode& tnode, RuntimeState* state) {
     std::string op_name = print_plan_node_type(tnode.node_type);
-
+    _nereids_id = tnode.nereids_id;
     auto substr = op_name.substr(0, op_name.find("_NODE"));
-
     _name = substr + "_SINK_OPERATOR";
     return Status::OK();
 }
@@ -376,8 +408,7 @@ std::shared_ptr<BasicSharedState> DataSinkOperatorX<LocalStateType>::create_shar
         LOG(FATAL) << "should not reach here!";
         return nullptr;
     } else {
-        std::shared_ptr<BasicSharedState> ss = nullptr;
-        ss = LocalStateType::SharedStateType::create_shared();
+        auto ss = LocalStateType::SharedStateType::create_shared();
         ss->id = operator_id();
         for (auto& dest : dests_id()) {
             ss->related_op_ids.insert(dest);
@@ -421,7 +452,10 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
             DCHECK(info.le_state_map.find(_parent->operator_id()) != info.le_state_map.end());
             _shared_state = info.le_state_map.at(_parent->operator_id()).first.get();
 
-            _dependency = _shared_state->get_dep_by_channel_id(info.task_idx);
+            auto deps = _shared_state->get_dep_by_channel_id(info.task_idx);
+            if (deps.size() == 1) {
+                _dependency = deps.front().get();
+            }
             _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                     _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         } else if (info.shared_state) {
@@ -487,6 +521,11 @@ Status PipelineXLocalState<SharedStateArg>::close(RuntimeState* state) {
         _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     }
     _closed = true;
+    // Some kinds of source operators has a 1-1 relationship with a sink operator (such as AnalyticOperator).
+    // We must ensure AnalyticSinkOperator will not be blocked if AnalyticSourceOperator already closed.
+    if (_shared_state && _shared_state->sink_deps.size() == 1) {
+        _shared_state->sink_deps.front()->set_always_ready();
+    }
     return Status::OK();
 }
 
@@ -585,10 +624,10 @@ template <typename Writer, typename Parent>
     requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs));
-    _async_writer_dependency =
-            AsyncWriterDependency::create_shared(_parent->operator_id(), _parent->node_id());
-    _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
+    _async_writer_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                         "AsyncWriterDependency", true);
+    _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs, _async_writer_dependency,
+                             _finish_dependency));
 
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
             _profile, "WaitForDependency[" + _async_writer_dependency->name() + "]Time", 1);
@@ -644,10 +683,12 @@ Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_s
 DECLARE_OPERATOR_X(HashJoinBuildSinkLocalState)
 DECLARE_OPERATOR_X(ResultSinkLocalState)
 DECLARE_OPERATOR_X(JdbcTableSinkLocalState)
+DECLARE_OPERATOR_X(MemoryScratchSinkLocalState)
 DECLARE_OPERATOR_X(ResultFileSinkLocalState)
 DECLARE_OPERATOR_X(OlapTableSinkLocalState)
 DECLARE_OPERATOR_X(OlapTableSinkV2LocalState)
 DECLARE_OPERATOR_X(HiveTableSinkLocalState)
+DECLARE_OPERATOR_X(IcebergTableSinkLocalState)
 DECLARE_OPERATOR_X(AnalyticSinkLocalState)
 DECLARE_OPERATOR_X(SortSinkLocalState)
 DECLARE_OPERATOR_X(SpillSortSinkLocalState)
@@ -671,6 +712,7 @@ DECLARE_OPERATOR_X(GroupCommitBlockSinkLocalState)
 #define DECLARE_OPERATOR_X(LOCAL_STATE) template class OperatorX<LOCAL_STATE>;
 DECLARE_OPERATOR_X(HashJoinProbeLocalState)
 DECLARE_OPERATOR_X(OlapScanLocalState)
+DECLARE_OPERATOR_X(GroupCommitLocalState)
 DECLARE_OPERATOR_X(JDBCScanLocalState)
 DECLARE_OPERATOR_X(FileScanLocalState)
 DECLARE_OPERATOR_X(EsScanLocalState)
@@ -746,5 +788,6 @@ template class AsyncWriterSink<doris::vectorized::VJdbcTableWriter, JdbcTableSin
 template class AsyncWriterSink<doris::vectorized::VTabletWriter, OlapTableSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VTabletWriterV2, OlapTableSinkV2OperatorX>;
 template class AsyncWriterSink<doris::vectorized::VHiveTableWriter, HiveTableSinkOperatorX>;
+template class AsyncWriterSink<doris::vectorized::VIcebergTableWriter, IcebergTableSinkOperatorX>;
 
 } // namespace doris::pipeline

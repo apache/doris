@@ -28,10 +28,9 @@ namespace doris::pipeline {
 MultiCastDataStreamSourceLocalState::MultiCastDataStreamSourceLocalState(RuntimeState* state,
                                                                          OperatorXBase* parent)
         : Base(state, parent),
-          vectorized::RuntimeFilterConsumer(static_cast<Parent*>(parent)->dest_id_from_sink(),
-                                            parent->runtime_filter_descs(),
-                                            static_cast<Parent*>(parent)->_row_desc(), _conjuncts) {
-}
+          RuntimeFilterConsumer(static_cast<Parent*>(parent)->dest_id_from_sink(),
+                                parent->runtime_filter_descs(),
+                                static_cast<Parent*>(parent)->_row_desc(), _conjuncts) {}
 
 Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -39,7 +38,7 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
-    _shared_state->multi_cast_data_streamer.set_dep_by_sender_idx(p._consumer_id, _dependency);
+    _shared_state->multi_cast_data_streamer->set_dep_by_sender_idx(p._consumer_id, _dependency);
     _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
     // init profile for runtime filter
     RuntimeFilterConsumer::_init_profile(profile());
@@ -52,7 +51,7 @@ Status MultiCastDataStreamSourceLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
-    RETURN_IF_ERROR(_acquire_runtime_filter(true));
+    RETURN_IF_ERROR(_acquire_runtime_filter());
     auto& p = _parent->cast<Parent>();
     _output_expr_contexts.resize(p._output_expr_contexts.size());
     for (size_t i = 0; i < p._output_expr_contexts.size(); i++) {
@@ -87,7 +86,8 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
     if (!local_state._output_expr_contexts.empty()) {
         output_block = &tmp_block;
     }
-    local_state._shared_state->multi_cast_data_streamer.pull(_consumer_id, output_block, eos);
+    RETURN_IF_ERROR(local_state._shared_state->multi_cast_data_streamer->pull(_consumer_id,
+                                                                              output_block, eos));
 
     if (!local_state._conjuncts.empty()) {
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,

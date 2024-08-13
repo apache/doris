@@ -75,13 +75,13 @@ EnginePublishVersionTask::EnginePublishVersionTask(
         StorageEngine& engine, const TPublishVersionRequest& publish_version_req,
         std::set<TTabletId>* error_tablet_ids, std::map<TTabletId, TVersion>* succ_tablets,
         std::vector<std::tuple<int64_t, int64_t, int64_t>>* discontinuous_version_tablets,
-        std::map<TTableId, int64_t>* table_id_to_num_delta_rows)
+        std::map<TTableId, std::map<TTabletId, int64_t>>* table_id_to_tablet_id_to_num_delta_rows)
         : _engine(engine),
           _publish_version_req(publish_version_req),
           _error_tablet_ids(error_tablet_ids),
           _succ_tablets(succ_tablets),
           _discontinuous_version_tablets(discontinuous_version_tablets),
-          _table_id_to_num_delta_rows(table_id_to_num_delta_rows) {
+          _table_id_to_tablet_id_to_num_delta_rows(table_id_to_tablet_id_to_num_delta_rows) {
     _mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
                                                     "TabletPublishTxnTask");
 }
@@ -109,6 +109,20 @@ Status EnginePublishVersionTask::execute() {
                     .tag("txn_id", transaction_id)
                     .tag("wait ms", wait);
             std::this_thread::sleep_for(std::chrono::milliseconds(wait));
+        }
+    });
+    DBUG_EXECUTE_IF("EnginePublishVersionTask::execute.enable_spin_wait", {
+        auto token = dp->param<std::string>("token", "invalid_token");
+        while (DebugPoints::instance()->is_enable("EnginePublishVersionTask::execute.block")) {
+            auto block_dp = DebugPoints::instance()->get_debug_point(
+                    "EnginePublishVersionTask::execute.block");
+            if (block_dp) {
+                auto pass_token = block_dp->param<std::string>("pass_token", "");
+                if (pass_token == token) {
+                    break;
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     });
     std::unique_ptr<ThreadPoolToken> token = _engine.tablet_publish_txn_thread_pool()->new_token(
@@ -340,7 +354,11 @@ void EnginePublishVersionTask::_calculate_tbl_num_delta_rows(
             continue;
         }
         auto table_id = tablet->get_table_id();
-        (*_table_id_to_num_delta_rows)[table_id] += kv.second;
+        if (kv.second > 0) {
+            (*_table_id_to_tablet_id_to_num_delta_rows)[table_id][kv.first] += kv.second;
+            LOG(INFO) << "report delta rows to fe, table_id=" << table_id << ", tablet=" << kv.first
+                      << ", num_rows=" << kv.second;
+        }
     }
 }
 

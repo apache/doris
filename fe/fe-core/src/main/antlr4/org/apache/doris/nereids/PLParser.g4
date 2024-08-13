@@ -884,6 +884,7 @@ non_reserved_words :                      // Tokens that are not reserved words 
      | PART_LOC
      | PCTFREE
      | PCTUSED
+     | PI
      | PRECISION
      | PRESERVE
      | PRINT

@@ -24,7 +24,6 @@ import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.LoadTaskInfo;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -53,19 +52,9 @@ public class CloudStreamLoadPlanner extends StreamLoadPlanner {
     }
 
     @Override
-    public TExecPlanFragmentParams plan(TUniqueId loadId, int fragmentInstanceIdIndex) throws UserException {
+    public TPipelineFragmentParams plan(TUniqueId loadId, int fragmentInstanceIdIndex) throws UserException {
         try (AutoCloseConnectContext r = buildConnectContext()) {
             return super.plan(loadId, fragmentInstanceIdIndex);
-        } catch (UserException e) {
-            throw e;
-        }
-    }
-
-    @Override
-    public TPipelineFragmentParams planForPipeline(TUniqueId loadId, int fragmentInstanceIdIndex)
-            throws UserException {
-        try (AutoCloseConnectContext r = buildConnectContext()) {
-            return super.planForPipeline(loadId, fragmentInstanceIdIndex);
         } catch (UserException e) {
             throw e;
         }

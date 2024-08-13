@@ -38,8 +38,7 @@ class StreamLoadContext;
 // to be reused
 class DataConsumerPool {
 public:
-    DataConsumerPool(int64_t max_pool_size)
-            : _max_pool_size(max_pool_size), _stop_background_threads_latch(1) {}
+    DataConsumerPool() : _stop_background_threads_latch(1) {}
 
     ~DataConsumerPool() = default;
 
@@ -71,7 +70,6 @@ private:
 private:
     std::mutex _lock;
     std::list<std::shared_ptr<DataConsumer>> _pool;
-    int64_t _max_pool_size;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _clean_idle_consumer_thread;

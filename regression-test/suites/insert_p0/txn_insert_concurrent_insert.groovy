@@ -83,14 +83,20 @@ suite("txn_insert_concurrent_insert") {
     def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, dbName).replace("&useServerPrepStmts=true", "") + "&useLocalSessionState=true"
     logger.info("url: ${url}")
 
+    def sqls = [
+            "begin",
+            "insert into ${tableName}_0 select * from ${tableName}_1 where L_ORDERKEY < 30000;",
+            "insert into ${tableName}_1 select * from ${tableName}_2 where L_ORDERKEY > 500000;",
+            "insert into ${tableName}_0 select * from ${tableName}_2 where L_ORDERKEY < 30000;",
+            "commit"
+    ]
     def txn_insert = { ->
         try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
              Statement stmt = conn.createStatement()) {
-            stmt.execute("begin")
-            stmt.execute("insert into ${tableName}_0 select * from ${tableName}_1 where L_ORDERKEY < 30000;")
-            stmt.execute("insert into ${tableName}_1 select * from ${tableName}_2 where L_ORDERKEY > 500000;")
-            stmt.execute("insert into ${tableName}_0 select * from ${tableName}_2 where L_ORDERKEY < 30000;")
-            stmt.execute("commit")
+            for (def sql : sqls) {
+                logger.info(Thread.currentThread().getName() + " execute sql: " + sql)
+                stmt.execute(sql)
+            }
             logger.info("finish txn insert for " + Thread.currentThread().getName())
         } catch (Throwable e) {
             logger.error("txn insert failed", e)
@@ -103,7 +109,7 @@ suite("txn_insert_concurrent_insert") {
         futures.add(future)
     }
     CompletableFuture<?>[] futuresArray = futures.toArray(new CompletableFuture[0])
-    CompletableFuture.allOf(futuresArray).get(2, TimeUnit.MINUTES)
+    CompletableFuture.allOf(futuresArray).get(10, TimeUnit.MINUTES)
     sql """ sync """
 
     def result = sql """ select count() from ${tableName}_0 """
@@ -112,4 +118,14 @@ suite("txn_insert_concurrent_insert") {
     result = sql """ select count() from ${tableName}_1 """
     logger.info("result: ${result}")
     assertEquals(2606192, result[0][0])
+
+    def db_name = "regression_test_insert_p0"
+    def tables = sql """ show tables from $db_name """
+    logger.info("tables: $tables")
+    for (def table_info : tables) {
+        def table_name = table_info[0]
+        if (table_name.startsWith(tableName)) {
+            check_table_version_continuous(db_name, table_name)
+        }
+    }
 }

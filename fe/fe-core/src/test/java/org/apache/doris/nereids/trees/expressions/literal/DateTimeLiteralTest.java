@@ -416,31 +416,78 @@ class DateTimeLiteralTest {
     void testDateTimeV2Scale() {
         Assertions.assertEquals(
                 new DateTimeV2Literal(DateTimeV2Type.of(3), "2016-07-02 00:00:00.123"),
-                new DateTimeV2Literal("2016-07-02 00:00:00.123"));
+                new DateTimeV2Literal(DateTimeV2Type.of(3), "2016-07-02 00:00:00.123"));
 
         Assertions.assertEquals(
                 new DateTimeV2Literal(DateTimeV2Type.of(3), "2016-07-02 00:00:00.123456"),
-                new DateTimeV2Literal("2016-07-02 00:00:00.123"));
+                new DateTimeV2Literal(DateTimeV2Type.of(3), "2016-07-02 00:00:00.123"));
 
         Assertions.assertEquals(
                 new DateTimeV2Literal(DateTimeV2Type.of(4), "2016-07-02 00:00:00.12345"),
-                new DateTimeV2Literal("2016-07-02 00:00:00.12345"));
+                new DateTimeV2Literal(DateTimeV2Type.of(4), "2016-07-02 00:00:00.1235"));
 
         Assertions.assertEquals(
                 new DateTimeV2Literal(DateTimeV2Type.of(0), "2016-07-02 00:00:00.12345"),
-                new DateTimeV2Literal("2016-07-02 00:00:00.0"));
+                new DateTimeV2Literal(DateTimeV2Type.of(0), "2016-07-02 00:00:00"));
 
         Assertions.assertEquals(
                 new DateTimeV2Literal(DateTimeV2Type.of(0), "2016-07-02 00:00:00.5123"),
-                new DateTimeV2Literal("2016-07-02 00:00:01.0"));
+                new DateTimeV2Literal(DateTimeV2Type.of(0), "2016-07-02 00:00:01"));
 
         Assertions.assertEquals(
                 new DateTimeV2Literal(DateTimeV2Type.of(5), "2016-07-02 00:00:00.999999"),
-                new DateTimeV2Literal("2016-07-02 00:00:01.0"));
+                new DateTimeV2Literal(DateTimeV2Type.of(5), "2016-07-02 00:00:01.00000"));
 
         // test overflow
         Assertions.assertEquals(
                 new DateTimeV2Literal(DateTimeV2Type.of(5), "2016-12-31 23:59:59.999999"),
-                new DateTimeV2Literal("2017-01-01 00:00:00.0"));
+                new DateTimeV2Literal(DateTimeV2Type.of(5), "2017-01-01 00:00:00.00000"));
+    }
+
+    @Test
+    void testRoundFloor() {
+        DateTimeV2Literal literal;
+        literal = new DateTimeV2Literal(DateTimeV2Type.of(6), 2000, 2, 2, 2, 2, 2, 222222);
+        Assertions.assertEquals(222222, literal.roundFloor(6).microSecond);
+        Assertions.assertEquals(222220, literal.roundFloor(5).microSecond);
+        Assertions.assertEquals(222200, literal.roundFloor(4).microSecond);
+        Assertions.assertEquals(222000, literal.roundFloor(3).microSecond);
+        Assertions.assertEquals(220000, literal.roundFloor(2).microSecond);
+        Assertions.assertEquals(200000, literal.roundFloor(1).microSecond);
+        Assertions.assertEquals(0, literal.roundFloor(0).microSecond);
+    }
+
+    @Test
+    void testRoundCeiling() {
+        DateTimeV2Literal literal;
+        literal = new DateTimeV2Literal(DateTimeV2Type.of(6), 2000, 12, 31, 23, 59, 59, 111111);
+        Assertions.assertEquals(111111, literal.roundCeiling(6).microSecond);
+        Assertions.assertEquals(111120, literal.roundCeiling(5).microSecond);
+        Assertions.assertEquals(111200, literal.roundCeiling(4).microSecond);
+        Assertions.assertEquals(112000, literal.roundCeiling(3).microSecond);
+        Assertions.assertEquals(120000, literal.roundCeiling(2).microSecond);
+        Assertions.assertEquals(200000, literal.roundCeiling(1).microSecond);
+        Assertions.assertEquals(0, literal.roundCeiling(0).microSecond);
+        Assertions.assertEquals(0, literal.roundCeiling(0).second);
+        Assertions.assertEquals(0, literal.roundCeiling(0).minute);
+        Assertions.assertEquals(0, literal.roundCeiling(0).hour);
+        Assertions.assertEquals(1, literal.roundCeiling(0).day);
+        Assertions.assertEquals(1, literal.roundCeiling(0).month);
+        Assertions.assertEquals(2001, literal.roundCeiling(0).year);
+
+        literal = new DateTimeV2Literal(DateTimeV2Type.of(6), 2000, 12, 31, 23, 59, 59, 888888);
+        Assertions.assertEquals(888888, literal.roundCeiling(6).microSecond);
+        Assertions.assertEquals(888890, literal.roundCeiling(5).microSecond);
+        Assertions.assertEquals(888900, literal.roundCeiling(4).microSecond);
+        Assertions.assertEquals(889000, literal.roundCeiling(3).microSecond);
+        Assertions.assertEquals(890000, literal.roundCeiling(2).microSecond);
+        Assertions.assertEquals(900000, literal.roundCeiling(1).microSecond);
+        Assertions.assertEquals(0, literal.roundCeiling(0).microSecond);
+        Assertions.assertEquals(0, literal.roundCeiling(0).second);
+        Assertions.assertEquals(0, literal.roundCeiling(0).minute);
+        Assertions.assertEquals(0, literal.roundCeiling(0).hour);
+        Assertions.assertEquals(1, literal.roundCeiling(0).day);
+        Assertions.assertEquals(1, literal.roundCeiling(0).month);
+        Assertions.assertEquals(2001, literal.roundCeiling(0).year);
     }
 }

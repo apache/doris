@@ -31,7 +31,7 @@
 #include "common/bvars.h"
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/txn_kv.h"
 
@@ -70,25 +70,27 @@ int main(int argc, char** argv) {
     cloud::config::txn_store_retry_base_intervals_ms = 1;
     cloud::config::fdb_cluster_file_path = "fdb.cluster";
     cloud::config::write_schema_kv = true;
-    // UT may be run without fdb, it will take unnecessary time with the default value
-    cloud::config::fdb_txn_timeout_ms = 500;
 
-    auto sp = cloud::SyncPoint::get_instance();
+    auto sp = SyncPoint::get_instance();
     sp->enable_processing();
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "test";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* key = try_any_cast<std::string*>(args[0]);
+        *key = "test";
+        auto* ret = try_any_cast<int*>(args[1]);
+        *ret = 0;
+    });
     sp->set_call_back("MetaServiceProxy::call_impl_duration_ms",
-                      [](void* raw) { *reinterpret_cast<uint64_t*>(raw) = 0; });
-    sp->set_call_back("put_schema_kv:schema_key_exists_return::pred",
-                      [](void* pred) { *reinterpret_cast<bool*>(pred) = true; });
+                      [](auto&& args) { *try_any_cast<uint64_t*>(args[0]) = 0; });
+    sp->set_call_back("put_schema_kv:schema_key_exists_return",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
 
     meta_service = create_meta_service();
 
@@ -141,18 +143,18 @@ int main(int argc, char** argv) {
 
             auto count = std::make_shared<std::atomic<uint64_t>>(0);
             auto inject_at = std::make_shared<std::atomic<uint64_t>>(0);
-            sp->set_call_back(name, [=](void* raw) mutable {
+            sp->set_call_back(name, [=](auto&& args) mutable {
                 size_t n = count->fetch_add(1);
                 if (n == *inject_at) {
-                    *reinterpret_cast<fdb_error_t*>(raw) = err;
+                    *try_any_cast<fdb_error_t*>(args[0]) = err;
                 }
             });
-            sp->set_call_back("MetaServiceProxy::call_impl:1", [=](void*) {
+            sp->set_call_back("MetaServiceProxy::call_impl:1", [=](auto&&) {
                 // For each RPC invoking, inject every fdb txn kv call.
                 count->store(0);
                 inject_at->store(0);
             });
-            sp->set_call_back("MetaServiceProxy::call_impl:2", [=](void*) {
+            sp->set_call_back("MetaServiceProxy::call_impl:2", [=](auto&&) {
                 count->store(0);
                 inject_at->fetch_add(1);
             });
@@ -258,7 +260,7 @@ static int add_cluster(MetaService* service, const std::string& instance_id) {
         req.set_instance_id(instance_id);
         req.set_op(cloud::AlterClusterRequest_Operation::AlterClusterRequest_Operation_ADD_CLUSTER);
         auto* cluster = req.mutable_cluster();
-        auto name = fmt::format("instance-{}-cluster", instance_id);
+        auto name = fmt::format("instance_{}_cluster", instance_id);
         cluster->set_cluster_id(name);
         cluster->set_cluster_name(name);
         cluster->set_type(cloud::ClusterPB_Type::ClusterPB_Type_SQL);
@@ -308,7 +310,7 @@ static int drop_cluster(MetaService* service, const std::string& instance_id) {
     req.set_instance_id(instance_id);
     req.set_op(AlterClusterRequest_Operation_DROP_CLUSTER);
     auto cluster = req.mutable_cluster();
-    cluster->set_cluster_id(fmt::format("instance-{}-cluster", instance_id));
+    cluster->set_cluster_id(fmt::format("instance_{}_cluster", instance_id));
 
     brpc::Controller ctrl;
     service->alter_cluster(&ctrl, &req, &resp, nullptr);

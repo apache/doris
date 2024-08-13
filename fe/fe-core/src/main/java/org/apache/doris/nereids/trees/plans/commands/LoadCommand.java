@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -128,13 +129,14 @@ public class LoadCommand extends Command implements ForwardWithSync {
             ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
             throw new AnalysisException("Fallback to legacy planner temporary.");
         }
-        this.profile = new Profile("Query", ctx.getSessionVariable().enableProfile,
+        this.profile = new Profile(
+                ctx.getSessionVariable().enableProfile,
                 ctx.getSessionVariable().profileLevel,
-                ctx.getSessionVariable().getEnablePipelineXEngine());
+                ctx.getSessionVariable().getAutoProfileThresholdMs());
         profile.getSummaryProfile().setQueryBeginTime();
         if (sourceInfos.size() == 1) {
             plans = ImmutableList.of(new InsertIntoTableCommand(completeQueryPlan(ctx, sourceInfos.get(0)),
-                    Optional.of(labelName), Optional.empty()));
+                    Optional.of(labelName), Optional.empty(), Optional.empty()));
         } else {
             throw new AnalysisException("Multi insert into statements are unsupported.");
         }
@@ -500,5 +502,10 @@ public class LoadCommand extends Command implements ForwardWithSync {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLoadCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.LOAD;
     }
 }

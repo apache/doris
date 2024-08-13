@@ -31,7 +31,7 @@
 #include "common/logging.h"
 #include "common/network_util.h"
 #include "common/string_util.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
@@ -71,12 +71,9 @@ static int encrypt_ak_sk_helper(const std::string plain_ak, const std::string pl
                                 MetaServiceCode& code, std::string& msg) {
     std::string key;
     int64_t key_id;
+    LOG_INFO("enter encrypt_ak_sk_helper, plain_ak {}", plain_ak);
     int ret = get_newest_encryption_key_for_ak_sk(&key_id, &key);
-    {
-        TEST_SYNC_POINT_CALLBACK("encrypt_ak_sk:get_encryption_key_ret", &ret);
-        TEST_SYNC_POINT_CALLBACK("encrypt_ak_sk:get_encryption_key", &key);
-        TEST_SYNC_POINT_CALLBACK("encrypt_ak_sk:get_encryption_key_id", &key_id);
-    }
+    TEST_SYNC_POINT_CALLBACK("encrypt_ak_sk:get_encryption_key", &ret, &key, &key_id);
     if (ret != 0) {
         msg = "failed to get encryption key";
         code = MetaServiceCode::ERR_ENCRYPT;
@@ -323,26 +320,6 @@ static std::string next_available_vault_id(const InstanceInfoPB& instance) {
 
 namespace detail {
 
-// Removes any trailing `c` in `str`
-void strip_trailing(std::string& str, char c) {
-    size_t end = str.find_last_not_of(c);
-    if (end == std::string::npos) {
-        str = "";
-    } else {
-        str.resize(end + 1);
-    }
-}
-
-// Removes any leading `c` in `str`
-void strip_leading(std::string& str, char c) {
-    size_t start = str.find_first_not_of(c);
-    if (start == std::string::npos) {
-        str = "";
-    } else if (start > 0) {
-        str = str.substr(start);
-    }
-}
-
 // Validate and normalize hdfs prefix. Return true if prefix is valid.
 bool normalize_hdfs_prefix(std::string& prefix) {
     if (prefix.empty()) {
@@ -354,9 +331,7 @@ bool normalize_hdfs_prefix(std::string& prefix) {
         return false;
     }
 
-    strip_trailing(prefix, ' ');
-    strip_leading(prefix, ' ');
-    strip_trailing(prefix, '/');
+    trim(prefix);
     return true;
 }
 
@@ -367,10 +342,7 @@ bool normalize_hdfs_fs_name(std::string& fs_name) {
     }
 
     // Should check scheme existence?
-
-    strip_trailing(fs_name, ' ');
-    strip_leading(fs_name, ' ');
-    strip_trailing(fs_name, '/');
+    trim(fs_name);
     return !fs_name.empty();
 }
 
@@ -431,7 +403,7 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     std::string bucket = obj->has_bucket() ? obj->bucket() : "";
     std::string prefix = obj->has_prefix() ? obj->prefix() : "";
     // format prefix, such as `/aa/bb/`, `aa/bb//`, `//aa/bb`, `  /aa/bb` -> `aa/bb`
-    prefix = trim(prefix);
+    trim(prefix);
     std::string endpoint = obj->has_endpoint() ? obj->endpoint() : "";
     std::string external_endpoint = obj->has_external_endpoint() ? obj->external_endpoint() : "";
     std::string region = obj->has_region() ? obj->region() : "";
@@ -447,10 +419,7 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     AkSkPair cipher_ak_sk_pair;
     auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code,
                                     msg);
-    {
-        [[maybe_unused]] std::tuple ak_sk_ret {&ret, &code, &msg};
-        TEST_SYNC_POINT_CALLBACK("create_object_info_with_encrypt", &ak_sk_ret);
-    }
+    TEST_SYNC_POINT_CALLBACK("create_object_info_with_encrypt", &ret, &code, &msg);
     if (ret != 0) {
         return;
     }
@@ -541,60 +510,216 @@ static void set_default_vault_log_helper(const InstanceInfoPB& instance,
     LOG(INFO) << vault_msg;
 }
 
-void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* controller,
-                                           const AlterObjStoreInfoRequest* request,
-                                           AlterObjStoreInfoResponse* response,
-                                           ::google::protobuf::Closure* done) {
+static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction> txn,
+                                  const StorageVaultPB& vault, MetaServiceCode& code,
+                                  std::string& msg) {
+    if (!vault.has_obj_info()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << "Only s3 vault can be altered";
+        msg = ss.str();
+        return -1;
+    }
+    const auto& obj_info = vault.obj_info();
+    if (obj_info.has_bucket() || obj_info.has_endpoint() || obj_info.has_prefix() ||
+        obj_info.has_provider()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << "Only ak, sk can be altered";
+        msg = ss.str();
+        return -1;
+    }
+    const auto& name = vault.name();
+    auto name_itr = std::find_if(instance.storage_vault_names().begin(),
+                                 instance.storage_vault_names().end(),
+                                 [&](const auto& vault_name) { return name == vault_name; });
+    if (name_itr == instance.storage_vault_names().end()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << "invalid storage vault name, not found, name =" << name;
+        msg = ss.str();
+        return -1;
+    }
+    auto pos = name_itr - instance.storage_vault_names().begin();
+    auto id_itr = instance.resource_ids().begin() + pos;
+    auto vault_key = storage_vault_key({instance.instance_id(), *id_itr});
+    std::string val;
+
+    auto err = txn->get(vault_key, &val);
+    LOG(INFO) << "get instance_key=" << hex(vault_key);
+
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        std::stringstream ss;
+        ss << "failed to get storage vault, vault_id=" << *name_itr << ", vault_name="
+           << "" << name << " err=" << err;
+        msg = ss.str();
+        return -1;
+    }
+    StorageVaultPB alter;
+    alter.ParseFromString(val);
+    AkSkPair pre {alter.obj_info().ak(), alter.obj_info().sk()};
+    const auto& plain_ak = obj_info.has_ak() ? obj_info.ak() : alter.obj_info().ak();
+    const auto& plain_sk = obj_info.has_ak() ? obj_info.sk() : alter.obj_info().sk();
+    auto obfuscating_sk = [](const auto& sk) -> std::string {
+        if (sk.empty()) {
+            return "";
+        }
+        std::string result(sk.length(), '*');
+        result.replace(0, 2, sk, 0, 2);
+        result.replace(result.length() - 2, 2, sk, sk.length() - 2, 2);
+        return result;
+    };
+    AkSkPair plain_ak_sk_pair {plain_ak, plain_sk};
+    AkSkPair cipher_ak_sk_pair;
+    EncryptionInfoPB encryption_info;
+    auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code,
+                                    msg);
+    if (ret != 0) {
+        msg = "failed to encrypt";
+        code = MetaServiceCode::ERR_ENCRYPT;
+        LOG(WARNING) << msg;
+        return -1;
+    }
+    alter.mutable_obj_info()->set_ak(cipher_ak_sk_pair.first);
+    alter.mutable_obj_info()->set_sk(cipher_ak_sk_pair.second);
+    alter.mutable_obj_info()->mutable_encryption_info()->CopyFrom(encryption_info);
+
+    val = alter.SerializeAsString();
+    if (val.empty()) {
+        msg = "failed to serialize";
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        return -1;
+    }
+
+    txn->put(vault_key, val);
+    LOG(INFO) << "put vault_id=" << *id_itr << ", instance_key=" << hex(vault_key)
+              << ", previous ak=" << pre.first << ", previous sk=" << obfuscating_sk(pre.second)
+              << ", new ak=" << cipher_ak_sk_pair.first
+              << ", new sk=" << obfuscating_sk(cipher_ak_sk_pair.second);
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        msg = fmt::format("failed to commit kv txn, err={}", err);
+        LOG(WARNING) << msg;
+    }
+
+    return 0;
+}
+
+struct ObjectStorageDesc {
+    std::string& ak;
+    std::string& sk;
+    std::string& bucket;
+    std::string& prefix;
+    std::string& endpoint;
+    std::string& external_endpoint;
+    std::string& region;
+};
+
+static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
+                                       MetaServiceCode& code, std::string& msg,
+                                       ObjectStorageDesc& obj_desc,
+                                       EncryptionInfoPB& encryption_info,
+                                       AkSkPair& cipher_ak_sk_pair) {
+    if (!request->has_obj() && (!request->has_vault() || !request->vault().has_obj_info())) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "s3 obj info err " + proto_to_json(*request);
+        return -1;
+    }
+    auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region] = obj_desc;
+    const auto& obj = request->has_obj() ? request->obj() : request->vault().obj_info();
+    // Prepare data
+    if (!obj.has_ak() || !obj.has_sk()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "s3 obj info err " + proto_to_json(*request);
+        return -1;
+    }
+
+    std::string plain_ak = obj.has_ak() ? obj.ak() : "";
+    std::string plain_sk = obj.has_sk() ? obj.sk() : "";
+
+    auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code,
+                                    msg);
+    if (ret != 0) {
+        return -1;
+    }
+    TEST_SYNC_POINT_CALLBACK("extract_object_storage_info:get_aksk_pair", &cipher_ak_sk_pair);
+
+    ak = cipher_ak_sk_pair.first;
+    sk = cipher_ak_sk_pair.second;
+    bucket = obj.has_bucket() ? obj.bucket() : "";
+    prefix = obj.has_prefix() ? obj.prefix() : "";
+    endpoint = obj.has_endpoint() ? obj.endpoint() : "";
+    external_endpoint = obj.has_external_endpoint() ? obj.external_endpoint() : "";
+    region = obj.has_region() ? obj.region() : "";
+    //  obj size > 1k, refuse
+    if (obj.ByteSizeLong() > 1024) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "s3 obj info greater than 1k " + proto_to_json(*request);
+        return -1;
+    };
+    return 0;
+}
+
+static ObjectStoreInfoPB object_info_pb_factory(ObjectStorageDesc& obj_info,
+                                                const ObjectStoreInfoPB& obj,
+                                                InstanceInfoPB& instance,
+                                                EncryptionInfoPB& encryption_info,
+                                                AkSkPair& cipher_ak_sk_pair) {
+    ObjectStoreInfoPB last_item;
+    auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region] = obj_info;
+    auto now_time = std::chrono::system_clock::now();
+    uint64_t time =
+            std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
+    last_item.set_ctime(time);
+    last_item.set_mtime(time);
+    last_item.set_id(next_available_vault_id(instance));
+    if (obj.has_user_id()) {
+        last_item.set_user_id(obj.user_id());
+    }
+    last_item.set_ak(std::move(cipher_ak_sk_pair.first));
+    last_item.set_sk(std::move(cipher_ak_sk_pair.second));
+    last_item.mutable_encryption_info()->CopyFrom(encryption_info);
+    last_item.set_bucket(bucket);
+    // format prefix, such as `/aa/bb/`, `aa/bb//`, `//aa/bb`, `  /aa/bb` -> `aa/bb`
+    trim(prefix);
+    last_item.set_prefix(prefix);
+    last_item.set_endpoint(endpoint);
+    last_item.set_external_endpoint(external_endpoint);
+    last_item.set_region(region);
+    last_item.set_provider(obj.provider());
+    last_item.set_sse_enabled(instance.sse_enabled());
+    return last_item;
+}
+
+void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* controller,
+                                          const AlterObjStoreInfoRequest* request,
+                                          AlterObjStoreInfoResponse* response,
+                                          ::google::protobuf::Closure* done) {
     std::string ak, sk, bucket, prefix, endpoint, external_endpoint, region;
     EncryptionInfoPB encryption_info;
     AkSkPair cipher_ak_sk_pair;
-    RPC_PREPROCESS(alter_obj_store_info);
+    RPC_PREPROCESS(alter_storage_vault);
     switch (request->op()) {
-    case AlterObjStoreInfoRequest::ADD_OBJ_INFO:
     case AlterObjStoreInfoRequest::ADD_S3_VAULT:
-    case AlterObjStoreInfoRequest::DROP_S3_VAULT:
-    case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK:
-    case AlterObjStoreInfoRequest::UPDATE_AK_SK: {
-        if (!request->has_obj() && (!request->has_vault() || !request->vault().has_obj_info())) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 obj info err " + proto_to_json(*request);
+    case AlterObjStoreInfoRequest::DROP_S3_VAULT: {
+        auto tmp_desc =
+                ObjectStorageDesc {ak, sk, bucket, prefix, endpoint, external_endpoint, region};
+        if (0 != extract_object_storage_info(request, code, msg, tmp_desc, encryption_info,
+                                             cipher_ak_sk_pair)) {
             return;
         }
-        auto& obj = request->has_obj() ? request->obj() : request->vault().obj_info();
-        // Prepare data
-        if (!obj.has_ak() || !obj.has_sk()) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 obj info err " + proto_to_json(*request);
-            return;
-        }
-
-        std::string plain_ak = obj.has_ak() ? obj.ak() : "";
-        std::string plain_sk = obj.has_sk() ? obj.sk() : "";
-
-        auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair,
-                                        code, msg);
-        {
-            [[maybe_unused]] std::tuple ak_sk_ret {&ret, &code, &msg};
-            TEST_SYNC_POINT_CALLBACK("alter_obj_store_info_encrypt_ak_sk_helper", &ak_sk_ret);
-        }
-        if (ret != 0) {
-            return;
-        }
-        ak = cipher_ak_sk_pair.first;
-        sk = cipher_ak_sk_pair.second;
-        bucket = obj.has_bucket() ? obj.bucket() : "";
-        prefix = obj.has_prefix() ? obj.prefix() : "";
-        endpoint = obj.has_endpoint() ? obj.endpoint() : "";
-        external_endpoint = obj.has_external_endpoint() ? obj.external_endpoint() : "";
-        region = obj.has_region() ? obj.region() : "";
-
-        //  obj size > 1k, refuse
-        if (obj.ByteSizeLong() > 1024) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 obj info greater than 1k " + proto_to_json(*request);
-            return;
-        };
     } break;
+    case AlterObjStoreInfoRequest::ADD_BUILT_IN_VAULT: {
+        // It should at least has one hdfs info or obj info inside storage vault
+        if ((!request->has_vault())) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "storage vault is set " + proto_to_json(*request);
+            return;
+        }
+        break;
+    }
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO:
     case AlterObjStoreInfoRequest::DROP_HDFS_INFO: {
         if (!request->has_vault() || !request->vault().has_name()) {
@@ -611,22 +736,20 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         }
         break;
     }
-    case AlterObjStoreInfoRequest::ADD_BUILT_IN_VAULT: {
-        // It should at least has one hdfs info or obj info inside storage vault
-        if ((!request->has_vault())) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "hdfs info is not found " + proto_to_json(*request);
-            return;
-        }
+    case AlterObjStoreInfoRequest::ALTER_S3_VAULT:
         break;
-    }
+    case AlterObjStoreInfoRequest::UNSET_DEFAULT_VAULT:
+        break;
     case AlterObjStoreInfoRequest::UNKNOWN: {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "Unknown alter info " + proto_to_json(*request);
         return;
     } break;
-    case AlterObjStoreInfoRequest::UNSET_DEFAULT_VAULT:
-        break;
+    default:
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "Unknown alter obj store info, request info " + proto_to_json(*request);
+        LOG_WARNING("Unknown alter obj store info, request info {}", request->DebugString());
+        return;
     }
 
     // TODO(dx): check s3 info right
@@ -682,45 +805,13 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         return;
     }
 
-    auto now_time = std::chrono::system_clock::now();
-    uint64_t time =
-            std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
-
     switch (request->op()) {
-    case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK: {
-        // get id
-        std::string id = request->obj().has_id() ? request->obj().id() : "0";
-        int idx = std::stoi(id);
-        if (idx < 1 || idx > instance.obj_info().size()) {
-            // err
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "id invalid, please check it";
-            return;
-        }
-        auto& obj_info =
-                const_cast<std::decay_t<decltype(instance.obj_info())>&>(instance.obj_info());
-        for (auto& it : obj_info) {
-            if (std::stoi(it.id()) == idx) {
-                if (it.ak() == ak && it.sk() == sk) {
-                    // not change, just return ok
-                    code = MetaServiceCode::OK;
-                    msg = "";
-                    return;
-                }
-                it.set_mtime(time);
-                it.set_ak(ak);
-                it.set_sk(sk);
-                it.mutable_encryption_info()->CopyFrom(encryption_info);
-            }
-        }
-    } break;
-    case AlterObjStoreInfoRequest::ADD_OBJ_INFO:
-        if (instance.enable_storage_vault()) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "Storage vault doesn't support add obj info";
-            return;
-        }
     case AlterObjStoreInfoRequest::ADD_S3_VAULT: {
+        if (!instance.enable_storage_vault()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "Storage vault doesn't support storage vault";
+            return;
+        }
         auto& obj = request->has_obj() ? request->obj() : request->vault().obj_info();
         if (!obj.has_provider()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
@@ -751,58 +842,37 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             }
         }
         // calc id
-        ObjectStoreInfoPB last_item;
-        last_item.set_ctime(time);
-        last_item.set_mtime(time);
-        last_item.set_id(next_available_vault_id(instance));
-        if (obj.has_user_id()) {
-            last_item.set_user_id(obj.user_id());
+        auto tmp_tuple =
+                ObjectStorageDesc {ak, sk, bucket, prefix, endpoint, external_endpoint, region};
+        ObjectStoreInfoPB last_item = object_info_pb_factory(tmp_tuple, obj, instance,
+                                                             encryption_info, cipher_ak_sk_pair);
+        if (instance.storage_vault_names().end() !=
+            std::find_if(instance.storage_vault_names().begin(),
+                         instance.storage_vault_names().end(),
+                         [&](const std::string& candidate_name) {
+                             return candidate_name == request->vault().name();
+                         })) {
+            code = MetaServiceCode::ALREADY_EXISTED;
+            msg = fmt::format("vault_name={} already created", request->vault().name());
+            return;
         }
-        last_item.set_ak(std::move(cipher_ak_sk_pair.first));
-        last_item.set_sk(std::move(cipher_ak_sk_pair.second));
-        last_item.mutable_encryption_info()->CopyFrom(encryption_info);
-        last_item.set_bucket(bucket);
-        // format prefix, such as `/aa/bb/`, `aa/bb//`, `//aa/bb`, `  /aa/bb` -> `aa/bb`
-        prefix = trim(prefix);
-        last_item.set_prefix(prefix);
-        last_item.set_endpoint(endpoint);
-        last_item.set_external_endpoint(external_endpoint);
-        last_item.set_region(region);
-        last_item.set_provider(obj.provider());
-        last_item.set_sse_enabled(instance.sse_enabled());
-        if (request->op() == AlterObjStoreInfoRequest::ADD_OBJ_INFO) {
-            instance.add_obj_info()->CopyFrom(last_item);
-            LOG_INFO("Instance {} tries to put obj info", instance.instance_id());
-        } else if (request->op() == AlterObjStoreInfoRequest::ADD_S3_VAULT) {
-            if (instance.storage_vault_names().end() !=
-                std::find_if(instance.storage_vault_names().begin(),
-                             instance.storage_vault_names().end(),
-                             [&](const std::string& candidate_name) {
-                                 return candidate_name == request->vault().name();
-                             })) {
-                code = MetaServiceCode::ALREADY_EXISTED;
-                msg = fmt::format("vault_name={} already created", request->vault().name());
-                return;
-            }
-            StorageVaultPB vault;
-            vault.set_id(last_item.id());
-            vault.set_name(request->vault().name());
-            *instance.mutable_resource_ids()->Add() = vault.id();
-            *instance.mutable_storage_vault_names()->Add() = vault.name();
-            vault.mutable_obj_info()->MergeFrom(last_item);
-            auto vault_key = storage_vault_key({instance.instance_id(), last_item.id()});
-            txn->put(vault_key, vault.SerializeAsString());
-            if (request->has_set_as_default_storage_vault() &&
-                request->set_as_default_storage_vault()) {
-                response->set_default_storage_vault_replaced(
-                        instance.has_default_storage_vault_id());
-                set_default_vault_log_helper(instance, vault.name(), vault.id());
-                instance.set_default_storage_vault_id(vault.id());
-                instance.set_default_storage_vault_name(vault.name());
-            }
-            LOG_INFO("try to put storage vault_id={}, vault_name={}, vault_key={}", vault.id(),
-                     vault.name(), hex(vault_key));
+        StorageVaultPB vault;
+        vault.set_id(last_item.id());
+        vault.set_name(request->vault().name());
+        *instance.mutable_resource_ids()->Add() = vault.id();
+        *instance.mutable_storage_vault_names()->Add() = vault.name();
+        vault.mutable_obj_info()->MergeFrom(last_item);
+        auto vault_key = storage_vault_key({instance.instance_id(), last_item.id()});
+        txn->put(vault_key, vault.SerializeAsString());
+        if (request->has_set_as_default_storage_vault() &&
+            request->set_as_default_storage_vault()) {
+            response->set_default_storage_vault_replaced(instance.has_default_storage_vault_id());
+            set_default_vault_log_helper(instance, vault.name(), vault.id());
+            instance.set_default_storage_vault_id(vault.id());
+            instance.set_default_storage_vault_name(vault.name());
         }
+        LOG_INFO("try to put storage vault_id={}, vault_name={}, vault_key={}", vault.id(),
+                 vault.name(), hex(vault_key));
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO: {
         if (auto ret = add_vault_into_instance(
@@ -871,8 +941,199 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         instance.clear_default_storage_vault_name();
         break;
     }
+    case AlterObjStoreInfoRequest::ALTER_S3_VAULT: {
+        alter_s3_storage_vault(instance, std::move(txn), request->vault(), code, msg);
+        return;
+    }
     case AlterObjStoreInfoRequest::DROP_S3_VAULT:
         [[fallthrough]];
+    default: {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        ss << "invalid request op, op=" << request->op();
+        msg = ss.str();
+        return;
+    }
+    }
+
+    LOG(INFO) << "instance " << instance_id << " has " << instance.obj_info().size()
+              << " s3 history info, and instance = " << proto_to_json(instance);
+
+    val = instance.SerializeAsString();
+    if (val.empty()) {
+        msg = "failed to serialize";
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        return;
+    }
+
+    txn->put(key, val);
+    LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key);
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        msg = fmt::format("failed to commit kv txn, err={}", err);
+        LOG(WARNING) << msg;
+    }
+}
+
+void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* controller,
+                                           const AlterObjStoreInfoRequest* request,
+                                           AlterObjStoreInfoResponse* response,
+                                           ::google::protobuf::Closure* done) {
+    std::string ak, sk, bucket, prefix, endpoint, external_endpoint, region;
+    EncryptionInfoPB encryption_info;
+    AkSkPair cipher_ak_sk_pair;
+    RPC_PREPROCESS(alter_obj_store_info);
+    switch (request->op()) {
+    case AlterObjStoreInfoRequest::ADD_OBJ_INFO:
+    case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK:
+    case AlterObjStoreInfoRequest::UPDATE_AK_SK: {
+        auto tmp_desc =
+                ObjectStorageDesc {ak, sk, bucket, prefix, endpoint, external_endpoint, region};
+        if (0 != extract_object_storage_info(request, code, msg, tmp_desc, encryption_info,
+                                             cipher_ak_sk_pair)) {
+            return;
+        }
+    } break;
+    case AlterObjStoreInfoRequest::UNKNOWN: {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "Unknown alter info " + proto_to_json(*request);
+        return;
+    } break;
+    default:
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "Unknown alter obj store info, request info " + proto_to_json(*request);
+        LOG_WARNING("Unknown alter obj store info, request info {}", request->DebugString());
+        return;
+    }
+
+    // TODO(dx): check s3 info right
+
+    std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
+    if (cloud_unique_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cloud unique id not set";
+        return;
+    }
+
+    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        return;
+    }
+    RPC_RATE_LIMIT(alter_obj_store_info)
+    InstanceKeyInfo key_info {instance_id};
+    std::string key;
+    std::string val;
+    instance_key(key_info, &key);
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to create txn";
+        LOG(WARNING) << msg << " err=" << err;
+        return;
+    }
+    err = txn->get(key, &val);
+    LOG(INFO) << "get instance_key=" << hex(key);
+
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        ss << "failed to get instance, instance_id=" << instance_id << " err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    InstanceInfoPB instance;
+    if (!instance.ParseFromString(val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = "failed to parse InstanceInfoPB";
+        return;
+    }
+
+    if (instance.status() == InstanceInfoPB::DELETED) {
+        code = MetaServiceCode::CLUSTER_NOT_FOUND;
+        msg = "instance status has been set delete, plz check it";
+        return;
+    }
+
+    switch (request->op()) {
+    case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK: {
+        // get id
+        std::string id = request->obj().has_id() ? request->obj().id() : "0";
+        int idx = std::stoi(id);
+        if (idx < 1 || idx > instance.obj_info().size()) {
+            // err
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "id invalid, please check it";
+            return;
+        }
+        auto& obj_info =
+                const_cast<std::decay_t<decltype(instance.obj_info())>&>(instance.obj_info());
+        for (auto& it : obj_info) {
+            if (std::stoi(it.id()) == idx) {
+                if (it.ak() == ak && it.sk() == sk) {
+                    // not change, just return ok
+                    code = MetaServiceCode::OK;
+                    msg = "";
+                    return;
+                }
+                auto now_time = std::chrono::system_clock::now();
+                uint64_t time = std::chrono::duration_cast<std::chrono::seconds>(
+                                        now_time.time_since_epoch())
+                                        .count();
+                it.set_mtime(time);
+                it.set_ak(ak);
+                it.set_sk(sk);
+                it.mutable_encryption_info()->CopyFrom(encryption_info);
+            }
+        }
+    } break;
+    case AlterObjStoreInfoRequest::ADD_OBJ_INFO: {
+        if (instance.enable_storage_vault()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "Storage vault doesn't support add obj info";
+            return;
+        }
+        auto& obj = request->has_obj() ? request->obj() : request->vault().obj_info();
+        if (!obj.has_provider()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "s3 conf lease provider info";
+            return;
+        }
+        if (instance.obj_info().size() >= 10) {
+            code = MetaServiceCode::UNDEFINED_ERR;
+            msg = "this instance history has greater than 10 objs, please new another instance";
+            return;
+        }
+        // ATTN: prefix may be empty
+        if (ak.empty() || sk.empty() || bucket.empty() || endpoint.empty() || region.empty()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "s3 conf info err, please check it";
+            return;
+        }
+
+        auto& objs = instance.obj_info();
+        for (auto& it : objs) {
+            if (bucket == it.bucket() && prefix == it.prefix() && endpoint == it.endpoint() &&
+                region == it.region() && ak == it.ak() && sk == it.sk() &&
+                obj.provider() == it.provider() && external_endpoint == it.external_endpoint()) {
+                // err, anything not changed
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = "original obj infos has a same conf, please check it";
+                return;
+            }
+        }
+        // calc id
+        auto tmp_tuple =
+                ObjectStorageDesc {ak, sk, bucket, prefix, endpoint, external_endpoint, region};
+        ObjectStoreInfoPB last_item = object_info_pb_factory(tmp_tuple, obj, instance,
+                                                             encryption_info, cipher_ak_sk_pair);
+        instance.add_obj_info()->CopyFrom(last_item);
+        LOG_INFO("Instance {} tries to put obj info", instance.instance_id());
+    } break;
     default: {
         code = MetaServiceCode::INVALID_ARGUMENT;
         ss << "invalid request op, op=" << request->op();

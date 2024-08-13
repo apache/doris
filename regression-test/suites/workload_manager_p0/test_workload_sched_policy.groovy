@@ -23,6 +23,9 @@ suite("test_workload_sched_policy") {
     sql "drop workload policy if exists set_action_policy;"
     sql "drop workload policy if exists fe_policy;"
     sql "drop workload policy if exists be_policy;"
+    sql "drop workload policy if exists be_scan_row_policy;"
+    sql "drop workload policy if exists be_scan_bytes_policy;"
+    sql "drop workload policy if exists query_be_memory_used;"
 
     // 1 create cancel policy
     sql "create workload policy test_cancel_policy " +
@@ -106,51 +109,84 @@ suite("test_workload_sched_policy") {
         exception "duplicate set_session_variable action args one policy"
     }
 
+    test {
+        sql "create workload policy invalid_metric_value_policy conditions(query_be_memory_bytes > '-1') actions(cancel_query);"
+        exception "invalid"
+    }
+
+    test {
+        sql "create workload policy invalid_metric_value_policy conditions(query_time > '-1') actions(cancel_query);"
+        exception "invalid"
+    }
+
+    test {
+        sql "create workload policy invalid_metric_value_policy conditions(be_scan_rows > '-1') actions(cancel_query);"
+        exception "invalid"
+    }
+
+    test {
+        sql "create workload policy invalid_metric_value_policy conditions(be_scan_bytes > '-1') actions(cancel_query);"
+        exception "invalid"
+    }
+
+    sql "create workload policy be_scan_row_policy conditions(be_scan_rows > 1) actions(cancel_query) properties('enabled'='false');"
+    sql "create workload policy be_scan_bytes_policy conditions(be_scan_bytes > 1) actions(cancel_query) properties('enabled'='false');"
+    sql "create workload policy query_be_memory_used conditions(query_be_memory_bytes > 1) actions(cancel_query) properties('enabled'='false');"
+
     // drop
     sql "drop workload policy test_cancel_policy;"
     sql "drop workload policy set_action_policy;"
     sql "drop workload policy fe_policy;"
     sql "drop workload policy be_policy;"
+    sql "drop workload policy be_scan_row_policy;"
+    sql "drop workload policy be_scan_bytes_policy;"
+    sql "drop workload policy query_be_memory_used;"
 
     qt_select_policy_tvf_after_drop "select name,condition,action,priority,enabled,version from information_schema.workload_policy where name in('be_policy','fe_policy','set_action_policy','test_cancel_policy') order by name;"
 
     // test workload policy
-    sql "ADMIN SET FRONTEND CONFIG ('workload_sched_policy_interval_ms' = '500');"
     sql """drop user if exists test_workload_sched_user"""
     sql """create user test_workload_sched_user identified by '12345'"""
     sql """grant ADMIN_PRIV on *.*.* to test_workload_sched_user"""
+    sql "drop workload group if exists test_set_session_wg;"
+    sql "drop workload group if exists test_set_session_wg2;"
+    sql "create workload group test_set_session_wg properties('cpu_share'='1024');"
+    sql "create workload group test_set_session_wg2 properties('cpu_share'='1024');"
+
+    sql "drop workload policy if exists test_set_var_policy;"
+    sql "drop workload policy if exists test_set_var_policy2;"
 
     // 1 create test_set_var_policy
     sql "create workload policy test_set_var_policy conditions(username='test_workload_sched_user')" +
-            "actions(set_session_variable 'parallel_pipeline_task_num=33');"
+            "actions(set_session_variable 'workload_group=test_set_session_wg');"
     def result1 = connect(user = 'test_workload_sched_user', password = '12345', url = context.config.jdbcUrl) {
         logger.info("begin sleep 15s to wait")
         Thread.sleep(15000)
-        sql "show variables like '%parallel_pipeline_task_num%';"
+        sql "show variables like 'workload_group';"
     }
-    assertEquals("parallel_pipeline_task_num", result1[0][0])
-    assertEquals("33", result1[0][1])
+    assertEquals("workload_group", result1[0][0])
+    assertEquals("test_set_session_wg", result1[0][1])
 
     // 2 create test_set_var_policy2 with higher priority
     sql "create workload policy test_set_var_policy2 conditions(username='test_workload_sched_user') " +
-            "actions(set_session_variable 'parallel_pipeline_task_num=22') properties('priority'='10');"
+            "actions(set_session_variable 'workload_group=test_set_session_wg2') properties('priority'='10');"
     def result2 = connect(user = 'test_workload_sched_user', password = '12345', url = context.config.jdbcUrl) {
         Thread.sleep(3000)
-        sql "show variables like '%parallel_pipeline_task_num%';"
+        sql "show variables like 'workload_group';"
     }
-    assertEquals("parallel_pipeline_task_num", result2[0][0])
-    assertEquals("22", result2[0][1])
+    assertEquals("workload_group", result2[0][0])
+    assertEquals("test_set_session_wg2", result2[0][1])
 
     // 3 disable test_set_var_policy2
     sql "alter workload policy test_set_var_policy2 properties('enabled'='false');"
     def result3 = connect(user = 'test_workload_sched_user', password = '12345', url = context.config.jdbcUrl) {
         Thread.sleep(3000)
-        sql "show variables like '%parallel_pipeline_task_num%';"
+        sql "show variables like 'workload_group';"
     }
-    assertEquals("parallel_pipeline_task_num", result3[0][0])
-    assertEquals("33", result3[0][1])
-    
-    sql "ADMIN SET FRONTEND CONFIG ('workload_sched_policy_interval_ms' = '10000');"
+    assertEquals("workload_group", result3[0][0])
+    assertEquals("test_set_session_wg", result3[0][1])
+    sql "drop workload group if exists test_set_session_wg;"
+    sql "drop workload group if exists test_set_session_wg2;"
 
     sql "drop workload policy if exists test_set_var_policy;"
     sql "drop workload policy if exists test_set_var_policy2;"
@@ -231,15 +267,23 @@ suite("test_workload_sched_policy") {
                     lastTime = System.currentTimeMillis()
                 }
                 try {
-                    sql "select k0,k1,k2,k3,k4,k5,k6,count(distinct k13) from regression_test_load_p0_insert.baseall group by k0,k1,k2,k3,k4,k5,k6"
+                    sql "select k0 as policy_test_tag,k1,k2,k3,k4,k5,k6,count(distinct k13) from regression_test_load_p0_insert.baseall group by k0,k1,k2,k3,k4,k5,k6"
                 } catch (Exception e) {
-                    assertTrue(e.getMessage().contains("query canceled by workload scheduler"))
+                    boolean ret = e.getMessage().contains("cancelled by workload policy")
+                    if (!ret) {
+                        logger.info("policy_test_tag " + e.getMessage())
+                    }
+                    assertTrue(ret, "policy daemon check failed")
                 }
 
                 try {
-                    sql "select count(1) from regression_test_load_p0_insert.baseall"
+                    sql "select count(1) as policy_test_tag from regression_test_load_p0_insert.baseall"
                 } catch (Exception e) {
-                    assertTrue(e.getMessage().contains("query canceled by workload scheduler"))
+                    boolean ret = e.getMessage().contains("cancelled by workload policy")
+                    if (!ret) {
+                        logger.info("policy_test_tag " + e.getMessage())
+                    }
+                    assertTrue(ret, "policy daemon check failed")
                 }
 
                 Thread.sleep(1000)

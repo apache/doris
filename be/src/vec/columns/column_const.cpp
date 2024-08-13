@@ -43,7 +43,8 @@ ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_) : data(data_), s(s_)
     }
 
     if (data->size() != 1) {
-        LOG(FATAL) << fmt::format(
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
                 "Incorrect size of nested column in constructor of ColumnConst: {}, must be 1.",
                 data->size());
     }
@@ -86,8 +87,9 @@ ColumnPtr ColumnConst::permute(const Permutation& perm, size_t limit) const {
     }
 
     if (perm.size() < limit) {
-        LOG(FATAL) << fmt::format("Size of permutation ({}) is less than required ({})",
-                                  perm.size(), limit);
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation ({}) is less than required ({})", perm.size(),
+                               limit);
     }
 
     return ColumnConst::create(data, limit);
@@ -134,27 +136,6 @@ void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_
     }
 }
 
-void ColumnConst::get_indices_of_non_default_rows(Offsets64& indices, size_t from,
-                                                  size_t limit) const {
-    if (!data->is_default_at(0)) {
-        size_t to = limit && from + limit < size() ? from + limit : size();
-        indices.reserve(indices.size() + to - from);
-        for (size_t i = from; i < to; ++i) {
-            indices.push_back(i);
-        }
-    }
-}
-
-ColumnPtr ColumnConst::index(const IColumn& indexes, size_t limit) const {
-    if (limit == 0) {
-        limit = indexes.size();
-    }
-    if (indexes.size() < limit) {
-        LOG(FATAL) << "Size of indexes  is less than required " << std::to_string(limit);
-    }
-    return ColumnConst::create(data, limit);
-}
-
 std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
                                                                 size_t row_num) noexcept {
     std::pair<ColumnPtr, size_t> result;
@@ -178,7 +159,7 @@ std::pair<const ColumnPtr&, bool> unpack_if_const(const ColumnPtr& ptr) noexcept
 
 void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
                                           const std::initializer_list<size_t>& parameters,
-                                          Block& block, const ColumnNumbers& arg_indexes) noexcept {
+                                          Block& block, const ColumnNumbers& arg_indexes) {
     if (std::all_of(parameters.begin(), parameters.end(),
                     [&](size_t const_index) -> bool { return col_const[const_index]; })) {
         // only need to avoid expanding when all parameters are const

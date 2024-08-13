@@ -69,30 +69,39 @@ Status BetaRowsetWriterV2::init(const RowsetWriterContext& rowset_writer_context
     return Status::OK();
 }
 
-Status BetaRowsetWriterV2::create_file_writer(uint32_t segment_id, io::FileWriterPtr& file_writer) {
+Status BetaRowsetWriterV2::create_file_writer(uint32_t segment_id, io::FileWriterPtr& file_writer,
+                                              FileType file_type) {
     auto partition_id = _context.partition_id;
     auto index_id = _context.index_id;
     auto tablet_id = _context.tablet_id;
     auto load_id = _context.load_id;
-
     auto stream_writer = std::make_unique<io::StreamSinkFileWriter>(_streams);
-    stream_writer->init(load_id, partition_id, index_id, tablet_id, segment_id);
+    stream_writer->init(load_id, partition_id, index_id, tablet_id, segment_id, file_type);
     file_writer = std::move(stream_writer);
     return Status::OK();
 }
 
 Status BetaRowsetWriterV2::add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
                                        TabletSchemaSPtr flush_schema) {
+    bool ok = false;
     for (const auto& stream : _streams) {
-        RETURN_IF_ERROR(stream->add_segment(_context.partition_id, _context.index_id,
-                                            _context.tablet_id, segment_id, segstat, flush_schema));
+        auto st = stream->add_segment(_context.partition_id, _context.index_id, _context.tablet_id,
+                                      segment_id, segstat, flush_schema);
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to add segment " << segment_id << " to stream "
+                         << stream->stream_id();
+        }
+        ok = ok || st.ok();
+    }
+    if (!ok) {
+        return Status::InternalError("failed to add segment {} of tablet {} to any replicas",
+                                     segment_id, _context.tablet_id);
     }
     return Status::OK();
 }
 
 Status BetaRowsetWriterV2::flush_memtable(vectorized::Block* block, int32_t segment_id,
                                           int64_t* flush_size) {
-    SCOPED_SKIP_MEMORY_CHECK();
     if (block->rows() == 0) {
         return Status::OK();
     }

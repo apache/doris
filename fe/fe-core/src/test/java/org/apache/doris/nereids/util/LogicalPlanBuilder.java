@@ -87,6 +87,12 @@ public class LogicalPlanBuilder {
         return from(project);
     }
 
+    public LogicalPlanBuilder projectAll() {
+        LogicalProject<LogicalPlan> project = new LogicalProject<>(ImmutableList.copyOf(this.plan.getOutput()),
+                this.plan);
+        return from(project);
+    }
+
     public LogicalPlanBuilder projectExprs(List<NamedExpression> projectExprs) {
         LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs, this.plan);
         return from(project);
@@ -109,6 +115,17 @@ public class LogicalPlanBuilder {
 
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjuncts),
                 Collections.emptyList(), Collections.emptyList(),
+                new DistributeHint(DistributeType.NONE), Optional.of(new MarkJoinSlotReference("fake")),
+                this.plan, right, null);
+        return from(join);
+    }
+
+    public LogicalPlanBuilder markJoinWithMarkConjuncts(LogicalPlan right, JoinType joinType, Pair<Integer, Integer> hashOnSlots) {
+        ImmutableList<EqualTo> markConjuncts = ImmutableList.of(
+                new EqualTo(this.plan.getOutput().get(hashOnSlots.first), right.getOutput().get(hashOnSlots.second)));
+
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, Collections.emptyList(),
+                Collections.emptyList(), new ArrayList<>(markConjuncts),
                 new DistributeHint(DistributeType.NONE), Optional.of(new MarkJoinSlotReference("fake")),
                 this.plan, right, null);
         return from(join);
@@ -200,8 +217,8 @@ public class LogicalPlanBuilder {
     }
 
     public LogicalPlanBuilder aggGroupUsingIndexAndSourceRepeat(List<Integer> groupByKeysIndex,
-                                                                List<NamedExpression> outputExprsList,
-                                                                Optional<LogicalRepeat<?>> sourceRepeat) {
+            List<NamedExpression> outputExprsList,
+            Optional<LogicalRepeat<?>> sourceRepeat) {
         Builder<Expression> groupByBuilder = ImmutableList.builder();
         for (Integer index : groupByKeysIndex) {
             groupByBuilder.add(this.plan.getOutput().get(index));

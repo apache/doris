@@ -112,8 +112,8 @@ public:
                int64_t time_series_compaction_time_threshold_seconds = 3600,
                int64_t time_series_compaction_empty_rowsets_threshold = 5,
                int64_t time_series_compaction_level_threshold = 1,
-               TInvertedIndexStorageFormat::type inverted_index_storage_format =
-                       TInvertedIndexStorageFormat::V1);
+               TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format =
+                       TInvertedIndexFileStorageFormat::V2);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -129,7 +129,7 @@ public:
     Status save_meta(DataDir* data_dir);
 
     void serialize(std::string* meta_binary);
-    Status deserialize(const std::string& meta_binary);
+    Status deserialize(std::string_view meta_binary);
     void init_from_pb(const TabletMetaPB& tablet_meta_pb);
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
@@ -444,6 +444,11 @@ public:
     bool empty() const;
 
     /**
+     * return the total cardinality of the Delete Bitmap
+     */
+    uint64_t cardinality() const;
+
+    /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
      *
      * @return 1 if the insertion took place, 0 if the assignment took place
@@ -511,20 +516,21 @@ public:
      */
     std::shared_ptr<roaring::Roaring> get_agg(const BitmapKey& bmk) const;
 
-    class AggCachePolicy : public LRUCachePolicy {
+    void remove_sentinel_marks();
+
+    class AggCachePolicy : public LRUCachePolicyTrackingManual {
     public:
         AggCachePolicy(size_t capacity)
-                : LRUCachePolicy(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE, capacity,
-                                 LRUCacheType::SIZE,
-                                 config::delete_bitmap_agg_cache_stale_sweep_time_sec, 256) {}
+                : LRUCachePolicyTrackingManual(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE,
+                                               capacity, LRUCacheType::SIZE,
+                                               config::delete_bitmap_agg_cache_stale_sweep_time_sec,
+                                               256) {}
     };
 
     class AggCache {
     public:
         class Value : public LRUCacheValueBase {
         public:
-            Value() : LRUCacheValueBase(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE) {}
-
             roaring::Roaring bitmap;
         };
 

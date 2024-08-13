@@ -352,9 +352,6 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
         SCOPED_RAW_TIMER(&_decode_null_map_time);
         auto* nullable_column = const_cast<vectorized::ColumnNullable*>(
                 static_cast<const vectorized::ColumnNullable*>(doris_column.get()));
-
-        //        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-        //                (*std::move(src_column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
         map_data_column = &(nullable_column->get_null_map_data());
     } else {
@@ -594,7 +591,9 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
         data_column = doris_column->assume_mutable();
     }
     if (remove_nullable(type)->get_type_id() != TypeIndex::Array) {
-        return Status::Corruption("Wrong data type for column '{}'", _field_schema->name);
+        return Status::Corruption(
+                "Wrong data type for column '{}', expected Array type, actual type id {}.",
+                _field_schema->name, remove_nullable(type)->get_type_id());
     }
 
     ColumnPtr& element_column = static_cast<ColumnArray&>(*data_column).get_data_ptr();
@@ -643,7 +642,9 @@ Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& t
         data_column = doris_column->assume_mutable();
     }
     if (remove_nullable(type)->get_type_id() != TypeIndex::Map) {
-        return Status::Corruption("Wrong data type for column '{}'", _field_schema->name);
+        return Status::Corruption(
+                "Wrong data type for column '{}', expected Map type, actual type id {}.",
+                _field_schema->name, remove_nullable(type)->get_type_id());
     }
 
     auto& map = static_cast<ColumnMap&>(*data_column);
@@ -710,14 +711,16 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         data_column = doris_column->assume_mutable();
     }
     if (remove_nullable(type)->get_type_id() != TypeIndex::Struct) {
-        return Status::Corruption("Wrong data type for column '{}'", _field_schema->name);
+        return Status::Corruption(
+                "Wrong data type for column '{}', expected Struct type, actual type id {}.",
+                _field_schema->name, remove_nullable(type)->get_type_id());
     }
 
     auto& doris_struct = static_cast<ColumnStruct&>(*data_column);
     const DataTypeStruct* doris_struct_type =
             reinterpret_cast<const DataTypeStruct*>(remove_nullable(type).get());
 
-    bool least_one_reader = false;
+    int not_missing_column_id = -1;
     std::vector<size_t> missing_column_idxs {};
 
     _read_column_names.clear();
@@ -738,8 +741,8 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         select_vector.reset();
         size_t field_rows = 0;
         bool field_eof = false;
-        if (!least_one_reader) {
-            least_one_reader = true;
+        if (not_missing_column_id == -1) {
+            not_missing_column_id = i;
             RETURN_IF_ERROR(_child_readers[doris_name]->read_column_data(
                     doris_field, doris_type, select_vector, batch_size, &field_rows, &field_eof,
                     is_dict_filter));
@@ -759,12 +762,21 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         }
     }
 
-    if (!least_one_reader) {
+    if (not_missing_column_id == -1) {
         // TODO: support read struct which columns are all missing
         return Status::Corruption("Not support read struct '{}' which columns are all missing",
                                   _field_schema->name);
     }
 
+    //  This missing_column_sz is not *read_rows. Because read_rows returns the number of rows.
+    //  For example: suppose we have a column array<struct<a:int,b:string>>,
+    //  where b is a newly added column, that is, a missing column.
+    //  There are two rows of data in this column,
+    //      [{1,null},{2,null},{3,null}]
+    //      [{4,null},{5,null}]
+    //  When you first read subcolumn a, you read 5 data items and the value of *read_rows is 2.
+    //  You should insert 5 records into subcolumn b instead of 2.
+    auto missing_column_sz = doris_struct.get_column(not_missing_column_id).size();
     // fill missing column with null or default value
     for (auto idx : missing_column_idxs) {
         auto& doris_field = doris_struct.get_column_ptr(idx);
@@ -772,7 +784,7 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         DCHECK(doris_type->is_nullable());
         auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
                 (*std::move(doris_field)).mutate().get());
-        nullable_column->insert_null_elements(*read_rows);
+        nullable_column->insert_null_elements(missing_column_sz);
     }
 
     if (null_map_ptr != nullptr) {

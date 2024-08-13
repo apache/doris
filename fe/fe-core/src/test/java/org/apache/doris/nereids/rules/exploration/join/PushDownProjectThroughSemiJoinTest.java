@@ -62,12 +62,12 @@ class PushDownProjectThroughSemiJoinTest implements MemoPatternMatchSupported {
                 .printlnExploration()
                 .matchesExploration(
                         logicalJoin(
-                                leftSemiLogicalJoin(
+                                logicalProject(leftSemiLogicalJoin(
                                         logicalProject(
                                                 logicalOlapScan()
                                         ).when(project -> project.getProjects().size() == 2),
                                         logicalOlapScan()
-                                ),
+                                )),
                                 logicalOlapScan()
                         )
                 );

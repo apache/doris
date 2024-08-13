@@ -45,7 +45,7 @@ public:
 
     // this function must call before other function,
     // you can call this multiple times to reuse this object
-    Status init(const std::string& url);
+    Status init(const std::string& url, bool set_fail_on_error = true);
 
     void set_method(HttpMethod method);
 
@@ -106,7 +106,7 @@ public:
             if (cl < 0) {
                 return Status::InternalError(
                         fmt::format("failed to get content length, it should be a positive value, "
-                                    "actrual is : {}",
+                                    "actual is : {}",
                                     cl));
             }
             *length = (uint64_t)cl;
@@ -114,6 +114,9 @@ public:
         }
         return Status::InternalError("failed to get content length. err code: {}", code);
     }
+
+    // Get the value of the header CONTENT-MD5. The output is empty if no such header exists.
+    Status get_content_md5(std::string* md5) const;
 
     long get_http_status() const {
         long code;

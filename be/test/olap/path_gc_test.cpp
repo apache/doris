@@ -92,8 +92,8 @@ TEST(PathGcTest, GcTabletAndRowset) {
         rowset_meta->set_tablet_id(tablet->tablet_id());
         rowset_meta->set_tablet_uid(tablet->tablet_uid());
         rowset_meta->set_rowset_id(engine.next_rowset_id());
-        return std::make_shared<BetaRowset>(tablet->tablet_schema(), tablet->tablet_path(),
-                                            std::move(rowset_meta));
+        return std::make_shared<BetaRowset>(tablet->tablet_schema(), std::move(rowset_meta),
+                                            tablet->tablet_path());
     };
     // tablet_id -> filenames
     std::unordered_map<int64_t, std::vector<std::string>> expected_rowset_files;
@@ -101,25 +101,25 @@ TEST(PathGcTest, GcTabletAndRowset) {
         auto& filenames = expected_rowset_files[rs.rowset_meta()->tablet_id()];
         std::unique_ptr<io::FileWriter> writer;
         auto filename = fmt::format("{}_{}.dat", rs.rowset_id().to_string(), 0);
-        RETURN_IF_ERROR(fs->create_file(rs._rowset_dir + '/' + filename, &writer));
+        RETURN_IF_ERROR(fs->create_file(rs.tablet_path() + '/' + filename, &writer));
         if (!is_garbage) {
             filenames.push_back(std::move(filename));
         }
         RETURN_IF_ERROR(writer->close());
         filename = fmt::format("{}_{}_{}.idx", rs.rowset_id().to_string(), 0, 987);
-        RETURN_IF_ERROR(fs->create_file(rs._rowset_dir + '/' + filename, &writer));
+        RETURN_IF_ERROR(fs->create_file(rs.tablet_path() + '/' + filename, &writer));
         if (!is_garbage) {
             filenames.push_back(std::move(filename));
         }
         RETURN_IF_ERROR(writer->close());
         filename = fmt::format("{}_{}.dat", rs.rowset_id().to_string(), 1);
-        RETURN_IF_ERROR(fs->create_file(rs._rowset_dir + '/' + filename, &writer));
+        RETURN_IF_ERROR(fs->create_file(rs.tablet_path() + '/' + filename, &writer));
         if (!is_garbage) {
             filenames.push_back(std::move(filename));
         }
         RETURN_IF_ERROR(writer->close());
         filename = fmt::format("{}_{}_{}.idx", rs.rowset_id().to_string(), 1, 987);
-        RETURN_IF_ERROR(fs->create_file(rs._rowset_dir + '/' + filename, &writer));
+        RETURN_IF_ERROR(fs->create_file(rs.tablet_path() + '/' + filename, &writer));
         if (!is_garbage) {
             filenames.push_back(std::move(filename));
         }

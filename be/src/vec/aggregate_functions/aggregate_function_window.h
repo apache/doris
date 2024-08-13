@@ -387,7 +387,8 @@ public:
 
     void set_value(const IColumn** columns, size_t pos) {
         if constexpr (arg_is_nullable) {
-            if (assert_cast<const ColumnNullable*>(columns[0])->is_null_at(pos)) {
+            if (assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0])
+                        ->is_null_at(pos)) {
                 // ptr == nullptr means nullable
                 _data_value.reset();
                 return;
@@ -400,7 +401,8 @@ public:
     void check_default(const IColumn* column) {
         if (!_is_inited) {
             if (is_column_nullable(*column)) {
-                const auto* nullable_column = assert_cast<const ColumnNullable*>(column);
+                const auto* nullable_column =
+                        assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(column);
                 if (nullable_column->is_null_at(0)) {
                     _default_value.reset();
                 } else {
@@ -558,19 +560,23 @@ public:
 
     void add(AggregateDataPtr place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
-        LOG(FATAL) << "WindowFunctionLeadLagData do not support add";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "WindowFunctionLeadLagData do not support add");
         __builtin_unreachable();
     }
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {
-        LOG(FATAL) << "WindowFunctionLeadLagData do not support merge";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "WindowFunctionLeadLagData do not support merge");
         __builtin_unreachable();
     }
     void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {
-        LOG(FATAL) << "WindowFunctionLeadLagData do not support serialize";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "WindowFunctionLeadLagData do not support serialize");
         __builtin_unreachable();
     }
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {
-        LOG(FATAL) << "WindowFunctionLeadLagData do not support deserialize";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "WindowFunctionLeadLagData do not support deserialize");
         __builtin_unreachable();
     }
 

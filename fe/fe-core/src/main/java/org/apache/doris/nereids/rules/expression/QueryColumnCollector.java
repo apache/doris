@@ -93,9 +93,9 @@ public class QueryColumnCollector extends DefaultPlanRewriter<CollectorContext> 
         }
         if (project.child() instanceof LogicalCatalogRelation
                 || project.child() instanceof LogicalFilter
-                && ((LogicalFilter) project.child()).child() instanceof LogicalCatalogRelation) {
+                && ((LogicalFilter<?>) project.child()).child() instanceof LogicalCatalogRelation) {
             Set<Slot> allUsed = project.getExpressions()
-                    .stream().flatMap(e -> e.<Set<SlotReference>>collect(n -> n instanceof SlotReference).stream())
+                    .stream().flatMap(e -> e.<SlotReference>collect(SlotReference.class::isInstance).stream())
                     .collect(Collectors.toSet());
             LogicalCatalogRelation scan = project.child() instanceof LogicalCatalogRelation
                     ? (LogicalCatalogRelation) project.child()
@@ -127,7 +127,7 @@ public class QueryColumnCollector extends DefaultPlanRewriter<CollectorContext> 
         aggregate.child(0).accept(this, context);
         context.highPriority.addAll(aggregate.getGroupByExpressions()
                 .stream()
-                .flatMap(e -> e.<Set<SlotReference>>collect(n -> n instanceof SlotReference).stream())
+                .flatMap(e -> e.<SlotReference>collect(SlotReference.class::isInstance).stream())
                 .flatMap(s -> backtrace(s, context).stream())
                 .collect(Collectors.toSet()));
         return aggregate;
@@ -138,7 +138,7 @@ public class QueryColumnCollector extends DefaultPlanRewriter<CollectorContext> 
         having.child(0).accept(this, context);
         context.highPriority.addAll(
                 having.getExpressions().stream()
-                .flatMap(e -> e.<Set<SlotReference>>collect(n -> n instanceof SlotReference).stream())
+                .flatMap(e -> e.<SlotReference>collect(SlotReference.class::isInstance).stream())
                 .flatMap(s -> backtrace(s, context).stream())
                 .collect(Collectors.toSet()));
         return having;
@@ -164,7 +164,7 @@ public class QueryColumnCollector extends DefaultPlanRewriter<CollectorContext> 
         context.highPriority.addAll(filter
                 .getExpressions()
                 .stream()
-                .flatMap(e -> e.<Set<SlotReference>>collect(n -> n instanceof SlotReference).stream())
+                .flatMap(e -> e.<SlotReference>collect(SlotReference.class::isInstance).stream())
                 .flatMap(s -> backtrace(s, context).stream())
                 .collect(Collectors.toSet()));
         return filter;
@@ -176,7 +176,7 @@ public class QueryColumnCollector extends DefaultPlanRewriter<CollectorContext> 
         context.highPriority.addAll(window
                 .getWindowExpressions()
                 .stream()
-                .flatMap(e -> e.<Set<SlotReference>>collect(n -> n instanceof SlotReference).stream())
+                .flatMap(e -> e.<SlotReference>collect(SlotReference.class::isInstance).stream())
                 .flatMap(s -> backtrace(s, context).stream())
                 .collect(Collectors.toSet()));
         return window;
@@ -203,8 +203,7 @@ public class QueryColumnCollector extends DefaultPlanRewriter<CollectorContext> 
         if (namedExpression == null) {
             return Collections.emptySet();
         }
-        Set<SlotReference> slotReferences
-                = namedExpression.<Set<SlotReference>>collect(n -> n instanceof SlotReference);
+        Set<SlotReference> slotReferences = namedExpression.collect(SlotReference.class::isInstance);
         Set<Slot> refCol = new HashSet<>();
         for (SlotReference slotReference : slotReferences) {
             refCol.addAll(backtrace(slotReference, path, context));
