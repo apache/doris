@@ -220,7 +220,6 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
                            "", child, {});
         column.set_length(TabletColumn::get_field_length_by_type(TPrimitiveType::ARRAY, 0));
         column.add_sub_column(child);
-        column.set_default_value("[]");
         return;
     }
     // size is not fixed when type is string or json
