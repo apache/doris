@@ -1476,6 +1476,26 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    def check_mv_rewrite_success_by_memo = { db, mv_sql, query_sql, mv_name ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+        sql "analyze table ${mv_name} with sync;"
+        
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("+--PhysicalOlapScan[${mv_name}]@")
+        }
+    }
+
     def check_mv_rewrite_success_without_check_chosen = { db, mv_sql, query_sql, mv_name ->
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
