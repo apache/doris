@@ -678,7 +678,7 @@ void PInternalServiceImpl::outfile_write_success(google::protobuf::RpcController
             uint32_t len = request->result_file_sink().size();
             st = deserialize_thrift_msg(buf, &len, false, &result_file_sink);
             if (!st.ok()) {
-                LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+                LOG(WARNING) << "outfile write success file failed, errmsg = " << st;
                 st.to_protobuf(result->mutable_status());
                 return;
             }
@@ -697,7 +697,7 @@ void PInternalServiceImpl::outfile_write_success(google::protobuf::RpcController
             bool exists = true;
             st = io::global_local_filesystem()->exists(file_name, &exists);
             if (!st.ok()) {
-                LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+                LOG(WARNING) << "outfile write success filefailed, errmsg = " << st;
                 st.to_protobuf(result->mutable_status());
                 return;
             }
@@ -705,7 +705,7 @@ void PInternalServiceImpl::outfile_write_success(google::protobuf::RpcController
                 st = Status::InternalError("File already exists: {}", file_name);
             }
             if (!st.ok()) {
-                LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+                LOG(WARNING) << "outfile write success file failed, errmsg = " << st;
                 st.to_protobuf(result->mutable_status());
                 return;
             }
