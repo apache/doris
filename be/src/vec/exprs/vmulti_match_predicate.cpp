@@ -79,17 +79,18 @@ Status VMultiMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& d
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(_children.size());
     std::vector<std::string_view> child_expr_name;
-    DCHECK(_children.size() == 4);
+    DCHECK(_children.size() >= 3);
     argument_template.emplace_back(nullptr, _children[0]->data_type(), _children[0]->expr_name());
     child_expr_name.emplace_back(_children[0]->expr_name());
-    argument_template.emplace_back(nullptr, _children[3]->data_type(), _children[3]->expr_name());
-    child_expr_name.emplace_back(_children[3]->expr_name());
+    argument_template.emplace_back(nullptr, _children[_children.size() - 1]->data_type(),
+                                   _children[_children.size() - 1]->expr_name());
+    child_expr_name.emplace_back(_children[_children.size() - 1]->expr_name());
     //NOTE: set function name to match_phrase_prefix currently
     _function_name = "match_phrase_prefix";
     // result column always not null
     if (_data_type->is_nullable()) {
         _function = SimpleFunctionFactory::instance().get_function(
-                _fn.name.function_name, argument_template, remove_nullable(_data_type));
+                _function_name, argument_template, remove_nullable(_data_type));
     } else {
         _function = SimpleFunctionFactory::instance().get_function(_function_name,
                                                                    argument_template, _data_type);
@@ -159,61 +160,49 @@ VMultiMatchPredicate::_evaluate_inverted_index_by_field(
 
 Status VMultiMatchPredicate::evaluate_inverted_index(VExprContext* context,
                                                      uint32_t segment_num_rows) const {
-    DCHECK_EQ(get_num_children(), 4);
-    std::set<std::string> columns_names;
-    if (get_child(0)->is_slot_ref()) {
-        auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
-        columns_names.insert(column_slot_ref->expr_name());
+    auto children_num = get_num_children();
+    DCHECK_GE(children_num, 3);
+    vectorized::ColumnsWithTypeAndName arguments;
+    segment_v2::InvertedIndexResultBitmap ret;
+    // last argument is query value
+    if (get_child(children_num - 1)->is_literal()) {
+        auto* column_literal = assert_cast<VLiteral*>(get_child(children_num - 1).get());
+        arguments.emplace_back(column_literal->get_column_ptr(), column_literal->get_data_type(),
+                               column_literal->expr_name());
     } else {
         return Status::NotSupported(
-                "child 0 in evaluate_inverted_index for VMultiMatchPredicate must be slot ref, but "
-                "we "
-                "got {}",
-                get_child(0)->expr_name());
-    }
-    if (get_child(1)->is_literal()) {
-        auto* column_literal = assert_cast<VLiteral*>(get_child(1).get());
-        auto field_names_str = column_literal->value();
-        field_names_str.erase(std::remove_if(field_names_str.begin(), field_names_str.end(),
-                                             [](unsigned char c) { return std::isspace(c); }),
-                              field_names_str.end());
-        std::vector<std::string> field_names;
-        boost::split(field_names, field_names_str, boost::algorithm::is_any_of(","));
-        for (const auto& field_name : field_names) {
-            if (!field_name.empty()) {
-                columns_names.insert(field_name);
-            }
-        }
-    } else {
-        return Status::NotSupported(
-                "child 1 in evaluate_inverted_index for VMultiMatchPredicate must be "
+                "child {} in evaluate_inverted_index for VMultiMatchPredicate must be "
                 "literal, but we got {}",
-                get_child(1)->expr_name());
+                children_num - 1, get_child(children_num - 1)->expr_name());
     }
-    if (get_child(2)->is_literal()) {
-        auto* column_literal = assert_cast<VLiteral*>(get_child(2).get());
+    // second last argument is function name
+    if (get_child(children_num - 2)->is_literal()) {
+        auto* column_literal = assert_cast<VLiteral*>(get_child(children_num - 2).get());
         auto match_type = column_literal->value();
         if (match_type != "phrase_prefix") {
             return Status::NotSupported("query type is incorrect, only support phrase_prefix");
         }
     } else {
         return Status::NotSupported(
-                "child 2 in evaluate_inverted_index for VMultiMatchPredicate must be "
+                "child {} in evaluate_inverted_index for VMultiMatchPredicate must be "
                 "literal, but we got {}",
-                get_child(2)->expr_name());
+                children_num - 1, get_child(children_num - 1)->expr_name());
     }
-    vectorized::ColumnsWithTypeAndName arguments;
-    segment_v2::InvertedIndexResultBitmap ret;
-    if (get_child(3)->is_literal()) {
-        auto* column_literal = assert_cast<VLiteral*>(get_child(3).get());
-        arguments.emplace_back(column_literal->get_column_ptr(), column_literal->get_data_type(),
-                               column_literal->expr_name());
-    } else {
-        return Status::NotSupported(
-                "child 3 in evaluate_inverted_index for VMultiMatchPredicate must be "
-                "literal, but we got {}",
-                get_child(3)->expr_name());
+    std::set<std::string> columns_names;
+    for (int child_num = 0; child_num < children_num - 2; child_num++) {
+        if (get_child(child_num)->is_slot_ref()) {
+            auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(child_num).get());
+            columns_names.insert(column_slot_ref->expr_name());
+        } else {
+            return Status::NotSupported(
+                    "child {} in evaluate_inverted_index for VMultiMatchPredicate must be slot "
+                    "ref, but "
+                    "we "
+                    "got {}",
+                    child_num, get_child(child_num)->expr_name());
+        }
     }
+
     for (const auto& col_name : columns_names) {
         auto result = DORIS_TRY(
                 _evaluate_inverted_index_by_field(context, arguments, segment_num_rows, col_name));

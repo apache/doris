@@ -62,8 +62,6 @@ public:
         switch (_op) {
         case TExprOpcode::COMPOUND_OR: {
             for (const auto& child : _children) {
-                LOG(ERROR) << "expr " << child->expr_name() << " " << child
-                           << " try to evaluate_inverted_index result";
                 if (Status st = child->evaluate_inverted_index(context, segment_num_rows);
                     !st.ok()) {
                     LOG(ERROR) << "expr:" << child->expr_name()
@@ -136,8 +134,8 @@ public:
         }
 
         if (all_pass && !res.is_empty()) {
-            LOG(ERROR) << "expr:" << this->expr_name() << " all evaluate index, pointer is "
-                       << this;
+            LOG(ERROR) << "expr:" << this->expr_name() << " all evaluate index, result is "
+                       << res.get_data_bitmap()->toString();
             context->set_inverted_index_result_for_expr(this, res);
         }
         return Status::OK();
