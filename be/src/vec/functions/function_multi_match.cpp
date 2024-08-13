@@ -49,89 +49,57 @@ Status FunctionMultiMatch::execute_impl(FunctionContext* /*context*/, Block& blo
     return Status::RuntimeError("only inverted index queries are supported");
 }
 
-Status FunctionMultiMatch::open(FunctionContext* context,
-                                FunctionContext::FunctionStateScope scope) {
-    if (scope == FunctionContext::THREAD_LOCAL) {
-        return Status::OK();
+InvertedIndexQueryType get_query_type(const std::string& query_type) {
+    if (query_type == "phrase_prefix") {
+        return InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
     }
-
-    DCHECK(context->get_num_args() == 4);
-    for (int i = 0; i < context->get_num_args(); ++i) {
-        DCHECK(is_string_type(context->get_arg_type(i)->type));
-    }
-
-    std::shared_ptr<MatchParam> state = std::make_shared<MatchParam>();
-    context->set_function_state(scope, state);
-    for (int i = 0; i < context->get_num_args(); ++i) {
-        const auto& const_column_ptr = context->get_constant_col(i);
-        if (const_column_ptr) {
-            auto const_data = const_column_ptr->column_ptr->get_data_at(0);
-            switch (i) {
-            case 1: {
-                std::string field_names_str = const_data.to_string();
-                field_names_str.erase(
-                        std::remove_if(field_names_str.begin(), field_names_str.end(),
-                                       [](unsigned char c) { return std::isspace(c); }),
-                        field_names_str.end());
-                std::vector<std::string> field_names;
-                boost::split(field_names, field_names_str, boost::algorithm::is_any_of(","));
-                for (const auto& field_name : field_names) {
-                    if (!field_name.empty()) {
-                        state->fields.insert(field_name);
-                    }
-                }
-            } break;
-            case 2:
-                state->type = const_data.to_string();
-                break;
-            case 3:
-                state->query = const_data.to_string();
-                break;
-            default:
-                break;
-            }
-        }
-    }
-
-    return Status::OK();
+    return InvertedIndexQueryType::UNKNOWN_QUERY;
 }
 
-Status FunctionMultiMatch::eval_inverted_index(FunctionContext* context,
-                                               segment_v2::FuncExprParams& params,
+Status FunctionMultiMatch::eval_inverted_index(VExpr* expr, segment_v2::FuncExprParams& params,
                                                std::shared_ptr<roaring::Roaring>& result) {
-    auto* match_param = reinterpret_cast<MatchParam*>(
-            context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-    if (match_param == nullptr) {
-        return Status::RuntimeError("function parameter parsing failed");
+    // fields
+    std::vector<std::string> query_fileds;
+    size_t i = 0;
+    for (; i < expr->get_num_children(); i++) {
+        auto child_expr = expr->get_child(i);
+        if (child_expr->node_type() == TExprNodeType::type::SLOT_REF) {
+            query_fileds.emplace_back(child_expr->expr_name());
+        } else {
+            break;
+        }
     }
-    match_param->fields.insert(params._column_name);
+    if (i != expr->get_num_children() - 2) {
+        return Status::RuntimeError("parameter type incorrect: slot = {}", i);
+    }
 
-    const auto& segment_iterator = params._segment_iterator;
-    const auto& opts = segment_iterator->storage_read_options();
-    const auto& tablet_schema = opts.tablet_schema;
+    // type
+    std::string param1 = std::static_pointer_cast<VLiteral>(expr->get_child(i))->value();
+    auto query_type = get_query_type(param1);
+    if (query_type == InvertedIndexQueryType::UNKNOWN_QUERY) {
+        return Status::RuntimeError("parameter query type incorrect: query_type = {}", query_type);
+    }
 
+    // query
+    std::string query_str = std::static_pointer_cast<VLiteral>(expr->get_child(i + 1))->value();
+
+    auto& segment_iterator = params._segment_iterator;
+    auto& segment = segment_iterator->segment();
+    auto& opts = segment_iterator->storage_read_options();
+    auto& tablet_schema = opts.tablet_schema;
+    auto& idx_iterators = segment_iterator->inverted_index_iterators();
+
+    // check
     std::vector<ColumnId> columns_ids;
-    for (const auto& column_name : match_param->fields) {
+    for (const auto& column_name : query_fileds) {
         auto cid = tablet_schema->field_index(column_name);
         if (cid < 0) {
-            return Status::RuntimeError("column name is incorrect");
+            return Status::RuntimeError("column name is incorrect: {}", column_name);
         }
-        const auto& column = tablet_schema->column(cid);
-        if (!is_string_type(column.type())) {
-            return Status::RuntimeError("column type is incorrect");
-        }
-        if (!tablet_schema->has_inverted_index(column)) {
-            return Status::RuntimeError("column index is incorrect");
+        if (idx_iterators[cid] == nullptr) {
+            return Status::RuntimeError("column idx is incorrect: {}", column_name);
         }
         columns_ids.emplace_back(cid);
-    }
-
-    // query type
-    InvertedIndexQueryType query_type;
-    if (match_param->type == "phrase_prefix") {
-        query_type = InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
-    } else {
-        return Status::RuntimeError("query type is incorrect");
     }
 
     // cache key
@@ -142,11 +110,11 @@ Status FunctionMultiMatch::eval_inverted_index(FunctionContext* context,
     cids_str.write(column_name_binary.data());
 
     InvertedIndexQueryCache::CacheKey cache_key;
-    io::Path index_path = segment_iterator->segment().file_reader()->path();
+    io::Path index_path = segment.file_reader()->path();
     cache_key.index_path = index_path.parent_path() / index_path.stem();
     cache_key.column_name = column_name_binary;
     cache_key.query_type = query_type;
-    cache_key.value = match_param->query;
+    cache_key.value = query_str;
 
     // query cache
     auto* cache = InvertedIndexQueryCache::instance();
@@ -157,18 +125,13 @@ Status FunctionMultiMatch::eval_inverted_index(FunctionContext* context,
     }
 
     // search
-    for (const auto& column_name : match_param->fields) {
+    for (const auto& column_name : query_fileds) {
         auto cid = tablet_schema->field_index(column_name);
         const auto& column = *DORIS_TRY(tablet_schema->column(column_name));
-
-        auto& index_iterator = segment_iterator->inverted_index_iterators()[cid];
-        if (!index_iterator) {
-            RETURN_IF_ERROR(segment_iterator->_init_inverted_index_iterators(cid));
-        }
-        const auto& index_reader = index_iterator->reader();
+        const auto& index_reader = idx_iterators[cid]->reader();
 
         auto single_result = std::make_shared<roaring::Roaring>();
-        StringRef query_value(match_param->query.data());
+        StringRef query_value(query_str.data());
         auto index_version = tablet_schema->get_inverted_index_storage_format();
         if (index_version == InvertedIndexStorageFormatPB::V1) {
             RETURN_IF_ERROR(index_reader->query(opts.stats, opts.runtime_state, column_name,
