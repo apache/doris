@@ -17,12 +17,7 @@
 
 #include "vec/exprs/vmatch_predicate.h"
 
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wshadow-field"
-#endif
-
-#include <CLucene/analysis/LanguageBasedAnalyzer.h>
+#include <CLucene.h> // IWYU pragma: keep
 #include <fmt/format.h>
 #include <fmt/ranges.h> // IWYU pragma: keep
 #include <gen_cpp/Exprs_types.h>
@@ -35,7 +30,7 @@
 #include <string_view>
 #include <vector>
 
-#include "CLucene/analysis/standard95/StandardAnalyzer.h"
+#include "CLucene/analysis/standard95/StandardTokenizer.h"
 #include "common/status.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/core/block.h"

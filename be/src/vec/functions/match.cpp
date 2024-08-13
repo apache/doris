@@ -126,7 +126,7 @@ inline doris::segment_v2::InvertedIndexQueryType FunctionMatchBase::get_query_ty
 void FunctionMatchBase::analyse_query_str_token(std::vector<std::string>* query_tokens,
                                                 InvertedIndexCtx* inverted_index_ctx,
                                                 const std::string& match_query_str,
-                                                const std::string& column_name) const {
+                                                const std::string& column_name) {
     VLOG_DEBUG << "begin to run " << get_name() << ", parser_type: "
                << inverted_index_parser_type_to_string(inverted_index_ctx->parser_type);
     if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
