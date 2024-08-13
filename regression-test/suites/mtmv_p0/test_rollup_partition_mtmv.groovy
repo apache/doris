@@ -109,7 +109,7 @@ suite("test_rollup_partition_mtmv") {
     jobName = getJobName(dbName, mvName);
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
-    order_qt_date_range_month "SELECT * FROM ${mvName} order by k1,k2"
+    order_qt_date_range_quarter "SELECT * FROM ${mvName} order by k1,k2"
 
     // range date month
     sql """drop table if exists `${tableName}`"""
