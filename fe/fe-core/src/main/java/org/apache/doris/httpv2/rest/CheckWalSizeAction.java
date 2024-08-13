@@ -63,11 +63,7 @@ public class CheckWalSizeAction extends RestBaseController {
         String hostPorts = request.getParameter(HOST_PORTS);
         List<Backend> backends = new ArrayList<>();
         if (Strings.isNullOrEmpty(hostPorts)) {
-            try {
-                backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
-            } catch (AnalysisException e) {
-                return ResponseEntityBuilder.okWithCommonError(e.getMessage());
-            }
+            backends = Env.getCurrentSystemInfo().getAllBackends();
         } else {
             String[] hostPortArr = hostPorts.split(",");
             if (hostPortArr.length == 0) {
