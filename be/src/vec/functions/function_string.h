@@ -3144,20 +3144,23 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
+        // We need a local variable to hold a reference to the converted column.
+        // So that the converted column will not be released before we use it.
         auto col_origin =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto col_origin_str = assert_cast<const ColumnString*>(col_origin.get());
         auto col_old =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto col_old_str = assert_cast<const ColumnString*>(col_old.get());
         auto col_new =
                 block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+        auto col_new_str = assert_cast<const ColumnString*>(col_new.get());
 
         ColumnString::MutablePtr col_res = ColumnString::create();
-
         for (int i = 0; i < input_rows_count; ++i) {
-            StringRef origin_str =
-                    assert_cast<const ColumnString*>(col_origin.get())->get_data_at(i);
-            StringRef old_str = assert_cast<const ColumnString*>(col_old.get())->get_data_at(i);
-            StringRef new_str = assert_cast<const ColumnString*>(col_new.get())->get_data_at(i);
+            StringRef origin_str = col_origin_str->get_data_at(i);
+            StringRef old_str = col_old_str->get_data_at(i);
+            StringRef new_str = col_new_str->get_data_at(i);
 
             std::string result = replace(origin_str.to_string(), old_str.to_string_view(),
                                          new_str.to_string_view());
@@ -3694,8 +3697,8 @@ public:
                     continue;
                 }
                 if (auto const_column = check_and_get_column<const ColumnConst>(*str_columns[j])) {
-                    auto str_column =
-                            assert_cast<const ColumnString*>(&(const_column->get_data_column()));
+                    auto str_column = assert_cast<const ColumnString*, TypeCheckOnRelease::DISABLE>(
+                            &(const_column->get_data_column()));
                     auto data_item = str_column->get_data_at(0);
                     memcpy_small_allow_read_write_overflow15(
                             &res_data[res_offset[i - 1]] + current_length, data_item.data,

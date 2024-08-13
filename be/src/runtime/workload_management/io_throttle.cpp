@@ -17,12 +17,19 @@
 
 #include "runtime/workload_management/io_throttle.h"
 
+#include "util/defer_op.h"
 #include "util/time.h"
 
 namespace doris {
 
+IOThrottle::IOThrottle(std::string prefix, std::string name) {
+    _io_adder = std::make_unique<bvar::Adder<size_t>>(prefix, name);
+    _io_adder_per_second = std::make_unique<bvar::PerSecond<bvar::Adder<size_t>>>(
+            prefix, name + "_per_second", _io_adder.get(), 1);
+}
+
 bool IOThrottle::acquire(int64_t block_timeout_ms) {
-    if (_io_bytes_per_second < 0) {
+    if (_io_bytes_per_second_limit < 0) {
         return true;
     }
 
@@ -42,7 +49,7 @@ bool IOThrottle::acquire(int64_t block_timeout_ms) {
 }
 
 bool IOThrottle::try_acquire() {
-    if (_io_bytes_per_second < 0) {
+    if (_io_bytes_per_second_limit < 0) {
         return true;
     }
     std::unique_lock<std::mutex> w_lock(_mutex);
@@ -50,24 +57,31 @@ bool IOThrottle::try_acquire() {
 }
 
 void IOThrottle::update_next_io_time(int64_t io_bytes) {
-    if (_io_bytes_per_second <= 0 || io_bytes <= 0) {
+    Defer defer {[&]() {
+        if (io_bytes > 0) {
+            (*_io_adder) << io_bytes;
+        }
+    }};
+    if (_io_bytes_per_second_limit <= 0 || io_bytes <= 0) {
         return;
     }
-    int64_t read_bytes_per_second = _io_bytes_per_second;
-    std::unique_lock<std::mutex> w_lock(_mutex);
-    double io_bytes_float = static_cast<double>(io_bytes);
-    double ret = (io_bytes_float / static_cast<double>(read_bytes_per_second)) *
-                 static_cast<double>(MICROS_PER_SEC);
-    int64_t current_time = GetCurrentTimeMicros();
+    int64_t read_bytes_per_second = _io_bytes_per_second_limit;
+    {
+        std::unique_lock<std::mutex> w_lock(_mutex);
+        double io_bytes_float = static_cast<double>(io_bytes);
+        double ret = (io_bytes_float / static_cast<double>(read_bytes_per_second)) *
+                     static_cast<double>(MICROS_PER_SEC);
+        int64_t current_time = GetCurrentTimeMicros();
 
-    if (current_time > _next_io_time_micros) {
-        _next_io_time_micros = current_time;
+        if (current_time > _next_io_time_micros) {
+            _next_io_time_micros = current_time;
+        }
+        _next_io_time_micros += ret < 1 ? static_cast<int64_t>(1) : static_cast<int64_t>(ret);
     }
-    _next_io_time_micros += ret < 1 ? static_cast<int64_t>(1) : static_cast<int64_t>(ret);
 }
 
 void IOThrottle::set_io_bytes_per_second(int64_t io_bytes_per_second) {
-    _io_bytes_per_second = io_bytes_per_second;
+    _io_bytes_per_second_limit = io_bytes_per_second;
 }
 
 }; // namespace doris
