@@ -112,7 +112,7 @@ suite("test_upgrade_downgrade_compatibility_mtmv","p0,mtmv,restart_fe") {
     sql """DROP TABLE IF EXISTS ${mtmv_name}"""
     test {
         sql """select count(*) from ${mtmv_name}"""
-        exception "does not exist"
+        exception "Unknown table"
     }
 
     // create
