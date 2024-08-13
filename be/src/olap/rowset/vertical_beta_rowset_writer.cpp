@@ -118,7 +118,7 @@ Status VerticalBetaRowsetWriter::add_columns(const vectorized::Block* block,
 
             if (num_rows_key_group == num_rows_written + to_write &&
                 _cur_writer_idx < _segment_writers.size() - 1) {
-                RETURN_IF_ERROR(_flush_columns(_segment_writers[_cur_writer_idx].get()));
+                RETURN_IF_ERROR(_flush_columns(&_segment_writers[_cur_writer_idx]));
                 ++_cur_writer_idx;
             }
         }
