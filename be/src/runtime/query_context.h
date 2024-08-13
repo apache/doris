@@ -250,6 +250,12 @@ public:
     // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
 
+    void update_wg_cpu_adder(int64_t delta_cpu_time) {
+        if (_workload_group != nullptr) {
+            _workload_group->update_cpu_adder(delta_cpu_time);
+        }
+    }
+
 private:
     int _timeout_second;
     TUniqueId _query_id;

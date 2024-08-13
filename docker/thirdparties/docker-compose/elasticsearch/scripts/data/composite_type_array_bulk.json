@@ -1,0 +1,10 @@
+{"name": "Andy", "sports": "soccer"}
+{"name": "Betty", "sports": "pingpong ball"}
+{"name": "Cindy", "sports": "武术"}
+{"name": "David", "sports": ["volleyball"]}
+{"name": "Emily", "sports": ["baseball", "golf", "hockey"]}
+{"name": "Frank", "sports": ["rugby", "cricket", "boxing"]}
+{"name": "Grace", "sports": ["table tennis", "badminton", "athletics"]}
+{"name": "Henry", "sports": ["archery", "fencing", "weightlifting"]}
+{"name": "Ivy", "sports": ["judo", "karate", "taekwondo"]}
+{"name": "Jack", "sports": ["wrestling", "gymnastics", "surfing"]}
