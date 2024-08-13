@@ -71,15 +71,18 @@ Status DataTypeIPv6SerDe::write_column_to_mysql(const IColumn& column,
 void DataTypeIPv6SerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     IPv6 val = 0;
     auto str_value = static_cast<const JsonbStringVal*>(arg);
-    ReadBuffer rb(reinterpret_cast<const unsigned char*>(str_value->getBlob()), str_value->getBlobLen());
+    ReadBuffer rb(reinterpret_cast<const unsigned char*>(str_value->getBlob()),
+                  str_value->getBlobLen());
     if (!read_ipv6_text_impl(val, rb)) {
-        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                               "parse ipv6 fail, string: '{}'", rb.to_string());
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "parse ipv6 fail, string: '{}'",
+                               rb.to_string());
     }
     assert_cast<ColumnIPv6&>(column).insert_value(val);
 }
 
-void DataTypeIPv6SerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriterT<JsonbOutStream>& result, Arena* mem_pool, int col_id, int row_num) const {
+void DataTypeIPv6SerDe::write_one_cell_to_jsonb(const IColumn& column,
+                                                JsonbWriterT<JsonbOutStream>& result,
+                                                Arena* mem_pool, int col_id, int row_num) const {
     // we make ipv6 as string in jsonb
     result.writeKey(col_id);
     IPv6 data = assert_cast<const ColumnIPv6&>(column).get_element(row_num);
