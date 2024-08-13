@@ -32,6 +32,22 @@ namespace doris {
 static inline const std::filesystem::path default_cgroups_mount = "/sys/fs/cgroup";
 #endif
 
+/* Cgroup debugging steps
+ * CgroupV1:
+ *  sudo cgcreate -t username:username -g memory:test
+ *  sudo sh -c "echo 6000M > /sys/fs/cgroup/memory/test/memory.limit_in_bytes"
+ *  // process started by the current terminal will join Cgroup test
+ *  sudo sh -c "echo $$ >> /sys/fs/cgroup/memory/test/cgroup.procs"
+ *
+ * CgroupV2:
+ *  sudo mkdir /sys/fs/cgroup/test
+ *  sudo echo 3000M > /sys/fs/cgroup/test/memory.max
+ *  // process started by the current terminal will join Cgroup test
+ *  sudo sh -c "echo $$ >> /sys/fs/cgroup/test/cgroup.procs"
+ *  or
+ *  // only memory allocated after joining the Cgroup is counted in `memory.current`.
+ *  sudo echo pid > /sys/fs/cgroup/test/cgroup.procs
+*/
 class CGroupUtil {
 public:
     enum class CgroupsVersion : uint8_t { V1, V2 };

@@ -120,9 +120,13 @@ private:
 
 std::pair<std::string, CGroupUtil::CgroupsVersion> get_cgroups_path() {
     if (CGroupUtil::cgroupsv2_enable() && cgroupsv2_memory_controller_enabled()) {
-        auto v2_path = CGroupUtil::get_cgroupsv2_path("memory.stat");
-        if (v2_path.has_value()) {
-            return {*v2_path, CGroupUtil::CgroupsVersion::V2};
+        auto v2_memory_stat_path = CGroupUtil::get_cgroupsv2_path("memory.stat");
+        auto v2_memory_current_path = CGroupUtil::get_cgroupsv2_path("memory.current");
+        auto v2_memory_max_path = CGroupUtil::get_cgroupsv2_path("memory.max");
+        if (v2_memory_stat_path.has_value() && v2_memory_current_path.has_value() &&
+            v2_memory_max_path.has_value() && v2_memory_stat_path == v2_memory_current_path &&
+            v2_memory_current_path == v2_memory_max_path) {
+            return {*v2_memory_stat_path, CGroupUtil::CgroupsVersion::V2};
         }
     }
 
@@ -132,8 +136,12 @@ std::pair<std::string, CGroupUtil::CgroupsVersion> get_cgroups_path() {
         return {cgroup_path, CGroupUtil::CgroupsVersion::V1};
     }
 
-    throw doris::Exception(doris::ErrorCode::END_OF_FILE,
-                           "Cannot find cgroups v1 or v2 current memory file");
+    throw doris::Exception(
+            doris::ErrorCode::END_OF_FILE,
+            fmt::format("Cannot find cgroups v1 or v2 current memory file, cgroupsv2_enable: {}, "
+                        "cgroupsv2_memory_controller_enabled: {}, cgroupsv1_enable: {}",
+                        CGroupUtil::cgroupsv2_enable(), cgroupsv2_memory_controller_enabled(),
+                        CGroupUtil::cgroupsv1_enable()));
 }
 
 std::shared_ptr<CGroupMemoryCtl::ICgroupsReader> get_cgroups_reader() {
@@ -167,20 +175,26 @@ Status CGroupMemoryCtl::find_cgroup_mem_usage(int64_t* bytes) {
 }
 
 std::string CGroupMemoryCtl::debug_string() {
-    const auto [cgroup_path, version] = get_cgroups_path();
+    try {
+        const auto [cgroup_path, version] = get_cgroups_path();
 
-    int64_t mem_limit;
-    auto mem_limit_st = find_cgroup_mem_limit(&mem_limit);
+        int64_t mem_limit;
+        auto mem_limit_st = find_cgroup_mem_limit(&mem_limit);
 
-    int64_t mem_usage;
-    auto mem_usage_st = find_cgroup_mem_usage(&mem_usage);
+        int64_t mem_usage;
+        auto mem_usage_st = find_cgroup_mem_usage(&mem_usage);
 
-    return fmt::format(
-            "Process CGroup Memory Info (cgroups path: {}, cgroup version: {}): memory limit: {}, "
-            "memory usage: {}",
-            cgroup_path, (version == CGroupUtil::CgroupsVersion::V1) ? "v1" : "v2",
-            mem_limit_st.ok() ? std::to_string(mem_limit) : mem_limit_st.to_string(),
-            mem_usage_st.ok() ? std::to_string(mem_usage) : mem_usage_st.to_string());
+        return fmt::format(
+                "Process CGroup Memory Info (cgroups path: {}, cgroup version: {}): memory limit: "
+                "{}, "
+                "memory usage: {}",
+                cgroup_path, (version == CGroupUtil::CgroupsVersion::V1) ? "v1" : "v2",
+                mem_limit_st.ok() ? std::to_string(mem_limit) : mem_limit_st.to_string(),
+                mem_usage_st.ok() ? std::to_string(mem_usage) : mem_usage_st.to_string());
+    } catch (const doris::Exception& e) {
+        LOG(WARNING) << "Cgroup find_cgroup_mem_usage failed, " << e.to_string();
+        return fmt::format("CGroupMemoryCtl::debug_string {}", e.to_string());
+    }
 }
 
 } // namespace doris
