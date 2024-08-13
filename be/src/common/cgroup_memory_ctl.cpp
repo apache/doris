@@ -97,10 +97,10 @@ struct CgroupsV2Reader : CGroupMemoryCtl::ICgroupsReader {
         std::unordered_map<std::string, int64_t> metrics_map;
         CGroupUtil::read_int_metric_from_cgroup_file((_mount_file_dir / "memory.stat"),
                                                      metrics_map);
-        *value -= metrics_map["inactive_file"];
-        if (*value < 0) {
+        if (*value < metrics_map["inactive_file"]) {
             return Status::CgroupError("CgroupsV2Reader read_memory_usage negative memory usage");
         }
+        *value -= metrics_map["inactive_file"];
         return Status::OK();
     }
 
