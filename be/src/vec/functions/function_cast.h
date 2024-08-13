@@ -720,8 +720,8 @@ struct ConvertImplGenericFromJsonb {
                 // add string to string column
                 if (context->jsonb_string_as_string() && is_dst_string && value->isString()) {
                     const auto* blob = static_cast<const JsonbBlobVal*>(value);
-                    assert_cast<ColumnString&>(*col_to).insert_data(blob->getBlob(),
-                                                                    blob->getBlobLen());
+                    assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(*col_to).insert_data(
+                            blob->getBlob(), blob->getBlobLen());
                     (*vec_null_map_to)[i] = 0;
                     continue;
                 }
@@ -1525,7 +1525,15 @@ struct StringParsing {
         const ColumnString::Chars* chars = &col_from_string->get_chars();
         const IColumn::Offsets* offsets = &col_from_string->get_offsets();
 
+        [[maybe_unused]] UInt32 scale = 0;
+        if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
+            const auto* type = assert_cast<const DataTypeDateTimeV2*>(
+                    block.get_by_position(result).type.get());
+            scale = type->get_scale();
+        }
+
         size_t current_offset = 0;
+
         for (size_t i = 0; i < row; ++i) {
             size_t next_offset = (*offsets)[i];
             size_t string_size = next_offset - current_offset;
@@ -1541,10 +1549,7 @@ struct StringParsing {
                           res == StringParser::PARSE_OVERFLOW ||
                           res == StringParser::PARSE_UNDERFLOW);
             } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
-                const auto* type = assert_cast<const DataTypeDateTimeV2*>(
-                        block.get_by_position(result).type.get());
-                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, context,
-                                                    type->get_scale());
+                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, context, scale);
             } else {
                 parsed =
                         try_parse_impl<ToDataType, DataTypeString>(vec_to[i], read_buffer, context);

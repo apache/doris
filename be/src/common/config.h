@@ -319,8 +319,6 @@ DECLARE_mInt32(doris_scan_range_row_count);
 DECLARE_mInt32(doris_scan_range_max_mb);
 // max bytes number for single scan block, used in segmentv2
 DECLARE_mInt32(doris_scan_block_max_mb);
-// size of scanner queue between scanner thread and compute thread
-DECLARE_mInt32(doris_scanner_queue_size);
 // single read execute fragment row number
 DECLARE_mInt32(doris_scanner_row_num);
 // single read execute fragment row bytes

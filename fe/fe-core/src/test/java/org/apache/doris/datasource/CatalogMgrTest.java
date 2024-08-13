@@ -63,6 +63,8 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -477,6 +479,7 @@ public class CatalogMgrTest extends TestWithFeService {
                 partitionValueCacheKey.getTypes());
         HivePartitionValues partitionValues = metaStoreCache.getPartitionValues(partitionValueCacheKey);
         Assert.assertEquals(partitionValues.getPartitionNameToIdMap().size(), 4);
+        Assert.assertEquals(partitionValues.getPartitionNameToIdMap().inverse().size(), 4);
     }
 
     @Test
@@ -520,7 +523,7 @@ public class CatalogMgrTest extends TestWithFeService {
             HiveMetaStoreCache metaStoreCache) {
         // partition name format: nation=cn/city=beijing
         Map<Long, PartitionItem> idToPartitionItem = Maps.newHashMapWithExpectedSize(partitionNames.size());
-        Map<String, Long> partitionNameToIdMap = Maps.newHashMapWithExpectedSize(partitionNames.size());
+        BiMap<String, Long> partitionNameToIdMap = HashBiMap.create(partitionNames.size());
         Map<Long, List<UniqueId>> idToUniqueIdsMap = Maps.newHashMapWithExpectedSize(partitionNames.size());
         long idx = 0;
         for (String partitionName : partitionNames) {
