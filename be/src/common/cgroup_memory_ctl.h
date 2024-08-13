@@ -25,19 +25,19 @@ public:
     struct ICgroupsReader {
         virtual ~ICgroupsReader() = default;
 
-        virtual Status read_memory_limit(uint64_t* value) = 0;
+        virtual Status read_memory_limit(int64_t* value) = 0;
 
-        virtual Status read_memory_usage(uint64_t* value) = 0;
+        virtual Status read_memory_usage(int64_t* value) = 0;
     };
 
     // Determines the CGroup memory limit from the current processes' cgroup.
     // If the limit is more than INT64_MAX, INT64_MAX is returned (since that is
     // effectively unlimited anyway). Does not take into account memory limits
     // set on any ancestor CGroups.
-    static Status find_cgroup_mem_limit(uint64_t* bytes);
+    static Status find_cgroup_mem_limit(int64_t* bytes);
 
     // https://serverfault.com/questions/902009/the-memory-usage-reported-in-cgroup-differs-from-the-free-command
-    static Status find_cgroup_mem_usage(uint64_t* bytes);
+    static Status find_cgroup_mem_usage(int64_t* bytes);
 
     // Returns a human-readable string with information about CGroups.
     static std::string debug_string();

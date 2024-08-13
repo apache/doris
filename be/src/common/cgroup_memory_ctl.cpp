@@ -61,13 +61,13 @@ struct CgroupsV1Reader : CGroupMemoryCtl::ICgroupsReader {
     explicit CgroupsV1Reader(std::filesystem::path mount_file_dir)
             : _mount_file_dir(std::move(mount_file_dir)) {}
 
-    Status read_memory_limit(uint64_t* value) override {
+    Status read_memory_limit(int64_t* value) override {
         RETURN_IF_ERROR(CGroupUtil::read_int_line_from_cgroup_file(
-                (_mount_file_dir / "memory.limit_in_bytes"), (int64_t*)value));
+                (_mount_file_dir / "memory.limit_in_bytes"), value));
         return Status::OK();
     }
 
-    Status read_memory_usage(uint64_t* value) override {
+    Status read_memory_usage(int64_t* value) override {
         std::unordered_map<std::string, int64_t> metrics_map;
         CGroupUtil::read_int_metric_from_cgroup_file((_mount_file_dir / "memory.stat"),
                                                      metrics_map);
@@ -83,17 +83,17 @@ struct CgroupsV2Reader : CGroupMemoryCtl::ICgroupsReader {
     explicit CgroupsV2Reader(std::filesystem::path mount_file_dir)
             : _mount_file_dir(std::move(mount_file_dir)) {}
 
-    Status read_memory_limit(uint64_t* value) override {
+    Status read_memory_limit(int64_t* value) override {
         RETURN_IF_ERROR(CGroupUtil::read_int_line_from_cgroup_file((_mount_file_dir / "memory.max"),
-                                                                   (int64_t*)value));
+                                                                   value));
         return Status::OK();
     }
 
-    Status read_memory_usage(uint64_t* value) override {
+    Status read_memory_usage(int64_t* value) override {
         // memory.current contains a single number
         // the reason why we subtract it described here: https://github.com/ClickHouse/ClickHouse/issues/64652#issuecomment-2149630667
         RETURN_IF_ERROR(CGroupUtil::read_int_line_from_cgroup_file(
-                (_mount_file_dir / "memory.current"), (int64_t*)value));
+                (_mount_file_dir / "memory.current"), value));
         std::unordered_map<std::string, int64_t> metrics_map;
         CGroupUtil::read_int_metric_from_cgroup_file((_mount_file_dir / "memory.stat"),
                                                      metrics_map);
@@ -152,14 +152,14 @@ Status get_cgroups_reader(std::shared_ptr<CGroupMemoryCtl::ICgroupsReader>& read
     return Status::OK();
 }
 
-Status CGroupMemoryCtl::find_cgroup_mem_limit(uint64_t* bytes) {
+Status CGroupMemoryCtl::find_cgroup_mem_limit(int64_t* bytes) {
     std::shared_ptr<CGroupMemoryCtl::ICgroupsReader> reader;
     RETURN_IF_ERROR(get_cgroups_reader(reader));
     RETURN_IF_ERROR(reader->read_memory_limit(bytes));
     return Status::OK();
 }
 
-Status CGroupMemoryCtl::find_cgroup_mem_usage(uint64_t* bytes) {
+Status CGroupMemoryCtl::find_cgroup_mem_usage(int64_t* bytes) {
     std::shared_ptr<CGroupMemoryCtl::ICgroupsReader> reader;
     RETURN_IF_ERROR(get_cgroups_reader(reader));
     RETURN_IF_ERROR(reader->read_memory_usage(bytes));
@@ -178,10 +178,10 @@ std::string CGroupMemoryCtl::debug_string() {
                 CGroupUtil::cgroupsv1_enable());
     }
 
-    uint64_t mem_limit;
+    int64_t mem_limit;
     auto mem_limit_st = find_cgroup_mem_limit(&mem_limit);
 
-    uint64_t mem_usage;
+    int64_t mem_usage;
     auto mem_usage_st = find_cgroup_mem_usage(&mem_usage);
 
     return fmt::format(

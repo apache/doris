@@ -74,8 +74,8 @@ std::atomic<int64_t> MemInfo::_s_je_dirty_pages_mem = std::numeric_limits<int64_
 std::atomic<int64_t> MemInfo::_s_je_dirty_pages_mem_limit = std::numeric_limits<int64_t>::max();
 std::atomic<int64_t> MemInfo::_s_virtual_memory_used = 0;
 
-uint64_t MemInfo::_s_cgroup_mem_limit = std::numeric_limits<uint64_t>::max();
-uint64_t MemInfo::_s_cgroup_mem_usage = std::numeric_limits<uint64_t>::min();
+int64_t MemInfo::_s_cgroup_mem_limit = std::numeric_limits<int64_t>::max();
+int64_t MemInfo::_s_cgroup_mem_usage = std::numeric_limits<int64_t>::min();
 bool MemInfo::_s_cgroup_mem_refresh_state = false;
 int64_t MemInfo::_s_cgroup_mem_refresh_wait_times = 0;
 
@@ -190,8 +190,8 @@ void MemInfo::refresh_proc_meminfo() {
 
     // refresh cgroup memory
     if (_s_cgroup_mem_refresh_wait_times >= 0 && config::enable_use_cgroup_memory_info) {
-        uint64_t cgroup_mem_limit = -1;
-        uint64_t cgroup_mem_usage = -1;
+        int64_t cgroup_mem_limit = -1;
+        int64_t cgroup_mem_usage = -1;
         std::string cgroup_mem_info_file_path;
         _s_cgroup_mem_refresh_state = true;
         Status status = CGroupMemoryCtl::find_cgroup_mem_limit(&cgroup_mem_limit);
@@ -234,7 +234,7 @@ void MemInfo::refresh_proc_meminfo() {
         if (physical_mem < 0) {
             physical_mem = _s_cgroup_mem_limit;
         } else {
-            physical_mem = std::min(physical_mem, (int64_t)_s_cgroup_mem_limit);
+            physical_mem = std::min(physical_mem, _s_cgroup_mem_limit);
         }
     }
 
@@ -280,8 +280,7 @@ void MemInfo::refresh_proc_meminfo() {
         if (mem_available < 0) {
             mem_available = _s_cgroup_mem_limit - _s_cgroup_mem_usage;
         } else {
-            mem_available =
-                    std::min(mem_available, (int64_t)(_s_cgroup_mem_limit - _s_cgroup_mem_usage));
+            mem_available = std::min(mem_available, (_s_cgroup_mem_limit - _s_cgroup_mem_usage));
         }
     }
     if (mem_available < 0) {
