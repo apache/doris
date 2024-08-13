@@ -30,6 +30,7 @@ import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -51,6 +53,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -143,19 +146,30 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
             Optional<PhysicalUnion> union = planner.getPhysicalPlan()
                     .<PhysicalUnion>collect(PhysicalUnion.class::isInstance).stream().findAny();
             if (union.isPresent()) {
-                InsertUtils.executeBatchInsertTransaction(ctx, targetTable.getQualifiedDbName(),
-                        targetTable.getName(), targetSchema, union.get().getConstantExprsList());
+                InsertUtils.executeBatchInsertTransaction(ctx, targetTable.getQualifiedDbName(), targetTable.getName(),
+                        targetSchema, union.get().getConstantExprsList());
                 return;
             }
+            Optional<PhysicalOlapTableSink> olapTableSink = planner.getPhysicalPlan()
+                    .<PhysicalOlapTableSink>collect(PhysicalOlapTableSink.class::isInstance).stream().findAny();
             Optional<PhysicalOneRowRelation> oneRowRelation = planner.getPhysicalPlan()
                     .<PhysicalOneRowRelation>collect(PhysicalOneRowRelation.class::isInstance).stream().findAny();
-            if (oneRowRelation.isPresent()) {
-                InsertUtils.executeBatchInsertTransaction(ctx, targetTable.getQualifiedDbName(),
-                        targetTable.getName(), targetSchema, ImmutableList.of(oneRowRelation.get().getProjects()));
-                return;
+            List<NamedExpression> outputExprs = ((PhysicalSink<?>) olapTableSink.get()).getOutputExprs();
+            List<NamedExpression> oneRowRelationProjects = oneRowRelation.get().getProjects();
+            List<NamedExpression> rightOutput = new ArrayList<NamedExpression>();
+            for (NamedExpression expr : outputExprs) {
+                for (NamedExpression project : oneRowRelationProjects) {
+                    if (expr.getExprId().equals(project.getExprId())) {
+                        rightOutput.add(project);
+                        break;
+                    }
+                }
             }
+            InsertUtils.executeBatchInsertTransaction(ctx, targetTable.getQualifiedDbName(),
+                    targetTable.getName(), targetSchema,
+                    ImmutableList.of(rightOutput));
+            return;
             // TODO: update error msg
-            throw new AnalysisException("could not run this sql");
         } finally {
             targetTableIf.readUnlock();
         }
