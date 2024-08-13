@@ -422,6 +422,41 @@ class Suite implements GroovyInterceptable {
         return result;
     }
 
+    long getTableId(String tableName) {
+        return getTableId(getDbName(), tableName)
+    }
+
+    long getTableId(String dbName, String tableName) {
+        def dbInfo = sql "show proc '/dbs'"
+        for(List<Object> row : dbInfo) {
+            if (row[1].replace("default_cluster:", "").equals(dbName)) {
+                def tbInfo = sql "show proc '/dbs/${row[0]}' "
+                for (List<Object> tb : tbInfo) {
+                    if (tb[1].equals(tableName)) {
+                        return tb[0].toLong()
+                    }
+                }
+            }
+        }
+    }
+
+    long getDbId() {
+        return getDbId(getDbName())
+    }
+
+    long getDbId(String dbName) {
+        def dbInfo = sql "show proc '/dbs'"
+        for (List<Object> row : dbInfo) {
+            if (row[1].replace("default_cluster:", "").equals(dbName)) {
+                return row[0].toLong()
+            }
+        }
+    }
+
+    String getDbName() {
+        return context.dbName
+    }
+
     List<List<Object>> order_sql(String sqlStr) {
         return sql(sqlStr,  true)
     }
