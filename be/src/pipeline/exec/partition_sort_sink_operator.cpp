@@ -183,7 +183,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             // partition_topn_per_partition_rows default is : 10000
             if (_topn_phase != TPartTopNPhase::TWO_PHASE_GLOBAL &&
                 local_state._num_partition > state->partition_topn_max_partitions() &&
-                local_state.child_input_rows <
+                local_state._sorted_partition_input_rows <
                         state->partition_topn_per_partition_rows() * local_state._num_partition) {
                 {
                     COUNTER_UPDATE(local_state._passthrough_rows_counter, (int64_t)current_rows);
