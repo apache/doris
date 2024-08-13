@@ -215,7 +215,7 @@ public class IngestionLoadJob extends LoadJob {
         clearJob();
     }
 
-    public List<Long> getLoadTableIds(List<String> tableNames) throws LoadException {
+    private List<Long> getLoadTableIds(List<String> tableNames) throws LoadException {
         Database db = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbId, s -> new LoadException("db does not exist. id: " + s));
         List<Long> list = new ArrayList<>(tableNames.size());
