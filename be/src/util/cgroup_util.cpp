@@ -60,9 +60,10 @@ Status CGroupUtil::find_global_cgroupv1(const string& subsystem, string* path) {
     string line;
     while (true) {
         if (proc_cgroups.fail()) {
-            return Status::EndOfFile("Error reading /proc/self/cgroup: {}", get_str_err_msg());
+            return Status::CgroupError("Error reading /proc/self/cgroup: {}", get_str_err_msg());
         } else if (proc_cgroups.peek() == std::ifstream::traits_type::eof()) {
-            return Status::EndOfFile("Could not find subsystem {} in /proc/self/cgroup", subsystem);
+            return Status::CgroupError("Could not find subsystem {} in /proc/self/cgroup",
+                                       subsystem);
         }
         // The line format looks like this:
         // 4:memory:/user.slice
@@ -102,10 +103,10 @@ Status CGroupUtil::find_cgroupv1_mounts(const string& subsystem, pair<string, st
     string line;
     while (true) {
         if (mountinfo.fail() || mountinfo.bad()) {
-            return Status::EndOfFile("Error reading /proc/self/mountinfo: {}", get_str_err_msg());
+            return Status::CgroupError("Error reading /proc/self/mountinfo: {}", get_str_err_msg());
         } else if (mountinfo.eof()) {
-            return Status::EndOfFile("Could not find subsystem {} in /proc/self/mountinfo",
-                                     subsystem);
+            return Status::CgroupError("Could not find subsystem {} in /proc/self/mountinfo",
+                                       subsystem);
         }
         // The relevant lines look like below (see proc manpage for full documentation). The
         // first example is running outside of a container, the second example is running
@@ -167,7 +168,9 @@ Status CGroupUtil::find_abs_cgroupv1_path(const string& subsystem, string* path)
 
 std::string CGroupUtil::cgroupv2_of_process() {
 #if defined(OS_LINUX)
-    assert(cgroupsv2_enable());
+    if (!cgroupsv2_enable()) {
+        return "";
+    }
     // All PIDs assigned to a cgroup are in /sys/fs/cgroups/{cgroup_name}/cgroup.procs
     // A simpler way to get the membership is:
     std::ifstream cgroup_name_file("/proc/self/cgroup");
@@ -214,7 +217,7 @@ Status CGroupUtil::read_int_line_from_cgroup_file(const std::filesystem::path& f
     string line;
     getline(file_stream, line);
     if (file_stream.fail() || file_stream.bad()) {
-        return Status::EndOfFile("Error reading {}: {}", file_path.string(), get_str_err_msg());
+        return Status::CgroupError("Error reading {}: {}", file_path.string(), get_str_err_msg());
     }
     StringParser::ParseResult pr;
     // Parse into an int64_t If it overflows, returning the max value of int64_t is ok because that

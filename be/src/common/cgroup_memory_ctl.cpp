@@ -35,7 +35,9 @@ namespace doris {
 // Assumes that cgroupsv2_enable() is enabled.
 bool cgroupsv2_memory_controller_enabled() {
 #if defined(OS_LINUX)
-    assert(CGroupUtil::cgroupsv2_enable());
+    if (!CGroupUtil::cgroupsv2_enable()) {
+        throw doris::Exception(doris::ErrorCode::CGROUP_ERROR, "cgroupsv2_enable is false");
+    }
     // According to https://docs.kernel.org/admin-guide/cgroup-v2.html, file "cgroup.controllers" defines which controllers are available
     // for the current + child cgroups. The set of available controllers can be restricted from level to level using file
     // "cgroups.subtree_control". It is therefore sufficient to check the bottom-most nested "cgroup.controllers" file.
@@ -62,7 +64,7 @@ struct CgroupsV1Reader : CGroupMemoryCtl::ICgroupsReader {
         auto st = CGroupUtil::read_int_line_from_cgroup_file(
                 (_mount_file_dir / "memory.limit_in_bytes"), &value);
         if (!st.ok()) {
-            throw doris::Exception(doris::ErrorCode::END_OF_FILE,
+            throw doris::Exception(doris::ErrorCode::CGROUP_ERROR,
                                    "Cannot read cgroupv1 memory.limit_in_bytes, " + st.to_string());
         }
         return value;
@@ -88,7 +90,7 @@ struct CgroupsV2Reader : CGroupMemoryCtl::ICgroupsReader {
         auto st = CGroupUtil::read_int_line_from_cgroup_file((_mount_file_dir / "memory.max"),
                                                              &value);
         if (!st.ok()) {
-            throw doris::Exception(doris::ErrorCode::END_OF_FILE,
+            throw doris::Exception(doris::ErrorCode::CGROUP_ERROR,
                                    "Cannot read cgroupv2 memory.max, " + st.to_string());
         }
         return value;
@@ -101,7 +103,7 @@ struct CgroupsV2Reader : CGroupMemoryCtl::ICgroupsReader {
         auto st = CGroupUtil::read_int_line_from_cgroup_file((_mount_file_dir / "memory.current"),
                                                              &mem_usage);
         if (!st.ok()) {
-            throw doris::Exception(doris::ErrorCode::END_OF_FILE,
+            throw doris::Exception(doris::ErrorCode::CGROUP_ERROR,
                                    "Cannot read cgroupv2 memory.current, " + st.to_string());
         }
         std::unordered_map<std::string, int64_t> metrics_map;
@@ -109,7 +111,7 @@ struct CgroupsV2Reader : CGroupMemoryCtl::ICgroupsReader {
                                                      metrics_map);
         mem_usage -= metrics_map["inactive_file"];
         if (mem_usage < 0) {
-            throw doris::Exception(doris::ErrorCode::END_OF_FILE, "Negative memory usage");
+            throw doris::Exception(doris::ErrorCode::CGROUP_ERROR, "Negative memory usage");
         }
         return mem_usage;
     }
@@ -137,7 +139,7 @@ std::pair<std::string, CGroupUtil::CgroupsVersion> get_cgroups_path() {
     }
 
     throw doris::Exception(
-            doris::ErrorCode::END_OF_FILE,
+            doris::ErrorCode::CGROUP_ERROR,
             fmt::format("Cannot find cgroups v1 or v2 current memory file, cgroupsv2_enable: {}, "
                         "cgroupsv2_memory_controller_enabled: {}, cgroupsv1_enable: {}",
                         CGroupUtil::cgroupsv2_enable(), cgroupsv2_memory_controller_enabled(),
@@ -160,7 +162,7 @@ Status CGroupMemoryCtl::find_cgroup_mem_limit(int64_t* bytes) {
         return Status::OK();
     } catch (const doris::Exception& e) {
         LOG(WARNING) << "Cgroup find_cgroup_mem_limit failed, " << e.to_string();
-        return Status::EndOfFile(e.to_string());
+        return Status::CgroupError(e.to_string());
     }
 }
 
@@ -170,7 +172,7 @@ Status CGroupMemoryCtl::find_cgroup_mem_usage(int64_t* bytes) {
         return Status::OK();
     } catch (const doris::Exception& e) {
         LOG(WARNING) << "Cgroup find_cgroup_mem_usage failed, " << e.to_string();
-        return Status::EndOfFile(e.to_string());
+        return Status::CgroupError(e.to_string());
     }
 }
 
