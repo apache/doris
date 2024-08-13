@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -71,10 +72,12 @@ public class MaxMinFilterPushDown extends OneRewriteRuleFactory {
         LogicalAggregate<Plan> agg = filter.child();
         Plan aggChild = agg.child();
         List<NamedExpression> aggOutputExpressions = agg.getOutputExpressions();
-        Set<Expression> maxMinFunc = ExpressionUtils.collect(aggOutputExpressions,
+        Set<Expression> aggFuncs = ExpressionUtils.collect(aggOutputExpressions,
+                expr -> expr instanceof AggregateFunction);
+        Set<Expression> maxMinFunc = ExpressionUtils.collect(aggFuncs,
                 expr -> expr instanceof Max || expr instanceof Min);
         // LogicalAggregate only outputs one aggregate function, which is max or min
-        if (maxMinFunc.size() != 1) {
+        if (aggFuncs.size() != 1 || maxMinFunc.size() != 1) {
             return null;
         }
         ExprId exprId = null;

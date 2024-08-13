@@ -25,7 +25,7 @@ suite("max_min_filter_push_down") {
         id INT,
         value1 INT,
         value2 VARCHAR(50)
-    );
+    ) properties("replication_num"="1");
     """
 
     sql """
@@ -78,7 +78,8 @@ suite("max_min_filter_push_down") {
     """
 
     sql "drop table if exists max_min_filter_push_down2"
-    sql "create table max_min_filter_push_down2(d_int int, d_char100 char(100), d_smallint smallint, d_tinyint tinyint, d_char10 char(10),d_datetimev2 datetimev2, d_datev2 datev2) ;"
+    sql """create table max_min_filter_push_down2(d_int int, d_char100 char(100), d_smallint smallint, d_tinyint tinyint, d_char10 char(10),d_datetimev2 datetimev2, d_datev2 datev2)
+    properties("replication_num"="1");"""
     sql "insert into max_min_filter_push_down2 values(1,'01234567890123456789', 3,3,'0123456789','2020-01-09 10:00:00.99','2020-01-09'),(14,'01234567890123456789', 33,23,'0123456789','2020-01-11 10:00:00.99','2020-01-11');"
 
     qt_smallint """explain shape plan
