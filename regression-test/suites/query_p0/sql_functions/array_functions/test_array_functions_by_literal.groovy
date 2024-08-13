@@ -410,4 +410,36 @@ suite("test_array_functions_by_literal") {
     } catch (Exception ex) {
         assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: array_intersect"))
     }
+
+    // array_min/max with nested array for args
+    test {
+        sql "select array_min(array(1,2,3),array(4,5,6));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    test {
+        sql "select array_max(array(1,2,3),array(4,5,6));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+    test {
+        sql "select array_min(array(split_by_string('a,b,c',',')));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    test {
+        sql "select array_max(array(split_by_string('a,b,c',',')));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
 }
