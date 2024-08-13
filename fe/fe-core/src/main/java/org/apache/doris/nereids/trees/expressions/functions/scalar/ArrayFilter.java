@@ -49,7 +49,7 @@ public class ArrayFilter extends ScalarFunction
      * array_filter(lambda, a1, ...) = array_filter(a1, array_map(lambda, a1, ...))
      */
     public ArrayFilter(Expression arg) {
-        super("array_filter", arg.child(1).child(0), new ArrayMap(arg));
+        super("array_filter", arg instanceof Lambda ? arg.child(1).child(0) : arg, new ArrayMap(arg));
         if (!(arg instanceof Lambda)) {
             throw new AnalysisException(
                     String.format("The 1st arg of %s must be lambda but is %s", getName(), arg));

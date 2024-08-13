@@ -53,7 +53,8 @@ Status DataTypeStructSerDe::serialize_one_cell_to_json(const IColumn& column, in
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    const ColumnStruct& struct_column = assert_cast<const ColumnStruct&>(*ptr);
+    const ColumnStruct& struct_column =
+            assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(*ptr);
     bw.write('{');
     for (int i = 0; i < struct_column.get_columns().size(); i++) {
         if (i != 0) {
@@ -73,7 +74,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     if (slice.empty()) {
         return Status::InvalidArgument("slice is empty!");
     }
-    auto& struct_column = assert_cast<ColumnStruct&>(column);
+    auto& struct_column = assert_cast<ColumnStruct&, TypeCheckOnRelease::DISABLE>(column);
 
     if (slice[0] != '{') {
         std::stringstream ss;
@@ -279,7 +280,8 @@ void DataTypeStructSerDe::serialize_one_cell_to_hive_text(
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    const ColumnStruct& struct_column = assert_cast<const ColumnStruct&>(*ptr);
+    const ColumnStruct& struct_column =
+            assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(*ptr);
 
     char collection_delimiter =
             options.get_collection_delimiter(hive_text_complex_type_delimiter_level);
@@ -335,7 +337,7 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
                                                    MysqlRowBuffer<is_binary_format>& result,
                                                    int row_idx, bool col_const,
                                                    const FormatOptions& options) const {
-    auto& col = assert_cast<const ColumnStruct&>(column);
+    auto& col = assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(column);
     const auto col_index = index_check_const(row_idx, col_const);
     result.open_dynamic_mode();
     if (0 != result.push_string("{", 1)) {

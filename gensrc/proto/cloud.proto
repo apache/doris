@@ -210,6 +210,8 @@ message StorageVaultPB {
     }
 
     optional PathFormat path_format = 5;
+    // Set this filed when the user tries to alter name to alter_name
+    optional string alter_name = 6;
 }
 
 message HdfsBuildConf {
@@ -853,6 +855,7 @@ message AlterObjStoreInfoRequest {
         ADD_S3_VAULT = 103;
         DROP_S3_VAULT = 104;
         ALTER_S3_VAULT = 105;
+        ALTER_HDFS_VAULT = 106;
 
         SET_DEFAULT_VAULT = 200;
         UNSET_DEFAULT_VAULT = 201;
