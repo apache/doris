@@ -71,7 +71,7 @@ private:
  *    g. do local merge of remote runtime filter
  *    h. "now": ALWAYS_NOT_NULLABLE -> DEPEND_ON_ARGUMENTS
 */
-constexpr inline int BeExecVersionManager::max_be_exec_version = 4;
+constexpr inline int BeExecVersionManager::max_be_exec_version = 5;
 constexpr inline int BeExecVersionManager::min_be_exec_version = 0;
 
 /// functional
