@@ -401,7 +401,7 @@ void ColumnObject::Subcolumn::add_new_column_part(DataTypePtr type) {
 void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     auto base_type = WhichDataType(info.scalar_type_id);
     if (base_type.is_nothing() && info.num_dimensions == 0) {
-        insertDefault();
+        insert_default();
         return;
     }
     auto column_dim = least_common_type.get_dimensions();
@@ -496,7 +496,7 @@ static ColumnPtr recreate_column_with_default_values(const ColumnPtr& column, Ty
             ->clone_resized(column->size());
 }
 
-ColumnObject::Subcolumn ColumnObject::Subcolumn::recreateWithDefaultValues(
+ColumnObject::Subcolumn ColumnObject::Subcolumn::recreate_with_default_values(
         const FieldInfo& field_info) const {
     Subcolumn new_subcolumn(*this);
     new_subcolumn.least_common_type =
@@ -522,11 +522,11 @@ Field ColumnObject::Subcolumn::get_last_field() const {
     return (*last_part)[last_part->size() - 1];
 }
 
-void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start, size_t length) {
+void ColumnObject::Subcolumn::insert_range_from(const Subcolumn& src, size_t start, size_t length) {
     if (start + length > src.size()) {
         throw doris::Exception(
                 ErrorCode::OUT_OF_BOUND,
-                "Invalid range for insertRangeFrom: start={}, length={}, src.size={}", start,
+                "Invalid range for insert_range_from: start={}, length={}, src.size={}", start,
                 length, src.size());
     }
     size_t end = start + length;
@@ -553,7 +553,7 @@ void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start
         if (from + n > column->size()) {
             throw doris::Exception(
                     ErrorCode::OUT_OF_BOUND,
-                    "Invalid range for insertRangeFrom: from={}, n={}, column.size={}", from, n,
+                    "Invalid range for insert_range_from: from={}, n={}, column.size={}", from, n,
                     column->size());
         }
         if (column_type->equals(*least_common_type.get())) {
@@ -696,7 +696,7 @@ void ColumnObject::Subcolumn::finalize(FinalizeMode mode) {
     num_of_defaults_in_prefix = 0;
 }
 
-void ColumnObject::Subcolumn::insertDefault() {
+void ColumnObject::Subcolumn::insert_default() {
     if (data.empty()) {
         ++num_of_defaults_in_prefix;
     } else {
@@ -704,7 +704,7 @@ void ColumnObject::Subcolumn::insertDefault() {
     }
 }
 
-void ColumnObject::Subcolumn::insertManyDefaults(size_t length) {
+void ColumnObject::Subcolumn::insert_many_defaults(size_t length) {
     if (data.empty()) {
         num_of_defaults_in_prefix += length;
     } else {
@@ -927,7 +927,7 @@ void ColumnObject::try_insert(const Field& field) {
         if (old_size == entry->data.size()) {
             bool inserted = try_insert_default_from_nested(entry);
             if (!inserted) {
-                entry->data.insertDefault();
+                entry->data.insert_default();
             }
         }
     }
@@ -936,7 +936,7 @@ void ColumnObject::try_insert(const Field& field) {
 
 void ColumnObject::insert_default() {
     for (auto& entry : subcolumns) {
-        entry->data.insertDefault();
+        entry->data.insert_default();
     }
     ++num_rows;
 }
@@ -997,9 +997,9 @@ void ColumnObject::get(size_t n, Field& res) const {
     auto& object = res.get<VariantMap&>();
 
     for (const auto& entry : subcolumns) {
-        // auto it = object.try_emplace(entry->path.get_path()).first;
         Field field;
         entry->data.get(n, field);
+        // Notice: we treat null as empty field
         if (field.get_type() != Field::Types::Null) {
             object.try_emplace(entry->path.get_path(), field);
         }
@@ -1026,7 +1026,7 @@ void ColumnObject::add_nested_subcolumn(const PathInData& key, const FieldInfo& 
         assert(leaf);
 
         /// Recreate subcolumn with default values and the same sizes of arrays.
-        auto new_subcolumn = leaf->data.recreateWithDefaultValues(field_info);
+        auto new_subcolumn = leaf->data.recreate_with_default_values(field_info);
 
         /// It's possible that we have already inserted value from current row
         /// to this subcolumn. So, adjust size to expected.
@@ -1073,13 +1073,13 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
             }
         }
         auto* subcolumn = get_subcolumn(entry->path);
-        subcolumn->insertRangeFrom(entry->data, start, length);
+        subcolumn->insert_range_from(entry->data, start, length);
     }
     for (auto& entry : subcolumns) {
         if (!src_object.has_subcolumn(entry->path)) {
             bool inserted = try_insert_many_defaults_from_nested(entry);
             if (!inserted) {
-                entry->data.insertManyDefaults(length);
+                entry->data.insert_many_defaults(length);
             }
         }
     }
@@ -1299,6 +1299,11 @@ rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInDat
     return find_leaf_node_by_path(current, path, idx + 1);
 }
 
+// skip empty json:
+// 1. null value as empty json
+// 2. nested array with only nulls, eg. [null. null]
+// 3. empty root jsonb value(not null)
+// 4. type is nothing
 bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type, int row,
                      const PathInData& path) {
     // skip nulls
@@ -1582,6 +1587,41 @@ Status ColumnObject::merge_sparse_to_root_column() {
     return Status::OK();
 }
 
+void ColumnObject::unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) const {
+    entry->data.finalize();
+    auto nested_column = entry->data.get_finalized_column_ptr()->assume_mutable();
+    auto* nested_column_nullable = assert_cast<ColumnNullable*>(nested_column.get());
+    auto* nested_column_array =
+            assert_cast<ColumnArray*>(nested_column_nullable->get_nested_column_ptr().get());
+    auto& offset = nested_column_array->get_offsets_ptr();
+
+    auto* nested_object_nullable = assert_cast<ColumnNullable*>(
+            nested_column_array->get_data_ptr()->assume_mutable().get());
+    auto& nested_object_column =
+            assert_cast<ColumnObject&>(nested_object_nullable->get_nested_column());
+    PathInData nested_path = entry->path;
+    for (auto& nested_entry : nested_object_column.subcolumns) {
+        if (nested_entry->data.least_common_type.get_base_type_id() == TypeIndex::Nothing) {
+            continue;
+        }
+        nested_entry->data.finalize();
+        PathInDataBuilder path_builder;
+        // format nested path
+        path_builder.append(nested_path.get_parts(), false);
+        path_builder.append(nested_entry->path.get_parts(), true);
+        auto subnested_column = ColumnArray::create(
+                ColumnNullable::create(nested_entry->data.get_finalized_column_ptr(),
+                                       nested_object_nullable->get_null_map_column_ptr()),
+                offset);
+        auto nullable_subnested_column = ColumnNullable::create(
+                subnested_column, nested_column_nullable->get_null_map_column_ptr());
+        auto type = make_nullable(
+                std::make_shared<DataTypeArray>(nested_entry->data.least_common_type.get()));
+        Subcolumn subcolumn(nullable_subnested_column->assume_mutable(), type, is_nullable);
+        subcolumns.add(path_builder.build(), subcolumn);
+    }
+}
+
 void ColumnObject::finalize(FinalizeMode mode) {
     Subcolumns new_subcolumns;
     // finalize root first
@@ -1596,41 +1636,10 @@ void ColumnObject::finalize(FinalizeMode mode) {
             continue;
         }
 
-        // unnest all nested columns
+        // unnest all nested columns, add them to new_subcolumns
         if (mode == FinalizeMode::WRITE_MODE &&
             least_common_type->equals(*ColumnObject::NESTED_TYPE)) {
-            entry->data.finalize(mode);
-            auto nested_column = entry->data.get_finalized_column_ptr()->assume_mutable();
-            auto* nested_column_nullable = assert_cast<ColumnNullable*>(nested_column.get());
-            auto* nested_column_array = assert_cast<ColumnArray*>(
-                    nested_column_nullable->get_nested_column_ptr().get());
-            auto& offset = nested_column_array->get_offsets_ptr();
-
-            auto* nested_object_nullable = assert_cast<ColumnNullable*>(
-                    nested_column_array->get_data_ptr()->assume_mutable().get());
-            auto& nested_object_column =
-                    assert_cast<ColumnObject&>(nested_object_nullable->get_nested_column());
-            PathInData nested_path = entry->path;
-            // nested_path.set_nested(nested_path.get_parts().size() - 1);
-            for (auto& nested_entry : nested_object_column.subcolumns) {
-                if (nested_entry->data.least_common_type.get_base_type_id() == TypeIndex::Nothing) {
-                    continue;
-                }
-                nested_entry->data.finalize(FinalizeMode::READ_MODE);
-                PathInDataBuilder path_builder;
-                path_builder.append(nested_path.get_parts(), false);
-                path_builder.append(nested_entry->path.get_parts(), true);
-                auto subnested_column = ColumnArray::create(
-                        ColumnNullable::create(nested_entry->data.get_finalized_column_ptr(),
-                                               nested_object_nullable->get_null_map_column_ptr()),
-                        offset);
-                auto nullable_subnested_column = ColumnNullable::create(
-                        subnested_column, nested_column_nullable->get_null_map_column_ptr());
-                auto type = make_nullable(std::make_shared<DataTypeArray>(
-                        nested_entry->data.least_common_type.get()));
-                Subcolumn subcolumn(nullable_subnested_column->assume_mutable(), type, is_nullable);
-                new_subcolumns.add(path_builder.build(), subcolumn);
-            }
+            unnest(entry, new_subcolumns);
             continue;
         }
 
@@ -1811,12 +1820,6 @@ const DataTypePtr ColumnObject::NESTED_TYPE = std::make_shared<vectorized::DataT
         std::make_shared<vectorized::DataTypeArray>(std::make_shared<vectorized::DataTypeNullable>(
                 std::make_shared<vectorized::DataTypeObject>())));
 
-// Root type is Nullable(Array(Nullable(Variant)))
-bool ColumnObject::is_nested_variant() const {
-    return !is_null_root() && subcolumns.get_leaves().size() == 1 &&
-           subcolumns.get_root()->data.get_least_common_type()->equals(*NESTED_TYPE);
-}
-
 DataTypePtr ColumnObject::get_root_type() const {
     return subcolumns.get_root()->data.get_least_common_type();
 }
@@ -1937,7 +1940,7 @@ Status ColumnObject::sanitize() const {
 
 ColumnObject::Subcolumn ColumnObject::Subcolumn::cut(size_t start, size_t length) const {
     Subcolumn new_subcolumn(0, is_nullable);
-    new_subcolumn.insertRangeFrom(*this, start, length);
+    new_subcolumn.insert_range_from(*this, start, length);
     return new_subcolumn;
 }
 
@@ -1968,9 +1971,9 @@ bool ColumnObject::try_insert_many_defaults_from_nested(const Subcolumns::NodePt
     /// and replace scalar values to the correct
     /// default values for given entry.
     auto new_subcolumn = leaf->data.cut(old_size, leaf->data.size() - old_size)
-                                 .recreateWithDefaultValues(field_info);
+                                 .recreate_with_default_values(field_info);
 
-    entry->data.insertRangeFrom(new_subcolumn, 0, new_subcolumn.size());
+    entry->data.insert_range_from(new_subcolumn, 0, new_subcolumn.size());
     return true;
 }
 

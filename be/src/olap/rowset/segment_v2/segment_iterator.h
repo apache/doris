@@ -46,7 +46,6 @@
 #include "util/runtime_profile.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"

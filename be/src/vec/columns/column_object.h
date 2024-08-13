@@ -95,6 +95,8 @@ public:
     // Using jsonb type as most common type, since it's adopted all types of json
     using MostCommonType = DataTypeJsonb;
     constexpr static TypeIndex MOST_COMMON_TYPE_ID = TypeIndex::JSONB;
+    // Nullable(Array(Nullable(Object)))
+    const static DataTypePtr NESTED_TYPE;
     // Finlize mode for subcolumns, write mode will deal with sparse columns, only affects in flush block to segments.
     // Otherwise read mode should be as default mode.
     enum class FinalizeMode { WRITE_MODE, READ_MODE };
@@ -129,9 +131,6 @@ public:
 
         void get(size_t n, Field& res) const;
 
-        /// Checks the consistency of column's parts stored in @data.
-        void checkTypes() const;
-
         /// Inserts a field, which scalars can be arbitrary, but number of
         /// dimensions should be consistent with current common type.
         /// throws InvalidArgument when meet conflict types
@@ -139,15 +138,15 @@ public:
 
         void insert(Field field, FieldInfo info);
 
-        void insertDefault();
+        void insert_default();
 
-        void insertManyDefaults(size_t length);
+        void insert_many_defaults(size_t length);
 
-        void insertRangeFrom(const Subcolumn& src, size_t start, size_t length);
+        void insert_range_from(const Subcolumn& src, size_t start, size_t length);
 
         /// Recreates subcolumn with default scalar values and keeps sizes of arrays.
         /// Used to create columns of type Nested with consistent array sizes.
-        Subcolumn recreateWithDefaultValues(const FieldInfo& field_info) const;
+        Subcolumn recreate_with_default_values(const FieldInfo& field_info) const;
 
         void pop_back(size_t n);
 
@@ -155,7 +154,7 @@ public:
 
         /// Converts all column's parts to the common type and
         /// creates a single column that stores all values.
-        void finalize(FinalizeMode mode);
+        void finalize(FinalizeMode mode = FinalizeMode::READ_MODE);
 
         /// Returns last inserted field.
         Field get_last_field() const;
@@ -294,10 +293,6 @@ public:
 
     // Only single scalar root column
     bool is_scalar_variant() const;
-
-    // Nullable(Array(Nullable(Object)))
-    const static DataTypePtr NESTED_TYPE;
-    bool is_nested_variant() const;
 
     ColumnPtr get_root() const { return subcolumns.get_root()->data.get_finalized_column_ptr(); }
 
@@ -597,6 +592,9 @@ private:
 
     // return null if not found
     const Subcolumn* get_subcolumn_with_cache(const PathInData& key, size_t index_hint) const;
+
+    // unnest nested type columns, and flat them into finlized array subcolumns
+    void unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) const;
 };
 
 } // namespace doris::vectorized

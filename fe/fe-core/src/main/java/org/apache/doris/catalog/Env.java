@@ -3617,9 +3617,11 @@ public class Env {
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
         sb.append(olapTable.disableAutoCompaction()).append("\"");
 
-        // enable flatten nested type in variant
-        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED).append("\" = \"");
-        sb.append(olapTable.variantEnableFlattenNested()).append("\"");
+        if (olapTable.variantEnableFlattenNested()) {
+            // enable flatten nested type in variant
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED).append("\" = \"");
+            sb.append(olapTable.variantEnableFlattenNested()).append("\"");
+        }
 
         // binlog
         if (Config.enable_feature_binlog) {
