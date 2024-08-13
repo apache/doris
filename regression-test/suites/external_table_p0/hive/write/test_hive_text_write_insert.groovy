@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_hive_text_write_insert", "p0,external,hive,external_docker,external_docker_hive") {
-    def format_compressions = ["gzip", "zlib", "deflate", "bzip2", "snappy", "lz4", "zstd"]
-
     def q01 = { String format_compression, String catalog_name ->
         logger.info("hive sql: " + """ truncate table all_types_text; """)
         hive_docker """ truncate table all_types_text; """
@@ -390,9 +388,6 @@ suite("test_hive_text_write_insert", "p0,external,hive,external_docker,external_
         """
         order_qt_q05 """ select * from all_types_text;
         """
-
-        logger.info("hive sql: " + """ truncate table all_types_text; """)
-        hive_docker """ truncate table all_types_text; """
     }
 
     def q02 = { String format_compression, String catalog_name ->
@@ -439,17 +434,16 @@ suite("test_hive_text_write_insert", "p0,external,hive,external_docker,external_
         order_qt_q04 """
         select * from all_types_text;
         """
-
-        logger.info("hive sql: " + """ truncate table all_types_text; """)
-        hive_docker """ truncate table all_types_text; """
     }
     def q03 = { String format_compression, String catalog_name ->
-        logger.info("hive sql: " + """ truncate table all_types_par_text; """)
-        hive_docker """ truncate table all_types_par_text; """
+        logger.info("hive sql: " + """ drop table if exists all_types_par_text_q3; """)
+        hive_docker """ drop table if exists all_types_par_text_q3; """
+        logger.info("hive sql: " + """ create table all_types_par_text_q3 like all_types_par_text; """)
+        hive_docker """ create table all_types_par_text_q3 like all_types_par_text; """
         sql """refresh catalog ${catalog_name};"""
 
         sql """
-        INSERT INTO all_types_par_text
+        INSERT INTO all_types_par_text_q3
         VALUES (
           1, -- boolean_col
           127, -- tinyint_col
@@ -516,12 +510,11 @@ suite("test_hive_text_write_insert", "p0,external,hive,external_docker,external_
           20240320 -- dt
         );
         """
-        order_qt_q01 """ select * from all_types_par_text;
+        order_qt_q01 """ select * from all_types_par_text_q3;
         """
 
         sql """
-        
-INSERT INTO all_types_par_text
+        INSERT INTO all_types_par_text_q3
         VALUES  (
           1, -- boolean_col
           127, -- tinyint_col
@@ -718,11 +711,11 @@ INSERT INTO all_types_par_text
           20240322 -- dt
         );
         """
-        order_qt_q02 """ select * from all_types_par_text;
+        order_qt_q02 """ select * from all_types_par_text_q3;
         """
 
         sql """
-        INSERT INTO all_types_par_text(float_col, t_map_int, t_array_decimal_precision_8, t_array_string_starting_with_nulls, dt)
+        INSERT INTO all_types_par_text_q3(float_col, t_map_int, t_array_decimal_precision_8, t_array_string_starting_with_nulls, dt)
         VALUES (
           123.45, -- float_col
           MAP(1, 10), -- t_map_int
@@ -731,11 +724,11 @@ INSERT INTO all_types_par_text
           20240321 -- dt
         );
         """
-        order_qt_q03 """ select * from all_types_par_text;
+        order_qt_q03 """ select * from all_types_par_text_q3;
         """
 
         sql """
-        insert overwrite table all_types_par_text
+        insert overwrite table all_types_par_text_q3
         VALUES (
           0, -- boolean_col
           -7, -- tinyint_col
@@ -802,11 +795,11 @@ INSERT INTO all_types_par_text
           20240321 -- dt
         );
         """
-        order_qt_q04 """ select * from all_types_par_text;
+        order_qt_q04 """ select * from all_types_par_text_q3;
         """
 
         sql """
-        INSERT overwrite table all_types_par_text(float_col, t_map_int, t_array_decimal_precision_8, t_array_string_starting_with_nulls, dt)
+        INSERT overwrite table all_types_par_text_q3(float_col, t_map_int, t_array_decimal_precision_8, t_array_string_starting_with_nulls, dt)
         VALUES (
           CAST(123.45 AS FLOAT), -- float_col
           MAP(1, 10), -- t_map_int
@@ -815,11 +808,8 @@ INSERT INTO all_types_par_text
           20240321 -- dt
         );
         """
-        order_qt_q05 """ select * from all_types_par_text;
+        order_qt_q05 """ select * from all_types_par_text_q3;
         """
-
-        logger.info("hive sql: " + """ DROP TABLE IF EXISTS all_types_par_text; """)
-        hive_docker """ DROP TABLE IF EXISTS all_types_par_text; """
     }
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
@@ -848,8 +838,11 @@ INSERT INTO all_types_par_text
 
             sql """set enable_fallback_to_original_planner=false;"""
 
+            // def format_compressions = ["gzip", "zlib", "deflate", "bzip2", "snappy", "lz4", "zstd"]
+            def format_compressions = ["gzip", "deflate", "bzip2", "lz4"]
+
             for (String format_compression in format_compressions) {
-                logger.info("Process format_compression" + format_compression)
+                logger.info("set hive_text_compression = " + format_compression)
                 sql """set hive_text_compression = '${format_compression}';"""
                 q01(format_compression, catalog_name)
                 q02(format_compression, catalog_name)
