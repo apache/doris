@@ -537,6 +537,11 @@ public:
         if (iter == nullptr) {
             return Status::OK();
         }
+        if (iter->get_inverted_index_reader_type() ==
+            segment_v2::InvertedIndexReaderType::FULLTEXT) {
+            //NOT support comparison predicate when parser is FULLTEXT for expr inverted index evaluate.
+            return Status::OK();
+        }
         std::string column_name = data_type_with_name.first;
         Field param_value;
         arguments[0].column->get(0, param_value);
@@ -574,11 +579,11 @@ public:
             RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
             std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
             segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
-            bitmap_result = std::move(result);
+            bitmap_result = result;
         } else {
             std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
             segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
-            bitmap_result = std::move(result);
+            bitmap_result = result;
         }
 
         if (name == "ne") {

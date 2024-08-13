@@ -128,6 +128,11 @@ public:
         Field param_value;
         arguments[0].column->get(0, param_value);
         auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
+        if (param_value.is_null()) {
+            return Status::OK();
+            //return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+            //      "Inverted index evaluate skipped, param_value is nullptr or value is null");
+        }
         if (iter->get_inverted_index_reader_type() ==
             segment_v2::InvertedIndexReaderType::FULLTEXT) {
             // parser is not none we can not make sure the result is correct in expr combination
@@ -136,8 +141,9 @@ public:
             // but query is also tokenized, and FULLTEXT reader will catch this row as matched,
             // so array_index(array, 'tall:120cm, weight: 35kg') return this rowid,
             // but we expect it to be filtered, because we want row is equal to 'tall:120cm, weight: 35kg'
-            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
-                    "Inverted index evaluate skipped, FULLTEXT reader can not support array_index");
+            return Status::OK();
+            //return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+            //      "Inverted index evaluate skipped, FULLTEXT reader can not support array_index");
         }
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
@@ -164,11 +170,11 @@ public:
             RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
             std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
             segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
-            bitmap_result = std::move(result);
+            bitmap_result = result;
         } else {
             std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
             segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
-            bitmap_result = std::move(result);
+            bitmap_result = result;
         }
 
         return Status::OK();

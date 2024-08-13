@@ -218,7 +218,7 @@ Status VMultiMatchPredicate::evaluate_inverted_index(VExprContext* context,
         auto result = DORIS_TRY(
                 _evaluate_inverted_index_by_field(context, arguments, segment_num_rows, col_name));
         if (ret.is_empty()) {
-            ret = std::move(result);
+            ret = result;
         } else {
             ret |= result;
         }

@@ -65,11 +65,11 @@ Status FunctionMatchBase::evaluate_inverted_index(
         RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
         std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
         segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
-        bitmap_result = std::move(result);
+        bitmap_result = result;
     } else {
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
         segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
-        bitmap_result = std::move(result);
+        bitmap_result = result;
     }
 
     return Status::OK();
