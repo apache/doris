@@ -274,6 +274,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
     _runtime_query_statistics_mgr = new RuntimeQueryStatisticsMgr();
+    CgroupCpuCtl::init_doris_cgroup_path();
     _file_cache_factory = new io::FileCacheFactory();
     std::vector<doris::CachePath> cache_paths;
     init_file_cache_factory(cache_paths);

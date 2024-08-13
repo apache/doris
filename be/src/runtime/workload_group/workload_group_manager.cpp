@@ -92,7 +92,8 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
             }
             // wg is shutdown and running rum = 0, its resource can be released in BE
             if (workload_group_ptr->can_be_dropped()) {
-                LOG(INFO) << "[topic_publish_wg]There is no query in wg" << wg_id << ", delete it.";
+                LOG(INFO) << "[topic_publish_wg]There is no query in wg " << wg_id
+                          << ", delete it.";
                 deleted_task_groups.push_back(workload_group_ptr);
             }
         }
@@ -121,30 +122,16 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
     // Using cgdelete has no such issue.
     {
         if (config::doris_cgroup_cpu_path != "") {
-            std::lock_guard<std::shared_mutex> write_lock(_init_cg_ctl_lock);
-            if (!_cg_cpu_ctl) {
-                _cg_cpu_ctl = std::make_unique<CgroupV1CpuCtl>();
-            }
-            if (!_is_init_succ) {
-                Status ret = _cg_cpu_ctl->init();
-                if (ret.ok()) {
-                    _is_init_succ = true;
-                } else {
-                    LOG(INFO) << "[topic_publish_wg]init workload group mgr cpu ctl failed, "
-                              << ret.to_string();
-                }
-            }
-            if (_is_init_succ) {
-                Status ret = _cg_cpu_ctl->delete_unused_cgroup_path(used_wg_id);
-                if (!ret.ok()) {
-                    LOG(WARNING) << "[topic_publish_wg]" << ret.to_string();
-                }
+            std::lock_guard<std::shared_mutex> write_lock(_clear_cgroup_lock);
+            Status ret = CgroupCpuCtl::delete_unused_cgroup_path(used_wg_id);
+            if (!ret.ok()) {
+                LOG(WARNING) << "[topic_publish_wg]" << ret.to_string();
             }
         }
     }
     int64_t time_cost_ms = MonotonicMillis() - begin_time;
     LOG(INFO) << "[topic_publish_wg]finish clear unused workload group, time cost: " << time_cost_ms
-              << "ms, deleted group size:" << deleted_task_groups.size()
+              << " ms, deleted group size:" << deleted_task_groups.size()
               << ", before wg size=" << old_wg_size << ", after wg size=" << new_wg_size;
 }
 
