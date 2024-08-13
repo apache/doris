@@ -227,6 +227,7 @@ public class IngestionLoadJob extends LoadJob {
         return list;
     }
 
+    @Override
     protected long getEtlStartTimestamp() {
         return etlStartTimestamp;
     }
