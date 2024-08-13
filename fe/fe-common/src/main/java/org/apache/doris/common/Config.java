@@ -2705,6 +2705,13 @@ public class Config extends ConfigBase {
 
     // Advance the next id before transferring to the master.
     @ConfField(description = {
+            "对 meta 做 checkpoint 时的时间间隔，单位为秒",
+            "The interval of checkpointing meta, in seconds"
+    })
+    public static int checkpoint_interval_seconds = 60;
+
+    // Advance the next id before transferring to the master.
+    @ConfField(description = {
             "是否在成为 Master 后推进 ID 分配器，保证即使回滚元数据时，它也不会回滚",
             "Whether to advance the ID generator after becoming Master to ensure that the id "
                     + "generator will not be rolled back even when metadata is rolled back."

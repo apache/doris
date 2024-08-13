@@ -20,7 +20,6 @@ package org.apache.doris.master;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.CheckpointException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.NetUtils;
@@ -61,7 +60,7 @@ public class Checkpoint extends MasterDaemon {
     private int memoryNotEnoughCount = 0;
 
     public Checkpoint(EditLog editLog) {
-        super("leaderCheckpointer", FeConstants.checkpoint_interval_second * 1000L);
+        super("leaderCheckpointer", Config.checkpoint_interval_seconds * 1000L);
         this.imageDir = Env.getServingEnv().getImageDir();
         this.editLog = editLog;
     }
