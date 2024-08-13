@@ -37,7 +37,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
@@ -48,10 +47,12 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -59,6 +60,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.AnalyzerForCreateView;
+import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.PlanSlotFinder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -101,11 +104,10 @@ public class CreateMTMVInfo {
     private Map<String, String> mvProperties = Maps.newHashMap();
 
     private final LogicalPlan logicalQuery;
-    private final String querySql;
+    private String querySql;
     private final MTMVRefreshInfo refreshInfo;
     private final List<ColumnDefinition> columns = Lists.newArrayList();
     private final List<SimpleColumnDefinition> simpleColumnDefinitions;
-    private final EnvInfo envInfo;
     private final MTMVPartitionDefinition mvPartitionDefinition;
     private PartitionDesc partitionDesc;
     private MTMVRelation relation;
@@ -132,8 +134,6 @@ public class CreateMTMVInfo {
         this.refreshInfo = Objects.requireNonNull(refreshInfo, "require refreshInfo object");
         this.simpleColumnDefinitions = Objects
                 .requireNonNull(simpleColumnDefinitions, "require simpleColumnDefinitions object");
-        this.envInfo = new EnvInfo(ConnectContext.get().getCurrentCatalog().getId(),
-                ConnectContext.get().getCurrentDbId());
         this.mvPartitionDefinition = Objects
                 .requireNonNull(mvPartitionDefinition, "require mtmvPartitionInfo object");
     }
@@ -182,6 +182,28 @@ public class CreateMTMVInfo {
         refreshInfo.validate();
 
         analyzeProperties();
+        rewriteQuerySql(ctx);
+    }
+
+    private void rewriteQuerySql(ConnectContext ctx) {
+        analyzeAndFillRewriteSqlMap(querySql, ctx);
+        querySql = BaseViewInfo.rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
+    }
+
+    private void analyzeAndFillRewriteSqlMap(String sql, ConnectContext ctx) {
+        StatementContext stmtCtx = ctx.getStatementContext();
+        LogicalPlan parsedViewPlan = new NereidsParser().parseForCreateView(sql);
+        if (parsedViewPlan instanceof UnboundResultSink) {
+            parsedViewPlan = (LogicalPlan) ((UnboundResultSink<?>) parsedViewPlan).child();
+        }
+        CascadesContext viewContextForStar = CascadesContext.initContext(
+                stmtCtx, parsedViewPlan, PhysicalProperties.ANY);
+        AnalyzerForCreateView analyzerForStar = new AnalyzerForCreateView(viewContextForStar);
+        analyzerForStar.analyze();
+        Plan analyzedPlan = viewContextForStar.getRewritePlan();
+        // Traverse all slots in the plan, and add the slot's location information
+        // and the fully qualified replacement string to the indexInSqlToString of the StatementContext.
+        analyzedPlan.accept(PlanSlotFinder.INSTANCE, ctx.getStatementContext());
     }
 
     private void analyzeProperties() {
@@ -414,7 +436,7 @@ public class CreateMTMVInfo {
                 .map(ColumnDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
         return new CreateMTMVStmt(ifNotExists, tableName, catalogColumns, refreshInfo, keysDesc,
-                distribution.translateToCatalogStyle(), properties, mvProperties, querySql, comment, envInfo,
+                distribution.translateToCatalogStyle(), properties, mvProperties, querySql, comment,
                 partitionDesc, mvPartitionInfo, relation);
     }
 
