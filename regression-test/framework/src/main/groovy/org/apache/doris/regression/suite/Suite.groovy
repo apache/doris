@@ -1636,7 +1636,6 @@ class Suite implements GroovyInterceptable {
                 } else {
                     endpoint context.config.metaServiceHttpAddress
                 }
-                endpoint context.config.metaServiceHttpAddress
                 uri "/MetaService/http/drop_cluster?token=${token}"
                 body request_body
                 check check_func

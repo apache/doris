@@ -28,17 +28,26 @@ import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class AdminRebalanceDiskStmt extends DdlStmt {
+    private static final Logger LOG = LogManager.getLogger(AdminRebalanceDiskStmt.class);
     private List<Backend> backends = Lists.newArrayList();
     private long timeoutS = 0;
 
     public AdminRebalanceDiskStmt(List<String> backends) {
-        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> backendsInfo;
+        try {
+            backendsInfo = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
+        } catch (AnalysisException e) {
+            LOG.warn("failed to get backends,", e);
+            return;
+        }
         Map<String, Long> backendsID = new HashMap<String, Long>();
         for (Backend backend : backendsInfo.values()) {
             backendsID.put(

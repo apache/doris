@@ -1638,7 +1638,8 @@ public class StmtExecutor {
                 throw new UserException(e.getMessage());
             }
             LOG.info("kill query {}", queryId);
-            Collection<Backend> nodesToPublish = Env.getCurrentSystemInfo().getIdToBackend().values();
+            Collection<Backend> nodesToPublish = Env.getCurrentSystemInfo()
+                    .getAllBackendsByAllCluster().values();
             for (Backend be : nodesToPublish) {
                 if (be.isAlive()) {
                     try {
@@ -2071,7 +2072,7 @@ public class StmtExecutor {
 
         // 4. get BE
         TNetworkAddress address = null;
-        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+        for (Backend be : Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values()) {
             if (be.isAlive()) {
                 address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
                 break;
