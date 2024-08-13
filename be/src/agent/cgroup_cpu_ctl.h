@@ -104,12 +104,6 @@ public:
 
     Status delete_unused_cgroup_path(std::set<uint64_t>& used_wg_ids) override;
 
-    // Determines the CGroup cpu cores limit from the current processes' cgroup.
-    static Status find_cgroup_cpu_limit(float* cpu_count);
-
-    // Returns a human-readable string with information about CGroups.
-    static std::string debug_string();
-
 private:
     std::string _cgroup_v1_cpu_query_path;
     std::string _cgroup_v1_cpu_tg_path; // workload group path

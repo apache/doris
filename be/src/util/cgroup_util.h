@@ -35,15 +35,6 @@ class CGroupUtil {
 public:
     enum class CgroupsVersion : uint8_t { V1, V2 };
 
-    // Inherited by cgroup v1 and v2
-    struct ICgroupsReader {
-        virtual ~ICgroupsReader() = default;
-
-        virtual uint64_t read_memory_limit() = 0;
-
-        virtual uint64_t read_memory_usage() = 0;
-    };
-
     // detect if cgroup is enabled
     static bool cgroupsv1_enable();
     static bool cgroupsv2_enable();
@@ -82,8 +73,14 @@ public:
     //   systems existed only for a short transition period.
     static std::optional<std::string> get_cgroupsv2_path(const std::string& subsystem);
 
+    // Cgroup file with only one line of numbers.
     static Status read_int_line_from_cgroup_file(const std::filesystem::path& file_path,
                                                  int64_t* val);
+
+    // Multi-line Cgroup files, format is
+    //   kernel 5
+    //   rss 15
+    //   [...]
     static void read_int_metric_from_cgroup_file(
             const std::filesystem::path& file_path,
             std::unordered_map<std::string, int64_t>& metrics_map);

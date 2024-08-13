@@ -53,7 +53,7 @@ bool cgroupsv2_memory_controller_enabled() {
 #endif
 }
 
-struct CgroupsV1Reader : CGroupUtil::ICgroupsReader {
+struct CgroupsV1Reader : CGroupMemoryCtl::ICgroupsReader {
     explicit CgroupsV1Reader(std::filesystem::path mount_file_dir)
             : _mount_file_dir(std::move(mount_file_dir)) {}
 
@@ -61,9 +61,9 @@ struct CgroupsV1Reader : CGroupUtil::ICgroupsReader {
         int64_t value;
         auto st = CGroupUtil::read_int_line_from_cgroup_file(
                 (_mount_file_dir / "memory.limit_in_bytes"), &value);
-        if (st.ok()) {
+        if (!st.ok()) {
             throw doris::Exception(doris::ErrorCode::END_OF_FILE,
-                                   "Cannot read cgroupv1 memory.limit_in_bytes");
+                                   "Cannot read cgroupv1 memory.limit_in_bytes, " + st.to_string());
         }
         return value;
     }
@@ -79,18 +79,19 @@ private:
     std::filesystem::path _mount_file_dir;
 };
 
-struct CgroupsV2Reader : CGroupUtil::ICgroupsReader {
+struct CgroupsV2Reader : CGroupMemoryCtl::ICgroupsReader {
     explicit CgroupsV2Reader(std::filesystem::path mount_file_dir)
             : _mount_file_dir(std::move(mount_file_dir)) {}
 
     uint64_t read_memory_limit() override {
-        // int64_t value;
-        // auto st = CGroupUtil::read_int_line_from_cgroup_file((_mount_file_dir / "memory.limit_in_bytes"), &value);
-        // if (st.ok()) {
-        //     throw doris::Exception(doris::ErrorCode::END_OF_FILE, "Cannot read cgroupv1 memory.limit_in_bytes");
-        // }
-        // return value;
-        return 0;
+        int64_t value;
+        auto st = CGroupUtil::read_int_line_from_cgroup_file((_mount_file_dir / "memory.max"),
+                                                             &value);
+        if (!st.ok()) {
+            throw doris::Exception(doris::ErrorCode::END_OF_FILE,
+                                   "Cannot read cgroupv2 memory.max, " + st.to_string());
+        }
+        return value;
     }
 
     uint64_t read_memory_usage() override {
@@ -99,9 +100,9 @@ struct CgroupsV2Reader : CGroupUtil::ICgroupsReader {
         // the reason why we subtract it described here: https://github.com/ClickHouse/ClickHouse/issues/64652#issuecomment-2149630667
         auto st = CGroupUtil::read_int_line_from_cgroup_file((_mount_file_dir / "memory.current"),
                                                              &mem_usage);
-        if (st.ok()) {
+        if (!st.ok()) {
             throw doris::Exception(doris::ErrorCode::END_OF_FILE,
-                                   "Cannot read cgroupv2 memory.current");
+                                   "Cannot read cgroupv2 memory.current, " + st.to_string());
         }
         std::unordered_map<std::string, int64_t> metrics_map;
         CGroupUtil::read_int_metric_from_cgroup_file((_mount_file_dir / "memory.stat"),
@@ -135,7 +136,7 @@ std::pair<std::string, CGroupUtil::CgroupsVersion> get_cgroups_path() {
                            "Cannot find cgroups v1 or v2 current memory file");
 }
 
-std::shared_ptr<CGroupUtil::ICgroupsReader> get_cgroups_reader() {
+std::shared_ptr<CGroupMemoryCtl::ICgroupsReader> get_cgroups_reader() {
     const auto [cgroup_path, version] = get_cgroups_path();
 
     if (version == CGroupUtil::CgroupsVersion::V2) {
@@ -150,7 +151,8 @@ Status CGroupMemoryCtl::find_cgroup_mem_limit(int64_t* bytes) {
         *bytes = get_cgroups_reader()->read_memory_limit();
         return Status::OK();
     } catch (const doris::Exception& e) {
-        return Status::IOError(e.to_string());
+        LOG(WARNING) << "Cgroup find_cgroup_mem_limit failed, " << e.to_string();
+        return Status::EndOfFile(e.to_string());
     }
 }
 
@@ -159,7 +161,8 @@ Status CGroupMemoryCtl::find_cgroup_mem_usage(int64_t* bytes) {
         *bytes = get_cgroups_reader()->read_memory_usage();
         return Status::OK();
     } catch (const doris::Exception& e) {
-        return Status::IOError(e.to_string());
+        LOG(WARNING) << "Cgroup find_cgroup_mem_usage failed, " << e.to_string();
+        return Status::EndOfFile(e.to_string());
     }
 }
 

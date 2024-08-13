@@ -21,6 +21,15 @@ namespace doris {
 
 class CGroupMemoryCtl {
 public:
+    // Inherited by cgroup v1 and v2
+    struct ICgroupsReader {
+        virtual ~ICgroupsReader() = default;
+
+        virtual uint64_t read_memory_limit() = 0;
+
+        virtual uint64_t read_memory_usage() = 0;
+    };
+
     // Determines the CGroup memory limit from the current processes' cgroup.
     // If the limit is more than INT64_MAX, INT64_MAX is returned (since that is
     // effectively unlimited anyway). Does not take into account memory limits
