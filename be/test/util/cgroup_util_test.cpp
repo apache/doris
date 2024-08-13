@@ -68,8 +68,8 @@ TEST_F(CGroupUtilTest, ReadMetrics) {
 
 TEST_F(CGroupUtilTest, memlimit) {
     LOG(INFO) << CGroupMemoryCtl::debug_string();
-    uint64_t mem_limit;
-    uint64_t mem_usage;
+    int64_t mem_limit;
+    int64_t mem_usage;
     auto status1 = CGroupMemoryCtl::find_cgroup_mem_limit(&mem_limit);
     auto status2 = CGroupMemoryCtl::find_cgroup_mem_usage(&mem_usage);
     if (CGroupUtil::cgroupsv1_enable() || CGroupUtil::cgroupsv2_enable()) {

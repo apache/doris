@@ -280,7 +280,7 @@ void MemInfo::refresh_proc_meminfo() {
         if (mem_available < 0) {
             mem_available = _s_cgroup_mem_limit - _s_cgroup_mem_usage;
         } else {
-            mem_available = std::min(mem_available, (_s_cgroup_mem_limit - _s_cgroup_mem_usage));
+            mem_available = std::min(mem_available, _s_cgroup_mem_limit - _s_cgroup_mem_usage);
         }
     }
     if (mem_available < 0) {
