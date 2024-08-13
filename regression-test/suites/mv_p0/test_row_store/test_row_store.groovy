@@ -31,10 +31,11 @@ suite ("test_row_store") {
     }
 
     // test ip type with row store
-    sql """ DROP TABLE IF EXISTS ipv6_row; """
-    sql """ CREATE TABLE ipv6_row (
+    sql """ DROP TABLE IF EXISTS ipv_row; """
+    sql """ CREATE TABLE ipv_row (
              `id` int,
-             `ip_v6` ipv6
+             `ip_v6` ipv6,
+             `ip_v4` ipv4
             ) ENGINE=OLAP
             DISTRIBUTED BY HASH(`id`) BUCKETS 4
             PROPERTIES (
@@ -43,6 +44,8 @@ suite ("test_row_store") {
             ); """
 
     // rowstore column can't  make inde
-    sql """ insert into ipv6_row values(2, '2001:16a0:2:200a::2');"""
-    qt_sql """select * from ipv6_row;"""
+    sql """ insert into ipv_row values(2, '2001:16a0:2:200a::2', '192.1.2.0');"""
+    sql """ insert into ipv_row values(1, '::', '0.0.0.0');"""
+    qt_sql """select * from ipv_row where id = 1;"""
+
 }
