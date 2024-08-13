@@ -533,7 +533,7 @@ suite("test_dup_schema_value_modify4", "p0") {
     expectExceptionLike({
         sql initTable
         sql initTableData
-        sql """ alter  table ${tbName1} MODIFY  column j JSON  """
+        sql """ alter  table ${tbName1} MODIFY  column j Map<STRING, INT>  """
         insertSql = "insert into ${tbName1} values(923456689, 'Alice', 8.47, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 700, 'b': 200}, {'a': 700, 'b': 200}); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
