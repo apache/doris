@@ -1993,6 +1993,9 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
         for (auto&& rowset : compaction->input_rowsets()) {
             permits += rowset->rowset_meta()->get_compaction_score();
         }
+    } else {
+        // permits = 0 means that prepare_compaction failed
+        permits = 1;
     }
     return Status::OK();
 }
