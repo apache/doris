@@ -75,7 +75,7 @@ TEST_F(CumulativeCompactionTest, TestConsecutiveVersion) {
     TabletSharedPtr tablet(
             new Tablet(storage_engine, tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
 
-    CumulativeCompaction cumu_compaction(storage_engine, tablet);
+    CumulativeCompaction cumu_compaction(tablet);
 
     {
         std::vector<RowsetSharedPtr> rowsets;
@@ -84,7 +84,8 @@ TEST_F(CumulativeCompactionTest, TestConsecutiveVersion) {
             rowsets.push_back(rs);
         }
         std::vector<Version> missing_version;
-        cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+        Status st = cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+        EXPECT_TRUE(st.OK());
         EXPECT_EQ(rowsets.size(), 8);
         EXPECT_EQ(rowsets.front()->start_version(), 2);
         EXPECT_EQ(rowsets.front()->end_version(), 2);
@@ -113,7 +114,8 @@ TEST_F(CumulativeCompactionTest, TestConsecutiveVersion) {
         }
 
         std::vector<Version> missing_version;
-        cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+        Status st = cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+        EXPECT_TRUE(st.OK());
 
         EXPECT_EQ(rowsets.size(), 5);
         EXPECT_EQ(rowsets.front()->start_version(), 6);
@@ -145,7 +147,8 @@ TEST_F(CumulativeCompactionTest, TestConsecutiveVersion) {
         }
 
         std::vector<Version> missing_version;
-        cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+        Status st = cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+        EXPECT_TRUE(st.OK());
 
         EXPECT_EQ(rowsets.size(), 1);
         EXPECT_EQ(rowsets.front()->start_version(), 2);
@@ -173,7 +176,8 @@ TEST_F(CumulativeCompactionTest, TestConsecutiveVersion) {
         rowsets.push_back(rs);
 
         std::vector<Version> missing_version;
-        cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+        Status st = cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+        EXPECT_TRUE(st.OK());
 
         EXPECT_EQ(rowsets.size(), 2);
         EXPECT_EQ(rowsets.front()->start_version(), 2);
@@ -196,7 +200,9 @@ TEST_F(CumulativeCompactionTest, TestConsecutiveVersion) {
         }
 
         std::vector<Version> missing_version;
-        cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+        Status st = cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+        EXPECT_TRUE(st.OK());
+
         EXPECT_EQ(rowsets.size(), 1);
         EXPECT_EQ(rowsets.front()->start_version(), 2);
         EXPECT_EQ(rowsets.front()->end_version(), 2);
@@ -214,7 +220,9 @@ TEST_F(CumulativeCompactionTest, TestConsecutiveVersion) {
         }
 
         std::vector<Version> missing_version;
-        cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+        Status st = cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+        EXPECT_TRUE(st.OK());
+
         EXPECT_EQ(rowsets.size(), 1);
         EXPECT_EQ(rowsets.front()->start_version(), 2);
         EXPECT_EQ(rowsets.front()->end_version(), 2);
@@ -242,7 +250,8 @@ TEST_F(CumulativeCompactionTest, TestConsecutiveVersion) {
         }
 
         std::vector<Version> missing_version;
-        cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+        Status st = cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+        EXPECT_TRUE(st.OK());
 
         EXPECT_EQ(rowsets.size(), 9);
         EXPECT_EQ(rowsets.front()->start_version(), 12);
