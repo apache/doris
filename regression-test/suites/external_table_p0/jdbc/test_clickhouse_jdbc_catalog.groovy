@@ -84,7 +84,7 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
             contains """QUERY: SELECT "id", "ts" FROM "doris_test"."ts" WHERE ((FROM_UNIXTIME("ts", '%Y%m%d') >= '2022-01-01'))"""
         }
         explain {
-            sql("select * from ts where nvl(ts,null) >= '2022-01-01';")
+            sql("select * from ts where nvl(ts,null) >= '1';")
             contains """QUERY: SELECT "id", "ts" FROM "doris_test"."ts"""
         }
         order_qt_func_push2 """select * from ts where ts <= unix_timestamp(from_unixtime(ts,'yyyyMMdd'));"""

@@ -67,11 +67,13 @@ public class CompoundPredicate extends Predicate {
         if (e2 != null) {
             children.add(e2);
         }
+        printSqlInParens = true;
     }
 
     protected CompoundPredicate(CompoundPredicate other) {
         super(other);
         op = other.op;
+        printSqlInParens = true;
     }
 
     @Override
