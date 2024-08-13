@@ -31,6 +31,23 @@ suite("alter_hdfs_vault", "nonConcurrent") {
         );
     """
 
+    sql """
+        CREATE TABLE IF NOT EXISTS alter_hdfs_vault_tbl (
+                C_CUSTKEY     INTEGER NOT NULL,
+                C_NAME        INTEGER NOT NULL
+                )
+                DUPLICATE KEY(C_CUSTKEY, C_NAME)
+                DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
+                PROPERTIES (
+                "replication_num" = "1",
+                "storage_vault_name" = "alter_hdfs_vault"
+                )
+    """
+
+    sql """
+        insert into alter_hdfs_vault_tbl values("1", "1");
+    """
+
     expectExceptionLike({
         sql """
             ALTER STORAGE VAULT alter_hdfs_vault
@@ -92,4 +109,11 @@ suite("alter_hdfs_vault", "nonConcurrent") {
         }
     }
     assertFalse(exist)
+
+    // failed to insert due to the wrong ak
+    expectExceptionLike({
+        sql """
+            insert into alter_hdfs_vault_tbl values("2", "2");
+        """
+    }, "")
 }

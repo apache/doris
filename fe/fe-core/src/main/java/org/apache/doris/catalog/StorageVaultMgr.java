@@ -143,7 +143,7 @@ public class StorageVaultMgr {
             Cloud.AlterObjStoreInfoRequest.Builder request = Cloud.AlterObjStoreInfoRequest.newBuilder();
             if (type == StorageVaultType.S3) {
                 properties.keySet().stream()
-                        .filter(key -> !S3StorageVault.ALTER_CHECK_PROPERTIES.contains(key))
+                        .filter(key -> !S3StorageVault.ALLOW_ALTER_PROPERTIES.contains(key))
                         .findAny()
                         .ifPresent(key -> {
                             throw new IllegalArgumentException("Alter property " + key + " is not allowed.");
@@ -151,7 +151,7 @@ public class StorageVaultMgr {
                 request.setOp(Operation.ALTER_S3_VAULT);
             } else if (type == StorageVaultType.HDFS) {
                 properties.keySet().stream()
-                        .filter(HdfsStorageVault.ALTER_CHECK_PROPERTIES::contains)
+                        .filter(HdfsStorageVault.FORBID_CHECK_PROPERTIES::contains)
                         .findAny()
                         .ifPresent(key -> {
                             throw new IllegalArgumentException("Alter property " + key + " is not allowed.");

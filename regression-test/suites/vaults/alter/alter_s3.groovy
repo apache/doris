@@ -36,6 +36,23 @@ suite("alter_s3_vault", "nonConcurrent") {
         );
     """
 
+    sql """
+        CREATE TABLE IF NOT EXISTS alter_s3_vault_tbl (
+                C_CUSTKEY     INTEGER NOT NULL,
+                C_NAME        INTEGER NOT NULL
+                )
+                DUPLICATE KEY(C_CUSTKEY, C_NAME)
+                DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
+                PROPERTIES (
+                "replication_num" = "1",
+                "storage_vault_name" = "alter_s3_vault"
+                )
+    """
+
+    sql """
+        insert into alter_s3_vault_tbl values("1", "1");
+    """
+
     expectExceptionLike({
         sql """
             ALTER STORAGE VAULT alter_s3_vault
@@ -95,5 +112,13 @@ suite("alter_s3_vault", "nonConcurrent") {
             assertTrue(vaults_info[i][2].contains(""""s3.access_key" = "new_ak"""""))
         }
     }
-    assertFalse(exist)    
+    assertFalse(exist)
+
+    // failed to insert due to the wrong ak
+    expectExceptionLike({
+        sql """
+            insert into alter_s3_vault_tbl values("2", "2");
+        """
+    }, "")
+
 }

@@ -58,7 +58,7 @@ public class HdfsStorageVault extends StorageVault {
     public static final String HDFS_PREFIX = "hdfs:";
     public static final String HDFS_FILE_PREFIX = "hdfs://";
 
-    public static final HashSet<String> ALTER_CHECK_PROPERTIES = new HashSet<>(Arrays.asList(
+    public static final HashSet<String> FORBID_CHECK_PROPERTIES = new HashSet<>(Arrays.asList(
             VAULT_PATH_PREFIX,
             HADOOP_FS_NAME
     ));
