@@ -70,8 +70,6 @@ PARTITION p20240804 VALUES [('2024-08-04 00:00:00'), ('2024-08-05 00:00:00')))
 DISTRIBUTED BY HASH(`battery_id`) BUCKETS AUTO
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 1",
-"file_cache_ttl_seconds" = "0",
-"is_being_synced" = "false",
 "dynamic_partition.enable" = "true",
 "dynamic_partition.time_unit" = "DAY",
 "dynamic_partition.time_zone" = "Asia/Shanghai",
