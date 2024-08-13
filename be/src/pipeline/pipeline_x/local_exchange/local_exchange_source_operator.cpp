@@ -27,14 +27,6 @@ Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
     SCOPED_TIMER(_init_timer);
     _channel_id = info.task_idx;
     _shared_state->mem_trackers[_channel_id] = _mem_tracker.get();
-    return Status::OK();
-}
-
-Status LocalExchangeSourceLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(Base::open(state));
-
     _exchanger = _shared_state->exchanger.get();
     DCHECK(_exchanger != nullptr);
     _get_block_failed_counter =
