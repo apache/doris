@@ -137,21 +137,24 @@ std::string to_load_error_http_path(const std::string& file_name) {
 using apache::thrift::TException;
 using apache::thrift::transport::TTransportException;
 
-static std::tuple<std::tuple<int64_t, std::unordered_set<TUniqueId>>, bool>
-_do_fetch_running_queries_rpc(const FrontendInfo& fe_info) {
-    auto invalid_res = std::make_tuple(std::make_tuple(0L, std::unordered_set<TUniqueId>()), false);
+static Status _do_fetch_running_queries_rpc(const FrontendInfo& fe_info,
+                                            std::unordered_set<TUniqueId>& query_set) {
     TFetchRunningQueriesResult rpc_result;
     TFetchRunningQueriesRequest rpc_request;
 
     Status client_status;
+    const int32 timeout_ms = 3 * 1000;
     FrontendServiceConnection rpc_client(ExecEnv::GetInstance()->frontend_client_cache(),
-                                         fe_info.info.coordinator_address, &client_status);
+                                         fe_info.info.coordinator_address, timeout_ms,
+                                         &client_status);
     // Abort this fe.
     if (!client_status.ok()) {
         LOG_WARNING("Failed to get client for {}, reason is {}",
                     PrintThriftNetworkAddress(fe_info.info.coordinator_address),
                     client_status.to_string());
-        return invalid_res;
+        return Status::InternalError("Failed to get client for {}, reason is {}",
+                                     PrintThriftNetworkAddress(fe_info.info.coordinator_address),
+                                     client_status.to_string());
     }
 
     // do rpc
@@ -163,7 +166,8 @@ _do_fetch_running_queries_rpc(const FrontendInfo& fe_info) {
             client_status = rpc_client.reopen(config::thrift_rpc_timeout_ms);
             if (!client_status.ok()) {
                 LOG_WARNING("Reopen failed, reason: {}", client_status.to_string_no_stack());
-                return invalid_res;
+                return Status::InternalError("Reopen failed, reason: {}",
+                                             client_status.to_string_no_stack());
             }
 
             rpc_client->fetchRunningQueries(rpc_result, rpc_request);
@@ -172,7 +176,9 @@ _do_fetch_running_queries_rpc(const FrontendInfo& fe_info) {
         // During upgrading cluster or meet any other network error.
         LOG_WARNING("Failed to fetch running queries from {}, reason: {}",
                     PrintThriftNetworkAddress(fe_info.info.coordinator_address), e.what());
-        return invalid_res;
+        return Status::InternalError("Failed to fetch running queries from {}, reason: {}",
+                                     PrintThriftNetworkAddress(fe_info.info.coordinator_address),
+                                     e.what());
     }
 
     // Avoid logic error in frontend.
@@ -180,18 +186,20 @@ _do_fetch_running_queries_rpc(const FrontendInfo& fe_info) {
         LOG_WARNING("Failed to fetch running queries from {}, reason: {}",
                     PrintThriftNetworkAddress(fe_info.info.coordinator_address),
                     doris::to_string(rpc_result.status.status_code));
-        return invalid_res;
+        return Status::InternalError("Failed to fetch running queries from {}, reason: {}",
+                                     PrintThriftNetworkAddress(fe_info.info.coordinator_address),
+                                     doris::to_string(rpc_result.status.status_code));
     }
 
     if (rpc_result.__isset.running_queries == false) {
-        return invalid_res;
+        return Status::InternalError("Failed to fetch running queries from {}, reason: {}",
+                                     PrintThriftNetworkAddress(fe_info.info.coordinator_address),
+                                     "running_queries is not set");
     }
 
-    return std::make_tuple(
-            std::make_tuple(fe_info.info.process_uuid,
-                            std::unordered_set<TUniqueId>(rpc_result.running_queries.begin(),
-                                                          rpc_result.running_queries.end())),
-            true);
+    query_set = std::unordered_set<TUniqueId>(rpc_result.running_queries.begin(),
+                                              rpc_result.running_queries.end());
+    return Status::OK();
 };
 
 static std::map<int64_t, std::unordered_set<TUniqueId>> _get_all_running_queries_from_fe() {
@@ -210,34 +218,15 @@ static std::map<int64_t, std::unordered_set<TUniqueId>> _get_all_running_queries
         }
     }
 
-    std::vector<std::future<std::tuple<std::tuple<int64_t, std::unordered_set<TUniqueId>>, bool>>>
-            futures;
-
     for (const auto& fe_addr : qualified_fes) {
-        // Create another thread to fetch running queries
-        futures.push_back(std::async(std::launch::async, _do_fetch_running_queries_rpc, fe_addr));
-    }
-
-    for (auto& future : futures) {
-        // wait_for at most 3 seconds
-        auto future_status = future.wait_for(std::chrono::seconds(3));
-        if (future_status != std::future_status::ready) {
-            LOG_WARNING("Fetch running queries from frontend timeout");
+        const int64_t process_uuid = fe_addr.info.process_uuid;
+        std::unordered_set<TUniqueId> query_set;
+        Status st = _do_fetch_running_queries_rpc(fe_addr, query_set);
+        if (!st.ok()) {
             // Empty result, cancel worker will not do anything
             return {};
         }
 
-        const auto& process_uuid_query_set_and_valid = future.get();
-        const auto& process_uuid_query_set = std::get<0>(process_uuid_query_set_and_valid);
-        const auto& valid = std::get<1>(process_uuid_query_set_and_valid);
-
-        if (!valid) {
-            // Empty result, cancel worker will not do anything
-            return {};
-        }
-
-        const auto& process_uuid = std::get<0>(process_uuid_query_set);
-        const auto& query_set = std::get<1>(process_uuid_query_set);
         // frontend_info and process_uuid has been checked in rpc threads.
         result[process_uuid] = query_set;
     }
