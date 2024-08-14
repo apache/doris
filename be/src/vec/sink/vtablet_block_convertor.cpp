@@ -202,10 +202,11 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         return ret;
     };
 
-    auto column_ptr = vectorized::check_and_get_column<vectorized::ColumnNullable>(*column);
-    auto& real_column_ptr = column_ptr == nullptr ? column : (column_ptr->get_nested_column_ptr());
-    auto null_map = column_ptr == nullptr ? nullptr : column_ptr->get_null_map_data().data();
-    auto need_to_validate = [&null_map, this](size_t j, size_t row) {
+    const auto* column_ptr = vectorized::check_and_get_column<vectorized::ColumnNullable>(*column);
+    const auto& real_column_ptr =
+            column_ptr == nullptr ? column : (column_ptr->get_nested_column_ptr());
+    const auto* null_map = column_ptr == nullptr ? nullptr : column_ptr->get_null_map_data().data();
+    const auto need_to_validate = [&null_map, this](size_t j, size_t row) {
         return !_filter_map[row] && (null_map == nullptr || null_map[j] == 0);
     };
 
@@ -213,7 +214,7 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {
-        const auto column_string =
+        const auto* column_string =
                 assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
 
         size_t limit = config::string_type_length_soft_limit_bytes;
@@ -222,11 +223,21 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
             limit = std::min(config::string_type_length_soft_limit_bytes, type.len);
         }
 
-        auto* __restrict offsets = column_string->get_offsets().data();
+        const auto* __restrict offsets = column_string->get_offsets().data();
         int invalid_count = 0;
         for (int j = 0; j < row_count; ++j) {
             invalid_count += (offsets[j] - offsets[j - 1]) > limit;
         }
+
+        auto check_column_type = [&]() {
+            const auto& real_column = *real_column_ptr;
+            if (nullptr == dynamic_cast<const vectorized::ColumnString*>(&real_column)) {
+                return Status::InternalError(
+                        "invalid column(#{}) type: {}, expect type: ColumnString, is nereids: {}",
+                        slot_index, demangle(typeid(real_column).name()), state->is_nereids());
+            }
+            return Status::OK();
+        };
 
         if (invalid_count) {
             for (size_t j = 0; j < row_count; ++j) {
@@ -235,6 +246,11 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
                     auto str_val = column_string->get_data_at(j);
                     bool invalid = str_val.size > limit;
                     if (invalid) {
+                        auto st = check_column_type();
+                        if (!st.ok()) {
+                            LOG(WARNING) << "check column type failed: " << st.to_string();
+                            return st;
+                        }
                         if (str_val.size > type.len) {
                             fmt::format_to(error_msg, "{}",
                                            "the length of input is too long than schema. ");
