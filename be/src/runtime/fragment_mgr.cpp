@@ -204,7 +204,7 @@ static std::map<int64_t, std::unordered_set<TUniqueId>> _get_all_running_queries
         }
 
         return std::make_tuple(
-                std::make_tuple(rpc_result.frontend_info.process_uuid,
+                std::make_tuple(fe_info.info.process_uuid,
                                 std::unordered_set<TUniqueId>(rpc_result.running_queries.begin(),
                                                               rpc_result.running_queries.end())),
                 true);
@@ -591,11 +591,13 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 
 static void empty_function(RuntimeState*, Status*) {}
 
-Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
+Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
+                                       const QueryType query_type) {
     return Status::InternalError("Non-pipeline is disabled!");
 }
 
-Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params) {
+Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
+                                       const QueryType query_type) {
     if (params.txn_conf.need_txn) {
         std::shared_ptr<StreamLoadContext> stream_load_ctx =
                 std::make_shared<StreamLoadContext>(_exec_env);
@@ -627,7 +629,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params) {
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx));
         return Status::OK();
     } else {
-        return exec_plan_fragment(params, empty_function);
+        return exec_plan_fragment(params, query_type, empty_function);
     }
 }
 
@@ -769,7 +771,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
     return Status::OK();
 }
 
-Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
+Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, QueryType query_type,
                                        const FinishCallback& cb) {
     return Status::InternalError("Non-pipeline is disabled!");
 }
@@ -811,7 +813,7 @@ std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
     }
 }
 
-Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
+Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params, QueryType query_type,
                                        const FinishCallback& cb) {
     VLOG_ROW << "query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
@@ -1197,7 +1199,7 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     exec_fragment_params.__set_query_options(query_options);
     VLOG_ROW << "external exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(exec_fragment_params).c_str();
-    return exec_plan_fragment(exec_fragment_params);
+    return exec_plan_fragment(exec_fragment_params, QueryType::EXTERNAL_QUERY);
 }
 
 Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
