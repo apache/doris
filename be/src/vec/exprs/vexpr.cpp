@@ -639,7 +639,7 @@ bool VExpr::fast_execute(Block& block, const ColumnNumbers& arguments, size_t re
 std::string VExpr::gen_predicate_result_sign(Block& block, const ColumnNumbers& arguments,
                                              const std::string& function_name) const {
     std::string pred_result_sign;
-    if (this->node_type() == TExprNodeType::FUNCTION_CALL) {
+    if (this->fn().name.function_name == "multi_match") {
         pred_result_sign =
                 BeConsts::BLOCK_TEMP_COLUMN_PREFIX + std::to_string(this->index_unique_id());
     } else {
