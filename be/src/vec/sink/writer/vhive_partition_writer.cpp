@@ -100,25 +100,24 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
                                          to_string(_hive_compress_type));
         }
         }
-        _file_format_transformer.reset(new VParquetTransformer(
+        _file_format_transformer = std::make_unique<VParquetTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names,
                 parquet_compression_type, parquet_disable_dictionary, TParquetVersion::PARQUET_1_0,
-                false));
+                false);
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {
-        _file_format_transformer.reset(
-                new VOrcTransformer(state, _file_writer.get(), _write_output_expr_ctxs, "",
-                                    _write_column_names, false, _hive_compress_type));
+        _file_format_transformer = std::make_unique<VOrcTransformer>(
+                state, _file_writer.get(), _write_output_expr_ctxs, "", _write_column_names, false,
+                _hive_compress_type);
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_CSV_PLAIN: {
         // TODO(syt): support hive csv table, only hive text file is supportted now
-        _file_format_transformer.reset(new VCSVTransformer(
+        _file_format_transformer = std::make_unique<VCSVTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, false, "csv", "",
-                _hive_serde_properties.field_delim, _hive_serde_properties.line_delim, false,
-                _hive_serde_properties.collection_delim, _hive_serde_properties.mapkv_delim,
-                _hive_compress_type, TTextSerdeType::HIVE_TEXT_SERDE));
+                _hive_serde_properties->field_delim, _hive_serde_properties->line_delim, false,
+                _hive_compress_type, _hive_serde_properties);
         return _file_format_transformer->open();
     }
     default: {

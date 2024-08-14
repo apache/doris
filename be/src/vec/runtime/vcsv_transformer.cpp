@@ -44,19 +44,15 @@ VCSVTransformer::VCSVTransformer(RuntimeState* state, doris::io::FileWriter* fil
                                  bool output_object_data, std::string_view header_type,
                                  std::string_view header, std::string_view column_separator,
                                  std::string_view line_delimiter, bool with_bom,
-                                 std::string_view collection_delimiter,
-                                 std::string_view mapkv_delimiter,
                                  TFileCompressType::type compress_type,
-                                 TTextSerdeType::type text_serde_type)
+                                 const THiveSerDeProperties* hive_serde_properties)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _column_separator(column_separator),
           _line_delimiter(line_delimiter),
-          _collection_delimiter(collection_delimiter),
-          _mapkv_delimiter(mapkv_delimiter),
           _file_writer(file_writer),
           _with_bom(with_bom),
           _compress_type(compress_type),
-          _text_serde_type(text_serde_type) {
+          _is_text_format(hive_serde_properties != nullptr) {
     if (!header.empty()) {
         _csv_header = header;
         if (header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
@@ -66,12 +62,11 @@ VCSVTransformer::VCSVTransformer(RuntimeState* state, doris::io::FileWriter* fil
         _csv_header = "";
     }
 
-    if (!_collection_delimiter.empty()) {
-        _options.collection_delim = _collection_delimiter[0];
-    }
-
-    if (!_mapkv_delimiter.empty()) {
-        _options.map_key_delim = _mapkv_delimiter[0];
+    if (_is_text_format) {
+        _options.collection_delim = hive_serde_properties->collection_delim[0];
+        _options.map_key_delim = hive_serde_properties->mapkv_delim[0];
+        _options.escape_char = hive_serde_properties->escape_char[0];
+        _options.null_format = hive_serde_properties->null_format.c_str();
     }
 }
 
@@ -110,18 +105,12 @@ Status VCSVTransformer::write(const Block& block) {
             if (col_id != 0) {
                 buffer_writer.write(_column_separator.data(), _column_separator.size());
             }
-            Status st;
-            switch (_text_serde_type) {
-            case TTextSerdeType::JSON_TEXT_SERDE:
-                st = _serdes[col_id]->serialize_one_cell_to_json(
-                        *(block.get_by_position(col_id).column), i, buffer_writer, _options);
-
-                break;
-            case TTextSerdeType::HIVE_TEXT_SERDE:
-                st = _serdes[col_id]->serialize_one_cell_to_hive_text(
-                        *(block.get_by_position(col_id).column), i, buffer_writer, _options);
-                break;
-            }
+            Status st = _is_text_format ? _serdes[col_id]->serialize_one_cell_to_hive_text(
+                                                  *(block.get_by_position(col_id).column), i,
+                                                  buffer_writer, _options)
+                                        : _serdes[col_id]->serialize_one_cell_to_json(
+                                                  *(block.get_by_position(col_id).column), i,
+                                                  buffer_writer, _options);
             if (!st.ok()) {
                 // VectorBufferWriter must do commit before deconstruct,
                 // or it may throw DCHECK failure.
