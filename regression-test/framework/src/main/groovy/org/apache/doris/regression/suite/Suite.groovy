@@ -1466,10 +1466,12 @@ class Suite implements GroovyInterceptable {
         PROPERTIES ('replication_num' = '1') 
         AS ${mv_sql}
         """
-        sql "analyze table ${mv_name} with sync;"
-        
+
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
+
+        sql "analyze table ${mv_name} with sync;"
+
         explain {
             sql("${query_sql}")
             contains("${mv_name}(${mv_name})")
@@ -1486,10 +1488,11 @@ class Suite implements GroovyInterceptable {
         PROPERTIES ('replication_num' = '1') 
         AS ${mv_sql}
         """
-        sql "analyze table ${mv_name} with sync;"
-        
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
+
+        sql "analyze table ${mv_name} with sync;"
+
         explain {
             sql(" memo plan ${query_sql}")
             contains("+--PhysicalOlapScan[${mv_name}]@")
@@ -1509,6 +1512,9 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
+
+        sql "analyze table ${mv_name} with sync;"
+
         explain {
             sql("${query_sql}")
             check {result ->
