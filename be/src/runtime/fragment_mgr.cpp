@@ -71,7 +71,6 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/primitive_type.h"
 #include "runtime/query_context.h"
-#include "runtime/query_type.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
@@ -138,6 +137,63 @@ std::string to_load_error_http_path(const std::string& file_name) {
 using apache::thrift::TException;
 using apache::thrift::transport::TTransportException;
 
+static std::tuple<std::tuple<int64_t, std::unordered_set<TUniqueId>>, bool>
+_do_fetch_running_queries_rpc(const FrontendInfo& fe_info) {
+    auto invalid_res = std::make_tuple(std::make_tuple(0L, std::unordered_set<TUniqueId>()), false);
+    TFetchRunningQueriesResult rpc_result;
+    TFetchRunningQueriesRequest rpc_request;
+
+    Status client_status;
+    FrontendServiceConnection rpc_client(ExecEnv::GetInstance()->frontend_client_cache(),
+                                         fe_info.info.coordinator_address, &client_status);
+    // Abort this fe.
+    if (!client_status.ok()) {
+        LOG_WARNING("Failed to get client for {}, reason is {}",
+                    PrintThriftNetworkAddress(fe_info.info.coordinator_address),
+                    client_status.to_string());
+        return invalid_res;
+    }
+
+    // do rpc
+    try {
+        try {
+            rpc_client->fetchRunningQueries(rpc_result, rpc_request);
+        } catch (const apache::thrift::transport::TTransportException& e) {
+            LOG_WARNING("Transport exception reason: {}, reopening", e.what());
+            client_status = rpc_client.reopen(config::thrift_rpc_timeout_ms);
+            if (!client_status.ok()) {
+                LOG_WARNING("Reopen failed, reason: {}", client_status.to_string_no_stack());
+                return invalid_res;
+            }
+
+            rpc_client->fetchRunningQueries(rpc_result, rpc_request);
+        }
+    } catch (apache::thrift::TException& e) {
+        // During upgrading cluster or meet any other network error.
+        LOG_WARNING("Failed to fetch running queries from {}, reason: {}",
+                    PrintThriftNetworkAddress(fe_info.info.coordinator_address), e.what());
+        return invalid_res;
+    }
+
+    // Avoid logic error in frontend.
+    if (rpc_result.__isset.status == false || rpc_result.status.status_code != TStatusCode::OK) {
+        LOG_WARNING("Failed to fetch running queries from {}, reason: {}",
+                    PrintThriftNetworkAddress(fe_info.info.coordinator_address),
+                    doris::to_string(rpc_result.status.status_code));
+        return invalid_res;
+    }
+
+    if (rpc_result.__isset.running_queries == false) {
+        return invalid_res;
+    }
+
+    return std::make_tuple(
+            std::make_tuple(fe_info.info.process_uuid,
+                            std::unordered_set<TUniqueId>(rpc_result.running_queries.begin(),
+                                                          rpc_result.running_queries.end())),
+            true);
+};
+
 static std::map<int64_t, std::unordered_set<TUniqueId>> _get_all_running_queries_from_fe() {
     const std::map<TNetworkAddress, FrontendInfo>& running_fes =
             ExecEnv::GetInstance()->get_running_frontends();
@@ -150,73 +206,16 @@ static std::map<int64_t, std::unordered_set<TUniqueId>> _get_all_running_queries
         if (fe.first.port != 0 && fe.second.info.process_uuid != 0) {
             qualified_fes.push_back(fe.second);
         } else {
-            return std::map<int64_t, std::unordered_set<TUniqueId>>();
+            return {};
         }
     }
-
-    auto fetch_running_queries_rpc = [](const FrontendInfo& fe_info) {
-        TFetchRunningQueriesResult rpc_result;
-        TFetchRunningQueriesRequest rpc_request;
-
-        Status client_status;
-        FrontendServiceConnection rpc_client(ExecEnv::GetInstance()->frontend_client_cache(),
-                                             fe_info.info.coordinator_address, &client_status);
-        // Abort this fe.
-        if (!client_status.ok()) {
-            LOG_WARNING("Failed to get client for {}, reason is {}",
-                        PrintThriftNetworkAddress(fe_info.info.coordinator_address),
-                        client_status.to_string());
-            return std::make_tuple(std::make_tuple(0L, std::unordered_set<TUniqueId>()), false);
-        }
-
-        // do rpc
-        try {
-            try {
-                rpc_client->fetchRunningQueries(rpc_result, rpc_request);
-            } catch (const apache::thrift::transport::TTransportException& e) {
-                LOG_WARNING("Transport exception reason: {}, reopening", e.what());
-                client_status = rpc_client.reopen(config::thrift_rpc_timeout_ms);
-                if (!client_status.ok()) {
-                    LOG_WARNING("Reopen failed, reason: {}", client_status.to_string_no_stack());
-                    return std::make_tuple(std::make_tuple(0L, std::unordered_set<TUniqueId>()),
-                                           false);
-                }
-
-                rpc_client->fetchRunningQueries(rpc_result, rpc_request);
-            }
-        } catch (apache::thrift::TException& e) {
-            // During upgrading cluster or meet any other network error.
-            LOG_WARNING("Failed to fetch running queries from {}, reason: {}",
-                        PrintThriftNetworkAddress(fe_info.info.coordinator_address), e.what());
-            return std::make_tuple(std::make_tuple(0L, std::unordered_set<TUniqueId>()), false);
-        }
-
-        // Avoid logic error in frontend.
-        if (rpc_result.__isset.status == false ||
-            rpc_result.status.status_code != TStatusCode::OK) {
-            LOG_WARNING("Failed to fetch running queries from {}, reason: {}",
-                        PrintThriftNetworkAddress(fe_info.info.coordinator_address),
-                        doris::to_string(rpc_result.status.status_code));
-            return std::make_tuple(std::make_tuple(0L, std::unordered_set<TUniqueId>()), false);
-        }
-
-        if (rpc_result.__isset.running_queries == false) {
-            return std::make_tuple(std::make_tuple(0L, std::unordered_set<TUniqueId>()), false);
-        }
-
-        return std::make_tuple(
-                std::make_tuple(fe_info.info.process_uuid,
-                                std::unordered_set<TUniqueId>(rpc_result.running_queries.begin(),
-                                                              rpc_result.running_queries.end())),
-                true);
-    };
 
     std::vector<std::future<std::tuple<std::tuple<int64_t, std::unordered_set<TUniqueId>>, bool>>>
             futures;
 
     for (const auto& fe_addr : qualified_fes) {
         // Create another thread to fetch running queries
-        futures.push_back(std::async(std::launch::async, fetch_running_queries_rpc, fe_addr));
+        futures.push_back(std::async(std::launch::async, _do_fetch_running_queries_rpc, fe_addr));
     }
 
     for (auto& future : futures) {
@@ -593,12 +592,12 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 static void empty_function(RuntimeState*, Status*) {}
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
-                                       const QuerySource query_type) {
+                                       const QuerySource query_source) {
     return Status::InternalError("Non-pipeline is disabled!");
 }
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
-                                       const QuerySource query_type) {
+                                       const QuerySource query_source) {
     if (params.txn_conf.need_txn) {
         std::shared_ptr<StreamLoadContext> stream_load_ctx =
                 std::make_shared<StreamLoadContext>(_exec_env);
@@ -630,7 +629,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx));
         return Status::OK();
     } else {
-        return exec_plan_fragment(params, query_type, empty_function);
+        return exec_plan_fragment(params, query_source, empty_function);
     }
 }
 
@@ -1031,8 +1030,7 @@ void FragmentMgr::cancel_worker() {
                                 queries_pipeline_task_leak.push_back(q_ctx->query_id());
                                 LOG_INFO(
                                         "Query {}, type {} is not found on any frontends, maybe it "
-                                        "is "
-                                        "leaked.",
+                                        "is leaked.",
                                         print_id(q_ctx->query_id()),
                                         toString(q_ctx->get_query_source()));
                                 continue;

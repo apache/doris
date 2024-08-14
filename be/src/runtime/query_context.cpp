@@ -55,6 +55,23 @@ public:
     std::unique_ptr<ThreadPoolToken> token_;
 };
 
+const std::string toString(QuerySource queryType) {
+    switch (queryType) {
+    case QuerySource::INTERNAL_FRONTEND:
+        return "INTERNAL_FRONTEND";
+    case QuerySource::STREAM_LOAD:
+        return "STREAM_LOAD";
+    case QuerySource::GROUP_COMMIT_LOAD:
+        return "EXTERNAL_QUERY";
+    case QuerySource::ROUTINE_LOAD:
+        return "ROUTINE_LOAD";
+    case QuerySource::SPARK_CONNECTOR:
+        return "SPARK_CONNECTOR";
+    default:
+        return "UNKNOWN";
+    }
+}
+
 QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
                            const TQueryOptions& query_options, TNetworkAddress coord_addr,
                            bool is_pipeline, bool is_nereids, TNetworkAddress current_connect_fe,

@@ -33,7 +33,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/query_statistics.h"
-#include "runtime/query_type.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
 #include "util/hash_util.hpp"
@@ -63,6 +62,16 @@ struct ReportStatusRequest {
     RuntimeState* runtime_state;
     std::function<void(const Status&)> cancel_fn;
 };
+
+enum class QuerySource {
+    INTERNAL_FRONTEND,
+    STREAM_LOAD,
+    GROUP_COMMIT_LOAD,
+    ROUTINE_LOAD,
+    SPARK_CONNECTOR // TODO: Find the entry point of spark connector
+};
+
+const std::string toString(QuerySource query_source);
 
 // Save the common components of fragments in a query.
 // Some components like DescriptorTbl may be very large
