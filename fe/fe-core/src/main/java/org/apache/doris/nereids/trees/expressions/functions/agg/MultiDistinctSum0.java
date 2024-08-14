@@ -25,24 +25,15 @@ import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForS
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /** MultiDistinctSum0 */
 public class MultiDistinctSum0 extends AggregateFunction implements UnaryExpression,
         ExplicitlyCastableSignature, ComputePrecisionForSum, MultiDistinction, AlwaysNotNullable {
-
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(BigIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(DoubleType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(LargeIntType.INSTANCE)
-    );
 
     private final boolean mustUseMultiDistinctAgg;
 
@@ -61,8 +52,10 @@ public class MultiDistinctSum0 extends AggregateFunction implements UnaryExpress
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (child().getDataType().isDateLikeType()) {
-            throw new AnalysisException("Sum0 in multi distinct functions do not support Date/Datetime type");
+        DataType argType = child().getDataType();
+        if ((!argType.isNumericType() && !argType.isBooleanType() && !argType.isNullType())
+                || argType.isOnlyMetricType()) {
+            throw new AnalysisException("sum0 requires a numeric or boolean parameter: " + this.toSql());
         }
     }
 
