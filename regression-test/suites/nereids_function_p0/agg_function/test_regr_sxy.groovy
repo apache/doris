@@ -18,7 +18,7 @@
 suite("test_regr_sxy") {
     sql """ DROP TABLE IF EXISTS test_regr_sxy_int """
     sql """ DROP TABLE IF EXISTS test_regr_sxy_double """
-    sql """ DROP TABLE IF EXISTS test_regr_sxy_nullalble_col """
+    sql """ DROP TABLE IF EXISTS test_regr_sxy_nullable_col """
 
 
     sql """ SET enable_nereids_planner=true """
@@ -49,7 +49,7 @@ suite("test_regr_sxy") {
         );
         """
     sql """
-        CREATE TABLE test_regr_sxy_nullalble_col (
+        CREATE TABLE test_regr_sxy_nullable_col (
           `id` int,
           `x` int,
           `y` int,
@@ -83,7 +83,7 @@ suite("test_regr_sxy") {
         """
 
     sql """
-        insert into test_regr_sxy_nullalble_col values
+        insert into test_regr_sxy_nullable_col values
         (1, 18, 13),
         (2, 14, 27),
         (3, 5, 7),
@@ -92,6 +92,11 @@ suite("test_regr_sxy") {
 
     // value is null
     sql """select regr_sxy(NULL, NULL);"""
+
+    // literal and column
+    qt_sql "select regr_sxy(4,x) from test_regr_sxy_int"
+
+    qt_sql "select regr_sxy(y,10) from test_regr_sxy_int"
 
     // value is literal and columns
     qt_sql "select regr_sxy(y,20) from test_regr_sxy_int"
@@ -110,14 +115,14 @@ suite("test_regr_sxy") {
     sql """ truncate table test_regr_sxy_double """
 
     // nullable and non_nullable
-    qt_sql "select regr_sxy(y,non_nullable(x)) from test_regr_sxy_nullalble_col"
+    qt_sql "select regr_sxy(y,non_nullable(x)) from test_regr_sxy_nullable_col"
 
     // non_nullable and nullable
-    qt_sql "select regr_sxy(non_nullable(y),x) from test_regr_sxy_nullalble_col"
+    qt_sql "select regr_sxy(non_nullable(y),x) from test_regr_sxy_nullable_col"
     
     // non_nullable and non_nullable
-    qt_sql "select regr_sxy(non_nullable(y),non_nullable(x)) from test_regr_sxy_nullalble_col"
-    sql """ truncate table test_regr_sxy_nullalble_col """
+    qt_sql "select regr_sxy(non_nullable(y),non_nullable(x)) from test_regr_sxy_nullable_col"
+    sql """ truncate table test_regr_sxy_nullable_col """
 
     // exception test
 	test{

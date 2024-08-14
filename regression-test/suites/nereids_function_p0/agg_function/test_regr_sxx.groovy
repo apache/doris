@@ -18,7 +18,7 @@
 suite("test_regr_sxx") {
     sql """ DROP TABLE IF EXISTS test_regr_sxx_int """
     sql """ DROP TABLE IF EXISTS test_regr_sxx_double """
-    sql """ DROP TABLE IF EXISTS test_regr_sxx_nullalble_col """
+    sql """ DROP TABLE IF EXISTS test_regr_sxx_nullable_col """
 
 
     sql """ SET enable_nereids_planner=true """
@@ -49,7 +49,7 @@ suite("test_regr_sxx") {
         );
         """
     sql """
-        CREATE TABLE test_regr_sxx_nullalble_col (
+        CREATE TABLE test_regr_sxx_nullable_col (
           `id` int,
           `x` int,
           `y` int,
@@ -83,7 +83,7 @@ suite("test_regr_sxx") {
         """
 
     sql """
-        insert into test_regr_sxx_nullalble_col values
+        insert into test_regr_sxx_nullable_col values
         (1, 18, 13),
         (2, 14, 27),
         (3, 5, 7),
@@ -95,7 +95,9 @@ suite("test_regr_sxx") {
 
     // parameter is literal and columns
     qt_sql "select regr_sxx(10,x) from test_regr_sxx_int"
-    sql """ truncate table test_regr_sxx_int """
+
+    // literal and column
+    qt_sql "select regr_sxx(4,x) from test_regr_sxx_int"
 
     // int value
     qt_sql "select regr_sxx(y,x) from test_regr_sxx_int"
@@ -106,34 +108,36 @@ suite("test_regr_sxx") {
     sql """ truncate table test_regr_sxx_double """
 
     // nullable and non_nullable
-    qt_sql "select regr_sxx(y,non_nullable(x)) from test_regr_sxx_nullalble_col"
+    qt_sql "select regr_sxx(y,non_nullable(x)) from test_regr_sxx_nullable_col"
 
     // non_nullable and nullable
-    qt_sql "select regr_sxx(non_nullable(y),x) from test_regr_sxx_nullalble_col"
+    qt_sql "select regr_sxx(non_nullable(y),x) from test_regr_sxx_nullable_col"
     
     // non_nullable and non_nullable
-    qt_sql "select regr_sxx(non_nullable(y),non_nullable(x)) from test_regr_sxx_nullalble_col"
-    sql """ truncate table test_regr_sxx_nullalble_col """
+    qt_sql "select regr_sxx(non_nullable(y),non_nullable(x)) from test_regr_sxx_nullable_col"
+    sql """ truncate table test_regr_sxx_nullable_col """
+
+
 
     // exception test
-	test{
-		sql """select regr_sxx('range', 1);"""
-		exception "regr_sxx requires numeric for first parameter"
-	}
+    test{
+      sql """select regr_sxx('range', 1);"""
+      exception "regr_sxx requires numeric for first parameter"
+    }
 
-    test{
-		sql """select regr_sxx(1, 'hello');"""
-		exception "regr_sxx requires numeric for second parameter"
-	}
-    
-    test{
-		sql """select regr_sxx(y, 'hello') from test_regr_sxx_int;"""
-		exception "regr_sxx requires numeric for second parameter"
-	}
+      test{
+      sql """select regr_sxx(1, 'hello');"""
+      exception "regr_sxx requires numeric for second parameter"
+    }
+      
+      test{
+      sql """select regr_sxx(y, 'hello') from test_regr_sxx_int;"""
+      exception "regr_sxx requires numeric for second parameter"
+    }
 
-    test{
-		sql """select regr_sxx(1, true);"""
-		exception "regr_sxx requires numeric for second parameter"
-	}
+      test{
+      sql """select regr_sxx(1, true);"""
+      exception "regr_sxx requires numeric for second parameter"
+    }
 
 }
