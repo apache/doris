@@ -128,24 +128,20 @@ public class IngestionLoadJob extends LoadJob {
 
     public static final Logger LOG = LogManager.getLogger(IngestionLoadJob.class);
 
-    private long etlStartTimestamp = -1;
-
-    private long quorumFinishTimestamp = -1;
-
-    private List<Long> loadTableIds = new ArrayList<>();
-
     @Setter
     @SerializedName("ests")
     private EtlStatus etlStatus;
-
-    private final Map<Long, Set<Long>> tableToLoadPartitions = Maps.newHashMap();
-
-    private final Map<Long, Map<Long, PushTask>> tabletToSentReplicaPushTask = Maps.newHashMap();
 
     // members below updated when job state changed to loading
     // { tableId.partitionId.indexId.bucket.schemaHash -> (etlFilePath, etlFileSize) }
     @SerializedName(value = "tm2fi")
     private final Map<String, Pair<String, Long>> tabletMetaToFileInfo = Maps.newHashMap();
+
+    @SerializedName(value = "hp")
+    private final Map<String, String> hadoopProperties = new HashMap<>();
+
+    @SerializedName(value = "i2sv")
+    private final Map<Long, Integer> indexToSchemaVersion = new HashMap<>();
 
     private final Map<Long, Integer> indexToSchemaHash = Maps.newHashMap();
 
@@ -157,11 +153,15 @@ public class IngestionLoadJob extends LoadJob {
 
     private final List<TabletCommitInfo> commitInfos = Lists.newArrayList();
 
-    @SerializedName(value = "hp")
-    private final Map<String, String> hadoopProperties = new HashMap<>();
+    private final Map<Long, Set<Long>> tableToLoadPartitions = Maps.newHashMap();
 
-    @SerializedName(value = "i2sv")
-    private final Map<Long, Integer> indexToSchemaVersion = new HashMap<>();
+    private final Map<Long, Map<Long, PushTask>> tabletToSentReplicaPushTask = Maps.newHashMap();
+
+    private long etlStartTimestamp = -1;
+
+    private long quorumFinishTimestamp = -1;
+
+    private List<Long> loadTableIds = new ArrayList<>();
 
     public IngestionLoadJob() {
         super(EtlJobType.INGESTION);
