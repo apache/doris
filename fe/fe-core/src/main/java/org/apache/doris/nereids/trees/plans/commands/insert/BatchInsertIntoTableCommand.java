@@ -160,9 +160,10 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
                         targetTable.getName(), targetSchema,
                         ImmutableList.of(
                                 reorderOneRowData(sink.getOutputExprs(), oneRowRelation.get().getProjects())));
+                return;
             }
-            return;
             // TODO: update error msg
+            throw new AnalysisException("could not run this sql");
         } finally {
             targetTableIf.readUnlock();
         }
