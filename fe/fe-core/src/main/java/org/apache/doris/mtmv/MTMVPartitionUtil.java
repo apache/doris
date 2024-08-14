@@ -539,14 +539,20 @@ public class MTMVPartitionUtil {
         return res;
     }
 
-    private static Map<Long, Long> getTableVersions(MTMV mtmv) throws AnalysisException {
+    private static Map<Long, Long> getTableVersions(MTMV mtmv) {
         Map<Long, Long> res = Maps.newHashMap();
         if (mtmv.getRelation() == null || mtmv.getRelation().getBaseTablesOneLevel() == null) {
             return res;
         }
         List<OlapTable> olapTables = Lists.newArrayList();
         for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTablesOneLevel()) {
-            TableIf table = MTMVUtil.getTable(baseTableInfo);
+            TableIf table = null;
+            try {
+                table = MTMVUtil.getTable(baseTableInfo);
+            } catch (AnalysisException e) {
+                LOG.info(e);
+                continue;
+            }
             if (table instanceof OlapTable) {
                 olapTables.add((OlapTable) table);
             }
