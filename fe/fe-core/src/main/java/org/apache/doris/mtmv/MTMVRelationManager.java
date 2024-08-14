@@ -187,7 +187,7 @@ public class MTMVRelationManager implements MTMVHookService {
      */
     @Override
     public void registerMTMV(MTMV mtmv, Long dbId) {
-        refreshMTMVCache(mtmv.getRelation(), new BaseTableInfo(mtmv));
+        refreshMTMVCache(mtmv.getRelation(), new BaseTableInfo(mtmv, dbId));
     }
 
     /**

@@ -18,8 +18,10 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.base.Objects;
 import com.google.gson.annotations.SerializedName;
@@ -61,6 +63,17 @@ public class BaseTableInfo {
         this.tableName = table.getName();
         this.dbName = database.getFullName();
         this.ctlName = catalog.getName();
+    }
+
+    // for replay MTMV, can not use  `table.getDatabase();`,because database not added to catalog
+    public BaseTableInfo(OlapTable table, long dbId) {
+        java.util.Objects.requireNonNull(table, "table is null");
+        this.tableId = table.getId();
+        this.dbId = dbId;
+        this.ctlId = InternalCatalog.INTERNAL_CATALOG_ID;
+        this.tableName = table.getName();
+        this.dbName = table.getDBName();
+        this.ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
     }
 
     public String getTableName() {
