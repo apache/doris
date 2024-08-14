@@ -16,6 +16,8 @@
 // under the License.
 
 import groovy.json.JsonSlurper
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 suite("test_arrayInvertedIdx_profile", "nonConcurrent"){
     // prepare test table
@@ -47,7 +49,14 @@ suite("test_arrayInvertedIdx_profile", "nonConcurrent"){
         }
         log.info("profileId:{}", profileId);
         def profileDetail = httpGet("/rest/v1/query_profile/" + profileId)
-        assertTrue(profileDetail.contains("RowsInvertedIndexFiltered:&nbsp;&nbsp;" + expectedRowsInvertedIndexFiltered))
+        String regex = "RowsInvertedIndexFiltered:&nbsp;&nbsp;(\\d+)"
+        Pattern pattern = Pattern.compile(regex)
+        Matcher matcher = pattern.matcher(profileDetail)
+    	while (matcher.find()) {
+        	int number = Integer.parseInt(matcher.group(1))
+                log.info("filter number:{}", number)
+                assertEquals(expectedRowsInvertedIndexFiltered, number)
+    	}
     }
 
     // If we use common expr pass to inverted index , we should set enable_common_expr_pushdown = true
@@ -92,27 +101,28 @@ suite("test_arrayInvertedIdx_profile", "nonConcurrent"){
     def checkpoints_name = "array_func.array_contains"
     try {
         GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [result_bitmap: 1])
-        order_qt_sql "select * from tai where array_contains(inventors, 'w') order by id;"
+        order_qt_sql "select * from taip where array_contains(inventors, 'w') order by id;"
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs(checkpoints_name)
     }
 
-    checkRowsInvertedIndexFilter.call("select * from tai where array_contains(inventors, 'w') order by id;", 1)
+    checkRowsInvertedIndexFilter.call("select * from taip where array_contains(inventors, 'w') order by id;", 6)
 
     try {
         GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [result_bitmap: 1])
-         order_qt_sql """ select * from tai where array_contains(inventors, 's') and apply_date = '2017-01-01' order by id; """
+         order_qt_sql """ select * from taip where array_contains(inventors, 's') and apply_date = '2017-01-01' order by id; """
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs(checkpoints_name)
     }
-    checkRowsInvertedIndexFilter.call("select * from tai where array_contains(inventors, 's') and apply_date = '2017-01-01' order by id", 1)
+    // and apply_date will be vectorized filter left is 6 rows for inverted index
+    checkRowsInvertedIndexFilter.call("select * from taip where array_contains(inventors, 's') and apply_date = '2017-01-01' order by id", 5)
 
-    order_qt_sql """ select * from tai where array_contains(inventors, 's') and apply_date = '2019-01-01' order by id; """
+    order_qt_sql """ select * from taip where array_contains(inventors, 's') and apply_date = '2019-01-01' order by id; """
 
-    order_qt_sql """ select * from tai where array_contains(inventors, 's') or apply_date = '2017-01-01' order by id; """
-    order_qt_sql """ select * from tai where !array_contains(inventors, 's') order by id; """
-    order_qt_sql """ select * from tai where !array_contains(inventors, 's') and apply_date = '2017-01-01' order by id; """
-    order_qt_sql """ select * from tai where !array_contains(inventors, 's') and apply_date = '2019-01-01' order by id; """
-    order_qt_sql """ select * from tai where !array_contains(inventors, 's') or apply_date = '2017-01-01' order by id; """
-    order_qt_sql """ select * from tai where (array_contains(inventors, 's') and apply_date = '2017-01-01') or apply_date = '2019-01-01' order by id; """
+    order_qt_sql """ select * from taip where array_contains(inventors, 's') or apply_date = '2017-01-01' order by id; """
+    order_qt_sql """ select * from taip where !array_contains(inventors, 's') order by id; """
+    order_qt_sql """ select * from taip where !array_contains(inventors, 's') and apply_date = '2017-01-01' order by id; """
+    order_qt_sql """ select * from taip where !array_contains(inventors, 's') and apply_date = '2019-01-01' order by id; """
+    order_qt_sql """ select * from taip where !array_contains(inventors, 's') or apply_date = '2017-01-01' order by id; """
+    order_qt_sql """ select * from taip where (array_contains(inventors, 's') and apply_date = '2017-01-01') or apply_date = '2019-01-01' order by id; """
 }
