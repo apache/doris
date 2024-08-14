@@ -23,6 +23,8 @@
 #include <hdfs/hdfs.h> // IWYU pragma: export
 #endif
 
+#include <stdarg.h>
+
 #include "recycler/storage_vault_accessor.h"
 
 namespace doris::cloud {
