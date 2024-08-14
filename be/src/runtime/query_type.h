@@ -20,7 +20,7 @@
 #include <string>
 
 namespace doris {
-enum class QuerySource { INTERNAL_FRONTEND, STREAM_LOAD, GROUP_COMMIT_LOAD, ROUTINE_LOAD };
+enum class QUERY_SOURCE { INTERNAL_FRONTEND, STREAM_LOAD, GROUP_COMMIT_LOAD, ROUTINE_LOAD };
 
-const std::string toString(QuerySource queryType);
+const std::string toString(QUERY_SOURCE query_source);
 } // namespace doris

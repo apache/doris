@@ -515,10 +515,10 @@ Status PInternalService::_exec_plan_fragment_impl(
         }
         if (cb) {
             return _exec_env->fragment_mgr()->exec_plan_fragment(
-                    t_request, QuerySource::INTERNAL_FRONTEND, cb);
+                    t_request, QUERY_SOURCE::INTERNAL_FRONTEND, cb);
         } else {
             return _exec_env->fragment_mgr()->exec_plan_fragment(t_request,
-                                                                 QuerySource::INTERNAL_FRONTEND);
+                                                                 QUERY_SOURCE::INTERNAL_FRONTEND);
         }
     } else if (version == PFragmentRequestVersion::VERSION_2) {
         TExecPlanFragmentParamsList t_request;
@@ -534,10 +534,10 @@ Status PInternalService::_exec_plan_fragment_impl(
         for (const TExecPlanFragmentParams& params : t_request.paramsList) {
             if (cb) {
                 RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
-                        params, QuerySource::INTERNAL_FRONTEND, cb));
+                        params, QUERY_SOURCE::INTERNAL_FRONTEND, cb));
             } else {
                 RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
-                        params, QuerySource::INTERNAL_FRONTEND));
+                        params, QUERY_SOURCE::INTERNAL_FRONTEND));
             }
         }
 
@@ -567,10 +567,10 @@ Status PInternalService::_exec_plan_fragment_impl(
         for (const TPipelineFragmentParams& fragment : fragment_list) {
             if (cb) {
                 RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
-                        fragment, QuerySource::INTERNAL_FRONTEND, cb));
+                        fragment, QUERY_SOURCE::INTERNAL_FRONTEND, cb));
             } else {
                 RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
-                        fragment, QuerySource::INTERNAL_FRONTEND));
+                        fragment, QUERY_SOURCE::INTERNAL_FRONTEND));
             }
         }
         timer.stop();

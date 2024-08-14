@@ -58,7 +58,7 @@ public:
 QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
                            const TQueryOptions& query_options, TNetworkAddress coord_addr,
                            bool is_pipeline, bool is_nereids, TNetworkAddress current_connect_fe,
-                           QuerySource query_source)
+                           QUERY_SOURCE query_source)
         : _timeout_second(-1),
           _query_id(query_id),
           _exec_env(exec_env),

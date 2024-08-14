@@ -74,7 +74,7 @@ class QueryContext {
 public:
     QueryContext(TUniqueId query_id, ExecEnv* exec_env, const TQueryOptions& query_options,
                  TNetworkAddress coord_addr, bool is_pipeline, bool is_nereids,
-                 TNetworkAddress current_connect_fe, QuerySource query_type);
+                 TNetworkAddress current_connect_fe, QUERY_SOURCE query_type);
 
     ~QueryContext();
 
@@ -314,7 +314,7 @@ private:
     timespec _query_arrival_timestamp;
     // Distinguish the query source, for query that comes from fe, we will have some memory structure on FE to
     // help us manage the query.
-    QuerySource _query_source;
+    QUERY_SOURCE _query_source;
 
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
     // flatten profile of one fragment:
@@ -355,7 +355,7 @@ public:
     }
 
     timespec get_query_arrival_timestamp() const { return this->_query_arrival_timestamp; }
-    QuerySource get_query_source() const { return this->_query_source; }
+    QUERY_SOURCE get_query_source() const { return this->_query_source; }
 };
 
 } // namespace doris

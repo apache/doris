@@ -654,7 +654,7 @@ Status BaseBackendService::start_plan_fragment_execution(
         return Status::InternalError("missing sink in plan fragment");
     }
     return _exec_env->fragment_mgr()->exec_plan_fragment(exec_params,
-                                                         QuerySource::INTERNAL_FRONTEND);
+                                                         QUERY_SOURCE::INTERNAL_FRONTEND);
 }
 
 void BaseBackendService::cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
