@@ -73,6 +73,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Getter
     private HadoopAuthenticator authenticator;
 
+    private int hmsEventsBatchSizePerRpc = -1;
+    private boolean enableHmsEventsIncrementalSync = false;
+
+
     @VisibleForTesting
     public HMSExternalCatalog() {
         catalogProperty = new CatalogProperty(null, null);
@@ -100,6 +104,12 @@ public class HMSExternalCatalog extends ExternalCatalog {
             throw new DdlException(
                     "The parameter " + FILE_META_CACHE_TTL_SECOND + " is wrong, value is " + fileMetaCacheTtlSecond);
         }
+
+        enableHmsEventsIncrementalSync =
+                catalogProperty.getOrDefault(HMSProperties.ENABLE_HMS_EVENTS_INCREMENTAL_SYNC, "false").equals("true");
+
+        hmsEventsBatchSizePerRpc =
+                Integer.valueOf(catalogProperty.getOrDefault(HMSProperties.HMS_EVENTIS_BATCH_SIZE_PER_RPC, "-1"));
 
         // check the dfs.ha properties
         // 'dfs.nameservices'='your-nameservice',
@@ -265,5 +275,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     public String getHiveVersion() {
         return catalogProperty.getOrDefault(HMSProperties.HIVE_VERSION, "");
+    }
+
+    public int getHmsEventsBatchSizePerRpc() {
+        return hmsEventsBatchSizePerRpc;
+    }
+
+    public boolean isEnableHmsEventsIncrementalSync() {
+        return enableHmsEventsIncrementalSync;
     }
 }

@@ -90,8 +90,12 @@ public class MetaCache<T> {
         return name == null ? Optional.empty() : getMetaObj(name, id);
     }
 
-    public void setIdToName(long id, String name)  {
-        idToName.put(id, name);
+    public void setIdToName(long id, String tableName)  {
+        idToName.put(id, tableName);
+    }
+
+    public void idToNameRemove(long id)  {
+        idToName.remove(id);
     }
 
     public void updateCache(String objName, T obj) {
@@ -121,6 +125,7 @@ public class MetaCache<T> {
     public void invalidateAll() {
         namesCache.invalidateAll();
         metaObjCache.invalidateAll();
+        idToName.clear();
     }
 
 }

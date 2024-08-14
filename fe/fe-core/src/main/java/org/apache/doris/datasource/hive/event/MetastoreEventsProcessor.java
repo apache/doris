@@ -115,6 +115,9 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
             if (catalog instanceof HMSExternalCatalog) {
                 HMSExternalCatalog hmsExternalCatalog = (HMSExternalCatalog) catalog;
+                if (!hmsExternalCatalog.isEnableHmsEventsIncrementalSync()) {
+                    continue;
+                }
                 try {
                     List<NotificationEvent> events = getNextHMSEvents(hmsExternalCatalog);
                     if (!events.isEmpty()) {
@@ -208,10 +211,12 @@ public class MetastoreEventsProcessor extends MasterDaemon {
         }
         LOG.info("(CYW)catalogname = {}, lastSyncedEventId  = {}, currentEventId = {}",
                 hmsExternalCatalog.getName(), lastSyncedEventId, currentEventId);
+        int batchSize = hmsExternalCatalog.getHmsEventsBatchSizePerRpc() == -1
+                ? Config.hms_events_batch_size_per_rpc
+                : hmsExternalCatalog.getHmsEventsBatchSizePerRpc();
         try {
             NotificationEventResponse notificationEventResponse =
-                    hmsExternalCatalog.getClient().getNextNotification(lastSyncedEventId,
-                        Config.hms_events_batch_size_per_rpc, null);
+                    hmsExternalCatalog.getClient().getNextNotification(lastSyncedEventId, batchSize, null);
             LOG.info("(CYW)catalogname = {} successs.event size = {} ",
                     hmsExternalCatalog.getName(), notificationEventResponse.getEvents().size());
             return notificationEventResponse;

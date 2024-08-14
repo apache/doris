@@ -105,7 +105,6 @@ public class AddPartitionEvent extends MetastorePartitionEvent {
                 infoLog("Partition list is empty. Ignoring this event.");
                 return;
             }
-            // add meta cache
             Env.getCurrentEnv().getCatalogMgr()
                     .addExternalPartitions(catalogName, dbName, hmsTbl.getTableName(), partitionNames, eventTime, true);
         } catch (DdlException e) {
