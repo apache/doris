@@ -393,7 +393,7 @@ FileBlocksHolder LRUFileCache::get_or_set(const Key& key, size_t offset, size_t 
                                           const CacheContext& context) {
     if (!_lazy_open_done) {
         // Cache is not ready yet
-        VLOG_NOTICE << std::format(
+        VLOG_NOTICE << fmt::format(
                 "Cache is not ready yet, skip cache for key: {}, offset: {}, size: {}.",
                 key.to_string(), offset, size);
         FileBlocks file_blocks = {std::make_shared<FileBlock>(
