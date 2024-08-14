@@ -838,8 +838,7 @@ suite("test_hive_text_write_insert", "p0,external,hive,external_docker,external_
 
             sql """set enable_fallback_to_original_planner=false;"""
 
-            // def format_compressions = ["gzip", "zlib", "deflate", "bzip2", "snappy", "lz4", "zstd"]
-            def format_compressions = ["gzip", "deflate", "bzip2", "lz4"]
+            def format_compressions = ["gzip", "zlib", "bzip2", "snappy", "lz4", "zstd"]
 
             for (String format_compression in format_compressions) {
                 logger.info("set hive_text_compression = " + format_compression)
