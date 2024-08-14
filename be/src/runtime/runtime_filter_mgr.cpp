@@ -343,7 +343,7 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSiz
             closure->request_->set_filter_size(cnt_val->global_size);
 
             stub->sync_filter_size(closure->cntl_.get(), closure->request_.get(),
-                                   closure->response_.get(), brpc::DoNothing());
+                                   closure->response_.get(), closure.get());
             closure.release();
         }
     }
@@ -396,12 +396,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         RuntimeFilterWrapperHolder holder;
         RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, holder.getHandle()));
 
-        auto st = cnt_val->filter->merge_from(holder.getHandle()->get());
-        if (!st) {
-            // prevent error ignored
-            DCHECK(false) << st.msg();
-            return st;
-        }
+        RETURN_IF_ERROR(cnt_val->filter->merge_from(holder.getHandle()->get()));
 
         cnt_val->arrive_id.insert(UniqueId(request->fragment_instance_id()));
         merged_size = cnt_val->arrive_id.size();
@@ -430,7 +425,11 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         }
 
         if (data != nullptr && len > 0) {
-            request_attachment.append(data, len);
+            void* allocated = malloc(len);
+            memcpy(allocated, data, len);
+            // control the memory by doris self to avoid using brpc's thread local storage
+            // because the memory of tls will not be released
+            request_attachment.append_user_data(allocated, len, [](void* ptr) { free(ptr); });
             has_attachment = true;
         }
 
@@ -464,7 +463,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                 continue;
             }
             stub->apply_filterv2(closure->cntl_.get(), closure->request_.get(),
-                                 closure->response_.get(), brpc::DoNothing());
+                                 closure->response_.get(), closure.get());
             closure.release();
         }
     }

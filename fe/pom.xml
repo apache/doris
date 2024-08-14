@@ -318,7 +318,7 @@ under the License.
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
         <!-- lakesoul -->
-        <lakesoul.version>2.6.1</lakesoul.version>
+        <lakesoul.version>2.6.2</lakesoul.version>
 
         <parquet.version>1.13.1</parquet.version>
         <commons-collections.version>3.2.2</commons-collections.version>
@@ -370,6 +370,7 @@ under the License.
         <airlift.version>202</airlift.version>
         <azure.sdk.version>1.2.24</azure.sdk.version>
         <azure.sdk.batch.version>12.22.0</azure.sdk.batch.version>
+        <semver4j.version>5.3.0</semver4j.version>
     </properties>
     <profiles>
         <profile>
@@ -1753,6 +1754,11 @@ under the License.
                 <version>${azure.sdk.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.semver4j</groupId>
+                <artifactId>semver4j</artifactId>
+                <version>${semver4j.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

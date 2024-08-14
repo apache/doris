@@ -686,6 +686,9 @@ Status Compaction::do_inverted_index_compaction() {
                        << st;
             return st;
         }
+        for (const auto& writer : inverted_index_file_writers) {
+            writer->set_file_writer_opts(ctx.get_file_writer_options());
+        }
     }
 
     // use tmp file dir to store index files

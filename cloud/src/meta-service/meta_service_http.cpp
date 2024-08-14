@@ -30,12 +30,17 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 
+#include <memory>
 #include <optional>
 #include <type_traits>
+#include <variant>
 #include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "meta-service/keys.h"
+#include "meta-service/txn_kv.h"
+#include "meta-service/txn_kv_error.h"
 #include "meta_service.h"
 
 namespace doris::cloud {
@@ -350,6 +355,70 @@ static HttpResponse process_get_value(MetaServiceImpl* service, brpc::Controller
     return process_http_get_value(service->txn_kv().get(), ctrl->http_request().uri());
 }
 
+// show all key ranges and their count.
+static HttpResponse process_show_meta_ranges(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    auto txn_kv = std::dynamic_pointer_cast<FdbTxnKv>(service->txn_kv());
+    if (!txn_kv) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               "this method only support fdb txn kv");
+    }
+
+    std::vector<std::string> partition_boundaries;
+    TxnErrorCode code = txn_kv->get_partition_boundaries(&partition_boundaries);
+    if (code != TxnErrorCode::TXN_OK) {
+        auto msg = fmt::format("failed to get boundaries, code={}", code);
+        return http_json_reply(MetaServiceCode::UNDEFINED_ERR, msg);
+    }
+
+    std::unordered_map<std::string, size_t> partition_count;
+    size_t prefix_size = FdbTxnKv::fdb_partition_key_prefix().size();
+    for (auto&& boundary : partition_boundaries) {
+        if (boundary.size() < prefix_size + 1 || boundary[prefix_size] != CLOUD_USER_KEY_SPACE01) {
+            continue;
+        }
+
+        std::string_view user_key(boundary);
+        user_key.remove_prefix(prefix_size + 1); // Skip the KEY_SPACE prefix.
+        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+        decode_key(&user_key, &out); // ignore any error, since the boundary key might be truncated.
+
+        auto visitor = [](auto&& arg) -> std::string {
+            using T = std::decay_t<decltype(arg)>;
+            if constexpr (std::is_same_v<T, std::string>) {
+                return arg;
+            } else {
+                return std::to_string(arg);
+            }
+        };
+
+        if (!out.empty()) {
+            std::string key;
+            for (size_t i = 0; i < 3 && i < out.size(); ++i) {
+                key += std::visit(visitor, std::get<0>(out[i]));
+                key += '|';
+            }
+            key.pop_back(); // omit the last '|'
+            partition_count[key]++;
+        }
+    }
+
+    // sort ranges by count
+    std::vector<std::pair<std::string, size_t>> meta_ranges;
+    meta_ranges.reserve(partition_count.size());
+    for (auto&& [key, count] : partition_count) {
+        meta_ranges.emplace_back(key, count);
+    }
+
+    std::sort(meta_ranges.begin(), meta_ranges.end(),
+              [](const auto& lhs, const auto& rhs) { return lhs.second > rhs.second; });
+
+    std::string body = fmt::format("total partitions: {}\n", partition_boundaries.size());
+    for (auto&& [key, count] : meta_ranges) {
+        body += fmt::format("{}: {}\n", key, count);
+    }
+    return http_text_reply(MetaServiceCode::OK, "", body);
+}
+
 static HttpResponse process_get_instance_info(MetaServiceImpl* service, brpc::Controller* ctrl) {
     auto& uri = ctrl->http_request().uri();
     std::string_view instance_id = http_query(uri, "instance_id");
@@ -475,9 +544,11 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"decode_key", process_decode_key},
             {"encode_key", process_encode_key},
             {"get_value", process_get_value},
+            {"show_meta_ranges", process_show_meta_ranges},
             {"v1/decode_key", process_decode_key},
             {"v1/encode_key", process_encode_key},
             {"v1/get_value", process_get_value},
+            {"v1/show_meta_ranges", process_show_meta_ranges},
             // for get
             {"get_instance", process_get_instance_info},
             {"get_obj_store_info", process_get_obj_store_info},
