@@ -61,6 +61,10 @@ public class HiveTableSink extends BaseExternalTableDataSink {
     public static final String DEFAULT_COLLECT_DELIMITER = "\2";
     public static final String PROP_MAPKV_DELIMITER = "mapkv.delim";
     public static final String DEFAULT_MAPKV_DELIMITER = "\3";
+    public static final String PROP_ESCAPE_DELIMITER = "escape.delim";
+    public static final String DEFAULT_ESCAPE_DELIMIER = "\\";
+    public static final String PROP_NULL_FORMAT = "serialization.null.format";
+    public static final String DEFAULT_NULL_FORMAT = "\\N";
 
     private final HMSExternalTable targetTable;
     private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
@@ -235,6 +239,17 @@ public class HiveTableSink extends BaseExternalTableDataSink {
                 PROP_MAPKV_DELIMITER);
         serDeProperties.setMapkvDelim(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
                 DEFAULT_MAPKV_DELIMITER, mapkvDelim)));
+        // 5. set escape delimiter
+        Optional<String> escapeDelim = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
+                PROP_ESCAPE_DELIMITER);
+        serDeProperties
+                .setEscapeDelim(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                        DEFAULT_ESCAPE_DELIMIER, escapeDelim)));
+        // 6. set null format
+        Optional<String> nullFormat = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
+                PROP_NULL_FORMAT);
+        serDeProperties.setNullFormat(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_NULL_FORMAT, nullFormat));
         tSink.setSerdeProperties(serDeProperties);
     }
 
