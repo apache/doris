@@ -373,7 +373,7 @@ struct WindowFunnelState {
             read_var_int(mode, in);
             window_funnel_mode = static_cast<WindowFunnelMode>(mode);
         }
-        size_t data_bytes = 0;
+        uint64_t data_bytes = 0;
         read_var_uint(data_bytes, in);
         std::string buff;
         buff.resize(data_bytes);
