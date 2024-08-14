@@ -143,23 +143,14 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
             &_cancel_thread);
     CHECK(s.ok()) << s.to_string();
 
-    // TODO(zc): we need a better thread-pool
-    // now one user can use all the thread pool, others have no resource.
-    s = ThreadPoolBuilder("FragmentMgrThreadPool")
-                .set_min_threads(config::fragment_pool_thread_num_min)
-                .set_max_threads(config::fragment_pool_thread_num_max)
-                .set_max_queue_size(config::fragment_pool_queue_size)
+    s = ThreadPoolBuilder("FragmentMgrAsyncWorkThreadPool")
+                .set_min_threads(config::fragment_mgr_asynic_work_pool_thread_num_min)
+                .set_max_threads(config::fragment_mgr_asynic_work_pool_thread_num_max)
+                .set_max_queue_size(config::fragment_mgr_asynic_work_pool_queue_size)
                 .build(&_thread_pool);
 
     REGISTER_HOOK_METRIC(fragment_thread_pool_queue_size,
                          [this]() { return _thread_pool->get_queue_size(); });
-    CHECK(s.ok()) << s.to_string();
-
-    s = ThreadPoolBuilder("FragmentInstanceReportThreadPool")
-                .set_min_threads(48)
-                .set_max_threads(512)
-                .set_max_queue_size(102400)
-                .build(&_async_report_thread_pool);
     CHECK(s.ok()) << s.to_string();
 }
 
@@ -172,9 +163,6 @@ void FragmentMgr::stop() {
     if (_cancel_thread) {
         _cancel_thread->join();
     }
-    // Stop all the worker, should wait for a while?
-    // _thread_pool->wait_for();
-    _thread_pool->shutdown();
 
     // Only me can delete
     {
@@ -182,7 +170,7 @@ void FragmentMgr::stop() {
         _query_ctx_map.clear();
         _pipeline_map.clear();
     }
-    _async_report_thread_pool->shutdown();
+    _thread_pool->shutdown();
 }
 
 std::string FragmentMgr::to_http_path(const std::string& file_name) {
@@ -195,7 +183,7 @@ std::string FragmentMgr::to_http_path(const std::string& file_name) {
 
 Status FragmentMgr::trigger_pipeline_context_report(
         const ReportStatusRequest req, std::shared_ptr<pipeline::PipelineFragmentContext>&& ctx) {
-    return _async_report_thread_pool->submit_func([this, req, ctx]() {
+    return _thread_pool->submit_func([this, req, ctx]() {
         SCOPED_ATTACH_TASK(ctx->get_query_ctx()->query_mem_tracker);
         coordinator_callback(req);
         if (!req.done) {

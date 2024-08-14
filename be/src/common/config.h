@@ -606,9 +606,9 @@ DECLARE_mInt32(olap_table_sink_send_interval_microseconds);
 DECLARE_mDouble(olap_table_sink_send_interval_auto_partition_factor);
 
 // Fragment thread pool
-DECLARE_Int32(fragment_pool_thread_num_min);
-DECLARE_Int32(fragment_pool_thread_num_max);
-DECLARE_Int32(fragment_pool_queue_size);
+DECLARE_Int32(fragment_mgr_asynic_work_pool_thread_num_min);
+DECLARE_Int32(fragment_mgr_asynic_work_pool_thread_num_max);
+DECLARE_Int32(fragment_mgr_asynic_work_pool_queue_size);
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DECLARE_Int32(num_disks);
