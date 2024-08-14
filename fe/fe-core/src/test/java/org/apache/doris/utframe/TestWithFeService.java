@@ -405,7 +405,7 @@ public abstract class TestWithFeService {
     }
 
     private void checkBEHeartbeat(List<Backend> bes) throws InterruptedException {
-        int maxTry = FeConstants.heartbeat_interval_second + 5;
+        int maxTry = Config.heartbeat_interval_second + 5;
         boolean allAlive = false;
         while (maxTry-- > 0 && !allAlive) {
             Thread.sleep(1000);

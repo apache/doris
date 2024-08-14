@@ -66,7 +66,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         Config.disable_balance = true;
         Config.schedule_batch_size = 1000;
         Config.schedule_slot_num_per_hdd_path = 1000;
-        FeConstants.heartbeat_interval_second = 5;
+        Config.heartbeat_interval_second = 5;
     }
 
     @Test
