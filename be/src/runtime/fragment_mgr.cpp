@@ -47,6 +47,7 @@
 #include "common/status.h"
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -136,30 +137,35 @@ std::string to_load_error_http_path(const std::string& file_name) {
 using apache::thrift::TException;
 using apache::thrift::transport::TTransportException;
 
-static bool _get_all_running_queries(std::unordered_set<TUniqueId>& result_ref) {
+static std::map<int64_t, std::unordered_set<TUniqueId>> _get_all_running_queries_from_fe() {
     const std::map<TNetworkAddress, FrontendInfo>& running_fes =
             ExecEnv::GetInstance()->get_running_frontends();
 
-    std::vector<TNetworkAddress> qualified_fes;
+    std::map<int64_t, std::unordered_set<TUniqueId>> result;
+    std::vector<FrontendInfo> qualified_fes;
 
     for (const auto& fe : running_fes) {
+        // Only consider normal frontend.
         if (fe.first.port != 0 && fe.second.info.process_uuid != 0) {
-            qualified_fes.push_back(fe.first);
+            qualified_fes.push_back(fe.second);
+        } else {
+            return std::map<int64_t, std::unordered_set<TUniqueId>>();
         }
     }
 
-    auto fetch_running_queries_rpc = [](const TNetworkAddress& fe_addr) {
-        std::unordered_set<TUniqueId> running_queries;
+    auto fetch_running_queries_rpc = [](const FrontendInfo& fe_info) {
         TFetchRunningQueriesResult rpc_result;
         TFetchRunningQueriesRequest rpc_request;
 
         Status client_status;
         FrontendServiceConnection rpc_client(ExecEnv::GetInstance()->frontend_client_cache(),
-                                             fe_addr, &client_status);
+                                             fe_info.info.coordinator_address, &client_status);
+        // Abort this fe.
         if (!client_status.ok()) {
             LOG_WARNING("Failed to get client for {}, reason is {}",
-                        PrintThriftNetworkAddress(fe_addr), client_status.to_string());
-            return std::make_pair(running_queries, false);
+                        PrintThriftNetworkAddress(fe_info.info.coordinator_address),
+                        client_status.to_string());
+            return std::make_tuple(std::make_tuple(0L, std::unordered_set<TUniqueId>()), false);
         }
 
         // do rpc
@@ -171,32 +177,41 @@ static bool _get_all_running_queries(std::unordered_set<TUniqueId>& result_ref) 
                 client_status = rpc_client.reopen(config::thrift_rpc_timeout_ms);
                 if (!client_status.ok()) {
                     LOG_WARNING("Reopen failed, reason: {}", client_status.to_string_no_stack());
-                    return std::make_pair(running_queries, false);
+                    return std::make_tuple(std::make_tuple(0L, std::unordered_set<TUniqueId>()),
+                                           false);
                 }
 
                 rpc_client->fetchRunningQueries(rpc_result, rpc_request);
             }
         } catch (apache::thrift::TException& e) {
+            // During upgrading cluster or meet any other network error.
             LOG_WARNING("Failed to fetch running queries from {}, reason: {}",
-                        PrintThriftNetworkAddress(fe_addr), e.what());
-            return std::make_pair(running_queries, false);
+                        PrintThriftNetworkAddress(fe_info.info.coordinator_address), e.what());
+            return std::make_tuple(std::make_tuple(0L, std::unordered_set<TUniqueId>()), false);
         }
 
-        if (rpc_result.status.status_code != TStatusCode::OK) {
+        // Avoid logic error in frontend.
+        if (rpc_result.__isset.status == false ||
+            rpc_result.status.status_code != TStatusCode::OK) {
             LOG_WARNING("Failed to fetch running queries from {}, reason: {}",
-                        PrintThriftNetworkAddress(fe_addr),
+                        PrintThriftNetworkAddress(fe_info.info.coordinator_address),
                         doris::to_string(rpc_result.status.status_code));
-            return std::make_pair(running_queries, false);
+            return std::make_tuple(std::make_tuple(0L, std::unordered_set<TUniqueId>()), false);
         }
 
-        for (const auto& query_id : rpc_result.running_queries) {
-            running_queries.insert(query_id);
+        if (rpc_result.__isset.running_queries == false) {
+            return std::make_tuple(std::make_tuple(0L, std::unordered_set<TUniqueId>()), false);
         }
 
-        return std::make_pair(running_queries, true);
+        return std::make_tuple(
+                std::make_tuple(rpc_result.frontend_info.process_uuid,
+                                std::unordered_set<TUniqueId>(rpc_result.running_queries.begin(),
+                                                              rpc_result.running_queries.end())),
+                true);
     };
 
-    std::vector<std::future<std::pair<std::unordered_set<TUniqueId>, bool>>> futures;
+    std::vector<std::future<std::tuple<std::tuple<int64_t, std::unordered_set<TUniqueId>>, bool>>>
+            futures;
 
     for (const auto& fe_addr : qualified_fes) {
         // Create another thread to fetch running queries
@@ -208,20 +223,26 @@ static bool _get_all_running_queries(std::unordered_set<TUniqueId>& result_ref) 
         auto future_status = future.wait_for(std::chrono::seconds(3));
         if (future_status != std::future_status::ready) {
             LOG_WARNING("Fetch running queries from frontend timeout");
-            continue;
+            // Empty result, cancel worker will not do anything
+            return {};
         }
 
-        const auto& query_ids_and_rpc_succeed = future.get();
-        if (!query_ids_and_rpc_succeed.second) {
-            return false;
+        const auto& process_uuid_query_set_and_valid = future.get();
+        const auto& process_uuid_query_set = std::get<0>(process_uuid_query_set_and_valid);
+        const auto& valid = std::get<1>(process_uuid_query_set_and_valid);
+
+        if (!valid) {
+            // Empty result, cancel worker will not do anything
+            return {};
         }
 
-        for (const auto& query_id : query_ids_and_rpc_succeed.first) {
-            result_ref.insert(query_id);
-        }
+        const auto& process_uuid = std::get<0>(process_uuid_query_set);
+        const auto& query_set = std::get<1>(process_uuid_query_set);
+        // frontend_info and process_uuid has been checked in rpc threads.
+        result[process_uuid] = query_set;
     }
 
-    return true;
+    return result;
 }
 
 FragmentMgr::FragmentMgr(ExecEnv* exec_env)
@@ -939,8 +960,8 @@ void FragmentMgr::cancel_worker() {
         std::vector<TUniqueId> queries_lost_coordinator;
         std::vector<TUniqueId> queries_timeout;
         std::vector<TUniqueId> queries_pipeline_task_leak;
-        std::unordered_set<TUniqueId> running_queries_on_all_fes;
-        bool do_pipeline_task_leak_check = false;
+        // Fe process uuid -> set<QueryId>
+        std::map<int64_t, std::unordered_set<TUniqueId>> running_queries_on_all_fes;
         const std::map<TNetworkAddress, FrontendInfo>& running_fes =
                 ExecEnv::GetInstance()->get_running_frontends();
 
@@ -950,12 +971,7 @@ void FragmentMgr::cancel_worker() {
         if (now.tv_sec - check_invalid_query_last_timestamp.tv_sec >
             config::pipeline_task_leakage_detect_period_secs) {
             check_invalid_query_last_timestamp = now;
-            do_pipeline_task_leak_check = _get_all_running_queries(running_queries_on_all_fes);
-            if (!do_pipeline_task_leak_check) {
-                LOG_INFO(
-                        "Fetch running queries from frontends failed, skip pipeline task leakage "
-                        "check.");
-            }
+            running_queries_on_all_fes = _get_all_running_queries_from_fe();
         } else {
             running_queries_on_all_fes.clear();
         }
@@ -990,94 +1006,73 @@ void FragmentMgr::cancel_worker() {
                            "starting? "
                         << "We will not cancel any outdated queries in this situation.";
             } else {
-                std::set<std::string> white_list_fe_hosts;
-                std::unordered_set<TNetworkAddress> white_list_fe_addrs;
+                for (const auto& it : _query_ctx_map) {
+                    if (auto q_ctx = it.second.lock()) {
+                        const int64_t fe_process_uuid = q_ctx->get_fe_process_uuid();
 
-                for (const auto& fe : running_fes) {
-                    if (fe.second.info.process_uuid == 0 ||
-                        fe.second.info.coordinator_address.port == 0) {
-                        white_list_fe_hosts.insert(fe.first.hostname);
+                        if (fe_process_uuid == 0) {
+                            // zero means this query is from a older version fe or
+                            // this fe is starting
+                            continue;
+                        }
+
+                        // If the query is not running on the any frontends, cancel it.
+                        if (auto itr = running_queries_on_all_fes.find(fe_process_uuid);
+                            itr != running_queries_on_all_fes.end()) {
+                            // Query not found on this frontend, and the query arrives before the last check
+                            if (itr->second.find(it.first) == itr->second.end() &&
+                                q_ctx->get_query_arrival_timestamp().tv_nsec <
+                                        check_invalid_query_last_timestamp.tv_nsec) {
+                                queries_pipeline_task_leak.push_back(q_ctx->query_id());
+                                LOG_INFO(
+                                        "Query {} is not found on any frontends, maybe it is "
+                                        "leaked.",
+                                        print_id(q_ctx->query_id()));
+                                continue;
+                            }
+                        }
+
+                        auto itr = running_fes.find(q_ctx->coord_addr);
+                        if (itr != running_fes.end()) {
+                            if (fe_process_uuid == itr->second.info.process_uuid ||
+                                itr->second.info.process_uuid == 0) {
+                                continue;
+                            } else {
+                                LOG_WARNING(
+                                        "Coordinator of query {} restarted, going to cancel it.",
+                                        print_id(q_ctx->query_id()));
+                            }
+                        } else {
+                            // In some rear cases, the rpc port of follower is not updated in time,
+                            // then the port of this follower will be zero, but acutally it is still running,
+                            // and be has already received the query from follower.
+                            // So we need to check if host is in running_fes.
+                            bool fe_host_is_standing = std::any_of(
+                                    running_fes.begin(), running_fes.end(),
+                                    [&q_ctx](const auto& fe) {
+                                        return fe.first.hostname == q_ctx->coord_addr.hostname &&
+                                               fe.first.port == 0;
+                                    });
+                            if (fe_host_is_standing) {
+                                LOG_WARNING(
+                                        "Coordinator {}:{} is not found, but its host is still "
+                                        "running with an unstable brpc port, not going to cancel "
+                                        "it.",
+                                        q_ctx->coord_addr.hostname, q_ctx->coord_addr.port,
+                                        print_id(q_ctx->query_id()));
+                                continue;
+                            } else {
+                                LOG_WARNING(
+                                        "Could not find target coordinator {}:{} of query {}, "
+                                        "going to "
+                                        "cancel it.",
+                                        q_ctx->coord_addr.hostname, q_ctx->coord_addr.port,
+                                        print_id(q_ctx->query_id()));
+                            }
+                        }
                     }
-                }
-
-                std::unordered_set<TUniqueId> white_list_queries;
-
-                for (auto itr : _query_ctx_map) {
-                    auto q_ctx = itr.second.lock();
-                    if (q_ctx == nullptr) {
-                        continue;
-                    }
-
-                    // 0 means this query:
-                    // 1. is from a older version fe
-                    // 2. the fe is starting, hb has not come yet
-                    // 3. this query does not have coordinator at all (eg. streamload, spark connector)
-                    if (q_ctx->get_fe_process_uuid() == 0) {
-                        white_list_queries.insert(q_ctx->query_id());
-                    }
-                }
-
-                for (const auto& pair : _query_ctx_map) {
-                    std::shared_ptr<QueryContext> q_ctx = pair.second.lock();
-
-                    if (q_ctx == nullptr) {
-                        continue;
-                    }
-
-                    // If query is in white list, do not cancel it.
-                    if (white_list_queries.contains(q_ctx->query_id())) {
-                        continue;
-                    }
-
-                    // If query is from an unstable fe, do not cancel it.
-                    if (white_list_fe_hosts.contains(q_ctx->coord_addr.hostname)) {
-                        continue;
-                    }
-
-                    // If this query is running on any fes, do not cancel it.
-                    if (running_queries_on_all_fes.contains(q_ctx->query_id())) {
-                        continue;
-                    }
-
-                    // If coordinator of the query does not exist
-                    auto tmp_itr = running_fes.find(q_ctx->coord_addr);
-                    if (tmp_itr == running_fes.end()) {
-                        LOG_WARNING("Query {} coordinator {} does not exist, cancel it.",
-                                    print_id(pair.first), q_ctx->coord_addr.hostname);
-                        queries_lost_coordinator.push_back(pair.first);
-                        continue;
-                    }
-
-                    // Coordinator is still standing, we need to check if it is same process
-                    if (tmp_itr->second.info.process_uuid != q_ctx->get_fe_process_uuid()) {
-                        LOG_WARNING("Query {} coordinator {} process restarted, cancel it.",
-                                    print_id(pair.first), q_ctx->coord_addr.hostname);
-                        queries_lost_coordinator.push_back(pair.first);
-                        continue;
-                    }
-
-                    if (!do_pipeline_task_leak_check) {
-                        // No runnting queries on all fes means we do not check pipeline task leakage in this
-                        // iteration.
-                        continue;
-                    }
-
-                    if (q_ctx->get_query_arrival_timestamp().tv_nsec >
-                        check_invalid_query_last_timestamp.tv_nsec) {
-                        // Query arrived after last check, skip it.
-                        continue;
-                    }
-
-                    // Coordinator is still standing, and it is same process.
-                    // But query does not exists in any frontends.
-                    // Typically, this means this query is invalid, eg. we have some bugs in pipeline scheduler which
-                    // makes the query can not be closed normally.
-                    // We need to cancel these query to release resources.
-                    LOG_ERROR(
-                            "Logical error. Query {} is not running on any frontends, these may "
-                            "becaused by some bugs in pipeline scheduler.",
-                            print_id(pair.first));
-                    queries_pipeline_task_leak.push_back(pair.first);
+                    // Coordinator of this query has already dead or query context has been released.
+                    queries_lost_coordinator.push_back(it.first);
                 }
             }
         }

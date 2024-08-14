@@ -1563,8 +1563,7 @@ struct TFetchSplitBatchResult {
 
 struct TFetchRunningQueriesResult {
     1: optional Status.TStatus status
-    2: optional HeartbeatService.TFrontendInfo frontend_info
-    3: optional list<Types.TUniqueId> running_queries
+    2: optional list<Types.TUniqueId> running_queries
 }
 
 struct TFetchRunningQueriesRequest {
