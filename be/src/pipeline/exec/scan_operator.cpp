@@ -1392,13 +1392,9 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
     const TQueryOptions& query_options = state->query_options();
     if (query_options.__isset.max_scan_key_num) {
         _max_scan_key_num = query_options.max_scan_key_num;
-    } else {
-        _max_scan_key_num = config::doris_max_scan_key_num;
     }
     if (query_options.__isset.max_pushdown_conditions_per_column) {
         _max_pushdown_conditions_per_column = query_options.max_pushdown_conditions_per_column;
-    } else {
-        _max_pushdown_conditions_per_column = config::max_pushdown_conditions_per_column;
     }
     // tnode.olap_scan_node.push_down_agg_type_opt field is deprecated
     // Introduced a new field : tnode.push_down_agg_type_opt

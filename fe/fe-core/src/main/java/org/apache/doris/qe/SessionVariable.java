@@ -951,11 +951,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DEFAULT_TMP_STORAGE_ENGINE)
     public String defaultTmpStorageEngine = "olap";
 
-    // -1 means unset, BE will use its config value
     @VariableMgr.VarAttr(name = MAX_SCAN_KEY_NUM)
-    public int maxScanKeyNum = -1;
+    public int maxScanKeyNum = 48;
     @VariableMgr.VarAttr(name = MAX_PUSHDOWN_CONDITIONS_PER_COLUMN)
-    public int maxPushdownConditionsPerColumn = -1;
+    public int maxPushdownConditionsPerColumn = 1024;
     @VariableMgr.VarAttr(name = SHOW_HIDDEN_COLUMNS, flag = VariableMgr.SESSION_ONLY)
     public boolean showHiddenColumns = false;
 
@@ -3585,13 +3584,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
-
-        if (maxScanKeyNum > -1) {
-            tResult.setMaxScanKeyNum(maxScanKeyNum);
-        }
-        if (maxPushdownConditionsPerColumn > -1) {
-            tResult.setMaxPushdownConditionsPerColumn(maxPushdownConditionsPerColumn);
-        }
+        tResult.setMaxScanKeyNum(maxScanKeyNum);
+        tResult.setMaxPushdownConditionsPerColumn(maxPushdownConditionsPerColumn);
 
         tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);
         tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
