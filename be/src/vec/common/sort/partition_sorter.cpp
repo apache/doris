@@ -63,16 +63,12 @@ Status PartitionSorter::append_block(Block* input_block) {
 }
 
 Status PartitionSorter::prepare_for_read() {
-    auto& cursors = _state->get_cursors();
     auto& blocks = _state->get_sorted_block();
     auto& priority_queue = _state->get_priority_queue();
     for (auto& block : blocks) {
-        cursors.emplace_back(MergeSortCursorImpl::create_shared(block, _sort_description));
+        priority_queue.push(MergeSortCursorImpl::create_shared(block, _sort_description));
     }
-    for (auto& cursor : cursors) {
-        priority_queue.push(std::move(cursor));
-    }
-    cursors.clear();
+    blocks.clear();
     return Status::OK();
 }
 
@@ -85,11 +81,10 @@ void PartitionSorter::reset_sorter_state(RuntimeState* runtime_state) {
 }
 
 Status PartitionSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
-    if (_state->get_sorted_block().empty() && _state->get_priority_queue().empty()) {
+    if (_state->get_priority_queue().empty()) {
         *eos = true;
-    } else if (_state->get_cursors().size() == 1 && _has_global_limit) {
-        auto& cursor = _state->get_cursors()[0];
-        block->swap(*cursor->block);
+    } else if (_state->get_priority_queue().size() == 1 && _has_global_limit) {
+        block->swap(*_state->get_priority_queue().top().impl->block);
         block->set_num_rows(_partition_inner_limit);
         *eos = true;
     } else {

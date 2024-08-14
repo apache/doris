@@ -76,7 +76,6 @@ public:
 
     std::vector<std::shared_ptr<Block>>& get_sorted_block() { return sorted_blocks_; }
     std::priority_queue<MergeSortCursor>& get_priority_queue() { return priority_queue_; }
-    std::vector<std::shared_ptr<MergeSortCursorImpl>>& get_cursors() { return cursors_; }
     void reset();
 
     std::unique_ptr<Block> unsorted_block_;
@@ -85,7 +84,6 @@ private:
     Status _merge_sort_read_impl(int batch_size, doris::vectorized::Block* block, bool* eos);
 
     std::priority_queue<MergeSortCursor> priority_queue_;
-    std::vector<std::shared_ptr<MergeSortCursorImpl>> cursors_;
     std::vector<std::shared_ptr<Block>> sorted_blocks_;
     size_t in_mem_sorted_bocks_size_ = 0;
     uint64_t num_rows_ = 0;
