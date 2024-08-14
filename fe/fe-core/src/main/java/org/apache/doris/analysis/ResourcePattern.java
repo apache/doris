@@ -71,7 +71,7 @@ public class ResourcePattern implements Writable, GsonPostProcessable {
             resourceName = "%";
         }
         this.resourceName = Strings.isNullOrEmpty(resourceName) ? "%" : resourceName;
-        resourceType = type == null ? ResourceTypeEnum.GENERAL : type;
+        resourceType = type;
     }
 
     public void setResourceType(ResourceTypeEnum type) {
