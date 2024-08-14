@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
+#include "common/logging.h"
 #include "common/object_pool.h"
 #include "exprs/runtime_filter.h"
 #include "runtime/decimalv2_value.h"
@@ -62,6 +65,7 @@ public:
 
     // Use '|' instead of '||' has better performance by test.
     ALWAYS_INLINE bool find(const T& value) const {
+        DCHECK_EQ(N, _size);
         if constexpr (N == 0) {
             return false;
         }
