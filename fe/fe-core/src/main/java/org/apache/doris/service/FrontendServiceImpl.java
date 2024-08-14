@@ -3988,7 +3988,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        result.setFrontendInfo(null);
         List<TUniqueId> runningQueries = Lists.newArrayList();
         List<Coordinator> allCoordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
 
