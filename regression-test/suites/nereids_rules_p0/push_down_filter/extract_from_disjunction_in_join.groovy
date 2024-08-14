@@ -67,6 +67,9 @@ suite("extract_from_disjunction_in_join") {
     select * from extract_from_disjunction_in_join_t1 t1 right anti join extract_from_disjunction_in_join_t2 t2 on t1.b=t2.b and (t2.a=9 && t1.a=1 || t1.a=2 && t2.a=8);"""
     qt_inner """explain shape plan
     select * from extract_from_disjunction_in_join_t1 t1 inner join extract_from_disjunction_in_join_t2 t2 on t1.b=t2.b and (t2.a=9 && t1.a=1 || t1.a=2 && t2.a=8);"""
+    qt_outer """explain shape plan
+    select * from extract_from_disjunction_in_join_t1 t1 full join extract_from_disjunction_in_join_t2 t2 on t1.b=t2.b and (t2.a=9 && t1.a=1 || t1.a=2 && t2.a=8)
+    where t1.c=3;"""
 
     qt_left_semi_res "select t1.a from extract_from_disjunction_in_join_t1 t1 left semi join extract_from_disjunction_in_join_t2 t2 on t1.b=t2.b and (t2.a=9 && t1.a=1 || t1.a=2 && t2.a=8) order by 1;"
     qt_right_semi_res "select t2.a from extract_from_disjunction_in_join_t1 t1 right semi join extract_from_disjunction_in_join_t2 t2 on t1.b=t2.b and (t2.a=9 && t1.a=1 || t1.a=2 && t2.a=8) order by 1;"
@@ -75,5 +78,6 @@ suite("extract_from_disjunction_in_join") {
     qt_left_anti_res "select t1.a from extract_from_disjunction_in_join_t1 t1 left anti join extract_from_disjunction_in_join_t2 t2 on t1.b=t2.b and (t2.a=9 && t1.a=1 || t1.a=2 && t2.a=8) order by 1;"
     qt_right_anti_res "select t2.a from extract_from_disjunction_in_join_t1 t1 right anti join extract_from_disjunction_in_join_t2 t2 on t1.b=t2.b and (t2.a=9 && t1.a=1 || t1.a=2 && t2.a=8) order by 1;"
     qt_inner_res "select t1.a from extract_from_disjunction_in_join_t1 t1 inner join extract_from_disjunction_in_join_t2 t2 on t1.b=t2.b and (t2.a=9 && t1.a=1 || t1.a=2 && t2.a=8) order by 1;"
-
+    qt_outer_res """select t1.a from extract_from_disjunction_in_join_t1 t1 full join extract_from_disjunction_in_join_t2 t2 on t1.b=t2.b and (t2.a=9 && t1.a=1 || t1.a=2 && t2.a=8)
+    where t1.c=3 order by 1;"""
 }
