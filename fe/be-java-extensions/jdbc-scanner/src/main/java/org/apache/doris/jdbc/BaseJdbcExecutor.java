@@ -32,11 +32,13 @@ import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
+import org.semver4j.Semver;
 
 import java.io.FileNotFoundException;
 import java.lang.reflect.Array;
 import java.net.MalformedURLException;
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -65,6 +67,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     protected VectorTable outputTable = null;
     protected int batchSizeNum = 0;
     protected int curBlockRows = 0;
+    protected String jdbcDriverVersion;
 
     public BaseJdbcExecutor(byte[] thriftParams) throws Exception {
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
@@ -91,11 +94,12 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 .setConnectionPoolKeepAlive(request.connection_pool_keep_alive);
         JdbcDataSource.getDataSource().setCleanupInterval(request.connection_pool_cache_clear_time);
         init(config, request.statement);
+        this.jdbcDriverVersion = getJdbcDriverVersion();
     }
 
     public void close() throws Exception {
         try {
-            if (stmt != null) {
+            if (stmt != null && !stmt.isClosed()) {
                 try {
                     stmt.cancel();
                 } catch (SQLException e) {
@@ -521,6 +525,30 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 break;
             default:
                 throw new RuntimeException("Unknown type value: " + dorisType);
+        }
+    }
+
+    private String getJdbcDriverVersion() {
+        try {
+            if (conn != null) {
+                DatabaseMetaData metaData = conn.getMetaData();
+                return metaData.getDriverVersion();
+            } else {
+                return null;
+            }
+        } catch (SQLException e) {
+            LOG.warn("Failed to retrieve JDBC Driver version", e);
+            return null;
+        }
+    }
+
+    protected boolean isJdbcVersionGreaterThanOrEqualTo(String version) {
+        Semver currentVersion = Semver.coerce(jdbcDriverVersion);
+        Semver targetVersion = Semver.coerce(version);
+        if (currentVersion != null && targetVersion != null) {
+            return currentVersion.isGreaterThanOrEqualTo(targetVersion);
+        } else {
+            return false;
         }
     }
 
