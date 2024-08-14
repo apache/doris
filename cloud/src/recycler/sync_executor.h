@@ -23,10 +23,8 @@
 #include <glog/logging.h>
 
 #include <future>
-#include <iostream>
 #include <string>
 
-#include "common/logging.h"
 #include "common/simple_thread_pool.h"
 
 namespace doris::cloud {
@@ -54,10 +52,10 @@ public:
         auto current_time_second = time(nullptr);
         current_time.tv_sec = current_time_second + 300;
         current_time.tv_nsec = 0;
-        auto msg = fmt::format("{} has already taken 5 min", _name_tag);
         while (0 != _count.timed_wait(current_time)) {
             current_time.tv_sec += 300;
-            LOG(WARNING) << msg;
+            LOG(WARNING) << _name_tag << " has already taken 5 min, cost: "
+                         << time(nullptr) - current_time_second << " seconds";
         }
         *finished = !_stop_token;
         std::vector<T> res;
