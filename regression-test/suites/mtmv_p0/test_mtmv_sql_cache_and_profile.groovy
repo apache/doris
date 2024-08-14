@@ -66,11 +66,15 @@ suite("test_mtmv_sql_cache_and_profile", "mtmv") {
 
     long startTime = System.currentTimeMillis()
     long timeoutTimestamp = startTime + 5 * 60 * 1000
-    def explain_res
+    def explain_res = ""
     while (System.currentTimeMillis() < timeoutTimestamp) {
         sleep(5 * 1000)
         sql """select k2 from ${mvName} group by k2;"""
-        explain_res = sql """explain plan select k2 from ${mvName} group by k2;"""
+        try {
+            explain_res = sql """explain plan select k2 from ${mvName} group by k2;"""
+        } catch (Exception e) {
+            logger.info(e.getMessage())
+        }
         logger.info("explain_res: " + explain_res)
         if (explain_res.toString().indexOf("LogicalSqlCache") != -1 || explain_res.toString().indexOf("PhysicalSqlCache") != -1) {
             break
