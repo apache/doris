@@ -190,14 +190,6 @@ public:
                 ->execute(context, block, arguments, result, input_rows_count, dry_run);
     }
 
-    virtual Status eval_inverted_index(
-            FunctionContext* context,
-            const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
-            segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
-            roaring::Roaring* bitmap) const {
-        return Status::NotSupported("eval_inverted_index is not supported in function: ",
-                                    get_name());
-    }
     virtual Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
@@ -243,12 +235,6 @@ public:
     }
 
     virtual bool can_push_down_to_index() const { return false; }
-
-    virtual Status eval_inverted_index(VExpr* context, segment_v2::FuncExprParams& params,
-                                       std::shared_ptr<roaring::Roaring>& result) {
-        return Status::NotSupported("eval_inverted_index is not supported in function: ",
-                                    get_name());
-    }
 };
 
 using FunctionBasePtr = std::shared_ptr<IFunctionBase>;
@@ -472,13 +458,6 @@ protected:
         return function->execute_impl(context, block, arguments, result, input_rows_count);
     }
 
-    Status eval_inverted_index(FunctionContext* context,
-                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
-                               segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
-                               roaring::Roaring* bitmap) const {
-        return function->eval_inverted_index(context, data_type_with_name, iter, num_rows, bitmap);
-    }
-
     Status evaluate_inverted_index(const ColumnsWithTypeAndName& arguments,
                                    const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
                                    segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
@@ -544,13 +523,6 @@ public:
         return function->close(context, scope);
     }
 
-    Status eval_inverted_index(FunctionContext* context,
-                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
-                               segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
-                               roaring::Roaring* bitmap) const override {
-        return function->eval_inverted_index(context, data_type_with_name, iter, num_rows, bitmap);
-    }
-
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& args,
             const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
@@ -570,11 +542,6 @@ public:
     }
 
     bool can_push_down_to_index() const override { return function->can_push_down_to_index(); }
-
-    Status eval_inverted_index(VExpr* expr, segment_v2::FuncExprParams& params,
-                               std::shared_ptr<roaring::Roaring>& result) override {
-        return function->eval_inverted_index(expr, params, result);
-    }
 
 private:
     std::shared_ptr<IFunction> function;

@@ -220,20 +220,7 @@ Status VMultiMatchPredicate::evaluate_inverted_index(VExprContext* context,
 
 Status VMultiMatchPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
     DCHECK(_open_finished || _getting_const_col);
-    if (context->get_inverted_index_result_column().contains(this)) {
-        size_t num_columns_without_result = block->columns();
-        // prepare a column to save result
-        auto result_column = context->get_inverted_index_result_column()[this];
-        LOG(WARNING) << "hit result expr name:" << _expr_name
-                     << " result:" << result_column->dump_structure();
-        if (_data_type->is_nullable()) {
-            block->insert(
-                    {ColumnNullable::create(result_column, ColumnUInt8::create(block->rows(), 0)),
-                     _data_type, _expr_name});
-        } else {
-            block->insert({result_column, _data_type, _expr_name});
-        }
-        *result_column_id = num_columns_without_result;
+    if (fast_execute(context, block, result_column_id)) {
         return Status::OK();
     }
     return Status::NotSupported("not support for VMultiMatchPredicate::execute");

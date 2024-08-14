@@ -187,51 +187,13 @@ Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context,
     return Status::OK();
 }
 
-Status VectorizedFnCall::eval_inverted_index(
-        VExprContext* context,
-        const std::unordered_map<ColumnId, std::pair<vectorized::IndexFieldNameAndTypePair,
-                                                     segment_v2::InvertedIndexIterator*>>&
-                colid_to_inverted_index_iter,
-        uint32_t num_rows, roaring::Roaring* bitmap) const {
-    DCHECK_GE(get_num_children(), 1);
-    if (get_child(0)->is_slot_ref()) {
-        auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
-        if (auto iter = colid_to_inverted_index_iter.find(column_slot_ref->column_id());
-            iter != colid_to_inverted_index_iter.end()) {
-            const auto& pair = iter->second;
-            return _function->eval_inverted_index(context->fn_context(_fn_context_index),
-                                                  pair.first, pair.second, num_rows, bitmap);
-        } else {
-            return Status::NotSupported("column id {} not found in colid_to_inverted_index_iter",
-                                        column_slot_ref->column_id());
-        }
-    } else {
-        return Status::NotSupported("we can only eval inverted index for slot ref expr, but got ",
-                                    get_child(0)->expr_name());
-    }
-    return Status::OK();
-}
-
 Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
                                      doris::vectorized::Block* block, int* result_column_id,
                                      std::vector<size_t>& args) {
     if (is_const_and_have_executed()) { // const have executed in open function
         return get_result_from_const(block, _expr_name, result_column_id);
     }
-    if (context->get_inverted_index_result_column().contains(this)) {
-        size_t num_columns_without_result = block->columns();
-        // prepare a column to save result
-        auto result_column = context->get_inverted_index_result_column()[this];
-        LOG(WARNING) << "hit result expr name:" << _expr_name
-                     << " result:" << result_column->dump_structure() << " pointer is" << this;
-        if (_data_type->is_nullable()) {
-            block->insert(
-                    {ColumnNullable::create(result_column, ColumnUInt8::create(block->rows(), 0)),
-                     _data_type, _expr_name});
-        } else {
-            block->insert({result_column, _data_type, _expr_name});
-        }
-        *result_column_id = num_columns_without_result;
+    if (fast_execute(context, block, result_column_id)) {
         return Status::OK();
     }
 
@@ -315,11 +277,6 @@ bool VectorizedFnCall::can_fast_execute() const {
         }
     }
     return _function->can_push_down_to_index();
-}
-
-Status VectorizedFnCall::eval_inverted_index(segment_v2::FuncExprParams& params,
-                                             std::shared_ptr<roaring::Roaring>& result) {
-    return _function->eval_inverted_index(this, params, result);
 }
 
 bool VectorizedFnCall::equals(const VExpr& other) {

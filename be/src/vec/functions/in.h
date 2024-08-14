@@ -155,7 +155,10 @@ public:
             Field param_value;
             arg.column->get(0, param_value);
             auto param_type = arg.type->get_type_as_type_descriptor().type;
-
+            // predicate like column NOT IN (NULL, '') should not push down to index.
+            if (negative && param_value.is_null()) {
+                return Status::OK();
+            }
             std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
             RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
                     param_type, &param_value, query_param));

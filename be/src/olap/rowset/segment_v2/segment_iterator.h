@@ -200,10 +200,6 @@ private:
     [[nodiscard]] Status _apply_inverted_index_on_column_predicate(
             ColumnPredicate* pred, std::vector<ColumnPredicate*>& remaining_predicates,
             bool* continue_apply);
-    [[nodiscard]] Status _apply_inverted_index_on_block_column_predicate(
-            ColumnId column_id, MutilColumnBlockPredicate* pred,
-            std::set<const ColumnPredicate*>& no_need_to_pass_column_predicate_set,
-            bool* continue_apply);
     [[nodiscard]] Status _apply_index_expr();
     bool _column_has_fulltext_index(int32_t cid);
     bool _downgrade_without_index(Status res, bool need_remaining = false);
@@ -305,14 +301,6 @@ private:
     bool _check_apply_by_inverted_index(ColumnId col_id);
     bool _check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound = false);
 
-    std::string _gen_predicate_result_sign(ColumnPredicate* predicate);
-    std::string _gen_predicate_result_sign(ColumnPredicateInfo* predicate_info);
-
-    void _build_index_result_column(const uint16_t* sel_rowid_idx, uint16_t select_size,
-                                    vectorized::Block* block, const std::string& pred_result_sign,
-                                    const roaring::Roaring& index_result);
-    void _output_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
-                                     vectorized::Block* block);
     void _output_index_result_column_for_expr(uint16_t* sel_rowid_idx, uint16_t select_size,
                                               vectorized::Block* block);
 
@@ -320,9 +308,6 @@ private:
     bool _prune_column(ColumnId cid, vectorized::MutableColumnPtr& column, bool fill_defaults,
                        size_t num_of_defaults);
 
-    // return true means one column's predicates all pushed down
-    bool _check_column_pred_all_push_down(const std::string& column_name, bool in_compound = false,
-                                          bool is_match = false);
     Status _construct_compound_expr_context();
 
     // todo(wb) remove this method after RowCursor is removed
@@ -409,8 +394,6 @@ private:
     bool _check_all_exprs_passed_inverted_index_for_column(ColumnId cid,
                                                            bool default_return = false);
 
-    Status execute_func_expr(const vectorized::VExprSPtr& expr,
-                             std::shared_ptr<roaring::Roaring>& result);
     void _calculate_expr_in_remaining_conjunct_root();
 
     class BitmapRangeIterator;
@@ -430,8 +413,6 @@ private:
             _storage_name_and_type_by_col_name;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
-    // "column_name+operator+value-> <in_compound_query, rowid_result>
-    std::unordered_map<std::string, std::pair<bool, roaring::Roaring>> _rowid_result_for_index;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
     std::unique_ptr<BitmapRangeIterator> _range_iter;
     // the next rowid to read

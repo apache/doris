@@ -181,22 +181,13 @@ Status VMatchPredicate::evaluate_inverted_index(VExprContext* context,
 Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
     DCHECK(_open_finished || _getting_const_col);
     // TODO: not execute const expr again, but use the const column in function context
-    if (context->get_inverted_index_result_column().contains(this)) {
-        size_t num_columns_without_result = block->columns();
-        // prepare a column to save result
-        auto result_column = context->get_inverted_index_result_column()[this];
-        LOG(WARNING) << "hit result expr name:" << _expr_name
-                     << " result:" << result_column->dump_structure();
-        if (_data_type->is_nullable()) {
-            block->insert(
-                    {ColumnNullable::create(result_column, ColumnUInt8::create(block->rows(), 0)),
-                     _data_type, _expr_name});
-        } else {
-            block->insert({result_column, _data_type, _expr_name});
-        }
-        *result_column_id = num_columns_without_result;
+    if (fast_execute(context, block, result_column_id)) {
         return Status::OK();
     }
+    DBUG_EXECUTE_IF("VMatchPredicate.execute", {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "{} not support slow path, hit debug point.", _expr_name);
+    });
     doris::vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {
         int column_id = -1;

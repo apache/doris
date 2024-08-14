@@ -155,22 +155,7 @@ Status VInPredicate::execute(VExprContext* context, Block* block, int* result_co
     if (is_const_and_have_executed()) { // const have execute in open function
         return get_result_from_const(block, _expr_name, result_column_id);
     }
-    if (context->get_inverted_index_result_column().contains(this)) {
-        size_t num_columns_without_result = block->columns();
-        // prepare a column to save result
-        auto result_column = context->get_inverted_index_result_column()[this];
-        for (int i = 0; i < result_column->size(); i++) {
-            LOG(INFO) << "expr name:" << _expr_name
-                      << " result:" << result_column->get_data_at(i).debug_string();
-        }
-        if (_data_type->is_nullable()) {
-            block->insert(
-                    {ColumnNullable::create(result_column, ColumnUInt8::create(block->rows(), 0)),
-                     _data_type, _expr_name});
-        } else {
-            block->insert({result_column, _data_type, _expr_name});
-        }
-        *result_column_id = num_columns_without_result;
+    if (fast_execute(context, block, result_column_id)) {
         return Status::OK();
     }
     DCHECK(_open_finished || _getting_const_col);
