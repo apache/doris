@@ -85,7 +85,8 @@ struct AggregateFunctionRegrSxxData {
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif
-        const auto& sources_x = assert_cast<const ColumnVector<T>&>(*column_x);
+        const auto& sources_x =
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_x);
         const auto& value = sources_x.get_data()[row_num];
         sum_x += value;
         square_of_sum_x += value * value;
@@ -136,8 +137,10 @@ struct AggregateFunctionRegrSxyData {
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif
-        const auto& sources_x = assert_cast<const ColumnVector<T>&>(*column_x);
-        const auto& sources_y = assert_cast<const ColumnVector<T>&>(*column_y);
+        const auto& sources_x =
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_x);
+        const auto& sources_y =
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_y);
         const auto& value_x = sources_x.get_data()[row_num];
         const auto& value_y = sources_y.get_data()[row_num];
         sum_x += value_x;
@@ -183,7 +186,8 @@ struct AggregateFunctionRegrSyyData {
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif
-        const auto& sources_y = assert_cast<const ColumnVector<T>&>(*column_y);
+        const auto& sources_y =
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_y);
         const auto& value = sources_y.get_data()[row_num];
         square_of_sum_y += value * value;
         sum_y += value;
@@ -194,7 +198,7 @@ struct AggregateFunctionRegrSyyData {
 template <typename T, typename Data>
 struct RegrSxxData : AggregateFunctionRegrSxxData<T> {
     void insert_result_into(IColumn& to) const {
-        auto& col = assert_cast<ColumnFloat64&>(to);
+        auto& col = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
         col.get_data().push_back(this->get_regr_sxx_result());
     }
 };
@@ -202,14 +206,14 @@ struct RegrSxxData : AggregateFunctionRegrSxxData<T> {
 template <typename T, typename Data>
 struct RegrSxyData : AggregateFunctionRegrSxyData<T> {
     void insert_result_into(IColumn& to) const {
-        auto& col = assert_cast<ColumnFloat64&>(to);
+        auto& col = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
         col.get_data().push_back(this->get_regr_sxy_result());
     }
 };
 template <typename T, typename Data>
 struct RegrSyyData : AggregateFunctionRegrSyyData<T> {
     void insert_result_into(IColumn& to) const {
-        auto& col = assert_cast<ColumnFloat64&>(to);
+        auto& col = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
         col.get_data().push_back(this->get_regr_syy_result());
     }
 };

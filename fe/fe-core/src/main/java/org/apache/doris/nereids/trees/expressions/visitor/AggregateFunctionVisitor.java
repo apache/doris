@@ -269,10 +269,6 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(quantileUnion, context);
     }
 
-    default R visitRetention(Retention retention, C context) {
-        return visitNullableAggregateFunction(retention, context);
-    }
-
     default R visitRegrSxx(RegrSxx regrSxx, C context) {
         return visitAggregateFunction(regrSxx, context);
     }
@@ -283,6 +279,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitRegrSyy(RegrSyy regrSyy, C context) {
         return visitAggregateFunction(regrSyy, context);
+    }
+
+    default R visitRetention(Retention retention, C context) {
+        return visitNullableAggregateFunction(retention, context);
     }
 
     default R visitSequenceCount(SequenceCount sequenceCount, C context) {

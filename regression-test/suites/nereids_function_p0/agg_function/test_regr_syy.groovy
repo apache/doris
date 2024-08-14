@@ -18,7 +18,7 @@
 suite("test_regr_syy") {
     sql """ DROP TABLE IF EXISTS test_regr_syy_int """
     sql """ DROP TABLE IF EXISTS test_regr_syy_double """
-    sql """ DROP TABLE IF EXISTS test_regr_syy_nullalble_col """
+    sql """ DROP TABLE IF EXISTS test_regr_syy_nullable_col """
 
 
     sql """ SET enable_nereids_planner=true """
@@ -49,7 +49,7 @@ suite("test_regr_syy") {
         );
         """
     sql """
-        CREATE TABLE test_regr_syy_nullalble_col (
+        CREATE TABLE test_regr_syy_nullable_col (
           `id` int NULL,
           `x` int NULL,
           `y` int NULL,
@@ -83,7 +83,7 @@ suite("test_regr_syy") {
         """
 
     sql """
-        insert into test_regr_syy_nullalble_col values
+        insert into test_regr_syy_nullable_col values
         (1, 18, 13),
         (2, 14, 27),
         (3, 5, 7),
@@ -92,6 +92,9 @@ suite("test_regr_syy") {
 
     // value is null
     sql """select regr_syy(NULL, NULL);"""
+
+    // literal and column
+    qt_sql "select regr_syy(y,4) from test_regr_syy_int"
 
     // value is literal and columns
     qt_sql "select regr_syy(y,20) from test_regr_syy_int"
@@ -106,14 +109,14 @@ suite("test_regr_syy") {
     sql """ truncate table test_regr_syy_double """
 
     // nullable and non_nullable
-    qt_sql "select regr_syy(y,non_nullable(x)) from test_regr_syy_nullalble_col"
+    qt_sql "select regr_syy(y,non_nullable(x)) from test_regr_syy_nullable_col"
 
     // non_nullable and nullable
-    qt_sql "select regr_syy(non_nullable(y),x) from test_regr_syy_nullalble_col"
+    qt_sql "select regr_syy(non_nullable(y),x) from test_regr_syy_nullable_col"
     
     // non_nullable and non_nullable
-    qt_sql "select regr_syy(non_nullable(y),non_nullable(x)) from test_regr_syy_nullalble_col"
-    sql """ truncate table test_regr_syy_nullalble_col """
+    qt_sql "select regr_syy(non_nullable(y),non_nullable(x)) from test_regr_syy_nullable_col"
+    sql """ truncate table test_regr_syy_nullable_col """
 
     // exception test
 	test{
