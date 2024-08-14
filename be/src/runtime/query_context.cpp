@@ -65,8 +65,8 @@ const std::string toString(QuerySource queryType) {
         return "EXTERNAL_QUERY";
     case QuerySource::ROUTINE_LOAD:
         return "ROUTINE_LOAD";
-    case QuerySource::SPARK_CONNECTOR:
-        return "SPARK_CONNECTOR";
+    case QuerySource::EXTERNAL_CONNECTOR:
+        return "EXTERNAL_CONNECTOR";
     default:
         return "UNKNOWN";
     }

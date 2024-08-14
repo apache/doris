@@ -1202,7 +1202,7 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     exec_fragment_params.__set_query_options(query_options);
     VLOG_ROW << "external exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(exec_fragment_params).c_str();
-    return exec_plan_fragment(exec_fragment_params, QuerySource::INTERNAL_FRONTEND);
+    return exec_plan_fragment(exec_fragment_params, QuerySource::EXTERNAL_CONNECTOR);
 }
 
 Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,

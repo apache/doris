@@ -68,7 +68,7 @@ enum class QuerySource {
     STREAM_LOAD,
     GROUP_COMMIT_LOAD,
     ROUTINE_LOAD,
-    SPARK_CONNECTOR // TODO: Find the entry point of spark connector
+    EXTERNAL_CONNECTOR
 };
 
 const std::string toString(QuerySource query_source);
