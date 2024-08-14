@@ -4,12 +4,21 @@
 2	B	20230101
 3	C	20230101
 
--- !refresh_other_partition --
+-- !refresh_complete --
 1	A	20230101
 2	B	20230101
 3	C	20230101
+4	D	20230102
+5	E	20230102
+6	F	20230102
 
--- !refresh_complete --
+-- !is_sync_before_rebuild --
+true
+
+-- !is_sync_after_rebuild --
+true
+
+-- !refresh_complete_rebuild --
 1	A	20230101
 2	B	20230101
 3	C	20230101
@@ -22,12 +31,21 @@
 2	B	20230101
 3	C	20230101
 
--- !refresh_other_partition --
+-- !refresh_complete --
 1	A	20230101
 2	B	20230101
 3	C	20230101
+4	D	20230102
+5	E	20230102
+6	F	20230102
 
--- !refresh_complete --
+-- !is_sync_before_rebuild --
+true
+
+-- !is_sync_after_rebuild --
+true
+
+-- !refresh_complete_rebuild --
 1	A	20230101
 2	B	20230101
 3	C	20230101
