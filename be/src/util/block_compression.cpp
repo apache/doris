@@ -264,7 +264,7 @@ public:
             size_t input_size = std::min(data_len, max_input_size);
             Slice input_slice(data, input_size);
             faststring output_data;
-            RETURN_IF_ERROR(Lz4BlockCompression::compress(input, &output_data));
+            RETURN_IF_ERROR(Lz4BlockCompression::compress(input_slice, &output_data));
             out_len += output_data.size();
             buffers.push_back(output_data.build());
             data += input_size;
@@ -811,7 +811,7 @@ public:
             size_t input_size = std::min(data_len, max_input_size);
             Slice input_slice(data, input_size);
             faststring output_data;
-            RETURN_IF_ERROR(SnappyBlockCompression::compress(input, &output_data));
+            RETURN_IF_ERROR(SnappyBlockCompression::compress(input_slice, &output_data));
             out_len += output_data.size();
             // the OwnedSlice will be moved here
             buffers.push_back(output_data.build());
