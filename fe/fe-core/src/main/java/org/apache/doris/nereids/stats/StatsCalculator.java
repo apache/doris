@@ -646,10 +646,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 idxId = olapScan.getSelectedIndexId();
             }
         }
-        if (deltaRowCount > 0 && LOG.isDebugEnabled()) {
-            LOG.debug("{} is partially analyzed, clear min/max values in column stats",
-                    catalogRelation.getTable().getName());
-        }
+        // if (deltaRowCount > 0 && LOG.isDebugEnabled()) {
+        //     LOG.debug("{} is partially analyzed, clear min/max values in column stats",
+        //             catalogRelation.getTable().getName());
+        // }
         for (SlotReference slotReference : slotSet) {
             String colName = slotReference.getColumn().isPresent()
                     ? slotReference.getColumn().get().getName()
@@ -676,14 +676,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 hasUnknownCol = true;
             }
             if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableStats) {
-                if (deltaRowCount > 0) {
-                    // clear min-max to avoid error estimation
-                    // for example, after yesterday data loaded, user send query about yesterday immediately.
-                    // since yesterday data are not analyzed, the max date is before yesterday, and hence optimizer
-                    // estimates the filter result is zero
-                    colStatsBuilder.setMinExpr(null).setMinValue(Double.NEGATIVE_INFINITY)
-                            .setMaxExpr(null).setMaxValue(Double.POSITIVE_INFINITY);
-                }
+                // if (deltaRowCount > 0) {
+                //     // clear min-max to avoid error estimation
+                //     // for example, after yesterday data loaded, user send query about yesterday immediately.
+                //     // since yesterday data are not analyzed, the max date is before yesterday, and hence optimizer
+                //     // estimates the filter result is zero
+                //     colStatsBuilder.setMinExpr(null).setMinValue(Double.NEGATIVE_INFINITY)
+                //             .setMaxExpr(null).setMaxValue(Double.POSITIVE_INFINITY);
+                // }
                 columnStatisticBuilderMap.put(slotReference, colStatsBuilder);
             } else {
                 columnStatisticBuilderMap.put(slotReference, new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN));
@@ -693,17 +693,18 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         if (hasUnknownCol && ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
             ConnectContext.get().getStatementContext().setHasUnknownColStats(true);
         }
-        return normalizeCatalogRelationColumnStatsRowCount(rowCount, columnStatisticBuilderMap);
+        return normalizeCatalogRelationColumnStatsRowCount(rowCount, columnStatisticBuilderMap, deltaRowCount);
     }
 
     private Statistics normalizeCatalogRelationColumnStatsRowCount(double rowCount,
-            Map<Expression, ColumnStatisticBuilder> columnStatisticBuilderMap) {
+            Map<Expression, ColumnStatisticBuilder> columnStatisticBuilderMap,
+            double deltaRowCount) {
         Map<Expression, ColumnStatistic> columnStatisticMap = new HashMap<>();
         for (Expression slot : columnStatisticBuilderMap.keySet()) {
             columnStatisticMap.put(slot,
                     columnStatisticBuilderMap.get(slot).setCount(rowCount).build());
         }
-        return new Statistics(rowCount, columnStatisticMap);
+        return new Statistics(rowCount, columnStatisticMap, deltaRowCount);
     }
 
     private Statistics computeTopN(TopN topN) {
