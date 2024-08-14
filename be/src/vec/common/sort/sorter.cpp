@@ -66,13 +66,13 @@ void MergeSorterState::reset() {
     in_mem_sorted_bocks_size_ = 0;
 }
 
-Status MergeSorterState::add_sorted_block(Block&& block) {
-    auto rows = block.rows();
+Status MergeSorterState::add_sorted_block(std::shared_ptr<Block> block) {
+    auto rows = block->rows();
     if (0 == rows) {
         return Status::OK();
     }
-    in_mem_sorted_bocks_size_ += block.bytes();
-    sorted_blocks_.emplace_back(Block::create_shared(std::move(block)));
+    in_mem_sorted_bocks_size_ += block->bytes();
+    sorted_blocks_.emplace_back(block);
     num_rows_ += rows;
     return Status::OK();
 }
@@ -265,24 +265,23 @@ Status FullSorter::_do_sort() {
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
         if (_state->num_rows() < _offset + _limit) {
-            static_cast<void>(_state->add_sorted_block(std::move(desc_block)));
-            _block_priority_queue.emplace(
-                    MergeSortBlockCursor::create_shared(MergeSortCursorImpl::create_shared(
-                            _state->last_sorted_block(), _sort_description)));
+            static_cast<void>(
+                    _state->add_sorted_block(Block::create_shared(std::move(desc_block))));
+            _block_priority_queue.emplace(MergeSortCursorImpl::create_shared(
+                    _state->last_sorted_block(), _sort_description));
         } else {
             auto tmp_cursor_impl = MergeSortCursorImpl::create_shared(
                     Block::create_shared(std::move(desc_block)), _sort_description);
             MergeSortBlockCursor block_cursor(tmp_cursor_impl);
-            if (!block_cursor.totally_greater(*_block_priority_queue.top())) {
-                static_cast<void>(_state->add_sorted_block(std::move(*tmp_cursor_impl->block)));
-                _block_priority_queue.emplace(
-                        MergeSortBlockCursor::create_shared(MergeSortCursorImpl::create_shared(
-                                _state->last_sorted_block(), _sort_description)));
+            if (!block_cursor.totally_greater(_block_priority_queue.top())) {
+                static_cast<void>(_state->add_sorted_block(tmp_cursor_impl->block));
+                _block_priority_queue.emplace(MergeSortCursorImpl::create_shared(
+                        _state->last_sorted_block(), _sort_description));
             }
         }
     } else {
         // dispose normal sort logic
-        static_cast<void>(_state->add_sorted_block(std::move(desc_block)));
+        static_cast<void>(_state->add_sorted_block(Block::create_shared(std::move(desc_block))));
     }
     return Status::OK();
 }

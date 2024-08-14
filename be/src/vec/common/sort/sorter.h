@@ -59,7 +59,7 @@ public:
 
     ~MergeSorterState() = default;
 
-    Status add_sorted_block(Block&& block);
+    Status add_sorted_block(std::shared_ptr<Block> block);
 
     Status build_merge_tree(const SortDescription& sort_description);
 
@@ -149,7 +149,7 @@ protected:
     RuntimeProfile::Counter* _partial_sort_timer = nullptr;
     RuntimeProfile::Counter* _merge_block_timer = nullptr;
 
-    std::priority_queue<std::shared_ptr<MergeSortBlockCursor>> _block_priority_queue;
+    std::priority_queue<MergeSortBlockCursor> _block_priority_queue;
     bool _materialize_sort_exprs;
 };
 

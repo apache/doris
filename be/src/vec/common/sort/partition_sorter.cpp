@@ -58,7 +58,7 @@ Status PartitionSorter::append_block(Block* input_block) {
     Block sorted_block = VectorizedUtils::create_empty_columnswithtypename(_row_desc);
     DCHECK(input_block->columns() == sorted_block.columns());
     RETURN_IF_ERROR(partial_sort(*input_block, sorted_block));
-    RETURN_IF_ERROR(_state->add_sorted_block(std::move(sorted_block)));
+    RETURN_IF_ERROR(_state->add_sorted_block(Block::create_shared(std::move(sorted_block))));
     return Status::OK();
 }
 
@@ -74,7 +74,7 @@ Status PartitionSorter::prepare_for_read() {
 
 // have done sorter and get topn records, so could reset those state to init
 void PartitionSorter::reset_sorter_state(RuntimeState* runtime_state) {
-    std::priority_queue<std::shared_ptr<MergeSortBlockCursor>> empty_queue;
+    std::priority_queue<MergeSortBlockCursor> empty_queue;
     std::swap(_block_priority_queue, empty_queue);
     _state = MergeSorterState::create_unique(_row_desc, _offset, _limit, runtime_state, nullptr);
     _previous_row->reset();

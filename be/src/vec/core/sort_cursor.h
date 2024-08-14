@@ -191,7 +191,7 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
                                 const std::vector<bool>& is_asc_order,
                                 const std::vector<bool>& nulls_first)
             : _ordering_expr(ordering_expr), _block_supplier(block_supplier) {
-        _block = Block::create_shared();
+        block = Block::create_shared();
         sort_columns_size = ordering_expr.size();
 
         desc.resize(ordering_expr.size());
@@ -204,7 +204,6 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
 
     BlockSupplierSortCursorImpl(const BlockSupplier& block_supplier, const SortDescription& desc_)
             : MergeSortCursorImpl(desc_), _block_supplier(block_supplier) {
-        _block = Block::create_shared();
         _is_eof = !has_next_block();
     }
 
@@ -212,21 +211,21 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
         if (_is_eof) {
             return false;
         }
-        _block->clear();
+        block->clear();
         Status status;
         do {
-            status = _block_supplier(_block.get(), &_is_eof);
-        } while (_block->empty() && !_is_eof && status.ok());
+            status = _block_supplier(block.get(), &_is_eof);
+        } while (block->empty() && !_is_eof && status.ok());
         // If status not ok, upper callers could not detect whether it is eof or error.
         // So that fatal here, and should throw exception in the future.
-        if (status.ok() && !_block->empty()) {
+        if (status.ok() && !block->empty()) {
             if (_ordering_expr.size() > 0) {
                 for (int i = 0; status.ok() && i < desc.size(); ++i) {
                     // TODO yiguolei: throw exception if status not ok in the future
-                    status = _ordering_expr[i]->execute(_block.get(), &desc[i].column_number);
+                    status = _ordering_expr[i]->execute(block.get(), &desc[i].column_number);
                 }
             }
-            MergeSortCursorImpl::reset(_block);
+            MergeSortCursorImpl::reset();
             return status.ok();
         } else if (!status.ok()) {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, status.msg());
@@ -238,22 +237,10 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
         if (_is_eof) {
             return nullptr;
         }
-        return _block.get();
-    }
-
-    size_t columns_num() const { return block->columns(); }
-
-    Block create_empty_blocks() const {
-        size_t num_columns = columns_num();
-        MutableColumns columns(num_columns);
-        for (size_t i = 0; i < num_columns; ++i) {
-            columns[i] = block->get_columns()[i]->clone_empty();
-        }
-        return _block->clone_with_columns(std::move(columns));
+        return block.get();
     }
 
     VExprContextSPtrs _ordering_expr;
-    std::shared_ptr<Block> _block;
     BlockSupplier _block_supplier {};
     bool _is_eof = false;
 };

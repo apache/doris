@@ -80,13 +80,6 @@ Status VSortedRunMerger::prepare(const std::vector<BlockSupplier>& input_runs) {
         }
     }
 
-    for (const auto& cursor : _cursors) {
-        if (!cursor->_is_eof) {
-            _empty_block = cursor->create_empty_blocks();
-            break;
-        }
-    }
-
     return Status::OK();
 }
 
@@ -146,9 +139,9 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
             }
         }
     } else {
-        size_t num_columns = _empty_block.columns();
-        MutableBlock m_block =
-                VectorizedUtils::build_mutable_mem_reuse_block(output_block, _empty_block);
+        size_t num_columns = _priority_queue.top().impl->block->columns();
+        MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(
+                output_block, *_priority_queue.top().impl->block);
         MutableColumns& merged_columns = m_block.mutable_columns();
 
         if (num_columns != merged_columns.size()) {

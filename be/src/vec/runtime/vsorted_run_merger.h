@@ -79,8 +79,6 @@ protected:
     /// we make it as a pending cursor until the supplier is readable.
     std::shared_ptr<MergeSortCursorImpl> _pending_cursor = nullptr;
 
-    Block _empty_block;
-
     // Times calls to get_next().
     RuntimeProfile::Counter* _get_next_timer = nullptr;
 
@@ -99,4 +97,4 @@ private:
     bool has_next_block(MergeSortCursor& current);
 };
 
-} // namespace doris
+} // namespace doris::vectorized
