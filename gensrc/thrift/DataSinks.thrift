@@ -329,6 +329,8 @@ struct THiveSerDeProperties {
     2: optional string line_delim
     3: optional string collection_delim // array ,map ,struct delimiter 
     4: optional string mapkv_delim
+    5: optional string escape_char
+    6: optional string null_format
 }
 
 struct THiveTableSink {
