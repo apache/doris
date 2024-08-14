@@ -147,7 +147,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             response = getNextEventResponseForSlave(hmsExternalCatalog);
         }
 
-        if (response == null) {
+        if (response == null || response.getEventsSize() == 0) {
             return Collections.emptyList();
         }
         return response.getEvents();
@@ -184,8 +184,8 @@ public class MetastoreEventsProcessor extends MasterDaemon {
 
     private NotificationEventResponse getNextEventResponseForMaster(HMSExternalCatalog hmsExternalCatalog)
             throws MetastoreNotificationFetchException {
-        long lastSyncedEventId = getLastSyncedEventId(hmsExternalCatalog);
-        long currentEventId = getCurrentHmsEventId(hmsExternalCatalog);
+        long lastSyncedEventId = getLastSyncedEventId(hmsExternalCatalog); //165
+        long currentEventId = getCurrentHmsEventId(hmsExternalCatalog); //166
         if (lastSyncedEventId < 0) {
             refreshCatalogForMaster(hmsExternalCatalog);
             // invoke getCurrentEventId() and save the event id before refresh catalog to avoid missing events
@@ -206,17 +206,22 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             LOG.info("Event id not updated when pulling events on catalog [{}]", hmsExternalCatalog.getName());
             return null;
         }
-
+        LOG.info("(CYW)catalogname = {}, lastSyncedEventId  = {}, currentEventId = {}",
+                hmsExternalCatalog.getName(), lastSyncedEventId, currentEventId);
         try {
-            return hmsExternalCatalog.getClient().getNextNotification(lastSyncedEventId,
+            NotificationEventResponse notificationEventResponse =
+                    hmsExternalCatalog.getClient().getNextNotification(lastSyncedEventId,
                         Config.hms_events_batch_size_per_rpc, null);
+            LOG.info("(CYW)catalogname = {} successs.event size = {} ",
+                    hmsExternalCatalog.getName(), notificationEventResponse.getEvents().size());
+            return notificationEventResponse;
         } catch (MetastoreNotificationFetchException e) {
             // Need a fallback to handle this because this error state can not be recovered until restarting FE
             if (StringUtils.isNotEmpty(e.getMessage())
                     && e.getMessage().contains(HiveMetaStoreClient.REPL_EVENTS_MISSING_IN_METASTORE)) {
                 refreshCatalogForMaster(hmsExternalCatalog);
                 // set lastSyncedEventId to currentEventId after refresh catalog successfully
-                updateLastSyncedEventId(hmsExternalCatalog, currentEventId);
+                updateLastSyncedEventId(hmsExternalCatalog, currentEventId); //TODO ??? may be not right
                 LOG.warn("Notification events are missing, maybe an event can not be handled "
                         + "or processing rate is too low, fallback to refresh the catalog");
                 return null;

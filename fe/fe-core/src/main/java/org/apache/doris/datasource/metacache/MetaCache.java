@@ -90,6 +90,10 @@ public class MetaCache<T> {
         return name == null ? Optional.empty() : getMetaObj(name, id);
     }
 
+    public void setIdToName(long id, String name)  {
+        idToName.put(id, name);
+    }
+
     public void updateCache(String objName, T obj) {
         metaObjCache.put(objName, Optional.of(obj));
         namesCache.asMap().compute("", (k, v) -> {

@@ -488,6 +488,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (extCatalog.getUseMetaCache().get()) {
             if (isInitialized()) {
                 metaCache.updateCache(tableName, (T) tableIf);
+                metaCache.setIdToName(tableId, tableName);
             }
         } else {
             tableNameToId.put(tableName, tableId);

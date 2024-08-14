@@ -46,6 +46,7 @@ public class MetastoreEventFactory implements EventFactory {
                                                                            String catalogName) {
         Preconditions.checkNotNull(event.getEventType());
         MetastoreEventType metastoreEventType = MetastoreEventType.from(event.getEventType());
+        LOG.info("event = {}", event.toString());
         switch (metastoreEventType) {
             case CREATE_TABLE:
                 return CreateTableEvent.getEvents(event, catalogName);
@@ -79,6 +80,7 @@ public class MetastoreEventFactory implements EventFactory {
         for (NotificationEvent event : events) {
             metastoreEvents.addAll(transferNotificationEventToMetastoreEvents(event, catalogName));
         }
+        //try catch ???
         List<MetastoreEvent> mergedEvents = mergeEvents(catalogName, metastoreEvents);
         if (Env.getCurrentEnv().isMaster()) {
             logMetaIdMappings(hmsExternalCatalog.getId(), events.get(events.size() - 1).getEventId(), mergedEvents);
