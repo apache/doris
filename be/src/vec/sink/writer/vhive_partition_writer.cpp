@@ -214,10 +214,6 @@ std::string VHivePartitionWriter::_get_file_extension(TFileFormatType::type file
         compress_name = ".bz2";
         break;
     }
-    case TFileCompressType::DEFLATE: {
-        compress_name = ".deflate";
-        break;
-    }
     case TFileCompressType::LZ4BLOCK: {
         compress_name = ".lz4";
         break;
