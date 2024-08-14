@@ -232,7 +232,7 @@ public class CreateTableInfo {
                     + " Make sure 'engine' type is specified when use the catalog: " + ctlName);
             }
         }
-        CatalogIf catalog = Env.getCurrentEnv().getCurrentCatalog();
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
         if (catalog instanceof HMSExternalCatalog && !engineName.equals(ENGINE_HIVE)) {
             throw new AnalysisException("Hms type catalog can only use `hive` engine.");
         } else if (catalog instanceof IcebergExternalCatalog && !engineName.equals(ENGINE_ICEBERG)) {
