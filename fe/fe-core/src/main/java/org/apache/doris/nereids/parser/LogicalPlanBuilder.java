@@ -954,7 +954,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     partitionSpec.second, query);
         } else {
             // convert to insert into select
-            query = withRelations(query, ctx.relations().relation());
+            if (ctx.USING() != null) {
+                query = withRelations(query, ctx.relations().relation());
+            }
             query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
             Optional<LogicalPlan> cte = Optional.empty();
             if (ctx.cte() != null) {
