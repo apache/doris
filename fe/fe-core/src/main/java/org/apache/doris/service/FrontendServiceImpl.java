@@ -3100,6 +3100,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         LabelName label = new LabelName(request.getDb(), request.getLabelName());
         String repoName = request.getRepoName();
         Map<String, String> properties = request.getProperties();
+
+        // Restore requires that all properties are known, so the old version of FE will not be able
+        // to recognize the properties of the new version. Therefore, request parameters are used here
+        // instead of directly putting them in properties to avoid compatibility issues of cross-version
+        // synchronization.
+        if (request.isCleanPartitions()) {
+            properties.put(RestoreStmt.PROP_CLEAN_PARTITIONS, "true");
+        }
+        if (request.isCleanTables()) {
+            properties.put(RestoreStmt.PROP_CLEAN_TABLES, "true");
+        }
+
         AbstractBackupTableRefClause restoreTableRefClause = null;
         if (request.isSetTableRefs()) {
             List<TableRef> tableRefs = new ArrayList<>();
