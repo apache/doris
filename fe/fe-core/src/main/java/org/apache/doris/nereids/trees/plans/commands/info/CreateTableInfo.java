@@ -605,8 +605,8 @@ public class CreateTableInfo {
 
     private void paddingEngineName(String ctlName, ConnectContext ctx) {
         Preconditions.checkArgument(!Strings.isNullOrEmpty(ctlName));
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
         if (Strings.isNullOrEmpty(engineName)) {
-            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
             if (catalog == null) {
                 throw new AnalysisException("Unknown catalog: " + ctlName);
             }
@@ -619,6 +619,12 @@ public class CreateTableInfo {
                 engineName = ENGINE_ICEBERG;
             } else {
                 throw new AnalysisException("Current catalog does not support create table: " + ctlName);
+            }
+        } else {
+            if (catalog instanceof HMSExternalCatalog && !engineName.equals(ENGINE_HIVE)) {
+                throw new AnalysisException("Hms type catalog can only use `hive` engine.");
+            } else if (catalog instanceof IcebergExternalCatalog && !engineName.equals(ENGINE_ICEBERG)) {
+                throw new AnalysisException("Iceberg type catalog can only use `iceberg` engine.");
             }
         }
     }
