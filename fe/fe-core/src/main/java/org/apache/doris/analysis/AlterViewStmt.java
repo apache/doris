@@ -110,4 +110,9 @@ public class AlterViewStmt extends BaseViewStmt {
     public String toString() {
         return toSql();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
+    }
 }

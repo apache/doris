@@ -554,4 +554,9 @@ public class LoadStmt extends DdlStmt {
             return RedirectStatus.FORWARD_WITH_SYNC;
         }
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.LOAD;
+    }
 }

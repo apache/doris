@@ -46,4 +46,9 @@ public class AlterCatalogCommentStmt extends AlterCatalogStmt {
     public String toSql() {
         return "ALTER CATALOG " + catalogName + " MODIFY COMMENT " + comment;
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
+    }
 }

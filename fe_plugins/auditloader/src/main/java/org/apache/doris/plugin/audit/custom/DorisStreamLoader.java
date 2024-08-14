@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.plugin.audit;
+package org.apache.doris.plugin.audit.custom;
+
+import org.apache.doris.catalog.InternalSchema;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -29,6 +31,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Calendar;
+import java.util.stream.Collectors;
 
 public class DorisStreamLoader {
     private final static Logger LOG = LogManager.getLogger(DorisStreamLoader.class);
@@ -71,10 +74,8 @@ public class DorisStreamLoader {
 
         conn.addRequestProperty("label", label);
         conn.addRequestProperty("max_filter_ratio", "1.0");
-        conn.addRequestProperty("columns", "query_id, `time`, client_ip, user, db, state, error_code, error_message, " +
-                "query_time, scan_bytes, scan_rows, return_rows, stmt_id, is_query, frontend_ip, cpu_time_ms, sql_hash, " +
-                "sql_digest, peak_memory_bytes, stmt");
-
+        conn.addRequestProperty("columns",
+            InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(Collectors.joining(",")));
         conn.setDoOutput(true);
         conn.setDoInput(true);
 
@@ -88,9 +89,9 @@ public class DorisStreamLoader {
         sb.append("-H \"").append("Expect\":").append("\"100-continue\" \\\n  ");
         sb.append("-H \"").append("Content-Type\":").append("\"text/plain; charset=UTF-8\" \\\n  ");
         sb.append("-H \"").append("max_filter_ratio\":").append("\"1.0\" \\\n  ");
-        sb.append("-H \"").append("columns\":").append("\"query_id, time, client_ip, user, db, state, error_code, " +
-                "error_message, query_time, scan_bytes, scan_rows, return_rows, stmt_id, is_query, frontend_ip, " +
-                "cpu_time_ms, sql_hash, sql_digest, peak_memory_bytes, stmt\" \\\n  ");
+        sb.append("-H \"").append("columns\":")
+            .append("\"" + InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(
+            Collectors.joining(",")) + "\" \\\n  ");
         sb.append("\"").append(conn.getURL()).append("\"");
         return sb.toString();
     }

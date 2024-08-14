@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -76,4 +77,8 @@ public interface LogicalPlan extends Plan {
     void computeUniform(FunctionalDependencies.Builder fdBuilder);
 
     void computeEqualSet(FunctionalDependencies.Builder fdBuilder);
+
+    default StmtType stmtType() {
+        return StmtType.OTHER;
+    }
 }

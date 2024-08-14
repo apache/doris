@@ -66,6 +66,11 @@ public class UseStmt extends StatementBase {
     }
 
     @Override
+    public StmtType stmtType() {
+        return StmtType.USE;
+    }
+
+    @Override
     public String toString() {
         return toSql();
     }

@@ -69,4 +69,9 @@ public class CancelJobTaskStmt extends DdlStmt {
         }
         this.taskId = ((IntLiteral) compoundPredicate.getChildren().get(1).getChild(1)).getLongValue();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CANCEL;
+    }
 }

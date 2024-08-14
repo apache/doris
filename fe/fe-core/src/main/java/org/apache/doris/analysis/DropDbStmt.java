@@ -96,4 +96,9 @@ public class DropDbStmt extends DdlStmt {
         return toSql();
     }
 
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
+    }
+
 }
