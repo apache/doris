@@ -21,6 +21,8 @@ import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -35,14 +37,54 @@ public class MTMVRefreshSnapshotTest {
     private MTMVRefreshSnapshot refreshSnapshot = new MTMVRefreshSnapshot();
     private MTMVVersionSnapshot p1Snapshot = new MTMVVersionSnapshot(correctVersion);
     private MTMVVersionSnapshot t1Snapshot = new MTMVVersionSnapshot(correctVersion);
+    @Mocked
+    private BaseTableInfo existTable;
+    @Mocked
+    private BaseTableInfo nonExistTable;
 
     @Before
     public void setUp() throws NoSuchMethodException, SecurityException, AnalysisException {
+        new Expectations() {
+            {
+                existTable.getCtlName();
+                minTimes = 0;
+                result = "ctl1";
+
+                existTable.getDbName();
+                minTimes = 0;
+                result = "db1";
+
+                existTable.getTableName();
+                minTimes = 0;
+                result = "t1";
+
+                existTable.getTableId();
+                minTimes = 0;
+                result = 1L;
+
+                nonExistTable.getCtlName();
+                minTimes = 0;
+                result = "ctl1";
+
+                nonExistTable.getDbName();
+                minTimes = 0;
+                result = "db1";
+
+                nonExistTable.getTableName();
+                minTimes = 0;
+                result = "t2";
+
+                nonExistTable.getTableId();
+                minTimes = 0;
+                result = 2L;
+            }
+        };
+
         Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = Maps.newHashMap();
         MTMVRefreshPartitionSnapshot mvp1PartitionSnapshot = new MTMVRefreshPartitionSnapshot();
         partitionSnapshots.put(mvExistPartitionName, mvp1PartitionSnapshot);
         mvp1PartitionSnapshot.getPartitions().put(relatedExistPartitionName, p1Snapshot);
-        mvp1PartitionSnapshot.getTables().put(baseExistTableId, t1Snapshot);
+        mvp1PartitionSnapshot.addTableSnapshot(existTable, t1Snapshot);
         refreshSnapshot.updateSnapshots(partitionSnapshots, Sets.newHashSet(mvExistPartitionName));
     }
 
@@ -73,23 +115,23 @@ public class MTMVRefreshSnapshotTest {
     @Test
     public void testTableSync() {
         // normal
-        boolean sync = refreshSnapshot.equalsWithBaseTable(mvExistPartitionName, baseExistTableId,
+        boolean sync = refreshSnapshot.equalsWithBaseTable(mvExistPartitionName, existTable,
                 new MTMVVersionSnapshot(correctVersion));
         Assert.assertTrue(sync);
         // non exist mv partition
         sync = refreshSnapshot
-                .equalsWithBaseTable("mvp2", baseExistTableId, new MTMVVersionSnapshot(correctVersion));
+                .equalsWithBaseTable("mvp2", existTable, new MTMVVersionSnapshot(correctVersion));
         Assert.assertFalse(sync);
         // non exist related partition
         sync = refreshSnapshot
-                .equalsWithBaseTable(mvExistPartitionName, 2L, new MTMVVersionSnapshot(correctVersion));
+                .equalsWithBaseTable(mvExistPartitionName, nonExistTable, new MTMVVersionSnapshot(correctVersion));
         Assert.assertFalse(sync);
         // snapshot value not equal
         sync = refreshSnapshot
-                .equalsWithBaseTable(mvExistPartitionName, baseExistTableId, new MTMVVersionSnapshot(2L));
+                .equalsWithBaseTable(mvExistPartitionName, existTable, new MTMVVersionSnapshot(2L));
         Assert.assertFalse(sync);
         // snapshot type not equal
-        sync = refreshSnapshot.equalsWithBaseTable(mvExistPartitionName, baseExistTableId,
+        sync = refreshSnapshot.equalsWithBaseTable(mvExistPartitionName, existTable,
                 new MTMVTimestampSnapshot(correctVersion));
         Assert.assertFalse(sync);
     }

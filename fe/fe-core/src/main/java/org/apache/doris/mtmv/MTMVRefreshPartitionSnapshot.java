@@ -35,6 +35,7 @@ public class MTMVRefreshPartitionSnapshot {
     public MTMVRefreshPartitionSnapshot() {
         this.partitions = Maps.newConcurrentMap();
         this.tables = Maps.newConcurrentMap();
+        this.tablesInfo = Maps.newConcurrentMap();
     }
 
     public Map<String, MTMVSnapshotIf> getPartitions() {

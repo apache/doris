@@ -60,7 +60,7 @@ public class MTMVUtil {
                     .getDbOrAnalysisException(baseTableInfo.getDbId())
                     .getTableOrAnalysisException(baseTableInfo.getTableId());
         }
-       return Env.getCurrentEnv().getCatalogMgr()
+        return Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(baseTableInfo.getCtlName())
                 .getDbOrAnalysisException(baseTableInfo.getDbName())
                 .getTableOrAnalysisException(baseTableInfo.getTableName());
