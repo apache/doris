@@ -56,6 +56,7 @@ statementBase
 unsupportedStatement
     : unsupportedSetStatement
     | unsupportedUseStatement
+    | unsupportedDmlStatement
     ;
 
 materailizedViewStatement
@@ -158,20 +159,15 @@ supportedDropStatement
     ;
 
 unsupportedSetStatement
-    : SET identifier AS DEFAULT STORAGE VAULT                              #setDefaultStorageVault
-    | SET PROPERTY (FOR user=identifierOrText)? propertyItemList           #setUserProperties
-    | SET (GLOBAL | LOCAL | SESSION)? identifier EQ (expression | DEFAULT) #setSystemVariableWithType
-    | SET variable                                                         #setSystemVariableWithoutType
-    | SET (CHAR SET | CHARSET) (charsetName=identifierOrText | DEFAULT)    #setCharset
-    | SET NAMES EQ expression                                              #setNames
+    : SET (optionWithType | optionWithoutType)
+        (COMMA (optionWithType | optionWithoutType))*                     #setOptions
+    | SET identifier AS DEFAULT STORAGE VAULT                             #setDefaultStorageVault
+    | SET PROPERTY (FOR user=identifierOrText)? propertyItemList          #setUserProperties
     | SET (GLOBAL | LOCAL | SESSION)? TRANSACTION
         ( transactionAccessMode
         | isolationLevel
         | transactionAccessMode COMMA isolationLevel
         | isolationLevel COMMA transactionAccessMode)                     #setTransaction
-    | SET NAMES (charsetName=identifierOrText | DEFAULT) (COLLATE collateName=identifierOrText | DEFAULT)?    #setCollate
-    | SET PASSWORD (FOR userIdentify)? EQ (STRING_LITERAL | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN)) #setPassword
-    | SET LDAP_ADMIN_PASSWORD EQ (STRING_LITERAL | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))          #setLdapAdminPassword
     ;
 
 unsupportedUseStatement
@@ -179,8 +175,28 @@ unsupportedUseStatement
     | USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
     ;
 
+unsupportedDmlStatement
+    : TRUNCATE TABLE multipartIdentifier specifiedPartition?   # truncateTable
+    ;
+
+optionWithType
+    : (GLOBAL | LOCAL | SESSION) identifier EQ (expression | DEFAULT)
+    ;
+
+optionWithoutType
+    : NAMES EQ expression                                               #setNames
+    | (CHAR SET | CHARSET) (charsetName=identifierOrText | DEFAULT)     #setCharset
+    | NAMES (charsetName=identifierOrText | DEFAULT)
+        (COLLATE collateName=identifierOrText | DEFAULT)?               #setCollate
+    | PASSWORD (FOR userIdentify)? EQ (STRING_LITERAL
+        | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))             #setPassword
+    | LDAP_ADMIN_PASSWORD EQ (STRING_LITERAL
+    | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))                 #setLdapAdminPassword
+    | variable                                                          #setVariableWithoutType
+    ;
+
 variable
-    : (ATSIGN ATSIGN (GLOBAL | LOCAL | SESSION)?)? identifier EQ (expression | DEFAULT) #setSystemVariable
+    : (DOUBLEATSIGN ((GLOBAL | LOCAL | SESSION) DOT)?)? identifier EQ (expression | DEFAULT) #setSystemVariable
     | ATSIGN identifier EQ expression #setUserVariable
     ;
 

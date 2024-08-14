@@ -23,7 +23,7 @@ import org.apache.doris.common.UserException;
 import java.util.List;
 
 // Set variables statement. Now only support simple string
-public class SetStmt extends StatementBase {
+public class SetStmt extends StatementBase implements NotFallbackInParser {
     // variables to modify
     private final List<SetVar> setVars;
 
