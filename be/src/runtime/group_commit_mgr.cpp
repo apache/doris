@@ -585,7 +585,7 @@ Status GroupCommitTable::_exec_plan_fragment(int64_t db_id, int64_t table_id,
         }
     };
     return _exec_env->fragment_mgr()->exec_plan_fragment(pipeline_params,
-                                                         QUERY_SOURCE::GROUP_COMMIT_LOAD, finish_cb);
+                                                         QuerySource::GROUP_COMMIT_LOAD, finish_cb);
 }
 
 Status GroupCommitTable::get_load_block_queue(const TUniqueId& instance_id,

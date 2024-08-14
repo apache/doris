@@ -18,15 +18,15 @@
 #include "runtime/query_type.h"
 
 namespace doris {
-const std::string toString(QUERY_SOURCE queryType) {
+const std::string toString(QuerySource queryType) {
     switch (queryType) {
-    case QUERY_SOURCE::INTERNAL_FRONTEND:
+    case QuerySource::INTERNAL_FRONTEND:
         return "INTERNAL_FRONTEND";
-    case QUERY_SOURCE::STREAM_LOAD:
+    case QuerySource::STREAM_LOAD:
         return "STREAM_LOAD";
-    case QUERY_SOURCE::GROUP_COMMIT_LOAD:
+    case QuerySource::GROUP_COMMIT_LOAD:
         return "EXTERNAL_QUERY";
-    case QUERY_SOURCE::ROUTINE_LOAD:
+    case QuerySource::ROUTINE_LOAD:
         return "ROUTINE_LOAD";
     default:
         return "UNKNOWN";
