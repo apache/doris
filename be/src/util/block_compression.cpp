@@ -249,11 +249,10 @@ public:
     // hadoop use block compression for lz4
     // https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/Lz4Codec.cc
     Status compress(const Slice& input, faststring* output) override {
-        // TODO: config lz4_buffer_size
         // be same with hadop https://github.com/apache/hadoop/blob/trunk/hadoop-common-project/hadoop-common/src/main/java/org/apache/hadoop/io/compress/Lz4Codec.java
-        size_t lz4_buffer_size = 64 * 1024;
-        size_t overhead = lz4_buffer_size / 255 + 16;
-        size_t max_input_size = lz4_buffer_size - overhead;
+        size_t lz4_block_size = config::lz4_compression_block_size;
+        size_t overhead = lz4_block_size / 255 + 16;
+        size_t max_input_size = lz4_block_size - overhead;
 
         size_t data_len = input.size;
         char* data = input.data;
@@ -796,11 +795,10 @@ public:
     // hadoop use block compression for snappy
     // https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/SnappyCodec.cc
     Status compress(const Slice& input, faststring* output) override {
-        // TODO: config snappy_buffer_size
         // be same with hadop https://github.com/apache/hadoop/blob/trunk/hadoop-common-project/hadoop-common/src/main/java/org/apache/hadoop/io/compress/SnappyCodec.java
-        size_t snappy_buffer_size = 64 * 1024;
-        size_t overhead = snappy_buffer_size / 6 + 32;
-        size_t max_input_size = snappy_buffer_size - overhead;
+        size_t snappy_block_size = config::snappy_compression_block_size;
+        size_t overhead = snappy_block_size / 6 + 32;
+        size_t max_input_size = snappy_block_size - overhead;
 
         size_t data_len = input.size;
         char* data = input.data;
