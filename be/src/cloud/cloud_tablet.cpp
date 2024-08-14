@@ -246,6 +246,38 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                             },
                                     .download_done {},
                             });
+
+                    auto download_idx_file = [&](const io::Path& idx_path) {
+                        io::DownloadFileMeta meta {
+                                .path = idx_path,
+                                .file_size = -1,
+                                .file_system = storage_resource.value()->fs,
+                                .ctx =
+                                        {
+                                                .expiration_time = expiration_time,
+                                        },
+                                .download_done {},
+                        };
+                        _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
+                    };
+                    auto schema_ptr = rowset_meta->tablet_schema();
+                    auto idx_version = schema_ptr->get_inverted_index_storage_format();
+                    if (idx_version == InvertedIndexStorageFormatPB::V1) {
+                        for (const auto& index : schema_ptr->indexes()) {
+                            if (index.index_type() == IndexType::INVERTED) {
+                                auto idx_path = storage_resource.value()->remote_idx_v1_path(
+                                        *rowset_meta, seg_id, index.index_id(),
+                                        index.get_index_suffix());
+                                download_idx_file(idx_path);
+                            }
+                        }
+                    } else if (idx_version == InvertedIndexStorageFormatPB::V2) {
+                        if (schema_ptr->has_inverted_index()) {
+                            auto idx_path = storage_resource.value()->remote_idx_v2_path(
+                                    *rowset_meta, seg_id);
+                            download_idx_file(idx_path);
+                        }
+                    }
                 }
 #endif
             }
@@ -648,8 +680,13 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
 
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
             *this, txn_id, COMPACTION_DELETE_BITMAP_LOCK_ID, new_delete_bitmap.get()));
-    _engine.txn_delete_bitmap_cache().update_tablet_txn_info(
-            txn_id, tablet_id(), new_delete_bitmap, cur_rowset_ids, PublishStatus::SUCCEED);
+
+    // store the delete bitmap with sentinel marks in txn_delete_bitmap_cache because if the txn is retried for some reason,
+    // it will use the delete bitmap from txn_delete_bitmap_cache when re-calculating the delete bitmap, during which it will do
+    // delete bitmap correctness check. If we store the new_delete_bitmap, the delete bitmap correctness check will fail
+    _engine.txn_delete_bitmap_cache().update_tablet_txn_info(txn_id, tablet_id(), delete_bitmap,
+                                                             cur_rowset_ids, PublishStatus::SUCCEED,
+                                                             txn_info->publish_info);
 
     return Status::OK();
 }

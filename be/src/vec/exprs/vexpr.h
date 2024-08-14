@@ -155,6 +155,17 @@ public:
     VExprSPtr get_child(int i) const { return _children[i]; }
     int get_num_children() const { return _children.size(); }
 
+    virtual bool need_judge_selectivity() {
+        return std::ranges::any_of(_children.begin(), _children.end(),
+                                   [](VExprSPtr child) { return child->need_judge_selectivity(); });
+    }
+
+    virtual void do_judge_selectivity(int64_t filter_rows, int64_t input_rows) {
+        for (auto child : _children) {
+            child->do_judge_selectivity(filter_rows, input_rows);
+        }
+    }
+
     static Status create_expr_tree(const TExpr& texpr, VExprContextSPtr& ctx);
 
     static Status create_expr_trees(const std::vector<TExpr>& texprs, VExprContextSPtrs& ctxs);
@@ -241,7 +252,7 @@ public:
 
     virtual bool can_push_down_to_index() const { return false; }
     virtual bool can_fast_execute() const { return false; }
-    virtual Status eval_inverted_index(VExprContext* context, segment_v2::FuncExprParams& params,
+    virtual Status eval_inverted_index(segment_v2::FuncExprParams& params,
                                        std::shared_ptr<roaring::Roaring>& result) {
         return Status::NotSupported("Not supported execute_with_inverted_index");
     }

@@ -363,8 +363,8 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
                 _convert_dict_cols_to_string_cols(block);
                 RETURN_IF_CATCH_EXCEPTION(
                         RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                                _not_single_slot_filter_conjuncts, nullptr, block,
-                                columns_to_filter, column_to_keep)));
+                                _not_single_slot_filter_conjuncts, block, columns_to_filter,
+                                column_to_keep)));
             } else {
                 Block::erase_useless_column(block, column_to_keep);
                 _convert_dict_cols_to_string_cols(block);
@@ -585,8 +585,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     RETURN_IF_ERROR(_fill_missing_columns(block, column_size, _lazy_read_ctx.missing_columns));
     if (!_not_single_slot_filter_conjuncts.empty()) {
         RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                _not_single_slot_filter_conjuncts, nullptr, block, columns_to_filter,
-                origin_column_num)));
+                _not_single_slot_filter_conjuncts, block, columns_to_filter, origin_column_num)));
     }
     return Status::OK();
 }
@@ -845,7 +844,7 @@ Status RowGroupReader::_rewrite_dict_predicates() {
             temp_block.get_by_position(0).column->assume_mutable()->resize(dict_value_column_size);
         }
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(VExprContext::execute_conjuncts_and_filter_block(
-                ctxs, nullptr, &temp_block, columns_to_filter, column_to_keep));
+                ctxs, &temp_block, columns_to_filter, column_to_keep));
         if (dict_pos != 0) {
             // We have to clean the first column to insert right data.
             temp_block.get_by_position(0).column->assume_mutable()->clear();

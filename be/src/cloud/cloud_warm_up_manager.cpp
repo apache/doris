@@ -114,6 +114,45 @@ void CloudWarmUpManager::handle_jobs() {
                                                 wait->signal();
                                             },
                             });
+
+                    auto download_idx_file = [&](const io::Path& idx_path) {
+                        io::DownloadFileMeta meta {
+                                .path = idx_path,
+                                .file_size = -1,
+                                .file_system = storage_resource.value()->fs,
+                                .ctx =
+                                        {
+                                                .expiration_time = expiration_time,
+                                        },
+                                .download_done =
+                                        [wait](Status st) {
+                                            if (!st) {
+                                                LOG_WARNING("Warm up error ").error(st);
+                                            }
+                                            wait->signal();
+                                        },
+                        };
+                        _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
+                    };
+                    auto schema_ptr = rs->tablet_schema();
+                    auto idx_version = schema_ptr->get_inverted_index_storage_format();
+                    if (idx_version == InvertedIndexStorageFormatPB::V1) {
+                        for (const auto& index : schema_ptr->indexes()) {
+                            if (index.index_type() == IndexType::INVERTED) {
+                                wait->add_count();
+                                auto idx_path = storage_resource.value()->remote_idx_v1_path(
+                                        *rs, seg_id, index.index_id(), index.get_index_suffix());
+                                download_idx_file(idx_path);
+                            }
+                        }
+                    } else if (idx_version == InvertedIndexStorageFormatPB::V2) {
+                        if (schema_ptr->has_inverted_index()) {
+                            wait->add_count();
+                            auto idx_path =
+                                    storage_resource.value()->remote_idx_v2_path(*rs, seg_id);
+                            download_idx_file(idx_path);
+                        }
+                    }
                 }
             }
             timespec time;

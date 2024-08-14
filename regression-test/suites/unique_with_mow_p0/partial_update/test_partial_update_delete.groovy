@@ -56,9 +56,13 @@ suite('test_partial_update_delete') {
 
             sql "insert into ${tableName1} values(1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3),(4,4,4,4,4),(5,5,5,5,5);"
             qt_sql "select * from ${tableName1} order by k1;"
-            sql "insert into ${tableName2} values(1),(2),(3);"
+            sql "insert into ${tableName2} values(1),(3);"
             sql "delete from ${tableName1} A using ${tableName2} B where A.k1=B.k;"
             qt_sql "select * from ${tableName1} order by k1;"
+
+            sql "delete from ${tableName1} where c2=2;"
+            qt_sql "select * from ${tableName1} order by k1;"
+
             sql "set skip_delete_sign=true;"
             sql "set skip_storage_engine_merge=true;"
             sql "set skip_delete_bitmap=true;"

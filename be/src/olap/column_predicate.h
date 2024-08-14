@@ -183,27 +183,21 @@ public:
                 "Not Implemented evaluate with inverted index, please check the predicate");
     }
 
-    virtual double get_ignore_threshold() const {
-        return vectorized::VRuntimeFilterWrapper::EXPECTED_FILTER_RATE;
-    }
+    virtual double get_ignore_threshold() const { return 0; }
 
     // evaluate predicate on IColumn
     // a short circuit eval way
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel, uint16_t size) const {
-        if (_always_true) {
+        if (always_true(true)) {
             return size;
         }
 
         uint16_t new_size = _evaluate_inner(column, sel, size);
         _evaluated_rows += size;
         _passed_rows += new_size;
-        if (_can_ignore()) {
-            // If the pass rate is very high, for example > 50%, then the filter is useless.
-            // Some filter is useless, for example ssb 4.3, it consumes a lot of cpu but it is
-            // useless.
-            vectorized::VRuntimeFilterWrapper::calculate_filter(
-                    get_ignore_threshold(), _evaluated_rows - _passed_rows, _evaluated_rows,
-                    _has_calculate_filter, _always_true);
+        if (_can_ignore() && !_judge_counter) {
+            vectorized::VRuntimeFilterWrapper::judge_selectivity(
+                    get_ignore_threshold(), size - new_size, size, _always_true, _judge_counter);
         }
         return new_size;
     }
@@ -308,7 +302,15 @@ public:
         }
     }
 
-    bool always_true() const { return _always_true; }
+    bool always_true(bool update) const {
+        if (update) {
+            _judge_counter--;
+            if (!_judge_counter) {
+                _always_true = false;
+            }
+        }
+        return _always_true;
+    }
 
 protected:
     virtual std::string _debug_string() const = 0;
@@ -330,8 +332,8 @@ protected:
     std::shared_ptr<PredicateParams> _predicate_params;
     mutable uint64_t _evaluated_rows = 1;
     mutable uint64_t _passed_rows = 0;
+    mutable int _judge_counter = 0;
     mutable bool _always_true = false;
-    mutable bool _has_calculate_filter = false;
 };
 
 } //namespace doris

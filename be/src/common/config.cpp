@@ -268,8 +268,6 @@ DEFINE_mInt32(doris_scan_range_row_count, "524288");
 DEFINE_mInt32(doris_scan_range_max_mb, "1024");
 // max bytes number for single scan block, used in segmentv2
 DEFINE_mInt32(doris_scan_block_max_mb, "67108864");
-// size of scanner queue between scanner thread and compute thread
-DEFINE_mInt32(doris_scanner_queue_size, "1024");
 // single read execute fragment row number
 DEFINE_mInt32(doris_scanner_row_num, "16384");
 // single read execute fragment row bytes
@@ -922,9 +920,8 @@ DEFINE_mInt32(orc_natural_read_size_mb, "8");
 DEFINE_mInt64(big_column_size_buffer, "65535");
 DEFINE_mInt64(small_column_size_buffer, "100");
 
-// When the rows number reached this limit, will check the filter rate the of bloomfilter
-// if it is lower than a specific threshold, the predicate will be disabled.
-DEFINE_mInt32(rf_predicate_check_row_num, "204800");
+// rf will decide whether the next sampling_frequency blocks need to be filtered based on the filtering rate of the current block.
+DEFINE_mInt32(runtime_filter_sampling_frequency, "64");
 
 // cooldown task configs
 DEFINE_Int32(cooldown_thread_num, "5");
