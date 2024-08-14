@@ -28,6 +28,8 @@ public class StatisticsBuilder {
 
     private final Map<Expression, ColumnStatistic> expressionToColumnStats;
 
+    private double deltaRowCount = 0.0;
+
     public StatisticsBuilder() {
         expressionToColumnStats = new HashMap<>();
     }
@@ -36,6 +38,7 @@ public class StatisticsBuilder {
         this.rowCount = statistics.getRowCount();
         expressionToColumnStats = new HashMap<>();
         expressionToColumnStats.putAll(statistics.columnStatistics());
+        deltaRowCount = statistics.getDeltaRowCount();
     }
 
     public StatisticsBuilder setRowCount(double rowCount) {
@@ -54,7 +57,12 @@ public class StatisticsBuilder {
         return this;
     }
 
+    public StatisticsBuilder setDeltaRowCount(double deltaRowCount) {
+        this.deltaRowCount = deltaRowCount;
+        return this;
+    }
+
     public Statistics build() {
-        return new Statistics(rowCount, expressionToColumnStats);
+        return new Statistics(rowCount, expressionToColumnStats, deltaRowCount);
     }
 }
