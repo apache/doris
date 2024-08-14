@@ -309,8 +309,6 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     }*/
 
     _remaining_conjunct_roots = opts.remaining_conjunct_roots;
-    _common_expr_ctxs_push_down = opts.common_expr_ctxs_push_down;
-    _enable_common_expr_pushdown = !_common_expr_ctxs_push_down.empty();
 
     if (_schema->rowid_col_idx() > 0) {
         _record_rowids = true;
@@ -364,6 +362,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     }
 
     RETURN_IF_ERROR(_construct_compound_expr_context());
+    _enable_common_expr_pushdown = !_common_expr_ctxs_push_down.empty();
     _initialize_predicate_results();
     return Status::OK();
 }
@@ -520,13 +519,16 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     RETURN_IF_ERROR(_apply_inverted_index());
     RETURN_IF_ERROR(_apply_index_expr());
     size_t input_rows = _row_bitmap.cardinality();
-    for (const auto& expr_ctx : _compound_expr_ctxs) {
-        if (expr_ctx->all_expr_inverted_index_evaluated()) {
-            auto result = expr_ctx->get_inverted_index_result_for_root();
+    for (auto it = _common_expr_ctxs_push_down.begin(); it != _common_expr_ctxs_push_down.end();) {
+        if ((*it)->all_expr_inverted_index_evaluated()) {
+            auto result = (*it)->get_inverted_index_result_for_root();
             _row_bitmap &= *result.get_data_bitmap();
-            //TODO: erase from _compound_expr_ctxs, because we do not need to execute expr after this.
+            it = _common_expr_ctxs_push_down.erase(it);
+        } else {
+            ++it;
         }
     }
+
     _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
     for (auto cid : _schema->column_ids()) {
         bool result_true = _check_all_predicates_passed_inverted_index_for_column(cid) &&
@@ -805,7 +807,7 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
 }
 
 Status SegmentIterator::_apply_index_expr() {
-    for (const auto& expr_ctx : _compound_expr_ctxs) {
+    for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
         if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                 continue;
@@ -2279,7 +2281,7 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
 
     vectorized::IColumn::Filter filter;
     RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts_and_filter_block(
-            _compound_expr_ctxs, block, _columns_to_filter, prev_columns, filter));
+            _common_expr_ctxs_push_down, block, _columns_to_filter, prev_columns, filter));
 
     selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
     return Status::OK();
@@ -2334,7 +2336,7 @@ void SegmentIterator::_output_index_result_column_for_expr(uint16_t* sel_rowid_i
     if (block->rows() == 0) {
         return;
     }
-    for (auto& expr_ctx : _compound_expr_ctxs) {
+    for (auto& expr_ctx : _common_expr_ctxs_push_down) {
         auto inverted_index_result_bitmap_for_exprs = expr_ctx->get_inverted_index_result_bitmap();
         auto inverted_index_result_column_for_exprs = expr_ctx->get_inverted_index_result_column();
         for (auto& inverted_index_result_bitmap_for_expr : inverted_index_result_bitmap_for_exprs) {
@@ -2415,19 +2417,19 @@ Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* bl
 }
 
 Status SegmentIterator::_construct_compound_expr_context() {
-    for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
+    for (const auto& expr_ctx : _opts.common_expr_ctxs_push_down) {
         vectorized::VExprContextSPtr context;
         RETURN_IF_ERROR(expr_ctx->clone(_opts.runtime_state, context));
         context->set_inverted_index_iterators(_inverted_index_iterators_by_col_name);
         context->set_storage_name_and_type(_storage_name_and_type_by_col_name);
         context->set_inverted_index_expr_status(_common_expr_inverted_index_status);
-        _compound_expr_ctxs.emplace_back(context);
+        _common_expr_ctxs_push_down.emplace_back(context);
     }
     return Status::OK();
 }
 
 void SegmentIterator::_calculate_expr_in_remaining_conjunct_root() {
-    for (const auto& root_expr_ctx : _compound_expr_ctxs) {
+    for (const auto& root_expr_ctx : _common_expr_ctxs_push_down) {
         const auto& root_expr = root_expr_ctx->root();
         if (root_expr == nullptr) {
             continue;

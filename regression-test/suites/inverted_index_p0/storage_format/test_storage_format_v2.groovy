@@ -82,6 +82,7 @@ suite("test_storage_format_v2", "p0, nonConcurrent") {
     }
 
     try {
+        sql """ set enable_common_expr_pushdown = true; """
         sql "DROP TABLE IF EXISTS ${testTable}"
         create_httplogs_dup_table.call(testTable)
 
@@ -121,7 +122,6 @@ suite("test_storage_format_v2", "p0, nonConcurrent") {
 
         sql """ ALTER TABLE ${testTable} modify COLUMN status text"""
         wait_for_schema_change.call()
-        sql """ set enable_common_expr_pushdown = true; """
 
         qt_sql(" select COUNT(*) from ${testTable} where request match 'images' ")
         

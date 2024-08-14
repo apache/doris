@@ -464,7 +464,6 @@ private:
     std::vector<ColumnPredicate*> _col_predicates;
     std::vector<ColumnPredicate*> _col_preds_except_leafnode_of_andnode;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
-    vectorized::VExprContextSPtrs _compound_expr_ctxs;
     bool _enable_common_expr_pushdown = false;
     std::vector<vectorized::VExprSPtr> _remaining_conjunct_roots;
     std::vector<roaring::Roaring> _pred_except_leafnode_of_andnode_evaluate_result;
