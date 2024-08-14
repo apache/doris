@@ -14448,7 +14448,7 @@ true
 -- !array_empty_fe --
 []
 
--- !array_empty_be --
+-- !array_empty_fe --
 []
 
 -- !sql_array_map --
