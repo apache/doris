@@ -110,22 +110,23 @@ Status VCSVTransformer::write(const Block& block) {
             if (col_id != 0) {
                 buffer_writer.write(_column_separator.data(), _column_separator.size());
             }
+            Status st;
             switch (_text_serde_type) {
-                // TODO: change serialize_one_cell_to_hive_text return Status
             case TTextSerdeType::JSON_TEXT_SERDE:
-                (void)_serdes[col_id]->serialize_one_cell_to_json(
+                st = _serdes[col_id]->serialize_one_cell_to_json(
                         *(block.get_by_position(col_id).column), i, buffer_writer, _options);
-                // if (!st.ok()) {
-                //     // VectorBufferWriter must do commit before deconstruct,
-                //     // or it may throw DCHECK failure.
-                //     buffer_writer.commit();
-                //     return st;
-                // }
+
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
-                _serdes[col_id]->serialize_one_cell_to_hive_text(
+                st = _serdes[col_id]->serialize_one_cell_to_hive_text(
                         *(block.get_by_position(col_id).column), i, buffer_writer, _options);
                 break;
+            }
+            if (!st.ok()) {
+                // VectorBufferWriter must do commit before deconstruct,
+                // or it may throw DCHECK failure.
+                buffer_writer.commit();
+                return st;
             }
         }
         buffer_writer.write(_line_delimiter.data(), _line_delimiter.size());
