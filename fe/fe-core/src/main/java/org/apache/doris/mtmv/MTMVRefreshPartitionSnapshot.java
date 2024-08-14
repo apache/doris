@@ -25,8 +25,12 @@ import java.util.Map;
 public class MTMVRefreshPartitionSnapshot {
     @SerializedName("p")
     private Map<String, MTMVSnapshotIf> partitions;
+    // old version only persist table id, we need `BaseTableInfo`, `tables` only for compatible old version
     @SerializedName("t")
+    @Deprecated
     private Map<Long, MTMVSnapshotIf> tables;
+    @SerializedName("ti")
+    private Map<BaseTableInfo, MTMVSnapshotIf> tablesInfo;
 
     public MTMVRefreshPartitionSnapshot() {
         this.partitions = Maps.newConcurrentMap();
@@ -37,15 +41,25 @@ public class MTMVRefreshPartitionSnapshot {
         return partitions;
     }
 
-    public Map<Long, MTMVSnapshotIf> getTables() {
-        return tables;
+    public MTMVSnapshotIf getTableSnapshot(BaseTableInfo table) {
+        if (tablesInfo.containsKey(table)) {
+            return tablesInfo.get(table);
+        }
+        // for compatible old version
+        return tables.get(table.getTableId());
+    }
+
+    public void addTableSnapshot(BaseTableInfo baseTableInfo, MTMVSnapshotIf tableSnapshot) {
+        tablesInfo.put(baseTableInfo, tableSnapshot);
+        // for compatible old version
+        tables.put(baseTableInfo.getTableId(), tableSnapshot);
     }
 
     @Override
     public String toString() {
         return "MTMVRefreshPartitionSnapshot{"
                 + "partitions=" + partitions
-                + ", tables=" + tables
+                + ", tablesInfo=" + tablesInfo
                 + '}';
     }
 }

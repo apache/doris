@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Optional;
@@ -52,11 +53,17 @@ public class MTMVUtil {
      * @throws AnalysisException
      */
     public static TableIf getTable(BaseTableInfo baseTableInfo) throws AnalysisException {
-        TableIf table = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrAnalysisException(baseTableInfo.getCtlId())
-                .getDbOrAnalysisException(baseTableInfo.getDbId())
-                .getTableOrAnalysisException(baseTableInfo.getTableId());
-        return table;
+        // for compatible old version, not have name
+        if (StringUtils.isEmpty(baseTableInfo.getCtlName())) {
+            return Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrAnalysisException(baseTableInfo.getCtlId())
+                    .getDbOrAnalysisException(baseTableInfo.getDbId())
+                    .getTableOrAnalysisException(baseTableInfo.getTableId());
+        }
+       return Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrAnalysisException(baseTableInfo.getCtlName())
+                .getDbOrAnalysisException(baseTableInfo.getDbName())
+                .getTableOrAnalysisException(baseTableInfo.getTableName());
     }
 
     public static MTMVRelatedTableIf getRelatedTable(BaseTableInfo baseTableInfo) {
@@ -87,7 +94,7 @@ public class MTMVUtil {
     public static boolean mtmvContainsExternalTable(MTMV mtmv) {
         Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevel();
         for (BaseTableInfo baseTableInfo : baseTables) {
-            if (baseTableInfo.getCtlId() != InternalCatalog.INTERNAL_CATALOG_ID) {
+            if (!baseTableInfo.getCtlName().equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
                 return true;
             }
         }

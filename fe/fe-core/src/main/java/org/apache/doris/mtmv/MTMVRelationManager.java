@@ -187,7 +187,7 @@ public class MTMVRelationManager implements MTMVHookService {
      */
     @Override
     public void registerMTMV(MTMV mtmv, Long dbId) {
-        refreshMTMVCache(mtmv.getRelation(), new BaseTableInfo(mtmv.getId(), dbId));
+        refreshMTMVCache(mtmv.getRelation(), new BaseTableInfo(mtmv));
     }
 
     /**
@@ -269,9 +269,7 @@ public class MTMVRelationManager implements MTMVHookService {
         for (BaseTableInfo mtmvInfo : mtmvsByBaseTable) {
             Table mtmv = null;
             try {
-                mtmv = Env.getCurrentEnv().getInternalCatalog()
-                        .getDbOrAnalysisException(mtmvInfo.getDbId())
-                        .getTableOrAnalysisException(mtmvInfo.getTableId());
+                mtmv = (Table) MTMVUtil.getTable(mtmvInfo);
             } catch (AnalysisException e) {
                 LOG.warn(e);
                 continue;
