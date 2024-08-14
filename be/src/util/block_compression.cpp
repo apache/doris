@@ -89,10 +89,7 @@ Status BlockCompressionCodec::compress(const std::vector<Slice>& inputs, size_t 
 }
 
 bool BlockCompressionCodec::exceed_max_compress_len(size_t uncompressed_size) {
-    if (uncompressed_size > std::numeric_limits<int32_t>::max()) {
-        return true;
-    }
-    return false;
+    return uncompressed_size > std::numeric_limits<int32_t>::max();
 }
 
 class Lz4BlockCompression : public BlockCompressionCodec {
@@ -123,7 +120,7 @@ public:
         static Lz4BlockCompression s_instance;
         return &s_instance;
     }
-    ~Lz4BlockCompression() {
+    ~Lz4BlockCompression() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
                 ExecEnv::GetInstance()->block_compression_mem_tracker());
         _ctx_pool.clear();
@@ -255,12 +252,12 @@ public:
         // TODO: config lz4_buffer_size
         // be same with hadop https://github.com/apache/hadoop/blob/trunk/hadoop-common-project/hadoop-common/src/main/java/org/apache/hadoop/io/compress/Lz4Codec.java
         size_t lz4_buffer_size = 64 * 1024;
-        size_t overhead = lz4_buffer_size / 255 + 6;
+        size_t overhead = lz4_buffer_size / 255 + 16;
         size_t max_input_size = lz4_buffer_size - overhead;
 
         size_t data_len = input.size;
         char* data = input.data;
-        std::vector<faststring> buffers;
+        std::vector<OwnedSlice> buffers;
         size_t out_len = 0;
 
         while (data_len > 0) {
@@ -269,7 +266,7 @@ public:
             faststring output_data;
             RETURN_IF_ERROR(Lz4BlockCompression::compress(input, &output_data));
             out_len += output_data.size();
-            buffers.push_back(std::move(output_data));
+            buffers.push_back(output_data.build());
             data += input_size;
             data_len -= input_size;
         }
@@ -281,10 +278,11 @@ public:
         BigEndian::Store32(output_buffer, input.get_size());
         output_buffer += 4;
         for (const auto& buffer : buffers) {
-            BigEndian::Store32(output_buffer, buffer.size());
+            auto slice = buffer.slice();
+            BigEndian::Store32(output_buffer, slice.get_size());
             output_buffer += 4;
-            memcpy(output_buffer, buffer.data(), buffer.size());
-            output_buffer += buffer.size();
+            memcpy(output_buffer, slice.get_data(), slice.get_size());
+            output_buffer += slice.get_size();
         }
 
         DCHECK_EQ(output_buffer - (char*)output->data(), total_output_len);
@@ -806,7 +804,7 @@ public:
 
         size_t data_len = input.size;
         char* data = input.data;
-        std::vector<faststring> buffers;
+        std::vector<OwnedSlice> buffers;
         size_t out_len = 0;
 
         while (data_len > 0) {
@@ -815,7 +813,8 @@ public:
             faststring output_data;
             RETURN_IF_ERROR(SnappyBlockCompression::compress(input, &output_data));
             out_len += output_data.size();
-            buffers.push_back(std::move(output_data));
+            // the OwnedSlice will be moved here
+            buffers.push_back(output_data.build());
             data += input_size;
             data_len -= input_size;
         }
@@ -827,10 +826,11 @@ public:
         BigEndian::Store32(output_buffer, input.get_size());
         output_buffer += 4;
         for (const auto& buffer : buffers) {
-            BigEndian::Store32(output_buffer, buffer.size());
+            auto slice = buffer.slice();
+            BigEndian::Store32(output_buffer, slice.get_size());
             output_buffer += 4;
-            memcpy(output_buffer, buffer.data(), buffer.size());
-            output_buffer += buffer.size();
+            memcpy(output_buffer, slice.get_data(), slice.get_size());
+            output_buffer += slice.get_size();
         }
 
         DCHECK_EQ(output_buffer - (char*)output->data(), total_output_len);
@@ -1534,9 +1534,6 @@ Status get_block_compression_codec(TFileCompressType::type type, BlockCompressio
         break;
     case TFileCompressType::GZ:
         *codec = GzipBlockCompression::instance();
-        break;
-    case TFileCompressType::DEFLATE:
-        *codec = ZlibBlockCompression::instance();
         break;
     case TFileCompressType::BZ2:
         *codec = Bzip2BlockCompression::instance();
