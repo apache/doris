@@ -179,7 +179,7 @@ suite("max_min_filter_push_down") {
     qt_char100_cmp_num_cannot_rewrite_res """select d_int,min(d_char100) from max_min_filter_push_down2 group by d_int having min(d_char100)<10  order by 1,2;"""
     qt_datetimev2_res """select d_int,min(d_datetimev2) from max_min_filter_push_down2 group by d_int having min(d_datetimev2)<'2020-01-09' order by 1,2;"""
     qt_datev2_res """select d_int,max(d_datev2) from max_min_filter_push_down2 group by d_int having max(d_datev2)>'2020-01-09 10:00:00' order by 1,2;"""
-    qt_smallint_group_by_key_res """select max(d_smallint) from max_min_filter_push_down2 group by d_smallint having max(d_smallint)>10 order by 1,2;"""
-    qt_tinyint_group_by_key_res """select min(d_tinyint) from max_min_filter_push_down2 group by d_tinyint having min(d_tinyint)<10 order by 1,2;"""
-    qt_char100_group_by_key_res """select max(d_char100) from max_min_filter_push_down2 group by d_char100 having max(d_char100)>'ab' order by 1,2;"""
+    qt_smallint_group_by_key_res """select max(d_smallint) from max_min_filter_push_down2 group by d_smallint having max(d_smallint)>10 order by 1;"""
+    qt_tinyint_group_by_key_res """select min(d_tinyint) from max_min_filter_push_down2 group by d_tinyint having min(d_tinyint)<10 order by 1;"""
+    qt_char100_group_by_key_res """select max(d_char100) from max_min_filter_push_down2 group by d_char100 having max(d_char100)>'ab' order by 1;"""
 }
