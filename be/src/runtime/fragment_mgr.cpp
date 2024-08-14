@@ -593,12 +593,12 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 static void empty_function(RuntimeState*, Status*) {}
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
-                                       const QueryType query_type) {
+                                       const QuerySource query_type) {
     return Status::InternalError("Non-pipeline is disabled!");
 }
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
-                                       const QueryType query_type) {
+                                       const QuerySource query_type) {
     if (params.txn_conf.need_txn) {
         std::shared_ptr<StreamLoadContext> stream_load_ctx =
                 std::make_shared<StreamLoadContext>(_exec_env);
@@ -693,7 +693,8 @@ std::shared_ptr<QueryContext> FragmentMgr::get_or_erase_query_ctx_with_lock(
 
 template <typename Params>
 Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
-                                   QueryType query_type, std::shared_ptr<QueryContext>& query_ctx) {
+                                   QuerySource query_source,
+                                   std::shared_ptr<QueryContext>& query_ctx) {
     if (params.is_simplified_param) {
         // Get common components from _query_ctx_map
         std::lock_guard<std::mutex> lock(_lock);
@@ -722,9 +723,9 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
         // This may be a first fragment request of the query.
         // Create the query fragments context.
-        query_ctx =
-                QueryContext::create_shared(query_id, _exec_env, params.query_options, params.coord,
-                                            pipeline, params.is_nereids, params.current_connect_fe);
+        query_ctx = QueryContext::create_shared(query_id, _exec_env, params.query_options,
+                                                params.coord, pipeline, params.is_nereids,
+                                                params.current_connect_fe, query_source);
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
@@ -772,8 +773,8 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
     return Status::OK();
 }
 
-Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, QueryType query_type,
-                                       const FinishCallback& cb) {
+Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
+                                       QuerySource query_type, const FinishCallback& cb) {
     return Status::InternalError("Non-pipeline is disabled!");
 }
 
@@ -814,8 +815,8 @@ std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
     }
 }
 
-Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params, QueryType query_type,
-                                       const FinishCallback& cb) {
+Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
+                                       QuerySource query_type, const FinishCallback& cb) {
     VLOG_ROW << "query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
@@ -824,7 +825,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params, Qu
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 
     std::shared_ptr<QueryContext> query_ctx;
-    RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
+    RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_type, query_ctx));
     SCOPED_ATTACH_TASK(query_ctx.get());
     int64_t duration_ns = 0;
     std::shared_ptr<pipeline::PipelineFragmentContext> context =
@@ -1026,14 +1027,14 @@ void FragmentMgr::cancel_worker() {
                             if (itr->second.find(it.first) == itr->second.end() &&
                                 q_ctx->get_query_arrival_timestamp().tv_nsec <
                                         check_invalid_query_last_timestamp.tv_nsec &&
-                                q_ctx->get_query_type() == QueryType::NORMAL_QUERY) {
+                                q_ctx->get_query_source() == QuerySource::INTERNAL_FRONTEND) {
                                 queries_pipeline_task_leak.push_back(q_ctx->query_id());
                                 LOG_INFO(
                                         "Query {}, type {} is not found on any frontends, maybe it "
                                         "is "
                                         "leaked.",
                                         print_id(q_ctx->query_id()),
-                                        toString(q_ctx->get_query_type()));
+                                        toString(q_ctx->get_query_source()));
                                 continue;
                             }
                         }
@@ -1203,7 +1204,7 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     exec_fragment_params.__set_query_options(query_options);
     VLOG_ROW << "external exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(exec_fragment_params).c_str();
-    return exec_plan_fragment(exec_fragment_params, QueryType::EXTERNAL_QUERY);
+    return exec_plan_fragment(exec_fragment_params, QuerySource::INTERNAL_FRONTEND);
 }
 
 Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,

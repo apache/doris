@@ -514,11 +514,11 @@ Status PInternalService::_exec_plan_fragment_impl(
             RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
         }
         if (cb) {
-            return _exec_env->fragment_mgr()->exec_plan_fragment(t_request, QueryType::NORMAL_QUERY,
-                                                                 cb);
+            return _exec_env->fragment_mgr()->exec_plan_fragment(
+                    t_request, QuerySource::INTERNAL_FRONTEND, cb);
         } else {
             return _exec_env->fragment_mgr()->exec_plan_fragment(t_request,
-                                                                 QueryType::NORMAL_QUERY);
+                                                                 QuerySource::INTERNAL_FRONTEND);
         }
     } else if (version == PFragmentRequestVersion::VERSION_2) {
         TExecPlanFragmentParamsList t_request;
@@ -534,10 +534,10 @@ Status PInternalService::_exec_plan_fragment_impl(
         for (const TExecPlanFragmentParams& params : t_request.paramsList) {
             if (cb) {
                 RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
-                        params, QueryType::NORMAL_QUERY, cb));
+                        params, QuerySource::INTERNAL_FRONTEND, cb));
             } else {
                 RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
-                        params, QueryType::NORMAL_QUERY));
+                        params, QuerySource::INTERNAL_FRONTEND));
             }
         }
 
@@ -567,10 +567,10 @@ Status PInternalService::_exec_plan_fragment_impl(
         for (const TPipelineFragmentParams& fragment : fragment_list) {
             if (cb) {
                 RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
-                        fragment, QueryType::NORMAL_QUERY, cb));
+                        fragment, QuerySource::INTERNAL_FRONTEND, cb));
             } else {
                 RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
-                        fragment, QueryType::NORMAL_QUERY));
+                        fragment, QuerySource::INTERNAL_FRONTEND));
             }
         }
         timer.stop();

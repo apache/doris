@@ -148,10 +148,10 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
 
     if (ctx->put_result.__isset.params) {
         st = _exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.params,
-                                                           QueryType::STREAM_LOAD, exec_fragment);
+                                                           QuerySource::STREAM_LOAD, exec_fragment);
     } else {
         st = _exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.pipeline_params,
-                                                           QueryType::STREAM_LOAD, exec_fragment);
+                                                           QuerySource::STREAM_LOAD, exec_fragment);
     }
 
     if (!st.ok()) {
