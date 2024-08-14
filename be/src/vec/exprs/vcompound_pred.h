@@ -77,7 +77,6 @@ public:
                         res |= index_result;
                     }
                 } else {
-                    LOG(ERROR) << "expr:" << child->expr_name() << " does not have result";
                     all_pass = false;
                 }
             }
@@ -134,8 +133,6 @@ public:
         }
 
         if (all_pass && !res.is_empty()) {
-            LOG(ERROR) << "expr:" << this->expr_name() << " all evaluate index, result is "
-                       << res.get_data_bitmap()->toString();
             context->set_inverted_index_result_for_expr(this, res);
         }
         return Status::OK();
