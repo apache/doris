@@ -158,7 +158,7 @@ private:
 
     template <typename Params>
     Status _get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
-                          std::shared_ptr<QueryContext>& query_ctx);
+                          QueryType query_type, std::shared_ptr<QueryContext>& query_ctx);
 
     // This is input params
     ExecEnv* _exec_env = nullptr;

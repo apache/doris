@@ -71,6 +71,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/primitive_type.h"
 #include "runtime/query_context.h"
+#include "runtime/query_type.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
@@ -692,7 +693,7 @@ std::shared_ptr<QueryContext> FragmentMgr::get_or_erase_query_ctx_with_lock(
 
 template <typename Params>
 Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
-                                   std::shared_ptr<QueryContext>& query_ctx) {
+                                   QueryType query_type, std::shared_ptr<QueryContext>& query_ctx) {
     if (params.is_simplified_param) {
         // Get common components from _query_ctx_map
         std::lock_guard<std::mutex> lock(_lock);
@@ -1024,12 +1025,15 @@ void FragmentMgr::cancel_worker() {
                             // Query not found on this frontend, and the query arrives before the last check
                             if (itr->second.find(it.first) == itr->second.end() &&
                                 q_ctx->get_query_arrival_timestamp().tv_nsec <
-                                        check_invalid_query_last_timestamp.tv_nsec) {
+                                        check_invalid_query_last_timestamp.tv_nsec &&
+                                q_ctx->get_query_type() == QueryType::NORMAL_QUERY) {
                                 queries_pipeline_task_leak.push_back(q_ctx->query_id());
                                 LOG_INFO(
-                                        "Query {} is not found on any frontends, maybe it is "
+                                        "Query {}, type {} is not found on any frontends, maybe it "
+                                        "is "
                                         "leaked.",
-                                        print_id(q_ctx->query_id()));
+                                        print_id(q_ctx->query_id()),
+                                        toString(q_ctx->get_query_type()));
                                 continue;
                             }
                         }

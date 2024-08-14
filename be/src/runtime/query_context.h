@@ -33,6 +33,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/query_statistics.h"
+#include "runtime/query_type.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
 #include "util/hash_util.hpp"
@@ -73,7 +74,7 @@ class QueryContext {
 public:
     QueryContext(TUniqueId query_id, ExecEnv* exec_env, const TQueryOptions& query_options,
                  TNetworkAddress coord_addr, bool is_pipeline, bool is_nereids,
-                 TNetworkAddress current_connect_fe);
+                 TNetworkAddress current_connect_fe, QueryType query_type);
 
     ~QueryContext();
 
@@ -311,6 +312,7 @@ private:
 
     std::mutex _profile_mutex;
     timespec _query_arrival_timestamp;
+    QueryType _query_type;
 
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
     // flatten profile of one fragment:
@@ -351,6 +353,7 @@ public:
     }
 
     timespec get_query_arrival_timestamp() const { return this->_query_arrival_timestamp; }
+    QueryType get_query_type() const { return this->_query_type; }
 };
 
 } // namespace doris

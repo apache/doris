@@ -57,13 +57,15 @@ public:
 
 QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
                            const TQueryOptions& query_options, TNetworkAddress coord_addr,
-                           bool is_pipeline, bool is_nereids, TNetworkAddress current_connect_fe)
+                           bool is_pipeline, bool is_nereids, TNetworkAddress current_connect_fe,
+                           QueryType query_type)
         : _timeout_second(-1),
           _query_id(query_id),
           _exec_env(exec_env),
           _is_pipeline(is_pipeline),
           _is_nereids(is_nereids),
-          _query_options(query_options) {
+          _query_options(query_options),
+          _query_type(query_type) {
     _init_query_mem_tracker();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker);
     _query_watcher.start();
