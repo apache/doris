@@ -32,6 +32,7 @@
 #include "CLucene/SharedHeader.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
+#include "util/debug_points.h"
 
 namespace doris {
 namespace io {
@@ -127,6 +128,11 @@ DorisCompoundReader::DorisCompoundReader(CL_NS(store)::IndexInput* stream, int32
             entry->file_name = aid;
             entry->offset = stream->readLong();
             entry->length = stream->readLong();
+            DBUG_EXECUTE_IF("construct_DorisCompoundReader_failed", {
+                CLuceneError err;
+                err.set(CL_ERR_IO, "construct_DorisCompoundReader_failed");
+                throw err;
+            })
             _entries->put(aid, entry);
             // read header file data
             if (entry->offset < 0) {
@@ -141,6 +147,7 @@ DorisCompoundReader::DorisCompoundReader(CL_NS(store)::IndexInput* stream, int32
             }
             if (_entries != nullptr) {
                 _entries->clear();
+                _CLDELETE(_entries);
             }
             if (_ram_dir) {
                 _ram_dir->close();
