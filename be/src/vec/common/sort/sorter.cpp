@@ -89,6 +89,8 @@ Status MergeSorterState::build_merge_tree(const SortDescription& sort_descriptio
 
 Status MergeSorterState::merge_sort_read(doris::vectorized::Block* block, int batch_size,
                                          bool* eos) {
+    DCHECK(sorted_blocks_.empty());
+    DCHECK(unsorted_block_->empty());
     if (priority_queue_.empty()) {
         *eos = true;
     } else if (priority_queue_.size() == 1) {

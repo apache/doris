@@ -30,9 +30,7 @@
 #include "vec/core/sort_description.h"
 #include "vec/exprs/vexpr_fwd.h"
 
-namespace doris {
-
-namespace vectorized {
+namespace doris::vectorized {
 
 // VSortedRunMerger is used to merge multiple sorted runs of blocks. A run is a sorted
 // sequence of blocks, which are fetched from a BlockSupplier function object.
@@ -101,5 +99,4 @@ private:
     bool has_next_block(MergeSortCursor& current);
 };
 
-} // namespace vectorized
 } // namespace doris

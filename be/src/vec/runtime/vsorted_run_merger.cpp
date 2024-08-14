@@ -28,14 +28,6 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/utils/util.hpp"
 
-namespace doris {
-namespace vectorized {
-class VExprContext;
-} // namespace vectorized
-} // namespace doris
-
-using std::vector;
-
 namespace doris::vectorized {
 
 VSortedRunMerger::VSortedRunMerger(const VExprContextSPtrs& ordering_expr,
@@ -68,7 +60,7 @@ void VSortedRunMerger::init_timers(RuntimeProfile* profile) {
     _get_next_block_timer = ADD_TIMER(profile, "MergeGetNextBlock");
 }
 
-Status VSortedRunMerger::prepare(const vector<BlockSupplier>& input_runs) {
+Status VSortedRunMerger::prepare(const std::vector<BlockSupplier>& input_runs) {
     try {
         for (const auto& supplier : input_runs) {
             if (_use_sort_desc) {
