@@ -312,38 +312,35 @@ Status DeleteHandler::parse_condition(const DeleteSubPredicatePB& sub_cond, TCon
 // value: matches "1597751948193618247  and length(source)<1;\n;\n"
 //
 // For more info, see DeleteHandler::construct_sub_predicates
-// FIXME(gavin): support unicode. And this is a tricky implementation, it should
-//               not be the final resolution, refactor it.
+// FIXME(gavin): This is a tricky implementation, it should not be the final resolution, refactor it.
 const char* const CONDITION_STR_PATTERN =
-    // .----------------- column-name ----------------.   .----------------------- operator ------------------------.   .------------ value ----------.
-    R"(([_a-zA-Z@0-9\s/][.a-zA-Z0-9_+-/?@#$%^&*"\s,:]*)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?: IS ))\s*('((?:[\s\S]+)?)'|(?:[\s\S]+)?))";
-    // '----------------- group 1 --------------------'   '--------------------- group 2 ---------------------------'   | '-- group 4--'              |
-    //                                                         match any of: = != >> << >= <= *= " IS "                 '----------- group 3 ---------'
-    //                                                                                                                   match **ANY THING** without(4)
-    //                                                                                                                   or with(3) single quote
-boost::regex DELETE_HANDLER_REGEX(CONDITION_STR_PATTERN);
+    // .----------------- column-name --------------------------.   .----------------------- operator ------------------------.   .------------ value ----------.
+    R"(([_a-zA-Z@0-9\s/\p{L}][.a-zA-Z0-9_+-/?@#$%^&*"\s,:\p{L}]*)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?: IS ))\s*('((?:[\s\S]+)?)'|(?:[\s\S]+)?))";
+    // '----------------- group 1 ------------------------------'   '--------------------- group 2 ---------------------------'   | '-- group 4--'              |
+    //                                                                   match any of: = != >> << >= <= *= " IS "                 '----------- group 3 ---------'
+    //                                                                                                                             match **ANY THING** without(4)
+    //                                                                                                                             or with(3) single quote
 // clang-format on
+RE2 DELETE_HANDLER_REGEX(CONDITION_STR_PATTERN);
 
 Status DeleteHandler::parse_condition(const std::string& condition_str, TCondition* condition) {
-    bool matched = false;
-    boost::smatch what;
-    try {
-        VLOG_NOTICE << "condition_str: " << condition_str;
-        matched = boost::regex_match(condition_str, what, DELETE_HANDLER_REGEX) &&
-                  condition_str.size() == what[0].str().size(); // exact match
-    } catch (boost::regex_error& e) {
-        VLOG_NOTICE << "fail to parse expr. [expr=" << condition_str << "; error=" << e.what()
-                    << "]";
-    }
+    std::string col_name, op, value, g4;
+
+    bool matched = RE2::FullMatch(condition_str, DELETE_HANDLER_REGEX, &col_name, &op, &value,
+                                  &g4); // exact match
+
     if (!matched) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT>("fail to sub condition. condition={}",
-                                                          condition_str);
+        return Status::InvalidArgument("fail to sub condition. condition={}", condition_str);
     }
 
-    condition->column_name = what[1].str();
-    condition->condition_op = what[2].str() == " IS " ? "IS" : what[2].str();
+    condition->column_name = col_name;
+    condition->condition_op = op == " IS " ? "IS" : op;
     // match string with single quotes, a = b  or a = 'b'
-    condition->condition_values.push_back(what[3 + !!what[4].matched].str());
+    if (!g4.empty()) {
+        condition->condition_values.push_back(g4);
+    } else {
+        condition->condition_values.push_back(value);
+    }
     VLOG_NOTICE << "parsed condition_str: col_name={" << condition->column_name << "} op={"
                 << condition->condition_op << "} val={" << condition->condition_values.back()
                 << "}";
