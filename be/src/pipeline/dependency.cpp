@@ -401,4 +401,16 @@ Status AggSharedState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
 
 LocalExchangeSharedState::~LocalExchangeSharedState() = default;
 
+Status SetSharedState::update_build_not_ignore_null(const vectorized::VExprContextSPtrs& ctxs) {
+    if (ctxs.size() > build_not_ignore_null.size()) {
+        return Status::InternalError("build_not_ignore_null not initialized");
+    }
+
+    for (int i = 0; i < ctxs.size(); ++i) {
+        build_not_ignore_null[i] = build_not_ignore_null[i] || ctxs[i]->root()->is_nullable();
+    }
+
+    return Status::OK();
+}
+
 } // namespace doris::pipeline

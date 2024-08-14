@@ -684,6 +684,10 @@ public:
     std::unique_ptr<SetHashTableVariants> hash_table_variants = nullptr; // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 
+    // The SET operator's child might have different nullable attributes.
+    // If a calculation involves both nullable and non-nullable columns, the final output should be a nullable column
+    Status update_build_not_ignore_null(const vectorized::VExprContextSPtrs& ctxs);
+
     /// init in both upstream side.
     //The i-th result expr list refers to the i-th child.
     std::vector<vectorized::VExprContextSPtrs> child_exprs_lists;

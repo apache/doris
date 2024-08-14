@@ -114,6 +114,9 @@ Status SetProbeSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSink
     }
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
     child_exprs_lists[parent._cur_child_id] = _child_exprs;
+
+    RETURN_IF_ERROR(_shared_state->update_build_not_ignore_null(_child_exprs));
+
     return Status::OK();
 }
 
