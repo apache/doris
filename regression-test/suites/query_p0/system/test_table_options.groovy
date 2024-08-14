@@ -15,13 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Add PL-SQL regression test notice:
-// 1. JDBC does not support the execution of stored procedures that return results. You can only Into the execution
-// results into a variable or write them into a table, because when multiple result sets are returned, JDBC needs
-// to use the prepareCall statement to execute, otherwise the Statemnt of the returned result executes Finalize.
-// Send EOF Packet will report an error;
-// 2. The format of the result returned by Doris Statement is xxxx\n, xxxx\n, 2 rows affected (0.03 sec).
-// PL-SQL uses Print to print variable values in an unformatted format, and JDBC cannot easily obtain them. Real results.
 suite("test_table_options") {
     def dbName = "test_table_options_db"
     sql "drop database if exists ${dbName}"
@@ -57,7 +50,7 @@ suite("test_table_options") {
 	);
 	"""    
     sql """
-    	CREATE TABLE IF NOT EXISTS listtable
+    CREATE TABLE IF NOT EXISTS listtable
 	(
  	  `user_id` LARGEINT NOT NULL COMMENT "User id",
   	  `date` DATE NOT NULL COMMENT "Data fill in date time",
@@ -83,7 +76,7 @@ suite("test_table_options") {
 	(
     		"replication_num" = "1"
 	);
-        """
+    """
     sql """
         CREATE TABLE IF NOT EXISTS randomtable
 	(
@@ -184,6 +177,41 @@ suite("test_table_options") {
         );
     """
 
-    qt_select """select * from information_schema.table_options where table_schema=\"${dbName}\" order by TABLE_NAME; """
-    sql "drop database if exists ${dbName}"
+    qt_select_check_1 """select * from information_schema.table_options where table_schema=\"${dbName}\" order by TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_MODEL,TABLE_MODEL_KEY,DISTRIBUTE_KEY,DISTRIBUTE_TYPE,BUCKETS_NUM,PARTITION_NUM; """
+    sql """
+        drop table test_row_column_page_size2;
+    """    
+    qt_select_check_2 """select * from information_schema.table_options where table_schema=\"${dbName}\" order by TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_MODEL,TABLE_MODEL_KEY,DISTRIBUTE_KEY,DISTRIBUTE_TYPE,BUCKETS_NUM,PARTITION_NUM; """
+
+    def user = "table_options_user"
+    sql "DROP USER IF EXISTS ${user}"
+    sql "CREATE USER ${user} IDENTIFIED BY '123abc!@#'"
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
+
+    sql "GRANT SELECT_PRIV ON information_schema.table_properties  TO ${user}"
+
+    def tokens = context.config.jdbcUrl.split('/')
+    def url=tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
+
+    connect(user=user, password='123abc!@#', url=url) {
+       qt_select_check_3 """select * from information_schema.table_options ORDER BY TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_MODEL,TABLE_MODEL_KEY,DISTRIBUTE_KEY,DISTRIBUTE_TYPE,BUCKETS_NUM,PARTITION_NUM; """
+    }
+
+    sql "GRANT SELECT_PRIV ON ${dbName}.duplicate_table  TO ${user}"
+    connect(user=user, password='123abc!@#', url=url) {
+       qt_select_check_4 """select * from information_schema.table_options ORDER BY TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_MODEL,TABLE_MODEL_KEY,DISTRIBUTE_KEY,DISTRIBUTE_TYPE,BUCKETS_NUM,PARTITION_NUM; """
+    }
+    
+    sql "REVOKE SELECT_PRIV ON ${dbName}.duplicate_table  FROM ${user}"
+    connect(user=user, password='123abc!@#', url=url) {
+       qt_select_check_5 """select * from information_schema.table_options ORDER BY TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_MODEL,TABLE_MODEL_KEY,DISTRIBUTE_KEY,DISTRIBUTE_TYPE,BUCKETS_NUM,PARTITION_NUM; """
+    }
+
+
 }
