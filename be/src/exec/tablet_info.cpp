@@ -515,6 +515,11 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
     }
     case TExprNodeType::NULL_LITERAL: {
         // insert a null literal
+        if (!column->is_nullable()) {
+            //TODO: maybe the better way to handle this in FE.
+            return Status::InternalError("The column {} is not null, can't insert into NULL value.",
+                                         part_key->first->get_by_position(pos).name);
+        }
         column->insert_data(nullptr, 0);
         break;
     }
