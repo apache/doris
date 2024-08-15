@@ -531,8 +531,8 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 
     _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
     for (auto cid : _schema->column_ids()) {
-        bool result_true = _check_all_predicates_passed_inverted_index_for_column(cid) &&
-                           _check_all_exprs_passed_inverted_index_for_column(cid);
+        bool result_true = _check_all_predicates_passed_inverted_index_for_column(cid, true) &&
+                           _check_all_exprs_passed_inverted_index_for_column(cid, true);
 
         if (result_true) {
             _need_read_data_indices[cid] = false;
@@ -2422,7 +2422,7 @@ Status SegmentIterator::_construct_compound_expr_context() {
         RETURN_IF_ERROR(expr_ctx->clone(_opts.runtime_state, context));
         context->set_inverted_index_iterators(_inverted_index_iterators_by_col_name);
         context->set_storage_name_and_type(_storage_name_and_type_by_col_name);
-        context->set_inverted_index_expr_status(_common_expr_inverted_index_status);
+        context->set_inverted_index_expr_status(&_common_expr_inverted_index_status);
         _common_expr_ctxs_push_down.emplace_back(context);
     }
     return Status::OK();

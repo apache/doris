@@ -186,6 +186,21 @@ Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "{} not support slow path, hit debug point.", _expr_name);
     });
+    DBUG_EXECUTE_IF("VMatchPredicate.must_in_slow_path", {
+        auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
+                "VMatchPredicate.must_in_slow_path", "column_name", "");
+
+        std::vector<std::string> column_names;
+        boost::split(column_names, debug_col_name, boost::algorithm::is_any_of(","));
+
+        auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
+        std::string column_name = column_slot_ref->expr_name();
+        auto it = std::find(column_names.begin(), column_names.end(), column_name);
+        if (it == column_names.end()) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "column {} should in slow path while VMatchPredicate::execute.", column_name);
+        }
+    })
     doris::vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {
         int column_id = -1;

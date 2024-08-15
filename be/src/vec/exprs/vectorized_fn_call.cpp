@@ -194,7 +194,24 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
     if (fast_execute(context, block, result_column_id)) {
         return Status::OK();
     }
+    DBUG_EXECUTE_IF("VectorizedFnCall.must_in_slow_path", {
+        if (get_child(0)->is_slot_ref()) {
+            auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
+                    "VectorizedFnCall.must_in_slow_path", "column_name", "");
 
+            std::vector<std::string> column_names;
+            boost::split(column_names, debug_col_name, boost::algorithm::is_any_of(","));
+
+            auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
+            std::string column_name = column_slot_ref->expr_name();
+            auto it = std::find(column_names.begin(), column_names.end(), column_name);
+            if (it == column_names.end()) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "column {} should in slow path while VectorizedFnCall::execute.",
+                        column_name);
+            }
+        }
+    })
     DCHECK(_open_finished || _getting_const_col) << debug_string();
     // TODO: not execute const expr again, but use the const column in function context
     args.resize(_children.size());
