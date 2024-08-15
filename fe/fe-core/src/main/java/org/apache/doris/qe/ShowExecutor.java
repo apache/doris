@@ -2559,16 +2559,16 @@ public class ShowExecutor {
                     ColumnStatistic columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
                             tableIf.getDatabase().getCatalog().getId(),
                             tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
-                    columnStatistics.add(Pair.of(Pair.of(colName, indexName), columnStatistic));
+                    columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
                 } else if (partitionNames == null) {
                     ColumnStatistic columnStatistic =
                             StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), indexId, colName);
-                    columnStatistics.add(Pair.of(Pair.of(colName, indexName), columnStatistic));
+                    columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
                 } else {
                     String finalIndexName = indexName;
                     columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
                             colName, partitionNames.getPartitionNames())
-                            .stream().map(s -> Pair.of(Pair.of(colName, finalIndexName), s))
+                            .stream().map(s -> Pair.of(Pair.of(finalIndexName, colName), s))
                             .collect(Collectors.toList()));
                 }
             }
