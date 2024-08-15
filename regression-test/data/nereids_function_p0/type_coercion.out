@@ -35,3 +35,18 @@
 -- !nullif --
 13
 
+-- !group_bit_and --
+0
+
+-- !group_bit_or --
+65679
+
+-- !group_bit_xor --
+65671
+
+-- !stddev --
+30866.899145992767
+
+-- !stddev_samp --
+37804.07642481606
+

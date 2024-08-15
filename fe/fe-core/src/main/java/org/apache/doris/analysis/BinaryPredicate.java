@@ -760,13 +760,13 @@ public class BinaryPredicate extends Predicate implements Writable {
             case EQ_FOR_NULL:
                 return new BoolLiteral(compareResult == 0);
             case GE:
-                return new BoolLiteral(compareResult == 1 || compareResult == 0);
+                return new BoolLiteral(compareResult >= 0);
             case GT:
-                return new BoolLiteral(compareResult == 1);
+                return new BoolLiteral(compareResult > 0);
             case LE:
                 return new BoolLiteral(compareResult == -1 || compareResult == 0);
             case LT:
-                return new BoolLiteral(compareResult == -1);
+                return new BoolLiteral(compareResult < 0);
             case NE:
                 return new BoolLiteral(compareResult != 0);
             default:
