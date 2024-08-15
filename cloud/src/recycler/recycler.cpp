@@ -1131,6 +1131,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
                     return {std::string_view(), range_move};
                 }
                 ++num_recycled;
+                LOG_INFO("k is {}, is empty {}", k, k.empty());
                 return {k, range_move};
             });
         } else {
@@ -1156,7 +1157,10 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
                 }
                 return true;
             }());
-            sync_executor.add([k]() mutable -> TabletKeyPair { return {k, true}; });
+            sync_executor.add([k]() mutable -> TabletKeyPair {
+                LOG_INFO("k is {}, is empty {}", k, k.empty());
+                return {k, true};
+            });
             ++num_recycled;
         }
         return 0;
