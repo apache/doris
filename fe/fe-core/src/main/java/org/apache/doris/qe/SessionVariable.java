@@ -917,8 +917,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_SPLIT_TYPE = "ignore_split_type";
     @VariableMgr.VarAttr(name = IGNORE_SPLIT_TYPE,
+            checker = "checkIgnoreSplitType",
             description = {"忽略指定类型的split", "Ignore splits of the specified type"})
-    IgnoreSplitType ignoreSplitType = IgnoreSplitType.NONE;
+    public String ignoreSplitType = IgnoreSplitType.NONE.toString();
 
     public static final String USE_CONSISTENT_HASHING_FOR_EXTERNAL_SCAN = "use_consistent_hash_for_external_scan";
     @VariableMgr.VarAttr(name = USE_CONSISTENT_HASHING_FOR_EXTERNAL_SCAN,
@@ -4265,8 +4266,16 @@ public class SessionVariable implements Serializable, Writable {
         return forceJniScanner;
     }
 
-    public IgnoreSplitType getIgnoreSplitType() {
+    public String getIgnoreSplitType() {
         return ignoreSplitType;
+    }
+
+    public void checkIgnoreSplitType(String value) {
+        try {
+            IgnoreSplitType.valueOf(value);
+        } catch (Exception e) {
+            throw new UnsupportedOperationException("We only support `NONE`, `IGNORE_JNI` and `IGNORE_NATIVE`");
+        }
     }
 
     public boolean getUseConsistentHashForExternalScan() {

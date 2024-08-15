@@ -175,7 +175,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     public List<Split> getSplits() throws UserException {
         boolean forceJniScanner = ConnectContext.get().getSessionVariable().isForceJniScanner();
         SessionVariable.IgnoreSplitType ignoreSplitType =
-                ConnectContext.get().getSessionVariable().getIgnoreSplitType();
+                SessionVariable.IgnoreSplitType.valueOf(ConnectContext.get().getSessionVariable().getIgnoreSplitType());
         List<Split> splits = new ArrayList<>();
         int[] projected = desc.getSlots().stream().mapToInt(
                 slot -> (source.getPaimonTable().rowType().getFieldNames().indexOf(slot.getColumn().getName())))
