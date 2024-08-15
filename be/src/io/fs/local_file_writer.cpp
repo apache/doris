@@ -18,15 +18,14 @@
 #include "io/fs/local_file_writer.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
-#include <errno.h> // IWYU pragma: keep
 #include <fcntl.h>
 #include <glog/logging.h>
-#include <limits.h>
-#include <stdint.h>
 #include <sys/uio.h>
 #include <unistd.h>
 
 #include <algorithm>
+#include <cerrno> // IWYU pragma: keep
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <ostream>
@@ -42,10 +41,10 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "olap/data_dir.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 namespace {
 
 Status sync_dir(const io::Path& dirname) {
@@ -215,5 +214,4 @@ Status LocalFileWriter::_close(bool sync) {
     return Status::OK();
 }
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

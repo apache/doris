@@ -39,6 +39,7 @@
 #include "io/fs/local_file_reader.h"
 #include "io/fs/local_file_writer.h"
 #include "olap/data_dir.h"
+#include "util/async_io.h" // IWYU pragma: keep
 #include "util/debug_points.h"
 
 namespace doris::io {
@@ -160,7 +161,7 @@ Status LocalFileSystem::delete_directory_or_file_impl(const Path& path) {
 }
 
 Status LocalFileSystem::batch_delete_impl(const std::vector<Path>& files) {
-    for (auto& file : files) {
+    for (const auto& file : files) {
         RETURN_IF_ERROR(delete_file_impl(file));
     }
     return Status::OK();
@@ -308,8 +309,8 @@ Status LocalFileSystem::md5sum_impl(const Path& file, std::string* md5sum) {
     munmap(buf, file_len);
 
     std::stringstream ss;
-    for (int32_t i = 0; i < MD5_DIGEST_LENGTH; i++) {
-        ss << std::setfill('0') << std::setw(2) << std::hex << (int)result[i];
+    for (unsigned char i : result) {
+        ss << std::setfill('0') << std::setw(2) << std::hex << (int)i;
     }
     ss >> *md5sum;
 
@@ -441,14 +442,14 @@ Status LocalFileSystem::_glob(const std::string& pattern, std::vector<std::strin
     glob_t glob_result;
     memset(&glob_result, 0, sizeof(glob_result));
 
-    int rc = glob(pattern.c_str(), GLOB_TILDE, NULL, &glob_result);
+    int rc = glob(pattern.c_str(), GLOB_TILDE, nullptr, &glob_result);
     if (rc != 0) {
         globfree(&glob_result);
         return Status::InternalError("failed to glob {}: {}", pattern, glob_err_to_str(rc));
     }
 
     for (size_t i = 0; i < glob_result.gl_pathc; ++i) {
-        res->push_back(std::string(glob_result.gl_pathv[i]));
+        res->emplace_back(glob_result.gl_pathv[i]);
     }
 
     globfree(&glob_result);
