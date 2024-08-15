@@ -603,6 +603,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
+        // Drop table column stats after schema change finished.
+        try {
+            Env.getCurrentEnv().getAnalysisManager().dropStats(tbl);
+        } catch (Exception e) {
+            LOG.info("Failed to drop stats after schema change finished. Reason: {}", e.getMessage());
+        }
     }
 
     private void onFinished(OlapTable tbl) {
