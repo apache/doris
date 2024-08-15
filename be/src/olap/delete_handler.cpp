@@ -21,8 +21,6 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include <boost/regex.hpp>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -40,12 +38,10 @@
 using apache::thrift::ThriftDebugString;
 using std::vector;
 using std::string;
-using std::stringstream;
 
 using ::google::protobuf::RepeatedPtrField;
 
 namespace doris {
-using namespace ErrorCode;
 
 // construct sub condition from TCondition
 std::string construct_sub_predicate(const TCondition& condition) {

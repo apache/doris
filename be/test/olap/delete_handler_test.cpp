@@ -1225,6 +1225,10 @@ TEST_F(TestDeleteHandler, TestParseDeleteCondition) {
         {R"(a IS b IS NOT NULL)", true,  gen_cond(R"(a IS b)", "IS", R"(NOT NULL)"  )}, // test " IS " in column name
         {R"(_a-zA-Z@0-9 /.a-zA-Z0-9_+-/?@#$%^&*" ,:=hell)", true, gen_cond(R"(_a-zA-Z@0-9 /.a-zA-Z0-9_+-/?@#$%^&*" ,:)", "=", R"(hell)")}, // hellbound column name
         {R"(this is a col very loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooon colum name=long)", true,  gen_cond(R"(this is a col very loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooon colum name)", "=", R"(long)")}, // test " IS " in column name
+        {R"(中文列名1=b)"        , true,  gen_cond(R"(中文列名1)", "=" , R"(b)"        )}, // Chinese case
+        {R"(错!!误!=b)"         , false,  gen_cond(R"(abc)"   , "!=", R"(b)"         )}, // illegal character
+        {R"(##错误<=b)"         , false,  gen_cond(R"(abc)"   , "<=", R"(b)"         )}, // illegal prefix
+        {R"(κάνεις지내세요>>b)"   , true,  gen_cond(R"(κάνεις지내세요)", ">>", R"(b)"    )}, // other languages
     };
     for (auto& i : test_input) { test(i); }
 }
