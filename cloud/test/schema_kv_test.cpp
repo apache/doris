@@ -63,7 +63,6 @@ static void create_tablet(MetaServiceProxy* meta_service, int64_t table_id, int6
                           int32_t schema_version) {
     brpc::Controller cntl;
     CreateTabletsRequest req;
-    req.set_db_id(1000);
     CreateTabletsResponse res;
     add_tablet(req, table_id, index_id, partition_id, tablet_id, rowset_id, schema_version);
     meta_service->create_tablets(&cntl, &req, &res, nullptr);
@@ -218,7 +217,6 @@ TEST(DetachSchemaKVTest, TabletTest) {
         config::write_schema_kv = true;
         brpc::Controller cntl;
         CreateTabletsRequest req;
-        req.set_db_id(1000);
         CreateTabletsResponse res;
         add_tablet(req, 10031, 10032, 10033, 100031, next_rowset_id(), 1);
         add_tablet(req, 10031, 10032, 10033, 100032, next_rowset_id(), 2);

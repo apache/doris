@@ -2780,6 +2780,7 @@ int InstanceRecycler::repair_tablet_index() {
                                     .tag("idx_key", hex(idx_key));
                             return -1;
                         }
+                        LOG(INFO) << "xxx put idx_key=" << hex(idx_key);
                         txn->put(idx_key, idx_val);
                         need_commit = true;
                         ++num_tablet_repaired;

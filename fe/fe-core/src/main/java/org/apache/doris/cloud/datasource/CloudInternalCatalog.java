@@ -680,6 +680,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             sendCreateTabletsRpc(Cloud.CreateTabletsRequest.Builder requestBuilder) throws DdlException  {
         requestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         Cloud.CreateTabletsRequest createTabletsReq = requestBuilder.build();
+        Preconditions.checkState(createTabletsReq.hasDbId(), "createTabletsReq must set dbId");
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("send create tablets rpc, createTabletsReq: {}", createTabletsReq);
