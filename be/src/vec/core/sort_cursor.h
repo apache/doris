@@ -157,23 +157,6 @@ struct MergeSortCursorImpl {
         rows = block->rows();
     }
 
-    void reset(std::shared_ptr<Block> block_) {
-        block = block_;
-        sort_columns.clear();
-
-        auto columns = block->get_columns_and_convert();
-        for (size_t j = 0, size = desc.size(); j < size; ++j) {
-            auto& column_desc = desc[j];
-            size_t column_number = !column_desc.column_name.empty()
-                                           ? block->get_position_by_name(column_desc.column_name)
-                                           : column_desc.column_number;
-            sort_columns.push_back(columns[column_number].get());
-        }
-
-        pos = 0;
-        rows = block->rows();
-    }
-
     bool is_first() const { return pos == 0; }
     bool is_last() const { return pos + 1 >= rows; }
     void next() { ++pos; }
