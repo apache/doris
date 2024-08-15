@@ -199,8 +199,10 @@ Status DownloadAction::check_token(HttpRequest* req) {
         return Status::NotAuthorized("token is not specified.");
     }
 
-    if (token_str != _exec_env->token()) {
-        return Status::NotAuthorized("invalid token.");
+    const std::string& local_token = _exec_env->token();
+    if (token_str != local_token) {
+        LOG(WARNING) << "invalid download token: " << token_str << ", local token: " << local_token;
+        return Status::NotAuthorized("invalid token {}", token_str);
     }
 
     return Status::OK();
