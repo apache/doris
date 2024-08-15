@@ -326,6 +326,7 @@ public abstract class ConnectProcessor {
         if (mysqlCommand == MysqlCommand.COM_QUERY
                 && ctx.getSessionVariable().isEnableNereidsPlanner()
                 && !ctx.getSessionVariable().enableFallbackToOriginalPlanner
+                && !stmts.isEmpty()
                 && stmts.stream().allMatch(s -> s instanceof NotFallbackInParser)) {
             String errMsg;
             Throwable exception = null;
