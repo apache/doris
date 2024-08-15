@@ -24,7 +24,7 @@
 #include <string>
 
 #include "common/status.h"
-// #include "cpp/sync_point.h"
+#include "common/sync_point.h"
 #include "io/cache/block_file_cache.h"
 
 namespace doris::io {
@@ -167,7 +167,7 @@ Status FileBlock::change_cache_type_by_mgr(FileCacheType new_type) {
         new_meta.expiration_time = _key.meta.expiration_time;
         new_meta.type = new_type;
         auto st = _mgr->_storage->change_key_meta(_key, new_meta);
-        // TEST_SYNC_POINT_CALLBACK("FileBlock::change_cache_type", &st);
+        TEST_SYNC_POINT_CALLBACK("FileBlock::change_cache_type", &st);
         if (!st.ok()) {
             return st;
         }

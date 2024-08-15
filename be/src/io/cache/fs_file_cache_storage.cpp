@@ -22,7 +22,7 @@
 #include <system_error>
 
 #include "common/logging.h"
-// #include "cpp/sync_point.h"
+#include "common/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
@@ -364,7 +364,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
     };
 
     auto scan_file_cache = [&](std::filesystem::directory_iterator& key_it) {
-        // TEST_SYNC_POINT_CALLBACK("BlockFileCache::TmpFile1");
+        TEST_SYNC_POINT_CALLBACK("BlockFileCache::TmpFile1");
         for (; key_it != std::filesystem::directory_iterator(); ++key_it) {
             auto key_with_suffix = key_it->path().filename().native();
             auto delim_pos = key_with_suffix.find('_');
@@ -412,7 +412,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
                     LOG(WARNING) << "parse offset err, path=" << offset_it->path().native();
                     continue;
                 }
-                // TEST_SYNC_POINT_CALLBACK("BlockFileCache::REMOVE_FILE_2", &offset_with_suffix);
+                TEST_SYNC_POINT_CALLBACK("BlockFileCache::REMOVE_FILE_2", &offset_with_suffix);
                 size_t size = offset_it->file_size(ec);
                 if (ec) {
                     LOG(WARNING) << "failed to file_size: file_name=" << offset_with_suffix
@@ -487,7 +487,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
     if (!batch_load_buffer.empty()) {
         add_cell_batch_func();
     }
-    // TEST_SYNC_POINT_CALLBACK("BlockFileCache::TmpFile2");
+    TEST_SYNC_POINT_CALLBACK("BlockFileCache::TmpFile2");
 }
 
 void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, const FileCacheKey& key,
@@ -542,7 +542,7 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
             continue;
         }
 
-        // TEST_SYNC_POINT_CALLBACK("BlockFileCache::REMOVE_FILE_1", &offset_with_suffix);
+        TEST_SYNC_POINT_CALLBACK("BlockFileCache::REMOVE_FILE_1", &offset_with_suffix);
         std::error_code ec;
         size_t size = check_it->file_size(ec);
         if (ec) {

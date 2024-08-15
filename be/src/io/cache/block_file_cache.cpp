@@ -34,7 +34,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-// #include "cpp/sync_point.h"
+#include "common/sync_point.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
@@ -443,8 +443,8 @@ std::string BlockFileCache::clear_file_cache_async() {
 void BlockFileCache::recycle_deleted_blocks() {
     using namespace std::chrono;
     static int remove_batch = 100;
-    // TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_remove_batch", &remove_batch);
-    // TEST_SYNC_POINT_CALLBACK("BlockFileCache::recycle_deleted_blocks");
+    TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_remove_batch", &remove_batch);
+    TEST_SYNC_POINT_CALLBACK("BlockFileCache::recycle_deleted_blocks");
     std::unique_lock cache_lock(_mutex);
     auto remove_file_block = [&cache_lock, this](FileBlockCell* cell) {
         std::lock_guard segment_lock(cell->file_block->_mutex);
@@ -460,7 +460,7 @@ void BlockFileCache::recycle_deleted_blocks() {
             remove(cell->file_block, cache_lock, segment_lock);
         };
         static int remove_batch = 100;
-        // TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_remove_batch", &remove_batch);
+        TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_remove_batch", &remove_batch);
         int i = 0;
         std::condition_variable cond;
         auto iter_queue = [&](LRUQueue& queue) {
@@ -1538,7 +1538,7 @@ void BlockFileCache::check_disk_resource_limit() {
 void BlockFileCache::run_background_operation() {
     int64_t interval_time_seconds = 20;
     while (!_close) {
-        // TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_sleep_time", &interval_time_seconds);
+        TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_sleep_time", &interval_time_seconds);
         check_disk_resource_limit();
         {
             std::unique_lock close_lock(_close_mtx);

@@ -27,7 +27,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
-// #include "cpp/sync_point.h"
+#include "common/sync_point.h"
 #include "common/logging.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -180,7 +180,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             block->get_or_set_downloader();
             if (block->is_downloader()) {
                 empty_blocks.push_back(block);
-                // TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::EMPTY");
+                TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::EMPTY");
             }
             stats.hit_cache = false;
             break;
@@ -261,11 +261,11 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         FileBlock::State block_state = block->state();
         int64_t wait_time = 0;
         static int64_t max_wait_time = 10;
-        // TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::max_wait_time", &max_wait_time);
+        TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::max_wait_time", &max_wait_time);
         if (block_state != FileBlock::State::DOWNLOADED) {
             do {
                 SCOPED_RAW_TIMER(&stats.remote_read_timer);
-                // TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::DOWNLOADING");
+                TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::DOWNLOADING");
                 block_state = block->wait();
                 if (block_state != FileBlock::State::DOWNLOADING) {
                     break;
