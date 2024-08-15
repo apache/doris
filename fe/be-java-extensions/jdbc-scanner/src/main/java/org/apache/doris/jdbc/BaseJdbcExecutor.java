@@ -108,10 +108,10 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 }
             }
 
-            if (conn != null || resultSet != null) {
+            if (conn != null && resultSet != null) {
                 abortReadConnection(conn, resultSet);
-                closeResources(resultSet, stmt, conn);
             }
+            closeResources(resultSet, stmt, conn);
         } finally {
             if (config.getConnectionPoolMinSize() == 0 && hikariDataSource != null) {
                 hikariDataSource.close();
