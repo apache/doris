@@ -462,6 +462,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         if (LOG.isDebugEnabled()) {
             LOG.debug("partitionColumnFilter: {}", partitionColumnFilter);
         }
+        LOG.info("partitionColumnFilter: {}", partitionColumnFilter);
         return partitionColumnFilter;
     }
 

@@ -35,6 +35,8 @@ import org.apache.doris.planner.PartitionColumnFilter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
 import java.util.HashSet;
@@ -47,6 +49,8 @@ import java.util.Set;
  * prune bucket
  */
 public class PruneOlapScanTablet extends OneRewriteRuleFactory {
+    private static final Logger LOG = LogManager.getLogger(PruneOlapScanTablet.class);
+
     @Override
     public Rule build() {
         return logicalFilter(logicalOlapScan()).then(filter -> {

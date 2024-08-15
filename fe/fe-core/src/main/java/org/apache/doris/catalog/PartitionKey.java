@@ -56,6 +56,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.zip.CRC32;
@@ -75,6 +76,19 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         keys = Lists.newArrayList();
         originHiveKeys = Lists.newArrayList();
         types = Lists.newArrayList();
+    }
+
+    public PartitionKey(PartitionKey other) {
+        this.keys = new ArrayList<>(other.keys.size());
+        for (LiteralExpr expr : other.keys) {
+            try {
+                this.keys.add(LiteralExpr.create(expr.getStringValue(), expr.getType()));
+            } catch (AnalysisException e) {
+                e.printStackTrace();
+            }
+        }
+        this.originHiveKeys = new ArrayList<>(other.originHiveKeys);
+        this.types = new ArrayList<>(other.types);
     }
 
     public void setDefaultListPartition(boolean isDefaultListPartitionKey) {

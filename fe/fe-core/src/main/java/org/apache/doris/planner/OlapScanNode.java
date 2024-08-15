@@ -52,6 +52,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
@@ -93,7 +94,10 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
+import com.google.common.collect.RangeMap;
 import com.google.common.collect.Sets;
+import com.google.common.collect.TreeRangeMap;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -187,7 +191,17 @@ public class OlapScanNode extends ScanNode {
 
     private HashSet<Long> scanBackendIds = new HashSet<>();
 
+    private PartitionPruner partitionPruner = null;
+
+    private Map<Long, Set<Long>> backendId2TabletIds = Maps.newHashMap();
+
     private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
+
+    // 每列不同的值对应不同范围，不同范围对应各自的partition id
+    private Map<String, RangeMap<ColumnBound, List<Long>>> partitionCol2PartitionID = Maps.newHashMap();
+
+    private Map<PartitionKey, Set<Long>> distributionKeys2TabletID = Maps.newHashMap();
+
     // a bucket seq may map to many tablets, and each tablet has a
     // TScanRangeLocations.
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
@@ -199,6 +213,8 @@ public class OlapScanNode extends ScanNode {
     private DescriptorTable descTable;
 
     private Set<Integer> distributionColumnIds;
+
+    private List<Column> distributionColumns;
 
     private boolean shouldColoScan = false;
 
@@ -252,6 +268,22 @@ public class OlapScanNode extends ScanNode {
 
     public HashSet<Long> getScanBackendIds() {
         return scanBackendIds;
+    }
+
+    public Map<Long, Set<Long>> getBackendId2TabletIds() {
+        return backendId2TabletIds;
+    }
+
+    public Map<String, RangeMap<ColumnBound, List<Long>>> getPartitionCol2PartitionID() {
+        return partitionCol2PartitionID;
+    }
+
+    public Map<PartitionKey, Set<Long>> getDistributionKeys2TabletID() {
+        return distributionKeys2TabletID;
+    }
+
+    public List<Column> getDistributionColumns() {
+        return distributionColumns;
     }
 
     public void setSampleTabletIds(List<Long> sampleTablets) {
@@ -660,9 +692,10 @@ public class OlapScanNode extends ScanNode {
         cardinality = (long) statsDeriveResult.getRowCount();
     }
 
+    // get the pruned partition IDs
     private Collection<Long> partitionPrune(PartitionInfo partitionInfo,
             PartitionNames partitionNames) throws AnalysisException {
-        PartitionPruner partitionPruner = null;
+        // PartitionPruner partitionPruner = null;
         Map<Long, PartitionItem> keyItemMap;
         if (partitionNames != null) {
             keyItemMap = Maps.newHashMap();
@@ -679,13 +712,22 @@ public class OlapScanNode extends ScanNode {
         if (partitionInfo.getType() == PartitionType.RANGE) {
             if (isPointQuery() && partitionInfo.getPartitionColumns().size() == 1) {
                 // short circuit, a quick path to find partition
-                ColumnRange filterRange = columnNameToRange.get(partitionInfo.getPartitionColumns().get(0).getName());
-                LiteralExpr lowerBound = filterRange.getRangeSet().get().asRanges().stream()
-                        .findFirst().get().lowerEndpoint().getValue();
-                LiteralExpr upperBound = filterRange.getRangeSet().get().asRanges().stream()
-                        .findFirst().get().upperEndpoint().getValue();
+                Column col = partitionInfo.getPartitionColumns().get(0);
+                // ColumnRange filterRange = columnNameToRange.get(col.getName());
+                Set<Range<ColumnBound>> filterRanges =
+                        columnNameToRange.get(col.getName()).getRangeSet().get().asRanges();
+                // LiteralExpr lowerBound = filterRanges.stream().findFirst().get().lowerEndpoint().getValue();
+                // // to support `IN`, change `findFirst` to `reduce` to get the max value
+                // LiteralExpr upperBound =
+                //         filterRanges.stream()
+                //         .map(range -> range.upperEndpoint().getValue())
+                //         .max(Comparator.naturalOrder()).get();
                 cachedPartitionPruner.update(keyItemMap);
-                return cachedPartitionPruner.prune(lowerBound, upperBound);
+                Collection<Long> prunedPartIDs = cachedPartitionPruner.prune(filterRanges);
+                partitionCol2PartitionID.putIfAbsent(
+                        col.getName(), cachedPartitionPruner.getPartitionColValue2PartitionID());
+                // todo: support range query
+                return prunedPartIDs;
             }
             partitionPruner = new RangePartitionPrunerV2(keyItemMap,
                     partitionInfo.getPartitionColumns(), columnNameToRange);
@@ -703,12 +745,74 @@ public class OlapScanNode extends ScanNode {
         switch (distributionInfo.getType()) {
             case HASH: {
                 HashDistributionInfo info = (HashDistributionInfo) distributionInfo;
-                distributionPruner = new HashDistributionPruner(table.getTabletIdsInOrder(),
+                distributionPruner =
+                        new HashDistributionPruner(table.getTabletIdsInOrder(),
                         info.getDistributionColumns(),
                         columnFilters,
                         info.getBucketNum(),
                         getSelectedIndexId() == olapTable.getBaseIndexId());
-                return distributionPruner.prune();
+                HashDistributionPruner hashPruner = (HashDistributionPruner) distributionPruner;
+                Collection<Long> resultIDs = hashPruner.prune();
+                Map<PartitionKey, Set<Long>> newPrunedIDs = hashPruner.getDistributionKeysTabletID();
+                for (Map.Entry<PartitionKey, Set<Long>> entry : newPrunedIDs.entrySet()) {
+                    distributionKeys2TabletID.merge(entry.getKey(), entry.getValue(), (existingSet, newSet) -> {
+                        existingSet.addAll(newSet);
+                        return existingSet;
+                    });
+                }
+                if (isPointQuery() && olapTable.getPartitionColumns().size() > 1
+                        && partitionCol2PartitionID != null && !columnFilters.isEmpty()) {
+                    List<Column> distributionColumns = info.getDistributionColumns();
+                    for (int i = 0; i < distributionColumns.size(); i++) {
+                        Column column = distributionColumns.get(i);
+                        // if the column is both partition column and distribution column, prune some tablets
+                        if (olapTable.getPartitionColumns().contains(column)) {
+                            RangeMap<ColumnBound, List<Long>> rangeToPartID =
+                                    partitionCol2PartitionID.get(column.getName());
+                            // filter of this column
+                            PartitionColumnFilter columnFilter = columnFilters.get(column.getName());
+                            InPredicate inPredicate = columnFilter.getInPredicate();
+                            // locate the partitions to which the filter belongs
+                            RangeMap<ColumnBound, List<Long>> filterToPartID = TreeRangeMap.create();
+                            Range<ColumnBound> range = null;
+                            if (null == inPredicate) {  // todo: support range query
+                                range = Range.closed(
+                                    ColumnBound.of(columnFilter.lowerBound),
+                                    ColumnBound.of(columnFilter.upperBound));
+                                filterToPartID.putAll(rangeToPartID.subRangeMap(range));
+                            } else {
+                                for (int j = 1; j < inPredicate.getChildren().size(); ++j) {
+                                    LiteralExpr expr = (LiteralExpr) inPredicate.getChild(j);
+                                    range = Range.closed(
+                                        ColumnBound.of(expr),
+                                        ColumnBound.of(expr));
+                                    filterToPartID.putAll(rangeToPartID.subRangeMap(range));
+                                }
+                            }
+                            if (!filterToPartID.asMapOfRanges().isEmpty()) {
+                                final int index = i;
+                                // only keep the tablets of the partition to which the filter belongs
+                                distributionKeys2TabletID.forEach((distributionKeys, tabletIDs) -> {
+                                    ColumnBound distributionKeyValue = ColumnBound.of(
+                                            distributionKeys.getKeys().get(index));
+                                    List<Long> prunedPartitionIDs = filterToPartID.get(distributionKeyValue);
+                                    if (prunedPartitionIDs != null) {
+                                        List<Long> subRangeTabletIDs = prunedPartitionIDs.stream().map((partID) -> {
+                                            Partition partition = olapTable.getPartition(partID);
+                                            MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
+                                            return selectedTable.getTablets().stream().map(Tablet::getId)
+                                                    .collect(Collectors.toList());
+                                        }).flatMap(Collection::stream).collect(Collectors.toList());
+                                        tabletIDs.retainAll(subRangeTabletIDs);
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+                // Preconditions.checkState(!distributionKeys2TabletID.isEmpty());
+                distributionColumns = info.getDistributionColumns();
+                return resultIDs;
             }
             case RANDOM: {
                 return null;
@@ -933,7 +1037,15 @@ public class OlapScanNode extends ScanNode {
                     totalBytes += dataSize;
                     collectedStat = true;
                 }
-                scanBackendIds.add(backend.getId());
+                Long beId = backend.getId();
+                scanBackendIds.add(beId);
+                if (backendId2TabletIds.containsKey(beId)) {
+                    backendId2TabletIds.get(beId).add(tabletId);
+                } else {
+                    Set<Long> tabletIds = Sets.newHashSet();
+                    tabletIds.add(tabletId);
+                    backendId2TabletIds.put(beId, tabletIds);
+                }
                 // For skipping missing version of tablet, we only select the backend with the highest last
                 // success version replica to save as much data as possible.
                 if (skipMissingVersion) {
@@ -966,10 +1078,20 @@ public class OlapScanNode extends ScanNode {
         // Step1: compute partition ids
         PartitionNames partitionNames = ((BaseTableRef) desc.getRef()).getPartitionNames();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-        if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
-            selectedPartitionIds = partitionPrune(partitionInfo, partitionNames);
-        } else {
-            selectedPartitionIds = olapTable.getPartitionIds();
+        switch (partitionInfo.getType()) {
+            case RANGE:
+                selectedPartitionIds = partitionPrune(partitionInfo, partitionNames);
+                if (partitionPruner instanceof RangePartitionPrunerV2) {
+                    RangePartitionPrunerV2 rangePartitionPruner = (RangePartitionPrunerV2) partitionPruner;
+                    this.partitionCol2PartitionID = rangePartitionPruner.getPartitionCol2PartitionID();
+                }
+                break;
+            case LIST:
+                selectedPartitionIds = partitionPrune(partitionInfo, partitionNames);
+                break;
+            default:
+                selectedPartitionIds = olapTable.getPartitionIds();
+                break;
         }
         selectedPartitionIds = olapTable.selectNonEmptyPartitionIds(selectedPartitionIds);
         selectedPartitionNum = selectedPartitionIds.size();
@@ -1277,6 +1399,7 @@ public class OlapScanNode extends ScanNode {
 
     // Only called when Coordinator exec in high performance point query
     public List<TScanRangeLocations> lazyEvaluateRangeLocations() throws UserException {
+        LOG.info("[LazyEvaluate] lazyEvaluateRangeLocations");
         // Lazy evaluation
         selectedIndexId = olapTable.getBaseIndexId();
         // Only key columns

@@ -57,11 +57,31 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
 
     public static RangeMap<ColumnBound, UniqueId> genSingleColumnRangeMap(Map<Long, PartitionItem> idToPartitionItem) {
         RangeMap<ColumnBound, UniqueId> candidate = TreeRangeMap.create();
-        idToPartitionItem.forEach((id, item) -> {
+        idToPartitionItem.forEach((id, item) -> {   // partition id , key range
             Range<PartitionKey> range = item.getItems();
             candidate.put(mapPartitionKeyRange(range, 0), new RangePartitionUniqueId(id));
         });
         return candidate;
+    }
+
+    public static <C extends Comparable<C>> Range<C> buildRange(C lowerBound, BoundType lowerBoundType,
+                                                                C upperBound, BoundType upperBoundType) {
+        if (lowerBoundType == BoundType.CLOSED && upperBoundType == BoundType.OPEN) {
+            // [lowerBound, upperBound)
+            return Range.closedOpen(lowerBound, upperBound);
+        } else if (lowerBoundType == BoundType.OPEN && upperBoundType == BoundType.CLOSED) {
+            // (lowerBound, upperBound]
+            return Range.openClosed(lowerBound, upperBound);
+        } else if (lowerBoundType == BoundType.CLOSED && upperBoundType == BoundType.CLOSED) {
+            // [lowerBound, upperBound]
+            return Range.closed(lowerBound, upperBound);
+        } else if (lowerBoundType == BoundType.OPEN && upperBoundType == BoundType.OPEN) {
+            // (lowerBound, upperBound)
+            return Range.open(lowerBound, upperBound);
+        } else {
+            throw new IllegalArgumentException("Unsupported BoundType combination: "
+                + lowerBoundType + " and " + upperBoundType);
+        }
     }
 
     /**
@@ -154,8 +174,39 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
                             && filter.hasUpperBound() && filter.upperBoundType() == BoundType.CLOSED
                             && filter.lowerEndpoint() == filter.upperEndpoint()) {
                         // Equal to predicate, e.g., col=1, the filter range is [1, 1].
-                        minKey.pushColumn(filter.lowerEndpoint().getValue(), column.getDataType());
-                        maxKey.pushColumn(filter.upperEndpoint().getValue(), column.getDataType());
+                        ColumnBound lowerEndpoint = filter.lowerEndpoint();
+                        ColumnBound upperEndpoint = filter.upperEndpoint();
+                        minKey.pushColumn(lowerEndpoint.getValue(), column.getDataType());
+                        maxKey.pushColumn(upperEndpoint.getValue(), column.getDataType());
+
+                        List<Long> partID = Lists.newArrayList();
+                        // rangeMap: range to partition ID
+                        for (Map.Entry<Range<PartitionKey>, Long> rangeMapEntry : rangeMap.asMapOfRanges().entrySet()) {
+                            Range<PartitionKey> partitionColRange = rangeMapEntry.getKey();
+                            PartitionKey lowerKeys = partitionColRange.lowerEndpoint();
+                            int lowerComparison = lowerKeys.getKeys()
+                                                  .get(columnIdx).compareTo(filter.lowerEndpoint().getValue());
+                            if (lowerComparison > 0) {
+                                break;
+                            } else if (lowerComparison == 0
+                                       && partitionColRange.lowerBoundType() != filter.lowerBoundType()) {
+                                if (partitionColRange.lowerBoundType() == BoundType.CLOSED) {
+                                    break;
+                                }
+                            }
+                            PartitionKey upperKeys = rangeMapEntry.getKey().upperEndpoint();
+                            Range<ColumnBound> keyColRange = buildRange(
+                                    ColumnBound.of(lowerKeys.getKeys().get(columnIdx)),
+                                    partitionColRange.lowerBoundType(),
+                                    ColumnBound.of(upperKeys.getKeys().get(columnIdx)),
+                                    partitionColRange.upperBoundType());
+                            if (filter.isConnected(keyColRange) // `isConnected` is not neccessary
+                                    && !filter.intersection(keyColRange).isEmpty()) {
+                                partID.add(rangeMapEntry.getValue());
+                            }
+                        }
+                        partitionCol2PartitionID.putIfAbsent(column.getName(), TreeRangeMap.create());
+                        partitionCol2PartitionID.get(column.getName()).put(filter, partID);
                         result.addAll(doPruneMulti(columnToFilters, rangeMap, columnIdx + 1, minKey, maxKey));
                         minKey.popColumn();
                         maxKey.popColumn();

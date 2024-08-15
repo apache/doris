@@ -28,6 +28,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeMap;
+import com.google.common.collect.TreeRangeMap;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -47,6 +48,15 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
     protected boolean isHive = false;
     // currently only used for list partition
     private Map.Entry<Long, PartitionItem> defaultPartition;
+
+    /*
+     * For example, if the partition columns are (k1, k2, k3),
+     * and there is a partition p0 [(1, 5, 10), (5, 10, 20)),
+     * then the `partitionCol2PartitionID` should be:
+     * k1 -> [1,5) -> p0
+     */
+    // todo: `List<Long>` is not neccessary, `Long` is enough
+    protected Map<String, RangeMap<ColumnBound, List<Long>>> partitionCol2PartitionID = Maps.newHashMap();
 
     // Only called in PartitionPruneV2ByShortCircuitPlan constructor
     PartitionPrunerV2Base() {
@@ -74,6 +84,10 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
         this.columnNameToRange = columnNameToRange;
         this.singleColumnRangeMap = singleColumnRangeMap;
         findDefaultPartition(idToPartitionItem);
+    }
+
+    public Map<String, RangeMap<ColumnBound, List<Long>>> getPartitionCol2PartitionID() {
+        return partitionCol2PartitionID;
     }
 
     private Collection<Long> handleDefaultPartition(Collection<Long> result) {
@@ -107,11 +121,12 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
     @Override
     public Collection<Long> prune() throws AnalysisException {
         Map<Column, FinalFilters> columnToFilters = Maps.newHashMap();
-        for (Column column : partitionColumns) {
+        for (Column column : partitionColumns) {    // partition col is key
             ColumnRange columnRange = columnNameToRange.get(column.getName());
             if (columnRange == null) {
                 columnToFilters.put(column, FinalFilters.noFilters());
             } else {
+                // add the partiton&key col
                 columnToFilters.put(column, getFinalFilters(columnRange, column));
             }
         }
@@ -160,22 +175,31 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
      * partitions.
      */
     private Collection<Long> pruneSingleColumnPartition(Map<Column, FinalFilters> columnToFilters) {
-        FinalFilters finalFilters = columnToFilters.get(partitionColumns.get(0));
+        Column partitionCol = partitionColumns.get(0);
+        FinalFilters finalFilters = columnToFilters.get(partitionCol);
         switch (finalFilters.type) {
             case CONSTANT_FALSE_FILTERS:
                 return Collections.emptySet();
             case HAVE_FILTERS:
                 genSingleColumnRangeMap();
                 Preconditions.checkNotNull(singleColumnRangeMap);
-                return finalFilters.filters.stream()
+                partitionCol2PartitionID.put(partitionCol.getName(), TreeRangeMap.create());
+                Set<Long> resultPartID =
+                        finalFilters.filters.stream()
                         .map(filter -> {
                             RangeMap<ColumnBound, UniqueId> filtered = singleColumnRangeMap.subRangeMap(filter);
+                            filtered.asMapOfRanges().forEach((range, partID) -> {
+                                partitionCol2PartitionID.get(partitionCol.getName())
+                                            .asMapOfRanges()
+                                            .computeIfAbsent(range, k -> Lists.newArrayList(partID.getPartitionId()));
+                            });
                             return filtered.asMapOfRanges().values().stream()
                                     .map(UniqueId::getPartitionId)
                                     .collect(Collectors.toSet());
                         })
                         .flatMap(Set::stream)
                         .collect(Collectors.toSet());
+                return resultPartID;
             case NO_FILTERS:
             default:
                 return idToPartitionItem.keySet();

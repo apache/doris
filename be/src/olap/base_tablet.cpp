@@ -519,7 +519,6 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
         }
         auto& segments = segment_caches[i]->get_segments();
         DCHECK_EQ(segments.size(), num_segments);
-
         for (auto id : picked_segments) {
             Status s = segments[id]->lookup_row_key(encoded_key, with_seq_col, with_rowid, &loc);
             if (s.is<KEY_NOT_FOUND>()) {
