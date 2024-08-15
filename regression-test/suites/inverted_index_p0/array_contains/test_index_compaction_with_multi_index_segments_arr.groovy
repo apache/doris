@@ -161,7 +161,7 @@ suite("test_index_compaction_with_multi_index_segments_arr", "nonConcurrent") {
                 `comment_id` array<int(11)>  NULL,
                 `body` array<TEXT> NULL DEFAULT "[]",
                 INDEX idx_comment_id (`comment_id`) USING INVERTED COMMENT '''',
-                INDEX idx_body (`body`) USING INVERTED PROPERTIES("parser" = "unicode") COMMENT ''''
+                INDEX idx_body (`body`) USING INVERTED PROPERTIES("parser" = "none") COMMENT ''''
             ) ENGINE=OLAP
             DUPLICATE KEY(`file_time`)
             COMMENT 'OLAP'
@@ -293,7 +293,7 @@ suite("test_index_compaction_with_multi_index_segments_arr", "nonConcurrent") {
                 `comment_id` array<int(11)>  NULL,
                 `body` array<TEXT> NULL DEFAULT "[]",
                 INDEX idx_comment_id (`comment_id`) USING INVERTED COMMENT '''',
-                INDEX idx_body (`body`) USING INVERTED PROPERTIES("parser" = "unicode") COMMENT ''''
+                INDEX idx_body (`body`) USING INVERTED PROPERTIES("parser" = "none") COMMENT ''''
             ) ENGINE=OLAP
             UNIQUE KEY(`file_time`)
             COMMENT 'OLAP'
