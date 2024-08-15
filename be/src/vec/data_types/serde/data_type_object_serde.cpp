@@ -98,19 +98,33 @@ void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
     JsonbParser json_parser;
     // encode as jsonb
     bool succ = json_parser.parse(value_str.data(), value_str.size());
-    // maybe more graceful, it is ok to check here since data could be parsed
-    CHECK(succ);
-    result.writeStartBinary();
-    result.writeBinary(json_parser.getWriter().getOutput()->getBuffer(),
-                       json_parser.getWriter().getOutput()->getSize());
-    result.writeEndBinary();
+    if (!succ) {
+        // not a valid json insert raw text
+        result.writeStartString();
+        result.writeString(value_str.data(), value_str.size());
+        result.writeEndString();
+    } else {
+        // write a json binary
+        result.writeStartBinary();
+        result.writeBinary(json_parser.getWriter().getOutput()->getBuffer(),
+                           json_parser.getWriter().getOutput()->getSize());
+        result.writeEndBinary();
+    }
 }
 
 void DataTypeObjectSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     auto& variant = assert_cast<ColumnObject&>(column);
     Field field;
-    auto blob = static_cast<const JsonbBlobVal*>(arg);
-    field.assign_jsonb(blob->getBlob(), blob->getBlobLen());
+    if (arg->isBinary()) {
+        const auto* blob = static_cast<const JsonbBlobVal*>(arg);
+        field.assign_jsonb(blob->getBlob(), blob->getBlobLen());
+    } else if (arg->isString()) {
+        // not a valid jsonb type, insert as string
+        const auto* str = static_cast<const JsonbStringVal*>(arg);
+        field.assign_string(str->getBlob(), str->getBlobLen());
+    } else {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Invalid jsonb type");
+    }
     variant.insert(field);
 }
 
