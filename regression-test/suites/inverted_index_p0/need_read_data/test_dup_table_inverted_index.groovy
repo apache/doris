@@ -716,7 +716,7 @@ suite("test_dup_table_inverted_index") {
     
     
     try {
-        GetDebugPoint().enableDebugPointForAllBEs("match.invert_index_not_support_execute_match")
+         sql """ set enable_match_without_inverted_index = true """
         sql """ set enable_common_expr_pushdown = true """
          def dupTableName = "dup_httplogs"
         sql """ drop table if exists ${dupTableName} """
@@ -899,6 +899,6 @@ suite("test_dup_table_inverted_index") {
         logger.info("mow_result2 is {}", join_result2);
         compare_result(join_result1, join_result2, all_join_sql)
     } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("match.invert_index_not_support_execute_match")
+        sql """ set enable_match_without_inverted_index = true """
     }
 }
