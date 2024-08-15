@@ -2166,7 +2166,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------hashJoin[INNER_JOIN shuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ------------PhysicalOlapScan[t1]
 ------------PhysicalOlapScan[t2]
@@ -2614,7 +2614,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------hashJoin[INNER_JOIN shuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ------------PhysicalOlapScan[t1]
 ------------PhysicalOlapScan[t2]
