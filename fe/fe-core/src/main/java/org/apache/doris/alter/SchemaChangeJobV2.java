@@ -709,7 +709,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         jobState = JobState.CANCELLED;
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
         LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
-        postProcessShadowIndex();
         return true;
     }
 
