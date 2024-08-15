@@ -193,6 +193,7 @@ std::string CGroupUtil::cgroupv2_of_process() {
 }
 
 std::optional<std::string> CGroupUtil::get_cgroupsv2_path(const std::string& subsystem) {
+#if defined(OS_LINUX)
     if (!CGroupUtil::cgroupsv2_enable()) {
         return {};
     }
@@ -209,6 +210,9 @@ std::optional<std::string> CGroupUtil::get_cgroupsv2_path(const std::string& sub
         current_cgroup = current_cgroup.parent_path();
     }
     return {};
+#else
+    return {};
+#endif
 }
 
 Status CGroupUtil::read_int_line_from_cgroup_file(const std::filesystem::path& file_path,

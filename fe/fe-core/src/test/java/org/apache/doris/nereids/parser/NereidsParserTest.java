@@ -352,14 +352,8 @@ public class NereidsParserTest extends ParserTestBase {
         parsePlan("select * from t1 join [broadcast] t2 on t1.keyy=t2.keyy")
                 .matches(logicalJoin().when(j -> j.getDistributeHint().distributeType == DistributeType.BROADCAST_RIGHT));
 
-        parsePlan("select * from t1 join /*+ broadcast   */ t2 on t1.keyy=t2.keyy")
-                .matches(logicalJoin().when(j -> j.getDistributeHint().distributeType == DistributeType.BROADCAST_RIGHT));
-
         // invalid hint position
         parsePlan("select * from [shuffle] t1 join t2 on t1.keyy=t2.keyy")
-                .assertThrowsExactly(ParseException.class);
-
-        parsePlan("select * from /*+ shuffle */ t1 join t2 on t1.keyy=t2.keyy")
                 .assertThrowsExactly(ParseException.class);
 
         // invalid hint content
@@ -372,8 +366,6 @@ public class NereidsParserTest extends ParserTestBase {
                         + "----------------------^^^");
 
         // invalid multiple hints
-        parsePlan("select * from t1 join /*+ shuffle , broadcast */ t2 on t1.keyy=t2.keyy")
-                .assertThrowsExactly(ParseException.class);
 
         parsePlan("select * from t1 join [shuffle,broadcast] t2 on t1.keyy=t2.keyy")
                 .assertThrowsExactly(ParseException.class);
@@ -452,7 +444,17 @@ public class NereidsParserTest extends ParserTestBase {
     @Test
     public void testParseUse() {
         NereidsParser nereidsParser = new NereidsParser();
-        String sql = "use test";
+        String sql = "use db";
+        nereidsParser.parseSingle(sql);
+
+        sql = "use catalog.db";
+        nereidsParser.parseSingle(sql);
+    }
+
+    @Test
+    public void testSwitch() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "switch catalog";
         nereidsParser.parseSingle(sql);
     }
 
@@ -527,12 +529,66 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testUnset() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "unset local variable a";
+        nereidsParser.parseSingle(sql);
+
+        sql = "unset variable a";
+        nereidsParser.parseSingle(sql);
+
+        sql = "unset global variable all";
+        nereidsParser.parseSingle(sql);
+
+        sql = "unset default storage vault";
+        nereidsParser.parseSingle(sql);
+
+        sql = "unset variable all";
+        nereidsParser.parseSingle(sql);
+    }
+
+    @Test
     public void testTruncateTable() {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "truncate table a";
         nereidsParser.parseSingle(sql);
 
         sql = "truncate table a partitions (p1, p2, p3)";
+        nereidsParser.parseSingle(sql);
+    }
+
+    @Test
+    public void testKill() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "kill 1234";
+        nereidsParser.parseSingle(sql);
+
+        sql = "kill connection 1234";
+        nereidsParser.parseSingle(sql);
+
+        sql = "kill query 1234";
+        nereidsParser.parseSingle(sql);
+
+        sql = "kill query '1234'";
+        nereidsParser.parseSingle(sql);
+    }
+
+    @Test
+    public void testDescribe() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "describe ctl.db.tbl";
+        nereidsParser.parseSingle(sql);
+
+        sql = "describe db.tbl partitions(p1)";
+        nereidsParser.parseSingle(sql);
+
+        sql = "describe tbl all";
+        nereidsParser.parseSingle(sql);
+
+        sql = "describe function tvf('a' = 'b')";
+        nereidsParser.parseSingle(sql);
+
+        sql = "describe function tvf('a' = 'b') as tvf";
         nereidsParser.parseSingle(sql);
     }
 }

@@ -579,6 +579,8 @@ std::shared_ptr<QueryContext> FragmentMgr::get_or_erase_query_ctx_with_lock(
 template <typename Params>
 Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
                                    std::shared_ptr<QueryContext>& query_ctx) {
+    DBUG_EXECUTE_IF("FragmentMgr._get_query_ctx.failed",
+                    { return Status::InternalError("FragmentMgr._get_query_ctx.failed"); });
     if (params.is_simplified_param) {
         // Get common components from _query_ctx_map
         std::lock_guard<std::mutex> lock(_lock);

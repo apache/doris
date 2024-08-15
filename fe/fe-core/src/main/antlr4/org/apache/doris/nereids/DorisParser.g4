@@ -26,11 +26,11 @@ options { tokenVocab = DorisLexer; }
 }
 
 multiStatements
-    : statement (SEMICOLON+ statement)* SEMICOLON* EOF
+    : SEMICOLON* statement (SEMICOLON+ statement)* SEMICOLON* EOF
     ;
 
 singleStatement
-    : statement SEMICOLON* EOF
+    : SEMICOLON* statement SEMICOLON* EOF
     ;
 
 statement
@@ -55,8 +55,11 @@ statementBase
 
 unsupportedStatement
     : unsupportedSetStatement
+    | unsupoortedUnsetStatement
     | unsupportedUseStatement
     | unsupportedDmlStatement
+    | unsupportedKillStatement
+    | unsupportedDescribeStatement
     ;
 
 materailizedViewStatement
@@ -171,15 +174,6 @@ unsupportedSetStatement
         | isolationLevel COMMA transactionAccessMode)                     #setTransaction
     ;
 
-unsupportedUseStatement
-    : USE (catalog=identifier DOT)? database=identifier                              #useDatabase
-    | USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
-    ;
-
-unsupportedDmlStatement
-    : TRUNCATE TABLE multipartIdentifier specifiedPartition?   # truncateTable
-    ;
-
 optionWithType
     : (GLOBAL | LOCAL | SESSION) identifier EQ (expression | DEFAULT)
     ;
@@ -207,6 +201,33 @@ transactionAccessMode
 
 isolationLevel
     : ISOLATION LEVEL ((READ UNCOMMITTED) | (READ COMMITTED) | (REPEATABLE READ) | (SERIALIZABLE))
+    ;
+
+unsupoortedUnsetStatement
+    : UNSET (GLOBAL | SESSION | LOCAL)? VARIABLE (ALL | identifier)
+    | UNSET DEFAULT STORAGE VAULT
+    ;
+
+unsupportedUseStatement
+    : USE (catalog=identifier DOT)? database=identifier                              #useDatabase
+    | USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
+    | SWITCH catalog=identifier                                                      #switchCatalog
+    ;
+
+unsupportedDmlStatement
+    : TRUNCATE TABLE multipartIdentifier specifiedPartition?   # truncateTable
+    ;
+
+unsupportedKillStatement
+    : KILL (CONNECTION)? INTEGER_VALUE              #killConnection
+    | KILL QUERY (INTEGER_VALUE | STRING_LITERAL)   #killQuery
+    ;
+
+unsupportedDescribeStatement
+    : explainCommand FUNCTION tvfName=identifier LEFT_PAREN
+        (properties=propertyItemList)? RIGHT_PAREN tableAlias   #describeTableValuedFunction
+    | explainCommand multipartIdentifier ALL                    #describeTableAll
+    | explainCommand multipartIdentifier specifiedPartition?    #describeTable
     ;
 
 constraint
@@ -301,11 +322,16 @@ userIdentify
     : user=identifierOrText (ATSIGN (host=identifierOrText | LEFT_PAREN host=identifierOrText RIGHT_PAREN))?
     ;
 
-
 explain
-    : (EXPLAIN planType? | DESC | DESCRIBE)
+    : explainCommand planType?
           level=(VERBOSE | TREE | GRAPH | PLAN)?
           PROCESS?
+    ;
+
+explainCommand
+    : EXPLAIN
+    | DESC
+    | DESCRIBE
     ;
 
 planType
@@ -1378,10 +1404,12 @@ nonReserved
     | TYPES
     | UNCOMMITTED
     | UNLOCK
+    | UNSET
     | UP
     | USER
     | VALUE
     | VARCHAR
+    | VARIABLE
     | VARIABLES
     | VARIANT
     | VAULT

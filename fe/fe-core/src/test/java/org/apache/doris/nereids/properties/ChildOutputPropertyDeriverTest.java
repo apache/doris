@@ -19,14 +19,17 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.plans.AggMode;
@@ -63,6 +66,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -529,21 +533,25 @@ class ChildOutputPropertyDeriverTest {
     }
 
     @Test
-    void testBroadcastJoin() {
-        new MockUp<JoinUtils>() {
-            @Mock
-            Pair<List<ExprId>, List<ExprId>> getOnClauseUsedSlots(
-                    AbstractPhysicalJoin<? extends Plan, ? extends Plan> join) {
-                return Pair.of(Lists.newArrayList(new ExprId(0)), Lists.newArrayList(new ExprId(2)));
-            }
-        };
+    void testBroadcastJoin(@Injectable LogicalProperties p1, @Injectable GroupPlan p2) {
+        SlotReference leftSlot = new SlotReference(new ExprId(0), "left", IntegerType.INSTANCE, false, Collections.emptyList());
+        SlotReference rightSlot = new SlotReference(new ExprId(2), "right", IntegerType.INSTANCE, false, Collections.emptyList());
+        List<Slot> leftOutput = new ArrayList<>();
+        List<Slot> rightOutput = new ArrayList<>();
+        leftOutput.add(leftSlot);
+        rightOutput.add(rightSlot);
+        LogicalProperties leftProperties = new LogicalProperties(() -> leftOutput, () -> DataTrait.EMPTY_TRAIT);
+        LogicalProperties rightProperties = new LogicalProperties(() -> rightOutput, () -> DataTrait.EMPTY_TRAIT);
 
+        IdGenerator<GroupId> idGenerator = GroupId.createGenerator();
+        GroupPlan leftGroupPlan = new GroupPlan(new Group(idGenerator.getNextId(), leftProperties));
+        GroupPlan rightGroupPlan = new GroupPlan(new Group(idGenerator.getNextId(), rightProperties));
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
                 Lists.newArrayList(new EqualTo(
-                        new SlotReference(new ExprId(0), "left", IntegerType.INSTANCE, false, Collections.emptyList()),
-                        new SlotReference(new ExprId(2), "right", IntegerType.INSTANCE, false,
-                                Collections.emptyList()))),
-                ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties, groupPlan, groupPlan);
+                        leftSlot, rightSlot
+                        )),
+                ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE),
+                Optional.empty(), logicalProperties, leftGroupPlan, rightGroupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
@@ -572,7 +580,7 @@ class ChildOutputPropertyDeriverTest {
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
         Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
         // check merged
-        Assertions.assertEquals(2, actual.getExprIdToEquivalenceSet().size());
+        Assertions.assertEquals(3, actual.getExprIdToEquivalenceSet().size());
     }
 
     @Test
