@@ -32,6 +32,7 @@ import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
+import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
@@ -748,13 +749,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public MTMVSnapshotIf getPartitionSnapshot(String partitionName) throws AnalysisException {
+    public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context)
+            throws AnalysisException {
         long partitionLastModifyTime = getPartitionLastModifyTime(partitionName);
         return new MTMVTimestampSnapshot(partitionLastModifyTime);
     }
 
     @Override
-    public MTMVSnapshotIf getTableSnapshot() throws AnalysisException {
+    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context) throws AnalysisException {
         if (getPartitionType() == PartitionType.UNPARTITIONED) {
             return new MTMVMaxTimestampSnapshot(getName(), getLastDdlTime());
         }

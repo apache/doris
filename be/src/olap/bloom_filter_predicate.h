@@ -55,6 +55,8 @@ public:
         return input_type == T || (is_string_type(input_type) && is_string_type(T));
     }
 
+    double get_ignore_threshold() const override { return get_bloom_filter_ignore_thredhold(); }
+
 private:
     bool _can_ignore() const override { return _filter->is_runtime_filter(); }
 

@@ -2063,10 +2063,11 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
                 st = Status::Error(ErrorCode::INTERNAL_ERROR,
                                    "_exec_plan_fragment_impl meet unknown error");
             }
+            closure_guard.release();
             if (!st.ok()) {
-                LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
+                LOG(WARNING) << "exec plan fragment failed, load_id=" << print_id(load_id)
+                             << ", errmsg=" << st;
             } else {
-                closure_guard.release();
                 for (int i = 0; i < request->data().size(); ++i) {
                     std::unique_ptr<PDataRow> row(new PDataRow());
                     row->CopyFrom(request->data(i));
