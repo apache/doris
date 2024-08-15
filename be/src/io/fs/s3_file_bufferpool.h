@@ -17,22 +17,15 @@
 
 #pragma once
 
-#include <condition_variable>
 #include <cstdint>
-#include <fstream>
 #include <functional>
-#include <list>
 #include <memory>
-#include <mutex>
 
 #include "common/status.h"
-#include "io/cache/block_file_segment.h"
-#include "util/crc32c.h"
+#include "io/cache/file_block.h"
 #include "util/slice.h"
-#include "util/threadpool.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 enum class BufferType : uint32_t { DOWNLOAD, UPLOAD };
 using FileBlocksHolderPtr = std::unique_ptr<FileBlocksHolder>;
 struct OperationState {
@@ -182,7 +175,7 @@ private:
 
     bool _is_cache_allocated {false};
     FileBlocksHolderPtr _holder;
-    decltype(_holder->file_segments.begin()) _cur_file_segment;
+    decltype(_holder->file_blocks.begin()) _cur_file_block;
     size_t _append_offset {0};
     size_t _index_offset {0};
     uint32_t _crc_value = 0;
@@ -233,13 +226,13 @@ struct FileBufferBuilder {
         return *this;
     }
     /**
-    * set the callback which allocate file cache segment holder
+    * set the callback which allocate file cache block holder
     * **Notice**: Because the load file cache workload coule be done
     * asynchronously so you must make sure all the dependencies of this
     * cb could last until this cb is invoked
     * @param cb 
     */
-    FileBufferBuilder& set_allocate_file_segments_holder(std::function<FileBlocksHolderPtr()> cb);
+    FileBufferBuilder& set_allocate_file_block_holder(std::function<FileBlocksHolderPtr()> cb);
     /**
     * set the file offset of the file buffer
     *
@@ -289,5 +282,4 @@ struct FileBufferBuilder {
     size_t _offset;
     size_t _index_offset;
 };
-} // namespace io
-} // namespace doris
+} // namespace doris::io
