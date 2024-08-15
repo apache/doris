@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
@@ -106,16 +107,22 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                 List<List<NamedExpression>> constExprs = union.getConstantExprsList();
                 for (int col = 0; col < constExprs.get(0).size(); ++col) {
                     Expression compareExpr = union.getOutput().get(col);
-                    ImmutableSet.Builder<Expression> options = ImmutableSet.builder();
+                    Set<Expression> options = new HashSet<>();
                     for (List<NamedExpression> constExpr : constExprs) {
                         if (constExpr.get(col) instanceof Alias
                                 && ((Alias) constExpr.get(col)).child() instanceof Literal) {
                             options.add(((Alias) constExpr.get(col)).child());
                         } else {
-                            return ImmutableSet.of();
+                            options.clear();
+                            break;
                         }
                     }
-                    filters.add(new InPredicate(compareExpr, options.build()));
+                    options.removeIf(option -> option instanceof NullLiteral);
+                    if (options.size() > 1) {
+                        filters.add(new InPredicate(compareExpr, options));
+                    } else if (options.size() == 1) {
+                        filters.add(new EqualTo(compareExpr, options.iterator().next()));
+                    }
                 }
                 return filters.build();
             } else if (union.getConstantExprsList().isEmpty()) {

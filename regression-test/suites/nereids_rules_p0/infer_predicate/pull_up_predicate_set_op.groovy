@@ -21,12 +21,12 @@ suite("test_pull_up_predicate_set_op") {
     sql """SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"""
     sql 'set runtime_filter_mode=off'
 
-    sql "drop table if exists test_like1"
-    sql "drop table if exists test_like2"
-    sql "drop table if exists test_like3"
+    sql "drop table if exists test_pull_up_predicate_set_op1"
+    sql "drop table if exists test_pull_up_predicate_set_op2"
+    sql "drop table if exists test_pull_up_predicate_set_op3"
 
     sql """
-    CREATE TABLE `test_like1` (
+    CREATE TABLE `test_pull_up_predicate_set_op1` (
     `a` INT NULL,
     `b` VARCHAR(10) NULL,
     `c` INT NULL,
@@ -40,7 +40,7 @@ suite("test_pull_up_predicate_set_op") {
     """
 
     sql """
-    CREATE TABLE `test_like2` (
+    CREATE TABLE `test_pull_up_predicate_set_op2` (
     `a` INT NULL,
     `b` VARCHAR(10) NULL,
     `c` INT NULL,
@@ -54,7 +54,7 @@ suite("test_pull_up_predicate_set_op") {
     """
 
     sql """
-    CREATE TABLE `test_like3` (
+    CREATE TABLE `test_pull_up_predicate_set_op3` (
     `a` INT NULL,
     `b` VARCHAR(10) NULL,
     `c` INT NULL,
@@ -68,95 +68,146 @@ suite("test_pull_up_predicate_set_op") {
     """
 
     sql """
-    insert into test_like1 values(1,'d2',3,5),(0,'d2',3,5),(-3,'d2',2,2),(-2,'d2',2,2);
+    insert into test_pull_up_predicate_set_op1 values(1,'d2',3,5),(0,'d2',3,5),(-3,'d2',2,2),(-2,'d2',2,2);
     """
 
     sql """
-    insert into test_like2 values(1,'d2',2,2),(-3,'d2',2,2),(0,'d2',3,5);
+    insert into test_pull_up_predicate_set_op2 values(1,'d2',2,2),(-3,'d2',2,2),(0,'d2',3,5);
     """
 
     sql """
-    insert into test_like3 values(1,'d2',2,2),(-2,'d2',2,2),(0,'d2',3,5);
+    insert into test_pull_up_predicate_set_op3 values(1,'d2',2,2),(-2,'d2',2,2),(0,'d2',3,5);
     """
 
     qt_intersect """    
     explain shape plan
-    select * from      (select a,b from test_like1 where a<1 intersect select a,b from test_like2 where b>'ab') t inner join test_like3 t3
+    select * from      (select a,b from test_pull_up_predicate_set_op1 where a<1 intersect select a,b from test_pull_up_predicate_set_op2 where b>'ab') t inner join test_pull_up_predicate_set_op3 t3
     on t3.a=t.a and t3.b=t.b;
     """
     qt_except """    
     explain shape plan
-    select * from      (select a,b from test_like1 where a<1 except select a,b from test_like2 where b>'ab') t inner join test_like3 t3
+    select * from      (select a,b from test_pull_up_predicate_set_op1 where a<1 except select a,b from test_pull_up_predicate_set_op2 where b>'ab') t inner join test_pull_up_predicate_set_op3 t3
     on t3.a=t.a and t3.b=t.b;
     """
     qt_union """    
     explain shape plan
-    select * from      (select a,b from test_like1 where a<1 union select a,b from test_like2 where a<1) t inner join test_like3 t3
+    select * from      (select a,b from test_pull_up_predicate_set_op1 where a<1 union select a,b from test_pull_up_predicate_set_op2 where a<1) t inner join test_pull_up_predicate_set_op3 t3
     on t3.a=t.a and t3.b=t.b;
     """
 
     qt_intersect_res """    
-    select t.a,t3.b from      (select a,b from test_like1 where a<1 intersect select a,b from test_like2 where b>'ab') t inner join test_like3 t3
+    select t.a,t3.b from      (select a,b from test_pull_up_predicate_set_op1 where a<1 intersect select a,b from test_pull_up_predicate_set_op2 where b>'ab') t inner join test_pull_up_predicate_set_op3 t3
     on t3.a=t.a and t3.b=t.b order by 1,2;
     """
     qt_except_res """    
-    select t.a,t3.b from      (select a,b from test_like1 where a<1 except select a,b from test_like2 where b>'ab') t inner join test_like3 t3
+    select t.a,t3.b from      (select a,b from test_pull_up_predicate_set_op1 where a<1 except select a,b from test_pull_up_predicate_set_op2 where b>'ab') t inner join test_pull_up_predicate_set_op3 t3
     on t3.a=t.a and t3.b=t.b  order by 1,2;
     """
     qt_union_res """    
-    select t.a,t3.b from      (select a,b from test_like1 where a<1 union select a,b from test_like2 where a<1) t inner join test_like3 t3
+    select t.a,t3.b from      (select a,b from test_pull_up_predicate_set_op1 where a<1 union select a,b from test_pull_up_predicate_set_op2 where a<1) t inner join test_pull_up_predicate_set_op3 t3
     on t3.a=t.a and t3.b=t.b  order by 1,2; """
 
     qt_intersect_one_side """
     explain shape plan 
-    select t.a,t3.b from      (select a,b from test_like1 intersect select a,b from test_like2 where b>'ab') t inner join test_like3 t3 
+    select t.a,t3.b from      (select a,b from test_pull_up_predicate_set_op1 intersect select a,b from test_pull_up_predicate_set_op2 where b>'ab') t inner join test_pull_up_predicate_set_op3 t3 
     on t3.a=t.a and t3.b=t.b;
     """
 
     qt_intersect_one_side_no_filter """
     explain shape plan 
-    select t.a,t3.b from      (select a,b from test_like1 intersect select a,b from test_like2 ) t inner join test_like3 t3 
+    select t.a,t3.b from      (select a,b from test_pull_up_predicate_set_op1 intersect select a,b from test_pull_up_predicate_set_op2 ) t inner join test_pull_up_predicate_set_op3 t3 
     on t3.a=t.a and t3.b=t.b;
     """
 
     qt_except_first_no_filter """
     explain shape plan 
-    select t.a,t3.b from      (select a,b from test_like1 except select a,b from test_like2 where b>'ab') t inner join test_like3 t3 
+    select t.a,t3.b from      (select a,b from test_pull_up_predicate_set_op1 except select a,b from test_pull_up_predicate_set_op2 where b>'ab') t inner join test_pull_up_predicate_set_op3 t3 
     on t3.a=t.a and t3.b=t.b;
     """
     qt_except_second_no_filter """
     explain shape plan 
-    select t.a,t3.b from      (select a,b from test_like1 where a>1 except select a,b from test_like2 ) t inner join test_like3 t3 
+    select t.a,t3.b from      (select a,b from test_pull_up_predicate_set_op1 where a>1 except select a,b from test_pull_up_predicate_set_op2 ) t inner join test_pull_up_predicate_set_op3 t3 
     on t3.a=t.a and t3.b=t.b;
     """
     qt_except_no_filter """
     explain shape plan 
-    select t.a,t3.b from      (select a,b from test_like1 except select a,b from test_like2 ) t inner join test_like3 t3 
+    select t.a,t3.b from      (select a,b from test_pull_up_predicate_set_op1 except select a,b from test_pull_up_predicate_set_op2 ) t inner join test_pull_up_predicate_set_op3 t3 
     on t3.a=t.a and t3.b=t.b;
     """
 
     qt_union_different_filter """
     explain shape plan 
-    select t.a,t3.b from      (select a,b from test_like1 where a<2 union all select a,b from test_like2 where a<1) t inner join test_like3 t3 
+    select t.a,t3.b from      (select a,b from test_pull_up_predicate_set_op1 where a<2 union all select a,b from test_pull_up_predicate_set_op2 where a<1) t inner join test_pull_up_predicate_set_op3 t3 
     on t3.a=t.a and t3.b=t.b;
     """
 
     qt_union_one_side_filter """
     explain shape plan 
-    select t.a,t3.b from      (select a,b from test_like1  union select a,b from test_like2 where a<1) t inner join test_like3 t3 
+    select t.a,t3.b from      (select a,b from test_pull_up_predicate_set_op1  union select a,b from test_pull_up_predicate_set_op2 where a<1) t inner join test_pull_up_predicate_set_op3 t3 
     on t3.a=t.a and t3.b=t.b;
     """
 
     qt_union_with_const """
     explain shape plan 
-    select t.a,t3.b from      (select a,b from test_like1 where a<1 union all select a,b from test_like2 where a<1 union all select 2,2) t inner join test_like3 t3 
+    select t.a,t3.b from      (select a,b from test_pull_up_predicate_set_op1 where a<1 union all select a,b from test_pull_up_predicate_set_op2 where a<1 union all select 2,2) t inner join test_pull_up_predicate_set_op3 t3 
     on t3.a=t.a and t3.b=t.b;
     """
 
     qt_union_all_const """explain shape plan
-    select t.a,t3.b from      (select 133333 as a,'aa' as b union all select 2,'dd' ) t inner join test_like3 t3
+    select t.a,t3.b from      (select 133333 as a,'aa' as b union all select 2,'dd' ) t inner join test_pull_up_predicate_set_op3 t3
     on t3.a=t.a and t3.b=t.b;"""
-    qt_union_all_const2_has_cast_not_support """explain shape plan
-    select t.a,t3.b from      (select 3 as a,'aa' as b union all select 2,'dd' ) t inner join test_like3 t3
+    qt_union_all_const_tinyint_int """explain shape plan
+    select t.a,t3.b from      (select 3 as a,'aa' as b union all select 2,'dd' ) t inner join test_pull_up_predicate_set_op3 t3
     on t3.a=t.a and t3.b=t.b;"""
+
+    qt_union_all_const_empty_relation """ explain shape plan select t.a,t3.b from (select 3 as a,'aa' as b from test_pull_up_predicate_set_op3 limit 0 offset 0 union all select 2,'dd' ) t 
+    inner join test_pull_up_predicate_set_op3 t3 on t3.a=t.a and t3.b=t.b;"""
+
+    qt_union_all_const2_has_cast_to_null_different_type """ explain shape plan
+    select t.a,t3.b from (select 3 as a,'aa' as b union all select 'abc','dd' ) t inner join test_pull_up_predicate_set_op3 t3
+    on t3.a=t.a and t3.b=t.b; """
+
+    qt_union_all_const2_has_cast_to_null_different_type """ explain shape plan
+    select t.a,t3.b from (select 'abcd' as a,12 as b union all select 'abc','dd' ) t inner join test_pull_up_predicate_set_op3 t3
+    on t3.a=t.a and t3.b=t.b; """
+    qt_union_all_different_type_int_cast_to_char """ explain shape plan
+    select t.a,t3.b from (select 'abcd' as a,12 as b union all select 'abc','dd' ) t inner join test_pull_up_predicate_set_op3 t3
+    on t3.a=t.a and t3.b=t.b;"""
+
+    qt_union_all_const_char3_char2 """explain shape plan
+    select t.a,t3.b from (select 3 as a,'aa' as b union all select 2,'dd' union all select 5,'aab') t inner join test_pull_up_predicate_set_op3 t3
+    on t3.a=t.a and t3.b=t.b;
+    """
+
+    sql "drop table if exists test_pull_up_predicate_set_op4"
+    sql "create table test_pull_up_predicate_set_op4(d_int int, d_char100 char(100), d_smallint smallint, d_tinyint tinyint, d_char10 char(10),d_datetimev2 datetimev2, d_datev2 datev2) ;"
+    sql """insert into test_pull_up_predicate_set_op4 values(1,'01234567890123456789', 3,3,'0123456789','2020-01-09 10:00:00.99','2020-01-09'),(14,'01234567890123456789', 33,23,'0123456789','2020-01-11 10:00:00.99','2020-01-11')
+            ,(14,'01234567890123456789', 33,23,'2024-01-04','2020-01-11 10:00:00.99','2020-01-11'),
+            (14,'01234567890123456789', 33,23,'2024-01-03 10:00:00','2020-01-11 10:00:00.99','2020-01-11');"""
+    qt_union_all_const_datetime """
+    explain shape plan
+    select t.a from (select 12222222 as a,'2024-01-03 10:00:00' as b union all select 2,'2024-01-03') t inner join test_pull_up_predicate_set_op4 t3
+    on t3.d_smallint=t.a and t3.d_datetimev2=t.b;
+    """
+    qt_union_all_const_date """    
+    explain shape plan
+    select t.a from (select 12222222 as a,'2024-01-03 10:00:00' as b union all select 2,'2024-01-03') t inner join test_pull_up_predicate_set_op4 t3
+    on t3.d_smallint=t.a and t3.d_datev2=t.b;
+    """
+    qt_union_all_const_char100 """    
+    explain shape plan
+    select t.a from (select 12222222 as a,'2024-01-03 10:00:00' as b union all select 2,'2024-01-03') t inner join test_pull_up_predicate_set_op4 t3
+    on t3.d_smallint=t.a and t3.d_char100=t.b;
+    """
+    qt_union_all_const_char10 """    explain shape plan
+    select t.a,t3.d_char10 from (select 12222222 as a,'2024-01-03 10:00:00' as b union all select 2,'2024-01-04') t inner join test_pull_up_predicate_set_op4 t3
+    on t3.d_char10=t.b;"""
+
+    qt_union_all_and_project_pull_up """explain shape plan
+    select t.a,t3.b from      (select 3 as a,b from test_pull_up_predicate_set_op3 union all select 3,b from test_pull_up_predicate_set_op3 ) t inner join test_pull_up_predicate_set_op3 t3
+    on t3.a=t.a and t3.b=t.b;
+    """
+    // need pull up from agg support
+    qt_union_and_const """explain shape plan
+    select c2 from (select 2 id,'abc' c2  union  select 1 ,'abbbb' c4  ) t inner join test_pull_up_predicate_set_op3 t2 on t.id=t2.a"""
 }
