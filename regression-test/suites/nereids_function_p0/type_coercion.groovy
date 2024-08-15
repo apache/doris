@@ -27,4 +27,5 @@ suite("function_type_coercion") {
     qt_array_enumerate_uniq """select array_enumerate_uniq([1,1,1],['1','1','1.0'])"""
     qt_array_cum_sum """select array_cum_sum(array('1', '2', '3000'))"""
     qt_pmod """select pmod(2, '1.0')"""
+    qt_nullif """SELECT nullif(13, -4851)"""
 }
