@@ -1231,6 +1231,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.pushDownAggNoGroupingOp = pushDownAggNoGroupingOp;
     }
 
+    public List<List<Expr>> getChildrenDistributeExprLists() {
+        return this.childrenDistributeExprLists;
+    }
+
     public void setChildrenDistributeExprLists(List<List<Expr>> childrenDistributeExprLists) {
         this.childrenDistributeExprLists = childrenDistributeExprLists;
     }
