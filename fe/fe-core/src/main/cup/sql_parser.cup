@@ -3288,6 +3288,10 @@ drop_stmt ::=
     {:
         RESULT = new DropStatsStmt(tbl, cols, partitionNames);
     :}
+    | KW_DROP KW_CACHED KW_STATS table_name:tbl
+    {:
+        RESULT = new DropCachedStatsStmt(tbl);
+    :}
     | KW_DROP KW_EXPIRED KW_STATS
     {:
         RESULT = new DropStatsStmt(true);
