@@ -334,7 +334,7 @@ public abstract class ConnectProcessor {
                                 // when client not request CLIENT_MULTI_STATEMENTS, mysql treat all query as
                                 // single statement. Doris treat it with multi statement, but only return
                                 // the last statement result.
-                                if (getConnectContext().getCapability().isClientMultiStatements()) {
+                                if (getConnectContext().getMysqlChannel().clientMultiStatements()) {
                                     finalizeCommand();
                                 }
                             }
