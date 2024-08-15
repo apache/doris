@@ -40,8 +40,9 @@ suite("inner_join_x") {
 
     """
 
+    def mv_name="v_t1"
     sql """
-     create materialized view v_t1 as select k%2 as kk,a, sum(int_value), max(date_value) from t1 group by kk, a;
+     create materialized view ${mv_name} as select k%2 as kk,a, sum(int_value), max(date_value) from t1 group by kk, a;
     """
 
     sql """
@@ -73,13 +74,18 @@ suite("inner_join_x") {
     sleep(2000)
 
     def query =  """
-    select min(t1.date_value) from t1 inner join t2 on t1.a=t2.a group by t2.k;
+    select max(t1.date_value) from t1 inner join t2 on t1.a=t2.a group by t2.k;
     """
+
+    explain {
+        sql("${query}")
+        notContains("${mv_name}(${mv_name})")
+    }
 
     order_qt_query_before "${query}"
     
 
-    sql """ DROP MATERIALIZED VIEW IF EXISTS v_t1 on t1"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS  ${mv_name} on t1"""
 
     order_qt_query_after "${query}"
 
