@@ -49,6 +49,16 @@ CloudWarmUpManager::~CloudWarmUpManager() {
     }
 }
 
+std::unordered_map<std::string, RowsetMetaSharedPtr> snapshot_rs_metas(BaseTablet* tablet) {
+    std::unordered_map<std::string, RowsetMetaSharedPtr> id_to_rowset_meta_map;
+    auto visitor = [&id_to_rowset_meta_map](const RowsetSharedPtr& r) {
+        id_to_rowset_meta_map.emplace(r->rowset_meta()->rowset_id().to_string(), r->rowset_meta());
+    };
+    constexpr bool include_stale = false;
+    tablet->traverse_rowsets(visitor, include_stale);
+    return id_to_rowset_meta_map;
+}
+
 void CloudWarmUpManager::handle_jobs() {
 #ifndef BE_TEST
     constexpr int WAIT_TIME_SECONDS = 600;
@@ -78,7 +88,7 @@ void CloudWarmUpManager::handle_jobs() {
             std::shared_ptr<bthread::CountdownEvent> wait =
                     std::make_shared<bthread::CountdownEvent>(0);
             auto tablet_meta = tablet->tablet_meta();
-            auto rs_metas = tablet_meta->snapshot_rs_metas();
+            auto rs_metas = snapshot_rs_metas(tablet.get());
             for (auto& [_, rs] : rs_metas) {
                 for (int64_t seg_id = 0; seg_id < rs->num_segments(); seg_id++) {
                     auto storage_resource = rs->remote_storage_resource();
