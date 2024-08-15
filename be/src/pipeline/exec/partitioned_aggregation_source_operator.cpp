@@ -36,18 +36,20 @@ PartitionedAggLocalState::PartitionedAggLocalState(RuntimeState* state, Operator
 Status PartitionedAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     _init_counters();
     return Status::OK();
 }
 
 Status PartitionedAggLocalState::open(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::open(state));
+    SCOPED_TIMER(_open_timer);
     if (_opened) {
         return Status::OK();
     }
     _opened = true;
     RETURN_IF_ERROR(setup_in_memory_agg_op(state));
-    return Base::open(state);
+    return Status::OK();
 }
 
 void PartitionedAggLocalState::_init_counters() {

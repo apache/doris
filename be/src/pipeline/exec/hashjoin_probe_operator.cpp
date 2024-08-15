@@ -28,12 +28,13 @@
 namespace doris::pipeline {
 
 HashJoinProbeLocalState::HashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
-        : JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>(state, parent) {}
+        : JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>(state, parent),
+          _process_hashtable_ctx_variants(std::make_unique<HashTableCtxVariants>()) {}
 
 Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(JoinProbeLocalState::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
     _shared_state->probe_ignore_null = p._probe_ignore_null;
     _probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
@@ -71,7 +72,6 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(JoinProbeLocalState::open(state));
 
-    _process_hashtable_ctx_variants = std::make_unique<HashTableCtxVariants>();
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
     std::visit(
             [&](auto&& join_op_variants, auto have_other_join_conjunct) {

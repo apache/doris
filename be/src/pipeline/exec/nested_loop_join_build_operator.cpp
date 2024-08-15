@@ -61,7 +61,7 @@ NestedLoopJoinBuildSinkLocalState::NestedLoopJoinBuildSinkLocalState(DataSinkOpe
 Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<NestedLoopJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
     _runtime_filters.resize(p._runtime_filter_descs.size());

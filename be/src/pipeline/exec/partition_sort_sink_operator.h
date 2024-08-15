@@ -214,7 +214,9 @@ class PartitionSortSinkLocalState : public PipelineXSinkLocalState<PartitionSort
 
 public:
     PartitionSortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<PartitionSortNodeSharedState>(parent, state) {}
+            : PipelineXSinkLocalState<PartitionSortNodeSharedState>(parent, state),
+              _partitioned_data(std::make_unique<PartitionedHashMapVariants>()),
+              _agg_arena_pool(std::make_unique<vectorized::Arena>()) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 

@@ -37,7 +37,7 @@ AggLocalState::AggLocalState(RuntimeState* state, OperatorXBase* parent)
 Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     _get_results_timer = ADD_TIMER(profile(), "GetResultsTime");
     _serialize_result_timer = ADD_TIMER(profile(), "SerializeResultTime");
     _hash_table_iterate_timer = ADD_TIMER(profile(), "HashTableIterateTime");

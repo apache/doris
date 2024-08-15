@@ -24,7 +24,7 @@ namespace doris::pipeline {
 Status HiveTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
     RETURN_IF_ERROR(_writer->init_properties(p._pool));
     return Status::OK();
