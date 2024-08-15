@@ -25,6 +25,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -222,7 +223,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
         if (useMetaCache.get()) {
             if (isInitialized()) {
-                metaCache.invalidate(dbName);
+                metaCache.invalidate(dbName, Util.genIdByName(getQualifiedName(dbName)));
             }
         } else {
             Long dbId = dbNameToId.remove(dbName);
@@ -243,7 +244,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, dbId, logType);
         if (useMetaCache.get()) {
             if (isInitialized()) {
-                metaCache.updateCache(dbName, db);
+                metaCache.updateCache(dbName, db, Util.genIdByName(getQualifiedName(dbName)));
             }
         } else {
             dbNameToId.put(dbName, dbId);

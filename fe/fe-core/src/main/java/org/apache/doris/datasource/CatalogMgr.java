@@ -655,13 +655,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
 
-        // TableIf table = db.getTableNullable(tableName);
-        // if (table != null) {
-        //     if (!ignoreIfExists) {
-        //         throw new DdlException("Table " + tableName + " has exist in db " + dbName);
-        //     }
-        //     return;
-        // }
         long tblId;
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
         if (hmsCatalog.getUseMetaCache().get()) {
@@ -712,13 +705,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support create ExternalCatalog databases");
         }
-        // DatabaseIf db = catalog.getDbNullable(dbName);
-        // if (db != null) {
-        //     if (!ignoreIfExists) {
-        //         throw new DdlException("Database " + dbName + " has exist in catalog " + catalog.getName());
-        //     }
-        //     return;
-        // }
 
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
         long dbId;

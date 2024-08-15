@@ -458,9 +458,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
         if (extCatalog.getUseMetaCache().get()) {
             if (isInitialized()) {
-                metaCache.invalidate(tableName);
+                metaCache.invalidate(tableName, Util.genIdByName(getQualifiedName(tableName)));
             }
-            metaCache.idToNameRemove(Util.genIdByName(getQualifiedName(tableName)));
         } else {
             Long tableId = tableNameToId.remove(tableName);
             if (tableId == null) {
@@ -490,9 +489,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
         if (extCatalog.getUseMetaCache().get()) {
             if (isInitialized()) {
-                metaCache.updateCache(tableName, (T) tableIf);
+                metaCache.updateCache(tableName, (T) tableIf, Util.genIdByName(getQualifiedName(tableName)));
             }
-            metaCache.setIdToName(Util.genIdByName(getQualifiedName(tableName)), tableName);
         } else {
             tableNameToId.put(tableName, tableId);
             idToTbl.put(tableId, buildTableForInit(tableName, tableId, extCatalog));
