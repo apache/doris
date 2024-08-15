@@ -43,10 +43,10 @@ suite("test_index_equal_select_arr", "array_contains_inverted_index"){
                 INDEX name_idx(name) USING INVERTED COMMENT 'name index',
                 INDEX age_idx(age) USING INVERTED COMMENT 'age index',
                 INDEX grade_idx(grade) USING INVERTED PROPERTIES("parser"="none") COMMENT 'grade index',
-                INDEX tearchComment_index(tearchComment) USING INVERTED PROPERTIES("parser"="english") COMMENT 'tearchComment index',
-                INDEX studentInfo_index(studentInfo) USING INVERTED PROPERTIES("parser"="standard") COMMENT 'studentInfo index',
-                INDEX selfComment_index(selfComment) USING INVERTED PROPERTIES("parser"="standard") COMMENT 'studentInfo index',
-                INDEX fatherName_idx(fatherName) USING INVERTED PROPERTIES("parser"="standard") COMMENT ' fatherName index'
+                INDEX tearchComment_index(tearchComment) USING INVERTED PROPERTIES("parser"="none") COMMENT 'tearchComment index',
+                INDEX studentInfo_index(studentInfo) USING INVERTED PROPERTIES("parser"="none") COMMENT 'studentInfo index',
+                INDEX selfComment_index(selfComment) USING INVERTED PROPERTIES("parser"="none") COMMENT 'studentInfo index',
+                INDEX fatherName_idx(fatherName) USING INVERTED PROPERTIES("parser"="none") COMMENT ' fatherName index'
             )
             DUPLICATE KEY(`name`)
             DISTRIBUTED BY HASH(`name`) BUCKETS 10
