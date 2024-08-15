@@ -66,7 +66,7 @@ suite("double_write_schema_change_with_variant", "nonConcurrent") {
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 2
-        properties("replication_num" = "1", "disable_auto_compaction" = "false");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true");
     """
 
     set_be_config.call("memory_limitation_per_thread_for_schema_change_bytes", "6294967296")
@@ -110,6 +110,12 @@ suite("double_write_schema_change_with_variant", "nonConcurrent") {
     sql """ALTER TABLE ${table_name} drop index idx_var"""
     double_write.call()
     qt_sql "select v['type'], v['id'], v['created_at'] from ${table_name} where cast(v['id'] as bigint) != 25061216922 order by k,  cast(v['id'] as bigint) limit 10"
+
+    sql "set enable_two_phase_read_opt = false"    
+    order_qt_sql """select * from github_events order by k limit 10"""
+    sql "set enable_two_phase_read_opt = true"    
+    order_qt_sql """select * from github_events order by k limit 10"""
+    order_qt_sql """select v['payload']['commits'] from github_events where v['payload']['commits'] is not null order by k limit 10"""
 
     // createMV("create materialized view xxx as select k, sum(k) from ${table_name} group by k order by k;")
     // qt_sql "select v['type'], v['id'], v['created_at'] from ${table_name} where cast(v['id'] as bigint) != 25061216922 order by k,  cast(v['id'] as bigint) limit 10"
