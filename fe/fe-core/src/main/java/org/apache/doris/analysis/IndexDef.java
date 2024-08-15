@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -215,12 +214,9 @@ public class IndexDef {
             String indexColName = column.getName();
             caseSensitivityColumns.add(indexColName);
             PrimitiveType colType = column.getDataType();
-            if (indexType == IndexType.INVERTED && colType.isArrayType()) {
-                colType = ((ArrayType) column.getType()).getItemType().getPrimitiveType();
-            }
             if (!(colType.isDateType() || colType.isDecimalV2Type() || colType.isDecimalV3Type()
                     || colType.isFixedPointType() || colType.isStringType() || colType == PrimitiveType.BOOLEAN
-                    || colType.isVariantType()) || colType.isIPType()) {
+                    || colType.isVariantType() || colType.isIPType() || colType.isArrayType())) {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
                         + "invalid index: " + indexName);
             }
