@@ -73,8 +73,6 @@ public final class QeProcessorImpl implements QeProcessor {
     }
 
     private Status processQueryProfile(TQueryProfile profile, TNetworkAddress address, boolean isDone) {
-        LOG.info("New profile processing API, query {}", DebugUtil.printId(profile.query_id));
-
         ExecutionProfile executionProfile = ProfileManager.getInstance().getExecutionProfile(profile.query_id);
         if (executionProfile == null) {
             LOG.warn("Could not find execution profile with query id {}", DebugUtil.printId(profile.query_id));
@@ -247,9 +245,8 @@ public final class QeProcessorImpl implements QeProcessor {
         }
 
         if (params.isSetProfile() || params.isSetLoadChannelProfile()) {
-            LOG.info("ReportExecStatus(): fragment_instance_id={}, query id={}, backend num: {}, ip: {}",
-                    DebugUtil.printId(params.fragment_instance_id), DebugUtil.printId(params.query_id),
-                    params.backend_num, beAddr);
+            LOG.info("Reporting profile, query_id={}, fragment {} backend num: {}, ip: {}",
+                    DebugUtil.printId(params.query_id), params.getFragmentId(), params.backend_num, beAddr);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("params: {}", params);
             }

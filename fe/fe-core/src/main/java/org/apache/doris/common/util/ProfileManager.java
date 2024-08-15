@@ -213,7 +213,10 @@ public class ProfileManager extends MasterDaemon {
                     stringBuilder.append(DebugUtil.printId(tmp.getQueryId())).append(",");
                     queryIdToExecutionProfiles.remove(tmp.getQueryId());
                 }
-                LOG.warn("Remove expired execution profiles {}", stringBuilder.toString());
+                LOG.warn("Remove expired execution profiles {}, current execution profile map size {},"
+                        + "Config.max_query_profile_num{}, Config.profile_async_collect_expire_time_secs {}",
+                        stringBuilder.toString(), queryIdToExecutionProfiles.size(),
+                        Config.max_query_profile_num, Config.profile_async_collect_expire_time_secs);
             }
         } finally {
             writeLock.unlock();
@@ -253,7 +256,7 @@ public class ProfileManager extends MasterDaemon {
         List<List<String>> result = Lists.newArrayList();
         readLock.lock();
         try {
-            PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryFinishTime();
+            PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryFinishTimeDesc();
             while (!queueIdDeque.isEmpty()) {
                 ProfileElement profileElement = queueIdDeque.poll();
                 Map<String, String> infoStrings = profileElement.infoStrings;
@@ -556,6 +559,7 @@ public class ProfileManager extends MasterDaemon {
         loadProfilesFromStorageIfFirstTime();
         writeProfileToStorage();
         deleteBrokenProfiles();
+        deleteOutdatedProfilesFromMemory();
         deleteOutdatedProfilesFromStorage();
     }
 
@@ -882,9 +886,21 @@ public class ProfileManager extends MasterDaemon {
 
     // The init value of query finish time of profile is MAX_VALUE
     // So more recent query will be on the top of heap.
-    private PriorityQueue<ProfileElement> getProfileOrderByQueryFinishTime() {
+    private PriorityQueue<ProfileElement> getProfileOrderByQueryFinishTimeDesc() {
         PriorityQueue<ProfileElement> queryIdDeque = new PriorityQueue<>(Comparator.comparingLong(
                 (ProfileElement profileElement) -> profileElement.profile.getQueryFinishTimestamp()).reversed());
+
+        queryIdToProfileMap.forEach((queryId, profileElement) -> {
+            queryIdDeque.add(profileElement);
+        });
+
+        return queryIdDeque;
+    }
+
+    // Older query will be on the top of heap
+    private PriorityQueue<ProfileElement> getProfileOrderByQueryStartTime() {
+        PriorityQueue<ProfileElement> queryIdDeque = new PriorityQueue<>(Comparator.comparingLong(
+                (ProfileElement profileElement) -> profileElement.profile.getSummaryProfile().getQueryBeginTime()));
 
         queryIdToProfileMap.forEach((queryId, profileElement) -> {
             queryIdDeque.add(profileElement);
@@ -913,8 +929,36 @@ public class ProfileManager extends MasterDaemon {
     }
 
     public String getLastProfileId() {
-        PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryFinishTime();
+        PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryFinishTimeDesc();
         ProfileElement profileElement = queueIdDeque.poll();
         return profileElement.profile.getSummaryProfile().getProfileId();
+    }
+
+    private void deleteOutdatedProfilesFromMemory() {
+        PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryStartTime();
+        StringBuilder stringBuilder = new StringBuilder();
+        int profileNum = 0;
+        writeLock.lock();
+
+        try {
+            while (queueIdDeque.size() > Config.max_query_profile_num) {
+                ProfileElement profileElement = queueIdDeque.poll();
+
+                queryIdToProfileMap.remove(profileElement.profile.getSummaryProfile().getProfileId());
+                for (ExecutionProfile executionProfile : profileElement.profile.getExecutionProfiles()) {
+                    queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
+                }
+
+                stringBuilder.append(profileElement.profile.getSummaryProfile().getProfileId()).append(",");
+            }
+        } finally {
+            profileNum = queryIdToProfileMap.size();
+            writeLock.unlock();
+        }
+
+        if (stringBuilder.length() != 0) {
+            LOG.info("Remove outdated profiles {} from memoy, current profile map size {}",
+                    stringBuilder.toString(), profileNum);
+        }
     }
 }
