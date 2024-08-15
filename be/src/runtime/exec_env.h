@@ -319,6 +319,7 @@ public:
 
     orc::MemoryPool* orc_memory_pool() { return _orc_memory_pool; }
     arrow::MemoryPool* arrow_memory_pool() { return _arrow_memory_pool; }
+
 private:
     ExecEnv();
 
