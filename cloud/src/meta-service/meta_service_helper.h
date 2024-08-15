@@ -124,9 +124,6 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     case TxnErrorCode::TXN_TIMEOUT:
     case TxnErrorCode::TXN_INVALID_ARGUMENT:
     case TxnErrorCode::TXN_UNIDENTIFIED_ERROR:
-    case TxnErrorCode::TXN_KEY_TOO_LARGE:
-    case TxnErrorCode::TXN_VALUE_TOO_LARGE:
-    case TxnErrorCode::TXN_BYTES_TOO_LARGE:
         if constexpr (category == ErrCategory::READ) {
             return MetaServiceCode::KV_TXN_GET_ERR;
         } else if constexpr (category == ErrCategory::CREATE) {
@@ -134,6 +131,11 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
         } else {
             return MetaServiceCode::KV_TXN_COMMIT_ERR;
         }
+        [[fallthrough]];
+    case TxnErrorCode::TXN_KEY_TOO_LARGE:
+    case TxnErrorCode::TXN_VALUE_TOO_LARGE:
+    case TxnErrorCode::TXN_BYTES_TOO_LARGE:
+        return MetaServiceCode::INVALID_ARGUMENT;
     default:
         return MetaServiceCode::UNDEFINED_ERR;
     }
