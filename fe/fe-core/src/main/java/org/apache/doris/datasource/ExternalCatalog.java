@@ -390,6 +390,15 @@ public abstract class ExternalCatalog
         synchronized (this.propLock) {
             this.convertedProperties = null;
         }
+
+        refreshOnlyCatalogCache(invalidCache);
+    }
+
+    public void onRefreshCache(boolean invalidCache) {
+        refreshOnlyCatalogCache(invalidCache);
+    }
+
+    private void refreshOnlyCatalogCache(boolean invalidCache) {
         if (useMetaCache.isPresent()) {
             if (useMetaCache.get() && metaCache != null) {
                 metaCache.invalidateAll();

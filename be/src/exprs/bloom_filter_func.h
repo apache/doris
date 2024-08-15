@@ -188,6 +188,7 @@ public:
         }
 
         _bloom_filter_alloced = data_size;
+        _inited = true;
         return _bloom_filter->init(data, data_size);
     }
 

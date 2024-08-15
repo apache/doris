@@ -370,6 +370,7 @@ under the License.
         <airlift.version>202</airlift.version>
         <azure.sdk.version>1.2.24</azure.sdk.version>
         <azure.sdk.batch.version>12.22.0</azure.sdk.batch.version>
+        <semver4j.version>5.3.0</semver4j.version>
     </properties>
     <profiles>
         <profile>
@@ -1753,6 +1754,11 @@ under the License.
                 <version>${azure.sdk.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.semver4j</groupId>
+                <artifactId>semver4j</artifactId>
+                <version>${semver4j.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

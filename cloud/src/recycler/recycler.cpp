@@ -1131,7 +1131,6 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
                     return {std::string_view(), range_move};
                 }
                 ++num_recycled;
-                LOG_INFO("k is {}, is empty {}", k, k.empty());
                 return {k, range_move};
             });
         } else {
@@ -1157,10 +1156,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
                 }
                 return true;
             }());
-            sync_executor.add([k]() mutable -> TabletKeyPair {
-                LOG_INFO("k is {}, is empty {}", k, k.empty());
-                return {k, true};
-            });
+            sync_executor.add([k]() mutable -> TabletKeyPair { return {k, true}; });
             ++num_recycled;
         }
         return 0;
@@ -1433,7 +1429,7 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
-        LOG_INFO("recycle rowsets finished, cost={}s", cost)
+        LOG_INFO("recycle the rowsets of dropped tablet finished, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("tablet_id", tablet_id);
     });
@@ -1618,7 +1614,7 @@ int InstanceRecycler::recycle_rowsets() {
                 // old version `RecycleRowsetPB` may has empty resource_id, just remove the kv.
                 LOG(INFO) << "delete the recycle rowset kv that has empty resource_id, key="
                           << hex(k) << " value=" << proto_to_json(rowset);
-                rowset_keys.push_back(std::string(k));
+                rowset_keys.emplace_back(k);
                 return -1;
             }
             // decode rowset_id
@@ -1664,7 +1660,7 @@ int InstanceRecycler::recycle_rowsets() {
                 return -1;
             }
         } else {
-            rowset_keys.push_back(std::string(k));
+            rowset_keys.emplace_back(k);
             if (rowset_meta->num_segments() > 0) { // Skip empty rowset
                 rowsets.push_back(std::move(*rowset_meta));
             }
