@@ -17,6 +17,8 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.MTMV;
+
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
@@ -87,5 +89,14 @@ public class MTMVRefreshSnapshot {
         return "MTMVRefreshSnapshot{"
                 + "partitionSnapshots=" + partitionSnapshots
                 + '}';
+    }
+
+    public void compatible(MTMV mtmv) {
+        if (MapUtils.isEmpty(partitionSnapshots)) {
+            return;
+        }
+        for (MTMVRefreshPartitionSnapshot snapshot : partitionSnapshots.values()) {
+            snapshot.compatible(mtmv);
+        }
     }
 }

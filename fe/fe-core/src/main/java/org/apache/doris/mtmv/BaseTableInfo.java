@@ -20,11 +20,14 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.base.Objects;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -132,5 +135,21 @@ public class BaseTableInfo {
                 + ", dbName='" + dbName + '\''
                 + ", ctlName='" + ctlName + '\''
                 + '}';
+    }
+
+    public void compatible(CatalogMgr catalogMgr) {
+        if (!StringUtils.isEmpty(ctlName)) {
+            return;
+        }
+        try {
+            CatalogIf catalog = catalogMgr.getCatalogOrAnalysisException(ctlId);
+            DatabaseIf db = catalog.getDbOrAnalysisException(dbId);
+            TableIf table = db.getTableOrAnalysisException(tableId);
+            this.ctlName = catalog.getName();
+            this.dbName = db.getFullName();
+            this.tableName = table.getName();
+        } catch (AnalysisException e) {
+            LOG.info("MTMV compatible failed, ctlId: {}, dbId: {}, tableId: {}", ctlId, dbId, tableId, e);
+        }
     }
 }

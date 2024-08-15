@@ -27,6 +27,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
@@ -155,6 +156,18 @@ public class MTMVUtil {
             Optional<Table> table = db.getTable(tableId);
             if (table.isPresent() && table.get() instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ctx)) {
                 throw new AnalysisException("Not allowed to perform current operation on async materialized view");
+            }
+        }
+    }
+
+    public static void compatibleMTMV(CatalogMgr catalogMgr) {
+        List<Database> dbs = catalogMgr.getInternalCatalog().getDbs();
+        for (Database database : dbs) {
+            List<Table> tables = database.getTables();
+            for (Table table : tables) {
+                if (table instanceof MTMV) {
+                    ((MTMV) table).compatible(catalogMgr);
+                }
             }
         }
     }

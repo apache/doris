@@ -17,12 +17,21 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.MTMV;
+
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Optional;
+import java.util.Set;
 
 public class MTMVRefreshPartitionSnapshot {
+    private static final Logger LOG = LogManager.getLogger(MTMV.class);
     @SerializedName("p")
     private Map<String, MTMVSnapshotIf> partitions;
     // old version only persist table id, we need `BaseTableInfo`, `tables` only for compatible old version
@@ -62,5 +71,34 @@ public class MTMVRefreshPartitionSnapshot {
                 + "partitions=" + partitions
                 + ", tablesInfo=" + tablesInfo
                 + '}';
+    }
+
+    public void compatible(MTMV mtmv) {
+        if (tables.size() == tablesInfo.size()) {
+            return;
+        }
+        MTMVRelation relation = mtmv.getRelation();
+        if (relation == null || CollectionUtils.isEmpty(relation.getBaseTablesOneLevel())) {
+            return;
+        }
+        for (Entry<Long, MTMVSnapshotIf> entry : tables.entrySet()) {
+            Optional<BaseTableInfo> tableInfo = getByTableId(entry.getKey(),
+                    relation.getBaseTablesOneLevel());
+            if (tableInfo.isPresent()) {
+                tablesInfo.put(tableInfo.get(), entry.getValue());
+            } else {
+                LOG.info("MTMV compatible failed, tableId: {}, relationTables: {}", entry.getKey(),
+                        relation.getBaseTablesOneLevel());
+            }
+        }
+    }
+
+    private Optional<BaseTableInfo> getByTableId(Long tableId, Set<BaseTableInfo> baseTables) {
+        for (BaseTableInfo info : baseTables) {
+            if (info.getTableId() == tableId) {
+                return Optional.of(info);
+            }
+        }
+        return Optional.empty();
     }
 }
