@@ -105,6 +105,10 @@ public abstract class AlterJobV2 implements Writable {
     @SerializedName(value = "failedTabletBackends")
     protected Map<Long, List<Long>> failedTabletBackends = Maps.newHashMap();
 
+    // used for delete decommission tablet
+    @SerializedName(value = "deleteTabletWatermarkTxnId")
+    protected long deleteTabletWatermarkTxnId = -1;
+
     public AlterJobV2(String rawSql, long jobId, JobType jobType, long dbId, long tableId, String tableName,
                       long timeoutMs) {
         this.rawSql = rawSql;

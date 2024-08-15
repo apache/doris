@@ -24,6 +24,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.cooldown.CooldownConf;
 import org.apache.doris.master.PartitionInfoCollector.PartitionCollectInfo;
+import org.apache.doris.persist.DeleteTabletInfo;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
@@ -106,6 +107,9 @@ public class TabletInvertedIndex {
     // Notice only none-cloud use it for be reporting tablets. This map is empty in cloud mode.
     private volatile ImmutableMap<Long, PartitionCollectInfo> partitionCollectInfoMap = ImmutableMap.of();
 
+    // tablet id -> watermark id
+    private Map<Long, Long> decommissionTabletMap = Maps.newConcurrentMap();
+
     private ForkJoinPool taskPool = new ForkJoinPool(Runtime.getRuntime().availableProcessors());
 
     public TabletInvertedIndex() {
@@ -142,9 +146,25 @@ public class TabletInvertedIndex {
                              List<CooldownConf> cooldownConfToPush,
                              List<CooldownConf> cooldownConfToUpdate) {
         List<Pair<TabletMeta, TTabletInfo>> cooldownTablets = new ArrayList<>();
+        long start = System.currentTimeMillis();
+        // delete decommission tablet when all transactions finished
+        try {
+            for (Map.Entry<Long, Long> entry : decommissionTabletMap.entrySet()) {
+                long tabletId = entry.getKey();
+                long watermarkId = entry.getValue();
+                TabletMeta tabletMeta = tabletMetaMap.get(tabletId);
+                if (Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(
+                        watermarkId, tabletMeta.getDbId(), tabletMeta.getTableId(),
+                        tabletMeta.getPartitionId())) {
+                    deleteDecommissionTablet(tabletId);
+                    Env.getCurrentEnv().getEditLog().logDeleteDecommissionTablet(new DeleteTabletInfo(tabletId));
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
         long feTabletNum = 0;
         long stamp = readLock();
-        long start = System.currentTimeMillis();
         try {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("begin to do tablet diff with backend[{}]. num: {}", backendId, backendTablets.size());
@@ -624,6 +644,21 @@ public class TabletInvertedIndex {
             }
         } finally {
             writeUnlock(stamp);
+        }
+    }
+
+    public void addDecommissionTablet(long tabletId, long deleteTabletWatermark) {
+        decommissionTabletMap.put(tabletId, deleteTabletWatermark);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("decommission tablet: {}, watermark: {}", tabletId, deleteTabletWatermark);
+        }
+    }
+
+    public void deleteDecommissionTablet(long tabletId) {
+        deleteTablet(tabletId);
+        decommissionTabletMap.remove(tabletId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("delete decommission tablet: {}", tabletId);
         }
     }
 

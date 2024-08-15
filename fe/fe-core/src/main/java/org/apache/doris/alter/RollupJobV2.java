@@ -646,6 +646,13 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             return false;
         }
 
+        try {
+            this.deleteTabletWatermarkTxnId =
+                    Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
+        } catch (UserException e) {
+            LOG.warn("get next transaction id failed");
+        }
+
         cancelInternal();
 
         jobState = JobState.CANCELLED;
@@ -673,7 +680,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     for (Long partitionId : partitionIdToRollupIndex.keySet()) {
                         MaterializedIndex rollupIndex = partitionIdToRollupIndex.get(partitionId);
                         for (Tablet rollupTablet : rollupIndex.getTablets()) {
-                            invertedIndex.deleteTablet(rollupTablet.getId());
+                            invertedIndex.addDecommissionTablet(rollupTablet.getId(), deleteTabletWatermarkTxnId);
                         }
                         Partition partition = tbl.getPartition(partitionId);
                         partition.deleteRollupIndex(rollupIndexId);
@@ -793,6 +800,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
      * Replay job in CANCELLED state.
      */
     private void replayCancelled(RollupJobV2 replayedJob) {
+        this.deleteTabletWatermarkTxnId = replayedJob.deleteTabletWatermarkTxnId;
         cancelInternal();
         // try best to drop roll index, when job is cancelled
         onCancel();
