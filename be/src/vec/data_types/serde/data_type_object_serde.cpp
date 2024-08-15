@@ -103,12 +103,13 @@ void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
         result.writeStartString();
         result.writeString(value_str.data(), value_str.size());
         result.writeEndString();
-        return;
+    } else {
+        // write a json binary
+        result.writeStartBinary();
+        result.writeBinary(json_parser.getWriter().getOutput()->getBuffer(),
+                           json_parser.getWriter().getOutput()->getSize());
+        result.writeEndBinary();
     }
-    result.writeStartBinary();
-    result.writeBinary(json_parser.getWriter().getOutput()->getBuffer(),
-                       json_parser.getWriter().getOutput()->getSize());
-    result.writeEndBinary();
 }
 
 void DataTypeObjectSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
