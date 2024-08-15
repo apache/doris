@@ -299,4 +299,46 @@ TEST_F(HttpClientTest, download_file_md5) {
     close(fd);
 }
 
+TEST_F(HttpClientTest, escape_url) {
+    HttpClient client;
+    client._curl = curl_easy_init();
+    auto check_result = [&client](const auto& input_url, const auto& output_url) -> bool {
+        std::string escaped_url;
+        if (!client._escape_url(input_url, &escaped_url).ok()) {
+            return false;
+        }
+        if (escaped_url != output_url) {
+            return false;
+        }
+        return true;
+    };
+    std::string input_A = hostname + "/download_file?token=oxof&file_name=02x_0.dat";
+    std::string output_A = hostname + "/download_file?token=oxof&file_name=02x_0.dat";
+    ASSERT_TRUE(check_result(input_A, output_A));
+
+    std::string input_B = hostname + "/download_file?";
+    std::string output_B = hostname + "/download_file?";
+    ASSERT_TRUE(check_result(input_B, output_B));
+
+    std::string input_C = hostname + "/download_file";
+    std::string output_C = hostname + "/download_file";
+    ASSERT_TRUE(check_result(input_C, output_C));
+
+    std::string input_D = hostname + "/download_file?&";
+    std::string output_D = hostname + "/download_file?&";
+    ASSERT_TRUE(check_result(input_D, output_D));
+
+    std::string input_E = hostname + "/download_file?key=0x2E";
+    std::string output_E = hostname + "/download_file?key=0x2E";
+    ASSERT_TRUE(check_result(input_E, output_E));
+
+    std::string input_F = hostname + "/download_file?key=0x2E&key=%";
+    std::string output_F = hostname + "/download_file?key=0x2E&key=%25";
+    ASSERT_TRUE(check_result(input_F, output_F));
+
+    std::string input_G = hostname + "/download_file?key=0x2E&key=%2E#section";
+    std::string output_G = hostname + "/download_file?key=0x2E&key=%252E#section";
+    ASSERT_TRUE(check_result(input_G, output_G));
+}
+
 } // namespace doris
