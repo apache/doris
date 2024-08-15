@@ -33,8 +33,8 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx_older(
     }
     if (argument_types.size() == 2) {
         return creator_without_type::create<
-                AggregateFunctionPercentileApproxTwoParams_OLDER<is_nullable>>((argument_types),
-                                                                               result_is_nullable);
+                AggregateFunctionPercentileApproxTwoParams_OLDER<is_nullable>>(
+                remove_nullable(argument_types), result_is_nullable);
     }
     if (argument_types.size() == 3) {
         return creator_without_type::create<
