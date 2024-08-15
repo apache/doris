@@ -133,11 +133,6 @@ private:
     int64_t _meta_mem_usage;
     SegmentFooterPB _footer;
 
-    // Map from column unique id to column ordinal in footer's ColumnMetaPB
-    // If we can't find unique id from it, it means this segment is created
-    // with an old schema.
-    std::unordered_map<uint32_t, uint32_t> _column_id_to_footer_ordinal;
-
     // map column unique id ---> column reader
     // ColumnReader for each column in TabletSchema. If ColumnReader is nullptr,
     // This means that this segment has no data for that column, which may be added
