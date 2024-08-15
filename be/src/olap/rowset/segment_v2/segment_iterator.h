@@ -389,10 +389,8 @@ private:
     bool _can_opt_topn_reads();
 
     void _initialize_predicate_results();
-    bool _check_all_predicates_passed_inverted_index_for_column(ColumnId cid,
+    bool _check_all_conditions_passed_inverted_index_for_column(ColumnId cid,
                                                                 bool default_return = false);
-    bool _check_all_exprs_passed_inverted_index_for_column(ColumnId cid,
-                                                           bool default_return = false);
 
     void _calculate_expr_in_remaining_conjunct_root();
 

@@ -531,8 +531,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 
     _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
     for (auto cid : _schema->column_ids()) {
-        bool result_true = _check_all_predicates_passed_inverted_index_for_column(cid, true) &&
-                           _check_all_exprs_passed_inverted_index_for_column(cid, true);
+        bool result_true = _check_all_conditions_passed_inverted_index_for_column(cid);
 
         if (result_true) {
             _need_read_data_indices[cid] = false;
@@ -998,25 +997,46 @@ Status SegmentIterator::_apply_inverted_index() {
     return Status::OK();
 }
 
-bool SegmentIterator::_check_all_predicates_passed_inverted_index_for_column(ColumnId cid,
+/**
+ * @brief Checks if all conditions related to a specific column have passed in both
+ * `_column_predicate_inverted_index_status` and `_common_expr_inverted_index_status`.
+ *
+ * This function first checks the conditions in `_column_predicate_inverted_index_status`
+ * for the given `ColumnId`. If all conditions pass, it sets `default_return` to `true`.
+ * It then checks the conditions in `_common_expr_inverted_index_status` for the same column.
+ *
+ * The function returns `true` if all conditions in both maps pass. If any condition fails
+ * in either map, the function immediately returns `false`. If the column does not exist
+ * in one of the maps, the function returns `default_return`.
+ *
+ * @param cid The ColumnId of the column to check.
+ * @param default_return The default value to return if the column is not found in the status maps.
+ * @return true if all conditions in both status maps pass, or if the column is not found
+ *         and `default_return` is true.
+ * @return false if any condition in either status map fails, or if the column is not found
+ *         and `default_return` is false.
+ */
+bool SegmentIterator::_check_all_conditions_passed_inverted_index_for_column(ColumnId cid,
                                                                              bool default_return) {
-    auto it = _column_predicate_inverted_index_status.find(cid);
-    if (it != _column_predicate_inverted_index_status.end()) {
-        const auto& pred_map = it->second;
-        return std::all_of(pred_map.begin(), pred_map.end(),
-                           [](const auto& pred_entry) { return pred_entry.second; });
-    }
-    return default_return;
-}
-
-bool SegmentIterator::_check_all_exprs_passed_inverted_index_for_column(ColumnId cid,
-                                                                        bool default_return) {
     auto col_name = _schema->column(cid)->name();
-    auto it = _common_expr_inverted_index_status.find(col_name);
-    if (it != _common_expr_inverted_index_status.end()) {
-        const auto& pred_map = it->second;
-        return std::all_of(pred_map.begin(), pred_map.end(),
-                           [](const auto& pred_entry) { return pred_entry.second; });
+
+    auto pred_it = _column_predicate_inverted_index_status.find(cid);
+    if (pred_it != _column_predicate_inverted_index_status.end()) {
+        const auto& pred_map = pred_it->second;
+        bool pred_passed = std::all_of(pred_map.begin(), pred_map.end(),
+                                       [](const auto& pred_entry) { return pred_entry.second; });
+        if (!pred_passed) {
+            return false;
+        } else {
+            default_return = true;
+        }
+    }
+
+    auto expr_it = _common_expr_inverted_index_status.find(col_name);
+    if (expr_it != _common_expr_inverted_index_status.end()) {
+        const auto& expr_map = expr_it->second;
+        return std::all_of(expr_map.begin(), expr_map.end(),
+                           [](const auto& expr_entry) { return expr_entry.second; });
     }
     return default_return;
 }
@@ -1692,15 +1712,16 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
         }
 
         DBUG_EXECUTE_IF("segment_iterator._read_columns_by_index", {
+            auto col_name = _opts.tablet_schema->column(cid).name();
             auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
                     "segment_iterator._read_columns_by_index", "column_name", "");
-            if (debug_col_name.empty()) {
-                return Status::Error<ErrorCode::INTERNAL_ERROR>("does not need to read data");
+            if (debug_col_name.empty() && col_name != "__DORIS_DELETE_SIGN__") {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>("does not need to read data, {}",
+                                                                col_name);
             }
-            auto col_name = _opts.tablet_schema->column(cid).name();
             if (debug_col_name.find(col_name) != std::string::npos) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>("does not need to read data, {}",
-                                                                debug_col_name);
+                                                                col_name);
             }
         })
 
@@ -2486,8 +2507,7 @@ bool SegmentIterator::_no_need_read_key_data(ColumnId cid, vectorized::MutableCo
         return false;
     }
 
-    if (!_check_all_predicates_passed_inverted_index_for_column(cid, true) ||
-        !_check_all_exprs_passed_inverted_index_for_column(cid)) {
+    if (!_check_all_conditions_passed_inverted_index_for_column(cid, true)) {
         return false;
     }
 
@@ -2521,8 +2541,7 @@ bool SegmentIterator::_can_opt_topn_reads() {
         if (cid == _opts.tablet_schema->delete_sign_idx()) {
             return true;
         }
-        if (_check_all_predicates_passed_inverted_index_for_column(cid, true) &&
-            _check_all_exprs_passed_inverted_index_for_column(cid, true)) {
+        if (_check_all_conditions_passed_inverted_index_for_column(cid, true)) {
             return true;
         }
         return false;
