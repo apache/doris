@@ -69,15 +69,19 @@ public:
             if (context->get_num_args() == 1) {
                 // This is a call to RandSeed, initialize the seed
                 if (!context->is_col_constant(0)) {
-                    return Status::InvalidArgument("Seed argument to rand() must be constant.");
+                    return Status::InvalidArgument("The param of rand function must be literal");
                 }
                 uint32_t seed = 0;
                 if (!context->get_constant_col(0)->column_ptr->is_null_at(0)) {
                     seed = (*context->get_constant_col(0)->column_ptr)[0].get<int64_t>();
                 }
                 generator->seed(seed);
-            } else {
-                // 0 or 2 args
+            } else if (context->get_num_args() == 2) {
+                if (!context->is_col_constant(0) || !context->is_col_constant(1)) {
+                    return Status::InvalidArgument("The param of rand function must be literal");
+                }
+                generator->seed(std::random_device()());
+            } else { // zero args
                 generator->seed(std::random_device()());
             }
         }
@@ -108,6 +112,7 @@ private:
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
         DCHECK(generator != nullptr);
 
+        // checked in open()
         Int64 min = assert_cast<const ColumnInt64*>(
                             assert_cast<const ColumnConst*>(
                                     block.get_by_position(arguments[0]).column.get())

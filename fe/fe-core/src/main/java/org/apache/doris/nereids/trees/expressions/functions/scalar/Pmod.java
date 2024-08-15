@@ -21,10 +21,12 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -37,10 +39,10 @@ import java.util.List;
 public class Pmod extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE, BigIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE)
-    );
+    public static final FunctionSignature BIGINT_SIGNATURE = FunctionSignature.ret(BigIntType.INSTANCE)
+            .args(BigIntType.INSTANCE, BigIntType.INSTANCE);
+    public static final FunctionSignature DOUBLE_SIGNATURE = FunctionSignature.ret(DoubleType.INSTANCE)
+            .args(DoubleType.INSTANCE, DoubleType.INSTANCE);
 
     /**
      * constructor with 2 arguments.
@@ -58,9 +60,39 @@ public class Pmod extends ScalarFunction
         return new Pmod(children.get(0), children.get(1));
     }
 
+    /**
+     * already override searchSignature and computeSignature, so getSignatures is useless anymore.
+     *
+     * @return empty list
+     */
     @Override
     public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
+        return ImmutableList.of();
+    }
+
+    @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        return signature;
+    }
+
+    @Override
+    public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
+        boolean leftCouldBeBigInt = false;
+        boolean rightCouldBeBigInt = false;
+        if (getArgument(0) instanceof StringLikeLiteral) {
+            leftCouldBeBigInt = TypeCoercionUtils.characterLiteralTypeCoercion(
+                    ((StringLikeLiteral) getArgument(0)).getValue(), BigIntType.INSTANCE).isPresent();
+        }
+        if (getArgument(1) instanceof StringLikeLiteral) {
+            rightCouldBeBigInt = TypeCoercionUtils.characterLiteralTypeCoercion(
+                    ((StringLikeLiteral) getArgument(1)).getValue(), BigIntType.INSTANCE).isPresent();
+        }
+        if ((getArgument(0).getDataType().isIntegerLikeType() || leftCouldBeBigInt)
+                && (getArgument(1).getDataType().isIntegerLikeType() || rightCouldBeBigInt)) {
+            return BIGINT_SIGNATURE;
+        } else {
+            return DOUBLE_SIGNATURE;
+        }
     }
 
     @Override

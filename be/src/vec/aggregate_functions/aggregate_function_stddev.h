@@ -73,10 +73,20 @@ struct BaseData {
     }
 
     double get_result(double res) const {
+        auto inf_to_nan = [](double val) {
+            // This function performs squaring operations, and due to differences in computation order,
+            // it might produce different values such as inf and nan.
+            // In MySQL, this will directly result in an error due to exceeding the double range.
+            // For performance reasons, we are uniformly changing it to nan
+            if (std::isinf(val)) {
+                return std::nan("");
+            }
+            return val;
+        };
         if constexpr (is_stddev) {
-            return std::sqrt(res);
+            return inf_to_nan(std::sqrt(res));
         } else {
-            return res;
+            return inf_to_nan(res);
         }
     }
 
@@ -105,7 +115,8 @@ struct BaseData {
     }
 
     void add(const IColumn* column, size_t row_num) {
-        const auto& sources = assert_cast<const ColumnVector<T>&>(*column);
+        const auto& sources =
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column);
         double source_data = sources.get_data()[row_num];
 
         double delta = source_data - mean;

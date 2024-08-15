@@ -17,35 +17,22 @@
 
 package org.apache.doris.mtmv;
 
-import com.google.gson.annotations.SerializedName;
+import java.util.Map;
 
-/**
- * EnvInfo
- */
-public class EnvInfo {
-    @SerializedName("ci")
-    private long ctlId;
-    @SerializedName("di")
-    private long dbId;
+public class MTMVBaseVersions {
+    private final Map<Long, Long> tableVersions;
+    private final Map<String, Long> partitionVersions;
 
-    public EnvInfo(long ctlId, long dbId) {
-        this.ctlId = ctlId;
-        this.dbId = dbId;
+    public MTMVBaseVersions(Map<Long, Long> tableVersions, Map<String, Long> partitionVersions) {
+        this.tableVersions = tableVersions;
+        this.partitionVersions = partitionVersions;
     }
 
-    public long getCtlId() {
-        return ctlId;
+    public Map<Long, Long> getTableVersions() {
+        return tableVersions;
     }
 
-    public long getDbId() {
-        return dbId;
-    }
-
-    @Override
-    public String toString() {
-        return "EnvInfo{"
-                + "ctlId='" + ctlId + '\''
-                + ", dbId='" + dbId + '\''
-                + '}';
+    public Map<String, Long> getPartitionVersions() {
+        return partitionVersions;
     }
 }

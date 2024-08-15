@@ -25,6 +25,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/predicate_column.h"
+#include "vec/common/assert_cast.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
 namespace doris {
@@ -53,6 +54,8 @@ public:
     bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
         return input_type == T || (is_string_type(input_type) && is_string_type(T));
     }
+
+    double get_ignore_threshold() const override { return get_bloom_filter_ignore_thredhold(); }
 
 private:
     bool _can_ignore() const override { return _filter->is_runtime_filter(); }

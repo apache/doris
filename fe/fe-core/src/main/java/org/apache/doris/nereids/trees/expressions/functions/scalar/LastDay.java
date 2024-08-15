@@ -40,10 +40,10 @@ public class LastDay extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateType.INSTANCE).args(DateTimeType.INSTANCE),
-            FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE),
+            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE),
             FunctionSignature.ret(DateV2Type.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE)
+            FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE),
+            FunctionSignature.ret(DateType.INSTANCE).args(DateTimeType.INSTANCE)
     );
 
     /**
