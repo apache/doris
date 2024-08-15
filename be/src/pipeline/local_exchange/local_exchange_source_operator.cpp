@@ -36,12 +36,28 @@ Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
         _copy_data_timer = ADD_TIMER(profile(), "CopyDataTime");
     }
 
+    if (_exchanger->get_type() == ExchangeType::LOCAL_MERGE_SORT && _channel_id == 0) {
+        _local_merge_deps = _shared_state->get_dep_by_channel_id(_channel_id);
+        DCHECK_GT(_local_merge_deps.size(), 1);
+        _deps_counter.resize(_local_merge_deps.size());
+        static const std::string timer_name = "WaitForDependencyTime";
+        _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, timer_name, 1);
+        for (size_t i = 0; i < _deps_counter.size(); i++) {
+            _deps_counter[i] = _runtime_profile->add_nonzero_counter(
+                    fmt::format("WaitForData{}", i), TUnit ::TIME_NS, timer_name, 1);
+        }
+    }
+
     return Status::OK();
 }
 
 Status LocalExchangeSourceLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
+    }
+
+    for (size_t i = 0; i < _local_merge_deps.size(); i++) {
+        COUNTER_SET(_deps_counter[i], _local_merge_deps[i]->watcher_elapse_time());
     }
 
     if (_exchanger) {
@@ -51,6 +67,7 @@ Status LocalExchangeSourceLocalState::close(RuntimeState* state) {
         _shared_state->sub_running_source_operators(*this);
     }
 
+    std::vector<DependencySPtr> {}.swap(_local_merge_deps);
     return Base::close(state);
 }
 
@@ -60,9 +77,9 @@ std::vector<Dependency*> LocalExchangeSourceLocalState::dependencies() const {
         // set dependencies ready
         std::vector<Dependency*> deps;
         auto le_deps = _shared_state->get_dep_by_channel_id(_channel_id);
-        DCHECK_GT(le_deps.size(), 1);
+        DCHECK_GT(_local_merge_deps.size(), 1);
         // If this is a local merge exchange, we should use all dependencies here.
-        for (auto& dep : le_deps) {
+        for (auto& dep : _local_merge_deps) {
             deps.push_back(dep.get());
         }
         return deps;

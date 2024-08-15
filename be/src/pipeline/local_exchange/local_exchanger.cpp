@@ -35,7 +35,8 @@ void Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
     // PartitionedBlock will be push into multiple queues with different row ranges, so it will be
     // referenced multiple times. Otherwise, we only ref the block once because it is only push into
     // one queue.
-    if constexpr (std::is_same_v<PartitionedBlock, BlockType>) {
+    if constexpr (std::is_same_v<PartitionedBlock, BlockType> ||
+                  std::is_same_v<BroadcastBlock, BlockType>) {
         allocated_bytes = block.first->data_block.allocated_bytes();
     } else {
         block->ref(1);
@@ -50,7 +51,8 @@ void Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
         local_state._shared_state->sub_mem_usage(channel_id, allocated_bytes);
         // `enqueue(block)` return false iff this queue's source operator is already closed so we
         // just unref the block.
-        if constexpr (std::is_same_v<PartitionedBlock, BlockType>) {
+        if constexpr (std::is_same_v<PartitionedBlock, BlockType> ||
+                      std::is_same_v<BroadcastBlock, BlockType>) {
             block.first->unref(local_state._shared_state, allocated_bytes);
         } else {
             block->unref(local_state._shared_state, allocated_bytes);
@@ -71,7 +73,8 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState& local_st
                                          int channel_id) {
     bool all_finished = _running_sink_operators == 0;
     if (_data_queue[channel_id].try_dequeue(block)) {
-        if constexpr (std::is_same_v<PartitionedBlock, BlockType>) {
+        if constexpr (std::is_same_v<PartitionedBlock, BlockType> ||
+                      std::is_same_v<BroadcastBlock, BlockType>) {
             local_state._shared_state->sub_mem_usage(channel_id,
                                                      block.first->data_block.allocated_bytes());
         } else {
@@ -86,7 +89,8 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState& local_st
     } else {
         std::unique_lock l(_m);
         if (_data_queue[channel_id].try_dequeue(block)) {
-            if constexpr (std::is_same_v<PartitionedBlock, BlockType>) {
+            if constexpr (std::is_same_v<PartitionedBlock, BlockType> ||
+                          std::is_same_v<BroadcastBlock, BlockType>) {
                 local_state._shared_state->sub_mem_usage(channel_id,
                                                          block.first->data_block.allocated_bytes());
             } else {
@@ -135,7 +139,7 @@ Status ShuffleExchanger::get_block(RuntimeState* state, vectorized::Block* block
     PartitionedBlock partitioned_block;
     vectorized::MutableBlock mutable_block;
 
-    auto get_data = [&](vectorized::Block* result_block) -> Status {
+    auto get_data = [&]() -> Status {
         do {
             const auto* offset_start = partitioned_block.second.row_idxs->data() +
                                        partitioned_block.second.offset_start;
@@ -152,7 +156,7 @@ Status ShuffleExchanger::get_block(RuntimeState* state, vectorized::Block* block
         SCOPED_TIMER(local_state._copy_data_timer);
         mutable_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
                 block, partitioned_block.first->data_block);
-        RETURN_IF_ERROR(get_data(block));
+        RETURN_IF_ERROR(get_data());
     }
     return Status::OK();
 }
@@ -374,30 +378,50 @@ Status LocalMergeSortExchanger::get_block(RuntimeState* state, vectorized::Block
 
 Status BroadcastExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                                 LocalExchangeSinkLocalState& local_state) {
+    if (in_block->empty()) {
+        return Status::OK();
+    }
+    vectorized::Block new_block;
+    if (!_free_blocks.try_dequeue(new_block)) {
+        new_block = {in_block->clone_empty()};
+    }
+    new_block.swap(*in_block);
+    auto wrapper = BlockWrapper::create_shared(std::move(new_block));
+    local_state._shared_state->add_total_mem_usage(wrapper->data_block.allocated_bytes());
+    wrapper->ref(_num_partitions);
     for (size_t i = 0; i < _num_partitions; i++) {
-        auto mutable_block = vectorized::MutableBlock::create_unique(in_block->clone_empty());
-        RETURN_IF_ERROR(mutable_block->add_rows(in_block, 0, in_block->rows()));
-        _enqueue_data_and_set_ready(i, local_state,
-                                    BlockWrapper::create_shared(mutable_block->to_block()));
+        _enqueue_data_and_set_ready(i, local_state, {wrapper, {0, wrapper->data_block.rows()}});
     }
 
     return Status::OK();
 }
 
 void BroadcastExchanger::close(LocalExchangeSourceLocalState& local_state) {
-    vectorized::Block next_block;
+    BroadcastBlock partitioned_block;
     bool eos;
-    BlockWrapperSPtr wrapper;
+    vectorized::Block block;
     _data_queue[local_state._channel_id].set_eos();
-    while (_dequeue_data(local_state, wrapper, &eos, &next_block)) {
-        next_block = vectorized::Block();
+    while (_dequeue_data(local_state, partitioned_block, &eos, &block)) {
+        partitioned_block.first->unref(local_state._shared_state);
     }
 }
 
 Status BroadcastExchanger::get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                                      LocalExchangeSourceLocalState& local_state) {
-    BlockWrapperSPtr next_block;
-    _dequeue_data(local_state, next_block, eos, block);
+    BroadcastBlock partitioned_block;
+
+    if (_dequeue_data(local_state, partitioned_block, eos, block)) {
+        SCOPED_TIMER(local_state._copy_data_timer);
+        vectorized::MutableBlock mutable_block =
+                vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
+                        block, partitioned_block.first->data_block);
+        auto block_wrapper = partitioned_block.first;
+        RETURN_IF_ERROR(mutable_block.add_rows(&block_wrapper->data_block,
+                                               partitioned_block.second.offset_start,
+                                               partitioned_block.second.length));
+        block_wrapper->unref(local_state._shared_state);
+    }
+
     return Status::OK();
 }
 
