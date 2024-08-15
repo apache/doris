@@ -771,6 +771,11 @@ suite("parse_sql_from_sql_cache") {
             assertNoCache "select * from test_use_plan_cache21"
             def result2 = sql "select * from test_use_plan_cache21"
             assertTrue(result2.size() == 1)
+        }),
+        extraThread("test_explain_sql_cache", {
+            sql "set enable_sql_cache=true"
+            sql "select 100"
+            sql "explain plan select 100"
         })
     ).get()
 }
