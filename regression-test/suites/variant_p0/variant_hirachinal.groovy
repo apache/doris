@@ -46,6 +46,6 @@ suite("regression_test_variant_hirachinal", "variant_type"){
     qt_sql "select v['c'] from ${table_name} where k = -3 or k = -2 order by k"
     qt_sql "select v['b'] from ${table_name} where k = -3 or k = -2"
     sql """insert into ${table_name} values (-3, '{"c" : 12345}')"""
-    qt_sql "select v['c'] from var_rs where k = -3 or k = -2 or (k = 1 and v['c'] = 1024) order by k"
-    qt_sql "select v['c'] from var_rs where k = -3 or k = -2 or k = 1 order by k, cast(v['c'] as text) limit 3"
+    order_qt_sql1 "select v['c'] from var_rs where k = -3 or k = -2 or k = -4 or (k = 1 and v['c'] = 1024) order by k"
+    order_qt_sql2 "select v['c'] from var_rs where k = -3 or k = -2 or k = 1 order by k, cast(v['c'] as text) limit 3"
 }

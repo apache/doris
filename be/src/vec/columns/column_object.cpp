@@ -1650,8 +1650,9 @@ void ColumnObject::finalize(FinalizeMode mode) {
             continue;
         }
 
-        // Check and spilit sparse subcolumns
-        if (mode == FinalizeMode::WRITE_MODE && (entry->data.check_if_sparse_column(num_rows))) {
+        // Check and spilit sparse subcolumns, not support nested array at present
+        if (mode == FinalizeMode::WRITE_MODE && (entry->data.check_if_sparse_column(num_rows)) &&
+            !entry->path.has_nested_part()) {
             // TODO seperate ambiguous path
             sparse_columns.add(entry->path, entry->data);
             continue;
