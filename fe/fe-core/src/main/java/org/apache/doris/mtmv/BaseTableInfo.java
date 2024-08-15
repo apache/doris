@@ -103,6 +103,10 @@ public class BaseTableInfo {
         return ctlId;
     }
 
+    public void setTableName(String tableName) {
+        this.tableName = tableName;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {

@@ -170,6 +170,7 @@ public class Alter {
 
         olapTable.checkNormalStateForAlter();
         boolean needProcessOutsideTableLock = false;
+        String oldTableName = olapTable.getName();
         if (currentAlterOps.checkTableStoragePolicy(alterClauses)) {
             String tableStoragePolicy = olapTable.getStoragePolicy();
             String currentStoragePolicy = currentAlterOps.getTableStoragePolicy(alterClauses);
@@ -282,7 +283,7 @@ public class Alter {
             throw new DdlException("Invalid alter operations: " + currentAlterOps);
         }
         if (needChangeMTMVState(alterClauses)) {
-            Env.getCurrentEnv().getMtmvService().alterTable(olapTable);
+            Env.getCurrentEnv().getMtmvService().alterTable(olapTable, oldTableName);
         }
         return needProcessOutsideTableLock;
     }
