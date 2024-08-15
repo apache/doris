@@ -297,24 +297,59 @@ suite("test_agg_schema_value_modify1", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName1} MODIFY  column score CHAR(15) REPLACE_IF_NOT_NULL """
-        insertSql = "insert into ${tbName1} values(993456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName1} values(993456689, 'Alice', 'asdc', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 600
         }, insertSql, true, "${tbName1}")
     }, errorMessage)
 
-    //TODO Data doublingTest the agg model by modify a  value type from FLOAT  to VARCHAR
     //Test the agg model by modify a value type from FLOAT  to VARCHAR
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName1} MODIFY  column score VARCHAR(100) REPLACE_IF_NOT_NULL """
-    insertSql = "insert into ${tbName1} values(993456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+    insertSql = "insert into ${tbName1} values(993456689, 'Alice', 'asdv', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 600
-    }, insertSql, true, "${tbName1}")
+    }, insertSql, false, "${tbName1}")
 
+
+    sql """ DROP TABLE IF EXISTS ${tbName2} """
+    initTable2 = " CREATE TABLE IF NOT EXISTS ${tbName2}\n" +
+            "          (\n" +
+            "              `user_id` LARGEINT NOT NULL  COMMENT \"用户id\",\n" +
+            "              `username` VARCHAR(50) NOT NULL  COMMENT \"用户昵称\",\n" +
+            "              `score` VARCHAR(100) REPLACE_IF_NOT_NULL COMMENT \"分数\",\n" +
+            "              `city` VARCHAR(20) REPLACE_IF_NOT_NULL COMMENT \"用户所在城市\",\n" +
+            "              `age` SMALLINT REPLACE_IF_NOT_NULL COMMENT \"用户年龄\",\n" +
+            "              `sex` TINYINT REPLACE_IF_NOT_NULL COMMENT \"用户性别\",\n" +
+            "              `phone` LARGEINT REPLACE_IF_NOT_NULL COMMENT \"用户电话\",\n" +
+            "              `address` VARCHAR(500) REPLACE_IF_NOT_NULL COMMENT \"用户地址\",\n" +
+            "              `register_time` DATETIME REPLACE_IF_NOT_NULL COMMENT \"用户注册时间\",\n" +
+            "              `m` Map<STRING, INT>  REPLACE_IF_NOT_NULL COMMENT \"\",\n" +
+            "              `j` JSON  REPLACE_IF_NOT_NULL COMMENT \"\"\n" +
+            "          )\n" +
+            "          AGGREGATE KEY(`user_id`, `username`)\n" +
+            "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
+            "          PROPERTIES (\n" +
+            "          \"replication_allocation\" = \"tag.location.default: 1\"\n" +
+            "          );"
+
+    initTableData2 = "insert into ${tbName2} values(123456789, 'Alice', 1.8, 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
+            "               (234567890, 'Bob', 1.89, 'Shanghai', 30, 1, 13998765432, 'No. 456 Street, Shanghai', '2022-02-02 12:00:00', {'a': 200, 'b': 200}, '[\"abc\", \"def\"]')," +
+            "               (345678901, 'Carol', 2.6, 'Guangzhou', 28, 0, 13724681357, 'No. 789 Street, Guangzhou', '2022-03-03 14:00:00', {'a': 300, 'b': 200}, '[\"abc\", \"def\"]')," +
+            "               (456789012, 'Dave', 3.9, 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]')," +
+            "               (567890123, 'Eve', 4.2, 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00', {'a': 500, 'b': 200}, '[\"abc\", \"def\"]')," +
+            "               (678901234, 'Frank', 2.5, 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00', {'a': 600, 'b': 200}, '[\"abc\", \"def\"]')," +
+            "               (993456689, 'Alice', 'asdv', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\\\"abc\\\", \\\"def\\\"]')," +
+            "               (789012345, 'Grace', 2.1, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00', {'a': 700, 'b': 200}, '[\"abc\", \"def\"]');"
+
+    sql initTable2
+    sql initTableData2
+    checkTableData("${tbName1}", "${tbName2}", "score")
+    sql """ DROP TABLE IF EXISTS ${tbName1} """
+    
 
     //Test the agg model by modify a value type from FLOAT  to STRING
     sql initTable
@@ -855,7 +890,7 @@ suite("test_agg_schema_value_modify1", "p0") {
     }, errorMessage)
 
 
-    //TODO Data accuracy loss Test the agg model by modify a value type from DECIMAL128  to DECIMAL
+    //TODO Data accuracy loss Data rounding Test the agg model by modify a value type from DECIMAL128  to DECIMAL
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName1} MODIFY  column score DECIMAL(38,0) REPLACE_IF_NOT_NULL """
