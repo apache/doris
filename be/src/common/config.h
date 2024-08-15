@@ -1058,6 +1058,8 @@ DECLARE_mInt64(file_cache_ttl_valid_check_interval_second);
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DECLARE_Bool(enable_ttl_cache_evict_using_lru);
+// The max ratio for ttl cache's size
+DECLARE_mInt64(max_ttl_cache_ratio);
 
 // inverted index searcher cache
 // cache entry stay time after lookup

@@ -23,16 +23,11 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
-#include <unordered_map>
 
 #include "io/io_common.h"
-#include "olap/olap_common.h"
-#include "util/doris_metrics.h"
-#include "util/metrics.h"
 #include "util/runtime_profile.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 
 struct AtomicStatistics {
     std::atomic<int64_t> num_io_bytes_read_from_cache = 0;
@@ -117,5 +112,4 @@ struct FileCacheProfileReporter {
     }
 };
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

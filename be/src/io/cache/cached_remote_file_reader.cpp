@@ -20,24 +20,21 @@
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
-#include <string.h>
 
 #include <algorithm>
-#include <list>
+#include <cstring>
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
-#include "cpp/sync_point.h"
+// #include "cpp/sync_point.h"
+#include "common/logging.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "io/cache/file_block.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/local_file_system.h"
 #include "io/io_common.h"
-#include "util/bit_util.h"
-#include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 
 namespace doris::io {
@@ -183,7 +180,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             block->get_or_set_downloader();
             if (block->is_downloader()) {
                 empty_blocks.push_back(block);
-                TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::EMPTY");
+                // TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::EMPTY");
             }
             stats.hit_cache = false;
             break;
@@ -264,11 +261,11 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         FileBlock::State block_state = block->state();
         int64_t wait_time = 0;
         static int64_t max_wait_time = 10;
-        TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::max_wait_time", &max_wait_time);
+        // TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::max_wait_time", &max_wait_time);
         if (block_state != FileBlock::State::DOWNLOADED) {
             do {
                 SCOPED_RAW_TIMER(&stats.remote_read_timer);
-                TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::DOWNLOADING");
+                // TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::DOWNLOADING");
                 block_state = block->wait();
                 if (block_state != FileBlock::State::DOWNLOADING) {
                     break;
@@ -276,7 +273,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             } while (++wait_time < max_wait_time);
         }
         if (wait_time == max_wait_time) [[unlikely]] {
-            LOG_WARNING("Waiting too long for the download to complete");
+            VLOG_NOTICE << "Waiting too long for the download to complete";
         }
         {
             Status st;

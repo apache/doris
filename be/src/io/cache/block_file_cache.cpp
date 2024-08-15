@@ -34,7 +34,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "cpp/sync_point.h"
+// #include "cpp/sync_point.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
@@ -443,8 +443,8 @@ std::string BlockFileCache::clear_file_cache_async() {
 void BlockFileCache::recycle_deleted_blocks() {
     using namespace std::chrono;
     static int remove_batch = 100;
-    TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_remove_batch", &remove_batch);
-    TEST_SYNC_POINT_CALLBACK("BlockFileCache::recycle_deleted_blocks");
+    // TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_remove_batch", &remove_batch);
+    // TEST_SYNC_POINT_CALLBACK("BlockFileCache::recycle_deleted_blocks");
     std::unique_lock cache_lock(_mutex);
     auto remove_file_block = [&cache_lock, this](FileBlockCell* cell) {
         std::lock_guard segment_lock(cell->file_block->_mutex);
@@ -460,7 +460,7 @@ void BlockFileCache::recycle_deleted_blocks() {
             remove(cell->file_block, cache_lock, segment_lock);
         };
         static int remove_batch = 100;
-        TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_remove_batch", &remove_batch);
+        // TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_remove_batch", &remove_batch);
         int i = 0;
         std::condition_variable cond;
         auto iter_queue = [&](LRUQueue& queue) {
@@ -473,7 +473,9 @@ void BlockFileCache::recycle_deleted_blocks() {
                         break;
                     }
                     auto* cell = get_cell(entry_key, entry_offset, cache_lock);
-                    if (!cell) continue;
+                    if (!cell) {
+                        continue;
+                    }
                     if (!cell->is_deleted) {
                         end = true;
                         break;
@@ -875,10 +877,7 @@ bool BlockFileCache::try_reserve_for_ttl_without_lru(size_t size,
         collect_eliminate_fragments(get_queue(FileCacheType::INDEX));
     }
     remove_file_blocks(to_evict, cache_lock);
-    if (is_overflow(removed_size, size, cur_cache_size)) {
-        return false;
-    }
-    return true;
+    return !is_overflow(removed_size, size, cur_cache_size);
 }
 
 bool BlockFileCache::try_reserve_for_ttl(size_t size, std::lock_guard<std::mutex>& cache_lock) {
@@ -1025,7 +1024,9 @@ bool BlockFileCache::remove_if_ttl_file_unlock(const UInt128Wrapper& file_key, b
                 }
             }
             for (auto& [_, cell] : _files[file_key]) {
-                if (cell.file_block->cache_type() == FileCacheType::NORMAL) continue;
+                if (cell.file_block->cache_type() == FileCacheType::NORMAL) {
+                    continue;
+                }
                 auto st = cell.file_block->change_cache_type_by_mgr(FileCacheType::NORMAL);
                 if (st.ok()) {
                     if (config::enable_ttl_cache_evict_using_lru) {
@@ -1441,9 +1442,13 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
             auto remove_blocks = [&](LRUQueue& queue) -> int64_t {
                 int64_t queue_released = 0;
                 for (const auto& [entry_key, entry_offset, entry_size] : queue) {
-                    if (need_remove_size <= 0) return queue_released;
+                    if (need_remove_size <= 0) {
+                        return queue_released;
+                    }
                     auto* cell = get_cell(entry_key, entry_offset, cache_lock);
-                    if (!cell->releasable()) continue;
+                    if (!cell->releasable()) {
+                        continue;
+                    }
                     cell->is_deleted = true;
                     need_remove_size -= entry_size;
                     space_released += entry_size;
@@ -1461,7 +1466,9 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
                 queue_released = 0;
                 for (auto& [_, key] : _time_to_key) {
                     for (auto& [_, cell] : _files[key]) {
-                        if (need_remove_size <= 0) break;
+                        if (need_remove_size <= 0) {
+                            break;
+                        }
                         cell.is_deleted = true;
                         need_remove_size -= cell.file_block->range().size();
                         space_released += cell.file_block->range().size();
@@ -1531,7 +1538,7 @@ void BlockFileCache::check_disk_resource_limit() {
 void BlockFileCache::run_background_operation() {
     int64_t interval_time_seconds = 20;
     while (!_close) {
-        TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_sleep_time", &interval_time_seconds);
+        // TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_sleep_time", &interval_time_seconds);
         check_disk_resource_limit();
         {
             std::unique_lock close_lock(_close_mtx);
@@ -1614,7 +1621,9 @@ void BlockFileCache::modify_expiration_time(const UInt128Wrapper& hash,
         }
         for (auto& [_, cell] : iter->second) {
             FileCacheType origin_type = cell.file_block->cache_type();
-            if (origin_type == FileCacheType::TTL) continue;
+            if (origin_type == FileCacheType::TTL) {
+                continue;
+            }
             auto st = cell.file_block->change_cache_type_by_mgr(FileCacheType::TTL);
             if (st.ok()) {
                 auto& queue = get_queue(origin_type);
@@ -1645,7 +1654,7 @@ BlockFileCache::get_hot_blocks_meta(const UInt128Wrapper& hash) const {
     std::lock_guard cache_lock(_mutex);
     std::vector<std::tuple<size_t, size_t, FileCacheType, uint64_t>> blocks_meta;
     if (auto iter = _files.find(hash); iter != _files.end()) {
-        for (auto& pair : _files.find(hash)->second) {
+        for (const auto& pair : _files.find(hash)->second) {
             const FileBlockCell* cell = &pair.second;
             if (cell->file_block->cache_type() != FileCacheType::DISPOSABLE) {
                 if (cell->file_block->cache_type() == FileCacheType::TTL ||

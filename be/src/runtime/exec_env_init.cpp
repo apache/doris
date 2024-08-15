@@ -585,7 +585,9 @@ void ExecEnv::destroy() {
     _stream_load_executor.reset();
     _memtable_memory_limiter.reset();
     _delta_writer_v2_pool.reset();
+    _file_cache_open_fd_cache = std::make_unique<io::FDCache>();
     _load_stream_map_pool.reset();
+    _file_cache_open_fd_cache.reset();
 
     SAFE_STOP(_storage_engine);
     SAFE_STOP(_write_cooldown_meta_executors);
@@ -647,6 +649,7 @@ void ExecEnv::destroy() {
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
+    file_cache_open_fd_cache.reset(nullptr);
     _write_cooldown_meta_executors.reset(nullptr);
 
     SAFE_DELETE(_broker_client_cache);
