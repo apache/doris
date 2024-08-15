@@ -25,6 +25,7 @@ import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.analysis.AlterDatabaseRename;
+import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnDef.DefaultValue;
@@ -42,6 +43,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.MultiPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionNames;
@@ -1864,6 +1866,24 @@ public class InternalCatalog implements CatalogIf<Database> {
         } catch (DdlException e) {
             failedCleanCallback.run();
             throw e;
+        }
+    }
+
+    public void addMultiPartitions(Database db, String tableName, AlterMultiPartitionClause multiPartitionClause)
+            throws DdlException {
+        List<SinglePartitionDesc> singlePartitionDescs;
+        try {
+            MultiPartitionDesc multiPartitionDesc = new MultiPartitionDesc(multiPartitionClause.getPartitionKeyDesc(),
+                    multiPartitionClause.getProperties());
+            singlePartitionDescs = multiPartitionDesc.getSinglePartitionDescList();
+        } catch (AnalysisException e) {
+            throw new DdlException("Failed to analyze multi partition clause: " + e.getMessage());
+        }
+
+        for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
+            AddPartitionClause addPartitionClause = new AddPartitionClause(singlePartitionDesc, null,
+                    multiPartitionClause.getProperties(), false);
+            addPartition(db, tableName, addPartitionClause, false, 0, true);
         }
     }
 
