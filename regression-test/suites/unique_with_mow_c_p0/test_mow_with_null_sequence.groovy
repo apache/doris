@@ -88,5 +88,5 @@ suite("test_mow_with_null_sequence") {
 
         order_qt_sql "select * from $tableName"
 
-        sql """ DROP TABLE IF EXISTS $tableName """
+        // sql """ DROP TABLE IF EXISTS $tableName """
 }

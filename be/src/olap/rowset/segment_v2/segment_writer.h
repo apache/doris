@@ -184,6 +184,8 @@ private:
             vectorized::IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
     Status _generate_short_key_index(std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                                      size_t num_rows, const std::vector<size_t>& short_key_pos);
+    bool _is_mow();
+    bool _is_mow_with_cluster_key();
 
 private:
     uint32_t _segment_id;

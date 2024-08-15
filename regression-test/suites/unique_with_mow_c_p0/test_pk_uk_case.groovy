@@ -31,8 +31,8 @@ suite("test_pk_uk_case") {
     def tableNameUk = "unique_key_pk_uk"
 
     onFinish {
-        try_sql("DROP TABLE IF EXISTS ${tableNamePk}")
-        try_sql("DROP TABLE IF EXISTS ${tableNameUk}")
+        // try_sql("DROP TABLE IF EXISTS ${tableNamePk}")
+        // try_sql("DROP TABLE IF EXISTS ${tableNameUk}")
     }
 
     sql """ DROP TABLE IF EXISTS ${tableNamePk} """
