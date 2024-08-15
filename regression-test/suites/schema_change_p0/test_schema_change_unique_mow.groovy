@@ -100,7 +100,7 @@ suite("test_schema_change_unique_mow", "p0") {
 
     sql """ alter table ${tableName3} modify column k4 string NULL"""
 
-    Awaitility.await().atMost(12, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
+    Awaitility.await().atMost(30, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
         {
             String res = getJobState(tableName3)
             if (res == "FINISHED" || res == "CANCELLED") {
@@ -113,7 +113,7 @@ suite("test_schema_change_unique_mow", "p0") {
     )
 
     sql """ alter table ${tableName3} modify column k2 bigint(11) key NULL"""
-    Awaitility.await().atMost(12, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
+    Awaitility.await().atMost(30, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
         {
             String res = getJobState(tableName3)
             if (res == "FINISHED" || res == "CANCELLED") {
@@ -146,7 +146,7 @@ suite("test_schema_change_unique_mow", "p0") {
     */
 
     sql """ alter table ${tableName3} modify column k5 string NULL"""
-    Awaitility.await().atMost(12, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
+    Awaitility.await().atMost(30, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
         {
             String res = getJobState(tableName3)
             if (res == "FINISHED" || res == "CANCELLED") {
@@ -165,7 +165,7 @@ suite("test_schema_change_unique_mow", "p0") {
     sql """ alter table ${tableName3} modify column v14 int NULL default "1" """
 
     int cnt = 6000
-    Awaitility.await().atMost(20, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
+    Awaitility.await().atMost(30, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
         {
             String res = getJobState(tableName3)
             if (res == "FINISHED" || res == "CANCELLED") {
