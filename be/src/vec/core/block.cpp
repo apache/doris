@@ -746,6 +746,15 @@ void Block::clear_column_data(int column_size) noexcept {
     row_same_bit.clear();
 }
 
+void Block::erase_tmp_columns() noexcept {
+    auto all_column_names = get_names();
+    for (auto& name : all_column_names) {
+        if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
+            erase(name);
+        }
+    }
+}
+
 void Block::swap(Block& other) noexcept {
     SCOPED_SKIP_MEMORY_CHECK();
     data.swap(other.data);
