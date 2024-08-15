@@ -657,7 +657,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             tbl.getIndexMetaByIndexId(shadowIdxId).setMaxColUniqueId(maxColUniqueId);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("originIdxId:{}, shadowIdxId:{}, maxColUniqueId:{}, indexSchema:{}",
-                        originIdxId, shadowIdxId, maxColUniqueId,  indexSchemaMap.get(shadowIdxId));
+                        originIdxId, shadowIdxId, maxColUniqueId, indexSchemaMap.get(shadowIdxId));
             }
 
             tbl.deleteIndexInfo(originIdxName);
@@ -704,12 +704,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         pruneMeta();
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
-        LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
-        Env.getCurrentEnv().getEditLog().logAlterJob(this);
-
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL when cancel, table id: {}, job id: {}", tableId, jobId);
-
+        jobState = JobState.CANCELLED;
+        Env.getCurrentEnv().getEditLog().logAlterJob(this);
+        LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
         return true;
     }
 
@@ -745,8 +744,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 }
             }
         }
-
-        jobState = JobState.CANCELLED;
     }
 
     // Check whether transactions of the given database which txnId is less than 'watershedTxnId' are finished.
