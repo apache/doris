@@ -167,3 +167,10 @@ v.xx	tinyint	Yes	false	\N	NONE
 [{"yyy":"11111"}, {"ax1111":"1111"}, {"axxxb":100,"xxxy111":111}, {"aaa":"11","ddsss":1024}, {"xx":10}]
 [{"yyy":"11111"}, {"ax1111":"1111"}, {"axxxb":100,"xxxy111":111}, {"aaa":"11","ddsss":1024}, {"xx":10}]
 
+-- !explode_sql --
+19	10
+
+-- !explode_sql --
+1	{"callLimit":3,"number":"02124713252","type":"HOME"}
+1	{"callLimit":5,"number":"5550219210","type":"GSM"}
+

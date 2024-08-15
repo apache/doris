@@ -170,6 +170,13 @@ suite("regression_test_variant_nested", "p0,nonConcurrent"){
         sql """insert into var_nested2 select * from var_nested"""
         qt_sql """select * from var_nested2 order by k limit 10;"""
         qt_sql """select v['nested'] from var_nested2 where k < 10 order by k limit 10;"""
+        // explode variant array
+        order_qt_explode_sql """select count(),cast(vv['xx'] as int) from var_nested lateral view explode_variant_array(v['nested']) tmp as vv where vv['xx'] = 10 group by cast(vv['xx'] as int)"""
+        sql """truncate table var_nested2"""
+        sql """insert into var_nested2 values(1119111, '{"eventId":1,"firstName":"Name1","lastName":"Surname1","body":{"phoneNumbers":[{"number":"5550219210","type":"GSM","callLimit":5},{"number":"02124713252","type":"HOME","callLimit":3},{"number":"05550219211","callLimit":2,"type":"WORK"}]}}
+')"""
+        order_qt_explode_sql """select v['eventId'], phone_numbers from var_nested2 lateral view explode_variant_array(v['body']['phoneNumbers']) tmp1 as phone_numbers
+where phone_numbers['type'] = 'GSM' OR phone_numbers['type'] = 'HOME' and phone_numbers['callLimit'] > 2;"""
     } finally {
         // reset flags
     }
