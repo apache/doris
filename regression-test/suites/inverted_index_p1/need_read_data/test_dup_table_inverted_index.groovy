@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_dup_table_inverted_index") {
+suite("test_dup_table_inverted_index", "p1") {
     
     // load data
     def load_data = { loadTableName, fileName ->
