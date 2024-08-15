@@ -17,14 +17,11 @@
 
 #include "olap/options.h"
 
-#include <ctype.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/rapidjson.h>
-#include <stdlib.h>
 
-#include <algorithm>
-#include <memory>
+#include <cstdlib>
 #include <ostream>
 
 #include "common/config.h"
@@ -73,7 +70,7 @@ Status parse_root_path(const string& root_path, StorePath* path) {
     std::vector<string> tmp_vec = strings::Split(root_path, ",", strings::SkipWhitespace());
 
     // parse root path name
-    StripWhiteSpace(&tmp_vec[0]);
+    StripWhiteSpace(tmp_vec.data());
     tmp_vec[0].erase(tmp_vec[0].find_last_not_of('/') + 1);
     if (tmp_vec[0].empty() || tmp_vec[0][0] != '/') {
         return Status::Error<INVALID_ARGUMENT>("invalid store path. path={}", tmp_vec[0]);
@@ -196,7 +193,6 @@ void parse_conf_broken_store_paths(const string& config_path, std::set<std::stri
     for (auto& item : path_vec) {
         paths->emplace(item);
     }
-    return;
 }
 
 /** format:   
@@ -279,27 +275,8 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
 }
 
 io::FileCacheSettings CachePath::init_settings() const {
-    io::FileCacheSettings settings;
-    settings.total_size = total_bytes;
-    settings.max_file_segment_size = config::file_cache_max_file_segment_size;
-    settings.max_query_cache_size = query_limit_bytes;
-    size_t per_size = settings.total_size / 100;
-    settings.disposable_queue_size = per_size * disposable_percent;
-    settings.disposable_queue_elements =
-            std::max(settings.disposable_queue_size / settings.max_file_segment_size,
-                     io::REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
-
-    settings.index_queue_size = per_size * index_percent;
-    settings.index_queue_elements =
-            std::max(settings.index_queue_size / settings.max_file_segment_size,
-                     io::REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
-
-    settings.query_queue_size =
-            settings.total_size - settings.disposable_queue_size - settings.index_queue_size;
-    settings.query_queue_elements =
-            std::max(settings.query_queue_size / settings.max_file_segment_size,
-                     io::REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
-    return settings;
+    return io::get_file_cache_settings(total_bytes, query_limit_bytes, normal_percent,
+                                       disposable_percent, index_percent);
 }
 
 } // end namespace doris

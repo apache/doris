@@ -59,6 +59,7 @@ class WorkloadGroupMgr;
 struct WriteCooldownMetaExecutors;
 namespace io {
 class FileCacheFactory;
+class FDCache;
 } // namespace io
 namespace segment_v2 {
 class InvertedIndexSearcherCache;

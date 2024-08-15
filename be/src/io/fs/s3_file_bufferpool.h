@@ -232,7 +232,7 @@ struct FileBufferBuilder {
     * cb could last until this cb is invoked
     * @param cb 
     */
-    FileBufferBuilder& set_allocate_file_block_holder(std::function<FileBlocksHolderPtr()> cb);
+    FileBufferBuilder& set_allocate_file_blocks_holder(std::function<FileBlocksHolderPtr()> cb);
     /**
     * set the file offset of the file buffer
     *

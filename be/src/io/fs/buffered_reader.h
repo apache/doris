@@ -17,10 +17,9 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
 #include <condition_variable>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -34,13 +33,11 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_reader.h"
-#include "olap/olap_define.h"
 #include "util/runtime_profile.h"
 #include "util/slice.h"
 #include "vec/common/typeid_cast.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 
 class FileSystem;
 struct IOContext;
@@ -302,7 +299,7 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
               _buf(std::move(other._buf)),
               _sync_profile(std::move(other._sync_profile)) {}
 
-    ~PrefetchBuffer() = default;
+    ~PrefetchBuffer() override = default;
 
     size_t _offset {0};
     // [start_offset, end_offset) is the range that can be prefetched.
@@ -535,5 +532,4 @@ private:
     size_t _max_buf_size;
 };
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

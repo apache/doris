@@ -244,7 +244,7 @@ FileBufferBuilder& FileBufferBuilder::set_sync_after_complete_task(std::function
     return *this;
 }
 
-FileBufferBuilder& FileBufferBuilder::set_allocate_file_block_holder(
+FileBufferBuilder& FileBufferBuilder::set_allocate_file_blocks_holder(
         std::function<FileBlocksHolderPtr()> cb) {
     _alloc_holder_cb = std::move(cb);
     return *this;

@@ -24,9 +24,7 @@
 #include <string>
 
 #include "common/status.h"
-#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/path.h"
 #include "io/fs/s3_file_bufferpool.h"
 
 namespace Aws::S3 {
@@ -36,8 +34,7 @@ class CompletedPart;
 class S3Client;
 } // namespace Aws::S3
 
-namespace doris {
-namespace io {
+namespace doris::io {
 struct S3FileBuffer;
 class S3FileSystem;
 
@@ -82,8 +79,8 @@ private:
     std::mutex _completed_lock;
     std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;
 
-    IFileCache::Key _cache_key;
-    IFileCache* _cache = nullptr;
+    UInt128Wrapper _cache_hash;
+    BlockFileCache* _cache;
     // **Attention** call add_count() before submitting buf to async thread pool
     bthread::CountdownEvent _countdown_event {0};
 
@@ -104,5 +101,4 @@ private:
     bool _used_by_s3_committer;
 };
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

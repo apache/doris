@@ -20,13 +20,10 @@
 #include <memory>
 
 #include "common/status.h"
-#include "gutil/macros.h"
 #include "io/fs/path.h"
-#include "util/debug_points.h"
 #include "util/slice.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 class FileSystem;
 
 // Only affects remote file writers
@@ -41,8 +38,8 @@ struct FileWriterOptions {
     bool used_by_s3_committer = false;
     bool write_file_cache = false;
     bool is_cold_data = false;
-    bool sync_file_data = true;        // Whether flush data into storage system
-    int64_t file_cache_expiration = 0; // Absolute time
+    bool sync_file_data = true;         // Whether flush data into storage system
+    uint64_t file_cache_expiration = 0; // Absolute time
     // Whether to create empty file if no content
     bool create_empty_file = true;
 };
@@ -76,7 +73,7 @@ public:
 
     std::shared_ptr<FileSystem> fs() const { return _fs; }
 
-    bool is_closed() { return _closed; }
+    bool is_closed() const { return _closed; }
 
 protected:
     Path _path;
@@ -89,5 +86,4 @@ protected:
 
 using FileWriterPtr = std::unique_ptr<FileWriter>;
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

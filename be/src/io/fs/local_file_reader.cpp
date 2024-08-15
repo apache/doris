@@ -19,13 +19,13 @@
 
 #include <bthread/bthread.h>
 // IWYU pragma: no_include <bthread/errno.h>
-#include <errno.h> // IWYU pragma: keep
 #include <fmt/format.h>
 #include <glog/logging.h>
 #include <unistd.h>
 
 #include <algorithm>
 #include <atomic>
+#include <cerrno> // IWYU pragma: keep
 #include <cstring>
 #include <string>
 #include <utility>
@@ -33,11 +33,9 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/sync_point.h"
 #include "io/fs/err_utils.h"
-#include "util/async_io.h"
 #include "util/doris_metrics.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 struct IOContext;
 
 LocalFileReader::LocalFileReader(Path path, size_t file_size, int fd,
@@ -67,6 +65,8 @@ Status LocalFileReader::close() {
 
 Status LocalFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                      const IOContext* /*io_ctx*/) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileReader::read_at_impl",
+                                      Status::IOError("inject io error"));
     DCHECK(!closed());
     if (offset > _file_size) {
         return Status::InternalError(
@@ -98,5 +98,4 @@ Status LocalFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_
     return Status::OK();
 }
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io
