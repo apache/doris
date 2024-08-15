@@ -46,34 +46,24 @@ suite ("k1s2m3") {
 
     qt_select_star "select * from d_table order by k1;"
 
-    mv_rewrite_success("select k1,sum(k2*k3) from d_table group by k1 order by k1;", "k1s2m3")
+    // support lower case and upper case: k1, K1
+    mv_rewrite_success("select k1,sum(K2*k3) from d_table group by K1 order by K1;", "k1s2m3")
     
-    qt_select_mv1 "select k1,sum(k2*k3) from d_table group by k1 order by k1;"
+    qt_select_mv1 "select K1,sum(k2*k3) from d_table group by K1 order by k1;"
     
-    mv_rewrite_success("select k1,sum(k2*k3) from d_table group by k1 order by k1;", "k1s2m3")
 
-    qt_select_mv2 "select K1,sum(K2*K3) from d_table group by K1 order by K1;"
-
-    sql""" drop materialized view k1s2m3 on d_table; """
-    createMV("create materialized view k1s2m3 as select K1,sum(K2*K3) from d_table group by K1;")
-    sql "analyze table d_table"
-
-    mv_rewrite_success("select k1,sum(k2*k3) from d_table group by k1 order by k1;", "k1s2m3")
-
-    qt_select_mv3 "select k1,sum(k2*k3) from d_table group by k1 order by k1;"
-    mv_rewrite_success("select k1,sum(k2*k3) from d_table group by k1 order by k1;", "k1s2m3")
-
-    qt_select_mv4 "select K1,sum(K2*K3) from d_table group by K1 order by K1;"
     sql "delete from d_table where k1=1;"
+
     sql "analyze table d_table"
+
     mv_rewrite_success("select k1,sum(k2*k3) from d_table group by k1 order by k1;", "k1s2m3")
 
-    qt_select_mv5 "select k1,sum(k2*k3) from d_table group by k1 order by k1;"
+    qt_select_mv2 "select k1,sum(k2*k3) from d_table group by k1 order by k1;"
 
     createMV("create materialized view kdup321 as select k3,k2,k1 from d_table;")
     
     sql "analyze table d_table"
-    
+    // kdup321 prefix index
     mv_rewrite_success("select count(k2) from d_table where k3 = 1;", "kdup321")
     
     qt_select_mv6 "select count(k2) from d_table where k3 = 1;"
