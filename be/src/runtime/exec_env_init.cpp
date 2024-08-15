@@ -34,7 +34,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "io/cache/block/block_file_cache_factory.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "io/fs/file_meta_cache.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"

@@ -25,7 +25,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "io/cache/block/block_file_cache_settings.h"
+#include "io/cache/block_file_cache_settings.h"
 #include "util/uid_util.h"
 
 namespace doris {

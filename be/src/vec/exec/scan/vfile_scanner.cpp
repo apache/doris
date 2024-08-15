@@ -35,7 +35,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
-#include "io/cache/block/block_file_cache_profile.h"
+#include "io/cache/block_file_cache_profile.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"

@@ -22,7 +22,7 @@
 #include <algorithm>
 
 #include "common/config.h"
-#include "io/cache/block/cached_remote_file_reader.h"
+#include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader.h"
 #include "util/async_io.h" // IWYU pragma: keep
 

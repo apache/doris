@@ -18,7 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/Cache/FileCache.cpp
 // and modified by Doris
 
-#include "io/cache/block/block_file_cache.h"
+#include "io/cache/block_file_cache.h"
 
 #include <fmt/core.h>
 #include <glog/logging.h>
@@ -29,8 +29,8 @@
 #include <filesystem>
 #include <utility>
 
-#include "io/cache/block/block_file_cache_fwd.h"
-#include "io/cache/block/block_file_cache_settings.h"
+#include "io/cache/block_file_cache_fwd.h"
+#include "io/cache/block_file_cache_settings.h"
 #include "vec/common/hex.h"
 #include "vec/common/sip_hash.h"
 

@@ -26,7 +26,7 @@
 #include <mutex>
 
 #include "common/status.h"
-#include "io/cache/block/block_file_segment.h"
+#include "io/cache/block_file_segment.h"
 #include "util/crc32c.h"
 #include "util/slice.h"
 #include "util/threadpool.h"

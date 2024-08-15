@@ -25,7 +25,7 @@
 #include <utility>
 
 #include "common/status.h"
-#include "io/cache/block/block_file_cache.h"
+#include "io/cache/block_file_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"

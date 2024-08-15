@@ -18,7 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/Cache/FileSegment.cpp
 // and modified by Doris
 
-#include "io/cache/block/block_file_segment.h"
+#include "io/cache/block_file_segment.h"
 
 #include <glog/logging.h>
 // IWYU pragma: no_include <bits/chrono.h>

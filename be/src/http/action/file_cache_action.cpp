@@ -26,7 +26,7 @@
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_status.h"
-#include "io/cache/block/block_file_cache_factory.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_meta.h"
 #include "util/easy_json.h"

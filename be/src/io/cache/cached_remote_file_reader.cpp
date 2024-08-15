@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/cache/block/cached_remote_file_reader.h"
+#include "io/cache/cached_remote_file_reader.h"
 
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
@@ -28,9 +28,9 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
-#include "io/cache/block/block_file_cache.h"
-#include "io/cache/block/block_file_cache_factory.h"
-#include "io/cache/block/block_file_segment.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_factory.h"
+#include "io/cache/block_file_segment.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "util/bit_util.h"

@@ -32,7 +32,7 @@
 #include <utility>
 
 #include "common/status.h"
-#include "io/cache/block/block_file_cache.h"
+#include "io/cache/block_file_cache.h"
 #include "io/fs/file_writer.h"
 #include "util/slice.h"
 

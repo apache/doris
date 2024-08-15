@@ -18,7 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/Cache/LRUFileCachePriority.cpp
 // and modified by Doris
 
-#include "io/cache/block/block_lru_file_cache.h"
+#include "io/cache/block_lru_file_cache.h"
 
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
@@ -41,8 +41,8 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "io/cache/block/block_file_cache.h"
-#include "io/cache/block/block_file_cache_fwd.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_fwd.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"

@@ -35,8 +35,8 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "io/cache/block/block_file_cache_fwd.h"
-#include "io/cache/block/block_file_cache_settings.h"
+#include "io/cache/block_file_cache_fwd.h"
+#include "io/cache/block_file_cache_settings.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "util/hash_util.hpp"

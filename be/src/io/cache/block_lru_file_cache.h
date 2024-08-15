@@ -32,8 +32,8 @@
 #include <vector>
 
 #include "common/status.h"
-#include "io/cache/block/block_file_cache.h"
-#include "io/cache/block/block_file_segment.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_segment.h"
 #include "util/metrics.h"
 
 namespace doris {

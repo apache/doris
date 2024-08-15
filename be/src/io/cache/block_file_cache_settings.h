@@ -22,7 +22,7 @@
 
 #include <array>
 
-#include "io/cache/block/block_file_cache_fwd.h"
+#include "io/cache/block_file_cache_fwd.h"
 
 namespace doris {
 namespace io {

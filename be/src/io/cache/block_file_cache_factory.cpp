@@ -18,7 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/Cache/FileCacheFactory.cpp
 // and modified by Doris
 
-#include "io/cache/block/block_file_cache_factory.h"
+#include "io/cache/block_file_cache_factory.h"
 
 #include <glog/logging.h>
 
@@ -27,9 +27,9 @@
 #include <utility>
 
 #include "common/config.h"
-#include "io/cache/block/block_file_cache.h"
-#include "io/cache/block/block_file_cache_settings.h"
-#include "io/cache/block/block_lru_file_cache.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_settings.h"
+#include "io/cache/block_lru_file_cache.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 
