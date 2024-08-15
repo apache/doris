@@ -104,18 +104,12 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 try {
                     stmt.cancel();
                 } catch (SQLException e) {
-                    LOG.error("Error cancelling statement", e);
+                    LOG.warn("Cannot cancelling statement", e);
                 }
             }
 
-            boolean shouldAbort = conn != null && resultSet != null;
-            boolean aborted = false; // Used to record whether the abort operation is performed
-            if (shouldAbort) {
-                aborted = abortReadConnection(conn, resultSet);
-            }
-
-            // If no abort operation is performed, the resource needs to be closed manually
-            if (!aborted) {
+            if (conn != null || resultSet != null) {
+                abortReadConnection(conn, resultSet);
                 closeResources(resultSet, stmt, conn);
             }
         } finally {
@@ -131,15 +125,9 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         for (AutoCloseable closeable : closeables) {
             if (closeable != null) {
                 try {
-                    if (closeable instanceof Connection) {
-                        if (!((Connection) closeable).isClosed()) {
-                            closeable.close();
-                        }
-                    } else {
-                        closeable.close();
-                    }
+                    closeable.close();
                 } catch (Exception e) {
-                    LOG.error("Cannot close resource: ", e);
+                    LOG.warn("Cannot close resource");
                 }
             }
         }
