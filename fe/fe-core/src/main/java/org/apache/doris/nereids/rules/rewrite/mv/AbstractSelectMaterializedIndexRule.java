@@ -144,6 +144,18 @@ public abstract class AbstractSelectMaterializedIndexRule {
         return prunedExpr;
     }
 
+    protected static boolean containAllKeyColumns(OlapTable table, MaterializedIndex index) {
+        Set<String> mvColNames = table.getKeyColumnsByIndexId(index.getId()).stream()
+                .map(c -> normalizeName(parseMvColumnToSql(c.getNameWithoutMvPrefix())))
+                .collect(Collectors.toCollection(() -> new TreeSet<String>(String.CASE_INSENSITIVE_ORDER)));
+
+        Set<String> keyColNames = table.getBaseSchemaKeyColumns().stream()
+                .map(c -> normalizeName(parseMvColumnToSql(c.getNameWithoutMvPrefix())))
+                .collect(Collectors.toCollection(() -> new TreeSet<String>(String.CASE_INSENSITIVE_ORDER)));
+
+        return keyColNames.containsAll(mvColNames);
+    }
+
     protected static boolean containAllRequiredColumns(MaterializedIndex index, LogicalOlapScan scan,
             Set<Slot> requiredScanOutput, Set<? extends Expression> requiredExpr, Set<Expression> predicateExpr) {
         OlapTable table = scan.getTable();
