@@ -105,7 +105,7 @@ struct TShowVariableRequest {
 
 // Results of a call to describeTable()
 struct TShowVariableResult {
-    1: required map<string, string> variables
+    1: required list<list<string>> variables
 }
 
 // Valid table file formats
@@ -1003,6 +1003,7 @@ enum TSchemaTableName {
   WORKLOAD_SCHEDULE_POLICY = 5,
   TABLE_OPTIONS = 6,
   WORKLOAD_GROUP_PRIVILEGES = 7,
+  TABLE_PROPERTIES = 8,
 }
 
 struct TMetadataTableRequestParams {
@@ -1023,6 +1024,8 @@ struct TSchemaTableRequestParams {
     1: optional list<string> columns_name
     2: optional Types.TUserIdentity current_user_ident
     3: optional bool replay_to_other_fe
+    4: optional string catalog  // use for table specific queries
+    5: optional i64 dbId         // used for table specific queries
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -1244,6 +1247,8 @@ struct TRestoreSnapshotRequest {
     10: optional map<string, string> properties
     11: optional binary meta
     12: optional binary job_info
+    13: optional bool clean_tables
+    14: optional bool clean_partitions
 }
 
 struct TRestoreSnapshotResult {

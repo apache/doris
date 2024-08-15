@@ -36,6 +36,8 @@
 #include "io/fs/err_utils.h"
 #include "olap/olap_common.h"
 #include "olap/options.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_management/io_throttle.h"
 #include "util/async_io.h"
 #include "util/doris_metrics.h"
 
@@ -58,12 +60,14 @@ void BeConfDataDirReader::get_data_dir_by_file_path(io::Path* file_path,
 
 void BeConfDataDirReader::init_be_conf_data_dir(
         const std::vector<doris::StorePath>& store_paths,
-        const std::vector<doris::StorePath>& spill_store_paths) {
+        const std::vector<doris::StorePath>& spill_store_paths,
+        const std::vector<doris::CachePath>& cache_paths) {
     for (int i = 0; i < store_paths.size(); i++) {
         DataDirInfo data_dir_info;
         data_dir_info.path = store_paths[i].path;
         data_dir_info.storage_medium = store_paths[i].storage_medium;
         data_dir_info.data_dir_type = DataDirType::OLAP_DATA_DIR;
+        data_dir_info.bvar_name = "local_data_dir_" + std::to_string(i);
         be_config_data_dir_list.push_back(data_dir_info);
     }
 
@@ -72,6 +76,16 @@ void BeConfDataDirReader::init_be_conf_data_dir(
         data_dir_info.path = spill_store_paths[i].path;
         data_dir_info.storage_medium = spill_store_paths[i].storage_medium;
         data_dir_info.data_dir_type = doris::DataDirType::SPILL_DISK_DIR;
+        data_dir_info.bvar_name = "spill_data_dir_" + std::to_string(i);
+        be_config_data_dir_list.push_back(data_dir_info);
+    }
+
+    for (int i = 0; i < cache_paths.size(); i++) {
+        doris::DataDirInfo data_dir_info;
+        data_dir_info.path = cache_paths[i].path;
+        data_dir_info.storage_medium = TStorageMedium::REMOTE_CACHE;
+        data_dir_info.data_dir_type = doris::DataDirType::DATA_CACHE_DIR;
+        data_dir_info.bvar_name = "local_cache_dir_" + std::to_string(i);
         be_config_data_dir_list.push_back(data_dir_info);
     }
 }
@@ -119,6 +133,8 @@ Status LocalFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_
     char* to = result.data;
     bytes_req = std::min(bytes_req, _file_size - offset);
     *bytes_read = 0;
+
+    LIMIT_LOCAL_SCAN_IO(get_data_dir_path(), bytes_read);
 
     while (bytes_req != 0) {
         auto res = SYNC_POINT_HOOK_RETURN_VALUE(::pread(_fd, to, bytes_req, offset),

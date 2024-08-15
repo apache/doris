@@ -923,11 +923,15 @@ public class NativeInsertStmt extends InsertStmt {
             Column col = targetColumns.get(i);
 
             if (expr instanceof DefaultValueExpr) {
-                if (targetColumns.get(i).getDefaultValue() == null) {
+                if (targetColumns.get(i).getDefaultValue() == null && !targetColumns.get(i).isAllowNull()) {
                     throw new AnalysisException("Column has no default value, column="
                             + targetColumns.get(i).getName());
                 }
-                expr = new StringLiteral(targetColumns.get(i).getDefaultValue());
+                if (targetColumns.get(i).getDefaultValue() == null) {
+                    expr = new NullLiteral();
+                } else {
+                    expr = new StringLiteral(targetColumns.get(i).getDefaultValue());
+                }
             }
             if (expr instanceof Subquery) {
                 throw new AnalysisException("Insert values can not be query");
@@ -1242,8 +1246,9 @@ public class NativeInsertStmt extends InsertStmt {
                     for (Expr expr : row) {
                         if (!(expr instanceof LiteralExpr)) {
                             if (LOG.isDebugEnabled()) {
-                                LOG.debug("group commit is off for table: {}, because not literal expr, "
-                                        + "expr: {}, row: {}", targetTable.getName(), expr, row);
+                                LOG.debug("group commit is off for query_id: {}, table: {}, "
+                                                + "because not literal expr: {}, row: {}",
+                                        DebugUtil.printId(ctx.queryId()), targetTable.getName(), expr, row);
                             }
                             return;
                         }
@@ -1252,8 +1257,9 @@ public class NativeInsertStmt extends InsertStmt {
                 // Does not support: insert into tbl values();
                 if (selectStmt.getValueList().getFirstRow().isEmpty() && CollectionUtils.isEmpty(targetColumnNames)) {
                     if (LOG.isDebugEnabled()) {
-                        LOG.debug("group commit is off for table: {}, because first row: {}, target columns: {}",
-                                targetTable.getName(), selectStmt.getValueList().getFirstRow(), targetColumnNames);
+                        LOG.debug("group commit is off for query_id: {}, table: {}, because first row: {}, "
+                                        + "target columns: {}", DebugUtil.printId(ctx.queryId()), targetTable.getName(),
+                                selectStmt.getValueList().getFirstRow(), targetColumnNames);
                     }
                     return;
                 }
@@ -1265,8 +1271,10 @@ public class NativeInsertStmt extends InsertStmt {
                         for (SelectListItem item : items) {
                             if (item.getExpr() != null && !(item.getExpr() instanceof LiteralExpr)) {
                                 if (LOG.isDebugEnabled()) {
-                                    LOG.debug("group commit is off for table: {}, because not literal expr, "
-                                            + "expr: {}, row: {}", targetTable.getName(), item.getExpr(), item);
+                                    LOG.debug("group commit is off for query_id: {}, table: {}, "
+                                                    + "because not literal expr: {}, row: {}",
+                                            DebugUtil.printId(ctx.queryId()), targetTable.getName(), item.getExpr(),
+                                            item);
                                 }
                                 return;
                             }
@@ -1279,8 +1287,8 @@ public class NativeInsertStmt extends InsertStmt {
             if (LOG.isDebugEnabled()) {
                 for (Pair<BooleanSupplier, Supplier<String>> pair : conditions) {
                     if (pair.first.getAsBoolean() == false) {
-                        LOG.debug("group commit is off for table: {}, because: {}", targetTable.getName(),
-                                pair.second.get());
+                        LOG.debug("group commit is off for query_id: {}, table: {}, because: {}",
+                                DebugUtil.printId(ctx.queryId()), targetTable.getName(), pair.second.get());
                         break;
                     }
                 }

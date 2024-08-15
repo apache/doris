@@ -14,6 +14,8 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import java.util.concurrent.TimeUnit
+
 suite("date", "rollup") {
 
     sql """set enable_nereids_planner=true"""
@@ -21,10 +23,6 @@ suite("date", "rollup") {
 
     def tbName1 = "test_materialized_view_date1"
 
-    def getJobState = { tableName ->
-        def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
-        return jobStateResult[0][8]
-    }
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql """
             CREATE TABLE IF NOT EXISTS ${tbName1}(
@@ -41,73 +39,10 @@ suite("date", "rollup") {
             DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1");
         """
 
-    int max_try_secs = 120
-    sql "CREATE materialized VIEW amt_max1 AS SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id;"
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
-    Thread.sleep(2000)
-    max_try_secs = 120
-    sql "CREATE materialized VIEW amt_max2 AS SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id;"
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
-    Thread.sleep(2000)
-    max_try_secs = 120
-    sql "CREATE materialized VIEW amt_max3 AS SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id;"
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
-    Thread.sleep(2000)
-    max_try_secs = 120
-    sql "CREATE materialized VIEW amt_max4 AS SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id;"
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
+    createMV("CREATE materialized VIEW amt_max1 AS SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id;")
+    createMV("CREATE materialized VIEW amt_max2 AS SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id;")
+    createMV("CREATE materialized VIEW amt_max3 AS SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id;")
+    createMV("CREATE materialized VIEW amt_max4 AS SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id;")
 
 
     sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName1}';"

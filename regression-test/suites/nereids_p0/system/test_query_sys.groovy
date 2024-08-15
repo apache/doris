@@ -48,4 +48,25 @@ suite("test_query_sys", "query,p0") {
     sql "set enable_nereids_planner=true"
     def v2 = sql "select version()"
     assertEquals(v1, v2)
+
+    test {
+        sql "select random(random());"
+        exception "The param of rand function must be literal"
+    }
+
+    sql "set enable_nereids_planner=false"
+    sql """
+        CREATE TABLE IF NOT EXISTS `test_random` (
+        fcst_emp varchar(128) NOT NULL
+        ) ENGINE=OLAP
+        DISTRIBUTED BY HASH(`fcst_emp`)
+        PROPERTIES(
+        "replication_num" = "1",
+        "compression" = "LZ4" );
+    """
+    sql """ insert into test_random values('123,1233,4123,3131'); """
+    test {
+        sql "select random(1,array_size(split_by_string(fcst_emp,','))) from test_random;"
+        exception "The param of rand function must be literal"
+    }
 }

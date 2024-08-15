@@ -1433,7 +1433,7 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
-        LOG_INFO("recycle rowsets finished, cost={}s", cost)
+        LOG_INFO("recycle the rowsets of dropped tablet finished, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("tablet_id", tablet_id);
     });
@@ -1618,7 +1618,7 @@ int InstanceRecycler::recycle_rowsets() {
                 // old version `RecycleRowsetPB` may has empty resource_id, just remove the kv.
                 LOG(INFO) << "delete the recycle rowset kv that has empty resource_id, key="
                           << hex(k) << " value=" << proto_to_json(rowset);
-                rowset_keys.push_back(std::string(k));
+                rowset_keys.emplace_back(k);
                 return -1;
             }
             // decode rowset_id
@@ -1664,7 +1664,7 @@ int InstanceRecycler::recycle_rowsets() {
                 return -1;
             }
         } else {
-            rowset_keys.push_back(std::string(k));
+            rowset_keys.emplace_back(k);
             if (rowset_meta->num_segments() > 0) { // Skip empty rowset
                 rowsets.push_back(std::move(*rowset_meta));
             }

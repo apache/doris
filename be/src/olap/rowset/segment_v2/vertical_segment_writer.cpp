@@ -120,6 +120,8 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                 _opts.rowset_ctx->rowset_id.to_string(), segment_id,
                 _tablet_schema->get_inverted_index_storage_format(),
                 std::move(inverted_file_writer));
+        _inverted_index_file_writer->set_file_writer_opts(
+                _opts.rowset_ctx->get_file_writer_options());
     }
 }
 
@@ -575,9 +577,9 @@ Status VerticalSegmentWriter::_fill_missing_columns(
             auto rowset = _rsid_to_rowset[rs_it.first];
             CHECK(rowset);
             std::vector<uint32_t> rids;
-            for (auto id_and_pos : seg_it.second) {
-                rids.emplace_back(id_and_pos.rid);
-                read_index[id_and_pos.pos] = read_idx++;
+            for (auto [rid, pos] : seg_it.second) {
+                rids.emplace_back(rid);
+                read_index[pos] = read_idx++;
             }
             if (has_row_column) {
                 auto st = _tablet->fetch_value_through_row_column(
@@ -629,7 +631,7 @@ Status VerticalSegmentWriter::_fill_missing_columns(
 
     // fill all missing value from mutable_old_columns, need to consider default value and null value
     for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
-        // `use_default_or_null_flag[idx] == true` doesn't mean that we should read values from the old row
+        // `use_default_or_null_flag[idx] == false` doesn't mean that we should read values from the old row
         // for the missing columns. For example, if a table has sequence column, the rows with DELETE_SIGN column
         // marked will not be marked in delete bitmap(see https://github.com/apache/doris/pull/24011), so it will
         // be found in Tablet::lookup_row_key() and `use_default_or_null_flag[idx]` will be false. But we should not

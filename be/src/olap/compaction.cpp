@@ -197,9 +197,6 @@ Status Compaction::merge_input_rowsets() {
     _tablet->last_compaction_status = res;
 
     if (!res.ok()) {
-        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
-                     << ", tablet=" << _tablet->tablet_id()
-                     << ", output_version=" << _output_version;
         return res;
     }
 
@@ -352,7 +349,9 @@ bool CompactionMixin::handle_ordered_data_compaction() {
 
     // check delete version: if compaction type is base compaction and
     // has a delete version, use original compaction
-    if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
+    if (compaction_type() == ReaderType::READER_BASE_COMPACTION ||
+        (_allow_delete_in_cumu_compaction &&
+         compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION)) {
         for (auto& rowset : _input_rowsets) {
             if (rowset->rowset_meta()->has_delete_predicate()) {
                 return false;
@@ -510,8 +509,8 @@ Status Compaction::do_inverted_index_compaction() {
             } else {
                 DCHECK(false) << err_msg;
             }
+            // log here just for debugging, do not return error
             LOG(WARNING) << err_msg;
-            return Status::InternalError(err_msg);
         }
     }
 
@@ -686,6 +685,9 @@ Status Compaction::do_inverted_index_compaction() {
             LOG(ERROR) << "inverted_index_file_reader init failed in index compaction, error:"
                        << st;
             return st;
+        }
+        for (const auto& writer : inverted_index_file_writers) {
+            writer->set_file_writer_opts(ctx.get_file_writer_options());
         }
     }
 
@@ -1219,8 +1221,10 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
 
     auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
-    ctx.compaction_level =
-            _engine.cumu_compaction_policy(compaction_policy)->new_compaction_level(_input_rowsets);
+    if (_tablet->tablet_meta()->time_series_compaction_level_threshold() >= 2) {
+        ctx.compaction_level = _engine.cumu_compaction_policy(compaction_policy)
+                                       ->new_compaction_level(_input_rowsets);
+    }
 
     ctx.write_file_cache = compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION;
     ctx.file_cache_ttl_sec = _tablet->ttl_seconds();

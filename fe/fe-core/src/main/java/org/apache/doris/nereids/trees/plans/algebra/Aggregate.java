@@ -90,4 +90,14 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
         }
         return hasDistinctArguments.get();
     }
+
+    /** mustUseMultiDistinctAgg */
+    default boolean mustUseMultiDistinctAgg() {
+        for (AggregateFunction aggregateFunction : getAggregateFunctions()) {
+            if (aggregateFunction.mustUseMultiDistinctAgg()) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

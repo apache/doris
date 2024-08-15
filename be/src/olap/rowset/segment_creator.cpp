@@ -27,6 +27,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/file_writer.h"
@@ -70,12 +71,12 @@ Status SegmentFlusher::flush_single_block(const vectorized::Block* block, int32_
         _context.tablet_schema->cluster_key_idxes().empty()) {
         std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
         RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression));
-        RETURN_IF_ERROR(_add_rows(writer, &flush_block, 0, flush_block.rows()));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_add_rows(writer, &flush_block, 0, flush_block.rows()));
         RETURN_IF_ERROR(_flush_segment_writer(writer, writer->flush_schema(), flush_size));
     } else {
         std::unique_ptr<segment_v2::SegmentWriter> writer;
         RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression));
-        RETURN_IF_ERROR(_add_rows(writer, &flush_block, 0, flush_block.rows()));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_add_rows(writer, &flush_block, 0, flush_block.rows()));
         RETURN_IF_ERROR(_flush_segment_writer(writer, writer->flush_schema(), flush_size));
     }
     return Status::OK();

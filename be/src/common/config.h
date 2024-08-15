@@ -186,13 +186,11 @@ DECLARE_mBool(disable_memory_gc);
 // if false, turn off all stacktrace
 DECLARE_mBool(enable_stacktrace);
 
-// Allocator check failed log stacktrace if not catch exception
-DECLARE_mBool(enable_stacktrace_in_allocator_check_failed);
-
-// malloc or new large memory larger than large_memory_check_bytes, default 2G,
-// will print a warning containing the stacktrace, but not prevent memory alloc.
-// If is -1, disable large memory check.
-DECLARE_mInt64(large_memory_check_bytes);
+// when alloc memory larger than stacktrace_in_alloc_large_memory_bytes, default 2G,
+// if alloc successful, will print a warning with stacktrace, but not prevent memory alloc.
+// if alloc failed using Doris Allocator, will print stacktrace in error log.
+// if is -1, disable print stacktrace when alloc large memory.
+DECLARE_mInt64(stacktrace_in_alloc_large_memory_bytes);
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
 DECLARE_mBool(enable_memory_orphan_check);
@@ -321,8 +319,6 @@ DECLARE_mInt32(doris_scan_range_row_count);
 DECLARE_mInt32(doris_scan_range_max_mb);
 // max bytes number for single scan block, used in segmentv2
 DECLARE_mInt32(doris_scan_block_max_mb);
-// size of scanner queue between scanner thread and compute thread
-DECLARE_mInt32(doris_scanner_queue_size);
 // single read execute fragment row number
 DECLARE_mInt32(doris_scanner_row_num);
 // single read execute fragment row bytes
@@ -983,9 +979,7 @@ DECLARE_mInt32(orc_natural_read_size_mb);
 DECLARE_mInt64(big_column_size_buffer);
 DECLARE_mInt64(small_column_size_buffer);
 
-// When the rows number reached this limit, will check the filter rate the of bloomfilter
-// if it is lower than a specific threshold, the predicate will be disabled.
-DECLARE_mInt32(rf_predicate_check_row_num);
+DECLARE_mInt32(runtime_filter_sampling_frequency);
 
 // cooldown task configs
 DECLARE_Int32(cooldown_thread_num);

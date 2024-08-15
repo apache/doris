@@ -162,7 +162,8 @@ void ColumnVector<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
                                        uint8* __restrict filter) const {
     const auto sz = data.size();
     DCHECK(cmp_res.size() == sz);
-    const auto& cmp_base = assert_cast<const ColumnVector<T>&>(rhs).get_data()[rhs_row_id];
+    const auto& cmp_base = assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(rhs)
+                                   .get_data()[rhs_row_id];
     size_t begin = simd::find_zero(cmp_res, 0);
     while (begin < sz) {
         size_t end = simd::find_one(cmp_res, begin + 1);
@@ -255,7 +256,8 @@ void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direct
 
     if (s == 0) return;
 
-    if (limit >= s) limit = 0;
+    // std::partial_sort need limit << s can get performance benefit
+    if (limit > (s / 8.0)) limit = 0;
 
     if (limit) {
         for (size_t i = 0; i < s; ++i) res[i] = i;

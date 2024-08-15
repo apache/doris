@@ -88,16 +88,20 @@ class ShardedKVCache;
 namespace doris::vectorized {
 using namespace ErrorCode;
 
-VFileScanner::VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* local_state,
-                           int64_t limit,
-                           std::shared_ptr<vectorized::SplitSourceConnector> split_source,
-                           RuntimeProfile* profile, ShardedKVCache* kv_cache)
+VFileScanner::VFileScanner(
+        RuntimeState* state, pipeline::FileScanLocalState* local_state, int64_t limit,
+        std::shared_ptr<vectorized::SplitSourceConnector> split_source, RuntimeProfile* profile,
+        ShardedKVCache* kv_cache,
+        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+        const std::unordered_map<std::string, int>* colname_to_slot_id)
         : VScanner(state, local_state, limit, profile),
           _split_source(split_source),
           _cur_reader(nullptr),
           _cur_reader_eof(false),
+          _colname_to_value_range(colname_to_value_range),
           _kv_cache(kv_cache),
-          _strict_mode(false) {
+          _strict_mode(false),
+          _col_name_to_slot_id(colname_to_slot_id) {
     if (state->get_query_ctx() != nullptr &&
         state->get_query_ctx()->file_scan_range_params_map.count(local_state->parent_id()) > 0) {
         _params = &(state->get_query_ctx()->file_scan_range_params_map[local_state->parent_id()]);
@@ -116,13 +120,8 @@ VFileScanner::VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* lo
     _is_load = (_input_tuple_desc != nullptr);
 }
 
-Status VFileScanner::prepare(
-        const VExprContextSPtrs& conjuncts,
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-        const std::unordered_map<std::string, int>* colname_to_slot_id) {
-    RETURN_IF_ERROR(VScanner::prepare(_state, conjuncts));
-    _colname_to_value_range = colname_to_value_range;
-    _col_name_to_slot_id = colname_to_slot_id;
+Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    RETURN_IF_ERROR(VScanner::prepare(state, conjuncts));
     _get_block_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerGetBlockTime");
     _open_reader_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerOpenReaderTime");
     _cast_to_input_block_timer =
@@ -824,12 +823,21 @@ Status VFileScanner::_get_next_reader() {
                 RETURN_IF_ERROR(paimon_reader->init_row_filters(range));
                 _cur_reader = std::move(paimon_reader);
             } else {
+                bool hive_parquet_use_column_names = true;
+
+                if (range.__isset.table_format_params &&
+                    range.table_format_params.table_format_type == "hive" && _state != nullptr)
+                        [[likely]] {
+                    hive_parquet_use_column_names =
+                            _state->query_options().hive_parquet_use_column_names;
+                }
+
                 std::vector<std::string> place_holder;
                 init_status = parquet_reader->init_reader(
                         _file_col_names, place_holder, _colname_to_value_range,
                         _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
                         _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
-                        &_slot_id_to_filter_conjuncts);
+                        &_slot_id_to_filter_conjuncts, true, hive_parquet_use_column_names);
                 _cur_reader = std::move(parquet_reader);
             }
             need_to_get_parsed_schema = true;
@@ -885,10 +893,18 @@ Status VFileScanner::_get_next_reader() {
                 RETURN_IF_ERROR(paimon_reader->init_row_filters(range));
                 _cur_reader = std::move(paimon_reader);
             } else {
+                bool hive_orc_use_column_names = true;
+
+                if (range.__isset.table_format_params &&
+                    range.table_format_params.table_format_type == "hive" && _state != nullptr)
+                        [[likely]] {
+                    hive_orc_use_column_names = _state->query_options().hive_orc_use_column_names;
+                }
                 init_status = orc_reader->init_reader(
                         &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
                         _real_tuple_desc, _default_val_row_desc.get(),
-                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
+                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts,
+                        hive_orc_use_column_names);
                 _cur_reader = std::move(orc_reader);
             }
             need_to_get_parsed_schema = true;

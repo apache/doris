@@ -180,6 +180,9 @@ public:
     std::shared_ptr<MemTrackerLimiter> segcompaction_mem_tracker() {
         return _segcompaction_mem_tracker;
     }
+    std::shared_ptr<MemTrackerLimiter> stream_load_pipe_tracker() {
+        return _stream_load_pipe_tracker;
+    }
     std::shared_ptr<MemTrackerLimiter> point_query_executor_mem_tracker() {
         return _point_query_executor_mem_tracker;
     }
@@ -207,7 +210,7 @@ public:
     ThreadPool* s3_file_system_thread_pool() { return _s3_file_system_thread_pool.get(); }
 
     Status init_pipeline_task_scheduler();
-    void init_file_cache_factory();
+    void init_file_cache_factory(std::vector<doris::CachePath>& cache_paths);
     io::FileCacheFactory* file_cache_factory() { return _file_cache_factory; }
     UserFunctionCache* user_function_cache() { return _user_function_cache; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
@@ -218,6 +221,9 @@ public:
     BrokerMgr* broker_mgr() const { return _broker_mgr; }
     BrpcClientCache<PBackendService_Stub>* brpc_internal_client_cache() const {
         return _internal_client_cache;
+    }
+    BrpcClientCache<PBackendService_Stub>* brpc_streaming_client_cache() const {
+        return _streaming_client_cache;
     }
     BrpcClientCache<PFunctionService_Stub>* brpc_function_client_cache() const {
         return _function_client_cache;
@@ -358,6 +364,7 @@ private:
     std::shared_ptr<MemTracker> _brpc_iobuf_block_memory_tracker;
     // Count the memory consumption of segment compaction tasks.
     std::shared_ptr<MemTrackerLimiter> _segcompaction_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _stream_load_pipe_tracker;
 
     // Tracking memory may be shared between multiple queries.
     std::shared_ptr<MemTrackerLimiter> _point_query_executor_mem_tracker;
@@ -399,6 +406,7 @@ private:
     // TODO(zhiqiang): Do not use shared_ptr in exec_env, we can not control its life cycle.
     std::shared_ptr<NewLoadStreamMgr> _new_load_stream_mgr;
     BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;
+    BrpcClientCache<PBackendService_Stub>* _streaming_client_cache = nullptr;
     BrpcClientCache<PFunctionService_Stub>* _function_client_cache = nullptr;
 
     std::shared_ptr<StreamLoadExecutor> _stream_load_executor;

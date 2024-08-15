@@ -35,7 +35,6 @@ import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.util.CacheBulkLoader;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.CacheException;
-import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.FileSystemCache;
@@ -55,6 +54,8 @@ import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -178,7 +179,7 @@ public class HiveMetaStoreCache {
 
         CacheFactory fileCacheFactory = new CacheFactory(
                 OptionalLong.of(fileMetaCacheTtlSecond >= HMSExternalCatalog.FILE_META_CACHE_TTL_DISABLE_CACHE
-                        ? fileMetaCacheTtlSecond : 86400L),
+                        ? fileMetaCacheTtlSecond : 28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
                 Config.max_external_file_cache_num,
                 false,
@@ -247,7 +248,7 @@ public class HiveMetaStoreCache {
             LOG.debug("load #{} partitions for {} in catalog {}", partitionNames.size(), key, catalog.getName());
         }
         Map<Long, PartitionItem> idToPartitionItem = Maps.newHashMapWithExpectedSize(partitionNames.size());
-        Map<String, Long> partitionNameToIdMap = Maps.newHashMapWithExpectedSize(partitionNames.size());
+        BiMap<String, Long> partitionNameToIdMap = HashBiMap.create(partitionNames.size());
         Map<Long, List<UniqueId>> idToUniqueIdsMap = Maps.newHashMapWithExpectedSize(partitionNames.size());
         long idx = 0;
         for (String partitionName : partitionNames) {
@@ -512,8 +513,7 @@ public class HiveMetaStoreCache {
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("get #{} files from #{} partitions in catalog {} cost: {} ms",
-                    fileLists.stream().mapToInt(l -> l.getFiles() == null
-                            ? (l.getSplits() == null ? 0 : l.getSplits().size()) : l.getFiles().size()).sum(),
+                    fileLists.stream().mapToInt(l -> l.getFiles() == null ? 0 : l.getFiles().size()).sum(),
                     partitions.size(), catalog.getName(), (System.currentTimeMillis() - start));
         }
         return fileLists;
@@ -992,9 +992,6 @@ public class HiveMetaStoreCache {
     public static class FileCacheValue {
         // File Cache for self splitter.
         private final List<HiveFileStatus> files = Lists.newArrayList();
-        // File split cache for old splitter. This is a temp variable.
-        @Deprecated
-        private final List<FileSplit> splits = Lists.newArrayList();
         private boolean isSplittable;
         // The values of partitions.
         // e.g for file : hdfs://path/to/table/part1=a/part2=b/datafile
@@ -1012,13 +1009,6 @@ public class HiveMetaStoreCache {
                 status.blockSize = file.getBlockSize();
                 status.modificationTime = file.getModificationTime();
                 files.add(status);
-            }
-        }
-
-        @Deprecated
-        public void addSplit(FileSplit split) {
-            if (isFileVisible(split.getPath())) {
-                splits.add(split);
             }
         }
 
@@ -1086,7 +1076,7 @@ public class HiveMetaStoreCache {
     @Data
     public static class HivePartitionValues {
         private long nextPartitionId;
-        private Map<String, Long> partitionNameToIdMap;
+        private BiMap<String, Long> partitionNameToIdMap;
         private Map<Long, List<UniqueId>> idToUniqueIdsMap;
         private Map<Long, PartitionItem> idToPartitionItem;
         private Map<Long, List<String>> partitionValuesMap;
@@ -1105,7 +1095,7 @@ public class HiveMetaStoreCache {
                 Map<Range<PartitionKey>, UniqueId> rangeToId,
                 RangeMap<ColumnBound, UniqueId> singleColumnRangeMap,
                 long nextPartitionId,
-                Map<String, Long> partitionNameToIdMap,
+                BiMap<String, Long> partitionNameToIdMap,
                 Map<Long, List<UniqueId>> idToUniqueIdsMap,
                 Map<UniqueId, Range<ColumnBound>> singleUidToColumnRangeMap,
                 Map<Long, List<String>> partitionValuesMap) {
@@ -1123,7 +1113,7 @@ public class HiveMetaStoreCache {
         public HivePartitionValues copy() {
             HivePartitionValues copy = new HivePartitionValues();
             copy.setNextPartitionId(nextPartitionId);
-            copy.setPartitionNameToIdMap(partitionNameToIdMap == null ? null : Maps.newHashMap(partitionNameToIdMap));
+            copy.setPartitionNameToIdMap(partitionNameToIdMap == null ? null : HashBiMap.create(partitionNameToIdMap));
             copy.setIdToUniqueIdsMap(idToUniqueIdsMap == null ? null : Maps.newHashMap(idToUniqueIdsMap));
             copy.setIdToPartitionItem(idToPartitionItem == null ? null : Maps.newHashMap(idToPartitionItem));
             copy.setPartitionValuesMap(partitionValuesMap == null ? null : Maps.newHashMap(partitionValuesMap));

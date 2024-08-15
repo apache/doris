@@ -73,7 +73,8 @@ public:
 
     void change(const IColumn& column, size_t row_num, Arena*) {
         has_value = true;
-        value = assert_cast<const ColumnBitmap&>(column).get_data()[row_num];
+        value = assert_cast<const ColumnBitmap&, TypeCheckOnRelease::DISABLE>(column)
+                        .get_data()[row_num];
     }
 
     void change(const Self& to, Arena*) {

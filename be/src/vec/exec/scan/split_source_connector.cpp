@@ -60,7 +60,7 @@ Status RemoteSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* rang
             return Status::IOError<false>("Failed to get batch of split source: {}", e.what());
         }
         _last_batch = result.splits.empty();
-        _scan_ranges = result.splits;
+        _merge_ranges<TScanRangeLocations>(_scan_ranges, result.splits);
         _scan_index = 0;
         _range_index = 0;
     }

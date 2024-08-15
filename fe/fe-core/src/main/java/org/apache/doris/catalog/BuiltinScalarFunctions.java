@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayAvg;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCompact;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayConcat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContains;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContainsAll;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCumSum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDifference;
@@ -75,6 +76,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan2;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AutoPartitionName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Bin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitLength;
@@ -339,6 +341,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RandomBytes;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtractAll;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtractOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpReplaceOne;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Repeat;
@@ -485,6 +488,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayCompact.class, "array_compact"),
             scalar(ArrayConcat.class, "array_concat"),
             scalar(ArrayContains.class, "array_contains"),
+            scalar(ArrayContainsAll.class, "array_contains_all", "hasSubstr"),
             scalar(ArrayCount.class, "array_count"),
             scalar(ArrayCumSum.class, "array_cum_sum"),
             scalar(ArrayDifference.class, "array_difference"),
@@ -528,6 +532,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Asin.class, "asin"),
             scalar(Atan.class, "atan"),
             scalar(Atan2.class, "atan2"),
+            scalar(AutoPartitionName.class, "auto_partition_name"),
             scalar(Bin.class, "bin"),
             scalar(BitCount.class, "bit_count"),
             scalar(BitLength.class, "bit_length"),
@@ -807,6 +812,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Regexp.class, "regexp"),
             scalar(RegexpExtract.class, "regexp_extract"),
             scalar(RegexpExtractAll.class, "regexp_extract_all"),
+            scalar(RegexpExtractOrNull.class, "regexp_extract_or_null"),
             scalar(RegexpReplace.class, "regexp_replace"),
             scalar(RegexpReplaceOne.class, "regexp_replace_one"),
             scalar(Repeat.class, "repeat"),

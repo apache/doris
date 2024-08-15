@@ -26,7 +26,7 @@ options { tokenVocab = DorisLexer; }
 }
 
 multiStatements
-    : (statement SEMICOLON*)+ EOF
+    : statement (SEMICOLON+ statement)* SEMICOLON* EOF
     ;
 
 singleStatement
@@ -55,7 +55,11 @@ statementBase
 
 unsupportedStatement
     : unsupportedSetStatement
+    | unsupoortedUnsetStatement
     | unsupportedUseStatement
+    | unsupportedDmlStatement
+    | unsupportedKillStatement
+    | unsupportedDescribeStatement
     ;
 
 materailizedViewStatement
@@ -159,29 +163,35 @@ supportedDropStatement
     ;
 
 unsupportedSetStatement
-    : SET identifier AS DEFAULT STORAGE VAULT                              #setDefaultStorageVault
-    | SET PROPERTY (FOR user=identifierOrText)? propertyItemList           #setUserProperties
-    | SET (GLOBAL | LOCAL | SESSION)? identifier EQ (expression | DEFAULT) #setSystemVariableWithType
-    | SET variable                                                         #setSystemVariableWithoutType
-    | SET (CHAR SET | CHARSET) (charsetName=identifierOrText | DEFAULT)    #setCharset
-    | SET NAMES EQ expression                                              #setNames
+    : SET (optionWithType | optionWithoutType)
+        (COMMA (optionWithType | optionWithoutType))*                     #setOptions
+    | SET identifier AS DEFAULT STORAGE VAULT                             #setDefaultStorageVault
+    | SET PROPERTY (FOR user=identifierOrText)? propertyItemList          #setUserProperties
     | SET (GLOBAL | LOCAL | SESSION)? TRANSACTION
         ( transactionAccessMode
         | isolationLevel
         | transactionAccessMode COMMA isolationLevel
         | isolationLevel COMMA transactionAccessMode)                     #setTransaction
-    | SET NAMES (charsetName=identifierOrText | DEFAULT) (COLLATE collateName=identifierOrText | DEFAULT)?    #setCollate
-    | SET PASSWORD (FOR userIdentify)? EQ (STRING_LITERAL | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN)) #setPassword
-    | SET LDAP_ADMIN_PASSWORD EQ (STRING_LITERAL | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))          #setLdapAdminPassword
     ;
 
-unsupportedUseStatement
-    : USE (catalog=identifier DOT)? database=identifier                              #useDatabase
-    | USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
+optionWithType
+    : (GLOBAL | LOCAL | SESSION) identifier EQ (expression | DEFAULT)
+    ;
+
+optionWithoutType
+    : NAMES EQ expression                                               #setNames
+    | (CHAR SET | CHARSET) (charsetName=identifierOrText | DEFAULT)     #setCharset
+    | NAMES (charsetName=identifierOrText | DEFAULT)
+        (COLLATE collateName=identifierOrText | DEFAULT)?               #setCollate
+    | PASSWORD (FOR userIdentify)? EQ (STRING_LITERAL
+        | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))             #setPassword
+    | LDAP_ADMIN_PASSWORD EQ (STRING_LITERAL
+    | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))                 #setLdapAdminPassword
+    | variable                                                          #setVariableWithoutType
     ;
 
 variable
-    : (ATSIGN ATSIGN (GLOBAL | LOCAL | SESSION)?)? identifier EQ (expression | DEFAULT) #setSystemVariable
+    : (DOUBLEATSIGN ((GLOBAL | LOCAL | SESSION) DOT)?)? identifier EQ (expression | DEFAULT) #setSystemVariable
     | ATSIGN identifier EQ expression #setUserVariable
     ;
 
@@ -191,6 +201,33 @@ transactionAccessMode
 
 isolationLevel
     : ISOLATION LEVEL ((READ UNCOMMITTED) | (READ COMMITTED) | (REPEATABLE READ) | (SERIALIZABLE))
+    ;
+
+unsupoortedUnsetStatement
+    : UNSET (GLOBAL | SESSION | LOCAL)? VARIABLE (ALL | identifier)
+    | UNSET DEFAULT STORAGE VAULT
+    ;
+
+unsupportedUseStatement
+    : USE (catalog=identifier DOT)? database=identifier                              #useDatabase
+    | USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
+    | SWITCH catalog=identifier                                                      #switchCatalog
+    ;
+
+unsupportedDmlStatement
+    : TRUNCATE TABLE multipartIdentifier specifiedPartition?   # truncateTable
+    ;
+
+unsupportedKillStatement
+    : KILL (CONNECTION)? INTEGER_VALUE              #killConnection
+    | KILL QUERY (INTEGER_VALUE | STRING_LITERAL)   #killQuery
+    ;
+
+unsupportedDescribeStatement
+    : explainCommand FUNCTION tvfName=identifier LEFT_PAREN
+        (properties=propertyItemList)? RIGHT_PAREN tableAlias   #describeTableValuedFunction
+    | explainCommand multipartIdentifier ALL                    #describeTableAll
+    | explainCommand multipartIdentifier specifiedPartition?    #describeTable
     ;
 
 constraint
@@ -285,11 +322,16 @@ userIdentify
     : user=identifierOrText (ATSIGN (host=identifierOrText | LEFT_PAREN host=identifierOrText RIGHT_PAREN))?
     ;
 
-
 explain
-    : (EXPLAIN planType? | DESC | DESCRIBE)
+    : explainCommand planType?
           level=(VERBOSE | TREE | GRAPH | PLAN)?
           PROCESS?
+    ;
+
+explainCommand
+    : EXPLAIN
+    | DESC
+    | DESCRIBE
     ;
 
 planType
@@ -385,7 +427,8 @@ query
 
 queryTerm
     : queryPrimary                                                         #queryTermDefault
-    | left=queryTerm operator=(UNION | EXCEPT | MINUS | INTERSECT)
+    | left=queryTerm operator=INTERSECT setQuantifier? right=queryTerm     #setOperation
+    | left=queryTerm operator=(UNION | EXCEPT | MINUS)
       setQuantifier? right=queryTerm                                       #setOperation
     ;
 
@@ -744,6 +787,7 @@ predicate
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | IS NOT? kind=NULL
+    | IS NOT? kind=(TRUE | FALSE)
     ;
 
 valueExpression
@@ -1360,10 +1404,12 @@ nonReserved
     | TYPES
     | UNCOMMITTED
     | UNLOCK
+    | UNSET
     | UP
     | USER
     | VALUE
     | VARCHAR
+    | VARIABLE
     | VARIABLES
     | VARIANT
     | VAULT

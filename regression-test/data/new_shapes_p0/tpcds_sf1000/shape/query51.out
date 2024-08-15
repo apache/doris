@@ -19,9 +19,9 @@ PhysicalResultSink
 --------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------hashAgg[LOCAL]
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
+--------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ws_sold_date_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1
+------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF1
 ----------------------------------------PhysicalProject
 ------------------------------------------filter((date_dim.d_month_seq <= 1223) and (date_dim.d_month_seq >= 1212))
 --------------------------------------------PhysicalOlapScan[date_dim]
@@ -34,9 +34,9 @@ PhysicalResultSink
 --------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------hashAgg[LOCAL]
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_sold_date_sk]
+--------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0
+------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0
 ----------------------------------------PhysicalProject
 ------------------------------------------filter((date_dim.d_month_seq <= 1223) and (date_dim.d_month_seq >= 1212))
 --------------------------------------------PhysicalOlapScan[date_dim]

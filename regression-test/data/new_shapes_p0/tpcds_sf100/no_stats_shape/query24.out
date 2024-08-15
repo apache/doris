@@ -7,28 +7,28 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk) and (store.s_zip = customer_address.ca_zip)) otherCondition=(( not (c_birth_country = upper(ca_country)))) build RFs:RF5 ca_address_sk->[c_current_addr_sk];RF6 ca_zip->[s_zip]
+--------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_zip = customer_address.ca_zip) and (store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF5 s_zip->[ca_zip];RF6 s_store_sk->[ss_store_sk]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF4 c_customer_sk->[ss_customer_sk]
+------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=(( not (c_birth_country = upper(ca_country)))) build RFs:RF4 ca_address_sk->[c_current_addr_sk]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF3 i_item_sk->[sr_item_sk,ss_item_sk]
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF3 c_customer_sk->[ss_customer_sk]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF2 s_store_sk->[ss_store_sk]
+--------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[sr_item_sk,ss_item_sk]
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=() build RFs:RF0 sr_ticket_number->[ss_ticket_number];RF1 sr_item_sk->[ss_item_sk]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3 RF4
+----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3 RF6
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store_returns] apply RFs: RF3
+----------------------------------PhysicalOlapScan[store_returns] apply RFs: RF2
 ----------------------------PhysicalProject
-------------------------------filter((store.s_market_id = 8))
---------------------------------PhysicalOlapScan[store] apply RFs: RF6
+------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[item]
+--------------------------PhysicalOlapScan[customer] apply RFs: RF4
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[customer] apply RFs: RF5
+----------------------PhysicalOlapScan[customer_address] apply RFs: RF5
 ----------------PhysicalProject
-------------------PhysicalOlapScan[customer_address]
+------------------filter((store.s_market_id = 8))
+--------------------PhysicalOlapScan[store]
 --PhysicalResultSink
 ----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]

@@ -103,11 +103,11 @@ private:
     static Status get_element_column(const ColumnObject& src, const ColumnPtr& index_column,
                                      ColumnPtr* result) {
         std::string field_name = index_column->get_data_at(0).to_string();
-        Defer finalize([&]() { (*result)->assume_mutable()->finalize(); });
         if (src.empty()) {
             *result = ColumnObject::create(true);
             // src subcolumns empty but src row count may not be 0
             (*result)->assume_mutable()->insert_many_defaults(src.size());
+            (*result)->assume_mutable()->finalize();
             return Status::OK();
         }
         if (src.is_scalar_variant() &&
@@ -123,15 +123,16 @@ private:
                 field_name = "$." + field_name;
             }
             JsonFunctions::parse_json_paths(field_name, &parsed_paths);
+            ColumnString* col_str = assert_cast<ColumnString*>(result_column.get());
             for (size_t i = 0; i < docs.size(); ++i) {
-                if (!extract_from_document(parser, docs.get_data_at(i), parsed_paths,
-                                           assert_cast<ColumnString*>(result_column.get()))) {
+                if (!extract_from_document(parser, docs.get_data_at(i), parsed_paths, col_str)) {
                     VLOG_DEBUG << "failed to parse " << docs.get_data_at(i) << ", field "
                                << field_name;
                     result_column->insert_default();
                 }
             }
             *result = ColumnObject::create(true, type, std::move(result_column));
+            (*result)->assume_mutable()->finalize();
             return Status::OK();
         } else {
             auto mutable_src = src.clone_finalized();
@@ -173,6 +174,7 @@ private:
                 result_col->insert_many_defaults(src.size());
             }
             *result = result_col->get_ptr();
+            (*result)->assume_mutable()->finalize();
             VLOG_DEBUG << "dump new object "
                        << static_cast<const ColumnObject*>(result_col.get())->debug_string()
                        << ", path " << path.get_path();
