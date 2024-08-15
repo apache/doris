@@ -20,6 +20,7 @@
 #include <gen_cpp/parquet_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
+
 #include <exception>
 // Only used on x86 or x86_64
 #if defined(__x86_64__) || defined(_M_X64) || defined(i386) || defined(__i386__) || \
