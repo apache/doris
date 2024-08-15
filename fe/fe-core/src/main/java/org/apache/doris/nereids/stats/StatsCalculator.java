@@ -417,12 +417,19 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     .getStatistics(((Relation) olapScan).getRelationId());
             if (optStats.isPresent()) {
                 double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan);
-                if (selectedPartitionsRowCount == -1) {
-                    selectedPartitionsRowCount = tableRowCount;
-                }
+                Statistics derivedStats = optStats.get();
                 // if estimated mv rowCount is more than actual row count, fall back to base table stats
-                if (selectedPartitionsRowCount > optStats.get().getRowCount()) {
-                    return optStats.get();
+                if (selectedPartitionsRowCount > derivedStats.getRowCount()) {
+                    double derivedRowCount = derivedStats.getRowCount();
+                    // for variant column A, put A[x]->UNKNOWN
+                    for (Slot slot : ((Relation) olapScan).getOutput()) {
+                        if (derivedStats.findColumnStatistics(slot) == null) {
+                            derivedStats.addColumnStats(slot,
+                                new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN)
+                                    .setCount(derivedRowCount).build());
+                        }
+                    }
+                    return derivedStats;
                 }
             }
         }
