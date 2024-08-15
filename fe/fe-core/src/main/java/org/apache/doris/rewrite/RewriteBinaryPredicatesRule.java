@@ -22,6 +22,7 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
@@ -117,6 +118,40 @@ public class RewriteBinaryPredicatesRule implements ExprRewriteRule {
         }
     }
 
+    private Expr processDateLikeTypeCoercion(Expr expr) throws AnalysisException {
+        BinaryPredicate.Operator op = ((BinaryPredicate) expr).getOp();
+        Expr left = expr.getChild(0);
+        Expr right = expr.getChild(1);
+
+        CastExpr cast = (CastExpr) left;
+        if (cast.getChildren().size() != 1) {
+            return expr;
+        }
+
+        // datetime&datetimev2 to date&datev2
+        if (cast.getChild(0).getType().isDate()
+                || cast.getChild(0).getType().isDateV2()) {
+            if ((right.getType().isDatetime() || right.getType().isDatetimeV2())
+                    && !cannotAdjust((DateLiteral) right, op)) {
+                left = cast.getChild(0);
+                DateLiteral dateLiteral = (DateLiteral) right;
+                right = new DateLiteral(dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay(),
+                        cast.getChild(0).getType());
+                if ((op == BinaryPredicate.Operator.GE || op == BinaryPredicate.Operator.LT)
+                        && (dateLiteral.getHour() != 0 || dateLiteral.getMinute() != 0 || dateLiteral.getSecond() != 0)
+                ) {
+                    right = ((DateLiteral) right).plusDays(1);
+                }
+            }
+        }
+
+        if (left != expr.getChild(0) || right != expr.getChild(1)) {
+            return new BinaryPredicate(op, left, right);
+        } else {
+            return expr;
+        }
+    }
+
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
         if (!(expr instanceof BinaryPredicate)) {
@@ -133,6 +168,17 @@ public class RewriteBinaryPredicatesRule implements ExprRewriteRule {
             return rewriteBigintSlotRefCompareDecimalLiteral(expr0,
                     expr0.getChild(0).getType(), (DecimalLiteral) expr1, op);
         }
+
+        // date like type
+        if (expr0 instanceof CastExpr && expr1 instanceof DateLiteral
+                && expr0.getType().isDateType() && expr1.getType().isDateType()) {
+            return processDateLikeTypeCoercion(expr);
+        }
+
         return expr;
+    }
+
+    private boolean cannotAdjust(DateLiteral l, BinaryPredicate.Operator op) {
+        return op == BinaryPredicate.Operator.EQ && (l.getHour() != 0 || l.getMinute() != 0 || l.getSecond() != 0);
     }
 }
