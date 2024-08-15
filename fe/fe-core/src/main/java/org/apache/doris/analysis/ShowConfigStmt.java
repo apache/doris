@@ -31,7 +31,7 @@ import org.apache.doris.system.NodeType;
 import com.google.common.collect.ImmutableList;
 
 // show frontend config;
-public class ShowConfigStmt extends ShowStmt {
+public class ShowConfigStmt extends ShowStmt implements NotFallbackInParser {
     public static final ImmutableList<String> FE_TITLE_NAMES = new ImmutableList.Builder<String>().add("Key").add(
             "Value").add("Type").add("IsMutable").add("MasterOnly").add("Comment").build();
 
