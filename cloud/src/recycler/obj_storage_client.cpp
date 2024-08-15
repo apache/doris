@@ -17,7 +17,12 @@
 
 #include "recycler/obj_storage_client.h"
 
+#include <chrono>
+
+#include "common/logging.h"
 #include "cpp/sync_point.h"
+
+using namespace std::chrono;
 
 namespace doris::cloud {
 
@@ -25,6 +30,9 @@ ObjectStorageResponse ObjStorageClient::delete_objects_recursively_(ObjectStorag
                                                                     int64_t expired_time,
                                                                     size_t batch_size) {
     TEST_SYNC_POINT_CALLBACK("ObjStorageClient::delete_objects_recursively_", &batch_size);
+    size_t num_deleted_objects = 0;
+    auto start_time = steady_clock::now();
+
     auto list_iter = list_objects(path);
 
     ObjectStorageResponse ret;
@@ -35,6 +43,7 @@ ObjectStorageResponse ObjStorageClient::delete_objects_recursively_(ObjectStorag
             continue;
         }
 
+        num_deleted_objects++;
         keys.emplace_back(std::move(obj->key));
         if (keys.size() < batch_size) {
             continue;
@@ -51,8 +60,13 @@ ObjectStorageResponse ObjStorageClient::delete_objects_recursively_(ObjectStorag
     }
 
     if (!keys.empty()) {
-        return delete_objects(path.bucket, std::move(keys));
+        ret = delete_objects(path.bucket, std::move(keys));
     }
+
+    auto elapsed = duration_cast<milliseconds>(steady_clock::now() - start_time).count();
+    LOG(INFO) << "delete objects under " << path.bucket << "/" << path.key
+              << " finished, ret=" << ret.ret << ", num_deleted_objects=" << num_deleted_objects
+              << ", cost=" << elapsed << " ms";
 
     return ret;
 }
