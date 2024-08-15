@@ -152,7 +152,7 @@ public class TabletInvertedIndex {
             for (Map.Entry<Long, Long> entry : decommissionTabletMap.entrySet()) {
                 long tabletId = entry.getKey();
                 long watermarkId = entry.getValue();
-                TabletMeta tabletMeta = tabletMetaMap.get(tabletId);
+                TabletMeta tabletMeta = getTabletMeta(tabletId);
                 if (Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(
                         watermarkId, tabletMeta.getDbId(), tabletMeta.getTableId(),
                         tabletMeta.getPartitionId())) {
