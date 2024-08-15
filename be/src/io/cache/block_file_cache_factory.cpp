@@ -21,15 +21,17 @@
 #include "io/cache/block_file_cache_factory.h"
 
 #include <glog/logging.h>
+#if defined(__APPLE__)
+#include <sys/mount.h>
+#else
+#include <sys/statfs.h>
+#endif
 
-#include <algorithm>
 #include <ostream>
 #include <utility>
 
 #include "common/config.h"
-#include "io/cache/block_file_cache.h"
-#include "io/cache/block_file_cache_settings.h"
-#include "io/cache/block_lru_file_cache.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 
@@ -58,43 +60,55 @@ size_t FileCacheFactory::try_release(const std::string& base_path) {
     return 0;
 }
 
-void FileCacheFactory::create_file_cache(const std::string& cache_base_path,
-                                         const FileCacheSettings& file_cache_settings,
-                                         Status* status) {
-    if (config::clear_file_cache) {
-        auto fs = global_local_filesystem();
-        bool res = false;
-        static_cast<void>(fs->exists(cache_base_path, &res));
-        if (res) {
-            static_cast<void>(fs->delete_directory(cache_base_path));
-        }
+Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
+                                           FileCacheSettings file_cache_settings) {
+    const auto& fs = global_local_filesystem();
+    bool exists = false;
+    RETURN_IF_ERROR(fs->exists(cache_base_path, &exists));
+    if (!exists) {
+        auto st = fs->create_directory(cache_base_path);
+        LOG(INFO) << "path " << cache_base_path << " does not exist, create " << st.msg();
+        RETURN_IF_ERROR(st);
+    } else if (config::clear_file_cache) {
+        RETURN_IF_ERROR(fs->delete_directory(cache_base_path));
+        RETURN_IF_ERROR(fs->create_directory(cache_base_path));
     }
 
-    std::unique_ptr<IFileCache> cache =
-            std::make_unique<LRUFileCache>(cache_base_path, file_cache_settings);
-    *status = cache->initialize();
-    if (!status->ok()) {
-        return;
+    struct statfs stat;
+    if (statfs(cache_base_path.c_str(), &stat) < 0) {
+        LOG_ERROR("").tag("file cache path", cache_base_path).tag("error", strerror(errno));
+        return Status::IOError("{} statfs error {}", cache_base_path, strerror(errno));
     }
-
+    auto disk_capacity = static_cast<size_t>(
+            static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(stat.f_bsize) *
+            (static_cast<double>(config::file_cache_enter_disk_resource_limit_mode_percent) / 100));
+    if (file_cache_settings.capacity == 0 || disk_capacity < file_cache_settings.capacity) {
+        LOG_INFO("The cache {} config size {} is larger than {}% disk size {} or zero, recalc it.",
+                 cache_base_path, file_cache_settings.capacity,
+                 config::file_cache_enter_disk_resource_limit_mode_percent, disk_capacity);
+        file_cache_settings =
+                get_file_cache_settings(disk_capacity, file_cache_settings.max_query_cache_size);
+    }
+    auto cache = std::make_unique<BlockFileCache>(cache_base_path, file_cache_settings);
+    RETURN_IF_ERROR(cache->initialize());
     {
-        // the create_file_cache() may be called concurrently,
-        // so need to protect it with lock
-        std::lock_guard<std::mutex> lock(_cache_mutex);
+        std::lock_guard lock(_mtx);
         _path_to_cache[cache_base_path] = cache.get();
         _caches.push_back(std::move(cache));
+        _capacity += file_cache_settings.capacity;
     }
     LOG(INFO) << "[FileCache] path: " << cache_base_path
-              << " total_size: " << file_cache_settings.total_size;
-    *status = Status::OK();
-    return;
+              << " total_size: " << file_cache_settings.capacity
+              << " disk_total_size: " << disk_capacity;
+    return Status::OK();
 }
 
-CloudFileCachePtr FileCacheFactory::get_by_path(const IFileCache::Key& key) {
+BlockFileCache* FileCacheFactory::get_by_path(const UInt128Wrapper& key) {
+    // dont need lock mutex because _caches is immutable after create_file_cache
     return _caches[KeyHash()(key) % _caches.size()].get();
 }
 
-CloudFileCachePtr FileCacheFactory::get_by_path(const std::string& cache_base_path) {
+BlockFileCache* FileCacheFactory::get_by_path(const std::string& cache_base_path) {
     auto iter = _path_to_cache.find(cache_base_path);
     if (iter == _path_to_cache.end()) {
         return nullptr;
@@ -103,13 +117,44 @@ CloudFileCachePtr FileCacheFactory::get_by_path(const std::string& cache_base_pa
     }
 }
 
-std::vector<IFileCache::QueryFileCacheContextHolderPtr> FileCacheFactory::get_query_context_holders(
-        const TUniqueId& query_id) {
-    std::vector<IFileCache::QueryFileCacheContextHolderPtr> holders;
+std::vector<BlockFileCache::QueryFileCacheContextHolderPtr>
+FileCacheFactory::get_query_context_holders(const TUniqueId& query_id) {
+    std::vector<BlockFileCache::QueryFileCacheContextHolderPtr> holders;
     for (const auto& cache : _caches) {
         holders.push_back(cache->get_query_context_holder(query_id));
     }
     return holders;
+}
+
+std::string FileCacheFactory::clear_file_caches(bool sync) {
+    std::stringstream ss;
+    for (const auto& cache : _caches) {
+        ss << (sync ? cache->clear_file_cache_directly() : cache->clear_file_cache_async()) << "\n";
+    }
+    return ss.str();
+}
+
+std::vector<std::string> FileCacheFactory::get_base_paths() {
+    std::vector<std::string> paths;
+    for (const auto& pair : _path_to_cache) {
+        paths.push_back(pair.first);
+    }
+    return paths;
+}
+
+std::string FileCacheFactory::reset_capacity(const std::string& path, int64_t new_capacity) {
+    if (path.empty()) {
+        std::stringstream ss;
+        for (auto& [_, cache] : _path_to_cache) {
+            ss << cache->reset_capacity(new_capacity);
+        }
+        return ss.str();
+    } else {
+        if (auto iter = _path_to_cache.find(path); iter != _path_to_cache.end()) {
+            return iter->second->reset_capacity(new_capacity);
+        }
+    }
+    return "Unknown the cache path " + path;
 }
 
 } // namespace io

@@ -996,23 +996,18 @@ DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 DEFINE_String(file_cache_path, "");
-// thread will sleep 10ms per scan file num to limit IO
-DEFINE_Int64(async_file_cache_init_file_num_interval, "1000");
-DEFINE_Int64(async_file_cache_init_sleep_interval_ms, "20");
-DEFINE_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
-// 4KB <= file_cache_max_file_segment_size <= 256MB
-DEFINE_Validator(file_cache_max_file_segment_size, [](const int64_t config) -> bool {
-    return config >= 4096 && config <= 268435456;
-});
-DEFINE_Int64(file_cache_min_file_segment_size, "1048576"); // 1MB
-// 4KB <= file_cache_min_file_segment_size <= 256MB
-DEFINE_Validator(file_cache_min_file_segment_size, [](const int64_t config) -> bool {
-    return config >= 4096 && config <= 268435456 &&
-           config <= config::file_cache_max_file_segment_size;
-});
+DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
+
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
-DEFINE_mInt32(file_cache_wait_sec_after_fail, "0"); // // zero for no waiting and retrying
+DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
+DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
+DEFINE_mBool(enable_read_cache_file_directly, "false");
+DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "false");
+DEFINE_mInt64(file_cache_ttl_valid_check_interval_second, "0"); // zero for not checking
+// If true, evict the ttl cache using LRU when full.
+// Otherwise, only expiration can evict ttl and new data won't add to cache when full.
+DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");

@@ -26,7 +26,7 @@
 
 #include "common/status.h"
 #include "io/cache/block_file_cache.h"
-#include "io/cache/block_file_cache_settings.h"
+#include "io/cache/file_cache_common.h"
 namespace doris {
 class TUniqueId;
 
@@ -39,26 +39,56 @@ class FileCacheFactory {
 public:
     static FileCacheFactory* instance();
 
-    void create_file_cache(const std::string& cache_base_path,
-                           const FileCacheSettings& file_cache_settings, Status* status);
+    Status create_file_cache(const std::string& cache_base_path,
+                             FileCacheSettings file_cache_settings);
 
     size_t try_release();
 
     size_t try_release(const std::string& base_path);
 
-    CloudFileCachePtr get_by_path(const IFileCache::Key& key);
-    CloudFileCachePtr get_by_path(const std::string& cache_base_path);
-    std::vector<IFileCache::QueryFileCacheContextHolderPtr> get_query_context_holders(
+    const std::string& get_cache_path() {
+        size_t cur_index = _next_index.fetch_add(1);
+        return _caches[cur_index % _caches.size()]->get_base_path();
+    }
+
+    [[nodiscard]] size_t get_capacity() const { return _capacity; }
+
+    [[nodiscard]] size_t get_cache_instance_size() const { return _caches.size(); }
+
+    BlockFileCache* get_by_path(const UInt128Wrapper& hash);
+    BlockFileCache* get_by_path(const std::string& cache_base_path);
+    std::vector<BlockFileCache::QueryFileCacheContextHolderPtr> get_query_context_holders(
             const TUniqueId& query_id);
+
+    /**
+     * Clears data of all file cache instances
+     *
+     * @param sync wait until all data cleared
+     * @return summary message
+     */
+    std::string clear_file_caches(bool sync);
+
+    std::vector<std::string> get_base_paths();
+
+    /**
+     * Clears data of all file cache instances
+     *
+     * @param path file cache absolute path
+     * @param new_capacity
+     * @return summary message
+     */
+    std::string reset_capacity(const std::string& path, int64_t new_capacity);
+
     FileCacheFactory() = default;
     FileCacheFactory& operator=(const FileCacheFactory&) = delete;
     FileCacheFactory(const FileCacheFactory&) = delete;
 
 private:
-    // to protect following containers
-    std::mutex _cache_mutex;
-    std::vector<std::unique_ptr<IFileCache>> _caches;
-    std::unordered_map<std::string, CloudFileCachePtr> _path_to_cache;
+    std::mutex _mtx;
+    std::vector<std::unique_ptr<BlockFileCache>> _caches;
+    std::unordered_map<std::string, BlockFileCache*> _path_to_cache;
+    size_t _capacity = 0;
+    std::atomic_size_t _next_index {0}; // use for round-robin
 };
 
 } // namespace io
