@@ -66,31 +66,23 @@ public:
     // column2 is const, so in default logic column1 is no way const.
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        ColumnPtr col_ptr = block.get_by_position(arguments[0]).column;
-        const ColumnBool* null_map = nullptr;
-        if (const auto* col_nullable = check_and_get_column<ColumnNullable>(col_ptr.get())) {
-            col_ptr = col_nullable->get_nested_column_ptr();
-            null_map =
-                    assert_cast<const ColumnBool*>(col_nullable->get_null_map_column_ptr().get());
-        }
-        const auto& data = assert_cast<const ColumnBool*>(col_ptr.get())->get_data();
-
         std::string errmsg =
                 assert_cast<const ColumnConst&>(*block.get_by_position(arguments[1]).column)
                         .get_data_at(0)
                         .to_string();
 
-        if (null_map) {
-            for (int i = 0; i < input_rows_count; i++) {
-                if (!data[i] || null_map->get_bool(i)) [[unlikely]] {
-                    throw doris::Exception(Status::InvalidArgument(errmsg));
-                }
+        ColumnPtr col_ptr = block.get_by_position(arguments[0]).column;
+        if (const auto* col_nullable = check_and_get_column<ColumnNullable>(col_ptr.get())) {
+            if (col_nullable->has_null()) {
+                throw doris::Exception(Status::InvalidArgument(errmsg));
             }
-        } else {
-            for (int i = 0; i < input_rows_count; i++) {
-                if (!data[i]) [[unlikely]] {
-                    throw doris::Exception(Status::InvalidArgument(errmsg));
-                }
+            col_ptr = col_nullable->get_nested_column_ptr();
+        }
+        const auto& data = assert_cast<const ColumnBool*>(col_ptr.get())->get_data();
+
+        for (int i = 0; i < input_rows_count; i++) {
+            if (!data[i]) [[unlikely]] {
+                throw doris::Exception(Status::InvalidArgument(errmsg));
             }
         }
 

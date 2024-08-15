@@ -532,7 +532,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Ascii.class, "ascii"),
             scalar(Asin.class, "asin"),
             scalar(AssertTrue.class, "assert_true"),
-                    scalar(Atan.class, "atan"),
+            scalar(Atan.class, "atan"),
             scalar(Atan2.class, "atan2"),
             scalar(AutoPartitionName.class, "auto_partition_name"),
             scalar(Bin.class, "bin"),
