@@ -44,10 +44,10 @@ public class VarianceSamp extends AggregateFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(SmallIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(IntegerType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(BigIntType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(IntegerType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(SmallIntType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(TinyIntType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(FloatType.INSTANCE));
 
     /**
