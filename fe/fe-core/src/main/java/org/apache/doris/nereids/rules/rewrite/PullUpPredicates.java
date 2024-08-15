@@ -20,15 +20,19 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -38,6 +42,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,6 +64,80 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             return plan.child(0).accept(this, context);
         }
         return ImmutableSet.of();
+    }
+
+    @Override
+    public ImmutableSet<Expression> visitLogicalIntersect(LogicalIntersect intersect, Void context) {
+        return cacheOrElse(intersect, () -> {
+            ImmutableSet.Builder<Expression> builder = ImmutableSet.builder();
+            for (Plan child : intersect.children()) {
+                Map<Expression, Expression> replaceMap = new HashMap<>();
+                for (int i = 0; i < intersect.getOutputs().size(); ++i) {
+                    NamedExpression output = intersect.getOutputs().get(i);
+                    replaceMap.put(child.getOutput().get(i), output);
+                }
+                builder.addAll(ExpressionUtils.replace(child.accept(this, context), replaceMap));
+            }
+            return getAvailableExpressions(builder.build(), intersect);
+        });
+    }
+
+    @Override
+    public ImmutableSet<Expression> visitLogicalExcept(LogicalExcept except, Void context) {
+        return cacheOrElse(except, () -> {
+            if (except.arity() < 1) {
+                return ImmutableSet.of();
+            }
+            Set<Expression> firstChildFilters = except.child(0).accept(this, context);
+            Map<Expression, Expression> replaceMap = new HashMap<>();
+            for (int i = 0; i < except.getOutputs().size(); ++i) {
+                NamedExpression output = except.getOutputs().get(i);
+                replaceMap.put(except.child(0).getOutput().get(i), output);
+            }
+            return ImmutableSet.copyOf(ExpressionUtils.replace(firstChildFilters, replaceMap));
+        });
+    }
+
+    @Override
+    public ImmutableSet<Expression> visitLogicalUnion(LogicalUnion union, Void context) {
+        return cacheOrElse(union, () -> {
+            if (!union.getConstantExprsList().isEmpty() && union.arity() == 0) {
+                ImmutableSet.Builder<Expression> filters = ImmutableSet.builder();
+                List<List<NamedExpression>> constExprs = union.getConstantExprsList();
+                for (int col = 0; col < constExprs.get(0).size(); ++col) {
+                    Expression compareExpr = union.getOutput().get(col);
+                    ImmutableSet.Builder<Expression> options = ImmutableSet.builder();
+                    for (List<NamedExpression> constExpr : constExprs) {
+                        if (constExpr.get(col) instanceof Alias
+                                && ((Alias) constExpr.get(col)).child() instanceof Literal) {
+                            options.add(((Alias) constExpr.get(col)).child());
+                        } else {
+                            return ImmutableSet.of();
+                        }
+                    }
+                    filters.add(new InPredicate(compareExpr, options.build()));
+                }
+                return filters.build();
+            } else if (union.getConstantExprsList().isEmpty()) {
+                Set<Expression> filters = new HashSet<>();
+                for (int i = 0; i < union.getArity(); ++i) {
+                    Plan child = union.child(i);
+                    Map<Expression, Expression> replaceMap = new HashMap<>();
+                    for (int j = 0; j < union.getOutputs().size(); ++j) {
+                        NamedExpression output = union.getOutputs().get(j);
+                        replaceMap.put(child.getOutput().get(j), output);
+                    }
+                    Set<Expression> childFilters = ExpressionUtils.replace(child.accept(this, context), replaceMap);
+                    if (0 == i) {
+                        filters.addAll(childFilters);
+                    } else {
+                        filters.retainAll(childFilters);
+                    }
+                }
+                return ImmutableSet.copyOf(filters);
+            }
+            return ImmutableSet.of();
+        });
     }
 
     @Override

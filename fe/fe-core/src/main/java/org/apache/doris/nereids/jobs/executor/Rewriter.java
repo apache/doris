@@ -319,6 +319,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept()),
                         bottomUp(new PushProjectIntoOneRowRelation()),
                         topDown(new MergeOneRowRelationIntoUnion()),
+                        custom(RuleType.INFER_PREDICATES, InferPredicates::new),
+                        bottomUp(RuleSet.PUSH_DOWN_FILTERS),
                         topDown(new PushProjectIntoUnion()),
                         costBased(topDown(new InferSetOperatorDistinct())),
                         topDown(new BuildAggForUnion())
