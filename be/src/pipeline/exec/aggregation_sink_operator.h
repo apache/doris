@@ -120,6 +120,7 @@ protected:
 
     AggregatedDataVariants* _agg_data = nullptr;
     vectorized::Arena* _agg_arena_pool = nullptr;
+    std::unique_ptr<vectorized::Arena> _agg_profile_arena;
 
     std::unique_ptr<ExecutorBase> _executor = nullptr;
 };

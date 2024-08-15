@@ -97,11 +97,11 @@ Status AggSinkLocalState::open(RuntimeState* state) {
         RETURN_IF_ERROR(
                 p._probe_expr_ctxs[i]->clone(state, Base::_shared_state->probe_expr_ctxs[i]));
     }
-    Base::_shared_state->agg_profile_arena = std::make_unique<vectorized::Arena>();
+    _agg_profile_arena = std::make_unique<vectorized::Arena>();
 
     if (Base::_shared_state->probe_expr_ctxs.empty()) {
         _agg_data->without_key = reinterpret_cast<vectorized::AggregateDataPtr>(
-                Base::_shared_state->agg_profile_arena->alloc(p._total_size_of_aggregate_states));
+                _agg_profile_arena->alloc(p._total_size_of_aggregate_states));
 
         if (p._is_merge) {
             _executor = std::make_unique<Executor<true, true>>();

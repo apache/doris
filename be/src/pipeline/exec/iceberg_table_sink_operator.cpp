@@ -30,17 +30,4 @@ Status IcebergTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo&
     return Status::OK();
 }
 
-Status IcebergTableSinkLocalState::close(RuntimeState* state, Status exec_status) {
-    if (Base::_closed) {
-        return Status::OK();
-    }
-    SCOPED_TIMER(_close_timer);
-    SCOPED_TIMER(exec_time_counter());
-    if (_closed) {
-        return _close_status;
-    }
-    _close_status = Base::close(state, exec_status);
-    return _close_status;
-}
-
 } // namespace doris::pipeline

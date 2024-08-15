@@ -38,12 +38,7 @@ public:
         SCOPED_TIMER(_open_timer);
         return Base::open(state);
     }
-
-    Status close(RuntimeState* state, Status exec_status) override;
     friend class IcebergTableSinkOperatorX;
-
-private:
-    Status _close_status = Status::OK();
 };
 
 class IcebergTableSinkOperatorX final : public DataSinkOperatorX<IcebergTableSinkLocalState> {
