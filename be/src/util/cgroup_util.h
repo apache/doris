@@ -26,11 +26,9 @@
 #include "common/status.h"
 namespace doris {
 
-#if defined(OS_LINUX)
 // I think it is possible to mount the cgroups hierarchy somewhere else (e.g. when in containers).
 // /sys/fs/cgroup was still symlinked to the actual mount in the cases that I have seen.
 static inline const std::filesystem::path default_cgroups_mount = "/sys/fs/cgroup";
-#endif
 
 /* Cgroup debugging steps
  * CgroupV1:
@@ -52,7 +50,12 @@ class CGroupUtil {
 public:
     enum class CgroupsVersion : uint8_t { V1, V2 };
 
-    // detect if cgroup is enabled
+    // Detect if cgroup is enabled.
+    // If true, it only means that the OS allows the use of Cgroup v1 or v2,
+    // not that the current BE process is using Cgroup.
+    // To confirm whether the process is using Cgroup need to use `find_global_cgroupv1` or `cgroupv2_of_process`.
+    // To confirm whether the process is using a subsystem of Cgroup,
+    // need to use `find_abs_cgroupv1_path` or `get_cgroupsv2_path`.
     static bool cgroupsv1_enable();
     static bool cgroupsv2_enable();
 
