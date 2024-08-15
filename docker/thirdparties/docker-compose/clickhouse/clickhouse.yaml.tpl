@@ -23,6 +23,7 @@ services:
     restart: always
     environment:
       CLICKHOUSE_PASSWORD: 123456
+      CLICKHOUSE_ALWAYS_RUN_INITDB_SCRIPTS: "true" # Add this line to always run init scripts
     ulimits:
       nofile:
         soft: 262144
