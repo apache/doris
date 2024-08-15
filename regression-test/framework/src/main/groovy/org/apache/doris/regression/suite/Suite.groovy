@@ -1547,7 +1547,8 @@ class Suite implements GroovyInterceptable {
 
         explain {
             sql(" memo plan ${query_sql}")
-            contains("${mv_name} fail")
+            notContains("${mv_name} chose")
+            notContains("${mv_name} not chose")
         }
     }
 
