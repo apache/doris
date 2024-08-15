@@ -103,7 +103,7 @@ public class Profile {
     private long queryFinishTimestamp = Long.MAX_VALUE;
     private Map<Integer, String> planNodeMap = Maps.newHashMap();
     private int profileLevel = MergedProfileLevel;
-    private long autoProfileDurationMs = 500;
+    private long autoProfileDurationMs = -1;
     // Profile size is the size of profile file
     private long profileSize = 0;
 
@@ -629,5 +629,21 @@ public class Profile {
 
     public long getProfileSize() {
         return this.profileSize;
+    }
+
+    public boolean shouldBeRemoveFromMemory() {
+        if (!this.isQueryFinished) {
+            return false;
+        }
+
+        if (this.profileHasBeenStored()) {
+            return false;
+        }
+
+        if (this.queryFinishTimestamp - this.summaryProfile.getQueryBeginTime() >= autoProfileDurationMs) {
+            return false;
+        }
+
+        return true;
     }
 }

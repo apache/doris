@@ -935,12 +935,35 @@ public class ProfileManager extends MasterDaemon {
     }
 
     private void deleteOutdatedProfilesFromMemory() {
-        PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryStartTime();
         StringBuilder stringBuilder = new StringBuilder();
         int profileNum = 0;
         writeLock.lock();
 
         try {
+            // Remove profiles that costs less than auto_profile_threshold_ms
+            List<String> profilesToRemove = Lists.newArrayList();
+
+            for (ProfileElement profileElement : this.queryIdToProfileMap.values()) {
+                if (profileElement.profile.shouldBeRemoveFromMemory()) {
+                    profilesToRemove.add(profileElement.profile.getSummaryProfile().getProfileId());
+                }
+            }
+
+            for (String profileId : profilesToRemove) {
+                ProfileElement profileElement = queryIdToProfileMap.get(profileId);
+                queryIdToProfileMap.remove(profileId);
+                for (ExecutionProfile executionProfile : profileElement.profile.getExecutionProfiles()) {
+                    queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
+                }
+                stringBuilder.append(profileElement.profile.getSummaryProfile().getProfileId()).append(",");
+            }
+
+            if (this.queryIdToProfileMap.size() <= Config.max_query_profile_num) {
+                return;
+            }
+
+            PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryStartTime();
+
             while (queueIdDeque.size() > Config.max_query_profile_num) {
                 ProfileElement profileElement = queueIdDeque.poll();
 
@@ -954,11 +977,11 @@ public class ProfileManager extends MasterDaemon {
         } finally {
             profileNum = queryIdToProfileMap.size();
             writeLock.unlock();
-        }
 
-        if (stringBuilder.length() != 0) {
-            LOG.info("Remove outdated profiles {} from memoy, current profile map size {}",
-                    stringBuilder.toString(), profileNum);
+            if (stringBuilder.length() != 0) {
+                LOG.info("Remove outdated profiles {} from memoy, current profile map size {}",
+                        stringBuilder.toString(), profileNum);
+            }
         }
     }
 }
