@@ -27,8 +27,8 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
-#include "common/sync_point.h"
 #include "common/logging.h"
+#include "common/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/block_file_cache_profile.h"
