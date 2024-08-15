@@ -25,6 +25,7 @@
 #include "olap/storage_engine.h"
 namespace doris {
 
+// topn, sync
 class CompactionScoreAction : public HttpHandlerWithAuth {
 public:
     CompactionScoreAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type,

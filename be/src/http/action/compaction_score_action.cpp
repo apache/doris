@@ -23,7 +23,6 @@
 #include <rapidjson/stringbuffer.h>
 
 #include <cstdint>
-#include <cstdlib>
 #include <exception>
 #include <memory>
 #include <string>
@@ -34,15 +33,13 @@
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_status.h"
-#include "olap/olap_common.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_manager.h"
 
 namespace doris {
 
 constexpr std::string_view TABLET_ID = "tablet_id";
-constexpr std::string_view BASE_COMPACTION_SCORE = "base_compaction_score";
-constexpr std::string_view CUMULATIVE_COMPACTION_SCORE = "cumu_compaction_score";
+constexpr std::string_view COMPACTION_SCORE = "compaction_score";
 
 CompactionScoreAction::CompactionScoreAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
                                              TPrivilegeType::type type,
@@ -60,22 +57,15 @@ static rapidjson::Value jsonfy_tablet_compaction_score(
     auto tablet_id_str = std::to_string(tablet->tablet_id());
     tablet_id_val.SetString(tablet_id_str.c_str(), tablet_id_str.length(), allocator);
 
-    auto add_compaction_score = [&tablet, &allocator, &node](std::string_view key_name,
-                                                             CompactionType type) {
-        rapidjson::Value score_key;
-        score_key.SetString(key_name.data(), key_name.size());
-
-        rapidjson::Value score_val;
-        auto score =
-                tablet->calc_compaction_score(type, tablet->get_cumulative_compaction_policy());
-        auto score_str = std::to_string(score);
-        score_val.SetString(score_str.c_str(), score_str.length(), allocator);
-        node.AddMember(score_key, score_val, allocator);
-    };
+    rapidjson::Value score_key;
+    score_key.SetString(COMPACTION_SCORE.data(), COMPACTION_SCORE.size());
+    rapidjson::Value score_val;
+    auto score = tablet->get_real_compaction_score();
+    auto score_str = std::to_string(score);
+    score_val.SetString(score_str.c_str(), score_str.length(), allocator);
+    node.AddMember(score_key, score_val, allocator);
 
     node.AddMember(tablet_id_key, tablet_id_val, allocator);
-    add_compaction_score(BASE_COMPACTION_SCORE, CompactionType::BASE_COMPACTION);
-    add_compaction_score(CUMULATIVE_COMPACTION_SCORE, CompactionType::CUMULATIVE_COMPACTION);
     return node;
 }
 
