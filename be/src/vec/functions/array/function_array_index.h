@@ -193,7 +193,7 @@ public:
 
         return Status::OK();
     }
-    
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (arguments[0]->is_nullable()) {
             return make_nullable(std::make_shared<DataTypeNumber<ResultType>>());
