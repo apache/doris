@@ -52,4 +52,28 @@ suite("test_group_commit_error", "nonConcurrent") {
     } finally {
         GetDebugPoint().clearDebugPointsForAllBEs()
     }
+
+    try {
+        GetDebugPoint().enableDebugPointForAllBEs("FragmentMgr._get_query_ctx.failed")
+        sql """ set group_commit = async_mode """
+        sql """ set enable_nereids_planner = false """
+        sql """ insert into ${tableName} values (3, 3) """
+        assertTrue(false)
+    } catch (Exception e) {
+        logger.info("failed: " + e.getMessage())
+    } finally {
+        GetDebugPoint().clearDebugPointsForAllBEs()
+    }
+
+    try {
+        GetDebugPoint().enableDebugPointForAllBEs("LoadBlockQueue.add_block.failed")
+        sql """ set group_commit = async_mode """
+        sql """ set enable_nereids_planner = false """
+        sql """ insert into ${tableName} values (4, 4) """
+        assertTrue(false)
+    } catch (Exception e) {
+        logger.info("failed: " + e.getMessage())
+    } finally {
+        GetDebugPoint().clearDebugPointsForAllBEs()
+    }
 }

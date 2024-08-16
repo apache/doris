@@ -35,6 +35,8 @@ namespace doris {
 
 Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
                                  std::shared_ptr<vectorized::Block> block, bool write_wal) {
+    DBUG_EXECUTE_IF("LoadBlockQueue.add_block.failed",
+                    { return Status::InternalError("LoadBlockQueue.add_block.failed"); });
     std::unique_lock l(mutex);
     RETURN_IF_ERROR(status);
     auto start = std::chrono::steady_clock::now();
