@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
@@ -77,6 +78,11 @@ public class PlanTranslatorContext {
      * index from Nereids' slot to legacy slot.
      */
     private final Map<ExprId, SlotRef> exprIdToSlotRef = Maps.newHashMap();
+
+    private boolean translateUsingBackup = false;
+    private final Map<Plan, Map<ExprId, SlotRef>> savedPlanToExprIdToSlotRef = Maps.newHashMap();
+
+    private Map<ExprId, SlotRef> backUpExprIdToSlot = Maps.newHashMap();
 
     /**
      * Inverted index from legacy slot to Nereids' slot.
@@ -187,6 +193,14 @@ public class PlanTranslatorContext {
         return descTable.createTupleDescriptor();
     }
 
+    public boolean getTranslateUsingBackup() {
+        return translateUsingBackup;
+    }
+
+    public void setTranslateUsingBackup(boolean usingBackup) {
+        this.translateUsingBackup = usingBackup;
+    }
+
     public Optional<RuntimeFilterTranslator> getRuntimeTranslator() {
         return Optional.ofNullable(translator);
     }
@@ -216,6 +230,14 @@ public class PlanTranslatorContext {
         slotIdToExprId.put(slotRef.getDesc().getId(), exprId);
     }
 
+    public void backupPlanToExprIdSlotRefMap(Plan planNode) {
+        Map<ExprId, SlotRef> newExprIdToSlotRef = Maps.newHashMap();
+        for (Map.Entry<ExprId, SlotRef> entry : exprIdToSlotRef.entrySet()) {
+            newExprIdToSlotRef.put(entry.getKey(), (SlotRef) entry.getValue().clone());
+        }
+        savedPlanToExprIdToSlotRef.put(planNode, newExprIdToSlotRef);
+    }
+
     public void addExprIdColumnRefPair(ExprId exprId, ColumnRefExpr columnRefExpr) {
         exprIdToColumnRef.put(exprId, columnRefExpr);
     }
@@ -234,6 +256,18 @@ public class PlanTranslatorContext {
 
     public SlotRef findSlotRef(ExprId exprId) {
         return exprIdToSlotRef.get(exprId);
+    }
+
+    public SlotRef findBackupSlotRef(ExprId exprId) {
+        return backUpExprIdToSlot.get(exprId);
+    }
+
+    public Map<ExprId, SlotRef> findBackupExprIdToSlotMap(Plan plan) {
+        return savedPlanToExprIdToSlotRef.get(plan);
+    }
+
+    public void setBackUpExprIdToSlot(Map<ExprId, SlotRef> map) {
+        backUpExprIdToSlot = map;
     }
 
     public ColumnRefExpr findColumnRef(ExprId exprId) {

@@ -2122,7 +2122,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
         PlanFragment inputFragment = sort.child(0).accept(this, context);
         List<List<Expr>> distributeExprLists = getDistributeExprs(sort.child(0));
-
+        context.backupPlanToExprIdSlotRefMap(sort);
         // 2. According to the type of sort, generate physical plan
         if (!sort.getSortPhase().isMerge()) {
             // For localSort or Gather->Sort, we just need to add sortNode
@@ -2332,7 +2332,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // current op tree only has two patterns, one is the window with sort child, and another is two phase
             // global partition topn child, and the latter is no need to refresh its distribution expr list since
             // it's expected to be the same as window's, for the former pattern, it is the real candidate.
-            newChildDistributeExprLists.add(partitionExprs);
+            Map<ExprId, SlotRef> exprIdToSlotRef = context.findBackupExprIdToSlotMap(physicalWindow.child(0));
+            context.setBackUpExprIdToSlot(exprIdToSlotRef);
+            List<Expr> newPartitionExprs = partitionKeyList.stream()
+                    .map(e -> ExpressionTranslator.translateUseBackup(e, context))
+                    .collect(Collectors.toList());
+            newChildDistributeExprLists.add(newPartitionExprs);
             inputPlanFragment.getPlanRoot().setChildrenDistributeExprLists(newChildDistributeExprLists);
         }
 
