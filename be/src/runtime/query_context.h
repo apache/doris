@@ -24,6 +24,7 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <random>
 #include <string>
 #include <unordered_map>
 
@@ -97,7 +98,16 @@ public:
 
     void set_ready_to_execute(Status reason);
 
-    [[nodiscard]] bool is_cancelled() const { return !_exec_status.ok(); }
+    [[nodiscard]] bool is_cancelled() {
+        static std::mt19937 rng(static_cast<unsigned int>(std::time(nullptr)));
+
+        // Define a uniform real distribution between 0.0 and 1.0
+        static std::uniform_real_distribution<double> dist(0.0, 1.0);
+        if (dist(rng) < 0.05) {
+            set_exec_status(Status::InternalError("yxc error"));
+        }
+        return !_exec_status.ok();
+    }
 
     void cancel_all_pipeline_context(const Status& reason, int fragment_id = -1);
     std::string print_all_pipeline_context();
