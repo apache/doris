@@ -2987,8 +2987,8 @@ public class Config extends ConfigBase {
         "create table in cloud mode, check recycler key remained, default true"})
     public static boolean check_create_table_recycle_key_remained = true;
 
-    @ConfField(mutable = true, description = {"存算分离模式下fe向ms请求锁的过期时间，默认10s"})
-    public static int delete_bitmap_lock_expiration_seconds = 10;
+    @ConfField(mutable = true, description = {"存算分离模式下fe向ms请求锁的过期时间，默认60s"})
+    public static int delete_bitmap_lock_expiration_seconds = 60;
 
     @ConfField(mutable = true, description = {"存算分离模式下calculate delete bitmap task 超时时间，默认15s"})
     public static int calculate_delete_bitmap_task_timeout_seconds = 15;
