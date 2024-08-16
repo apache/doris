@@ -145,6 +145,9 @@ aliYunSk="***********"
 txYunAk="***********"
 txYunSk="***********"
 
+// max compute catalog test config
+enableMaxComputeTest=true
+
 max_failure_num=50
 
 externalEnvIp="127.0.0.1"
