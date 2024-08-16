@@ -58,7 +58,7 @@ public:
             return nullptr;
         }
         const auto& column_id = _col_ids[column_index];
-        if (column_id < 0 || column_id >= _inverted_index_iterators.size()) {
+        if (column_id >= _inverted_index_iterators.size()) {
             return nullptr;
         }
         if (!_inverted_index_iterators[column_id]) {
@@ -73,7 +73,7 @@ public:
             return nullptr;
         }
         const auto& column_id = _col_ids[column_index];
-        if (column_id < 0 || column_id >= _storage_name_and_type.size()) {
+        if (column_id >= _storage_name_and_type.size()) {
             return nullptr;
         }
         return &_storage_name_and_type[column_id];
