@@ -59,7 +59,7 @@ public:
 
     ~MergeSorterState() = default;
 
-    Status add_sorted_block(std::shared_ptr<Block> block);
+    void add_sorted_block(std::shared_ptr<Block> block);
 
     Status build_merge_tree(const SortDescription& sort_description);
 

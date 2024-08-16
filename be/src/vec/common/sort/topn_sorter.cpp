@@ -72,8 +72,7 @@ Status TopNSorter::_do_sort(Block* block) {
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
         if (_state->num_rows() < _offset + _limit) {
-            RETURN_IF_ERROR(
-                    _state->add_sorted_block(Block::create_shared(std::move(sorted_block))));
+            _state->add_sorted_block(Block::create_shared(std::move(sorted_block)));
             _block_priority_queue.emplace(MergeSortCursorImpl::create_shared(
                     _state->last_sorted_block(), _sort_description));
         } else {
@@ -81,7 +80,7 @@ Status TopNSorter::_do_sort(Block* block) {
                     Block::create_shared(std::move(sorted_block)), _sort_description);
             MergeSortBlockCursor block_cursor(tmp_cursor_impl);
             if (!block_cursor.totally_greater(_block_priority_queue.top())) {
-                RETURN_IF_ERROR(_state->add_sorted_block(block_cursor.impl->block));
+                _state->add_sorted_block(block_cursor.impl->block);
                 _block_priority_queue.emplace(tmp_cursor_impl);
             }
         }

@@ -66,15 +66,14 @@ void MergeSorterState::reset() {
     in_mem_sorted_bocks_size_ = 0;
 }
 
-Status MergeSorterState::add_sorted_block(std::shared_ptr<Block> block) {
+void MergeSorterState::add_sorted_block(std::shared_ptr<Block> block) {
     auto rows = block->rows();
     if (0 == rows) {
-        return Status::OK();
+        return;
     }
     in_mem_sorted_bocks_size_ += block->bytes();
     sorted_blocks_.emplace_back(block);
     num_rows_ += rows;
-    return Status::OK();
 }
 
 Status MergeSorterState::build_merge_tree(const SortDescription& sort_description) {
@@ -265,8 +264,7 @@ Status FullSorter::_do_sort() {
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
         if (_state->num_rows() < _offset + _limit) {
-            static_cast<void>(
-                    _state->add_sorted_block(Block::create_shared(std::move(desc_block))));
+            _state->add_sorted_block(Block::create_shared(std::move(desc_block)));
             _block_priority_queue.emplace(MergeSortCursorImpl::create_shared(
                     _state->last_sorted_block(), _sort_description));
         } else {
@@ -274,14 +272,14 @@ Status FullSorter::_do_sort() {
                     Block::create_shared(std::move(desc_block)), _sort_description);
             MergeSortBlockCursor block_cursor(tmp_cursor_impl);
             if (!block_cursor.totally_greater(_block_priority_queue.top())) {
-                static_cast<void>(_state->add_sorted_block(tmp_cursor_impl->block));
+                _state->add_sorted_block(tmp_cursor_impl->block);
                 _block_priority_queue.emplace(MergeSortCursorImpl::create_shared(
                         _state->last_sorted_block(), _sort_description));
             }
         }
     } else {
         // dispose normal sort logic
-        static_cast<void>(_state->add_sorted_block(Block::create_shared(std::move(desc_block))));
+        _state->add_sorted_block(Block::create_shared(std::move(desc_block)));
     }
     return Status::OK();
 }
