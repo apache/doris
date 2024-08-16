@@ -535,6 +535,10 @@ void TabletMeta::serialize(string* meta_binary) {
     if (!serialize_success) {
         LOG(FATAL) << "failed to serialize meta " << tablet_id();
     }
+    if (!_rs_metas.empty()) {
+        _avg_rs_meta_serialize_size =
+                meta_binary->length() / (_rs_metas.size() + _stale_rs_metas.size());
+    }
 }
 
 Status TabletMeta::deserialize(std::string_view meta_binary) {

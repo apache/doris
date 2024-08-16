@@ -168,6 +168,7 @@ Status RowsetBuilder::check_tablet_version_count() {
                 "tablet: {}",
                 version_count, config::max_tablet_version_num, _tablet->tablet_id());
     }
+
     return Status::OK();
 }
 
@@ -193,6 +194,16 @@ Status RowsetBuilder::init() {
     if (!config::disable_auto_compaction &&
         !_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
         RETURN_IF_ERROR(check_tablet_version_count());
+    }
+
+    int version_count = tablet()->version_count();
+    if (tablet()->avg_rs_meta_serialize_size() * version_count >
+        config::tablet_meta_serialize_size_limit) {
+        return Status::Error<TOO_MANY_VERSION>(
+                "failed to init rowset builder. meta serialize size : {}, exceed limit: {}, "
+                "tablet: {}",
+                tablet()->avg_rs_meta_serialize_size() * version_count,
+                config::tablet_meta_serialize_size_limit, _tablet->tablet_id());
     }
 
     RETURN_IF_ERROR(prepare_txn());

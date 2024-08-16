@@ -1438,6 +1438,8 @@ DECLARE_mBool(enable_hdfs_mem_limiter);
 // we should do agg limit opt
 DECLARE_mInt16(topn_agg_limit_multiplier);
 
+DECLARE_mInt64(tablet_meta_serialize_size_limit);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

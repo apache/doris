@@ -284,6 +284,8 @@ public:
         _ttl_seconds = ttl_seconds;
     }
 
+    int64_t avg_rs_meta_serialize_size() const { return _avg_rs_meta_serialize_size; }
+
 private:
     Status _save_meta(DataDir* data_dir);
 
@@ -338,6 +340,8 @@ private:
     int64_t _time_series_compaction_time_threshold_seconds = 0;
     int64_t _time_series_compaction_empty_rowsets_threshold = 0;
     int64_t _time_series_compaction_level_threshold = 0;
+
+    int64_t _avg_rs_meta_serialize_size = 0;
 
     // cloud
     int64_t _ttl_seconds = 0;
