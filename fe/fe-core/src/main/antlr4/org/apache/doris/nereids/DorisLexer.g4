@@ -72,6 +72,19 @@ lexer grammar DorisLexer;
   public void markUnclosedComment() {
     has_unclosed_bracketed_comment = true;
   }
+
+  // This variable will hold the external state
+  private boolean channel2;
+
+  // Method to set the external state
+  public void setChannel2(boolean value) {
+      this.channel2 = value;
+  }
+
+  // Method to decide the channel based on external state
+  private boolean isChannel2() {
+      return this.channel2;
+  }
 }
 
 SEMICOLON: ';';
@@ -653,6 +666,11 @@ SIMPLE_COMMENT
 BRACKETED_COMMENT
     : '/*' {!isHint()}? ( BRACKETED_COMMENT | . )*? ('*/' | {markUnclosedComment();} EOF) -> channel(HIDDEN)
     ;
+
+HINT_WITH_CHANNEL
+    : {isChannel2()}? HINT_START .*? HINT_END -> channel(2)
+    ;
+
 
 FROM_DUAL
     : 'FROM' WS+ 'DUAL' -> channel(HIDDEN);
