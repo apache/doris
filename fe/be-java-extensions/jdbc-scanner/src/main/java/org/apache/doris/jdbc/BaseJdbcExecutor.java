@@ -127,15 +127,14 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 try {
                     closeable.close();
                 } catch (Exception e) {
-                    LOG.warn("Cannot close resource");
+                    LOG.warn("Cannot close resource", e);
                 }
             }
         }
     }
 
-    protected boolean abortReadConnection(Connection connection, ResultSet resultSet)
+    protected void abortReadConnection(Connection connection, ResultSet resultSet)
             throws SQLException {
-        return false;
     }
 
     public void cleanDataSource() {
