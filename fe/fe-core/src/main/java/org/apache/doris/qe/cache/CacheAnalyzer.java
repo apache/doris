@@ -344,6 +344,9 @@ public class CacheAnalyzer {
             }
             return CacheMode.NoNeed;
         }
+        if (context.getStatementContext().hasUnsupportedSqlCacheExpression) {
+            return CacheMode.None;
+        }
         if (!(parsedStmt instanceof LogicalPlanAdapter) || scanNodes.size() == 0) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("not a select stmt or no scan node. queryid {}", DebugUtil.printId(queryId));
