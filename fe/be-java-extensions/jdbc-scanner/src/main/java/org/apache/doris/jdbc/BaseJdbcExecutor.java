@@ -104,7 +104,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 try {
                     stmt.cancel();
                 } catch (SQLException e) {
-                    LOG.warn("Cannot cancelling statement", e);
+                    LOG.warn("Cannot cancelling statement: ", e);
                 }
             }
 
@@ -127,7 +127,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 try {
                     closeable.close();
                 } catch (Exception e) {
-                    LOG.warn("Cannot close resource", e);
+                    LOG.warn("Cannot close resource: ", e);
                 }
             }
         }
