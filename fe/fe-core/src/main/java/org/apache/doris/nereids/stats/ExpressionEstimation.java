@@ -374,10 +374,8 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     public ColumnStatistic visitCount(Count count, Statistics context) {
         double width = count.getDataType().width();
         // for scalar agg, ndv and row count will be normalized by 1 in StatsCalculator.computeAggregate()
-        return new ColumnStatisticBuilder().setNdv(context.getRowCount()).setCount(context.getRowCount())
-                .setAvgSizeByte(width).setNumNulls(0)
-                .setDataSize(width).setMinValue(0).setMaxValue(context.getRowCount())
-                .setMaxExpr(null).setMinExpr(null).build();
+        return new  ColumnStatisticBuilder(ColumnStatistic.UNKNOWN).setCount(context.getRowCount())
+                .setAvgSizeByte(width).build();
     }
 
     // TODO: return a proper estimated stat after supports histogram

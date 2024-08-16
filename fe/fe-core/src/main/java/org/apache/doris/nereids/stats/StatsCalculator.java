@@ -164,7 +164,7 @@ import java.util.stream.Collectors;
  * Used to calculate the stats for each plan
  */
 public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
-    public static double DEFAULT_AGGREGATE_RATIO = 0.5;
+    public static double DEFAULT_AGGREGATE_RATIO = 0.45;
     public static double AGGREGATE_COLUMN_CORRELATION_COEFFICIENT = 0.75;
     public static double DEFAULT_COLUMN_NDV_RATIO = 0.5;
 

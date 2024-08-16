@@ -149,7 +149,21 @@ public class Statistics {
     }
 
     public double dataSizeFactor(List<Slot> slots) {
-        return 0.05 * computeTupleSize(slots);
+        boolean allUnknown = true;
+        for (Slot slot : slots) {
+            ColumnStatistic colStats = expressionToColumnStats.get(slot);
+            if (colStats != null && !colStats.isUnKnown) {
+                allUnknown = false;
+                break;
+            }
+        }
+        if (allUnknown) {
+            double lowerBound = 0.03;
+            double upperBound = 0.07;
+            return Math.min(Math.max(computeTupleSize(slots) / K_BYTES, lowerBound), upperBound);
+        } else {
+            return 0.05 * computeTupleSize(slots);
+        }
     }
 
     @Override
