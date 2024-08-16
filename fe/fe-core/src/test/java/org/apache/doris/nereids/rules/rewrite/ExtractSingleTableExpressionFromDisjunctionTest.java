@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -41,6 +42,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
+import java.util.List;
 import java.util.Set;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -177,6 +179,40 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements MemoPatt
                 new EqualTo(studentGender, new IntegerLiteral(1))
         );
 
+        return conjuncts.size() == 2 && conjuncts.contains(or);
+    }
+
+    /**
+     * test join otherJoinReorderContext
+     *(cid=1 and sage=10) or sgender=1
+     * =>
+     * (sage=10 or sgender=1)
+     */
+    @Test
+    public void testExtract4() {
+        Expression expr = new Or(
+                new And(
+                        new EqualTo(courseCid, new IntegerLiteral(1)),
+                        new EqualTo(studentAge, new IntegerLiteral(10))
+                ),
+                new EqualTo(studentGender, new IntegerLiteral(1))
+        );
+        Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, ExpressionUtils.EMPTY_CONDITION, ImmutableList.of(expr),
+                student, course, null);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+                .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
+                .matchesFromRoot(
+                        logicalJoin()
+                                .when(j -> verifySingleTableExpression4(j.getOtherJoinConjuncts()))
+                );
+        Assertions.assertNotNull(studentGender);
+    }
+
+    private boolean verifySingleTableExpression4(List<Expression> conjuncts) {
+        Expression or = new Or(
+                new EqualTo(studentAge, new IntegerLiteral(10)),
+                new EqualTo(studentGender, new IntegerLiteral(1))
+        );
         return conjuncts.size() == 2 && conjuncts.contains(or);
     }
 }

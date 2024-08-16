@@ -110,7 +110,10 @@ suite("test_primary_key_partial_update_seq_type", "p0") {
             sql "sync"
 
             qt_partial_update_with_seq_score_hidden """
-                select * from ${tableName} order by id;
+                select id, name, score, test, dft, update_time, __DORIS_DELETE_SIGN__, __DORIS_VERSION_COL__,
+                       __DORIS_SEQUENCE_COL__
+                from ${tableName}
+                order by id;
             """
 
             // use test as sequence column
@@ -140,7 +143,10 @@ suite("test_primary_key_partial_update_seq_type", "p0") {
             sql "sync"
 
             qt_partial_update_with_seq_test_hidden """
-                select * from ${tableName} order by id;
+                select id, name, score, test, dft, update_time, __DORIS_DELETE_SIGN__, __DORIS_VERSION_COL__,
+                       __DORIS_SEQUENCE_COL__
+                from ${tableName}
+                order by id;
             """
 
             // no partial update header, stream load should success,
@@ -160,7 +166,10 @@ suite("test_primary_key_partial_update_seq_type", "p0") {
             sql "sync"
 
             qt_select_no_partial_update_score """
-                select * from ${tableName} order by id;
+                select id, name, score, test, dft, update_time, __DORIS_DELETE_SIGN__, __DORIS_VERSION_COL__,
+                       __DORIS_SEQUENCE_COL__
+                from ${tableName}
+                order by id;
             """
 
             // no partial update header, stream load should success,
@@ -180,7 +189,10 @@ suite("test_primary_key_partial_update_seq_type", "p0") {
             sql "sync"
 
             qt_select_no_partial_update_test """
-                select * from ${tableName} order by id;
+                select id, name, score, test, dft, update_time, __DORIS_DELETE_SIGN__, __DORIS_VERSION_COL__,
+                       __DORIS_SEQUENCE_COL__
+                from ${tableName}
+                order by id;
             """
 
             // drop table
