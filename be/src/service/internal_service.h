@@ -221,9 +221,9 @@ public:
                            google::protobuf::Closure* done) override;
 
     void tablet_batch_fetch_data(google::protobuf::RpcController* controller,
-                           const PTabletBatchKeyLookupRequest* batchRequest,
-                           PTabletBatchKeyLookupResponse* batchResponse,
-                           google::protobuf::Closure* done) override;
+                                 const PTabletBatchKeyLookupRequest* batchRequest,
+                                 PTabletBatchKeyLookupResponse* batchResponse,
+                                 google::protobuf::Closure* done) override;
 
     void test_jdbc_connection(google::protobuf::RpcController* controller,
                               const PJdbcTestConnectionRequest* request,
@@ -274,7 +274,6 @@ protected:
     // otherwise as light interface
     FifoThreadPool _heavy_work_pool;
     FifoThreadPool _light_work_pool;
-
 };
 
 // `StorageEngine` mixin for `PInternalService`

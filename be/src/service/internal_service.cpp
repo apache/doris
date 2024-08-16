@@ -909,7 +909,8 @@ void PInternalService::tablet_batch_fetch_data(google::protobuf::RpcController* 
                                                const PTabletBatchKeyLookupRequest* batchRequest,
                                                PTabletBatchKeyLookupResponse* batchResponse,
                                                google::protobuf::Closure* done) {
-    auto pending_requests = std::make_shared<std::atomic_int>(batchRequest->sub_key_lookup_req_size());
+    auto pending_requests =
+            std::make_shared<std::atomic_int>(batchRequest->sub_key_lookup_req_size());
     auto done_called = std::make_shared<std::atomic_bool>(false);
     bool ret = _light_work_pool.try_offer([this, controller,
                                            batchRequest, batchResponse,
@@ -918,18 +919,17 @@ void PInternalService::tablet_batch_fetch_data(google::protobuf::RpcController* 
             batchResponse->add_sub_key_lookup_res();
             const PTabletKeyLookupRequest* request = &batchRequest->sub_key_lookup_req(i);
             PTabletKeyLookupResponse* response = batchResponse->mutable_sub_key_lookup_res(i);
-            bool sub_ret = _light_work_pool.try_offer([this, controller,
-                                                       request, response,
-                                                       done, pending_requests, done_called]() {
-                [[maybe_unused]] auto* cntl = static_cast<brpc::Controller*>(controller);
-                Status st = _tablet_fetch_data(request, response);
-                st.to_protobuf(response->mutable_status());
-                if (--(*pending_requests) == 0) {
-                    if (!done_called->exchange(true)) {
-                        done->Run();
-                    }
-                }
-            });
+            bool sub_ret = _light_work_pool.try_offer(
+                    [this, controller, request, response, done, pending_requests, done_called]() {
+                        [[maybe_unused]] auto* cntl = static_cast<brpc::Controller*>(controller);
+                        Status st = _tablet_fetch_data(request, response);
+                        st.to_protobuf(response->mutable_status());
+                        if (--(*pending_requests) == 0) {
+                            if (!done_called->exchange(true)) {
+                                done->Run();
+                            }
+                        }
+                    });
 
             if (!sub_ret) {
                 offer_failed(response, done, _light_work_pool);
@@ -941,7 +941,7 @@ void PInternalService::tablet_batch_fetch_data(google::protobuf::RpcController* 
             }
         }
     });
-    
+
     if (!ret) {
         offer_failed(batchResponse, done, _light_work_pool);
         return;
