@@ -22,14 +22,18 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableMap;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Common interface for logical/physical project.
@@ -61,7 +65,15 @@ public interface Project {
      * @return project list for merged project
      */
     default List<NamedExpression> mergeProjections(Project childProject) {
-        return PlanUtils.mergeProjections(childProject.getProjects(), getProjects());
+        Set<NamedExpression> projects = new HashSet<>();
+        projects.addAll(PlanUtils.mergeProjections(childProject.getProjects(), getProjects()));
+        for (NamedExpression expression : childProject.getProjects()) {
+            // keep NoneMovableFunction for later use
+            if (expression.containsType(NoneMovableFunction.class)) {
+                projects.add(expression);
+            }
+        }
+        return new ArrayList<>(projects);
     }
 
     /**
@@ -96,5 +108,15 @@ public interface Project {
             }
         }
         return true;
+    }
+
+    /** containsNoneMovableFunction */
+    default boolean containsNoneMovableFunction() {
+        for (NamedExpression expression : getProjects()) {
+            if (expression.containsType(NoneMovableFunction.class)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

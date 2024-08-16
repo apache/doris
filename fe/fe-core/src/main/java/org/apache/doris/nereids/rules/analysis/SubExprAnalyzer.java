@@ -116,7 +116,6 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         AnalyzedResult analyzedResult = analyzeSubquery(scalar);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
-        checkHasAgg(analyzedResult);
         checkHasNoGroupBy(analyzedResult);
 
         // if scalar subquery is like select '2024-02-02 00:00:00'

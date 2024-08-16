@@ -19,10 +19,14 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -33,8 +37,10 @@ import java.util.Optional;
  */
 public class ScalarSubquery extends SubqueryExpr {
 
+    private final boolean hasTopLevelScalarAgg;
+
     public ScalarSubquery(LogicalPlan subquery) {
-        super(Objects.requireNonNull(subquery, "subquery can not be null"));
+        this(Objects.requireNonNull(subquery, "subquery can not be null"), ImmutableList.of());
     }
 
     public ScalarSubquery(LogicalPlan subquery, List<Slot> correlateSlots) {
@@ -47,6 +53,33 @@ public class ScalarSubquery extends SubqueryExpr {
         super(Objects.requireNonNull(subquery, "subquery can not be null"),
                 Objects.requireNonNull(correlateSlots, "correlateSlots can not be null"),
                 typeCoercionExpr);
+        hasTopLevelScalarAgg = findTopLevelScalarAgg(subquery);
+    }
+
+    // check if the query has top level scalar agg
+    // if the correlated subquery doesn't have top level scalar agg
+    // we need create one in subquery unnesting step
+    private static boolean findTopLevelScalarAgg(Plan plan) {
+        if (plan instanceof LogicalAggregate) {
+            if (((LogicalAggregate<?>) plan).getGroupByExpressions().isEmpty()) {
+                return true;
+            } else {
+                return false;
+            }
+        } else if (plan instanceof LogicalJoin) {
+            return false;
+        } else {
+            for (Plan child : plan.children()) {
+                if (findTopLevelScalarAgg(child)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    public boolean hasTopLevelScalarAgg() {
+        return hasTopLevelScalarAgg;
     }
 
     @Override
