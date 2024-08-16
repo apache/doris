@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <stdarg.h>
 #ifdef USE_HADOOP_HDFS
 #include <hadoop_hdfs/hdfs.h> // IWYU pragma: export
 #else
