@@ -555,7 +555,7 @@ public class ConnectContext {
             } else if (literalExpr instanceof NullLiteral) {
                 return Literal.of(null);
             } else {
-                return Literal.of("");
+                return Literal.of(literalExpr.getStringValue());
             }
         } else {
             // If there are no such user defined var, just return the NULL value.
@@ -585,7 +585,7 @@ public class ConnectContext {
                 desc.setIsNull();
             } else {
                 desc.setType(Type.VARCHAR);
-                desc.setStringValue("");
+                desc.setStringValue(literalExpr.getStringValue());
             }
         } else {
             // If there are no such user defined var, just fill the NULL value.
