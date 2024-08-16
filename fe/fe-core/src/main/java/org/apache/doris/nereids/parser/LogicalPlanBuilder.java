@@ -172,6 +172,7 @@ import org.apache.doris.nereids.DorisParser.SelectClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
 import org.apache.doris.nereids.DorisParser.SetOperationContext;
+import org.apache.doris.nereids.DorisParser.ShowConfigContext;
 import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
@@ -390,6 +391,7 @@ import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
@@ -472,6 +474,7 @@ import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.system.NodeType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -3682,5 +3685,25 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 new TableNameInfo(nameParts), new TableNameInfo(existedTableNameParts),
                 rollupNames, withAllRollUp);
         return new CreateTableLikeCommand(info);
+    }
+
+    @Override
+    public LogicalPlan visitShowConfig(ShowConfigContext ctx) {
+        ShowConfigCommand command;
+        if (ctx.type.getText().equalsIgnoreCase(NodeType.FRONTEND.name())) {
+            command = new ShowConfigCommand(NodeType.FRONTEND);
+        } else {
+            command = new ShowConfigCommand(NodeType.BACKEND);
+        }
+        if (ctx.LIKE() != null && ctx.pattern != null) {
+            Like like = new Like(new UnboundSlot("ProcedureName"), getExpression(ctx.pattern));
+            String pattern = ((Literal) like.child(1)).getStringValue();
+            command.setPattern(pattern);
+        }
+        if (ctx.FROM() != null && ctx.backendId != null) {
+            long backendId = Long.parseLong(ctx.backendId.getText());
+            command.setBackendId(backendId);
+        }
+        return command;
     }
 }
