@@ -13,6 +13,20 @@ PhysicalResultSink
 ------filter((max_min_filter_push_down1.value1 > 40))
 --------PhysicalOlapScan[max_min_filter_push_down1]
 
+-- !min_expr --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------filter((cast(value1 as BIGINT) < 19))
+--------PhysicalOlapScan[max_min_filter_push_down1]
+
+-- !max_expr --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------filter((abs(value1) > 39))
+--------PhysicalOlapScan[max_min_filter_push_down1]
+
 -- !min_commute --
 PhysicalResultSink
 --hashAgg[GLOBAL]
@@ -105,6 +119,14 @@ PhysicalResultSink
 2	73
 3	61
 4	45
+
+-- !min_expr_res --
+1	11
+
+-- !max_expr_res --
+2	74
+3	62
+4	46
 
 -- !min_commute_res --
 1	10

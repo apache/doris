@@ -42,6 +42,15 @@ suite("max_min_filter_push_down") {
     select id,max(value1) from max_min_filter_push_down1 group by id having max(value1) >40;
     """
 
+    qt_min_expr """
+    explain shape plan
+    select id,min(value1+1) from max_min_filter_push_down1 group by id having min(value1+1) <40 and min(value1+1) <20;
+    """
+    qt_max_expr """
+    explain shape plan
+    select id,max(abs(value1)+1) from max_min_filter_push_down1 group by id having max(abs(value1)+1) >40;
+    """
+
     qt_min_commute """
     explain shape plan
     select id,min(value1) from max_min_filter_push_down1 group by id having 40>min(value1);
@@ -103,7 +112,12 @@ suite("max_min_filter_push_down") {
     qt_max_res """
     select id,max(value1) from max_min_filter_push_down1 group by id having max(value1) >40 order by 1,2;
     """
-
+    qt_min_expr_res """
+    select id,min(value1+1) from max_min_filter_push_down1 group by id having min(value1+1) <40 and min(value1+1) <20 order by 1,2;
+    """
+    qt_max_expr_res """
+    select id,max(abs(value1)+1) from max_min_filter_push_down1 group by id having max(abs(value1)+1) >40 order by 1,2;
+    """
     qt_min_commute_res """
     select id,min(value1) from max_min_filter_push_down1 group by id having 40>min(value1) order by 1,2;
     """
