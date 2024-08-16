@@ -516,7 +516,7 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
     case TExprNodeType::NULL_LITERAL: {
         // insert a null literal
         if (!column->is_nullable()) {
-            //TODO: maybe the better way to handle this in FE.
+            // https://github.com/apache/doris/pull/39449 have forbid this cause. always add this check as protective measures
             return Status::InternalError("The column {} is not null, can't insert into NULL value.",
                                          part_key->first->get_by_position(pos).name);
         }
