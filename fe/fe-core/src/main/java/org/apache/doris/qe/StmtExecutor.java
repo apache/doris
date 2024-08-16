@@ -32,7 +32,6 @@ import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
-import org.apache.doris.analysis.ExecuteStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
@@ -48,8 +47,6 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PlaceHolderExpr;
-import org.apache.doris.analysis.PrepareStmt;
-import org.apache.doris.analysis.PrepareStmt.PreparedType;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
@@ -279,17 +276,11 @@ public class StmtExecutor {
     private Data.PQueryStatistics.Builder statisticsForAuditLog;
     private boolean isCached;
     private String stmtName;
-    private StatementBase prepareStmt = null;
     private String mysqlLoadId;
-    // Distinguish from prepare and execute command
-    private boolean isExecuteStmt = false;
     // Handle selects that fe can do without be
     private boolean isHandleQueryInFe = false;
     // The profile of this execution
     private final Profile profile;
-
-    private ExecuteStmt execStmt;
-    PrepareStmtContext preparedStmtCtx = null;
 
     // The result schema if "dry_run_query" is true.
     // Only one column to indicate the real return row numbers.
@@ -998,11 +989,6 @@ public class StmtExecutor {
                 parsedStmt.analyze(analyzer);
             }
             parsedStmt.checkPriv();
-            if (prepareStmt instanceof PrepareStmt && !isExecuteStmt) {
-                handlePrepareStmt();
-                return;
-            }
-
             // sql/sqlHash block
             checkBlockRules();
             if (parsedStmt instanceof QueryStmt) {
@@ -1226,33 +1212,6 @@ public class StmtExecutor {
 
         parseByLegacy();
 
-        boolean preparedStmtReanalyzed = false;
-        if (parsedStmt instanceof ExecuteStmt) {
-            execStmt = (ExecuteStmt) parsedStmt;
-            preparedStmtCtx = context.getPreparedStmt(execStmt.getName());
-            if (preparedStmtCtx == null) {
-                throw new UserException("Could not execute, since `" + execStmt.getName() + "` not exist");
-            }
-            // parsedStmt may already by set when constructing this StmtExecutor();
-            ((PrepareStmt) preparedStmtCtx.stmt).asignValues(execStmt.getArgs());
-            parsedStmt = ((PrepareStmt) preparedStmtCtx.stmt).getInnerStmt();
-            planner = preparedStmtCtx.planner;
-            analyzer = preparedStmtCtx.analyzer;
-            prepareStmt = preparedStmtCtx.stmt;
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("already prepared stmt: {}", preparedStmtCtx.stmtString);
-            }
-            isExecuteStmt = true;
-            if (!((PrepareStmt) preparedStmtCtx.stmt).needReAnalyze()) {
-                // Return directly to bypass analyze and plan
-                return;
-            }
-            // continue analyze
-            preparedStmtReanalyzed = true;
-            preparedStmtCtx.stmt.reset();
-            // preparedStmtCtx.stmt.analyze(analyzer);
-        }
-
         // yiguolei: insert stmt's grammar analysis will write editlog,
         // so that we check if the stmt should be forward to master here
         // if the stmt should be forward to master, then just return here and the master will do analysis again
@@ -1261,23 +1220,6 @@ public class StmtExecutor {
         }
 
         analyzer = new Analyzer(context.getEnv(), context);
-
-        if (parsedStmt instanceof PrepareStmt || context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
-            if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
-                prepareStmt = new PrepareStmt(parsedStmt,
-                        String.valueOf(String.valueOf(context.getStmtId())));
-            } else {
-                prepareStmt = (PrepareStmt) parsedStmt;
-            }
-            ((PrepareStmt) prepareStmt).setContext(context);
-            prepareStmt.analyze(analyzer);
-            // Need analyze inner statement
-            parsedStmt =  ((PrepareStmt) prepareStmt).getInnerStmt();
-            if (((PrepareStmt) prepareStmt).getPreparedType() == PrepareStmt.PreparedType.STATEMENT) {
-                // Skip analyze, do it lazy
-                return;
-            }
-        }
 
         // Convert show statement to select statement here
         if (parsedStmt instanceof ShowStmt) {
@@ -1390,17 +1332,6 @@ public class StmtExecutor {
                 throw new AnalysisException("Unexpected exception: " + e.getMessage());
             }
         }
-        if (preparedStmtReanalyzed
-                && ((PrepareStmt) preparedStmtCtx.stmt).getPreparedType() == PrepareStmt.PreparedType.FULL_PREPARED) {
-            ((PrepareStmt) prepareStmt).asignValues(execStmt.getArgs());
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("update planner and analyzer after prepared statement reanalyzed");
-            }
-            preparedStmtCtx.planner = planner;
-            preparedStmtCtx.analyzer = analyzer;
-            Preconditions.checkNotNull(preparedStmtCtx.stmt);
-            preparedStmtCtx.analyzer.setPrepareStmt(((PrepareStmt) preparedStmtCtx.stmt));
-        }
     }
 
     private void parseByLegacy() throws AnalysisException, DdlException {
@@ -1454,12 +1385,6 @@ public class StmtExecutor {
             }
             if (queryStmt.getOrderByElements() != null && queryStmt.getOrderByElements().isEmpty()) {
                 queryStmt.removeOrderByElements();
-            }
-        }
-        if (prepareStmt != null) {
-            analyzer.setPrepareStmt(((PrepareStmt) prepareStmt));
-            if (execStmt != null &&  ((PrepareStmt) prepareStmt).getPreparedType() != PreparedType.FULL_PREPARED) {
-                ((PrepareStmt) prepareStmt).asignValues(execStmt.getArgs());
             }
         }
         parsedStmt.analyze(analyzer);
@@ -1526,13 +1451,7 @@ public class StmtExecutor {
                 analyzer = new Analyzer(context.getEnv(), context);
                 // query re-analyze
                 parsedStmt.reset();
-                if (prepareStmt != null) {
-                    analyzer.setPrepareStmt(((PrepareStmt) prepareStmt));
-                    if (execStmt != null
-                            && ((PrepareStmt) prepareStmt).getPreparedType() != PreparedType.FULL_PREPARED) {
-                        ((PrepareStmt) prepareStmt).asignValues(execStmt.getArgs());
-                    }
-                }
+
                 analyzer.setReAnalyze(true);
                 parsedStmt.analyze(analyzer);
 
@@ -1915,10 +1834,6 @@ public class StmtExecutor {
                                 : new ShortCircuitQueryContext(planner, (Queriable) parsedStmt);
             coordBase = new PointQueryExecutor(shortCircuitQueryContext,
                         context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
-        } else if (queryStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).isPointQueryShortCircuit()) {
-            // this branch is for legacy planner, to be removed
-            coordBase = new PointQueryExec(planner, analyzer,
-                    context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
         } else if (planner instanceof NereidsPlanner && ((NereidsPlanner) planner).getDistributedPlans() != null) {
             coord = new NereidsCoordinator(context, analyzer,
                     planner, context.getStatsErrorEstimator(),
@@ -2663,22 +2578,6 @@ public class StmtExecutor {
         context.getState().setOk();
     }
 
-    private void handlePrepareStmt() throws Exception {
-        List<String> labels = ((PrepareStmt) prepareStmt).getColLabelsOfPlaceHolders();
-        // register prepareStmt
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("add prepared statement {}, isBinaryProtocol {}",
-                    prepareStmt.toSql(), context.getCommand() == MysqlCommand.COM_STMT_PREPARE);
-        }
-        context.addPreparedStmt(String.valueOf(context.getStmtId()),
-                new PrepareStmtContext(prepareStmt,
-                            context, planner, analyzer, String.valueOf(context.getStmtId())));
-        if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
-            sendStmtPrepareOK((int) context.getStmtId(), labels);
-        }
-    }
-
-
     // Process use statement.
     private void handleUseStmt() throws AnalysisException {
         UseStmt useStmt = (UseStmt) parsedStmt;
@@ -2846,29 +2745,12 @@ public class StmtExecutor {
         // send field one by one
         for (int i = 0; i < colNames.size(); ++i) {
             serializer.reset();
-            if (prepareStmt != null && prepareStmt instanceof  PrepareStmt
-                    && context.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
-                // Using PreparedStatment pre serializedField to avoid serialize each time
-                // we send a field
-                byte[] serializedField = ((PrepareStmt) prepareStmt).getSerializedField(colNames.get(i));
-                if (serializedField == null) {
-                    if (fieldInfos != null) {
-                        serializer.writeField(fieldInfos.get(i), types.get(i));
-                    } else {
-                        serializer.writeField(colNames.get(i), types.get(i));
-                    }
-                    serializedField = serializer.toArray();
-                    ((PrepareStmt) prepareStmt).setSerializedField(colNames.get(i), serializedField);
-                }
-                context.getMysqlChannel().sendOnePacket(ByteBuffer.wrap(serializedField));
+            if (fieldInfos != null) {
+                serializer.writeField(fieldInfos.get(i), types.get(i));
             } else {
-                if (fieldInfos != null) {
-                    serializer.writeField(fieldInfos.get(i), types.get(i));
-                } else {
-                    serializer.writeField(colNames.get(i), types.get(i));
-                }
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+                serializer.writeField(colNames.get(i), types.get(i));
             }
+            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
         // send EOF
         serializer.reset();

@@ -263,9 +263,6 @@ public class ConnectContext {
 
     private StatementContext statementContext;
 
-    // legacy planner
-    private Map<String, PrepareStmtContext> preparedStmtCtxs = Maps.newHashMap();
-
     // new planner
     private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
 
@@ -410,11 +407,10 @@ public class ConnectContext {
         return txnEntry != null && txnEntry.isInsertValuesTxnIniting();
     }
 
-    public void addPreparedStmt(String stmtName, PrepareStmtContext ctx) {
-        this.preparedStmtCtxs.put(stmtName, ctx);
-    }
-
     public void addPreparedStatementContext(String stmtName, PreparedStatementContext ctx) throws UserException {
+        if (!sessionVariable.enableServeSidePreparedStatement) {
+            throw new UserException("Failed to do prepared command, server side prepared statement is disabled");
+        }
         if (this.preparedStatementContextMap.size() > sessionVariable.maxPreparedStmtCount) {
             throw new UserException("Failed to create a server prepared statement"
                     + "possibly because there are too many active prepared statements on server already."
@@ -424,12 +420,7 @@ public class ConnectContext {
     }
 
     public void removePrepareStmt(String stmtName) {
-        this.preparedStmtCtxs.remove(stmtName);
         this.preparedStatementContextMap.remove(stmtName);
-    }
-
-    public PrepareStmtContext getPreparedStmt(String stmtName) {
-        return this.preparedStmtCtxs.get(stmtName);
     }
 
     public PreparedStatementContext getPreparedStementContext(String stmtName) {
