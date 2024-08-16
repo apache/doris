@@ -20,9 +20,15 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
 #include <atomic>
+#include <exception>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
 
 #include "common/exception.h"
 #include "olap/olap_common.h"
@@ -42,94 +48,67 @@ namespace doris {
 //     }
 //
 //     bool is_inited() const {
-//       return _init_once.has_called() && _init_once.stored_result().ok();
+//       return _init_once.is_called() && _init_once.stored_result().ok();
 //     }
 //   private:
 //     Status _do_init() { /* init logic here */ }
 //     DorisCallOnce<Status> _init_once;
 //   };
-template <typename ReturnType>
+
+template <typename R>
 class DorisCallOnce {
 public:
-    DorisCallOnce() : _once_flag(false) {}
+    DorisCallOnce() : _eptr(nullptr), _is_exception_thrown(false), _ret_val(std::nullopt) {}
 
-    // this method is not exception safe, it will core when exception occurs in
-    // callback method. I have tested the code https://en.cppreference.com/w/cpp/thread/call_once.
-    // If the underlying `once_flag` has yet to be invoked, invokes the provided
-    // lambda and stores its return value. Otherwise, returns the stored Status.
-    // template <typename Fn>
-    // ReturnType call(Fn fn) {
-    //     std::call_once(_once_flag, [this, fn] {
-    //         _status = fn();
-    //         _has_called.store(true, std::memory_order_release);
-    //     });
-    //     return _status;
-    // }
-
-    // If exception occurs in the function, the call flag is set, if user call
-    // it again, the same exception will be thrown.
-    // It is different from std::call_once. This is because if a method is called once
-    // some internal state is changed, it maybe not called again although exception
-    // occurred.
     template <typename Fn>
-    ReturnType call(Fn fn) {
-        // Avoid lock to improve performance
-        if (has_called()) {
-            if (_eptr) {
-                std::rethrow_exception(_eptr);
+        requires std::is_invocable_r_v<R, Fn>
+    R call(Fn fn) {
+        std::call_once(_once_flag, [&] {
+            try {
+                _ret_val = fn();
+            } catch (...) {
+                _eptr = std::current_exception();
+                _is_exception_thrown.store(true, std::memory_order_relaxed);
             }
-            return _status;
-        }
-        std::lock_guard l(_flag_lock);
-        // should check again because maybe another thread call successfully.
-        if (has_called()) {
-            if (_eptr) {
-                std::rethrow_exception(_eptr);
-            }
-            return _status;
-        }
-        try {
             // This memory order make sure both status and eptr is set
             // and will be seen in another thread.
-            _once_flag.store(true, std::memory_order_release);
-            _status = fn();
-        } catch (...) {
-            // Save the exception for next call.
-            _eptr = std::current_exception();
-            std::rethrow_exception(_eptr);
-        }
-        return _status;
+            _is_called.store(true, std::memory_order_relaxed);
+        });
+        return _get_val();
     }
 
-    // Has to pay attention to memory order
-    // see https://en.cppreference.com/w/cpp/atomic/memory_order
-    // Return whether `call` has been invoked or not.
-    bool has_called() const {
+    bool is_called() const {
         // std::memory_order_acquire here and std::memory_order_release in
-        // init(), taken together, mean that threads can safely synchronize on
-        // _has_called.
-        return _once_flag.load(std::memory_order_acquire);
+        // call(), taken together, mean that threads can safely synchronize on
+        // _is_called().
+        return _is_called.load(std::memory_order_acquire);
     }
 
-    // Return the stored result. The result is only meaningful when `has_called() == true`.
-    ReturnType stored_result() const {
-        if (!has_called()) {
+    R stored_result() const {
+        if (!is_called()) {
             // Could not return status if the method not called.
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                    "calling stored_result while has not been called");
         }
-        if (_eptr) {
-            std::rethrow_exception(_eptr);
-        }
-        return _status;
+        return _get_val();
     }
 
 private:
-    std::atomic<bool> _once_flag;
-    // std::once_flag _once_flag;
-    std::mutex _flag_lock;
+    R _get_val() const {
+        DCHECK(is_called());
+        if (_is_exception_thrown.load(std::memory_order_acquire)) {
+            DCHECK(_eptr);
+            std::rethrow_exception(_eptr);
+        }
+        DCHECK(_ret_val.has_value());
+        return _ret_val.value();
+    }
+
+    std::once_flag _once_flag;
     std::exception_ptr _eptr;
-    ReturnType _status;
+    std::atomic<bool> _is_called;
+    std::atomic<bool> _is_exception_thrown;
+    std::optional<R> _ret_val;
 };
 
 } // namespace doris

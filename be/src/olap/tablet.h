@@ -605,7 +605,7 @@ inline CumulativeCompactionPolicy* Tablet::cumulative_compaction_policy() {
 }
 
 inline bool Tablet::init_succeeded() {
-    return _init_once.has_called() && _init_once.stored_result().ok();
+    return _init_once.is_called() && _init_once.stored_result().ok();
 }
 
 inline bool Tablet::is_used() {

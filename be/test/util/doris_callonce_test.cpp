@@ -34,14 +34,14 @@ class DorisCallOnceTest : public ::testing::Test {};
 
 TEST_F(DorisCallOnceTest, TestNormal) {
     DorisCallOnce<Status> call1;
-    EXPECT_EQ(call1.has_called(), false);
+    EXPECT_EQ(call1.is_called(), false);
 
     Status st = call1.call([&]() -> Status { return Status::OK(); });
-    EXPECT_EQ(call1.has_called(), true);
+    EXPECT_EQ(call1.is_called(), true);
     EXPECT_EQ(call1.stored_result().code(), ErrorCode::OK);
 
     st = call1.call([&]() -> Status { return Status::InternalError(""); });
-    EXPECT_EQ(call1.has_called(), true);
+    EXPECT_EQ(call1.is_called(), true);
     // The error code should not changed
     EXPECT_EQ(call1.stored_result().code(), ErrorCode::OK);
 }
@@ -51,21 +51,21 @@ TEST_F(DorisCallOnceTest, TestNormal) {
 // array.
 TEST_F(DorisCallOnceTest, TestErrorHappens) {
     DorisCallOnce<Status> call1;
-    EXPECT_EQ(call1.has_called(), false);
+    EXPECT_EQ(call1.is_called(), false);
 
     Status st = call1.call([&]() -> Status { return Status::InternalError(""); });
-    EXPECT_EQ(call1.has_called(), true);
+    EXPECT_EQ(call1.is_called(), true);
     EXPECT_EQ(call1.stored_result().code(), ErrorCode::INTERNAL_ERROR);
 
     st = call1.call([&]() -> Status { return Status::OK(); });
-    EXPECT_EQ(call1.has_called(), true);
+    EXPECT_EQ(call1.is_called(), true);
     // The error code should not changed
     EXPECT_EQ(call1.stored_result().code(), ErrorCode::INTERNAL_ERROR);
 }
 
 TEST_F(DorisCallOnceTest, TestExceptionHappens) {
     DorisCallOnce<Status> call1;
-    EXPECT_EQ(call1.has_called(), false);
+    EXPECT_EQ(call1.is_called(), false);
     bool exception_occured = false;
     bool runtime_occured = false;
     try {
@@ -78,7 +78,7 @@ TEST_F(DorisCallOnceTest, TestExceptionHappens) {
         exception_occured = true;
     }
     EXPECT_EQ(exception_occured, true);
-    EXPECT_EQ(call1.has_called(), true);
+    EXPECT_EQ(call1.is_called(), true);
 
     // call again, should throw the same exception.
     exception_occured = false;
@@ -90,7 +90,7 @@ TEST_F(DorisCallOnceTest, TestExceptionHappens) {
         exception_occured = true;
     }
     EXPECT_EQ(exception_occured, true);
-    EXPECT_EQ(call1.has_called(), true);
+    EXPECT_EQ(call1.is_called(), true);
 
     // If call get result, should catch exception.
     exception_occured = false;
