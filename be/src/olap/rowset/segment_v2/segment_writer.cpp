@@ -1093,13 +1093,6 @@ uint64_t SegmentWriter::estimate_segment_size() {
     return size;
 }
 
-size_t SegmentWriter::try_get_inverted_index_file_size() {
-    if (_inverted_index_file_writer != nullptr) {
-        return _inverted_index_file_writer->get_index_file_size();
-    }
-    return 0;
-}
-
 Status SegmentWriter::finalize_columns_data() {
     if (_has_key) {
         _row_count = _num_rows_written;
@@ -1166,8 +1159,8 @@ Status SegmentWriter::finalize_footer(uint64_t* segment_file_size) {
     }
     if (_inverted_index_file_writer != nullptr) {
         RETURN_IF_ERROR(_inverted_index_file_writer->close());
+        _inverted_index_file_info = _inverted_index_file_writer->get_index_file_info();
     }
-    _inverted_index_file_size = try_get_inverted_index_file_size();
     return Status::OK();
 }
 
@@ -1398,6 +1391,13 @@ Status SegmentWriter::_generate_short_key_index(
         RETURN_IF_ERROR(_short_key_index_builder->add_item(_encode_keys(key_columns, pos)));
     }
     return Status::OK();
+}
+
+int64_t SegmentWriter::get_inverted_index_total_size() {
+    if (_inverted_index_file_writer != nullptr) {
+        return _inverted_index_file_writer->get_index_file_total_size();
+    }
+    return 0;
 }
 
 } // namespace segment_v2

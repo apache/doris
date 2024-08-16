@@ -118,7 +118,7 @@ public:
 
 bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const char* path,
                                           IndexInput*& ret, CLuceneError& error,
-                                          int32_t buffer_size) {
+                                          int32_t buffer_size, int64_t file_size) {
     CND_PRECONDITION(path != nullptr, "path is NULL");
 
     if (buffer_size == -1) {
@@ -130,21 +130,26 @@ bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const ch
     reader_options.cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
                                                           : io::FileCachePolicy::NO_CACHE;
     reader_options.is_doris_table = true;
+    reader_options.file_size = file_size;
     Status st = fs->open_file(path, &h->_reader, &reader_options);
     DBUG_EXECUTE_IF("inverted file read error: index file not found",
                     { st = Status::Error<doris::ErrorCode::NOT_FOUND>("index file not found"); })
     if (st.code() == ErrorCode::NOT_FOUND) {
-        error.set(CL_ERR_FileNotFound, "File does not exist");
+        error.set(CL_ERR_FileNotFound, fmt::format("File does not exist, file is {}", path).data());
     } else if (st.code() == ErrorCode::IO_ERROR) {
-        error.set(CL_ERR_IO, "File open io error");
+        error.set(CL_ERR_IO, fmt::format("File open io error, file is {}", path).data());
     } else if (st.code() == ErrorCode::PERMISSION_DENIED) {
-        error.set(CL_ERR_IO, "File Access denied");
-    } else {
-        error.set(CL_ERR_IO, "Could not open file");
+        error.set(CL_ERR_IO, fmt::format("File Access denied, file is {}", path).data());
+    } else if (!st.ok()) {
+        error.set(CL_ERR_IO, fmt::format("Could not open file, file is {}", path).data());
     }
 
     //Check if a valid handle was retrieved
     if (st.ok() && h->_reader) {
+        if (h->_reader->size() == 0) {
+            // may be an empty file
+            LOG(INFO) << "Opened inverted index file is empty, file is " << path;
+        }
         //Store the file length
         h->_length = h->_reader->size();
         h->_fpos = 0;

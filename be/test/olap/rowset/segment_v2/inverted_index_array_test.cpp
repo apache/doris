@@ -59,9 +59,12 @@ public:
     const std::string kTestDir = "./ut_dir/inverted_index_array_test";
 
     void check_terms_stats(string dir_str, string file_str) {
-        auto fs = io::global_local_filesystem();
-        std::unique_ptr<DorisCompoundReader> reader = std::make_unique<DorisCompoundReader>(
-                DorisFSDirectoryFactory::getDirectory(fs, dir_str.c_str()), file_str.c_str(), 4096);
+        CLuceneError err;
+        CL_NS(store)::IndexInput* index_input = nullptr;
+        DorisFSDirectory::FSIndexInput::open(io::global_local_filesystem(), file_str.c_str(),
+                                             index_input, err, 4096);
+        std::unique_ptr<DorisCompoundReader> reader =
+                std::make_unique<DorisCompoundReader>(index_input, 4096);
         std::cout << "Term statistics for " << file_str << std::endl;
         std::cout << "==================================" << std::endl;
         lucene::store::Directory* dir = reader.get();
