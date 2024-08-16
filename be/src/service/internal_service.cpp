@@ -2229,7 +2229,10 @@ void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* 
     TUniqueId load_id;
     load_id.__set_hi(request->load_id().hi());
     load_id.__set_lo(request->load_id().lo());
-    bool ret = _light_work_pool.try_offer([this, request, response, done, load_id]() {
+    std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
+    std::shared_ptr<bool> is_done = std::make_shared<bool>(false);
+    bool ret = _light_work_pool.try_offer([this, request, response, done, load_id, lock,
+                                           is_done]() {
         brpc::ClosureGuard closure_guard(done);
         std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
         auto pipe = std::make_shared<io::StreamLoadPipe>(
@@ -2243,7 +2246,13 @@ void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* 
                         request->exec_plan_fragment_request().request(),
                         request->exec_plan_fragment_request().version(),
                         request->exec_plan_fragment_request().compact(),
-                        [&, response, done, load_id](RuntimeState* state, Status* status) {
+                        [&, response, done, load_id, lock, is_done](RuntimeState* state,
+                                                                    Status* status) {
+                            std::lock_guard<std::mutex> lock1(*lock);
+                            if (*is_done) {
+                                return;
+                            }
+                            *is_done = true;
                             brpc::ClosureGuard cb_closure_guard(done);
                             response->set_label(state->import_label());
                             response->set_txn_id(state->wal_id());
@@ -2262,11 +2271,19 @@ void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* 
                 st = Status::Error(ErrorCode::INTERNAL_ERROR,
                                    "_exec_plan_fragment_impl meet unknown error");
             }
-            closure_guard.release();
             if (!st.ok()) {
                 LOG(WARNING) << "exec plan fragment failed, load_id=" << print_id(load_id)
                              << ", errmsg=" << st;
+                std::lock_guard<std::mutex> lock1(*lock);
+                if (*is_done) {
+                    closure_guard.release();
+                } else {
+                    *is_done = true;
+                    st.to_protobuf(response->mutable_status());
+                    _exec_env->new_load_stream_mgr()->remove(load_id);
+                }
             } else {
+                closure_guard.release();
                 for (int i = 0; i < request->data().size(); ++i) {
                     std::unique_ptr<PDataRow> row(new PDataRow());
                     row->CopyFrom(request->data(i));
