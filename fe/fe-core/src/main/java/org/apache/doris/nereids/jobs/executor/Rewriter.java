@@ -319,12 +319,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept()),
                         bottomUp(new PushProjectIntoOneRowRelation()),
                         topDown(new MergeOneRowRelationIntoUnion()),
-                        topDown(new EliminateEmptyRelation()),
                         topDown(new PushProjectIntoUnion()),
                         costBased(topDown(new InferSetOperatorDistinct())),
-                        topDown(new BuildAggForUnion()),
-                        custom(RuleType.INFER_PREDICATES, InferPredicates::new),
-                        bottomUp(RuleSet.PUSH_DOWN_FILTERS)
+                        topDown(new BuildAggForUnion())
                 ),
 
                 topic("Eliminate GroupBy",
@@ -441,6 +438,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
 =======
                         bottomUp(new EliminateEmptyRelation())
 >>>>>>> 7404c6ecc7 ([Feat](nereids) support pull up predicate from set operator)
+                ),
+                topic("infer predicate after eliminate",
+                        topDown(new PushProjectIntoUnion()),
+                        custom(RuleType.INFER_PREDICATES, InferPredicates::new),
+                        bottomUp(RuleSet.PUSH_DOWN_FILTERS)
                 ),
                 topic("agg rewrite",
                     // these rules should be put after mv optimization to avoid mv matching fail

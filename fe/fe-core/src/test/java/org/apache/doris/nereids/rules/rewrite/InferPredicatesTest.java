@@ -609,7 +609,7 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
     void innerJoinShouldNotInferUnderLeftJoinOnClausePredicates() {
         String sql = "select * from student s1"
                 + " left join (select sid as id1, sid as id2, grade from score) s2 on s1.id = s2.id1 and s1.id = 1"
-                + " join (select sid as id1, sid as id2, grade from score) s3 on s1.id = s3.id1 where s1.id = 2";
+                + " join (select sid as id1, sid as id2, grade from score) s3 on s1.id = s3.id1 where s1.id < 10";
         PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
         PlanChecker.from(connectContext)
                 .analyze(sql)
@@ -620,7 +620,7 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                                         logicalOlapScan()
                                 ).when(filter -> filter.getConjuncts().size() == 1
                                         && !ExpressionUtils.isInferred(filter.getPredicate())
-                                        && filter.getPredicate().toSql().contains("id = 2")),
+                                        && filter.getPredicate().toSql().contains("id < 10")),
                                 any()
                         ).when(join -> join.getJoinType() == JoinType.LEFT_OUTER_JOIN)
                 ));
@@ -656,7 +656,8 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                 .matches(logicalFilter(logicalOlapScan())
                         .when(filter -> filter.getConjuncts().size() == 2
                             && ExpressionUtils.isInferred(filter.getPredicate())
-                            && filter.getPredicate().toSql().contains("((sid > 1) AND (sid < 10))"))
+                            && filter.getPredicate().toSql().contains("(sid > 1)")
+                            && filter.getPredicate().toSql().contains("(sid < 10)"))
                 );
     }
 
