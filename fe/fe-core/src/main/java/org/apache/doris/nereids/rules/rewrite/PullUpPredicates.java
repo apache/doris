@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -65,6 +66,17 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             return plan.child(0).accept(this, context);
         }
         return ImmutableSet.of();
+    }
+
+    @Override
+    public ImmutableSet<Expression> visitLogicalOneRowRelation(LogicalOneRowRelation r, Void context) {
+        ImmutableSet.Builder<Expression> predicates = ImmutableSet.builder();
+        for (NamedExpression expr : r.getProjects()) {
+            if (expr instanceof Alias && expr.child(0) instanceof Literal) {
+                predicates.add(new EqualTo(expr.toSlot(), expr.child(0)));
+            }
+        }
+        return predicates.build();
     }
 
     @Override
@@ -164,6 +176,8 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             ImmutableSet<Expression> rightPredicates = join.right().accept(this, context);
             predicates.addAll(leftPredicates);
             predicates.addAll(rightPredicates);
+            predicates.addAll(join.getHashJoinConjuncts());
+            predicates.addAll(join.getOtherJoinConjuncts());
             return getAvailableExpressions(predicates, join);
         });
     }

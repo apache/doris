@@ -201,10 +201,8 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = expr_cast(a as INT)) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
-------filter((cast(3 as INT) = 3))
---------PhysicalOlapScan[test_pull_up_predicate_set_op3]
-------filter((cast(3 as INT) = 3))
---------PhysicalOlapScan[test_pull_up_predicate_set_op3]
+------PhysicalOlapScan[test_pull_up_predicate_set_op3]
+------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 ----filter((t3.a = 3))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 

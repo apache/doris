@@ -50,9 +50,11 @@ suite("test_pull_up_predicate_literal") {
     ) tmp
     inner join test_pull_up_predicate_literal ds on tmp.col1 = ds.col1  and tmp.col2 = ds.col2;
     """
+    qt_test_pull_up_literal1 """
+    explain shape plan select * from test_pull_up_predicate_literal_view;
+    """
 
-
-    qt_test_pull_up_literal """explain shape plan select * from test_pull_up_predicate_literal_view where col1='abc' and col2='def';"""
+    qt_test_pull_up_literal2 """explain shape plan select * from test_pull_up_predicate_literal_view where col1='abc' and col2='def';"""
     qt_test_pull_up_literal_suquery """
         explain shape plan
         SELECT *
