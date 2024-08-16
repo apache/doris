@@ -1249,6 +1249,7 @@ public:
 
         // parser can be reused for performance
         rapidjson::Document document;
+        Status st = Status::OK();
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (col_from.is_null_at(i)) {
                 null_map->get_data()[i] = 1;
@@ -1264,12 +1265,30 @@ public:
             } else {
                 document.Parse(json_str.data, json_str.size);
                 if (document.HasParseError() || !document.IsString()) {
+                    if (context->state()->query_type() == TQueryType::LOAD) {
+                        string msg =
+                                fmt::format("Invalid JSON text in argument 1 to function {}: {}",
+                                            name, std::string_view(json_str.data, json_str.size));
+                        bool stop_processing = false;
+                        context->state()->update_num_rows_load_total(1);
+                        context->state()->update_num_rows_load_filtered(1);
+                        RETURN_IF_ERROR(context->state()->append_error_msg_to_file(
+                                [&]() -> std::string {
+                                    return std::string(json_str.data, json_str.size);
+                                },
+                                [&]() -> std::string { return msg; }, &stop_processing));
+                        st = Status::DataQualityError(msg);
+                        continue;
+                    }
                     return Status::RuntimeError(
                             fmt::format("Invalid JSON text in argument 1 to function {}: {}", name,
                                         std::string_view(json_str.data, json_str.size)));
                 }
                 col_to->insert_data(document.GetString(), document.GetStringLength());
             }
+        }
+        if (!st.ok()) {
+            return st;
         }
 
         block.replace_by_position(result,
