@@ -59,9 +59,6 @@ public:
     // Initialize with the size of the key, currently only used when splitting the range of key
     Status init_scan_key(TabletSchemaSPtr schema, const std::vector<std::string>& keys);
 
-    Status init_point_scan_key(TabletSchemaSPtr schema, const std::vector<std::string>& keys,
-                               const std::vector<int32_t>& key_num_list, int32_t key_num);
-
     Status init_scan_key(TabletSchemaSPtr schema, const std::vector<std::string>& keys,
                          const std::shared_ptr<Schema>& shared_schema);
 
@@ -130,9 +127,6 @@ private:
     Status _alloc_buf();
 
     Status _init_scan_key(TabletSchemaSPtr schema, const std::vector<std::string>& scan_keys);
-    Status _init_point_scan_key(TabletSchemaSPtr schema,
-                                const std::vector<std::string>& scan_keys,
-                                const std::vector<std::string>& key_num_list);
 
     std::unique_ptr<Schema> _schema;
 

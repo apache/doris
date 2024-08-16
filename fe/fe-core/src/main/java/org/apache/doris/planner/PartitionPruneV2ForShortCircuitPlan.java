@@ -44,8 +44,6 @@ public class PartitionPruneV2ForShortCircuitPlan extends PartitionPrunerV2Base {
     // last timestamp partitionRangeMapByLiteral updated
     private long lastPartitionRangeMapUpdateTimestampMs = 0;
 
-    // private RangeMap<ColumnBound, List<Long>> partitionColValue2PartitionID = TreeRangeMap.create();
-
     PartitionPruneV2ForShortCircuitPlan() {
         super();
     }
@@ -90,11 +88,6 @@ public class PartitionPruneV2ForShortCircuitPlan extends PartitionPrunerV2Base {
         }
         return false;
     }
-
-    // public Collection<Long> prune(LiteralExpr lowerBound, LiteralExpr upperBound) throws AnalysisException {
-    //     Range<LiteralExpr> filterRangeValue = Range.closed(lowerBound, upperBound);
-    //     return partitionRangeMapByLiteral.getOverlappingRangeValues(filterRangeValue);
-    // }
 
     public Collection<Long> prune(Set<Range<ColumnBound>> partitionColumnRange) {
         return getOverlappingRangeValues(partitionRangeMap, partitionColumnRange);

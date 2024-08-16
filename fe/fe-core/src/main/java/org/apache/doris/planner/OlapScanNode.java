@@ -694,7 +694,6 @@ public class OlapScanNode extends ScanNode {
     // get the pruned partition IDs
     private Collection<Long> partitionPrune(PartitionInfo partitionInfo,
             PartitionNames partitionNames) throws AnalysisException {
-        // PartitionPruner partitionPruner = null;
         Map<Long, PartitionItem> keyItemMap;
         if (partitionNames != null) {
             keyItemMap = Maps.newHashMap();

@@ -135,56 +135,6 @@ Status RowCursor::_init_scan_key(TabletSchemaSPtr schema,
     return Status::OK();
 }
 
-// TODO: 某个字段有多个值，如何encode，例如 b in (1,2,3)
-Status RowCursor::_init_point_scan_key(TabletSchemaSPtr schema,
-                                       const std::vector<std::string>& scan_keys,
-                                       const std::vector<std::string>& key_num_list) {
-    
-    _variable_len = 0;
-    for (auto cid : _schema->column_ids()) {
-        const TabletColumn& column = schema->column(cid);
-        FieldType type = column.type();
-        if (type == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
-            _variable_len += scan_keys[cid].length();
-        } else if (type == FieldType::OLAP_FIELD_TYPE_CHAR ||
-                   type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-            _variable_len += std::max(scan_keys[cid].length(), column.length());
-        } else if (type == FieldType::OLAP_FIELD_TYPE_STRING) {
-            ++_string_field_count;
-        }
-    }
-
-    // variable_len for null bytes
-    RETURN_IF_ERROR(_alloc_buf());
-    char* fixed_ptr = _fixed_buf;
-    char* variable_ptr = _variable_buf;
-    char** long_text_ptr = _long_text_buf;
-    for (auto cid : _schema->column_ids()) {
-        const TabletColumn& column = schema->column(cid);
-        fixed_ptr = _fixed_buf + _schema->column_offset(cid);
-        FieldType type = column.type();
-        if (type == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
-            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
-            slice->data = variable_ptr;
-            slice->size = scan_keys[cid].length();
-            variable_ptr += scan_keys[cid].length();
-        } else if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
-            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
-            slice->data = variable_ptr;
-            slice->size = std::max(scan_keys[cid].length(), column.length());
-            variable_ptr += slice->size;
-        } else if (type == FieldType::OLAP_FIELD_TYPE_STRING) {
-            _schema->mutable_column(cid)->set_long_text_buf(long_text_ptr);
-            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
-            slice->data = *(long_text_ptr);
-            slice->size = DEFAULT_TEXT_LENGTH;
-            ++long_text_ptr;
-        }
-    }
-
-    return Status::OK();
-}
-
 Status RowCursor::init(TabletSchemaSPtr schema) {
     return init(schema->columns(), schema->num_columns());
 }
@@ -248,23 +198,6 @@ Status RowCursor::init_scan_key(TabletSchemaSPtr schema,
     return _init_scan_key(schema, scan_keys);
 }
 
-Status RowCursor::init_point_scan_key(TabletSchemaSPtr schema,
-                                      const std::vector<std::string>& scan_keys,
-                                      const std::vector<int32_t>& key_num_list, int32_t key_num) {
-    if (key_num > schema->num_columns()) {
-        return Status::Error<INVALID_ARGUMENT>(
-                "Input param are invalid. Column count is bigger than num_columns of schema. "
-                "column_count={}, schema.num_columns={}",
-                key_num, schema->num_columns());
-    }
-
-    std::vector<uint32_t> columns(key_num);
-    std::iota(columns.begin(), columns.end(), 0);
-
-    RETURN_IF_ERROR(_init(schema->columns(), columns));
-
-    return _init_scan_key(schema, scan_keys);
-}
 Status RowCursor::init_scan_key(TabletSchemaSPtr schema, const std::vector<std::string>& scan_keys,
                                 const std::shared_ptr<Schema>& shared_schema) {
     size_t scan_key_size = scan_keys.size();

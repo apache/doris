@@ -265,10 +265,6 @@ private:
     Status _tablet_fetch_data(const PTabletKeyLookupRequest* request,
                               PTabletKeyLookupResponse* response);
 
-    std::atomic<int> pending_requests_;
-    std::mutex mutex_;
-    std::condition_variable cv_;
-
 protected:
     ExecEnv* _exec_env = nullptr;
 
