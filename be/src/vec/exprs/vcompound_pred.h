@@ -69,12 +69,15 @@ public:
                     all_pass = false;
                     continue;
                 }
-                if (context->has_inverted_index_result_for_expr(child.get())) {
-                    auto index_result = context->get_inverted_index_result_for_expr(child.get());
+                if (context->get_inverted_index_context()->has_inverted_index_result_for_expr(
+                            child.get())) {
+                    const auto* index_result =
+                            context->get_inverted_index_context()
+                                    ->get_inverted_index_result_for_expr(child.get());
                     if (res.is_empty()) {
-                        res = std::move(index_result);
+                        res = *index_result;
                     } else {
-                        res |= index_result;
+                        res |= *index_result;
                     }
                 } else {
                     all_pass = false;
@@ -91,12 +94,15 @@ public:
                     all_pass = false;
                     continue;
                 }
-                if (context->has_inverted_index_result_for_expr(child.get())) {
-                    auto index_result = context->get_inverted_index_result_for_expr(child.get());
+                if (context->get_inverted_index_context()->has_inverted_index_result_for_expr(
+                            child.get())) {
+                    const auto* index_result =
+                            context->get_inverted_index_context()
+                                    ->get_inverted_index_result_for_expr(child.get());
                     if (res.is_empty()) {
-                        res = std::move(index_result);
+                        res = *index_result;
                     } else {
-                        res &= index_result;
+                        res &= *index_result;
                     }
 
                     if (res.get_data_bitmap()->isEmpty()) {
@@ -117,11 +123,14 @@ public:
                 return st;
             }
 
-            if (context->has_inverted_index_result_for_expr(child.get())) {
-                auto index_result = context->get_inverted_index_result_for_expr(child.get());
+            if (context->get_inverted_index_context()->has_inverted_index_result_for_expr(
+                        child.get())) {
+                const auto* index_result =
+                        context->get_inverted_index_context()->get_inverted_index_result_for_expr(
+                                child.get());
                 roaring::Roaring full_result;
                 full_result.addRange(0, segment_num_rows);
-                res = std::move(index_result.op_not(&full_result));
+                res = index_result->op_not(&full_result);
             } else {
                 all_pass = false;
             }
@@ -133,7 +142,7 @@ public:
         }
 
         if (all_pass && !res.is_empty()) {
-            context->set_inverted_index_result_for_expr(this, res);
+            context->get_inverted_index_context()->set_inverted_index_result_for_expr(this, res);
         }
         return Status::OK();
     }

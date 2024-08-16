@@ -129,6 +129,10 @@ public:
         return Status::NotSupported("Not supported execute_with_inverted_index");
     }
 
+    Result<segment_v2::InvertedIndexResultBitmap> _evaluate_inverted_index(
+            VExprContext* context, const FunctionBasePtr& function, int column_id,
+            const vectorized::ColumnsWithTypeAndName& args, uint32_t segment_num_rows) const;
+
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
     virtual Status execute_runtime_fitler(VExprContext* context, Block* block,

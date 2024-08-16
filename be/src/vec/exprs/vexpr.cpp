@@ -616,12 +616,43 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
     return Status::OK();
 }
 
+Result<segment_v2::InvertedIndexResultBitmap> VExpr::_evaluate_inverted_index(
+        VExprContext* context, const FunctionBasePtr& function, int column_id,
+        const vectorized::ColumnsWithTypeAndName& args, uint32_t segment_num_rows) const {
+    auto* iter = context->get_inverted_index_context()->get_inverted_index_iterator_by_column_id(
+            column_id);
+    auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
+    //column does not have inverted index
+    if (iter == nullptr) {
+        return result_bitmap;
+    }
+    const auto* storage_name_type =
+            context->get_inverted_index_context()->get_storage_name_and_type_by_column_id(
+                    column_id);
+    if (storage_name_type == nullptr) {
+        auto err_msg = fmt::format(
+                "storage_name_type cannot be found for column {} while in {} "
+                "evaluate_inverted_index",
+                column_id, expr_name());
+        LOG(ERROR) << err_msg;
+        return ResultError(Status::InternalError(err_msg));
+    }
+    auto res = function->evaluate_inverted_index(args, *storage_name_type, iter, segment_num_rows,
+                                                 result_bitmap);
+    if (!res.ok()) {
+        return ResultError(res);
+    }
+    return result_bitmap;
+}
+
 bool VExpr::fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
                          int* result_column_id) {
-    if (context->get_inverted_index_result_column().contains(this)) {
+    if (context->get_inverted_index_context() &&
+        context->get_inverted_index_context()->get_inverted_index_result_column().contains(this)) {
         size_t num_columns_without_result = block->columns();
         // prepare a column to save result
-        auto result_column = context->get_inverted_index_result_column()[this];
+        auto result_column =
+                context->get_inverted_index_context()->get_inverted_index_result_column()[this];
         if (_data_type->is_nullable()) {
             block->insert(
                     {ColumnNullable::create(result_column, ColumnUInt8::create(block->rows(), 0)),

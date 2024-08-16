@@ -406,9 +406,6 @@ private:
     std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
     std::vector<std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;
     std::vector<std::unique_ptr<InvertedIndexIterator>> _inverted_index_iterators;
-    std::unordered_map<std::string, InvertedIndexIterator*> _inverted_index_iterators_by_col_name;
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>
-            _storage_name_and_type_by_col_name;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
@@ -422,7 +419,6 @@ private:
     // columns to read after predicate evaluation and remaining expr execute
     std::vector<ColumnId> _non_predicate_columns;
     std::set<ColumnId> _common_expr_columns;
-    std::set<ColumnId> _common_expr_columns_for_index;
     // remember the rowids we've read for the current row block.
     // could be a local variable of next_batch(), kept here to reuse vector memory
     std::vector<rowid_t> _block_rowids;
@@ -460,15 +456,9 @@ private:
     StorageReadOptions _opts;
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<ColumnPredicate*> _col_predicates;
-    std::vector<ColumnPredicate*> _col_preds_except_leafnode_of_andnode;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
     bool _enable_common_expr_pushdown = false;
     std::vector<vectorized::VExprSPtr> _remaining_conjunct_roots;
-    std::vector<roaring::Roaring> _pred_except_leafnode_of_andnode_evaluate_result;
-    std::unique_ptr<ColumnPredicateInfo> _column_predicate_info;
-    std::unordered_map<std::string, std::vector<ColumnPredicateInfo>>
-            _column_pred_in_remaining_vconjunct;
-    std::unordered_map<std::string, std::vector<std::string>> _func_name_to_result_sign;
     std::set<ColumnId> _not_apply_index_pred;
 
     // row schema of the key to seek
@@ -504,10 +494,10 @@ private:
 
     std::vector<uint8_t> _ret_flags;
 
-    std::unordered_map<int, std::unordered_map<ColumnPredicate*, bool>>
+    std::unordered_map<ColumnId, std::unordered_map<ColumnPredicate*, bool>>
             _column_predicate_inverted_index_status;
 
-    std::unordered_map<std::string, std::unordered_map<const vectorized::VExpr*, bool>>
+    std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>
             _common_expr_inverted_index_status;
 };
 

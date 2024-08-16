@@ -144,45 +144,37 @@ Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context,
     DCHECK_GE(get_num_children(), 1);
     if (get_child(0)->is_slot_ref()) {
         auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
-        auto* iter =
-                context->get_inverted_index_iterators_by_column_name(column_slot_ref->expr_name());
-        //column does not have inverted index
-        if (iter == nullptr) {
-            return Status::OK();
-        }
-        auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
-        auto storage_name_type =
-                context->get_storage_name_and_type_by_column_name(column_slot_ref->expr_name());
         vectorized::ColumnsWithTypeAndName arguments;
-        for (int right_children_size = get_num_children() - 1; right_children_size > 0;
-             --right_children_size) {
-            if (get_child(right_children_size)->is_literal()) {
-                auto* column_literal = assert_cast<VLiteral*>(get_child(right_children_size).get());
+        for (int child_num = 1; child_num < get_num_children(); child_num++) {
+            if (get_child(child_num)->is_literal()) {
+                auto* column_literal = assert_cast<VLiteral*>(get_child(child_num).get());
                 arguments.emplace_back(column_literal->get_column_ptr(),
                                        column_literal->get_data_type(),
                                        column_literal->expr_name());
 
             } else {
                 return Status::NotSupported(
-                        "arguments in evaluate_inverted_index for VectorizedFnCall must be "
-                        "literal, but we got {}",
-                        get_child(right_children_size)->expr_name());
+                        "arguments in evaluate_inverted_index for {} must be literal, "
+                        "but we got {}",
+                        _expr_name, get_child(child_num)->expr_name());
             }
         }
-        RETURN_IF_ERROR(_function->evaluate_inverted_index(arguments, storage_name_type, iter,
-                                                           segment_num_rows, result_bitmap));
+        auto result_bitmap = DORIS_TRY(_evaluate_inverted_index(
+                context, _function, column_slot_ref->column_id(), arguments, segment_num_rows));
         if (!result_bitmap.is_empty()) {
             result_bitmap.mask_out_null();
-            context->set_inverted_index_result_for_expr(this, result_bitmap);
-            context->set_true_for_inverted_index_status(this, column_slot_ref->expr_name());
+            context->get_inverted_index_context()->set_inverted_index_result_for_expr(
+                    this, result_bitmap);
+            context->get_inverted_index_context()->set_true_for_inverted_index_status(
+                    this, column_slot_ref->column_id());
         }
+        return Status::OK();
     } else {
         return Status::NotSupported(
-                "child 0 in evaluate_inverted_index for VectorizedFnCall must be slot ref, but we "
-                "got {}",
-                get_child(0)->expr_name());
+                "child 0 in evaluate_inverted_index for {} must be slot ref, but we got "
+                "{}",
+                _expr_name, get_child(0)->expr_name());
     }
-    return Status::OK();
 }
 
 Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,

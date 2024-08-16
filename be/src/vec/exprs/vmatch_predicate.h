@@ -60,7 +60,7 @@ public:
 
     std::string debug_string() const override;
 
-    const FunctionBasePtr function() { return _function; }
+    FunctionBasePtr function() { return _function; }
 
 private:
     FunctionBasePtr _function;

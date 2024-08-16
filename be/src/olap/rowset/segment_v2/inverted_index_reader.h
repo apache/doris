@@ -139,7 +139,7 @@ public:
     }
 
     // NOT operation
-    InvertedIndexResultBitmap& op_not(const roaring::Roaring* universe) {
+    const InvertedIndexResultBitmap& op_not(const roaring::Roaring* universe) const {
         if (_data_bitmap && _null_bitmap) {
             *_data_bitmap = *universe - *_data_bitmap - *_null_bitmap;
             // The _null_bitmap remains unchanged.
@@ -163,9 +163,9 @@ public:
         }
     }
 
-    std::shared_ptr<roaring::Roaring> get_data_bitmap() { return _data_bitmap; }
+    std::shared_ptr<roaring::Roaring> get_data_bitmap() const { return _data_bitmap; }
 
-    std::shared_ptr<roaring::Roaring> get_null_bitmap() { return _null_bitmap; }
+    std::shared_ptr<roaring::Roaring> get_null_bitmap() const { return _null_bitmap; }
 
     // Check if both bitmaps are empty
     bool is_empty() const { return (_data_bitmap == nullptr && _null_bitmap == nullptr); }

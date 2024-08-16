@@ -134,30 +134,6 @@ void VMultiMatchPredicate::close(VExprContext* context, FunctionContext::Functio
     VExpr::close(context, scope);
 }
 
-Result<segment_v2::InvertedIndexResultBitmap>
-VMultiMatchPredicate::_evaluate_inverted_index_by_field(
-        VExprContext* context, vectorized::ColumnsWithTypeAndName& arguments,
-        uint32_t segment_num_rows, std::string field) const {
-    auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
-    auto* iter = context->get_inverted_index_iterators_by_column_name(field);
-    //column does not have inverted index
-    if (iter == nullptr) {
-        return result_bitmap;
-    }
-    auto storage_name_type = context->get_storage_name_and_type_by_column_name(field);
-
-    auto st = _function->evaluate_inverted_index(arguments, storage_name_type, iter,
-                                                 segment_num_rows, result_bitmap);
-    if (!st.ok()) {
-        return ResultError(st);
-    }
-    result_bitmap.mask_out_null();
-    context->set_inverted_index_result_for_expr(this, result_bitmap);
-    LOG(ERROR) << "expr " << _expr_name << " " << this << " evaluate_inverted_index result:"
-               << result_bitmap.get_data_bitmap()->cardinality();
-    return result_bitmap;
-}
-
 Status VMultiMatchPredicate::evaluate_inverted_index(VExprContext* context,
                                                      uint32_t segment_num_rows) const {
     auto children_num = get_num_children();
@@ -188,11 +164,11 @@ Status VMultiMatchPredicate::evaluate_inverted_index(VExprContext* context,
                 "literal, but we got {}",
                 children_num - 1, get_child(children_num - 1)->expr_name());
     }
-    std::set<std::string> columns_names;
+    std::set<int> column_ids;
     for (int child_num = 0; child_num < children_num - 2; child_num++) {
         if (get_child(child_num)->is_slot_ref()) {
             auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(child_num).get());
-            columns_names.insert(column_slot_ref->expr_name());
+            column_ids.insert(column_slot_ref->column_id());
         } else {
             return Status::NotSupported(
                     "child {} in evaluate_inverted_index for VMultiMatchPredicate must be slot "
@@ -203,17 +179,21 @@ Status VMultiMatchPredicate::evaluate_inverted_index(VExprContext* context,
         }
     }
 
-    for (const auto& col_name : columns_names) {
-        auto result = DORIS_TRY(
-                _evaluate_inverted_index_by_field(context, arguments, segment_num_rows, col_name));
+    for (const auto& col_id : column_ids) {
+        auto result_bitmap = DORIS_TRY(
+                _evaluate_inverted_index(context, _function, col_id, arguments, segment_num_rows));
+        if (!result_bitmap.is_empty()) {
+            result_bitmap.mask_out_null();
+            context->get_inverted_index_context()->set_true_for_inverted_index_status(this, col_id);
+        }
         if (ret.is_empty()) {
-            ret = result;
+            ret = result_bitmap;
         } else {
-            ret |= result;
+            ret |= result_bitmap;
         }
     }
     if (!ret.is_empty()) {
-        context->set_inverted_index_result_for_expr(this, ret);
+        context->get_inverted_index_context()->set_inverted_index_result_for_expr(this, ret);
     }
     return Status::OK();
 }
