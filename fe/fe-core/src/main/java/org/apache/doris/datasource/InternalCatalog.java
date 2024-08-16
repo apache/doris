@@ -2277,6 +2277,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     private void checkNullityEqual(ArrayList<Boolean> partitionSlotNullables, List<PartitionValue> item)
             throws AnalysisException {
+        // for MAX_VALUE or somethings
+        if (item == null) {
+            return;
+        }
         for (int i = 0; i < item.size(); i++) {
             if (!partitionSlotNullables.get(i) && item.get(i).isNullPartition()) {
                 throw new AnalysisException("Can't have null partition is for NOT NULL partition "
@@ -2288,15 +2292,13 @@ public class InternalCatalog implements CatalogIf<Database> {
     private void checkPartitionNullity(List<Column> baseSchema, PartitionDesc partitionDesc,
             SinglePartitionDesc partition)
             throws AnalysisException {
-        // in creating OlapTable, expr.desc is null. so we should find the column
-        // ourself.
+        // in creating OlapTable, expr.desc is null. so we should find the column ourself.
         ArrayList<Expr> partitionExprs = partitionDesc.getPartitionExprs();
         ArrayList<Boolean> partitionSlotNullables = new ArrayList<Boolean>();
         for (Expr expr : partitionExprs) {
             if (expr instanceof SlotRef) {
                 partitionSlotNullables.add(findAllowNullforSlotRef(baseSchema, (SlotRef) expr));
             } else if (expr instanceof FunctionCallExpr) {
-                // TODO: check this and add testcase
                 partitionSlotNullables.add(Expr.isNullable(((FunctionCallExpr) expr).getFn(), expr.getChildren()));
             } else {
                 throw new AnalysisException("Unknown partition expr type:" + expr.getExprName());
@@ -2318,8 +2320,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             List<PartitionValue> upperValues = partition.getPartitionKeyDesc().getUpperValues();
             checkNullityEqual(partitionSlotNullables, lowerValues);
             checkNullityEqual(partitionSlotNullables, upperValues);
-
-            throw new AnalysisException("partition expr " + " is illegal!");
         }
     }
 

@@ -98,11 +98,8 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                 LOG.debug("Nereids start to execute the create table command, query id: {}, tableName: {}",
                         ctx.queryId(), createTableInfo.getTableName());
             }
-            try {
-                Env.getCurrentEnv().createTable(createTableStmt);
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage(), e.getCause());
-            }
+
+            Env.getCurrentEnv().createTable(createTableStmt);
             return;
         }
         LogicalPlan query = ctasQuery.get();
