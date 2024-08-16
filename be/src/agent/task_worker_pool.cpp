@@ -2067,10 +2067,12 @@ void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
 }
 
 void clean_udf_cache_callback(const TAgentTaskRequest& req) {
-    LOG(INFO) << "clean udf cache start: " << req.clean_udf_cache_req.function_signature;
-    static_cast<void>(
-            JniUtil::clean_udf_class_load_cache(req.clean_udf_cache_req.function_signature));
-    LOG(INFO) << "clean udf cache  finish: " << req.clean_udf_cache_req.function_signature;
+    if (doris::config::enable_java_support) {
+        LOG(INFO) << "clean udf cache start: " << req.clean_udf_cache_req.function_signature;
+        static_cast<void>(
+                JniUtil::clean_udf_class_load_cache(req.clean_udf_cache_req.function_signature));
+        LOG(INFO) << "clean udf cache  finish: " << req.clean_udf_cache_req.function_signature;
+    }
 }
 
 } // namespace doris

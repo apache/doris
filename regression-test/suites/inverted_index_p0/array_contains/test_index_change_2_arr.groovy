@@ -79,7 +79,7 @@ suite("test_index_change_2_arr", "array_contains_inverted_index") {
             `city` array<VARCHAR(20)> COMMENT "用户所在城市",
             `note` array<TEXT> COMMENT "备注",
             INDEX idx_user_id (`user_id`) USING INVERTED COMMENT '',
-            INDEX idx_note (`note`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
+            INDEX idx_note (`note`) USING INVERTED PROPERTIES("parser" = "none") COMMENT ''
         )
         DUPLICATE KEY(`user_id`, `date`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
         PROPERTIES ( "replication_num" = "1" );
@@ -119,7 +119,7 @@ suite("test_index_change_2_arr", "array_contains_inverted_index") {
     qt_select6 """ SELECT * FROM ${tableName} t WHERE note MATCH 'engineer Developer' AND city match_all 'Shanghai China' ORDER BY user_id; """
 
     // create inverted index idx_city
-    sql """ CREATE INDEX idx_city ON ${tableName}(`city`) USING INVERTED PROPERTIES("parser"="english") """
+    sql """ CREATE INDEX idx_city ON ${tableName}(`city`) USING INVERTED PROPERTIES("parser"="none") """
     wait_for_latest_op_on_table_finish(tableName, timeout)
 
     // drop inverted index idx_user_id, idx_note

@@ -36,7 +36,6 @@ suite("test_join", "query,p0") {
     qt_join1 """select sum(t1.k1), sum(t1.k3), max(t1.k5), max(t2.k4) from test t1 inner join baseall t2 on t1.k1 = t2.k1 and 
 		    t1.k6 is not null and t2.k6 is not null"""
     qt_join2 """select k1, k2, k3 from test where k7 is not null order by 1 desc, 2 desc, 3 desc limit 10"""
-    sql "set enable_local_shuffle=false;"
     qt_join3 """select c.k1, c.k8 from baseall d join (select a.k1 as k1, a.k8 from test a join baseall b on (a.k1=b.k1)) c
 		    on c.k1 = d.k1 order by 1, 2"""
     qt_join4 """select a.k1, b.k1 from baseall a join (select k1, k2 from test order by k1 limit 10) b 

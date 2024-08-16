@@ -182,7 +182,7 @@ suite("aggregate_with_roll_up") {
             l_suppkey
             """
     order_qt_query13_0_before "${query13_0}"
-    check_mv_rewrite_success(db, mv13_0, query13_0, "mv13_0")
+    async_mv_rewrite_success(db, mv13_0, query13_0, "mv13_0")
     order_qt_query13_0_after "${query13_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv13_0"""
 
@@ -217,7 +217,7 @@ suite("aggregate_with_roll_up") {
             l_suppkey;
     """
     order_qt_query13_1_before "${query13_1}"
-    check_mv_rewrite_fail(db, mv13_1, query13_1, "mv13_1")
+    async_mv_rewrite_fail(db, mv13_1, query13_1, "mv13_1")
     order_qt_query13_1_after "${query13_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv13_1"""
 
@@ -251,7 +251,7 @@ suite("aggregate_with_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query14_0_before "${query14_0}"
-    check_mv_rewrite_success(db, mv14_0, query14_0, "mv14_0")
+    async_mv_rewrite_success(db, mv14_0, query14_0, "mv14_0")
     order_qt_query14_0_after "${query14_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv14_0"""
 
@@ -357,7 +357,7 @@ suite("aggregate_with_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query16_0_before "${query16_0}"
-    check_mv_rewrite_success(db, mv16_0, query16_0, "mv16_0")
+    async_mv_rewrite_success(db, mv16_0, query16_0, "mv16_0")
     order_qt_query16_0_after "${query16_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv16_0"""
 
@@ -392,7 +392,7 @@ suite("aggregate_with_roll_up") {
             l_suppkey;
     """
     order_qt_query17_0_before "${query17_0}"
-    check_mv_rewrite_success(db, mv17_0, query17_0, "mv17_0")
+    async_mv_rewrite_success(db, mv17_0, query17_0, "mv17_0")
     order_qt_query17_0_after "${query17_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv17_0"""
 
@@ -423,7 +423,7 @@ suite("aggregate_with_roll_up") {
             "l_shipdate, " +
             "l_suppkey"
     order_qt_query18_0_before "${query18_0}"
-    check_mv_rewrite_success(db, mv18_0, query18_0, "mv18_0")
+    async_mv_rewrite_success(db, mv18_0, query18_0, "mv18_0")
     order_qt_query18_0_after "${query18_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv18_0"""
 
@@ -445,7 +445,7 @@ suite("aggregate_with_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query19_0_before "${query19_0}"
-    check_mv_rewrite_success(db, mv19_0, query19_0, "mv19_0")
+    async_mv_rewrite_success(db, mv19_0, query19_0, "mv19_0")
     order_qt_query19_0_after "${query19_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv19_0"""
 
@@ -476,7 +476,7 @@ suite("aggregate_with_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query19_1_before "${query19_1}"
-    check_mv_rewrite_success(db, mv19_1, query19_1, "mv19_1")
+    async_mv_rewrite_success(db, mv19_1, query19_1, "mv19_1")
     order_qt_query19_1_after "${query19_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv19_1"""
 
@@ -510,7 +510,7 @@ suite("aggregate_with_roll_up") {
             "o_orderdate, " +
             "l_suppkey"
     order_qt_query20_0_before "${query20_0}"
-    check_mv_rewrite_success(db, mv20_0, query20_0, "mv20_0")
+    async_mv_rewrite_success(db, mv20_0, query20_0, "mv20_0")
     order_qt_query20_0_after "${query20_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv20_0"""
 
@@ -550,7 +550,7 @@ suite("aggregate_with_roll_up") {
             l_suppkey;
             """
     order_qt_query20_1_before "${query20_1}"
-    check_mv_rewrite_success(db, mv20_1, query20_1, "mv20_1")
+    async_mv_rewrite_success(db, mv20_1, query20_1, "mv20_1")
     order_qt_query20_1_after "${query20_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv20_1"""
 
@@ -584,7 +584,7 @@ suite("aggregate_with_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query21_0_before "${query21_0}"
-    check_mv_rewrite_success(db, mv21_0, query21_0, "mv21_0")
+    async_mv_rewrite_success(db, mv21_0, query21_0, "mv21_0")
     order_qt_query21_0_after "${query21_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv21_0"""
 
@@ -617,7 +617,7 @@ suite("aggregate_with_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query22_0_before "${query22_0}"
-    check_mv_rewrite_success(db, mv22_0, query22_0, "mv22_0")
+    async_mv_rewrite_success(db, mv22_0, query22_0, "mv22_0")
     order_qt_query22_0_after "${query22_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv22_0"""
 
@@ -650,7 +650,7 @@ suite("aggregate_with_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query22_1_before "${query22_1}"
-    check_mv_rewrite_success(db, mv22_1, query22_1, "mv22_1")
+    async_mv_rewrite_success(db, mv22_1, query22_1, "mv22_1")
     order_qt_query22_1_after "${query22_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv22_1"""
 
@@ -684,7 +684,7 @@ suite("aggregate_with_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query23_0_before "${query23_0}"
-    check_mv_rewrite_success(db, mv23_0, query23_0, "mv23_0")
+    async_mv_rewrite_success(db, mv23_0, query23_0, "mv23_0")
     order_qt_query23_0_after "${query23_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv23_0"""
 
@@ -716,7 +716,7 @@ suite("aggregate_with_roll_up") {
             "l_shipdate, " +
             "l_suppkey"
     order_qt_query24_0_before "${query24_0}"
-    check_mv_rewrite_success(db, mv24_0, query24_0, "mv24_0")
+    async_mv_rewrite_success(db, mv24_0, query24_0, "mv24_0")
     order_qt_query24_0_after "${query24_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv24_0"""
 
@@ -747,7 +747,7 @@ suite("aggregate_with_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query25_0_before "${query25_0}"
-    check_mv_rewrite_success(db, mv25_0, query25_0, "mv25_0")
+    async_mv_rewrite_success(db, mv25_0, query25_0, "mv25_0")
     order_qt_query25_0_after "${query25_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv25_0"""
 
@@ -784,7 +784,7 @@ suite("aggregate_with_roll_up") {
             l_suppkey;
     """
     order_qt_query25_1_before "${query25_1}"
-    check_mv_rewrite_success(db, mv25_1, query25_1, "mv25_1")
+    async_mv_rewrite_success(db, mv25_1, query25_1, "mv25_1")
     order_qt_query25_1_after "${query25_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv25_1"""
 
@@ -823,7 +823,7 @@ suite("aggregate_with_roll_up") {
             l_suppkey;
     """
     order_qt_query25_2_before "${query25_2}"
-    check_mv_rewrite_success(db, mv25_2, query25_2, "mv25_2")
+    async_mv_rewrite_success(db, mv25_2, query25_2, "mv25_2")
     order_qt_query25_2_after "${query25_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv25_2"""
 
@@ -864,7 +864,7 @@ suite("aggregate_with_roll_up") {
             l_suppkey + l_partkey;
     """
     order_qt_query25_3_before "${query25_3}"
-    check_mv_rewrite_success(db, mv25_3, query25_3, "mv25_3")
+    async_mv_rewrite_success(db, mv25_3, query25_3, "mv25_3")
     order_qt_query25_3_after "${query25_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv25_3"""
 
@@ -892,7 +892,7 @@ suite("aggregate_with_roll_up") {
     """
 
     order_qt_query25_4_before "${query25_4}"
-    check_mv_rewrite_success(db, mv25_4, query25_4, "mv25_4")
+    async_mv_rewrite_success(db, mv25_4, query25_4, "mv25_4")
     order_qt_query25_4_after "${query25_4}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv25_4"""
 
@@ -935,7 +935,7 @@ suite("aggregate_with_roll_up") {
             l_suppkey;
             """
     order_qt_query25_5_before "${query25_5}"
-    check_mv_rewrite_success(db, mv25_5, query25_5, "mv25_5")
+    async_mv_rewrite_success(db, mv25_5, query25_5, "mv25_5")
     order_qt_query25_5_after "${query25_5}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv25_5"""
 
@@ -978,7 +978,7 @@ suite("aggregate_with_roll_up") {
             l_suppkey;
             """
     order_qt_query25_6_before "${query25_6}"
-    check_mv_rewrite_success(db, mv25_6, query25_6, "mv25_6")
+    async_mv_rewrite_success(db, mv25_6, query25_6, "mv25_6")
     order_qt_query25_6_after "${query25_6}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv25_6"""
 
@@ -1014,7 +1014,7 @@ suite("aggregate_with_roll_up") {
             o_comment;
             """
     order_qt_query1_1_before "${query1_1}"
-    check_mv_rewrite_success(db, mv1_1, query1_1, "mv1_1")
+    async_mv_rewrite_success(db, mv1_1, query1_1, "mv1_1")
     order_qt_query1_1_after "${query1_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
 
@@ -1046,7 +1046,7 @@ suite("aggregate_with_roll_up") {
             "o_comment "
 
     order_qt_query2_0_before "${query2_0}"
-    check_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0")
+    async_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0")
     order_qt_query2_0_after "${query2_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
 
@@ -1080,7 +1080,7 @@ suite("aggregate_with_roll_up") {
             o_shippriority;
     """
     order_qt_query26_0_before "${query26_0}"
-    check_mv_rewrite_fail(db, mv26_0, query26_0, "mv26_0")
+    async_mv_rewrite_fail(db, mv26_0, query26_0, "mv26_0")
     order_qt_query26_0_after "${query26_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv26_0"""
 
@@ -1114,7 +1114,7 @@ suite("aggregate_with_roll_up") {
             o_shippriority;
             """
     order_qt_query27_0_before "${query27_0}"
-    check_mv_rewrite_fail(db, mv27_0, query27_0, "mv27_0")
+    async_mv_rewrite_fail(db, mv27_0, query27_0, "mv27_0")
     order_qt_query27_0_after "${query27_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv27_0"""
 
@@ -1155,7 +1155,7 @@ suite("aggregate_with_roll_up") {
         limit 10;
     """
     order_qt_query28_0_before "${query28_0}"
-    check_mv_rewrite_success(db, mv28_0, query28_0, "mv28_0")
+    async_mv_rewrite_success(db, mv28_0, query28_0, "mv28_0")
     order_qt_query28_0_after "${query28_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv28_0"""
 
@@ -1184,7 +1184,7 @@ suite("aggregate_with_roll_up") {
         ) as t;
     """
     order_qt_query29_0_before "${query29_0}"
-    check_mv_rewrite_success(db, mv29_0, query29_0, "mv29_0")
+    async_mv_rewrite_success(db, mv29_0, query29_0, "mv29_0")
     order_qt_query29_0_after "${query29_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv29_0"""
 
@@ -1211,7 +1211,7 @@ suite("aggregate_with_roll_up") {
     """
 
     order_qt_query29_1_before "${query29_1}"
-    check_mv_rewrite_success(db, mv29_1, query29_1, "mv29_1")
+    async_mv_rewrite_success(db, mv29_1, query29_1, "mv29_1")
     order_qt_query29_1_after "${query29_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv29_1"""
 
@@ -1237,7 +1237,7 @@ suite("aggregate_with_roll_up") {
             left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate;
     """
     order_qt_query29_2_before "${query29_2}"
-    check_mv_rewrite_success(db, mv29_2, query29_2, "mv29_2")
+    async_mv_rewrite_success(db, mv29_2, query29_2, "mv29_2")
     order_qt_query29_2_after "${query29_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv29_2"""
 
@@ -1284,7 +1284,7 @@ suite("aggregate_with_roll_up") {
             group by l_linenumber;
     """
     order_qt_query30_0_before "${query30_0}"
-    check_mv_rewrite_fail(db, mv30_0, query30_0, "mv30_0")
+    async_mv_rewrite_fail(db, mv30_0, query30_0, "mv30_0")
     order_qt_query30_0_after "${query30_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv30_0"""
 
@@ -1326,7 +1326,7 @@ suite("aggregate_with_roll_up") {
               ps_partkey;
     """
     order_qt_query31_0_before "${query31_0}"
-    check_mv_rewrite_fail(db, mv31_0, query31_0, "mv31_0")
+    async_mv_rewrite_fail(db, mv31_0, query31_0, "mv31_0")
     order_qt_query31_0_after "${query31_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv31_0"""
 
@@ -1351,7 +1351,7 @@ suite("aggregate_with_roll_up") {
               o_shippriority;
     """
     order_qt_query32_0_before "${query32_0}"
-    check_mv_rewrite_fail(db, mv32_0, query32_0, "mv32_0")
+    async_mv_rewrite_fail(db, mv32_0, query32_0, "mv32_0")
     order_qt_query32_0_after "${query32_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv32_0"""
 
@@ -1396,7 +1396,7 @@ suite("aggregate_with_roll_up") {
             l_suppkey;
     """
     order_qt_query33_0_before "${query33_0}"
-    check_mv_rewrite_success(db, mv33_0, query33_0, "mv33_0")
+    async_mv_rewrite_success(db, mv33_0, query33_0, "mv33_0")
     order_qt_query33_0_after "${query33_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv33_0"""
 
@@ -1440,7 +1440,7 @@ suite("aggregate_with_roll_up") {
             order by o_orderstatus;
     """
     order_qt_query33_1_before "${query33_1}"
-    check_mv_rewrite_fail(db, mv33_1, query33_1, "mv33_1")
+    async_mv_rewrite_fail(db, mv33_1, query33_1, "mv33_1")
     order_qt_query33_1_after "${query33_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv33_1"""
 
@@ -1484,7 +1484,7 @@ suite("aggregate_with_roll_up") {
             o_orderstatus,
             l_suppkey;
     """
-    check_mv_rewrite_success(db, mv34_0, query34_0, "mv34_0")
+    async_mv_rewrite_success(db, mv34_0, query34_0, "mv34_0")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv34_0"""
 
 
@@ -1527,7 +1527,7 @@ suite("aggregate_with_roll_up") {
             order by o_orderstatus;
     """
     order_qt_query35_0_before "${query35_0}"
-    check_mv_rewrite_success(db, mv35_0, query35_0, "mv35_0")
+    async_mv_rewrite_success(db, mv35_0, query35_0, "mv35_0")
     order_qt_query35_0_after "${query35_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv35_0"""
 
@@ -1571,7 +1571,7 @@ suite("aggregate_with_roll_up") {
             order by o_orderstatus;
     """
     order_qt_query36_0_before "${query36_0}"
-    check_mv_rewrite_fail(db, mv36_0, query36_0, "mv36_0")
+    async_mv_rewrite_fail(db, mv36_0, query36_0, "mv36_0")
     order_qt_query36_0_after "${query36_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv36_0"""
 
@@ -1613,6 +1613,6 @@ suite("aggregate_with_roll_up") {
             o_orderstatus,
             l_suppkey;
     """
-    check_mv_rewrite_fail(db, mv37_0, query37_0, "mv37_0")
+    async_mv_rewrite_fail(db, mv37_0, query37_0, "mv37_0")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv37_0"""
 }

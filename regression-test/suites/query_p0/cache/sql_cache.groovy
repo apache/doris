@@ -244,4 +244,11 @@ suite("sql_cache") {
     }
 
     sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
+
+    // explain plan with sql cache
+    connect {
+        sql "set enable_sql_cache=true"
+        sql "select 100"
+        sql "explain plan select 100"
+    }
 }

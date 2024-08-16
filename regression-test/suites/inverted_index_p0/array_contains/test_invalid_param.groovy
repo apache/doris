@@ -28,7 +28,7 @@ suite("test_invalid_param", "array_contains_inverted_index"){
 	CREATE TABLE IF NOT EXISTS ${indexTblName}(
 		`id`int(11)NULL,
 		`c` ARRAY<text> NULL,
-		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="unicode") COMMENT ''
+		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="none") COMMENT ''
 	) ENGINE=OLAP
 	DUPLICATE KEY(`id`)
 	COMMENT 'OLAP'
@@ -60,7 +60,7 @@ suite("test_invalid_param", "array_contains_inverted_index"){
 	CREATE TABLE IF NOT EXISTS ${indexTblName2}(
 		`id`int(11)NULL,
 		`c` array<text> NULL,
-		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="english") COMMENT ''
+		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="none") COMMENT ''
 	) ENGINE=OLAP
 	DUPLICATE KEY(`id`)
 	COMMENT 'OLAP'
