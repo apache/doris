@@ -53,6 +53,7 @@ import org.apache.doris.thrift.TStatusCode;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.RangeMap;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
@@ -106,9 +107,6 @@ public class PointQueryExecutor implements CoordInterface {
 
     // partition column and also key column, not distribution column
     private List<Integer> partitionKeyColumns = Lists.newArrayList();
-
-    // neither a partition column nor a distribution column, but a key column
-    private List<Integer> plainColumns = Lists.newArrayList();
 
     public PointQueryExecutor(ShortCircuitQueryContext ctx, int maxMessageSize) {
         ctx.sanitize();
@@ -336,16 +334,18 @@ public class PointQueryExecutor implements CoordInterface {
     void addKeyTuples(
             InternalService.PTabletKeyLookupRequest.Builder requestBuilder) {
         // TODO handle IN predicates
+        Map<String, Expr> columnExpr = Maps.newHashMap();
         KeyTuple.Builder kBuilder = KeyTuple.newBuilder();
         for (Expr expr : shortCircuitQueryContext.scanNode.getConjuncts()) {
             BinaryPredicate predicate = (BinaryPredicate) expr;
             Expr left = predicate.getChild(0);
             Expr right = predicate.getChild(1);
-            // ignore delete sign conjuncts only collect key conjuncts
-            if (left instanceof SlotRef && ((SlotRef) left).getColumnName().equalsIgnoreCase(Column.DELETE_SIGN)) {
-                continue;
-            }
-            kBuilder.addKeyColumnRep(right.getStringValue());
+            SlotRef columnSlot = left.unwrapSlotRef();
+            columnExpr.put(columnSlot.getColumnName(), right);
+        }
+        // add key tuple in keys order
+        for (Column column : shortCircuitQueryContext.scanNode.getOlapTable().getBaseSchemaKeyColumns()) {
+            kBuilder.addKeyColumnRep(columnExpr.get(column.getName()).getStringValue());
         }
         requestBuilder.addKeyTuples(kBuilder);
     }
@@ -382,8 +382,6 @@ public class PointQueryExecutor implements CoordInterface {
                 distributionKeyColumns.add(i);
             } else if (olapTable.isPartitionColumn(column.getName())) {
                 partitionKeyColumns.add(i);
-            } else {
-                plainColumns.add(i);
             }
         }
         Iterator<Backend> backendIter = candidateBackends.iterator();
@@ -397,12 +395,11 @@ public class PointQueryExecutor implements CoordInterface {
         List<byte[]> batchSerialResult = Lists.newArrayList();
         do {
             Backend backend = backendIter.next();
-            // rowBatch = getNextInternal(status, backend);;
             List<byte[]> subSerialResult = batchGetNext(status, backend);
-            batchSerialResult.addAll(subSerialResult);
-            if (!subSerialResult.isEmpty()) {
+            if (subSerialResult == null) {
                 continue;
             }
+            batchSerialResult.addAll(subSerialResult);
             if (++tryCount >= maxTry) {
                 break;
             }
@@ -456,110 +453,6 @@ public class PointQueryExecutor implements CoordInterface {
         // Point queries don't need to do anthing in execution phase.
         // only handles in getNext()
     }
-
-    // private RowBatch getNextInternal(Status status, Backend backend) throws TException {
-    //     long timeoutTs = System.currentTimeMillis() + timeoutMs;
-    //     RowBatch rowBatch = new RowBatch();
-    //     InternalService.PTabletKeyLookupResponse pResult = null;
-    //     try {
-    //         Preconditions.checkNotNull(shortCircuitQueryContext.serializedDescTable);
-
-    //         InternalService.PTabletKeyLookupRequest.Builder requestBuilder
-    //                 = InternalService.PTabletKeyLookupRequest.newBuilder()
-    //                 .setTabletId(tabletIDs.get(0))
-    //                 .setDescTbl(shortCircuitQueryContext.serializedDescTable)
-    //                 .setOutputExpr(shortCircuitQueryContext.serializedOutputExpr)
-    //                 .setQueryOptions(shortCircuitQueryContext.serializedQueryOptions)
-    //                 .setIsBinaryRow(ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE);
-    //         if (snapshotVisibleVersions != null && !snapshotVisibleVersions.isEmpty()) {
-    //             requestBuilder.setVersion(snapshotVisibleVersions.get(0));
-    //         }
-    //         if (shortCircuitQueryContext.cacheID != null) {
-    //             InternalService.UUID.Builder uuidBuilder = InternalService.UUID.newBuilder();
-    //             uuidBuilder.setUuidHigh(shortCircuitQueryContext.cacheID.getMostSignificantBits());
-    //             uuidBuilder.setUuidLow(shortCircuitQueryContext.cacheID.getLeastSignificantBits());
-    //             requestBuilder.setUuid(uuidBuilder);
-    //         }
-    //         addKeyTuples(requestBuilder);
-
-    //         InternalService.PTabletKeyLookupRequest request = requestBuilder.build();
-    //         Future<InternalService.PTabletKeyLookupResponse> futureResponse =
-    //                 BackendServiceProxy.getInstance().fetchTabletDataAsync(backend.getBrpcAddress(), request);
-    //         long currentTs = System.currentTimeMillis();
-    //         if (currentTs >= timeoutTs) {
-    //             LOG.warn("fetch result timeout {}", backend.getBrpcAddress());
-    //             status.updateStatus(TStatusCode.INTERNAL_ERROR, "query request timeout");
-    //             return null;
-    //         }
-    //         try {
-    //             pResult = futureResponse.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
-    //         } catch (InterruptedException e) {
-    //             // continue to get result
-    //             LOG.warn("future get interrupted Exception");
-    //             if (isCancel) {
-    //                 status.updateStatus(TStatusCode.CANCELLED, "cancelled");
-    //                 return null;
-    //             }
-    //         } catch (TimeoutException e) {
-    //             futureResponse.cancel(true);
-    //             LOG.warn("fetch result timeout {}, addr {}", timeoutTs - currentTs, backend.getBrpcAddress());
-    //             status.updateStatus(TStatusCode.INTERNAL_ERROR, "query fetch result timeout");
-    //             return null;
-    //         }
-    //     } catch (RpcException e) {
-    //         LOG.warn("query fetch rpc exception {}, e {}", backend.getBrpcAddress(), e);
-    //         status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
-    //         SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
-    //         return null;
-    //     } catch (ExecutionException e) {
-    //         LOG.warn("query fetch execution exception {}, addr {}", e, backend.getBrpcAddress());
-    //         if (e.getMessage().contains("time out")) {
-    //             // if timeout, we set error code to TIMEOUT, and it will not retry querying.
-    //             status.updateStatus(TStatusCode.TIMEOUT, e.getMessage());
-    //         } else {
-    //             status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
-    //             SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
-    //         }
-    //         return null;
-    //     }
-    //     Status resultStatus = new Status(pResult.getStatus());
-    //     if (resultStatus.getErrorCode() != TStatusCode.OK) {
-    //         status.updateStatus(resultStatus.getErrorCode(), resultStatus.getErrorMsg());
-    //         return null;
-    //     }
-
-    //     if (pResult.hasEmptyBatch() && pResult.getEmptyBatch()) {
-    //         LOG.debug("get empty rowbatch");
-    //         rowBatch.setEos(true);
-    //         status.updateStatus(TStatusCode.OK, "");
-    //         return rowBatch;
-    //     } else if (pResult.hasRowBatch() && pResult.getRowBatch().size() > 0) {
-    //         byte[] serialResult = pResult.getRowBatch().toByteArray();
-    //         TResultBatch resultBatch = new TResultBatch();
-    //         TDeserializer deserializer = new TDeserializer(
-    //                 new TCustomProtocolFactory(this.maxMsgSizeOfResultReceiver));
-    //         try {
-    //             deserializer.deserialize(resultBatch, serialResult);
-    //         } catch (TException e) {
-    //             if (e.getMessage().contains("MaxMessageSize reached")) {
-    //                 throw new TException("MaxMessageSize reached, try increase max_msg_size_of_result_receiver");
-    //             } else {
-    //                 throw e;
-    //             }
-    //         }
-    //         rowBatch.setBatch(resultBatch);
-    //         rowBatch.setEos(true);
-    //         status.updateStatus(TStatusCode.OK, "");
-    //         return rowBatch;
-    //     } else {
-    //         Preconditions.checkState(false, "No row batch or empty batch found");
-    //     }
-
-    //     if (isCancel) {
-    //         status.updateStatus(TStatusCode.CANCELLED, "cancelled");
-    //     }
-    //     return rowBatch;
-    // }
 
     private List<byte[]> batchGetNext(Status status, Backend backend) throws TException {
         // RowBatch rowBatch = new RowBatch();
@@ -655,11 +548,7 @@ public class PointQueryExecutor implements CoordInterface {
         }
 
         // handle the response
-        // int resultCount = 0;
         boolean isOK = true;
-        // List<TResultBatch> resultBatch = new ArrayList<>();
-        // TResultBatch resultBatch = new TResultBatch();
-        // resultBatch.setRows(Lists.newArrayList());
         for (InternalService.PTabletKeyLookupResponse subResponse : pBatchResult.getSubKeyLookupResList()) {
             Status resultStatus = new Status(subResponse.getStatus());
             if (resultStatus.getErrorCode() != TStatusCode.OK) {
@@ -675,23 +564,6 @@ public class PointQueryExecutor implements CoordInterface {
             } else if (subResponse.hasRowBatch() && subResponse.getRowBatch().size() > 0) {
                 byte[] serialResult = subResponse.getRowBatch().toByteArray();
                 result.add(serialResult);
-                // resultBatch.addToRows(ByteBuffer.wrap(serialResult));
-                // resultBatch.addToRows(ByteBuffer.wrap(serialResult));
-                // TDeserializer deserializer = new TDeserializer(
-                //         new TCustomProtocolFactory(this.maxMsgSizeOfResultReceiver));
-                // try {
-                //     deserializer.deserialize(tmpResultBatch, serialResult);
-                //     resultBatch.addToRows(ByteBuffer.wrap(serialResult));
-                // } catch (TException e) {
-                //     if (e.getMessage().contains("MaxMessageSize reached")) {
-                //         throw new TException("MaxMessageSize reached, try increase max_msg_size_of_result_receiver");
-                //     } else {
-                //         throw e;
-                //     }
-                // }
-                // ++resultCount;
-                // resultBatch.add(subResultBatch);
-                // status.updateStatus(TStatusCode.OK, "");
                 continue;
             } else {
                 Preconditions.checkState(false, "No row batch or empty batch found");
@@ -708,13 +580,6 @@ public class PointQueryExecutor implements CoordInterface {
             status.updateStatus(TStatusCode.OK, "");
         }
 
-        // if (resultCount != tabletIdsOfBe.size()) {
-        //     LOG.info("result count {} not equal to tablet count {}", resultCount, tabletIdsOfBe.size());
-        //     throw new TException("result count not equal to tablet count");
-        // }
-        // merge the resultBatch
-        // rowBatch.setBatch(resultBatch);
-        // rowBatch.setEos(true);
         return result;
     }
 

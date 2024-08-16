@@ -104,8 +104,16 @@ brokerName = "broker_name"
 
 // broker load test config
 enableBrokerLoad=true
-ak=""
-sk=""
+
+// for s3 releated cases, "aliyun" or "aliyun-internal" or "tencent" or "huawei" or "azure" or "gcp"
+// if s3Source is set,  s3Endpoint s3BucketName s3Region s3Provider will be filled with default value if not set
+s3Source="aliyun"
+// s3Endpoint = ""
+// s3BucketName = ""
+// s3Region = ""
+// s3Provider = ""
+ak="***********"
+sk="***********"
 
 // jdbc connector test config
 // To enable jdbc test, you need first start mysql/pg container.
@@ -119,6 +127,7 @@ clickhouse_22_port=8123
 doris_port=9030
 mariadb_10_port=3326
 db2_11_port=50000
+oceanbase_port=2881
 
 // hive catalog test config
 // To enable hive/paimon test, you need first start hive container.
@@ -193,10 +202,8 @@ dlfUid="***********"
 aliYunSk="***********"
 hwYunAk="***********"
 hwYunSk="***********"
-
-s3Endpoint = "cos.ap-hongkong.myqcloud.com"
-s3BucketName = "doris-build-hk-1308700295"
-s3Region = "ap-hongkong"
+txYunAk="***********"
+txYunSk="***********"
 
 //arrow flight sql test config
 extArrowFlightSqlHost = "127.0.0.1"
@@ -224,3 +231,14 @@ enableTrinoConnectorTest = false
 enableKerberosTest=false
 kerberosHmsPort=9883
 kerberosHdfsPort=8820
+
+
+// LakeSoul catalog test config
+enableLakesoulTest = false
+lakesoulPGUser="*******"
+lakesoulPGPwd="*******"
+lakesoulPGUrl="*******"
+lakesoulMinioAK="*******"
+lakesoulMinioSK="*******"
+lakesoulMinioEndpoint="*******"
+

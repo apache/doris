@@ -55,8 +55,6 @@ struct TypeDescriptor;
 
 namespace doris::vectorized {
 
-class NewFileScanNode;
-
 class VFileScanner : public VScanner {
     ENABLE_FACTORY_CREATOR(VFileScanner);
 
@@ -65,7 +63,9 @@ public:
 
     VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
                  std::shared_ptr<vectorized::SplitSourceConnector> split_source,
-                 RuntimeProfile* profile, ShardedKVCache* kv_cache);
+                 RuntimeProfile* profile, ShardedKVCache* kv_cache,
+                 std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+                 const std::unordered_map<std::string, int>* colname_to_slot_id);
 
     Status open(RuntimeState* state) override;
 
@@ -73,9 +73,7 @@ public:
 
     void try_stop() override;
 
-    Status prepare(const VExprContextSPtrs& conjuncts,
-                   std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-                   const std::unordered_map<std::string, int>* colname_to_slot_id);
+    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
 
     std::string get_name() override { return VFileScanner::NAME; }
 

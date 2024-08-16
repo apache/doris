@@ -90,4 +90,9 @@ public class DropMaterializedViewStmt extends DdlStmt {
         stringBuilder.append("ON ").append(tableName.toSql());
         return stringBuilder.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
+    }
 }

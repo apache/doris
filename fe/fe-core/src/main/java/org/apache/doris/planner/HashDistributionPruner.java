@@ -87,7 +87,6 @@ public class HashDistributionPruner implements DistributionPruner {
                     Lists.newArrayList(bucketsList.get((int) ((hashValue & 0xffffffff) % hashMod)));
             distributionKey2TabletID.computeIfAbsent(new PartitionKey(hashKey),
                                                      k -> Sets.newHashSet(result)).addAll(result);
-            // distributionKey2TabletID.put(new PartitionKey(hashKey), Sets.newHashSet(result));
             return result;
         }
         Column keyColumn = distributionColumns.get(columnId);
@@ -131,9 +130,6 @@ public class HashDistributionPruner implements DistributionPruner {
             Collection<Long> subList = prune(columnId + 1, hashKey, newComplex);
             resultSet.addAll(subList);
             hashKey.popColumn();
-            // if (resultSet.size() >= bucketsList.size()) {
-            //     break;
-            // }
         }
         return resultSet;
     }

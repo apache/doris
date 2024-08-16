@@ -48,9 +48,9 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF6 i_item_sk->[cs_item_sk]
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_catalog_page_sk = catalog_page.cp_catalog_page_sk)) otherCondition=() build RFs:RF5 cp_catalog_page_sk->[cs_catalog_page_sk]
+--------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF5 d_date_sk->[cs_sold_date_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF4 d_date_sk->[cs_sold_date_sk]
+------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_catalog_page_sk = catalog_page.cp_catalog_page_sk)) otherCondition=() build RFs:RF4 cp_catalog_page_sk->[cs_catalog_page_sk]
 --------------------------------------------PhysicalProject
 ----------------------------------------------hashJoin[LEFT_OUTER_JOIN colocated] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=()
 ------------------------------------------------PhysicalProject
@@ -58,10 +58,10 @@ PhysicalResultSink
 ------------------------------------------------PhysicalProject
 --------------------------------------------------PhysicalOlapScan[catalog_returns]
 --------------------------------------------PhysicalProject
-----------------------------------------------filter((date_dim.d_date <= '1998-09-27') and (date_dim.d_date >= '1998-08-28'))
-------------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------------PhysicalOlapScan[catalog_page]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[catalog_page]
+------------------------------------------filter((date_dim.d_date <= '1998-09-27') and (date_dim.d_date >= '1998-08-28'))
+--------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------PhysicalProject
 --------------------------------------filter((item.i_current_price > 50.00))
 ----------------------------------------PhysicalOlapScan[item]

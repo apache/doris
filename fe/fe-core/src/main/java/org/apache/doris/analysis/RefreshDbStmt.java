@@ -87,14 +87,9 @@ public class RefreshDbStmt extends DdlStmt {
         }
         // check access
         if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), catalogName,
-                dbName, PrivPredicate.DROP)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                    ConnectContext.get().getQualifiedUser(), dbName);
-        }
-        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), catalogName,
-                dbName, PrivPredicate.CREATE)) {
-            ErrorReport.reportAnalysisException(
-                    ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
+                dbName, PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
+                    PrivPredicate.SHOW.getPrivs().toString(), dbName);
         }
         String invalidConfig = properties == null ? null : properties.get(INVALID_CACHE);
         // Default is to invalid cache.
@@ -115,5 +110,10 @@ public class RefreshDbStmt extends DdlStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.REFRESH;
     }
 }

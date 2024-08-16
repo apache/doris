@@ -105,7 +105,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         _writer.reset(new (std::nothrow) vectorized::VFileResultWriter(
                 p._file_opts.get(), p._storage_type, state->fragment_instance_id(),
                 _output_vexpr_ctxs, _sender, nullptr, state->return_object_data_as_binary(),
-                p._output_row_descriptor));
+                p._output_row_descriptor, _async_writer_dependency, _finish_dependency));
     } else {
         // init channel
         _output_block = vectorized::Block::create_unique(
@@ -113,7 +113,8 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         _writer.reset(new (std::nothrow) vectorized::VFileResultWriter(
                 p._file_opts.get(), p._storage_type, state->fragment_instance_id(),
                 _output_vexpr_ctxs, nullptr, _output_block.get(),
-                state->return_object_data_as_binary(), p._output_row_descriptor));
+                state->return_object_data_as_binary(), p._output_row_descriptor,
+                _async_writer_dependency, _finish_dependency));
 
         std::map<int64_t, int64_t> fragment_id_to_channel_index;
         for (int i = 0; i < p._dests.size(); ++i) {
@@ -129,7 +130,6 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
             RETURN_IF_ERROR(_channel->init_stub(state));
         }
     }
-    _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
     _writer->set_header_info(p._header_type, p._header);
     return Status::OK();
 }

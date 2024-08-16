@@ -136,14 +136,16 @@ public:
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method replace_column_data is not supported for " + get_name());
     }
 
     ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() {
-        return assert_cast<COffsets&>(*offsets_column).get_data();
+        return assert_cast<COffsets&, TypeCheckOnRelease::DISABLE>(*offsets_column).get_data();
     }
     const ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() const {
-        return assert_cast<const COffsets&>(*offsets_column).get_data();
+        return assert_cast<const COffsets&, TypeCheckOnRelease::DISABLE>(*offsets_column)
+                .get_data();
     }
     IColumn& get_offsets_column() { return *offsets_column; }
     const IColumn& get_offsets_column() const { return *offsets_column; }

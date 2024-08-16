@@ -61,7 +61,7 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
 
     private TableIf extractTable(ConnectContext ctx, LogicalPlan plan) {
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        Plan analyzedPlan = planner.plan(plan, PhysicalProperties.ANY, ExplainLevel.ANALYZED_PLAN);
+        Plan analyzedPlan = planner.planWithLock(plan, PhysicalProperties.ANY, ExplainLevel.ANALYZED_PLAN);
         Set<LogicalCatalogRelation> logicalCatalogRelationSet = analyzedPlan
                 .collect(LogicalCatalogRelation.class::isInstance);
         if (logicalCatalogRelationSet.size() != 1) {

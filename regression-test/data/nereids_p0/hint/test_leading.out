@@ -2166,7 +2166,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------hashJoin[INNER_JOIN shuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ------------PhysicalOlapScan[t1]
 ------------PhysicalOlapScan[t2]
@@ -2295,7 +2295,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ------------PhysicalOlapScan[t1]
 ------------PhysicalOlapScan[t2]
 ----------PhysicalOlapScan[t3]
@@ -2310,7 +2310,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ----------PhysicalOlapScan[t1]
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ------------PhysicalOlapScan[t2]
@@ -2326,7 +2326,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ----------PhysicalOlapScan[t1]
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ------------PhysicalOlapScan[t3]
@@ -2343,7 +2343,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ------------PhysicalOlapScan[t2]
 ------------PhysicalOlapScan[t1]
 ----------PhysicalOlapScan[t3]
@@ -2358,7 +2358,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2) and (t2.c2 = t3.c3)) otherCondition=()
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2) and (t2.c2 = t3.c3)) otherCondition=()
 ----------PhysicalOlapScan[t2]
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
 ------------PhysicalOlapScan[t1]
@@ -2374,7 +2374,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2) and (t2.c2 = t3.c3)) otherCondition=()
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2) and (t2.c2 = t3.c3)) otherCondition=()
 ----------PhysicalOlapScan[t2]
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
 ------------PhysicalOlapScan[t3]
@@ -2390,7 +2390,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ------------PhysicalOlapScan[t1]
 ------------PhysicalOlapScan[t2]
@@ -2408,7 +2408,7 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ----------PhysicalOlapScan[t1]
-----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ------------PhysicalOlapScan[t2]
 ------------PhysicalOlapScan[t3]
 
@@ -2424,7 +2424,7 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ----------PhysicalOlapScan[t1]
-----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ------------PhysicalOlapScan[t3]
 ------------PhysicalOlapScan[t2]
 
@@ -2438,7 +2438,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ------------PhysicalOlapScan[t2]
 ------------PhysicalOlapScan[t1]
@@ -2456,7 +2456,7 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2) and (t2.c2 = t3.c3)) otherCondition=()
 ----------PhysicalOlapScan[t2]
-----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
 ------------PhysicalOlapScan[t1]
 ------------PhysicalOlapScan[t3]
 
@@ -2472,7 +2472,7 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2) and (t2.c2 = t3.c3)) otherCondition=()
 ----------PhysicalOlapScan[t2]
-----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
 ------------PhysicalOlapScan[t3]
 ------------PhysicalOlapScan[t1]
 
@@ -2493,8 +2493,8 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t1 broadcast t2 t3 ) 
-UnUsed: 
+Used: leading(t1 broadcast t2 broadcast t3 ) 
+UnUsed:
 SyntaxError:
 
 -- !select95_4 --
@@ -2502,7 +2502,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ------------PhysicalOlapScan[t2]
 ------------PhysicalOlapScan[t1]
@@ -2520,7 +2520,7 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ----------PhysicalOlapScan[t3]
-----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ------------PhysicalOlapScan[t1]
 ------------PhysicalOlapScan[t2]
 
@@ -2536,7 +2536,7 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ----------PhysicalOlapScan[t3]
-----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ------------PhysicalOlapScan[t2]
 ------------PhysicalOlapScan[t1]
 
@@ -2614,7 +2614,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------hashJoin[INNER_JOIN shuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ------------PhysicalOlapScan[t1]
 ------------PhysicalOlapScan[t2]

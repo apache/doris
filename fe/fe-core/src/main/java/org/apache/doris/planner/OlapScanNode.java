@@ -197,7 +197,6 @@ public class OlapScanNode extends ScanNode {
 
     private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
 
-    // 每列不同的值对应不同范围，不同范围对应各自的partition id
     private Map<String, RangeMap<ColumnBound, List<Long>>> partitionCol2PartitionID = Maps.newHashMap();
 
     private Map<PartitionKey, Set<Long>> distributionKeys2TabletID = Maps.newHashMap();
@@ -716,12 +715,6 @@ public class OlapScanNode extends ScanNode {
                 // ColumnRange filterRange = columnNameToRange.get(col.getName());
                 Set<Range<ColumnBound>> filterRanges =
                         columnNameToRange.get(col.getName()).getRangeSet().get().asRanges();
-                // LiteralExpr lowerBound = filterRanges.stream().findFirst().get().lowerEndpoint().getValue();
-                // // to support `IN`, change `findFirst` to `reduce` to get the max value
-                // LiteralExpr upperBound =
-                //         filterRanges.stream()
-                //         .map(range -> range.upperEndpoint().getValue())
-                //         .max(Comparator.naturalOrder()).get();
                 cachedPartitionPruner.update(keyItemMap);
                 Collection<Long> prunedPartIDs = cachedPartitionPruner.prune(filterRanges);
                 partitionCol2PartitionID.putIfAbsent(
@@ -1039,13 +1032,9 @@ public class OlapScanNode extends ScanNode {
                 }
                 Long beId = backend.getId();
                 scanBackendIds.add(beId);
-                if (backendId2TabletIds.containsKey(beId)) {
-                    backendId2TabletIds.get(beId).add(tabletId);
-                } else {
-                    Set<Long> tabletIds = Sets.newHashSet();
-                    tabletIds.add(tabletId);
-                    backendId2TabletIds.put(beId, tabletIds);
-                }
+                backendId2TabletIds
+                        .computeIfAbsent(beId, k -> new HashSet<>())
+                        .add(tabletId);
                 // For skipping missing version of tablet, we only select the backend with the highest last
                 // success version replica to save as much data as possible.
                 if (skipMissingVersion) {
@@ -1852,8 +1841,6 @@ public class OlapScanNode extends ScanNode {
     public void finalizeForNereids() {
         computeNumNodes();
         computeStatsForNereids();
-        // NOTICE: must call here to get selected tablet row count to let block rules work well.
-        mockRowCountInStatistic();
     }
 
     private void computeStatsForNereids() {
@@ -1861,7 +1848,7 @@ public class OlapScanNode extends ScanNode {
             avgRowSize = totalBytes / (float) cardinality * COMPRESSION_RATIO;
             capCardinalityAtLimit();
         }
-        // when node scan has no data, cardinality should be 0 instead of a invalid
+        // when node scan has no data, cardinality should be 0 instead of an invalid
         // value after computeStats()
         cardinality = cardinality == -1 ? 0 : cardinality;
     }

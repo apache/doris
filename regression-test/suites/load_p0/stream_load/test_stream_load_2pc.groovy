@@ -301,7 +301,8 @@ suite("test_stream_load_2pc", "p0") {
         """,
 
         """
-            "replication_num" = "1"
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "false"
         """,
 
         """
@@ -565,6 +566,10 @@ suite("test_stream_load_2pc", "p0") {
         def expected = [1, 3, 3, 5, 21] 
         // we recreate table for each partition, then load data with stream load and check the result
         for (i = 0; i < tables.size(); ++i) {
+            if (isCloudMode() && tables[i].equals("stream_load_mow_tbl_basic")) {
+                log.info("Skip stream load mow table in cloud mode")
+                continue;
+            }
             def j = 0
             for (String paritition in tbl_partitions) {
 

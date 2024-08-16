@@ -91,4 +91,12 @@ suite("test_time_diff_microseconds") {
         cast('0001-01-03 00:00:00.114514' as Datetimev2(3) ) , 
         cast('0001-01-01 00:00:00.000000' as Datetimev2(5) ));
     """
+
+    sql """ 
+    select round(timediff(now(),'2024-08-15')/60/60,2);
+    """
+
+    qt_select9 """
+       select timediff('0001-01-03 19:19:00.123','0001-01-01 00:00:00.0000');
+    """
 }

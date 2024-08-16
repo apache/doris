@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("set_and_unset_variable") {
+suite("set_and_unset_variable", "nonConcurrent") {
     qt_cmd """UNSET VARIABLE ALL"""
     qt_cmd """UNSET global VARIABLE ALL"""
 
@@ -73,6 +73,8 @@ suite("set_and_unset_variable") {
     qt_cmd """show session variables like 'deprecated_enable_local_exchange'"""
     qt_cmd """show session variables like 'show_hidden_columns'"""
 
+    qt_cmd """select * from information_schema.session_variables where variable_name = 'show_hidden_columns'"""
+
     // test UNSET GLOBAL VARIABLE ALL
     qt_cmd """set global runtime_filter_type='BLOOM_FILTER'"""
     qt_cmd """set global experimental_enable_agg_state='true'"""
@@ -83,6 +85,8 @@ suite("set_and_unset_variable") {
     qt_cmd """show global variables like 'experimental_enable_agg_state'"""
     qt_cmd """show global variables like 'deprecated_enable_local_exchange'"""
     qt_cmd """show global variables like 'show_hidden_columns'"""
+
+    qt_cmd """select * from information_schema.global_variables where variable_name = 'show_hidden_columns'"""
 
     // test read_only
     qt_cmd """show variables like 'read_only'"""

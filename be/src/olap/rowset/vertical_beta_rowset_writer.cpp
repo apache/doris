@@ -89,7 +89,7 @@ Status VerticalBetaRowsetWriter<T>::add_columns(const vectorized::Block* block,
             VLOG_NOTICE << "num_rows_written: " << num_rows_written
                         << ", _cur_writer_idx: " << _cur_writer_idx;
             uint32_t num_rows_key_group = _segment_writers[_cur_writer_idx]->row_count();
-            CHECK_LE(num_rows_written, num_rows_key_group);
+            CHECK_LT(num_rows_written, num_rows_key_group);
             // init if it's first value column write in current segment
             if (num_rows_written == 0) {
                 VLOG_NOTICE << "init first value column segment writer";
@@ -104,7 +104,9 @@ Status VerticalBetaRowsetWriter<T>::add_columns(const vectorized::Block* block,
             left -= to_write;
             CHECK_GE(left, 0);
 
-            if (left > 0) {
+            if (num_rows_key_group == num_rows_written + to_write &&
+                _cur_writer_idx < _segment_writers.size() - 1) {
+                RETURN_IF_ERROR(_flush_columns(_segment_writers[_cur_writer_idx].get()));
                 ++_cur_writer_idx;
             }
         }
@@ -163,14 +165,7 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
     int seg_id = this->_num_segment.fetch_add(1, std::memory_order_relaxed);
 
     io::FileWriterPtr file_writer;
-    io::FileWriterOptions opts {
-            .write_file_cache = this->_context.write_file_cache,
-            .is_cold_data = this->_context.is_hot_data,
-            .file_cache_expiration = this->_context.file_cache_ttl_sec > 0 &&
-                                                     this->_context.newest_write_timestamp > 0
-                                             ? this->_context.newest_write_timestamp +
-                                                       this->_context.file_cache_ttl_sec
-                                             : 0};
+    io::FileWriterOptions opts = this->_context.get_file_writer_options();
 
     auto path = context.segment_path(seg_id);
     auto& fs = context.fs_ref();
@@ -184,9 +179,10 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &context;
-    *writer = std::make_unique<segment_v2::SegmentWriter>(
-            file_writer.get(), seg_id, context.tablet_schema, context.tablet, context.data_dir,
-            context.max_rows_per_segment, writer_options, nullptr);
+    writer_options.max_rows_per_segment = context.max_rows_per_segment;
+    *writer = std::make_unique<segment_v2::SegmentWriter>(file_writer.get(), seg_id,
+                                                          context.tablet_schema, context.tablet,
+                                                          context.data_dir, writer_options);
     RETURN_IF_ERROR(this->_seg_files.add(seg_id, std::move(file_writer)));
 
     auto s = (*writer)->init(column_ids, is_key);

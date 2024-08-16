@@ -86,6 +86,8 @@ RUN=0
 FILTER=""
 FDB=""
 ENABLE_CLANG_COVERAGE=OFF
+BUILD_AZURE="ON"
+
 echo "===================== filter: ${FILTER}"
 if [[ $# != 1 ]]; then
     while true; do
@@ -160,8 +162,20 @@ if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
     GLIBC_COMPATIBILITY=ON
 fi
 
+if [[ -z "${USE_LIBCPP}" ]]; then
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_LIBCPP='OFF'
+    else
+        USE_LIBCPP='ON'
+    fi
+fi
+
 if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF=OFF
+fi
+
+if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
+    BUILD_AZURE='OFF'
 fi
 
 MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"
@@ -176,12 +190,14 @@ find . -name "*.gcda" -exec rm {} \;
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
     -DMAKE_TEST=ON \
     -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
+    -DUSE_LIBCPP="${USE_LIBCPP}" \
     -DUSE_DWARF="${USE_DWARF}" \
     -DUSE_MEM_TRACKER=ON \
     -DUSE_JEMALLOC=OFF \
     -DSTRICT_MEMORY_USE=OFF \
     -DENABLE_CLANG_COVERAGE="${ENABLE_CLANG_COVERAGE}" \
     "${CMAKE_USE_CCACHE}" \
+    -DBUILD_AZURE="${BUILD_AZURE}" \
     "${DORIS_HOME}/cloud/"
 "${BUILD_SYSTEM}" -j "${PARALLEL}"
 "${BUILD_SYSTEM}" install
@@ -204,6 +220,8 @@ fi
 echo "**********************************"
 echo "   Running MetaService Unit Test  "
 echo "**********************************"
+
+export ASAN_OPTIONS=detect_container_overflow=0
 
 # test binary output dir
 cd test

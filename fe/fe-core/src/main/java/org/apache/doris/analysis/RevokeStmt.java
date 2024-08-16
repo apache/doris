@@ -209,4 +209,9 @@ public class RevokeStmt extends DdlStmt {
     public String toString() {
         return toSql();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.REVOKE;
+    }
 }

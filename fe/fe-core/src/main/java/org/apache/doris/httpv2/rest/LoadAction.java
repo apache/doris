@@ -62,6 +62,7 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -293,8 +294,17 @@ public class LoadAction extends RestBaseController {
                     return new RestBaseResult(e.getMessage());
                 }
             } else {
-                long tableId = ((OlapTable) ((Database) Env.getCurrentEnv().getCurrentCatalog().getDb(dbName)
-                        .get()).getTable(tableName).get()).getId();
+                Optional<?> database = Env.getCurrentEnv().getCurrentCatalog().getDb(dbName);
+                if (!database.isPresent()) {
+                    return new RestBaseResult("Database not founded.");
+                }
+
+                Optional<?> olapTable = ((Database) database.get()).getTable(tableName);
+                if (!olapTable.isPresent()) {
+                    return new RestBaseResult("OlapTable not founded.");
+                }
+
+                long tableId = ((OlapTable) olapTable.get()).getId();
                 redirectAddr = selectRedirectBackend(request, groupCommit, tableId);
             }
 
@@ -403,6 +413,9 @@ public class LoadAction extends RestBaseController {
             ctx.setEnv(Env.getCurrentEnv());
             ctx.setThreadLocalInfo();
             ctx.setRemoteIP(request.getRemoteAddr());
+            // We set this variable to fulfill required field 'user' in
+            // TMasterOpRequest(FrontendService.thrift)
+            ctx.setQualifiedUser(Auth.ADMIN_USER);
             ctx.setThreadLocalInfo();
 
             try {

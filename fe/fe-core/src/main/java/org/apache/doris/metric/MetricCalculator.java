@@ -130,7 +130,7 @@ public class MetricCalculator extends TimerTask {
                 rps = Double.max(rps, 0);
                 MetricRepo.updateClusterRequestPerSecond(clusterId, rps,  metric.getLabels());
                 MetricRepo.DORIS_METRIC_REGISTER.addMetrics(metric);
-                clusterLastRequestCounter.replace(clusterId, metric.getValue());
+                clusterLastRequestCounter.put(clusterId, metric.getValue());
             });
         }
 
@@ -142,7 +142,7 @@ public class MetricCalculator extends TimerTask {
                 rps = Double.max(rps, 0);
                 MetricRepo.updateClusterQueryPerSecond(clusterId, rps,  metric.getLabels());
                 MetricRepo.DORIS_METRIC_REGISTER.addMetrics(metric);
-                clusterLastQueryCounter.replace(clusterId, metric.getValue());
+                clusterLastQueryCounter.put(clusterId, metric.getValue());
             });
         }
 
@@ -154,7 +154,7 @@ public class MetricCalculator extends TimerTask {
                 rps = Double.max(rps, 0);
                 MetricRepo.updateClusterQueryErrRate(clusterId, rps, metric.getLabels());
                 MetricRepo.DORIS_METRIC_REGISTER.addMetrics(metric);
-                clusterLastQueryCounter.replace(clusterId, metric.getValue());
+                clusterLastQueryErrCounter.put(clusterId, metric.getValue());
             });
         }
     }

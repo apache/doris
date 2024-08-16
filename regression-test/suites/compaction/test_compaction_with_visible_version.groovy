@@ -26,7 +26,6 @@ suite('test_compaction_with_visible_version') {
         'partition_info_update_interval_secs=5',
     ]
     options.beConfigs += [
-        'disable_auto_compaction=true',
         'report_tablet_interval_seconds=1',
         'tablet_rowset_stale_sweep_by_size=true',
         'tablet_rowset_stale_sweep_threshold_size=0',
@@ -166,7 +165,11 @@ suite('test_compaction_with_visible_version') {
             }
         }
 
-        sql " CREATE TABLE ${tableName} (k1 int, k2 int) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+        sql """
+            CREATE TABLE ${tableName} (k1 int, k2 int) DISTRIBUTED BY HASH(k1) BUCKETS 1 PROPERTIES (
+                "disable_auto_compaction" = "true"
+            )
+        """
 
         // normal
         def rowNum = 0L

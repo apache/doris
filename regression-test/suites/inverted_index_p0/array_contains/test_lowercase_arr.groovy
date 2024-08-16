@@ -32,7 +32,7 @@ suite("test_lowercase_arr", "array_contains_inverted_index"){
 	CREATE TABLE IF NOT EXISTS ${indexTblName}(
 		`id`int(11)NULL,
 		`c` ARRAY<text> NULL,
-		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="english") COMMENT ''
+		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="none") COMMENT ''
 	) ENGINE=OLAP
 	DUPLICATE KEY(`id`)
 	COMMENT 'OLAP'
@@ -57,7 +57,7 @@ suite("test_lowercase_arr", "array_contains_inverted_index"){
 	CREATE TABLE IF NOT EXISTS ${indexTblName2}(
 		`id`int(11)NULL,
 		`c` array<text> NULL,
-		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="unicode") COMMENT ''
+		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="none") COMMENT ''
 	) ENGINE=OLAP
 	DUPLICATE KEY(`id`)
 	COMMENT 'OLAP'
@@ -82,7 +82,7 @@ suite("test_lowercase_arr", "array_contains_inverted_index"){
 	CREATE TABLE IF NOT EXISTS ${indexTblName3}(
 		`id`int(11)NULL,
 		`c` array<text> NULL,
-		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="chinese") COMMENT ''
+		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="none") COMMENT ''
 	) ENGINE=OLAP
 	DUPLICATE KEY(`id`)
 	COMMENT 'OLAP'
@@ -107,7 +107,7 @@ suite("test_lowercase_arr", "array_contains_inverted_index"){
    	CREATE TABLE IF NOT EXISTS ${indexTblName4}(
    		`id`int(11)NULL,
    		`c` array<text> NULL,
-   		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="english","lower_case"="true") COMMENT ''
+   		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="none") COMMENT ''
    	) ENGINE=OLAP
    	DUPLICATE KEY(`id`)
    	COMMENT 'OLAP'
@@ -132,7 +132,7 @@ suite("test_lowercase_arr", "array_contains_inverted_index"){
    	CREATE TABLE IF NOT EXISTS ${indexTblName5}(
    		`id`int(11)NULL,
    		`c` array<text> NULL,
-   		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="unicode","lower_case"="true") COMMENT ''
+   		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="none") COMMENT ''
    	) ENGINE=OLAP
    	DUPLICATE KEY(`id`)
    	COMMENT 'OLAP'
@@ -156,7 +156,7 @@ suite("test_lowercase_arr", "array_contains_inverted_index"){
    	CREATE TABLE IF NOT EXISTS ${indexTblName6}(
    		`id`int(11)NULL,
    		`c` array<text> NULL,
-   		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="chinese","lower_case"="true") COMMENT ''
+   		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="none") COMMENT ''
    	) ENGINE=OLAP
    	DUPLICATE KEY(`id`)
    	COMMENT 'OLAP'
@@ -180,7 +180,7 @@ suite("test_lowercase_arr", "array_contains_inverted_index"){
       CREATE TABLE IF NOT EXISTS ${indexTblName7}(
       	`id`int(11)NULL,
       	`c` array<text> NULL,
-      	INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="english","lower_case"="false") COMMENT ''
+      	INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="none") COMMENT ''
       ) ENGINE=OLAP
       DUPLICATE KEY(`id`)
       COMMENT 'OLAP'
@@ -204,7 +204,7 @@ suite("test_lowercase_arr", "array_contains_inverted_index"){
       CREATE TABLE IF NOT EXISTS ${indexTblName8}(
       	`id`int(11)NULL,
       	`c` array<text> NULL,
-      	INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="unicode","lower_case"="false") COMMENT ''
+      	INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="none") COMMENT ''
       ) ENGINE=OLAP
       DUPLICATE KEY(`id`)
       COMMENT 'OLAP'
@@ -229,7 +229,7 @@ suite("test_lowercase_arr", "array_contains_inverted_index"){
       CREATE TABLE IF NOT EXISTS ${indexTblName9}(
       	`id`int(11)NULL,
       	`c` array<text> NULL,
-      	INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="chinese","lower_case"="false") COMMENT ''
+      	INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="none") COMMENT ''
       ) ENGINE=OLAP
       DUPLICATE KEY(`id`)
       COMMENT 'OLAP'

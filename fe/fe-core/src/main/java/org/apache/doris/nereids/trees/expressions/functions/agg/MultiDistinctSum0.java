@@ -25,12 +25,9 @@ import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForS
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -38,24 +35,27 @@ import java.util.List;
 public class MultiDistinctSum0 extends AggregateFunction implements UnaryExpression,
         ExplicitlyCastableSignature, ComputePrecisionForSum, MultiDistinction, AlwaysNotNullable {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(BigIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(DoubleType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(LargeIntType.INSTANCE)
-    );
+    private final boolean mustUseMultiDistinctAgg;
 
     public MultiDistinctSum0(Expression arg0) {
-        super("multi_distinct_sum0", true, arg0);
+        this(false, arg0);
     }
 
     public MultiDistinctSum0(boolean distinct, Expression arg0) {
-        super("multi_distinct_sum0", true, arg0);
+        this(false, false, arg0);
+    }
+
+    private MultiDistinctSum0(boolean mustUseMultiDistinctAgg, boolean distinct, Expression arg0) {
+        super("multi_distinct_sum0", false, arg0);
+        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
     }
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (child().getDataType().isDateLikeType()) {
-            throw new AnalysisException("Sum0 in multi distinct functions do not support Date/Datetime type");
+        DataType argType = child().getDataType();
+        if ((!argType.isNumericType() && !argType.isBooleanType() && !argType.isNullType())
+                || argType.isOnlyMetricType()) {
+            throw new AnalysisException("sum0 requires a numeric or boolean parameter: " + this.toSql());
         }
     }
 
@@ -72,11 +72,21 @@ public class MultiDistinctSum0 extends AggregateFunction implements UnaryExpress
     @Override
     public MultiDistinctSum0 withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new MultiDistinctSum0(distinct, children.get(0));
+        return new MultiDistinctSum0(mustUseMultiDistinctAgg, distinct, children.get(0));
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitMultiDistinctSum0(this, context);
+    }
+
+    @Override
+    public boolean mustUseMultiDistinctAgg() {
+        return mustUseMultiDistinctAgg;
+    }
+
+    @Override
+    public Expression withMustUseMultiDistinctAgg(boolean mustUseMultiDistinctAgg) {
+        return new MultiDistinctSum0(mustUseMultiDistinctAgg, false, children.get(0));
     }
 }

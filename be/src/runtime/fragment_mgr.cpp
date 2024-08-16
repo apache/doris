@@ -579,6 +579,8 @@ std::shared_ptr<QueryContext> FragmentMgr::get_or_erase_query_ctx_with_lock(
 template <typename Params>
 Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
                                    std::shared_ptr<QueryContext>& query_ctx) {
+    DBUG_EXECUTE_IF("FragmentMgr._get_query_ctx.failed",
+                    { return Status::InternalError("FragmentMgr._get_query_ctx.failed"); });
     if (params.is_simplified_param) {
         // Get common components from _query_ctx_map
         std::lock_guard<std::mutex> lock(_lock);
@@ -1054,7 +1056,6 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
     QueryThreadContext query_thread_context;
 
     RuntimeFilterMgr* runtime_filter_mgr = nullptr;
-    ObjectPool* pool = nullptr;
 
     const auto& fragment_instance_ids = request->fragment_instance_ids();
     {
@@ -1071,7 +1072,6 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
                 DCHECK(pip_context != nullptr);
                 runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
-                pool = &pip_context->get_query_ctx()->obj_pool;
                 query_thread_context = {pip_context->get_query_ctx()->query_id(),
                                         pip_context->get_query_ctx()->query_mem_tracker,
                                         pip_context->get_query_ctx()->workload_group()};
@@ -1089,13 +1089,13 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
     SCOPED_ATTACH_TASK(query_thread_context);
     // 1. get the target filters
-    std::vector<IRuntimeFilter*> filters;
+    std::vector<std::shared_ptr<IRuntimeFilter>> filters;
     RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filters(request->filter_id(), filters));
 
     // 2. create the filter wrapper to replace or ignore the target filters
     if (!filters.empty()) {
-        UpdateRuntimeFilterParamsV2 params {request, attach_data, pool, filters[0]->column_type()};
-        RuntimePredicateWrapper* filter_wrapper = nullptr;
+        UpdateRuntimeFilterParamsV2 params {request, attach_data, filters[0]->column_type()};
+        std::shared_ptr<RuntimePredicateWrapper> filter_wrapper;
         RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, &filter_wrapper));
 
         std::ranges::for_each(filters, [&](auto& filter) {
@@ -1150,8 +1150,6 @@ Status FragmentMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
 Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
                                  butil::IOBufAsZeroCopyInputStream* attach_data) {
     UniqueId queryid = request->query_id();
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
-    RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
 
     std::shared_ptr<QueryContext> query_ctx;
     {
@@ -1167,6 +1165,8 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
         }
     }
     SCOPED_ATTACH_TASK(query_ctx.get());
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
+    RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
     auto merge_status = filter_controller->merge(request, attach_data);
     return merge_status;
 }

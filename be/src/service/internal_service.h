@@ -235,6 +235,10 @@ public:
                                     PFetchRemoteSchemaResponse* response,
                                     google::protobuf::Closure* done) override;
 
+    void get_be_resource(google::protobuf::RpcController* controller,
+                         const PGetBeResourceRequest* request, PGetBeResourceResponse* response,
+                         google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,

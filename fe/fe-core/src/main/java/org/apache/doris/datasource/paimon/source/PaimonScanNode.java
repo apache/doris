@@ -317,15 +317,26 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
-        String result = super.getNodeExplainString(prefix, detailLevel)
-                + String.format("%spaimonNativeReadSplits=%d/%d\n",
-                        prefix, rawFileSplitNum, (paimonSplitNum + rawFileSplitNum));
-        if (detailLevel == TExplainLevel.VERBOSE) {
-            result += prefix + "PaimonSplitStats: \n";
-            for (SplitStat splitStat : splitStats) {
-                result += String.format("%s  %s\n", prefix, splitStat);
+        StringBuilder sb = new StringBuilder(super.getNodeExplainString(prefix, detailLevel));
+        sb.append(String.format("%spaimonNativeReadSplits=%d/%d\n",
+                prefix, rawFileSplitNum, (paimonSplitNum + rawFileSplitNum)));
+
+        sb.append(prefix).append("predicatesFromPaimon:");
+        if (predicates.isEmpty()) {
+            sb.append(" NONE\n");
+        } else {
+            sb.append("\n");
+            for (Predicate predicate : predicates) {
+                sb.append(prefix).append(prefix).append(predicate).append("\n");
             }
         }
-        return result;
+
+        if (detailLevel == TExplainLevel.VERBOSE) {
+            sb.append(prefix).append("PaimonSplitStats: \n");
+            for (SplitStat splitStat : splitStats) {
+                sb.append(String.format("%s  %s\n", prefix, splitStat));
+            }
+        }
+        return sb.toString();
     }
 }

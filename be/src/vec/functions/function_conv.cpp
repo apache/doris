@@ -206,8 +206,12 @@ struct ConvStringImpl {
                                size_t index) {
         StringRef str = data_column->get_data_at(index);
         StringParser::ParseResult parse_res;
+        // select conv('ffffffffffffff', 24, 2);
+        // if 'ffffffffffffff' parse as int64_t will be overflow, will be get max value: std::numeric_limits<int64_t>::max()
+        // so change it parse as uint64_t, and return value could still use int64_t, in function decimal_to_base could handle it.
+        // But if the value is still overflow in uint64_t, will get max value of uint64_t
         int64_t decimal_num =
-                StringParser::string_to_int<int64_t>(str.data, str.size, src_base, &parse_res);
+                StringParser::string_to_int<uint64_t>(str.data, str.size, src_base, &parse_res);
         if (src_base < 0 && decimal_num >= 0) {
             result_null_map[index] = true;
             result_column->insert_default();

@@ -41,6 +41,7 @@ import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
@@ -70,7 +71,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -90,7 +90,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     private static final String YES = "yes";
 
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+    private final MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock(true);
 
     @SerializedName(value = "idToCatalog")
     private final Map<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>> idToCatalog = Maps.newConcurrentMap();
@@ -665,7 +665,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         long tblId;
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
         if (hmsCatalog.getUseMetaCache().get()) {
-            tblId = Util.genTableIdByName(tableName);
+            tblId = Util.genIdByName(catalogName, dbName, tableName);
         } else {
             tblId = Env.getCurrentEnv().getExternalMetaIdMgr().getTblId(catalog.getId(), dbName, tableName);
         }
@@ -703,7 +703,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         ((HMSExternalCatalog) catalog).unregisterDatabase(dbName);
     }
 
-    public void registerExternalDatabase(String dbName, String catalogName, boolean ignoreIfExists)
+    public void registerExternalDatabaseFromEvent(String dbName, String catalogName, boolean ignoreIfExists)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
@@ -723,7 +723,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
         long dbId;
         if (hmsCatalog.getUseMetaCache().get()) {
-            dbId = Util.genTableIdByName(dbName);
+            dbId = Util.genIdByName(catalogName, dbName);
         } else {
             dbId = Env.getCurrentEnv().getExternalMetaIdMgr().getDbId(catalog.getId(), dbName);
         }

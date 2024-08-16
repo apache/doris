@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "runtime/string_search.hpp"
 #include "util/url_coding.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
@@ -1010,6 +1011,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringLocate>();
     factory.register_function<FunctionStringLocatePos>();
     factory.register_function<FunctionQuote>();
+    factory.register_function<FunctionAutoPartitionName>();
     factory.register_function<FunctionReverseCommon>();
     factory.register_function<FunctionUnHex>();
     factory.register_function<FunctionToLower>();
@@ -1062,6 +1064,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSubReplace<SubReplaceFourImpl>>();
     factory.register_function<FunctionOverlay>();
     factory.register_function<FunctionStrcmp>();
+    factory.register_function<FunctionNgramSearch>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");

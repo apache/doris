@@ -242,8 +242,8 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_che
         flush_untracked_mem();
     }
 
-    if (skip_large_memory_check == 0 && doris::config::large_memory_check_bytes > 0 &&
-        size > doris::config::large_memory_check_bytes) {
+    if (skip_large_memory_check == 0 && doris::config::stacktrace_in_alloc_large_memory_bytes > 0 &&
+        size > doris::config::stacktrace_in_alloc_large_memory_bytes) {
         _stop_consume = true;
         LOG(WARNING) << fmt::format(
                 "malloc or new large memory: {}, {}, this is just a warning, not prevent memory "
@@ -294,7 +294,7 @@ inline bool ThreadMemTrackerMgr::try_reserve(int64_t size) {
         return false;
     }
     auto wg_ptr = _wg_wptr.lock();
-    if (!wg_ptr) {
+    if (wg_ptr) {
         if (!wg_ptr->add_wg_refresh_interval_memory_growth(size)) {
             _limiter_tracker_raw->release(size); // rollback
             return false;

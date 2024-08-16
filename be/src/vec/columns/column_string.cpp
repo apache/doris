@@ -297,7 +297,8 @@ ColumnPtr ColumnStr<T>::permute(const IColumn::Permutation& perm, size_t limit) 
     }
 
     if (perm.size() < limit) {
-        LOG(FATAL) << "Size of permutation is less than required.";
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation is less than required.");
         __builtin_unreachable();
     }
 
@@ -397,16 +398,41 @@ void ColumnStr<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
 
 template <typename T>
 void ColumnStr<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                               const uint8_t* null_map) const {
-    for (size_t i = 0; i < num_rows; ++i) {
-        if (null_map[i] == 0) {
-            uint32_t offset(offset_at(i));
-            uint32_t string_size(size_at(i));
+                                               const UInt8* null_map) const {
+    DCHECK(null_map != nullptr);
 
-            auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
-            memcpy_fixed<uint32_t>(ptr, (char*)&string_size);
-            memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
-            keys[i].size += sizeof(string_size) + string_size;
+    const bool has_null = simd::contain_byte(null_map, num_rows, 1);
+
+    if (has_null) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* __restrict dest = const_cast<char*>(keys[i].data + keys[i].size);
+            // serialize null first
+            memcpy(dest, null_map + i, sizeof(uint8_t));
+
+            if (null_map[i] == 0) {
+                UInt32 offset(offset_at(i));
+                UInt32 string_size(size_at(i));
+
+                memcpy_fixed<UInt32>(dest + 1, (char*)&string_size);
+                memcpy(dest + 1 + sizeof(string_size), &chars[offset], string_size);
+                keys[i].size += sizeof(string_size) + string_size + sizeof(UInt8);
+            } else {
+                keys[i].size += sizeof(UInt8);
+            }
+        }
+    } else {
+        // All rows are not null, serialize null & value
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* __restrict dest = const_cast<char*>(keys[i].data + keys[i].size);
+            // serialize null first
+            memcpy(dest, null_map + i, sizeof(uint8_t));
+
+            UInt32 offset(offset_at(i));
+            UInt32 string_size(size_at(i));
+
+            memcpy_fixed<UInt32>(dest + 1, (char*)&string_size);
+            memcpy(dest + 1 + sizeof(string_size), &chars[offset], string_size);
+            keys[i].size += sizeof(string_size) + string_size + sizeof(UInt8);
         }
     }
 }
@@ -457,9 +483,8 @@ void ColumnStr<T>::get_permutation(bool reverse, size_t limit, int /*nan_directi
         res[i] = i;
     }
 
-    if (limit >= s) {
-        limit = 0;
-    }
+    // std::partial_sort need limit << s can get performance benefit
+    if (limit > (s / 8.0)) limit = 0;
 
     if (limit) {
         if (reverse) {
@@ -469,9 +494,9 @@ void ColumnStr<T>::get_permutation(bool reverse, size_t limit, int /*nan_directi
         }
     } else {
         if (reverse) {
-            std::sort(res.begin(), res.end(), less<false>(*this));
+            pdqsort(res.begin(), res.end(), less<false>(*this));
         } else {
-            std::sort(res.begin(), res.end(), less<true>(*this));
+            pdqsort(res.begin(), res.end(), less<true>(*this));
         }
     }
 }
@@ -546,7 +571,9 @@ void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
                                     uint8* __restrict filter) const {
     auto sz = offsets.size();
     DCHECK(cmp_res.size() == sz);
-    const auto& cmp_base = assert_cast<const ColumnStr<T>&>(rhs).get_data_at(rhs_row_id);
+    const auto& cmp_base =
+            assert_cast<const ColumnStr<T>&, TypeCheckOnRelease::DISABLE>(rhs).get_data_at(
+                    rhs_row_id);
     size_t begin = simd::find_zero(cmp_res, 0);
     while (begin < sz) {
         size_t end = simd::find_one(cmp_res, begin + 1);

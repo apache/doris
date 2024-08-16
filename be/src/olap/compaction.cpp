@@ -197,9 +197,6 @@ Status Compaction::merge_input_rowsets() {
     _tablet->last_compaction_status = res;
 
     if (!res.ok()) {
-        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
-                     << ", tablet=" << _tablet->tablet_id()
-                     << ", output_version=" << _output_version;
         return res;
     }
 
@@ -352,7 +349,9 @@ bool CompactionMixin::handle_ordered_data_compaction() {
 
     // check delete version: if compaction type is base compaction and
     // has a delete version, use original compaction
-    if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
+    if (compaction_type() == ReaderType::READER_BASE_COMPACTION ||
+        (_allow_delete_in_cumu_compaction &&
+         compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION)) {
         for (auto& rowset : _input_rowsets) {
             if (rowset->rowset_meta()->has_delete_predicate()) {
                 return false;
@@ -400,15 +399,14 @@ Status CompactionMixin::execute_compact() {
     data_dir->disks_compaction_score_increment(permits);
     data_dir->disks_compaction_num_increment(1);
 
-    Status st = execute_compact_impl(permits);
-    _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
+    auto record_compaction_stats = [&](const doris::Exception& ex) {
+        _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
+        data_dir->disks_compaction_score_increment(-permits);
+        data_dir->disks_compaction_num_increment(-1);
+    };
 
-    data_dir->disks_compaction_score_increment(-permits);
-    data_dir->disks_compaction_num_increment(-1);
-
-    if (!st.ok()) {
-        return st;
-    }
+    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits), record_compaction_stats);
+    record_compaction_stats(doris::Exception());
 
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
@@ -511,8 +509,8 @@ Status Compaction::do_inverted_index_compaction() {
             } else {
                 DCHECK(false) << err_msg;
             }
+            // log here just for debugging, do not return error
             LOG(WARNING) << err_msg;
-            return Status::InternalError(err_msg);
         }
     }
 
@@ -687,6 +685,9 @@ Status Compaction::do_inverted_index_compaction() {
             LOG(ERROR) << "inverted_index_file_reader init failed in index compaction, error:"
                        << st;
             return st;
+        }
+        for (const auto& writer : inverted_index_file_writers) {
+            writer->set_file_writer_opts(ctx.get_file_writer_options());
         }
     }
 
@@ -907,7 +908,9 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     if (config::inverted_index_compaction_enable &&
         (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
            _tablet->enable_unique_key_merge_on_write()) ||
-          _tablet->keys_type() == KeysType::DUP_KEYS))) {
+          _tablet->keys_type() == KeysType::DUP_KEYS)) &&
+        _cur_tablet_schema->get_inverted_index_storage_format() ==
+                InvertedIndexStorageFormatPB::V1) {
         construct_skip_inverted_index(ctx);
     }
     ctx.version = _output_version;
@@ -1181,13 +1184,10 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
 Status CloudCompactionMixin::execute_compact() {
     TEST_INJECTION_POINT("Compaction::do_compaction");
     int64_t permits = get_compaction_permits();
-    Status st = execute_compact_impl(permits);
-    if (!st.ok()) {
-        garbage_collection();
-        return st;
-    }
+    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits),
+                                        [&](const doris::Exception& ex) { garbage_collection(); });
     _load_segment_to_cache();
-    return st;
+    return Status::OK();
 }
 
 Status CloudCompactionMixin::modify_rowsets() {
@@ -1199,7 +1199,9 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     if (config::inverted_index_compaction_enable &&
         (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
            _tablet->enable_unique_key_merge_on_write()) ||
-          _tablet->keys_type() == KeysType::DUP_KEYS))) {
+          _tablet->keys_type() == KeysType::DUP_KEYS)) &&
+        _cur_tablet_schema->get_inverted_index_storage_format() ==
+                InvertedIndexStorageFormatPB::V1) {
         construct_skip_inverted_index(ctx);
     }
 
@@ -1219,8 +1221,10 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
 
     auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
-    ctx.compaction_level =
-            _engine.cumu_compaction_policy(compaction_policy)->new_compaction_level(_input_rowsets);
+    if (_tablet->tablet_meta()->time_series_compaction_level_threshold() >= 2) {
+        ctx.compaction_level = _engine.cumu_compaction_policy(compaction_policy)
+                                       ->new_compaction_level(_input_rowsets);
+    }
 
     ctx.write_file_cache = compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION;
     ctx.file_cache_ttl_sec = _tablet->ttl_seconds();
