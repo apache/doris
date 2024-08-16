@@ -182,7 +182,7 @@ public class NereidsPlanner extends Planner {
             if (plan instanceof LogicalSqlCache) {
                 rewrittenPlan = analyzedPlan = plan;
                 LogicalSqlCache logicalSqlCache = (LogicalSqlCache) plan;
-                physicalPlan = new PhysicalSqlCache(
+                optimizedPlan = physicalPlan = new PhysicalSqlCache(
                         logicalSqlCache.getQueryId(),
                         logicalSqlCache.getColumnLabels(), logicalSqlCache.getFieldInfos(),
                         logicalSqlCache.getResultExprs(), logicalSqlCache.getResultSetInFe(),
