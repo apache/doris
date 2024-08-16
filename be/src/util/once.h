@@ -51,7 +51,7 @@ namespace doris {
 template <typename ReturnType>
 class DorisCallOnce {
 public:
-    DorisCallOnce() : _has_called(false) {}
+    DorisCallOnce() : _once_flag(false) {}
 
     // this method is not exception safe, it will core when exception occurs in
     // callback method. I have tested the code https://en.cppreference.com/w/cpp/thread/call_once.
@@ -89,16 +89,15 @@ public:
             return _status;
         }
         try {
+            // This memory order make sure both status and eptr is set
+            // and will be seen in another thread.
+            _once_flag.store(true, std::memory_order_release);
             _status = fn();
         } catch (...) {
             // Save the exception for next call.
             _eptr = std::current_exception();
-            _has_called.store(true, std::memory_order_release);
             std::rethrow_exception(_eptr);
         }
-        // This memory order make sure both status and eptr is set
-        // and will be seen in another thread.
-        _has_called.store(true, std::memory_order_release);
         return _status;
     }
 
@@ -109,7 +108,7 @@ public:
         // std::memory_order_acquire here and std::memory_order_release in
         // init(), taken together, mean that threads can safely synchronize on
         // _has_called.
-        return _has_called.load(std::memory_order_acquire);
+        return _once_flag.load(std::memory_order_acquire);
     }
 
     // Return the stored result. The result is only meaningful when `has_called() == true`.
@@ -126,7 +125,7 @@ public:
     }
 
 private:
-    std::atomic<bool> _has_called;
+    std::atomic<bool> _once_flag;
     // std::once_flag _once_flag;
     std::mutex _flag_lock;
     std::exception_ptr _eptr;
