@@ -44,8 +44,6 @@ public:
 
     PredicateType type() const override { return _nested->type(); }
 
-    void set_nested(ColumnPredicate* nested) { _nested.reset(nested); }
-
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* roaring) const override {
         return _nested->evaluate(iterator, num_rows, roaring);
@@ -158,6 +156,8 @@ private:
             }
             // create selected_flags
             uint16_t max_idx = sel[size - 1];
+            std::vector<uint16_t> old_sel(size);
+            memcpy(old_sel.data(), sel, sizeof(uint16_t) * size);
 
             const auto& nullable_col = assert_cast<const vectorized::ColumnNullable&>(column);
             // call nested predicate evaluate
@@ -165,13 +165,16 @@ private:
 
             // process NULL values
             if (new_size < size) {
-                std::vector<uint8_t> selected(max_idx + 1);
-                memcpy(selected.data(), nullable_col.get_null_map_data().data(),
-                       (max_idx + 1) * sizeof(bool));
+                std::vector<uint8_t> selected(max_idx + 1, 0);
+                const auto* nullmap = nullable_col.get_null_map_data().data();
                 // add rows selected by _nested->evaluate
                 for (uint16_t i = 0; i < new_size; ++i) {
                     uint16_t row_idx = sel[i];
                     selected[row_idx] = true;
+                }
+                for (uint16_t i = 0; i < size; ++i) {
+                    uint16_t row_idx = old_sel[i];
+                    selected[row_idx] |= nullmap[row_idx];
                 }
 
                 // recaculate new_size and sel array
