@@ -946,7 +946,7 @@ public class ProfileManager extends MasterDaemon {
                         stringBuilder.toString(), executionProfileNum,
                         Config.max_query_profile_num, Config.profile_async_collect_expire_time_secs);
             }
-        }    
+        }
     }
 
     private void deleteOutdatedProfilesFromMemory() {
