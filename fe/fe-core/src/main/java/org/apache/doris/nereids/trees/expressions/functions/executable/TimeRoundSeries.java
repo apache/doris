@@ -104,22 +104,27 @@ public class TimeRoundSeries {
         if (getCeil) {
             step = step + (deltaInsidePeriod == 0 ? 0 : period);
         }
-        switch (tag) {
-            case YEAR:
-                return ((DateTimeLiteral) start.plusYears(step)).toJavaDateType();
-            case MONTH:
-                return ((DateTimeLiteral) start.plusMonths(step)).toJavaDateType();
-            case DAY:
-                return ((DateTimeLiteral) start.plusDays(step)).toJavaDateType();
-            case HOUR:
-                return ((DateTimeLiteral) start.plusHours(step)).toJavaDateType();
-            case MINUTE:
-                return ((DateTimeLiteral) start.plusMinutes(step)).toJavaDateType();
-            case SECOND:
-                return ((DateTimeLiteral) start.plusSeconds(step)).toJavaDateType();
-            default:
-                break;
+        try {
+            switch (tag) {
+                case YEAR:
+                    return ((DateTimeLiteral) start.plusYears(step)).toJavaDateType();
+                case MONTH:
+                    return ((DateTimeLiteral) start.plusMonths(step)).toJavaDateType();
+                case DAY:
+                    return ((DateTimeLiteral) start.plusDays(step)).toJavaDateType();
+                case HOUR:
+                    return ((DateTimeLiteral) start.plusHours(step)).toJavaDateType();
+                case MINUTE:
+                    return ((DateTimeLiteral) start.plusMinutes(step)).toJavaDateType();
+                case SECOND:
+                    return ((DateTimeLiteral) start.plusSeconds(step)).toJavaDateType();
+                default:
+                    break;
+            }
+        } catch (Exception ex) {
+            // do nothing
         }
+
         return null;
     }
 
