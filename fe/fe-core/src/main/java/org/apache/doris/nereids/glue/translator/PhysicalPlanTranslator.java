@@ -2326,8 +2326,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // to obtain better local shuffle distribution.
         List<List<Expr>> newChildDistributeExprLists = Lists.newArrayList();
         if (!partitionExprs.isEmpty() && inputPlanFragment.getPlanRoot() != null
-            && inputPlanFragment.getPlanRoot() instanceof SortNode
-            && !inputPlanFragment.getPlanRoot().getChildrenDistributeExprLists().isEmpty()) {
+                && inputPlanFragment.getPlanRoot() instanceof SortNode
+                && !inputPlanFragment.getPlanRoot().getChildrenDistributeExprLists().isEmpty()) {
             // safety consideration for those already has valid children distribute expr lists setting only
             // current op tree only has two patterns, one is the window with sort child, and another is two phase
             // global partition topn child, and the latter is no need to refresh its distribution expr list since
