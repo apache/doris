@@ -87,7 +87,7 @@ public class MTMVRefreshPartitionSnapshot {
             if (tableInfo.isPresent()) {
                 tablesInfo.put(tableInfo.get(), entry.getValue());
             } else {
-                LOG.info("MTMV compatible failed, tableId: {}, relationTables: {}", entry.getKey(),
+                LOG.warn("MTMV compatible failed, tableId: {}, relationTables: {}", entry.getKey(),
                         relation.getBaseTablesOneLevel());
             }
         }

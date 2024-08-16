@@ -149,7 +149,7 @@ public class BaseTableInfo {
             this.dbName = db.getFullName();
             this.tableName = table.getName();
         } catch (AnalysisException e) {
-            LOG.info("MTMV compatible failed, ctlId: {}, dbId: {}, tableId: {}", ctlId, dbId, tableId, e);
+            LOG.warn("MTMV compatible failed, ctlId: {}, dbId: {}, tableId: {}", ctlId, dbId, tableId, e);
         }
     }
 }
