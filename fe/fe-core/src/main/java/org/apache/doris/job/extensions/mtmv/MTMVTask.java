@@ -173,7 +173,7 @@ public class MTMVTask extends AbstractTask {
             this.relation = MTMVPlanUtil.generateMTMVRelation(mtmv, ctx);
             // Now, the MTMV first ensures consistency with the data in the cache.
             // To be completely consistent with hive, you need to manually refresh the cache
-            // refreshHmsTable();
+            refreshHmsTable();
             if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
                 MTMVPartitionUtil.alignMvPartition(mtmv);
             }
@@ -274,7 +274,7 @@ public class MTMVTask extends AbstractTask {
     }
 
     /**
-     * // Before obtaining information from hmsTable, refresh to ensure that the data is up-to-date
+     * Before obtaining information from hmsTable, refresh to ensure that the data is up-to-date
      *
      * @throws AnalysisException
      * @throws DdlException
