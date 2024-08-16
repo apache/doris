@@ -60,6 +60,7 @@ public class OdbcScanNode extends ExternalScanNode {
 
     private final List<String> columns = new ArrayList<String>();
     private final List<String> filters = new ArrayList<String>();
+    private final List<Expr> pushedDownConjuncts = new ArrayList<>();
     private String tblName;
     private String connectString;
     private TOdbcTableType odbcType;
@@ -138,7 +139,7 @@ public class OdbcScanNode extends ExternalScanNode {
     // only all conjuncts be pushed down as filter, we can
     // push down limit operation to ODBC table
     private boolean shouldPushDownLimit() {
-        return limit != -1 && conjuncts.isEmpty();
+        return limit != -1 && conjuncts.size() == pushedDownConjuncts.size();
     }
 
     private String getOdbcQueryStr() {
@@ -208,7 +209,7 @@ public class OdbcScanNode extends ExternalScanNode {
             if (shouldPushDownConjunct(odbcType, p)) {
                 String filter = JdbcScanNode.conjunctExprToString(odbcType, p, tbl);
                 filters.add(filter);
-                conjuncts.remove(p);
+                pushedDownConjuncts.add(p);
             }
         }
     }
