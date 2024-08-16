@@ -21,15 +21,15 @@ import java.sql.Statement
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-suite("txn_insert_with_specify_columns_schema_change_add_column", "nonConcurrent") {
-    def table = "txn_insert_with_specify_columns_schema_change_add_column"
+suite("txn_insert_with_specify_columns_schema_change_add_value_column", "nonConcurrent") {
+    def table = "txn_insert_with_specify_columns_schema_change_add_value_column"
 
     def dbName = "regression_test_insert_p0"
     def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, dbName).replace("&useServerPrepStmts=true", "") + "&useLocalSessionState=true"
     logger.info("url: ${url}")
     List<String> errors = new ArrayList<>()
     CountDownLatch insertLatch = new CountDownLatch(1)
-    CountDownLatch insertLatch2 = new CountDownLatch(1)
+    CountDownLatch schemaChangeLatch = new CountDownLatch(1)
 
     sql """ DROP TABLE IF EXISTS $table force """
     sql """
@@ -67,15 +67,16 @@ suite("txn_insert_with_specify_columns_schema_change_add_column", "nonConcurrent
         try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
              Statement statement = conn.createStatement()) {
             try {
-                order_qt_select1 """desc $table"""
-
-                insertLatch.await(2, TimeUnit.MINUTES)
+                qt_select_desc1 """desc $table"""
 
                 statement.execute("begin")
                 statement.execute("insert into ${table} (c3, c2, c1) values (33, 22, 11),(333, 222, 111);")
+                
+                schemaChangeLatch.countDown()
 
-                insertLatch2.await(2, TimeUnit.MINUTES)
-                order_qt_select1 """desc $table"""
+                insertLatch.await(2, TimeUnit.MINUTES)
+
+                qt_select_desc2 """desc $table"""
                 statement.execute("insert into ${table} (c3, c2, c1) values(3333, 2222, 1111);")
                 statement.execute("insert into ${table} (c3, c2, c1) values(33333, 22222, 11111),(333333, 222222, 111111);")
                 statement.execute("commit")
@@ -90,11 +91,10 @@ suite("txn_insert_with_specify_columns_schema_change_add_column", "nonConcurrent
     def schemaChange = { sql ->
         try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
             Statement statement = conn.createStatement()) {
+            schemaChangeLatch.await(2, TimeUnit.MINUTES)
             statement.execute(sql)
-            getAlterTableState("RUNNING")
-            insertLatch.countDown()
             getAlterTableState("FINISHED")
-            insertLatch2.countDown()
+            insertLatch.countDown()
         } catch (Throwable e) {
             logger.error("schema change failed", e)
             errors.add("schema change failed " + e.getMessage())
@@ -105,18 +105,18 @@ suite("txn_insert_with_specify_columns_schema_change_add_column", "nonConcurrent
     GetDebugPoint().clearDebugPointsForAllFEs()
     try {
         GetDebugPoint().enableDebugPointForAllBEs("SchemaChangeJob._do_process_alter_tablet.sleep")
-        Thread schema_change_thread = new Thread(() -> schemaChange("alter table ${table} add column new_col int key after c1;"))
+        Thread schema_change_thread = new Thread(() -> schemaChange("alter table ${table} add column new_col int after c3;"))
         Thread insert_thread = new Thread(() -> txnInsert())
         schema_change_thread.start()
         insert_thread.start()
+
         schema_change_thread.join()
         insert_thread.join()
 
         logger.info("errors: " + errors)
         assertEquals(0, errors.size())
-        order_qt_select1 """select c1, c2, c3 from ${table} order by c1, c2, c3"""
         getAlterTableState("FINISHED")
-        order_qt_select1 """select c1, c2, c3 from ${table} order by c1, c2, c3"""
+        order_qt_select1 """select * from ${table} order by c1, c2, c3"""
     } catch (Exception e) {
         logger.info("failed: " + e.getMessage())
         assertTrue(false)

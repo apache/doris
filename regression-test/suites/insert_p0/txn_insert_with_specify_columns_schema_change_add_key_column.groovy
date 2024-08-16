@@ -21,8 +21,8 @@ import java.sql.Statement
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-suite("txn_insert_with_specify_columns_schema_change_reorder_column", "nonConcurrent") {
-    def table = "txn_insert_with_specify_columns_schema_change_reorder_column"
+suite("txn_insert_with_specify_columns_schema_change_add_key_column", "nonConcurrent") {
+    def table = "txn_insert_with_specify_columns_schema_change_add_key_column"
 
     def dbName = "regression_test_insert_p0"
     def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, dbName).replace("&useServerPrepStmts=true", "") + "&useLocalSessionState=true"
@@ -35,7 +35,7 @@ suite("txn_insert_with_specify_columns_schema_change_reorder_column", "nonConcur
     sql """
         create table $table (
             c1 INT NULL,
-            c2 BIGINT NULL,
+            c2 INT NULL,
             c3 INT NULL
         ) ENGINE=OLAP
         UNIQUE KEY(c1)
@@ -75,14 +75,13 @@ suite("txn_insert_with_specify_columns_schema_change_reorder_column", "nonConcur
                 statement.execute("insert into ${table} (c3, c2, c1) values (33, 22, 11),(333, 222, 111);")
 
                 insertLatch2.await(2, TimeUnit.MINUTES)
-
                 qt_select_desc2 """desc $table"""
                 statement.execute("insert into ${table} (c3, c2, c1) values(3333, 2222, 1111);")
                 statement.execute("insert into ${table} (c3, c2, c1) values(33333, 22222, 11111),(333333, 222222, 111111);")
                 statement.execute("commit")
-            } catch (Throwable e) {
-                logger.error("txn insert failed", e)
-                errors.add("txn insert failed " + e.getMessage())
+            } catch (Exception e) {
+                logger.info("txn insert failed", e)
+                assertTrue(e.getMessage().contains("too many filtered rows"))
                 statement.execute("rollback")
             }
         }
@@ -106,7 +105,7 @@ suite("txn_insert_with_specify_columns_schema_change_reorder_column", "nonConcur
     GetDebugPoint().clearDebugPointsForAllFEs()
     try {
         GetDebugPoint().enableDebugPointForAllBEs("SchemaChangeJob._do_process_alter_tablet.sleep")
-        Thread schema_change_thread = new Thread(() -> schemaChange("alter table ${table} order by (c1,c3,c2);"))
+        Thread schema_change_thread = new Thread(() -> schemaChange("alter table ${table} add column new_col int key after c1;"))
         Thread insert_thread = new Thread(() -> txnInsert())
         schema_change_thread.start()
         insert_thread.start()
@@ -116,7 +115,6 @@ suite("txn_insert_with_specify_columns_schema_change_reorder_column", "nonConcur
         logger.info("errors: " + errors)
         assertEquals(0, errors.size())
         getAlterTableState("FINISHED")
-        qt_select_desc3 """desc $table"""
         order_qt_select1 """select * from ${table} order by c1, c2, c3"""
     } catch (Exception e) {
         logger.info("failed: " + e.getMessage())
