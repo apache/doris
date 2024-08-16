@@ -35,7 +35,7 @@ import java.util.Map;
 
 // CREATE STORAGE VAULT vault_name
 // PROPERTIES (key1 = value1, ...)
-public class CreateStorageVaultStmt extends DdlStmt {
+public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInParser {
     private static final String TYPE = "type";
 
     private static final String PATH_VERSION = "path_version";

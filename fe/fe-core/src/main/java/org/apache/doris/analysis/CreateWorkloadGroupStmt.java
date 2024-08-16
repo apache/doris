@@ -30,7 +30,7 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 
 import java.util.Map;
 
-public class CreateWorkloadGroupStmt extends DdlStmt {
+public class CreateWorkloadGroupStmt extends DdlStmt implements NotFallbackInParser {
 
     private final boolean ifNotExists;
 

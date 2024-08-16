@@ -49,7 +49,7 @@ import java.util.Map;
 //      binlog_desc:
 //          FROM BINLOG
 //          (key1=value1, ...)
-public class CreateDataSyncJobStmt extends DdlStmt {
+public class CreateDataSyncJobStmt extends DdlStmt implements NotFallbackInParser {
     private String jobName;
     private String dbName;
     private DataSyncJobType dataSyncJobType;
