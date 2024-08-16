@@ -125,10 +125,6 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
     return read_columns_string;
 }
 
-Status NewOlapScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
-    return VScanner::prepare(state, conjuncts);
-}
-
 Status NewOlapScanner::init() {
     _is_init = true;
     auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
@@ -499,6 +495,10 @@ Status NewOlapScanner::_init_return_columns() {
 }
 
 doris::TabletStorageType NewOlapScanner::get_storage_type() {
+    if (config::is_cloud_mode()) {
+        // we don't have cold storage in cloud mode, all storage is treated as local
+        return doris::TabletStorageType::STORAGE_TYPE_LOCAL;
+    }
     int local_reader = 0;
     for (const auto& reader : _tablet_reader_params.rs_splits) {
         local_reader += reader.rs_reader->rowset()->is_local();
@@ -637,6 +637,8 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(Parent->_inverted_index_query_cache_miss_counter,                              \
                    stats.inverted_index_query_cache_miss);                                        \
     COUNTER_UPDATE(Parent->_inverted_index_query_timer, stats.inverted_index_query_timer);        \
+    COUNTER_UPDATE(Parent->_inverted_index_query_null_bitmap_timer,                               \
+                   stats.inverted_index_query_null_bitmap_timer);                                 \
     COUNTER_UPDATE(Parent->_inverted_index_query_bitmap_copy_timer,                               \
                    stats.inverted_index_query_bitmap_copy_timer);                                 \
     COUNTER_UPDATE(Parent->_inverted_index_query_bitmap_op_timer,                                 \
@@ -645,6 +647,10 @@ void NewOlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_searcher_open_timer);                                     \
     COUNTER_UPDATE(Parent->_inverted_index_searcher_search_timer,                                 \
                    stats.inverted_index_searcher_search_timer);                                   \
+    COUNTER_UPDATE(Parent->_inverted_index_searcher_cache_hit_counter,                            \
+                   stats.inverted_index_searcher_cache_hit);                                      \
+    COUNTER_UPDATE(Parent->_inverted_index_searcher_cache_miss_counter,                           \
+                   stats.inverted_index_searcher_cache_miss);                                     \
     if (config::enable_file_cache) {                                                              \
         io::FileCacheProfileReporter cache_profile(Parent->_segment_profile.get());               \
         cache_profile.update(&stats.file_cache_stats);                                            \
@@ -658,7 +664,7 @@ void NewOlapScanner::_collect_profile_before_close() {
     // Update counters from tablet reader's stats
     auto& stats = _tablet_reader->stats();
 
-    pipeline::OlapScanLocalState* local_state = (pipeline::OlapScanLocalState*)_local_state;
+    auto* local_state = (pipeline::OlapScanLocalState*)_local_state;
     INCR_COUNTER(local_state);
 
 #undef INCR_COUNTER

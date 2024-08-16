@@ -171,11 +171,11 @@ public:
     const IColumn& get_offsets_column() const { return *offsets; }
 
     Offsets64& ALWAYS_INLINE get_offsets() {
-        return assert_cast<ColumnOffsets&>(*offsets).get_data();
+        return assert_cast<ColumnOffsets&, TypeCheckOnRelease::DISABLE>(*offsets).get_data();
     }
 
     const Offsets64& ALWAYS_INLINE get_offsets() const {
-        return assert_cast<const ColumnOffsets&>(*offsets).get_data();
+        return assert_cast<const ColumnOffsets&, TypeCheckOnRelease::DISABLE>(*offsets).get_data();
     }
 
     bool has_equal_offsets(const ColumnArray& other) const;
@@ -213,7 +213,8 @@ public:
                              const uint32_t* indices_end) override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method replace_column_data is not supported for " + get_name());
     }
 
     void clear() override {

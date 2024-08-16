@@ -43,17 +43,19 @@ public:
             return true;
         }
         if constexpr (arg_is_nullable) {
-            return assert_cast<const ColumnNullable*>(_ptr)->is_null_at(_offset);
+            return assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(_ptr)
+                    ->is_null_at(_offset);
         }
         return false;
     }
 
     void insert_into(IColumn& to) const {
         if constexpr (arg_is_nullable) {
-            auto* col = assert_cast<const ColumnNullable*>(_ptr);
-            assert_cast<ColVecType&>(to).insert_from(col->get_nested_column(), _offset);
+            auto* col = assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(_ptr);
+            assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to).insert_from(
+                    col->get_nested_column(), _offset);
         } else {
-            assert_cast<ColVecType&>(to).insert_from(*_ptr, _offset);
+            assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to).insert_from(*_ptr, _offset);
         }
     }
 
@@ -75,7 +77,9 @@ protected:
 template <typename ColVecType, bool arg_is_nullable>
 struct CopiedValue : public Value<ColVecType, arg_is_nullable> {
 public:
-    void insert_into(IColumn& to) const { assert_cast<ColVecType&>(to).insert(_copied_value); }
+    void insert_into(IColumn& to) const {
+        assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to).insert(_copied_value);
+    }
 
     bool is_null() const { return this->_ptr == nullptr; }
 
@@ -85,12 +89,13 @@ public:
         // because the address have meaningless, only need it to check is nullptr
         this->_ptr = (IColumn*)0x00000001;
         if constexpr (arg_is_nullable) {
-            auto* col = assert_cast<const ColumnNullable*>(column);
+            auto* col = assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(column);
             if (col->is_null_at(row)) {
                 this->reset();
                 return;
             } else {
-                auto& nested_col = assert_cast<const ColVecType&>(col->get_nested_column());
+                auto& nested_col = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
+                        col->get_nested_column());
                 nested_col.get(row, _copied_value);
             }
         } else {
@@ -162,7 +167,8 @@ struct ReaderFunctionFirstNonNullData : Data {
             return;
         }
         if constexpr (Data::nullable) {
-            const auto* nullable_column = assert_cast<const ColumnNullable*>(columns[0]);
+            const auto* nullable_column =
+                    assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
             if (nullable_column->is_null_at(row)) {
                 return;
             }
@@ -182,7 +188,8 @@ template <typename Data>
 struct ReaderFunctionLastNonNullData : Data {
     void add(int64_t row, const IColumn** columns) {
         if constexpr (Data::nullable) {
-            const auto* nullable_column = assert_cast<const ColumnNullable*>(columns[0]);
+            const auto* nullable_column =
+                    assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
             if (nullable_column->is_null_at(row)) {
                 return;
             }
@@ -225,19 +232,23 @@ public:
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
-        LOG(FATAL) << "ReaderFunctionData do not support add_range_single_place";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "ReaderFunctionData do not support add_range_single_place");
         __builtin_unreachable();
     }
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {
-        LOG(FATAL) << "ReaderFunctionData do not support merge";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "ReaderFunctionData do not support merge");
         __builtin_unreachable();
     }
     void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {
-        LOG(FATAL) << "ReaderFunctionData do not support serialize";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "ReaderFunctionData do not support serialize");
         __builtin_unreachable();
     }
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {
-        LOG(FATAL) << "ReaderFunctionData do not support deserialize";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "ReaderFunctionData do not support deserialize");
         __builtin_unreachable();
     }
 

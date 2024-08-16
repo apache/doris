@@ -6,7 +6,7 @@ PhysicalResultSink
 ------PhysicalDistribute[DistributionSpecGather]
 --------hashAgg[LOCAL]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((lineitem.l_partkey = part.p_partkey)) otherCondition=()
+------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineitem.l_partkey = part.p_partkey)) otherCondition=()
 --------------PhysicalProject
 ----------------PhysicalOlapScan[part]
 --------------PhysicalProject

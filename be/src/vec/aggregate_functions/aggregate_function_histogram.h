@@ -28,6 +28,8 @@
 #include <utility>
 #include <vector>
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column.h"
@@ -57,12 +59,10 @@ template <typename T>
 struct AggregateFunctionHistogramData {
     using ColVecType =
             std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnVector<T>>;
+    const static size_t DEFAULT_BUCKET_NUM = 128;
+    const static size_t BUCKET_NUM_INIT_VALUE = 0;
 
-    void set_parameters(int input_max_num_buckets) {
-        if (input_max_num_buckets > 0) {
-            max_num_buckets = (size_t)input_max_num_buckets;
-        }
-    }
+    void set_parameters(size_t input_max_num_buckets) { max_num_buckets = input_max_num_buckets; }
 
     void reset() { ordered_map.clear(); }
 
@@ -86,6 +86,8 @@ struct AggregateFunctionHistogramData {
     }
 
     void merge(const AggregateFunctionHistogramData& rhs) {
+        // if rhs.max_num_buckets == 0, it means the input block for serialization is all null
+        // we should discard this data, because histogram only fouce on the not-null data
         if (!rhs.max_num_buckets) {
             return;
         }
@@ -104,7 +106,6 @@ struct AggregateFunctionHistogramData {
 
     void write(BufferWritable& buf) const {
         write_binary(max_num_buckets, buf);
-
         size_t element_number = (size_t)ordered_map.size();
         write_binary(element_number, buf);
 
@@ -148,7 +149,13 @@ struct AggregateFunctionHistogramData {
     std::string get(const DataTypePtr& data_type) const {
         std::vector<Bucket<T>> buckets;
         rapidjson::StringBuffer buffer;
-        build_histogram(buckets, ordered_map, max_num_buckets);
+        // NOTE: We need an extral branch for to handle max_num_buckets == 0,
+        // when target column is nullable, and input block is all null,
+        // set_parameters will not be called because of the short-circuit in
+        // AggregateFunctionNullVariadicInline, so max_num_buckets will be 0 in this situation.
+        build_histogram(
+                buckets, ordered_map,
+                max_num_buckets == BUCKET_NUM_INIT_VALUE ? DEFAULT_BUCKET_NUM : max_num_buckets);
         histogram_to_json(buffer, buckets, data_type);
         return std::string(buffer.GetString());
     }
@@ -162,7 +169,7 @@ struct AggregateFunctionHistogramData {
     }
 
 private:
-    size_t max_num_buckets = 128;
+    size_t max_num_buckets = BUCKET_NUM_INIT_VALUE;
     std::map<T, size_t> ordered_map;
 };
 
@@ -186,20 +193,27 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
-        if (columns[0]->is_null_at(row_num)) {
-            return;
-        }
-
-        if (has_input_param) {
-            this->data(place).set_parameters(
-                    assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num));
+        if constexpr (has_input_param) {
+            Int32 input_max_num_buckets =
+                    assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num);
+            if (input_max_num_buckets <= 0) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "Invalid max_num_buckets {}, row_num {}",
+                                       input_max_num_buckets, row_num);
+            }
+            this->data(place).set_parameters(input_max_num_buckets);
+        } else {
+            this->data(place).set_parameters(Data::DEFAULT_BUCKET_NUM);
         }
 
         if constexpr (std::is_same_v<T, std::string>) {
             this->data(place).add(
-                    assert_cast<const ColumnString&>(*columns[0]).get_data_at(row_num));
+                    assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                            .get_data_at(row_num));
         } else {
-            this->data(place).add(assert_cast<const ColVecType&>(*columns[0]).get_data()[row_num]);
+            this->data(place).add(
+                    assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                            .get_data()[row_num]);
         }
     }
 

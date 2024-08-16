@@ -17,8 +17,9 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
@@ -222,35 +223,20 @@ public class MaterializedViewUtils {
      * when query rewrite, because one plan may hit the materialized view repeatedly and the mv scan output
      * should be different
      */
-    public static Plan generateMvScanPlan(MTMV materializedView, CascadesContext cascadesContext) {
+    public static Plan generateMvScanPlan(OlapTable table, long indexId,
+            List<Long> partitionIds,
+            PreAggStatus preAggStatus,
+            CascadesContext cascadesContext) {
         return new LogicalOlapScan(
                 cascadesContext.getStatementContext().getNextRelationId(),
-                materializedView,
-                materializedView.getFullQualifiers(),
+                table,
+                ImmutableList.of(table.getQualifiedDbName()),
                 ImmutableList.of(),
-                materializedView.getPartitionIds(),
-                materializedView.getBaseIndexId(),
-                PreAggStatus.on(),
-                ImmutableList.of(),
-                // this must be empty, or it will be used to sample
-                ImmutableList.of(),
-                Optional.empty());
-    }
-
-    /**
-     * LIke above but generate scan plan for sync materialized view
-     */
-    public static Plan generateMvScanPlan(OlapTable olapTable, long indexId, CascadesContext cascadesContext) {
-        return new LogicalOlapScan(
-                cascadesContext.getStatementContext().getNextRelationId(),
-                olapTable,
-                ImmutableList.of(olapTable.getQualifiedDbName()),
-                // this must be empty, or it will be used to sample
-                ImmutableList.of(),
-                olapTable.getPartitionIds(),
+                partitionIds,
                 indexId,
-                PreAggStatus.unset(),
+                preAggStatus,
                 ImmutableList.of(),
+                // this must be empty, or it will be used to sample
                 ImmutableList.of(),
                 Optional.empty());
     }
@@ -318,7 +304,7 @@ public class MaterializedViewUtils {
         }
         // Can not convert to table sink, because use the same column from different table when self join
         // the out slot is wrong
-        planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.ALL_PLAN);
+        planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.ALL_PLAN);
         Plan originPlan = planner.getRewrittenPlan();
         // Eliminate result sink because sink operator is useless in query rewrite by materialized view
         // and the top sort can also be removed
@@ -472,6 +458,13 @@ public class MaterializedViewUtils {
                 return null;
             }
             Column mvReferenceColumn = contextPartitionColumn.getColumn().get();
+            Expr definExpr = mvReferenceColumn.getDefineExpr();
+            if (definExpr instanceof SlotRef) {
+                Column referenceRollupColumn = ((SlotRef) definExpr).getColumn();
+                if (referenceRollupColumn != null) {
+                    mvReferenceColumn = referenceRollupColumn;
+                }
+            }
             if (partitionColumnSet.contains(mvReferenceColumn)
                     && (!mvReferenceColumn.isAllowNull() || relatedTable.isPartitionColumnAllowNull())) {
                 context.addTableColumn(table, mvReferenceColumn);
@@ -580,7 +573,8 @@ public class MaterializedViewUtils {
         private static boolean checkPartition(Collection<? extends Expression> expressionsToCheck, Plan plan,
                 IncrementCheckerContext context) {
             NamedExpression partitionColumn = context.getMvPartitionColumn();
-            for (Expression projectSlot : expressionsToCheck) {
+
+            OUTER_CHECK: for (Expression projectSlot : expressionsToCheck) {
                 if (projectSlot.isColumnFromTable() && projectSlot.equals(partitionColumn.toSlot())) {
                     continue;
                 }
@@ -612,7 +606,7 @@ public class MaterializedViewUtils {
                             String.format("partition expression use more than one slot reference, invalid "
                                             + "expressionToCheckColumns is %s, partitionColumnDateColumns is %s",
                                     expressionToCheckColumns, partitionColumns));
-                    return false;
+                    continue;
                 }
                 List<Expression> expressions = expressionToCheck.collectToList(Expression.class::isInstance);
                 for (Expression expression : expressions) {
@@ -621,7 +615,7 @@ public class MaterializedViewUtils {
                         context.addFailReason(
                                 String.format("column to check use invalid implicit expression, invalid "
                                         + "expression is %s", expression));
-                        return false;
+                        continue OUTER_CHECK;
                     }
                 }
                 List<Expression> partitionExpressions = partitionExpression.collectToList(
@@ -632,7 +626,7 @@ public class MaterializedViewUtils {
                         context.addFailReason(
                                 String.format("partition column use invalid implicit expression, invalid "
                                         + "expression is %s", expression));
-                        return false;
+                        continue OUTER_CHECK;
                     }
                 }
                 List<DateTrunc> expressionToCheckDataTruncList =
@@ -643,7 +637,7 @@ public class MaterializedViewUtils {
                     // mv time unit level is little then query
                     context.addFailReason("partition column time unit level should be "
                             + "greater than sql select column");
-                    return false;
+                    continue;
                 }
                 if (!partitionColumn.isColumnFromTable()) {
                     context.setMvPartitionColumn(partitionColumns.iterator().next());
@@ -651,8 +645,9 @@ public class MaterializedViewUtils {
                 if (!context.getPartitionExpression().isPresent()) {
                     context.setPartitionExpression(partitionExpression);
                 }
+                return true;
             }
-            return true;
+            return context.getMvPartitionColumn().isColumnFromTable();
         }
     }
 

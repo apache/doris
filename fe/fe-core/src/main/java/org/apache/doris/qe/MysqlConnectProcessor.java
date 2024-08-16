@@ -136,18 +136,26 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             executor = new StmtExecutor(ctx, executeStmt);
             ctx.setExecutor(executor);
             executor.execute();
-            PrepareStmtContext preparedStmtContext = ConnectContext.get().getPreparedStmt(String.valueOf(stmtId));
-            if (preparedStmtContext != null) {
-                stmtStr = executeStmt.toSql();
+            //For the `insert into` statements during group commit load via JDBC.
+            //Printing audit logs can severely impact performance.
+            //Therefore, we have introduced a session variable to control whether to print audit logs.
+            //It is recommended to turn off audit logs only during group commit load via JDBC.
+            if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
+                PrepareStmtContext preparedStmtContext = ConnectContext.get().getPreparedStmt(String.valueOf(stmtId));
+                if (preparedStmtContext != null) {
+                    stmtStr = executeStmt.toSql();
+                }
             }
-        } catch (Throwable e)  {
+        } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe doris bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + e.getMessage());
         }
-        auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+        if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
+            auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+        }
     }
 
     private void handleExecute(PrepareCommand prepareCommand, long stmtId, PreparedStatementContext prepCtx) {
@@ -199,15 +207,19 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             executor = new StmtExecutor(ctx, stmt);
             ctx.setExecutor(executor);
             executor.execute();
-            stmtStr = executeStmt.toSql();
-        } catch (Throwable e)  {
+            if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
+                stmtStr = executeStmt.toSql();
+            }
+        } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe doris bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + e.getMessage());
         }
-        auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+        if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
+            auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+        }
     }
 
     // process COM_EXECUTE, parse binary row data
@@ -331,6 +343,11 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             if (packetBuf == null) {
                 LOG.warn("Null packet received from network. remote: {}", channel.getRemoteHostPortString());
                 throw new IOException("Error happened when receiving packet.");
+            }
+            if (!packetBuf.hasRemaining()) {
+                LOG.info("No more data to be read. Close connection. remote={}", channel.getRemoteHostPortString());
+                ctx.setKilled();
+                return;
             }
         } catch (AsynchronousCloseException e) {
             // when this happened, timeout checker close this channel

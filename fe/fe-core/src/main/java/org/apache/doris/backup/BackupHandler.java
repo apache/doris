@@ -67,9 +67,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.ByteArrayInputStream;
 import java.io.DataInput;
-import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.File;
 import java.io.IOException;
@@ -94,7 +92,6 @@ public class BackupHandler extends MasterDaemon implements Writable {
     public static final int SIGNATURE_VERSION = 1;
     public static final Path BACKUP_ROOT_DIR = Paths.get(Config.tmp_dir, "backup").normalize();
     public static final Path RESTORE_ROOT_DIR = Paths.get(Config.tmp_dir, "restore").normalize();
-
     private RepositoryMgr repoMgr = new RepositoryMgr();
 
     // this lock is used for updating dbIdToBackupOrRestoreJobs
@@ -222,6 +219,10 @@ public class BackupHandler extends MasterDaemon implements Writable {
         if (!st.ok()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                                            "Failed to create repository: " + st.getErrMsg());
+        }
+        if (!repo.ping()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "Failed to create repository: failed to connect to the repo");
         }
     }
 
@@ -512,26 +513,30 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // Create a restore job
         RestoreJob restoreJob;
         if (stmt.isLocal()) {
-            ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(stmt.getMeta());
-            DataInputStream dataInputStream = new DataInputStream(byteArrayInputStream);
-            try {
-                BackupMeta backupMeta = BackupMeta.read(dataInputStream);
-                String backupTimestamp =
-                        TimeUtils.longToTimeString(jobInfo.getBackupTime(),
-                                TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
-                restoreJob = new RestoreJob(stmt.getLabel(), backupTimestamp,
-                        db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
-                        stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(),
-                        stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(),
-                        env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
-            } catch (IOException e) {
-                throw new DdlException(e.getMessage());
+            int metaVersion = stmt.getMetaVersion();
+            if (metaVersion == -1) {
+                metaVersion = jobInfo.metaVersion;
             }
+
+            BackupMeta backupMeta;
+            try {
+                backupMeta = BackupMeta.fromBytes(stmt.getMeta(), metaVersion);
+            } catch (IOException e) {
+                LOG.warn("read backup meta failed, current meta version {}", Env.getCurrentEnvJournalVersion(), e);
+                throw new DdlException("read backup meta failed", e);
+            }
+            String backupTimestamp = TimeUtils.longToTimeString(
+                    jobInfo.getBackupTime(), TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
+            restoreJob = new RestoreJob(stmt.getLabel(), backupTimestamp,
+                    db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
+                    stmt.getTimeoutMs(), metaVersion, stmt.reserveReplica(),
+                    stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(),
+                    stmt.isCleanTables(), stmt.isCleanPartitions(), env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
         } else {
             restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
                 db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
                 stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(), stmt.reserveDynamicPartitionEnable(),
-                stmt.isBeingSynced(), env, repository.getId());
+                stmt.isBeingSynced(), stmt.isCleanTables(), stmt.isCleanPartitions(), env, repository.getId());
         }
 
         env.getEditLog().logRestoreJob(restoreJob);

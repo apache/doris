@@ -2,10 +2,10 @@
 -- !select --
 
 -- !desc --
-__dummy_col	TEXT	Yes	false	\N	NONE
+__dummy_col	text	Yes	false	\N	NONE
 
 -- !select2 --
 
 -- !desc2 --
-__dummy_col	TEXT	Yes	false	\N	NONE
+__dummy_col	text	Yes	false	\N	NONE
 

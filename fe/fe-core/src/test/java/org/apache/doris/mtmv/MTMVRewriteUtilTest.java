@@ -99,11 +99,11 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = true;
 
-                sessionVariable.isMaterializedViewRewriteEnableContainExternalTable();
+                sessionVariable.isEnableMaterializedViewRewriteWhenBaseTableUnawareness();
                 minTimes = 0;
                 result = true;
 
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyString, (Set<String>) any,
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
                         (Set<BaseTableInfo>) any,
                         (Set<String>) any);
                 minTimes = 0;
@@ -117,9 +117,32 @@ public class MTMVRewriteUtilTest {
     }
 
     @Test
+    public void testGetMTMVCanRewritePartitionsForceConsistent() throws AnalysisException {
+        new Expectations() {
+            {
+                mtmv.getGracePeriod();
+                minTimes = 0;
+                result = 2L;
+
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
+                        (Set<BaseTableInfo>) any,
+                        (Set<String>) any);
+                minTimes = 0;
+                result = false;
+            }
+        };
+
+        // currentTimeMills is 3, grace period is 2, and partition getVisibleVersionTime is 1
+        // if forceConsistent this should get 0 partitions which mtmv can use.
+        Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
+                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, true);
+        Assert.assertEquals(0, mtmvCanRewritePartitions.size());
+    }
+
+    @Test
     public void testGetMTMVCanRewritePartitionsNormal() {
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
-                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills);
+                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false);
         Assert.assertEquals(1, mtmvCanRewritePartitions.size());
     }
 
@@ -131,7 +154,7 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = 2L;
 
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyString, (Set<String>) any,
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
                         (Set<BaseTableInfo>) any,
                         (Set<String>) any);
                 minTimes = 0;
@@ -140,7 +163,7 @@ public class MTMVRewriteUtilTest {
         };
 
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
-                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills);
+                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false);
         Assert.assertEquals(1, mtmvCanRewritePartitions.size());
     }
 
@@ -152,7 +175,7 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = 1L;
 
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyString, (Set<String>) any,
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
                         (Set<BaseTableInfo>) any,
                         (Set<String>) any);
                 minTimes = 0;
@@ -161,7 +184,7 @@ public class MTMVRewriteUtilTest {
         };
 
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
-                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills);
+                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false);
         Assert.assertEquals(0, mtmvCanRewritePartitions.size());
     }
 
@@ -175,15 +198,17 @@ public class MTMVRewriteUtilTest {
             }
         };
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
-                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills);
-        Assert.assertEquals(0, mtmvCanRewritePartitions.size());
+                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false);
+        // getMTMVCanRewritePartitions only check the partition is valid or not, it doesn't care the
+        // isEnableMaterializedViewRewriteWhenBaseTableUnawareness
+        Assert.assertEquals(1, mtmvCanRewritePartitions.size());
     }
 
     @Test
     public void testGetMTMVCanRewritePartitionsNotSync() throws AnalysisException {
         new Expectations() {
             {
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyString, (Set<String>) any,
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
                         (Set<BaseTableInfo>) any,
                         (Set<String>) any);
                 minTimes = 0;
@@ -191,7 +216,7 @@ public class MTMVRewriteUtilTest {
             }
         };
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
-                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills);
+                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false);
         Assert.assertEquals(0, mtmvCanRewritePartitions.size());
     }
 
@@ -203,13 +228,13 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = true;
 
-                sessionVariable.isMaterializedViewRewriteEnableContainExternalTable();
+                sessionVariable.isEnableMaterializedViewRewriteWhenBaseTableUnawareness();
                 minTimes = 0;
                 result = true;
             }
         };
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
-                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills);
+                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false);
         Assert.assertEquals(1, mtmvCanRewritePartitions.size());
     }
 
@@ -221,14 +246,16 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = true;
 
-                sessionVariable.isMaterializedViewRewriteEnableContainExternalTable();
+                sessionVariable.isEnableMaterializedViewRewriteWhenBaseTableUnawareness();
                 minTimes = 0;
                 result = false;
             }
         };
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
-                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills);
-        Assert.assertEquals(0, mtmvCanRewritePartitions.size());
+                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false);
+        // getMTMVCanRewritePartitions only check the partition is valid or not, it doesn't care the
+        // isEnableMaterializedViewRewriteWhenBaseTableUnawareness
+        Assert.assertEquals(1, mtmvCanRewritePartitions.size());
     }
 
     @Test
@@ -241,7 +268,7 @@ public class MTMVRewriteUtilTest {
             }
         };
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
-                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills);
+                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false);
         Assert.assertEquals(0, mtmvCanRewritePartitions.size());
     }
 
@@ -255,7 +282,7 @@ public class MTMVRewriteUtilTest {
             }
         };
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
-                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills);
+                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false);
         Assert.assertEquals(1, mtmvCanRewritePartitions.size());
     }
 
@@ -269,7 +296,7 @@ public class MTMVRewriteUtilTest {
             }
         };
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
-                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills);
+                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false);
         Assert.assertEquals(0, mtmvCanRewritePartitions.size());
     }
 }

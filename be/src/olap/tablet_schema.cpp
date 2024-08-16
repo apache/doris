@@ -550,11 +550,18 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _visible = column.visible();
     }
     if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-        CHECK(column.children_columns_size() == 1) << "ARRAY type has more than 1 children types.";
+        CHECK(column.children_columns_size() == 1)
+                << "ARRAY type should has 1 children types, but got "
+                << column.children_columns_size();
     }
     if (_type == FieldType::OLAP_FIELD_TYPE_MAP) {
-        DCHECK(column.children_columns_size() == 2) << "MAP type has more than 2 children types.";
-        LOG(WARNING) << "MAP type has more than 2 children types.";
+        DCHECK(column.children_columns_size() == 2)
+                << "MAP type should has 2 children types, but got "
+                << column.children_columns_size();
+        if (UNLIKELY(column.children_columns_size() != 2)) {
+            LOG(WARNING) << "MAP type should has 2 children types, but got "
+                         << column.children_columns_size();
+        }
     }
     for (size_t i = 0; i < column.children_columns_size(); i++) {
         TabletColumn child_column;
@@ -621,11 +628,15 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_visible(_visible);
 
     if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-        CHECK(_sub_columns.size() == 1) << "ARRAY type has more than 1 children types.";
+        CHECK(_sub_columns.size() == 1)
+                << "ARRAY type should has 1 children types, but got " << _sub_columns.size();
     }
     if (_type == FieldType::OLAP_FIELD_TYPE_MAP) {
-        DCHECK(_sub_columns.size() == 2) << "MAP type has more than 2 children types.";
-        LOG(WARNING) << "MAP type has more than 2 children types.";
+        DCHECK(_sub_columns.size() == 2)
+                << "MAP type should has 2 children types, but got " << _sub_columns.size();
+        if (UNLIKELY(_sub_columns.size() != 2)) {
+            LOG(WARNING) << "MAP type should has 2 children types, but got " << _sub_columns.size();
+        }
     }
 
     for (size_t i = 0; i < _sub_columns.size(); i++) {
@@ -1276,6 +1287,10 @@ void TabletSchema::update_indexes_from_thrift(const std::vector<doris::TOlapTabl
         indexes.emplace_back(std::move(index));
     }
     _indexes = std::move(indexes);
+}
+
+bool TabletSchema::exist_column(const std::string& field_name) const {
+    return _field_name_to_index.contains(StringRef {field_name});
 }
 
 Status TabletSchema::have_column(const std::string& field_name) const {

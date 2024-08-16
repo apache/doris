@@ -33,16 +33,10 @@ class TExpr;
 
 namespace vectorized {
 
-AsyncResultWriter::AsyncResultWriter(const doris::vectorized::VExprContextSPtrs& output_expr_ctxs)
-        : _vec_output_expr_ctxs(output_expr_ctxs),
-          _dependency(nullptr),
-          _finish_dependency(nullptr) {}
-
-void AsyncResultWriter::set_dependency(pipeline::AsyncWriterDependency* dep,
-                                       pipeline::Dependency* finish_dep) {
-    _dependency = dep;
-    _finish_dependency = finish_dep;
-}
+AsyncResultWriter::AsyncResultWriter(const doris::vectorized::VExprContextSPtrs& output_expr_ctxs,
+                                     std::shared_ptr<pipeline::Dependency> dep,
+                                     std::shared_ptr<pipeline::Dependency> fin_dep)
+        : _vec_output_expr_ctxs(output_expr_ctxs), _dependency(dep), _finish_dependency(fin_dep) {}
 
 Status AsyncResultWriter::sink(Block* block, bool eos) {
     auto rows = block->rows();
@@ -58,12 +52,13 @@ Status AsyncResultWriter::sink(Block* block, bool eos) {
         return _writer_status.status();
     }
 
-    if (_dependency && _is_finished()) {
+    DCHECK(_dependency);
+    if (_is_finished()) {
         _dependency->set_ready();
     }
     if (rows) {
         _data_queue.emplace_back(std::move(add_block));
-        if (_dependency && !_data_queue_is_available() && !_is_finished()) {
+        if (!_data_queue_is_available() && !_is_finished()) {
             _dependency->block();
         }
     }
@@ -81,7 +76,8 @@ std::unique_ptr<Block> AsyncResultWriter::_get_block_from_queue() {
     DCHECK(!_data_queue.empty());
     auto block = std::move(_data_queue.front());
     _data_queue.pop_front();
-    if (_dependency && _data_queue_is_available()) {
+    DCHECK(_dependency);
+    if (_data_queue_is_available()) {
         _dependency->set_ready();
     }
     return block;
@@ -89,10 +85,8 @@ std::unique_ptr<Block> AsyncResultWriter::_get_block_from_queue() {
 
 Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profile) {
     // Should set to false here, to
-    _writer_thread_closed = false;
-    if (_finish_dependency) {
-        _finish_dependency->block();
-    }
+    DCHECK(_finish_dependency);
+    _finish_dependency->block();
     // This is a async thread, should lock the task ctx, to make sure runtimestate and profile
     // not deconstructed before the thread exit.
     auto task_ctx = state->get_task_execution_context();
@@ -113,8 +107,16 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
         force_close(status);
     }
 
+    DCHECK(_dependency);
     if (_writer_status.ok()) {
         while (true) {
+            ThreadCpuStopWatch cpu_time_stop_watch;
+            cpu_time_stop_watch.start();
+            Defer defer {[&]() {
+                if (state && state->get_query_ctx()) {
+                    state->get_query_ctx()->update_wg_cpu_adder(cpu_time_stop_watch.elapsed_time());
+                }
+            }};
             if (!_eos && _data_queue.empty() && _writer_status.ok()) {
                 std::unique_lock l(_m);
                 while (!_eos && _data_queue.empty() && _writer_status.ok()) {
@@ -133,7 +135,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
             if (!status.ok()) [[unlikely]] {
                 std::unique_lock l(_m);
                 _writer_status.update(status);
-                if (_dependency && _is_finished()) {
+                if (_is_finished()) {
                     _dependency->set_ready();
                 }
                 break;
@@ -174,16 +176,14 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
         if (_writer_status.ok()) {
             _writer_status.update(close_st);
         }
-        _writer_thread_closed = true;
     }
     // should set _finish_dependency first, as close function maybe blocked by wait_close of execution_timeout
     _set_ready_to_finish();
 }
 
 void AsyncResultWriter::_set_ready_to_finish() {
-    if (_finish_dependency) {
-        _finish_dependency->set_ready();
-    }
+    DCHECK(_finish_dependency);
+    _finish_dependency->set_ready();
 }
 
 Status AsyncResultWriter::_projection_block(doris::vectorized::Block& input_block,
@@ -201,7 +201,8 @@ Status AsyncResultWriter::_projection_block(doris::vectorized::Block& input_bloc
 void AsyncResultWriter::force_close(Status s) {
     std::lock_guard l(_m);
     _writer_status.update(s);
-    if (_dependency && _is_finished()) {
+    DCHECK(_dependency);
+    if (_is_finished()) {
         _dependency->set_ready();
     }
     _cv.notify_one();

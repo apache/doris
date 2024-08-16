@@ -137,9 +137,7 @@ DEFINE_mBool(disable_memory_gc, "false");
 
 DEFINE_mBool(enable_stacktrace, "true");
 
-DEFINE_mBool(enable_stacktrace_in_allocator_check_failed, "false");
-
-DEFINE_mInt64(large_memory_check_bytes, "2147483648");
+DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
 
 DEFINE_mBool(enable_memory_orphan_check, "false");
 
@@ -250,6 +248,7 @@ DEFINE_Validator(doris_scanner_thread_pool_thread_num, [](const int config) -> b
     }
     return true;
 });
+DEFINE_Int32(doris_scanner_min_thread_pool_thread_num, "8");
 DEFINE_Int32(remote_split_source_batch_size, "10240");
 DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
 // number of olap scanner thread pool queue size
@@ -269,8 +268,6 @@ DEFINE_mInt32(doris_scan_range_row_count, "524288");
 DEFINE_mInt32(doris_scan_range_max_mb, "1024");
 // max bytes number for single scan block, used in segmentv2
 DEFINE_mInt32(doris_scan_block_max_mb, "67108864");
-// size of scanner queue between scanner thread and compute thread
-DEFINE_mInt32(doris_scanner_queue_size, "1024");
 // single read execute fragment row number
 DEFINE_mInt32(doris_scanner_row_num, "16384");
 // single read execute fragment row bytes
@@ -600,8 +597,7 @@ DEFINE_mInt32(memory_gc_sleep_time_ms, "1000");
 // Sleep time in milliseconds between memtbale flush mgr refresh iterations
 DEFINE_mInt64(memtable_mem_tracker_refresh_interval_ms, "5");
 
-// Sleep time in milliseconds between refresh iterations of workload group memory statistics
-DEFINE_mInt64(wg_mem_refresh_interval_ms, "50");
+DEFINE_mInt64(wg_weighted_memory_ratio_refresh_interval_ms, "50");
 
 // percent of (active memtables size / all memtables size) when reach hard limit
 DEFINE_mInt32(memtable_hard_limit_active_percent, "50");
@@ -633,6 +629,8 @@ DEFINE_Int32(load_process_safe_mem_permit_percent, "5");
 
 // result buffer cancelled time (unit: second)
 DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
+
+DEFINE_mInt32(arrow_flight_result_sink_buffer_size_rows, "32768");
 
 // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
@@ -922,9 +920,8 @@ DEFINE_mInt32(orc_natural_read_size_mb, "8");
 DEFINE_mInt64(big_column_size_buffer, "65535");
 DEFINE_mInt64(small_column_size_buffer, "100");
 
-// When the rows number reached this limit, will check the filter rate the of bloomfilter
-// if it is lower than a specific threshold, the predicate will be disabled.
-DEFINE_mInt32(rf_predicate_check_row_num, "204800");
+// rf will decide whether the next sampling_frequency blocks need to be filtered based on the filtering rate of the current block.
+DEFINE_mInt32(runtime_filter_sampling_frequency, "64");
 
 // cooldown task configs
 DEFINE_Int32(cooldown_thread_num, "5");
@@ -936,7 +933,8 @@ DEFINE_mInt32(cold_data_compaction_interval_sec, "1800");
 
 DEFINE_String(tmp_file_dir, "tmp");
 
-DEFINE_Int32(s3_transfer_executor_pool_size, "2");
+DEFINE_Int32(min_s3_file_system_thread_num, "16");
+DEFINE_Int32(max_s3_file_system_thread_num, "64");
 
 DEFINE_Bool(enable_time_lut, "true");
 DEFINE_mBool(enable_simdjson_reader, "true");
@@ -1337,7 +1335,7 @@ DEFINE_mInt64(compaction_batch_size, "-1");
 // If set to false, the parquet reader will not use page index to filter data.
 // This is only for debug purpose, in case sometimes the page index
 // filter wrong data.
-DEFINE_mBool(enable_parquet_page_index, "true");
+DEFINE_mBool(enable_parquet_page_index, "false");
 
 DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
 

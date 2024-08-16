@@ -1729,8 +1729,6 @@ public class OlapScanNode extends ScanNode {
     public void finalizeForNereids() {
         computeNumNodes();
         computeStatsForNereids();
-        // NOTICE: must call here to get selected tablet row count to let block rules work well.
-        mockRowCountInStatistic();
     }
 
     private void computeStatsForNereids() {
@@ -1738,7 +1736,7 @@ public class OlapScanNode extends ScanNode {
             avgRowSize = totalBytes / (float) cardinality * COMPRESSION_RATIO;
             capCardinalityAtLimit();
         }
-        // when node scan has no data, cardinality should be 0 instead of a invalid
+        // when node scan has no data, cardinality should be 0 instead of an invalid
         // value after computeStats()
         cardinality = cardinality == -1 ? 0 : cardinality;
     }
@@ -1749,7 +1747,11 @@ public class OlapScanNode extends ScanNode {
                 : Sets.newTreeSet();
     }
 
-    @Override
+    /**
+     * Update required_slots in scan node contexts. This is called after Nereids planner do the projection.
+     * In the projection process, some slots may be removed. So call this to update the slots info.
+     * Currently, it is only used by ExternalFileScanNode, add the interface here to keep the Nereids code clean.
+     */
     public void updateRequiredSlots(PlanTranslatorContext context,
             Set<SlotId> requiredByProjectSlotIdSet) {
         outputColumnUniqueIds.clear();

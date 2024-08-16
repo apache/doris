@@ -172,7 +172,7 @@ setup_java_env || true
 if [[ "${RUN_VERSION}" -eq 1 ]]; then
     chmod 755 "${DORIS_HOME}/lib/doris_be"
     "${DORIS_HOME}"/lib/doris_be --version
-    exit 1
+    exit 0
 fi
 
 if [[ "$(uname -s)" != 'Darwin' ]]; then
@@ -407,8 +407,8 @@ if [[ -z ${JEMALLOC_CONF} ]]; then
 fi
 
 if [[ -z ${JEMALLOC_PROF_PRFIX} ]]; then
-    export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:"
-    export MALLOC_CONF="${JEMALLOC_CONF},prof_prefix:"
+    export JEMALLOC_CONF="prof_prefix:,${JEMALLOC_CONF}"
+    export MALLOC_CONF="prof_prefix:,${JEMALLOC_CONF}"
 else
     JEMALLOC_PROF_PRFIX="${DORIS_HOME}/log/${JEMALLOC_PROF_PRFIX}"
     export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:${JEMALLOC_PROF_PRFIX}"

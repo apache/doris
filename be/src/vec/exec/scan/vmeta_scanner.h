@@ -41,7 +41,6 @@ class TupleDescriptor;
 namespace vectorized {
 class Block;
 class VExprContext;
-class VMetaScanNode;
 } // namespace vectorized
 } // namespace doris
 
@@ -57,7 +56,7 @@ public:
 
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
+    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
@@ -72,8 +71,6 @@ private:
     Status _build_frontends_metadata_request(const TMetaScanRange& meta_scan_range,
                                              TFetchSchemaTableDataRequest* request);
     Status _build_frontends_disks_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                   TFetchSchemaTableDataRequest* request);
-    Status _build_workload_groups_metadata_request(const TMetaScanRange& meta_scan_range,
                                                    TFetchSchemaTableDataRequest* request);
     Status _build_workload_sched_policy_metadata_request(const TMetaScanRange& meta_scan_range,
                                                          TFetchSchemaTableDataRequest* request);

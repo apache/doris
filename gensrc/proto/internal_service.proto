@@ -246,6 +246,12 @@ message PExecPlanFragmentStartRequest {
 
 message PExecPlanFragmentResult {
     required PStatus status = 1;
+    // BE receive rpc
+    optional int64 received_time = 2;
+    // Start executing on bthread
+    optional int64 execution_time = 3;
+    // Done on bthread
+    optional int64 execution_done_time = 4;
 };
 
 message PCancelPlanFragmentRequest {
@@ -701,9 +707,6 @@ message PFetchTableSchemaResult {
 }
 
 message POutfileWriteSuccessRequest {
-    // optional string file_path = 1;
-    // optional string success_file_name = 2;
-    // map<string, string> broker_properties = 4; // only for remote file
     optional bytes result_file_sink = 1;
 }
 
@@ -802,6 +805,7 @@ message FileCacheBlockMeta {
     required int64 size = 6;
     required FileCacheType cache_type = 7;
     required int64 expiration_time = 8;
+    optional int64 file_size = 9;
 }
 
 message PGetFileCacheMetaResponse {
@@ -854,6 +858,7 @@ message PGroupCommitInsertResponse {
     optional int64 txn_id = 3;
     optional int64 loaded_rows = 4;
     optional int64 filtered_rows = 5;
+    optional string error_url = 6;
 }
 
 message POpenLoadStreamRequest {
@@ -946,6 +951,19 @@ message PAlterVaultSyncRequest {
 message PAlterVaultSyncResponse {
 }
 
+message PGetBeResourceRequest {
+}
+
+message PGlobalResourceUsage {
+    optional int64 mem_limit = 1;
+    optional int64 mem_usage = 2;
+}
+
+message PGetBeResourceResponse {
+    optional PStatus status = 1;
+    optional PGlobalResourceUsage global_be_resource_usage = 2;
+}
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -996,5 +1014,6 @@ service PBackendService {
     rpc fetch_remote_tablet_schema(PFetchRemoteSchemaRequest) returns (PFetchRemoteSchemaResponse);
     rpc test_jdbc_connection(PJdbcTestConnectionRequest) returns (PJdbcTestConnectionResult);
     rpc alter_vault_sync(PAlterVaultSyncRequest) returns (PAlterVaultSyncResponse);
+    rpc get_be_resource(PGetBeResourceRequest) returns (PGetBeResourceResponse);
 };
 

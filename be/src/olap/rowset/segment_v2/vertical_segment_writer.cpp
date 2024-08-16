@@ -20,7 +20,6 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
 
-#include <algorithm>
 #include <cassert>
 #include <memory>
 #include <ostream>
@@ -80,11 +79,14 @@ using namespace ErrorCode;
 static const char* k_segment_magic = "D0R1";
 static const uint32_t k_segment_magic_length = 4;
 
+inline std::string vertical_segment_writer_mem_tracker_name(uint32_t segment_id) {
+    return "VerticalSegmentWriter:Segment-" + std::to_string(segment_id);
+}
+
 VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
-                                             DataDir* data_dir, uint32_t max_row_per_segment,
+                                             DataDir* data_dir,
                                              const VerticalSegmentWriterOptions& opts,
-                                             std::shared_ptr<MowContext> mow_context,
                                              io::FileWriterPtr inverted_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
@@ -92,9 +94,9 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
           _data_dir(data_dir),
           _opts(opts),
           _file_writer(file_writer),
-          _mem_tracker(std::make_unique<MemTracker>("VerticalSegmentWriter:Segment-" +
-                                                    std::to_string(segment_id))),
-          _mow_context(std::move(mow_context)) {
+          _mem_tracker(std::make_unique<MemTracker>(
+                  vertical_segment_writer_mem_tracker_name(segment_id))),
+          _mow_context(std::move(opts.mow_ctx)) {
     CHECK_NOTNULL(file_writer);
     _num_key_columns = _tablet_schema->num_key_columns();
     _num_short_key_columns = _tablet_schema->num_short_key_columns();
@@ -118,6 +120,8 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                 _opts.rowset_ctx->rowset_id.to_string(), segment_id,
                 _tablet_schema->get_inverted_index_storage_format(),
                 std::move(inverted_file_writer));
+        _inverted_index_file_writer->set_file_writer_opts(
+                _opts.rowset_ctx->get_file_writer_options());
     }
 }
 
@@ -221,8 +225,11 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
 
     if (column.is_row_store_column()) {
         // smaller page size for row store column
-        opts.data_page_size = _tablet_schema->row_store_page_size();
+        auto page_size = _tablet_schema->row_store_page_size();
+        opts.data_page_size =
+                (page_size > 0) ? page_size : segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     }
+
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
     RETURN_IF_ERROR(writer->init());
@@ -570,9 +577,9 @@ Status VerticalSegmentWriter::_fill_missing_columns(
             auto rowset = _rsid_to_rowset[rs_it.first];
             CHECK(rowset);
             std::vector<uint32_t> rids;
-            for (auto id_and_pos : seg_it.second) {
-                rids.emplace_back(id_and_pos.rid);
-                read_index[id_and_pos.pos] = read_idx++;
+            for (auto [rid, pos] : seg_it.second) {
+                rids.emplace_back(rid);
+                read_index[pos] = read_idx++;
             }
             if (has_row_column) {
                 auto st = _tablet->fetch_value_through_row_column(
@@ -624,7 +631,7 @@ Status VerticalSegmentWriter::_fill_missing_columns(
 
     // fill all missing value from mutable_old_columns, need to consider default value and null value
     for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
-        // `use_default_or_null_flag[idx] == true` doesn't mean that we should read values from the old row
+        // `use_default_or_null_flag[idx] == false` doesn't mean that we should read values from the old row
         // for the missing columns. For example, if a table has sequence column, the rows with DELETE_SIGN column
         // marked will not be marked in delete bitmap(see https://github.com/apache/doris/pull/24011), so it will
         // be found in Tablet::lookup_row_key() and `use_default_or_null_flag[idx]` will be false. But we should not

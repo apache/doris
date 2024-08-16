@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.paimon.source;
 
-import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
@@ -27,7 +26,6 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
@@ -38,7 +36,6 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPaimonDeletionFileDesc;
 import org.apache.doris.thrift.TPaimonFileDesc;
-import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.base.Preconditions;
@@ -279,22 +276,6 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
     }
 
-    //When calling 'setPaimonParams' and 'getSplits', the column trimming has not been performed yet,
-    // Therefore, paimon_column_names is temporarily reset here
-    @Override
-    public void updateRequiredSlots(PlanTranslatorContext planTranslatorContext,
-            Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
-        super.updateRequiredSlots(planTranslatorContext, requiredByProjectSlotIdSet);
-        String cols = desc.getSlots().stream().map(slot -> slot.getColumn().getName())
-                .collect(Collectors.joining(","));
-        for (TScanRangeLocations tScanRangeLocations : scanRangeLocations) {
-            List<TFileRangeDesc> ranges = tScanRangeLocations.scan_range.ext_scan_range.file_scan_range.ranges;
-            for (TFileRangeDesc tFileRangeDesc : ranges) {
-                tFileRangeDesc.table_format_params.paimon_params.setPaimonColumnNames(cols);
-            }
-        }
-    }
-
     @Override
     public TFileType getLocationType() throws DdlException, MetaNotFoundException {
         return getLocationType(((FileStoreTable) source.getPaimonTable()).location().toString());
@@ -336,15 +317,26 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
-        String result = super.getNodeExplainString(prefix, detailLevel)
-                + String.format("%spaimonNativeReadSplits=%d/%d\n",
-                        prefix, rawFileSplitNum, (paimonSplitNum + rawFileSplitNum));
-        if (detailLevel == TExplainLevel.VERBOSE) {
-            result += prefix + "PaimonSplitStats: \n";
-            for (SplitStat splitStat : splitStats) {
-                result += String.format("%s  %s\n", prefix, splitStat);
+        StringBuilder sb = new StringBuilder(super.getNodeExplainString(prefix, detailLevel));
+        sb.append(String.format("%spaimonNativeReadSplits=%d/%d\n",
+                prefix, rawFileSplitNum, (paimonSplitNum + rawFileSplitNum)));
+
+        sb.append(prefix).append("predicatesFromPaimon:");
+        if (predicates.isEmpty()) {
+            sb.append(" NONE\n");
+        } else {
+            sb.append("\n");
+            for (Predicate predicate : predicates) {
+                sb.append(prefix).append(prefix).append(predicate).append("\n");
             }
         }
-        return result;
+
+        if (detailLevel == TExplainLevel.VERBOSE) {
+            sb.append(prefix).append("PaimonSplitStats: \n");
+            for (SplitStat splitStat : splitStats) {
+                sb.append(String.format("%s  %s\n", prefix, splitStat));
+            }
+        }
+        return sb.toString();
     }
 }

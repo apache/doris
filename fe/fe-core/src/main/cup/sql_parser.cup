@@ -4599,7 +4599,12 @@ show_param ::=
     /* show table stats */
     | KW_TABLE opt_cached:cached KW_STATS table_name:tbl opt_partition_names:partitionNames opt_col_list:cols
     {:
-        RESULT = new ShowTableStatsStmt(tbl, cols, partitionNames, cached);
+        RESULT = new ShowTableStatsStmt(tbl, cols, partitionNames, cached, null);
+    :}
+    /* show index stats */
+    | KW_INDEX KW_STATS table_name:tbl ident:id
+    {:
+        RESULT = new ShowTableStatsStmt(tbl, null, null, false, id);
     :}
     /* show column stats */
     | KW_COLUMN opt_cached:cached KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
@@ -7305,6 +7310,20 @@ non_pred_expr ::=
   {: RESULT = new CastExpr(targetType, e); :}
   | KW_KEY encryptkey_name:name
   {: RESULT = new EncryptKeyRef(name); :}
+  | expr:e KW_IS KW_TRUE
+  {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.BOOLEAN), e); :}
+  | expr:e KW_IS KW_NOT KW_TRUE
+  {:
+    e = new CastExpr(TypeDef.create(PrimitiveType.BOOLEAN), e);
+    RESULT = new CompoundPredicate(CompoundPredicate.Operator.NOT, e, null);
+  :}
+  | expr:e KW_IS KW_FALSE
+  {:
+    e = new CastExpr(TypeDef.create(PrimitiveType.BOOLEAN), e);
+    RESULT = new CompoundPredicate(CompoundPredicate.Operator.NOT, e, null);
+  :}
+  | expr:e KW_IS KW_NOT KW_FALSE
+  {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.BOOLEAN), e); :}
   | KW_CONVERT LPAREN expr:e KW_USING ident:character RPAREN
   {: 
     ArrayList<Expr> exprs = new ArrayList<>();

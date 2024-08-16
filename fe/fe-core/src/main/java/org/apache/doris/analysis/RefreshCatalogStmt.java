@@ -67,9 +67,9 @@ public class RefreshCatalogStmt extends DdlStmt {
         }
 
         if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(
-                ConnectContext.get(), catalogName, PrivPredicate.ALTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
-                    analyzer.getQualifiedUser(), catalogName);
+                ConnectContext.get(), catalogName, PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED_ERROR,
+                    PrivPredicate.SHOW.getPrivs().toString(), catalogName);
         }
 
         // Set to false only if user set the property "invalid_cache"="false"
@@ -84,4 +84,8 @@ public class RefreshCatalogStmt extends DdlStmt {
         return stringBuilder.toString();
     }
 
+    @Override
+    public StmtType stmtType() {
+        return StmtType.REFRESH;
+    }
 }

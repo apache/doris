@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
@@ -55,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -269,14 +271,16 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         Statistics childStatistics = context.getChildStatistics(0);
         double intputRowCount = childStatistics.getRowCount();
         DistributionSpec spec = distribute.getDistributionSpec();
-
+        // cost model is trained by clusters with more than 3 BE.
+        int beNumForDist = Math.max(3, beNumber);
         // shuffle
         if (spec instanceof DistributionSpecHash) {
             return CostV1.of(context.getSessionVariable(),
-                    0,
+                    intputRowCount / beNumForDist,
                     0,
                     intputRowCount * childStatistics.dataSizeFactor(
-                            distribute.child().getOutput()) / beNumber);
+                            distribute.child().getOutput()) / beNumForDist
+                    );
         }
 
         // replicate
@@ -298,7 +302,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     0,
                     0,
                     intputRowCount * childStatistics.dataSizeFactor(
-                            distribute.child().getOutput()) / beNumber);
+                            distribute.child().getOutput()) / beNumForDist);
         }
 
         // any
@@ -307,7 +311,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 0,
                 0,
                 intputRowCount * childStatistics.dataSizeFactor(distribute.child().getOutput())
-                        * RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR / beNumber);
+                        * RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR / beNumForDist);
     }
 
     private double expressionTreeCost(List<? extends Expression> expressions) {
@@ -371,6 +375,20 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 leftRowCount += 1e-3;
             }
         }
+        if (!physicalHashJoin.getGroupExpression().get().getOwnerGroup().isStatsReliable()
+                && !(RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(physicalHashJoin.getJoinType()))
+                && !physicalHashJoin.isMarkJoin()
+                && buildStats.getWidthInJoinCluster() == 1) {
+            // we prefer join order: A-B-filter(C) to A-filter(C)-B,
+            // since filter(C) may generate effective RF to B, and RF(C->B) makes RF(B->A) more effective.
+            double filterFactor = computeFilterFactor(buildStats);
+            if (filterFactor > 1.0) {
+                double bonus = filterFactor * probeStats.getWidthInJoinCluster();
+                if (leftRowCount > bonus) {
+                    leftRowCount -= bonus;
+                }
+            }
+        }
 
         /*
         pattern1: L join1 (Agg1() join2 Agg2())
@@ -405,7 +423,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             //                    on the output rows, taken on outputRowCount()
             double probeSideFactor = 1.0;
             double buildSideFactor = context.getSessionVariable().getBroadcastRightTableScaleFactor();
-            int totalInstanceNumber = parallelInstance * beNumber;
+            int totalInstanceNumber = parallelInstance * Math.max(3, beNumber);
             if (buildSideFactor <= 1.0) {
                 if (buildStats.computeSize(physicalHashJoin.right().getOutput()) < 1024 * 1024) {
                     // no penalty to broadcast if build side is small
@@ -426,6 +444,23 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 leftRowCount * probeShortcutFactor + rightRowCount * probeShortcutFactor + outputRowCount,
                         rightRowCount, 0
         );
+    }
+
+    private double computeFilterFactor(Statistics stats) {
+        double factor = 1.0;
+        double maxBaseTableRowCount = 0.0;
+        for (Expression expr : stats.columnStatistics().keySet()) {
+            ColumnStatistic colStats = stats.findColumnStatistics(expr);
+            if (colStats.isUnKnown) {
+                maxBaseTableRowCount = Math.max(maxBaseTableRowCount, colStats.count);
+            } else {
+                break;
+            }
+        }
+        if (maxBaseTableRowCount != 0) {
+            factor = Math.max(1, Math.min(2, maxBaseTableRowCount / stats.getRowCount()));
+        }
+        return factor;
     }
 
     /*

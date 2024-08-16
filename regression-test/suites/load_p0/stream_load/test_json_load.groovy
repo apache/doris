@@ -853,4 +853,83 @@ suite("test_json_load", "p0,nonConcurrent") {
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
+
+    // add duplicate json entry case
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        sql """CREATE TABLE IF NOT EXISTS ${testTable} 
+            (
+                `k1` varchar(1024) NULL,
+                `k2` varchar(1024) NULL
+            )
+            DUPLICATE KEY(`k1`)
+            COMMENT ''
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+
+        load_json_data.call("${testTable}", "${testTable}_case29", 'false', 'true', 'json', '', '',
+                             '', '', '', 'test_duplicate_json_keys.json', false, 1)
+        
+        sql "sync"
+        qt_select29 "select * from ${testTable}"
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
+    // support read "$."  as root
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        sql """CREATE TABLE IF NOT EXISTS ${testTable} 
+            (
+                `k1` varchar(1024) NULL,
+                `k2` variant  NULL,
+                `k3` variant  NULL,
+                `k4` variant  NULL
+            )
+            DUPLICATE KEY(`k1`)
+            COMMENT ''
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+
+        load_json_data.call("${testTable}", "${testTable}_case30", 'false', 'true', 'json', '', '[\"$.k1\",\"$.\", \"$.\", \"$.k3\"]',
+                             '', '', '', 'test_read_root_path.json')
+        
+        sql "sync"
+        qt_select30 "select * from ${testTable} order by k1"
+
+    } finally {
+        // try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
+    // test extract json path with invalid type(none object types like null)
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        sql """
+            CREATE TABLE ${testTable} (
+              `id` int NOT NULL,
+              `name` varchar(24) NULL,
+              `region` varchar(30) NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            COMMENT ''
+            DISTRIBUTED BY RANDOM BUCKETS AUTO
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            ); 
+            """
+
+        load_json_data.call("${testTable}", "${testTable}_case31", 'true', 'false', 'json', '', '[\"$.id\", \"$.city.name\", \"$.city.region\"]',
+                             '', '', '', 'test_json_extract_path_invalid_type.json', false, 2)
+        
+        sql "sync"
+        qt_select31 "select * from ${testTable} order by id"
+
+    } finally {
+        // try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
 }

@@ -22,7 +22,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -33,7 +32,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.jdbc.source.JdbcScanNode;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
@@ -53,7 +51,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -64,6 +61,7 @@ public class OdbcScanNode extends ExternalScanNode {
 
     private final List<String> columns = new ArrayList<String>();
     private final List<String> filters = new ArrayList<String>();
+    private final List<Expr> pushedDownConjuncts = new ArrayList<>();
     private String tblName;
     private String connectString;
     private TOdbcTableType odbcType;
@@ -119,12 +117,6 @@ public class OdbcScanNode extends ExternalScanNode {
     }
 
     @Override
-    public void updateRequiredSlots(PlanTranslatorContext context, Set<SlotId> requiredByProjectSlotIdSet)
-            throws UserException {
-        createOdbcColumns();
-    }
-
-    @Override
     protected void createScanRangeLocations() throws UserException {
         scanRangeLocations = Lists.newArrayList(createSingleScanRangeLocations(backendPolicy));
     }
@@ -154,7 +146,7 @@ public class OdbcScanNode extends ExternalScanNode {
     // only all conjuncts be pushed down as filter, we can
     // push down limit operation to ODBC table
     private boolean shouldPushDownLimit() {
-        return limit != -1 && conjuncts.isEmpty();
+        return limit != -1 && conjuncts.size() == pushedDownConjuncts.size();
     }
 
     private String getOdbcQueryStr() {
@@ -224,7 +216,7 @@ public class OdbcScanNode extends ExternalScanNode {
             if (shouldPushDownConjunct(odbcType, p)) {
                 String filter = JdbcScanNode.conjunctExprToString(odbcType, p, tbl);
                 filters.add(filter);
-                conjuncts.remove(p);
+                pushedDownConjuncts.add(p);
             }
         }
     }

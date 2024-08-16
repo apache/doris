@@ -38,6 +38,8 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.Frontend;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
@@ -381,8 +383,11 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     // for http cancel stream load api
     @Override
     public void abortTransaction(Long dbId, String label, String reason) throws UserException {
-        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-        dbTransactionMgr.abortTransaction(label, reason);
+        Long txnId = getTransactionId(dbId, label);
+        if (txnId == null) {
+            throw new AnalysisException("txn with label " + label + " does not exist");
+        }
+        abortTransaction(dbId, txnId, reason);
     }
 
     @Override
@@ -440,6 +445,59 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         }
         return false;
+    }
+
+    public static boolean checkFailedTxnsByCoordinator(TransactionState txn) {
+        TxnCoordinator coordinator = txn.getCoordinator();
+        boolean offline = true;
+        if (coordinator.sourceType == TransactionState.TxnSourceType.FE) {
+            List<Frontend> frontends = Env.getCurrentEnv().getFrontends(null);
+            for (Frontend fe : frontends) {
+                if (fe.getHost().equals(coordinator.ip)) {
+                    offline = false;
+                    if (fe.getLastStartupTime() > coordinator.startTime) {
+                        return true;
+                    }
+                }
+            }
+        } else if (coordinator.sourceType == TransactionState.TxnSourceType.BE) {
+            Backend be = Env.getCurrentSystemInfo().getBackend(coordinator.id);
+            if (be != null) {
+                offline = false;
+                if (be.getHost().equals(coordinator.ip) && (be.getLastStartTime() > coordinator.startTime
+                        || (!be.isAlive() && System.currentTimeMillis() - be.getLastUpdateMs()
+                                    >= Config.abort_txn_after_lost_heartbeat_time_second * 1000L))) {
+                    return true;
+                }
+            }
+        }
+        return offline;
+    }
+
+    public static List<TransactionState> checkFailedTxns(List<TransactionState> conflictTxns) {
+        List<TransactionState> failedTxns = new ArrayList<>();
+        for (TransactionState txn : conflictTxns) {
+            if (checkFailedTxnsByCoordinator(txn)) {
+                failedTxns.add(txn);
+            }
+        }
+        return failedTxns;
+    }
+
+    public List<TransactionState> getUnFinishedPreviousLoad(long endTransactionId,
+            long dbId, List<Long> tableIdList) throws UserException {
+        try {
+            DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
+            return dbTransactionMgr.getUnFinishedPreviousLoad(endTransactionId, tableIdList);
+        } catch (AnalysisException e) {
+            // NOTICE: At present, this situation will only happen when the database no longer exists.
+            // In fact, getDatabaseTransactionMgr() should explicitly throw a MetaNotFoundException,
+            // but changing the type of exception will cause a large number of code changes,
+            // which is not worth the loss.
+            // So here just simply think that AnalysisException only means that db does not exist.
+            LOG.warn("Check whether all previous transactions in db [" + dbId + "] finished failed", e);
+            throw new UserException(e.getMessage());
+        }
     }
 
     /**

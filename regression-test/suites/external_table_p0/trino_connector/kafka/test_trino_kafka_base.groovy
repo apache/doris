@@ -21,17 +21,6 @@ import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 
 suite("test_trino_kafka_base", "external,kafka,external_docker,external_docker_kafka") {
-    // set up trino-connector plugins
-    def host_ips = new ArrayList()
-    String[][] backends = sql """ show backends """
-    for (def b in backends) {
-        host_ips.add(b[1])
-    }
-    String [][] frontends = sql """ show frontends """
-    for (def f in frontends) {
-        host_ips.add(f[1])
-    }
-    dispatchTrinoConnectors(host_ips.unique())
 
     // Ensure that all types are parsed correctly
     def select_top50 = {
@@ -43,6 +32,18 @@ suite("test_trino_kafka_base", "external,kafka,external_docker,external_docker_k
     String enabled_trino_connector = context.config.otherConfigs.get("enableTrinoConnectorTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")
         && enabled_trino_connector!= null && enabled_trino_connector.equalsIgnoreCase("true")) {
+        // set up trino-connector plugins
+        def host_ips = new ArrayList()
+        String[][] backends = sql """ show backends """
+        for (def b in backends) {
+            host_ips.add(b[1])
+        }
+        String [][] frontends = sql """ show frontends """
+        for (def f in frontends) {
+            host_ips.add(f[1])
+        }
+        dispatchTrinoConnectors(host_ips.unique())
+
         def kafkaCsvTpoics = [
                 "trino_kafka_basic_data"
             ]

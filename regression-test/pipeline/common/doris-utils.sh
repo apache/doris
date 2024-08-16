@@ -101,6 +101,23 @@ function install_java() {
     fi
 }
 
+install_maven() {
+    if ! mvn -v >/dev/null; then
+        sudo apt update && sudo apt install maven -y >/dev/null
+        PATH="/usr/share/maven/bin:${PATH}"
+        export PATH
+    fi
+    if ! mvn -v >/dev/null; then
+        wget -c -t3 -q "${MAVEN_DOWNLOAD_URL:-https://dlcdn.apache.org/maven/maven-3/3.9.8/binaries/apache-maven-3.9.8-bin.tar.gz}"
+        tar -xf apache-maven-3.9.8-bin.tar.gz -C /usr/share/
+        PATH="/usr/share/apache-maven-3.9.8/bin:${PATH}"
+        export PATH
+    fi
+    if ! mvn -v >/dev/null; then
+        echo "ERROR: install maven failed" && return 1
+    fi
+}
+
 function start_doris_fe() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     if install_java && [[ -z "${JAVA_HOME}" ]]; then
@@ -228,6 +245,40 @@ function install_fdb() {
         echo "INFO: foundationdb installed."
     else
         return 1
+    fi
+}
+
+deploy_doris_sql_converter() {
+    # https://doris.apache.org/zh-CN/docs/dev/lakehouse/sql-dialect/
+    if ${DEBUG:-false}; then
+        download_url="https://selectdb-doris.oss-cn-beijing.aliyuncs.com/doris-sql-convertor/doris-sql-convertor-1.0.6-bin-x86.tar.gz"
+    else
+        download_url="${doris_sql_converter_download_url}"
+    fi
+    if [[ -z "${doris_sql_converter_download_url}" ]]; then
+        echo "INFO: doris_sql_converter_download_url not set, skip download doris-sql-converter." && return 0
+    fi
+    if wget -c -t3 -q "${download_url}"; then
+        download_file_name="$(basename "${download_url}")"
+        extract_dir_name="doris_sql_converter"
+        mkdir -p "${extract_dir_name}"
+        tar -xf "${download_file_name}" --strip-components 1 -C "${extract_dir_name}"
+        if [[ ! -f "${extract_dir_name}"/conf/config.conf ]]; then
+            echo "ERROR: miss file ${extract_dir_name}/conf/config.conf" && return 1
+        fi
+        doris_sql_converter_port="${doris_sql_converter_port:-5001}"
+        sed -i "/port=.*/d" "${extract_dir_name}"/conf/config.conf
+        echo "port=${doris_sql_converter_port}" >>"${extract_dir_name}"/conf/config.conf
+        echo "INFO: changed doris-sql-converter port to ${doris_sql_converter_port}"
+        if bash "${extract_dir_name}"/bin/stop.sh && fuser -k 5002/tcp; then echo; fi
+        if bash "${extract_dir_name}"/bin/start.sh &&
+            sleep 2s && lsof -i:"${doris_sql_converter_port}"; then
+            echo "INFO: doris-sql-converter start success."
+        else
+            echo "ERROR: doris-sql-converter start failed." && return 1
+        fi
+    else
+        echo "ERROR: download doris-sql-converter ${download_url} failed." && return 1
     fi
 }
 
@@ -415,7 +466,7 @@ set_session_variable() {
     if [[ -z "${v}" ]]; then return 1; fi
     query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
-    if ${cl} -e"set global ${k}=${v};"; then
+    if ${cl} -e"set global ${k}='${v}';"; then
         if [[ "$(get_session_variable "${k}" | tr '[:upper:]' '[:lower:]')" == "${v}" ]]; then
             echo "INFO:      set global ${k}=${v};"
         else
@@ -731,6 +782,32 @@ function check_if_need_gcore() {
         fi
     else
         echo "ERROR: unknown exit_flag ${exit_flag}" && return 1
+    fi
+}
+
+prepare_java_udf() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    # custom_lib相关的case需要在fe启动前把编译好的jar放到 $DORIS_HOME/fe/custom_lib/
+    install_java
+    install_maven
+    OLD_JAVA_HOME=${JAVA_HOME}
+    JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
+    export JAVA_HOME
+    if bash "${DORIS_HOME}"/../run-regression-test.sh --clean &&
+        bash "${DORIS_HOME}"/../run-regression-test.sh --compile; then
+        echo
+    else
+        echo "ERROR: failed to compile java udf"
+    fi
+    JAVA_HOME=${OLD_JAVA_HOME}
+    export JAVA_HOME
+
+    if ls "${DORIS_HOME}"/fe/custom_lib/*.jar &&
+        ls "${DORIS_HOME}"/be/custom_lib/*.jar; then
+        echo "INFO: java udf prepared."
+    else
+        echo "ERROR: failed to prepare java udf"
+        return 1
     fi
 }
 

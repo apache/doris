@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
@@ -54,9 +55,16 @@ public class NereidsParserTest extends ParserTestBase {
     @Test
     public void testParseMultiple() {
         NereidsParser nereidsParser = new NereidsParser();
-        String sql = "SELECT b FROM test;SELECT a FROM test;";
+        String sql = "SELECT b FROM test;;;;SELECT a FROM test;";
         List<Pair<LogicalPlan, StatementContext>> logicalPlanList = nereidsParser.parseMultiple(sql);
         Assertions.assertEquals(2, logicalPlanList.size());
+    }
+
+    @Test
+    public void testParseMultipleError() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "SELECT b FROM test SELECT a FROM test;";
+        Assertions.assertThrowsExactly(ParseException.class, () -> nereidsParser.parseMultiple(sql));
     }
 
     @Test
@@ -418,6 +426,113 @@ public class NereidsParserTest extends ParserTestBase {
         // partitions and auto_increment are reserve keywords
         String sql = "SELECT BINARY 'abc' FROM information_schema.partitions order by AUTO_INCREMENT";
         NereidsParser nereidsParser = new NereidsParser();
+        nereidsParser.parseSingle(sql);
+    }
+
+    @Test
+    public void testParseStmtType() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "select a from b";
+        LogicalPlan plan = nereidsParser.parseSingle(sql);
+        Assertions.assertEquals(plan.stmtType(), StmtType.SELECT);
+
+        sql = "use a";
+        plan = nereidsParser.parseSingle(sql);
+        Assertions.assertEquals(plan.stmtType(), StmtType.OTHER);
+
+        sql = "CREATE TABLE tbl (`id` INT NOT NULL) DISTRIBUTED BY HASH(`id`) BUCKETS 1";
+        plan = nereidsParser.parseSingle(sql);
+        Assertions.assertEquals(plan.stmtType(), StmtType.CREATE);
+
+        sql = "update a set b =1";
+        plan = nereidsParser.parseSingle(sql);
+        Assertions.assertEquals(plan.stmtType(), StmtType.UPDATE);
+    }
+
+    @Test
+    public void testParseUse() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "use test";
+        nereidsParser.parseSingle(sql);
+    }
+
+    @Test
+    public void testParseSet() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "set a as default storage vault";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set property a = b";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set property for user_a a = b";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set global a = 1";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set local a = 1";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set session a = 1";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set session a = default";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set @@a = 10";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set char set utf8";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set charset utf8";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set charset default";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set names  = utf8";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set local transaction read only";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set global transaction isolation level read committed";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set global transaction isolation level read committed, read write";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set global transaction read write, isolation level repeatable read";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set names default collate utf_8_ci";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set password for user_a = password('xyz')";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set password = 'xyz'";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set ldap_admin_password = password('xyz')";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set v1 = 1, v2 = 2, v3 = '3'";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set @@global.v1 = 1";
+        nereidsParser.parseSingle(sql);
+    }
+
+    @Test
+    public void testTruncateTable() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "truncate table a";
+        nereidsParser.parseSingle(sql);
+
+        sql = "truncate table a partitions (p1, p2, p3)";
         nereidsParser.parseSingle(sql);
     }
 }

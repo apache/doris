@@ -21,11 +21,6 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
 
-#include <algorithm>
-#include <ostream>
-#include <unordered_map>
-#include <utility>
-
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -82,22 +77,22 @@ using namespace ErrorCode;
 const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
 
+inline std::string segment_mem_tracker_name(uint32_t segment_id) {
+    return "SegmentWriter:Segment-" + std::to_string(segment_id);
+}
+
 SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
-                             DataDir* data_dir, uint32_t max_row_per_segment,
-                             const SegmentWriterOptions& opts,
-                             std::shared_ptr<MowContext> mow_context,
+                             DataDir* data_dir, const SegmentWriterOptions& opts,
                              io::FileWriterPtr inverted_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
           _data_dir(data_dir),
-          _max_row_per_segment(max_row_per_segment),
           _opts(opts),
           _file_writer(file_writer),
-          _mem_tracker(std::make_unique<MemTracker>("SegmentWriter:Segment-" +
-                                                    std::to_string(segment_id))),
-          _mow_context(std::move(mow_context)) {
+          _mem_tracker(std::make_unique<MemTracker>(segment_mem_tracker_name(segment_id))),
+          _mow_context(std::move(opts.mow_ctx)) {
     CHECK_NOTNULL(file_writer);
     _num_key_columns = _tablet_schema->num_key_columns();
     _num_short_key_columns = _tablet_schema->num_short_key_columns();
@@ -144,6 +139,8 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                 _opts.rowset_ctx->rowset_id.to_string(), segment_id,
                 _tablet_schema->get_inverted_index_storage_format(),
                 std::move(inverted_file_writer));
+        _inverted_index_file_writer->set_file_writer_opts(
+                _opts.rowset_ctx->get_file_writer_options());
     }
 }
 
@@ -258,8 +255,11 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
 
     if (column.is_row_store_column()) {
         // smaller page size for row store column
-        opts.data_page_size = _tablet_schema->row_store_page_size();
+        auto page_size = _tablet_schema->row_store_page_size();
+        opts.data_page_size =
+                (page_size > 0) ? page_size : segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     }
+
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
     RETURN_IF_ERROR(writer->init());
@@ -628,7 +628,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 
         // 1. if the delete sign is marked, it means that the value columns of the row will not
         //    be read. So we don't need to read the missing values from the previous rows.
-        // 2. the one exception is when there are sequence columns in the table, we need to read
+        // 2. the one exception is when there is sequence column in the table, we need to read
         //    the sequence columns, otherwise it may cause the merge-on-read based compaction
         //    policy to produce incorrect results
         if (have_delete_sign && !_tablet_schema->has_sequence_col()) {
@@ -743,9 +743,9 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
             auto rowset = _rsid_to_rowset[rs_it.first];
             CHECK(rowset);
             std::vector<uint32_t> rids;
-            for (auto id_and_pos : seg_it.second) {
-                rids.emplace_back(id_and_pos.rid);
-                read_index[id_and_pos.pos] = read_idx++;
+            for (auto [rid, pos] : seg_it.second) {
+                rids.emplace_back(rid);
+                read_index[pos] = read_idx++;
             }
             if (has_row_column) {
                 auto st = _tablet->fetch_value_through_row_column(
@@ -799,7 +799,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
 
     // fill all missing value from mutable_old_columns, need to consider default value and null value
     for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
-        // `use_default_or_null_flag[idx] == true` doesn't mean that we should read values from the old row
+        // `use_default_or_null_flag[idx] == false` doesn't mean that we should read values from the old row
         // for the missing columns. For example, if a table has sequence column, the rows with DELETE_SIGN column
         // marked will not be marked in delete bitmap(see https://github.com/apache/doris/pull/24011), so it will
         // be found in Tablet::lookup_row_key() and `use_default_or_null_flag[idx]` will be false. But we should not
@@ -955,11 +955,11 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
 int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
     auto segment_size = estimate_segment_size();
     if (PREDICT_FALSE(segment_size >= MAX_SEGMENT_SIZE ||
-                      _num_rows_written >= _max_row_per_segment)) {
+                      _num_rows_written >= _opts.max_rows_per_segment)) {
         return 0;
     }
     int64_t size_rows = ((int64_t)MAX_SEGMENT_SIZE - (int64_t)segment_size) / row_avg_size_in_bytes;
-    int64_t count_rows = (int64_t)_max_row_per_segment - _num_rows_written;
+    int64_t count_rows = (int64_t)_opts.max_rows_per_segment - _num_rows_written;
 
     return std::min(size_rows, count_rows);
 }

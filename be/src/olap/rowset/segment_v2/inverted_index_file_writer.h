@@ -40,7 +40,7 @@ using InvertedIndexDirectoryMap =
 class FileInfo {
 public:
     std::string filename;
-    int32_t filesize;
+    int64_t filesize;
 };
 
 class InvertedIndexFileWriter {
@@ -71,6 +71,8 @@ public:
                   lucene::store::IndexOutput* output, uint8_t* buffer, int64_t bufferLength);
     InvertedIndexStorageFormatPB get_storage_format() const { return _storage_format; }
 
+    void set_file_writer_opts(const io::FileWriterOptions& opts) { _opts = opts; }
+
 private:
     InvertedIndexDirectoryMap _indices_dirs;
     const io::FileSystemSPtr _fs;
@@ -81,6 +83,7 @@ private:
     size_t _file_size = 0;
     // write to disk or stream
     io::FileWriterPtr _idx_v2_writer;
+    io::FileWriterOptions _opts;
 };
 } // namespace segment_v2
 } // namespace doris

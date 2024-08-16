@@ -315,6 +315,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     for (auto& expr : _remaining_conjunct_roots) {
         _calculate_pred_in_remaining_conjunct_root(expr);
     }
+    _calculate_func_in_remaining_conjunct_root();
 
     _column_predicate_info.reset(new ColumnPredicateInfo());
     if (_schema->rowid_col_idx() > 0) {
@@ -387,6 +388,14 @@ void SegmentIterator::_initialize_predicate_results() {
             int cid = _schema->column_id(pred_info.column_id);
             std::string pred_sign = _gen_predicate_result_sign(&pred_info);
             _column_predicate_inverted_index_status[cid][pred_sign] = false;
+        }
+    }
+
+    // Initialize from _func_name_to_result_sign
+    for (auto& iter : _func_name_to_result_sign) {
+        for (auto& pred_sign : iter.second) {
+            auto column_id = _opts.tablet_schema->field_index(iter.first);
+            _column_predicate_inverted_index_status[column_id][pred_sign] = false;
         }
     }
 }
@@ -560,6 +569,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                 }
             }
             _col_preds_except_leafnode_of_andnode.clear();
+            compound_func_exprs.clear();
             // 1. if all conditions in the compound hit the inverted index and there are no other expr to handle.
             // 2. then there is no need to generate index_result_column.
             if (_enable_common_expr_pushdown && _remaining_conjunct_roots.empty()) {
@@ -575,7 +585,6 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     RETURN_IF_ERROR(_apply_inverted_index());
     for (auto cid : _schema->column_ids()) {
         bool result_true = _check_all_predicates_passed_inverted_index_for_column(cid);
-
         if (result_true) {
             _need_read_data_indices[cid] = false;
         }
@@ -697,6 +706,11 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         if (_opts.io_ctx.reader_type == ReaderType::READER_QUERY) {
             RowRanges dict_row_ranges = RowRanges::create_single(num_rows());
             for (auto cid : cids) {
+                if (!_segment->can_apply_predicate_safely(cid,
+                                                          _opts.col_id_to_predicates.at(cid).get(),
+                                                          *_schema, _opts.io_ctx.reader_type)) {
+                    continue;
+                }
                 RowRanges tmp_row_ranges = RowRanges::create_single(num_rows());
                 DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
                 RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_dict(
@@ -809,25 +823,32 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
         auto v_literal_expr = std::dynamic_pointer_cast<doris::vectorized::VLiteral>(expr);
         _column_predicate_info->query_values.insert(v_literal_expr->value());
     } else if (node_type == TExprNodeType::BINARY_PRED || node_type == TExprNodeType::MATCH_PRED ||
-               node_type == TExprNodeType::IN_PRED) {
-        if (node_type == TExprNodeType::MATCH_PRED) {
-            _column_predicate_info->query_op = "match";
-        } else if (node_type == TExprNodeType::IN_PRED) {
-            if (expr->op() == TExprOpcode::type::FILTER_IN) {
-                _column_predicate_info->query_op = "in";
-            } else {
-                _column_predicate_info->query_op = "not_in";
-            }
+               node_type == TExprNodeType::IN_PRED || node_type == TExprNodeType::FUNCTION_CALL) {
+        std::string result_sign;
+        if (node_type == TExprNodeType::FUNCTION_CALL) {
+            result_sign =
+                    BeConsts::BLOCK_TEMP_COLUMN_PREFIX + std::to_string(expr->index_unique_id());
         } else {
-            _column_predicate_info->query_op = expr->fn().name.function_name;
+            if (node_type == TExprNodeType::MATCH_PRED) {
+                _column_predicate_info->query_op = "match";
+            } else if (node_type == TExprNodeType::IN_PRED) {
+                if (expr->op() == TExprOpcode::type::FILTER_IN) {
+                    _column_predicate_info->query_op = "in";
+                } else {
+                    _column_predicate_info->query_op = "not_in";
+                }
+            } else {
+                _column_predicate_info->query_op = expr->fn().name.function_name;
+            }
+            result_sign = _gen_predicate_result_sign(_column_predicate_info.get());
         }
+
         // get child condition result in compound conditions
-        auto pred_result_sign = _gen_predicate_result_sign(_column_predicate_info.get());
         _column_predicate_info.reset(new ColumnPredicateInfo());
-        VLOG_DEBUG << "_gen_predicate_result_sign " << pred_result_sign;
-        if (_rowid_result_for_index.count(pred_result_sign) > 0 &&
-            _rowid_result_for_index[pred_result_sign].first) {
-            auto apply_result = _rowid_result_for_index[pred_result_sign].second;
+        VLOG_DEBUG << "result_sign " << result_sign;
+        if (_rowid_result_for_index.count(result_sign) > 0 &&
+            _rowid_result_for_index[result_sign].first) {
+            auto apply_result = _rowid_result_for_index[result_sign].second;
             _pred_except_leafnode_of_andnode_evaluate_result.push_back(apply_result);
         }
     } else if (node_type == TExprNodeType::COMPOUND_PRED) {
@@ -871,7 +892,7 @@ Status SegmentIterator::_execute_compound_fn(const std::string& function_name) {
 
 bool SegmentIterator::_can_filter_by_preds_except_leafnode_of_andnode() {
     // no compound predicates push down, so no need to filter
-    if (_col_preds_except_leafnode_of_andnode.size() == 0) {
+    if (_col_preds_except_leafnode_of_andnode.empty() && compound_func_exprs.empty()) {
         return false;
     }
     for (auto pred : _col_preds_except_leafnode_of_andnode) {
@@ -882,6 +903,13 @@ bool SegmentIterator::_can_filter_by_preds_except_leafnode_of_andnode() {
         // all predicates are evaluated by index, then true, else false
         std::string pred_result_sign = _gen_predicate_result_sign(pred);
         if (_rowid_result_for_index.count(pred_result_sign) == 0) {
+            return false;
+        }
+    }
+    for (const auto& expr : compound_func_exprs) {
+        std::string pred_result_sign =
+                BeConsts::BLOCK_TEMP_COLUMN_PREFIX + std::to_string(expr->index_unique_id());
+        if (!_rowid_result_for_index.contains(pred_result_sign)) {
             return false;
         }
     }
@@ -903,7 +931,8 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
     if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
         return false;
     }
-    if (_inverted_index_iterators[pred->column_id()] == nullptr) {
+    auto pred_column_id = pred->column_id();
+    if (_inverted_index_iterators[pred_column_id] == nullptr) {
         //this column without inverted index
         return false;
     }
@@ -918,13 +947,21 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
         return false;
     }
 
+    // UNTOKENIZED strings exceed ignore_above, they are written as null, causing range query errors
+    if (PredicateTypeTraits::is_range(pred->type()) &&
+        _inverted_index_iterators[pred_column_id] != nullptr &&
+        _inverted_index_iterators[pred_column_id]->get_inverted_index_reader_type() ==
+                InvertedIndexReaderType::STRING_TYPE) {
+        return false;
+    }
+
     // Function filter no apply inverted index
     if (dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(pred) != nullptr ||
         dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(pred) != nullptr) {
         return false;
     }
 
-    bool handle_by_fulltext = _column_has_fulltext_index(pred->column_id());
+    bool handle_by_fulltext = _column_has_fulltext_index(pred_column_id);
     if (handle_by_fulltext) {
         // when predicate in compound condition which except leafNode of andNode,
         // only can apply match query for fulltext index,
@@ -992,11 +1029,29 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         }
     }
 
+    for (const auto& expr : compound_func_exprs) {
+        roaring::Roaring bitmap = _row_bitmap;
+        auto result = std::make_shared<roaring::Roaring>();
+        RETURN_IF_ERROR(execute_func_expr(expr, result));
+        bitmap &= *result;
+        std::string result_sign =
+                BeConsts::BLOCK_TEMP_COLUMN_PREFIX + std::to_string(expr->index_unique_id());
+        _rowid_result_for_index.emplace(result_sign, std::make_pair(true, std::move(bitmap)));
+        for (const auto& child_expr : expr->children()) {
+            if (child_expr->node_type() == TExprNodeType::type::SLOT_REF) {
+                auto column_id = _opts.tablet_schema->field_index(child_expr->expr_name());
+                _column_predicate_inverted_index_status[column_id][result_sign] = true;
+            }
+        }
+    }
+
     return Status::OK();
 }
 
 bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) {
-    if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
+    bool is_fallback =
+            _opts.runtime_state->query_options().enable_fallback_on_missing_inverted_index;
+    if ((res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND && is_fallback) ||
         res.code() == ErrorCode::INVERTED_INDEX_BYPASS ||
         res.code() == ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED ||
         (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS && need_remaining)) {
@@ -1246,18 +1301,6 @@ Status SegmentIterator::_apply_inverted_index() {
     std::vector<ColumnPredicate*> remaining_predicates;
     std::set<const ColumnPredicate*> no_need_to_pass_column_predicate_set;
 
-    // TODO:Comment out this code before introducing range query functionality
-    /*for (const auto& entry : _opts.col_id_to_predicates) {
-        ColumnId column_id = entry.first;
-        auto pred = entry.second;
-        bool continue_apply = true;
-        RETURN_IF_ERROR(_apply_inverted_index_on_block_column_predicate(
-                column_id, pred.get(), no_need_to_pass_column_predicate_set, &continue_apply));
-        if (!continue_apply) {
-            break;
-        }
-    }*/
-
     for (auto pred : _col_predicates) {
         if (no_need_to_pass_column_predicate_set.count(pred) > 0) {
             continue;
@@ -1289,6 +1332,29 @@ Status SegmentIterator::_apply_inverted_index() {
                            << (*it)->root()->debug_string();
             } else {
                 ++it;
+            }
+        }
+    }
+
+    for (const auto& expr : no_compound_func_exprs) {
+        auto result = std::make_shared<roaring::Roaring>();
+        RETURN_IF_ERROR(execute_func_expr(expr, result));
+        _row_bitmap &= *result;
+        for (auto it = _remaining_conjunct_roots.begin(); it != _remaining_conjunct_roots.end();) {
+            if (*it == expr) {
+                std::erase_if(_common_expr_ctxs_push_down,
+                              [&it](const auto& iter) { return iter->root() == *it; });
+                it = _remaining_conjunct_roots.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        std::string result_sign =
+                BeConsts::BLOCK_TEMP_COLUMN_PREFIX + std::to_string(expr->index_unique_id());
+        for (const auto& child_expr : expr->children()) {
+            if (child_expr->node_type() == TExprNodeType::type::SLOT_REF) {
+                auto column_id = _opts.tablet_schema->field_index(child_expr->expr_name());
+                _column_predicate_inverted_index_status[column_id][result_sign] = true;
             }
         }
     }
@@ -1541,7 +1607,8 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     // for mow with cluster key table, we should get key range from short key index.
     DCHECK(_segment->_tablet_schema->cluster_key_idxes().empty());
 
-    if (has_seq_col) {
+    // if full key is exact_match, the primary key without sequence column should also the same
+    if (has_seq_col && !exact_match) {
         size_t seq_col_length =
                 _segment->_tablet_schema->column(_segment->_tablet_schema->sequence_col_idx())
                         .length() +
@@ -2115,11 +2182,17 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
     bool all_pred_always_true = true;
     for (const auto& pred : _pre_eval_block_predicate) {
-        if (!pred->always_true()) {
+        if (!pred->always_true(false)) {
             all_pred_always_true = false;
             break;
         }
     }
+    if (all_pred_always_true) {
+        for (const auto& pred : _pre_eval_block_predicate) {
+            pred->always_true(true);
+        }
+    }
+
     //If all predicates are always_true, then return directly.
     if (all_pred_always_true || !_is_need_vec_eval) {
         for (uint16_t i = 0; i < selected_size; ++i) {
@@ -2133,7 +2206,7 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     DCHECK(!_pre_eval_block_predicate.empty());
     bool is_first = true;
     for (auto& pred : _pre_eval_block_predicate) {
-        if (pred->always_true()) {
+        if (pred->always_true(true)) {
             continue;
         }
         auto column_id = pred->column_id();
@@ -2763,50 +2836,13 @@ Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* bl
     return Status::OK();
 }
 
-/**
- * solution 1: where cluase included nodes are all `and` leaf nodes,
- * predicate pushed down and remove from vconjunct.
- *  for example: where A = 1 and B = 'test' and B like '%he%';
- *      column A : `A = 1` pushed down, this column's predicates all pushed down,
- *                  call _check_column_pred_all_push_down will return true.
- *      column B : `B = 'test'` pushed down, but `B like '%he%'` remain in vconjunct,
- *                  call _check_column_pred_all_push_down will return false.
- *
- * solution 2: where cluase included nodes are compound or other complex conditions,
- * predicate pushed down but still remain in vconjunct.
- *  for exmple: where (A = 1 and B = 'test') or B = 'hi' or (C like '%ye%' and C > 'aa');
- *      column A : `A = 1` pushed down, check it applyed by index,
- *                  call _check_column_pred_all_push_down will return true.
- *      column B : `B = 'test'`, `B = 'hi'` all pushed down, check them all applyed by index,
- *                  call _check_column_pred_all_push_down will return true.
- *      column C : `C like '%ye%'` not pushed down, `C > 'aa'` pushed down, only `C > 'aa'` applyed by index,
- *                  call _check_column_pred_all_push_down will return false.
-*/
-bool SegmentIterator::_check_column_pred_all_push_down(const std::string& column_name,
-                                                       bool in_compound, bool is_match) {
-    if (_remaining_conjunct_roots.empty()) {
-        return true;
-    }
-
-    if (in_compound || is_match) {
-        auto preds_in_remaining_vconjuct = _column_pred_in_remaining_vconjunct[column_name];
-        for (auto pred_info : preds_in_remaining_vconjuct) {
-            auto column_sign = _gen_predicate_result_sign(&pred_info);
-            if (!_rowid_result_for_index.contains(column_sign)) {
-                return false;
-            }
-        }
-    } else {
-        if (_column_pred_in_remaining_vconjunct[column_name].size() != 0) {
-            return false;
-        }
-    }
-    return true;
-}
-
 void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
         const vectorized::VExprSPtr& expr) {
     if (expr == nullptr) {
+        return;
+    }
+
+    if (expr->fn().name.function_name == "multi_match") {
         return;
     }
 
@@ -2855,6 +2891,72 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
             _column_pred_in_remaining_vconjunct[_column_predicate_info->column_name].push_back(
                     *_column_predicate_info);
             _column_predicate_info.reset(new ColumnPredicateInfo());
+        }
+    }
+}
+
+void SegmentIterator::_calculate_func_in_remaining_conjunct_root() {
+    auto hash = [](const vectorized::VExprSPtr& expr) -> std::size_t {
+        return std::hash<std::string>()(expr->expr_name());
+    };
+    auto equal = [](const vectorized::VExprSPtr& lhs, const vectorized::VExprSPtr& rhs) -> bool {
+        return lhs->equals(*rhs);
+    };
+
+    uint32_t next_id = 0;
+    std::unordered_map<vectorized::VExprSPtr, uint32_t, decltype(hash), decltype(equal)> unique_map(
+            0, hash, equal);
+
+    auto gen_func_unique_id = [&unique_map, &next_id](const vectorized::VExprSPtr& expr) {
+        auto it = unique_map.find(expr);
+        if (it != unique_map.end()) {
+            return it->second;
+        } else {
+            unique_map[expr] = ++next_id;
+            return next_id;
+        }
+    };
+
+    for (const auto& root_expr_ctx : _common_expr_ctxs_push_down) {
+        const auto& root_expr = root_expr_ctx->root();
+        if (root_expr == nullptr) {
+            continue;
+        }
+
+        std::stack<std::pair<vectorized::VExprSPtr, bool>> stack;
+        stack.emplace(root_expr, false);
+
+        while (!stack.empty()) {
+            const auto& [expr, has_compound_pred] = stack.top();
+            stack.pop();
+
+            bool current_has_compound_pred =
+                    has_compound_pred || (expr->node_type() == TExprNodeType::COMPOUND_PRED);
+
+            if (expr->fn().name.function_name == "multi_match") {
+                expr->set_index_unique_id(gen_func_unique_id(expr));
+                if (current_has_compound_pred) {
+                    compound_func_exprs.emplace_back(expr);
+                } else {
+                    no_compound_func_exprs.emplace_back(expr);
+                }
+
+                for (int32_t i = expr->get_num_children() - 1; i >= 0; i--) {
+                    auto child_expr = expr->get_child(i);
+                    if (child_expr->node_type() == TExprNodeType::type::SLOT_REF) {
+                        std::string result_sign = BeConsts::BLOCK_TEMP_COLUMN_PREFIX +
+                                                  std::to_string(expr->index_unique_id());
+                        _func_name_to_result_sign[child_expr->expr_name()].push_back(result_sign);
+                    }
+                }
+            }
+
+            const auto& children = expr->children();
+            for (int32_t i = children.size() - 1; i >= 0; --i) {
+                if (!children[i]->children().empty()) {
+                    stack.emplace(children[i], current_has_compound_pred);
+                }
+            }
         }
     }
 }
@@ -2931,6 +3033,23 @@ bool SegmentIterator::_can_opt_topn_reads() {
     })
 
     return all_true;
+}
+
+Status SegmentIterator::execute_func_expr(const vectorized::VExprSPtr& expr,
+                                          std::shared_ptr<roaring::Roaring>& result) {
+    const auto& expr0 = expr->get_child(0);
+    if (!expr0 || expr0->node_type() != TExprNodeType::SLOT_REF) {
+        return Status::RuntimeError("cannot perform index filtering");
+    }
+
+    FuncExprParams params;
+    auto slot_expr = std::static_pointer_cast<vectorized::VSlotRef>(expr0);
+    params._column_id = _schema->column_id(slot_expr->column_id());
+    params._unique_id = _schema->unique_id(slot_expr->column_id());
+    params._column_name = _opts.tablet_schema->column(params._column_id).name();
+    params._segment_iterator = this;
+
+    return expr->eval_inverted_index(params, result);
 }
 
 } // namespace segment_v2

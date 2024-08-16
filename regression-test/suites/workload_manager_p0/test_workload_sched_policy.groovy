@@ -267,15 +267,23 @@ suite("test_workload_sched_policy") {
                     lastTime = System.currentTimeMillis()
                 }
                 try {
-                    sql "select k0,k1,k2,k3,k4,k5,k6,count(distinct k13) from regression_test_load_p0_insert.baseall group by k0,k1,k2,k3,k4,k5,k6"
+                    sql "select k0 as policy_test_tag,k1,k2,k3,k4,k5,k6,count(distinct k13) from regression_test_load_p0_insert.baseall group by k0,k1,k2,k3,k4,k5,k6"
                 } catch (Exception e) {
-                    assertTrue(e.getMessage().contains("query canceled by workload scheduler"))
+                    boolean ret = e.getMessage().contains("cancelled by workload policy")
+                    if (!ret) {
+                        logger.info("policy_test_tag " + e.getMessage())
+                    }
+                    assertTrue(ret, "policy daemon check failed")
                 }
 
                 try {
-                    sql "select count(1) from regression_test_load_p0_insert.baseall"
+                    sql "select count(1) as policy_test_tag from regression_test_load_p0_insert.baseall"
                 } catch (Exception e) {
-                    assertTrue(e.getMessage().contains("query canceled by workload scheduler"))
+                    boolean ret = e.getMessage().contains("cancelled by workload policy")
+                    if (!ret) {
+                        logger.info("policy_test_tag " + e.getMessage())
+                    }
+                    assertTrue(ret, "policy daemon check failed")
                 }
 
                 Thread.sleep(1000)

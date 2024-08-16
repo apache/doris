@@ -44,12 +44,19 @@ public class MultiDistinctSum0 extends AggregateFunction implements UnaryExpress
             FunctionSignature.ret(BigIntType.INSTANCE).varArgs(LargeIntType.INSTANCE)
     );
 
+    private final boolean mustUseMultiDistinctAgg;
+
     public MultiDistinctSum0(Expression arg0) {
-        super("multi_distinct_sum0", true, arg0);
+        this(false, arg0);
     }
 
     public MultiDistinctSum0(boolean distinct, Expression arg0) {
-        super("multi_distinct_sum0", true, arg0);
+        this(false, false, arg0);
+    }
+
+    private MultiDistinctSum0(boolean mustUseMultiDistinctAgg, boolean distinct, Expression arg0) {
+        super("multi_distinct_sum0", false, arg0);
+        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
     }
 
     @Override
@@ -72,11 +79,21 @@ public class MultiDistinctSum0 extends AggregateFunction implements UnaryExpress
     @Override
     public MultiDistinctSum0 withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new MultiDistinctSum0(distinct, children.get(0));
+        return new MultiDistinctSum0(mustUseMultiDistinctAgg, distinct, children.get(0));
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitMultiDistinctSum0(this, context);
+    }
+
+    @Override
+    public boolean mustUseMultiDistinctAgg() {
+        return mustUseMultiDistinctAgg;
+    }
+
+    @Override
+    public Expression withMustUseMultiDistinctAgg(boolean mustUseMultiDistinctAgg) {
+        return new MultiDistinctSum0(mustUseMultiDistinctAgg, false, children.get(0));
     }
 }

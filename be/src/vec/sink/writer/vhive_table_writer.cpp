@@ -30,8 +30,10 @@ namespace doris {
 namespace vectorized {
 
 VHiveTableWriter::VHiveTableWriter(const TDataSink& t_sink,
-                                   const VExprContextSPtrs& output_expr_ctxs)
-        : AsyncResultWriter(output_expr_ctxs), _t_sink(t_sink) {
+                                   const VExprContextSPtrs& output_expr_ctxs,
+                                   std::shared_ptr<pipeline::Dependency> dep,
+                                   std::shared_ptr<pipeline::Dependency> fin_dep)
+        : AsyncResultWriter(output_expr_ctxs, dep, fin_dep), _t_sink(t_sink) {
     DCHECK(_t_sink.__isset.hive_table_sink);
 }
 
@@ -240,15 +242,19 @@ Status VHiveTableWriter::_filter_block(doris::vectorized::Block& block,
 }
 
 Status VHiveTableWriter::close(Status status) {
+    Status result_status;
     int64_t partitions_to_writers_size = _partitions_to_writers.size();
     {
         SCOPED_RAW_TIMER(&_close_ns);
         for (const auto& pair : _partitions_to_writers) {
             Status st = pair.second->close(status);
-            if (st != Status::OK()) {
+            if (!st.ok()) {
                 LOG(WARNING) << fmt::format("partition writer close failed for partition {}",
                                             st.to_string());
-                continue;
+                if (result_status.ok()) {
+                    result_status = st;
+                    continue;
+                }
             }
         }
         _partitions_to_writers.clear();
@@ -264,7 +270,7 @@ Status VHiveTableWriter::close(Status status) {
         COUNTER_SET(_close_timer, _close_ns);
         COUNTER_SET(_write_file_counter, _write_file_count);
     }
-    return Status::OK();
+    return result_status;
 }
 
 std::shared_ptr<VHivePartitionWriter> VHiveTableWriter::_create_partition_writer(

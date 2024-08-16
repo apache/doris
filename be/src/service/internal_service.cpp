@@ -288,6 +288,9 @@ void PInternalService::exec_plan_fragment(google::protobuf::RpcController* contr
                                           const PExecPlanFragmentRequest* request,
                                           PExecPlanFragmentResult* response,
                                           google::protobuf::Closure* done) {
+    timeval tv {};
+    gettimeofday(&tv, nullptr);
+    response->set_received_time(tv.tv_sec * 1000LL + tv.tv_usec / 1000);
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         _exec_plan_fragment_in_pthread(controller, request, response, done);
     });
@@ -301,6 +304,9 @@ void PInternalService::_exec_plan_fragment_in_pthread(google::protobuf::RpcContr
                                                       const PExecPlanFragmentRequest* request,
                                                       PExecPlanFragmentResult* response,
                                                       google::protobuf::Closure* done) {
+    timeval tv1 {};
+    gettimeofday(&tv1, nullptr);
+    response->set_execution_time(tv1.tv_sec * 1000LL + tv1.tv_usec / 1000);
     brpc::ClosureGuard closure_guard(done);
     auto st = Status::OK();
     bool compact = request->has_compact() ? request->compact() : false;
@@ -318,12 +324,18 @@ void PInternalService::_exec_plan_fragment_in_pthread(google::protobuf::RpcContr
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
     }
     st.to_protobuf(response->mutable_status());
+    timeval tv2 {};
+    gettimeofday(&tv2, nullptr);
+    response->set_execution_done_time(tv2.tv_sec * 1000LL + tv2.tv_usec / 1000);
 }
 
 void PInternalService::exec_plan_fragment_prepare(google::protobuf::RpcController* controller,
                                                   const PExecPlanFragmentRequest* request,
                                                   PExecPlanFragmentResult* response,
                                                   google::protobuf::Closure* done) {
+    timeval tv {};
+    gettimeofday(&tv, nullptr);
+    response->set_received_time(tv.tv_sec * 1000LL + tv.tv_usec / 1000);
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         _exec_plan_fragment_in_pthread(controller, request, response, done);
     });
@@ -337,10 +349,19 @@ void PInternalService::exec_plan_fragment_start(google::protobuf::RpcController*
                                                 const PExecPlanFragmentStartRequest* request,
                                                 PExecPlanFragmentResult* result,
                                                 google::protobuf::Closure* done) {
+    timeval tv {};
+    gettimeofday(&tv, nullptr);
+    result->set_received_time(tv.tv_sec * 1000LL + tv.tv_usec / 1000);
     bool ret = _light_work_pool.try_offer([this, request, result, done]() {
+        timeval tv1 {};
+        gettimeofday(&tv1, nullptr);
+        result->set_execution_time(tv1.tv_sec * 1000LL + tv1.tv_usec / 1000);
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->fragment_mgr()->start_query_execution(request);
         st.to_protobuf(result->mutable_status());
+        timeval tv2 {};
+        gettimeofday(&tv2, nullptr);
+        result->set_execution_done_time(tv2.tv_sec * 1000LL + tv2.tv_usec / 1000);
     });
     if (!ret) {
         offer_failed(result, done, _light_work_pool);
@@ -637,7 +658,7 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
             uint32_t len = request->result_file_sink().size();
             st = deserialize_thrift_msg(buf, &len, false, &result_file_sink);
             if (!st.ok()) {
-                LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+                LOG(WARNING) << "outfile write success file failed, errmsg = " << st;
                 st.to_protobuf(result->mutable_status());
                 return;
             }
@@ -656,7 +677,7 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
             bool exists = true;
             st = io::global_local_filesystem()->exists(file_name, &exists);
             if (!st.ok()) {
-                LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+                LOG(WARNING) << "outfile write success filefailed, errmsg = " << st;
                 st.to_protobuf(result->mutable_status());
                 return;
             }
@@ -664,7 +685,7 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
                 st = Status::InternalError("File already exists: {}", file_name);
             }
             if (!st.ok()) {
-                LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+                LOG(WARNING) << "outfile write success file failed, errmsg = " << st;
                 st.to_protobuf(result->mutable_status());
                 return;
             }
@@ -1044,11 +1065,11 @@ struct AsyncRPCContext {
     brpc::CallId cid;
 };
 
-void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
-                                                      const PFetchRemoteSchemaRequest* request,
-                                                      PFetchRemoteSchemaResponse* response,
-                                                      google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
+void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
+                                                  const PFetchRemoteSchemaRequest* request,
+                                                  PFetchRemoteSchemaResponse* response,
+                                                  google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         Status st = Status::OK();
         if (request->is_coordinator()) {
@@ -1120,13 +1141,13 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
             if (!target_tablets.empty()) {
                 std::vector<TabletSchemaSPtr> tablet_schemas;
                 for (int64_t tablet_id : target_tablets) {
-                    TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id, false);
-                    if (tablet == nullptr) {
+                    auto res = ExecEnv::get_tablet(tablet_id);
+                    if (!res.has_value()) {
                         // just ignore
                         LOG(WARNING) << "tablet does not exist, tablet id is " << tablet_id;
                         continue;
                     }
-                    tablet_schemas.push_back(tablet->tablet_schema());
+                    tablet_schemas.push_back(res.value()->merged_tablet_schema());
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
@@ -2030,6 +2051,10 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
                             response->set_loaded_rows(state->num_rows_load_success());
                             response->set_filtered_rows(state->num_rows_load_filtered());
                             status->to_protobuf(response->mutable_status());
+                            if (!state->get_error_log_file_path().empty()) {
+                                response->set_error_url(
+                                        to_load_error_http_path(state->get_error_log_file_path()));
+                            }
                             _exec_env->new_load_stream_mgr()->remove(load_id);
                         });
             } catch (const Exception& e) {
@@ -2073,6 +2098,27 @@ void PInternalService::get_wal_queue_size(google::protobuf::RpcController* contr
         auto table_id = request->table_id();
         auto count = _exec_env->wal_mgr()->get_wal_queue_size(table_id);
         response->set_size(count);
+        response->mutable_status()->set_status_code(st.code());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+    }
+}
+
+void PInternalService::get_be_resource(google::protobuf::RpcController* controller,
+                                       const PGetBeResourceRequest* request,
+                                       PGetBeResourceResponse* response,
+                                       google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        int64_t mem_limit = MemInfo::mem_limit();
+        int64_t mem_usage = PerfCounters::get_vm_rss();
+
+        PGlobalResourceUsage* global_resource_usage = response->mutable_global_be_resource_usage();
+        global_resource_usage->set_mem_limit(mem_limit);
+        global_resource_usage->set_mem_usage(mem_usage);
+
+        Status st = Status::OK();
         response->mutable_status()->set_status_code(st.code());
     });
     if (!ret) {
