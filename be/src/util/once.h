@@ -51,7 +51,7 @@ namespace doris {
 template <typename ReturnType>
 class DorisCallOnce {
 public:
-    DorisCallOnce() : _once_flag(false) {}
+    DorisCallOnce() : _once_flag(false) = default;
 
     // this method is not exception safe, it will core when exception occurs in
     // callback method. I have tested the code https://en.cppreference.com/w/cpp/thread/call_once.
