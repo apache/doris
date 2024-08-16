@@ -1309,7 +1309,7 @@ suite("nereids_scalar_fn_Array") {
         }
     }
 
-    // with array empty
+    sql """ set enable_fold_constant_by_be=true; """
     qt_array_empty_fe """select array()"""
 
     // array_map with string is can be succeed
@@ -1320,9 +1320,6 @@ suite("nereids_scalar_fn_Array") {
        sql """select array_apply(split_by_string("amory,is,better,committing", ","), '!=', '');"""
        exception("errCode = 2")
     }
-
-    sql """ set enable_fold_constant_by_be=true; """
-    qt_array_empty_be """select array()"""
 
     // array_min/max with nested array for args
     test {
