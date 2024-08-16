@@ -73,7 +73,7 @@ public class SplitSource {
         }
         List<TScanRangeLocations> scanRanges = Lists.newArrayListWithExpectedSize(maxBatchSize);
         long startTime = System.currentTimeMillis();
-        while (scanRanges.size() < maxBatchSize) {
+        while (scanRanges.size() < maxBatchSize && System.currentTimeMillis() - startTime < maxWaitTime) {
             BlockingQueue<Collection<TScanRangeLocations>> splits = splitAssignment.getAssignedSplits(backend);
             if (splits == null) {
                 isLastBatch.set(true);
@@ -92,9 +92,14 @@ public class SplitSource {
                         break;
                     }
                 } catch (InterruptedException e) {
-                    throw new UserException("Failed to get next batch of splits", e);
+                    throw new UserException(e.getMessage(), e);
                 }
             }
+        }
+
+        if (scanRanges.isEmpty() && !isLastBatch.get()) {
+            // This is timeout
+            throw new UserException("Timeout. Max wait time(ms): " + maxWaitTime);
         }
         return scanRanges;
     }
