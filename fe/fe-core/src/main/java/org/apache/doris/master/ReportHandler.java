@@ -229,7 +229,7 @@ public class ReportHandler extends Daemon {
 
         BackendReportType backendReportType = new BackendReportType(reportTask.beId, reportTask.reportType);
 
-        synchronized (this) {
+        synchronized (reportTasks) {
             reportTasks.put(backendReportType, reportTask);
         }
 
@@ -1467,7 +1467,7 @@ public class ReportHandler extends Daemon {
         }
 
         ReportTask task = null;
-        synchronized (this) {
+        synchronized (reportTasks) {
             task = reportTasks.get(backendReportType);
             reportTasks.remove(backendReportType);
         }
