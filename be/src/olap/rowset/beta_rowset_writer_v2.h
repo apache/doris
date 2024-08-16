@@ -59,6 +59,8 @@ class SegmentWriter;
 class LoadStreamStub;
 
 class BetaRowsetWriterV2 : public RowsetWriter {
+    ENABLE_FACTORY_CREATOR(BetaRowsetWriterV2);
+
 public:
     BetaRowsetWriterV2(const std::vector<std::shared_ptr<LoadStreamStub>>& streams);
 

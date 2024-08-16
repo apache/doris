@@ -45,6 +45,7 @@ using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates
 class BetaRowsetWriter;
 
 class SegcompactionWorker {
+    ENABLE_FACTORY_CREATOR(SegcompactionWorker);
     friend class BetaRowsetWriter;
 
 public:

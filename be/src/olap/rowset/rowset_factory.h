@@ -20,6 +20,7 @@
 
 #include <string>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/tablet_fwd.h"
@@ -32,6 +33,8 @@ class StorageEngine;
 class CloudStorageEngine;
 
 class RowsetFactory {
+    ENABLE_FACTORY_CREATOR(RowsetFactory);
+
 public:
     // return OK and set inited rowset in `*rowset`.
     // return others if failed to create or init rowset.

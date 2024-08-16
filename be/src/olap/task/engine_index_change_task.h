@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/factory_creator.h"
 #include "olap/task/engine_task.h"
 
 namespace doris {
@@ -26,6 +27,8 @@ class TAlterInvertedIndexReq;
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
 class EngineIndexChangeTask final : public EngineTask {
+    ENABLE_FACTORY_CREATOR(EngineIndexChangeTask);
+
 public:
     Status execute() override;
 

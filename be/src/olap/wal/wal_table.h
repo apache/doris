@@ -20,6 +20,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/FrontendService_types.h"
@@ -28,9 +29,10 @@
 #include "olap/wal/wal_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/stream_load_context.h"
-
 namespace doris {
 class WalTable {
+    ENABLE_FACTORY_CREATOR(WalTable);
+
 public:
     WalTable(ExecEnv* exec_env, int64_t db_id, int64_t table_id);
     ~WalTable();

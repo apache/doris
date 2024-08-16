@@ -567,13 +567,12 @@ int main(int argc, char** argv) {
     stop_work_if_error(status, "Doris BE server did not start correctly, exiting");
 
     // 2. bprc service
-    std::unique_ptr<doris::BRpcService> brpc_service =
-            std::make_unique<doris::BRpcService>(exec_env);
+    std::unique_ptr<doris::BRpcService> brpc_service = doris::BRpcService::create_unique(exec_env);
     status = brpc_service->start(doris::config::brpc_port, doris::config::brpc_num_threads);
     stop_work_if_error(status, "BRPC service did not start correctly, exiting");
 
     // 3. http service
-    std::unique_ptr<doris::HttpService> http_service = std::make_unique<doris::HttpService>(
+    std::unique_ptr<doris::HttpService> http_service = doris::HttpService::create_unique(
             exec_env, doris::config::webserver_port, doris::config::webserver_num_workers);
     status = http_service->start();
     stop_work_if_error(status, "Doris Be http service did not start correctly, exiting");
