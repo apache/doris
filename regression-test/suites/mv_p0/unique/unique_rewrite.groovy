@@ -71,6 +71,9 @@ suite("mv_on_unique_table") {
     (1, 3, 2, 2, '2023-10-17', 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy');
     """
 
+    // delete some data to check the doris_delete_sign is useful or not
+    sql """delete from lineitem_2_uniq where l_orderkey = 1;"""
+
     sql""" analyze table lineitem_2_uniq with sync;"""
 
     // test partition prune in duplicate table
@@ -109,7 +112,7 @@ suite("mv_on_unique_table") {
     """
 
     def query2 = """
-        select l_linenumber, l_suppkey,
+        select l_orderkey, l_suppkey,
         substring(concat(l_returnflag, l_linestatus), 1)
         from lineitem_2_uniq;
     """
