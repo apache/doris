@@ -20,10 +20,8 @@
 #include <fmt/format.h>
 #include <gen_cpp/Status_types.h>
 
-#include <cstdint>
 #include <exception>
 #include <memory>
-#include <ostream>
 #include <string>
 #include <string_view>
 #include <utility>

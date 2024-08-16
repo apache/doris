@@ -51,7 +51,7 @@ import java.util.UUID;
  * 3. create user user@xx [identified by 'password'] role role_name
  *      not only create the specified user, but also grant all privs of the specified role to the user.
  */
-public class CreateUserStmt extends DdlStmt {
+public class CreateUserStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CreateUserStmt.class);
 
     private boolean ifNotExist;

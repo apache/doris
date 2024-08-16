@@ -1259,6 +1259,23 @@ void commit_txn_immediately(
     // Finally we are done...
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
+        if ((err == TxnErrorCode::TXN_VALUE_TOO_LARGE ||
+             err == TxnErrorCode::TXN_BYTES_TOO_LARGE) &&
+            !tmp_rowsets_meta.empty()) {
+            size_t max_size = 0, max_idx = 0;
+            for (size_t i = 0; i < tmp_rowsets_meta.size(); i++) {
+                auto& [k, v] = tmp_rowsets_meta[i];
+                if (v.ByteSizeLong() > max_size) {
+                    max_size = v.ByteSizeLong();
+                    max_idx = i;
+                }
+            }
+            LOG(WARNING) << "failed to commit kv txn"
+                         << ", txn_id=" << txn_id << ", rowset_size=" << max_size << ", err=" << err
+                         << ", rowset_key=" << hex(tmp_rowsets_meta[max_idx].first)
+                         << ", rowset_value="
+                         << tmp_rowsets_meta[max_idx].second.ShortDebugString();
+        }
         code = cast_as<ErrCategory::COMMIT>(err);
         ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
         msg = ss.str();
@@ -1808,8 +1825,30 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
     // Finally we are done...
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
+        if (err == TxnErrorCode::TXN_VALUE_TOO_LARGE || err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+            size_t max_size = 0;
+            std::pair<std::string, RowsetMetaCloudPB>* max_rowset_meta = nullptr;
+            for (auto& sub_txn : sub_txn_infos) {
+                auto it = sub_txn_to_tmp_rowsets_meta.find(sub_txn.sub_txn_id());
+                if (it == sub_txn_to_tmp_rowsets_meta.end()) {
+                    continue;
+                }
+                for (auto& rowset_meta : it->second) {
+                    if (rowset_meta.second.ByteSizeLong() > max_size) {
+                        max_size = rowset_meta.second.ByteSizeLong();
+                        max_rowset_meta = &rowset_meta;
+                    }
+                }
+            }
+            if (max_rowset_meta) {
+                LOG(WARNING) << "failed to commit kv txn with sub txn"
+                             << ", txn_id=" << txn_id << ", rowset_size=" << max_size
+                             << ", err=" << err << ", rowset_key=" << hex(max_rowset_meta->first)
+                             << ", rowset_value=" << max_rowset_meta->second.ShortDebugString();
+            }
+        }
         code = cast_as<ErrCategory::COMMIT>(err);
-        ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
+        ss << "failed to commit kv txn with sub txn, txn_id=" << txn_id << " err=" << err;
         msg = ss.str();
         return;
     }

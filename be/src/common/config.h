@@ -324,11 +324,6 @@ DECLARE_mInt32(doris_scanner_row_num);
 // single read execute fragment row bytes
 DECLARE_mInt32(doris_scanner_row_bytes);
 DECLARE_mInt32(min_bytes_in_scanner_queue);
-// number of max scan keys
-DECLARE_mInt32(doris_max_scan_key_num);
-// the max number of push down values of a single column.
-// if exceed, no conditions will be pushed down for that column.
-DECLARE_mInt32(max_pushdown_conditions_per_column);
 // (Advanced) Maximum size of per-query receive-side buffer
 DECLARE_mInt32(exchg_node_buffer_size_bytes);
 DECLARE_mInt32(exchg_buffer_queue_capacity_factor);
@@ -606,9 +601,9 @@ DECLARE_mInt32(olap_table_sink_send_interval_microseconds);
 DECLARE_mDouble(olap_table_sink_send_interval_auto_partition_factor);
 
 // Fragment thread pool
-DECLARE_Int32(fragment_pool_thread_num_min);
-DECLARE_Int32(fragment_pool_thread_num_max);
-DECLARE_Int32(fragment_pool_queue_size);
+DECLARE_Int32(fragment_mgr_asynic_work_pool_thread_num_min);
+DECLARE_Int32(fragment_mgr_asynic_work_pool_thread_num_max);
+DECLARE_Int32(fragment_mgr_asynic_work_pool_queue_size);
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DECLARE_Int32(num_disks);
@@ -872,12 +867,6 @@ DECLARE_Int32(load_stream_eagain_wait_seconds);
 DECLARE_Int32(load_stream_flush_token_max_tasks);
 // max wait flush token time in load stream
 DECLARE_Int32(load_stream_max_wait_flush_token_time_ms);
-
-// max send batch parallelism for OlapTableSink
-// The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
-// if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
-DECLARE_mInt32(max_send_batch_parallelism_per_job);
-
 // number of send batch thread pool size
 DECLARE_Int32(send_batch_thread_pool_thread_num);
 // number of send batch thread pool queue size

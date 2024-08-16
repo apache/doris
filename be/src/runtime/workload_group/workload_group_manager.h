@@ -66,9 +66,7 @@ private:
     std::shared_mutex _group_mutex;
     std::unordered_map<uint64_t, WorkloadGroupPtr> _workload_groups;
 
-    std::shared_mutex _init_cg_ctl_lock;
-    std::unique_ptr<CgroupCpuCtl> _cg_cpu_ctl;
-    bool _is_init_succ = false;
+    std::shared_mutex _clear_cgroup_lock;
 };
 
 } // namespace doris

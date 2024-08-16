@@ -29,6 +29,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
@@ -339,16 +340,27 @@ public class SortNode extends PlanNode {
         msg.sort_node.setIsAnalyticSort(isAnalyticSort);
         msg.sort_node.setIsColocate(isColocate);
 
-        boolean isFixedLength = info.getOrderingExprs().stream().allMatch(e -> !e.getType().isStringType()
-                && !e.getType().isCollectionType());
+        boolean isFixedLength = info.getOrderingExprs().stream()
+                .allMatch(e -> !e.getType().isStringType() && !e.getType().isCollectionType());
+        ConnectContext connectContext = ConnectContext.get();
         TSortAlgorithm algorithm;
-        if (limit > 0 && limit + offset < 1024 && (useTwoPhaseReadOpt || hasRuntimePredicate
-                || isFixedLength)) {
-            algorithm = TSortAlgorithm.HEAP_SORT;
-        } else if (limit > 0 && !isFixedLength && limit + offset < 256) {
-            algorithm = TSortAlgorithm.TOPN_SORT;
+        if (connectContext != null && !connectContext.getSessionVariable().forceSortAlgorithm.isEmpty()) {
+            String algo = connectContext.getSessionVariable().forceSortAlgorithm;
+            if (algo.equals("heap")) {
+                algorithm = TSortAlgorithm.HEAP_SORT;
+            } else if (algo.equals("topn")) {
+                algorithm = TSortAlgorithm.TOPN_SORT;
+            } else {
+                algorithm = TSortAlgorithm.FULL_SORT;
+            }
         } else {
-            algorithm = TSortAlgorithm.FULL_SORT;
+            if (limit > 0 && limit + offset < 1024 && (useTwoPhaseReadOpt || hasRuntimePredicate || isFixedLength)) {
+                algorithm = TSortAlgorithm.HEAP_SORT;
+            } else if (limit > 0 && !isFixedLength && limit + offset < 256) {
+                algorithm = TSortAlgorithm.TOPN_SORT;
+            } else {
+                algorithm = TSortAlgorithm.FULL_SORT;
+            }
         }
         msg.sort_node.setAlgorithm(algorithm);
     }

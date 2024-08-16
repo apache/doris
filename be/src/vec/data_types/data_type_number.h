@@ -50,6 +50,7 @@ using DataTypeInt64 = DataTypeNumber<Int64>;
 using DataTypeInt128 = DataTypeNumber<Int128>;
 using DataTypeFloat32 = DataTypeNumber<Float32>;
 using DataTypeFloat64 = DataTypeNumber<Float64>;
+using DataTypeBool = DataTypeUInt8;
 
 template <typename DataType>
 constexpr bool IsDataTypeNumber = false;

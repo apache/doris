@@ -50,7 +50,7 @@ import java.util.UUID;
 /**
  * Create stage.
  */
-public class CreateStageStmt extends DdlStmt {
+public class CreateStageStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CreateStageStmt.class);
 
     @Getter

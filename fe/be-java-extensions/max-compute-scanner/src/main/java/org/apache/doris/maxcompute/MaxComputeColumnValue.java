@@ -32,8 +32,12 @@ import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.SmallIntVector;
 import org.apache.arrow.vector.TimeStampNanoVector;
 import org.apache.arrow.vector.TinyIntVector;
+import org.apache.arrow.vector.ValueVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
+import org.apache.arrow.vector.complex.ListVector;
+import org.apache.arrow.vector.complex.MapVector;
+import org.apache.arrow.vector.complex.StructVector;
 import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
@@ -49,13 +53,18 @@ import java.util.List;
 public class MaxComputeColumnValue implements ColumnValue {
     private static final Logger LOG = Logger.getLogger(MaxComputeColumnValue.class);
     private int idx;
-    private FieldVector column;
+    private ValueVector column;
 
     public MaxComputeColumnValue() {
         idx = 0;
     }
 
-    public void reset(FieldVector column) {
+    public MaxComputeColumnValue(ValueVector valueVector, int i) {
+        this.column = valueVector;
+        this.idx = i;
+    }
+
+    public void reset(ValueVector column) {
         this.column = column;
         this.idx = 0;
     }
@@ -222,16 +231,38 @@ public class MaxComputeColumnValue implements ColumnValue {
 
     @Override
     public void unpackArray(List<ColumnValue> values) {
-
+        skippedIfNull();
+        ListVector listCol = (ListVector) column;
+        for (int i = 0; i < listCol.getDataVector().getValueCount(); i++) {
+            MaxComputeColumnValue val = new MaxComputeColumnValue(listCol.getDataVector(), i);
+            values.add(val);
+        }
     }
 
     @Override
     public void unpackMap(List<ColumnValue> keys, List<ColumnValue> values) {
-
+        skippedIfNull();
+        MapVector mapCol = (MapVector) column;
+        FieldVector keyList = mapCol.getDataVector().getChildrenFromFields().get(0);
+        for (int i = 0; i < keyList.getValueCount(); i++) {
+            MaxComputeColumnValue val = new MaxComputeColumnValue(keyList, i);
+            keys.add(val);
+        }
+        FieldVector valList = mapCol.getDataVector().getChildrenFromFields().get(1);
+        for (int i = 0; i < valList.getValueCount(); i++) {
+            MaxComputeColumnValue val = new MaxComputeColumnValue(valList, i);
+            values.add(val);
+        }
     }
 
     @Override
     public void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values) {
-
+        skippedIfNull();
+        StructVector structCol = (StructVector) column;
+        for (Integer fieldIndex : structFieldIndex) {
+            MaxComputeColumnValue val = new MaxComputeColumnValue(structCol.getChildByOrdinal(fieldIndex), idx);
+            values.add(val);
+        }
+        idx++;
     }
 }
