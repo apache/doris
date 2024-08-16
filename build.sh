@@ -271,6 +271,12 @@ else
     fi
 fi
 
+ARCH="$(uname -m)"
+if [[ "${ARCH}" == "aarch64" ]]; then
+    echo "WARNING: Cloud module is not supported on ARM platform, will skip building it."
+    BUILD_CLOUD=0
+fi
+
 if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
