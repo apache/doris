@@ -799,7 +799,7 @@ public class SystemInfoService {
         }
     }
 
-    private ImmutableMap<Long, Backend> getAllClusterBackendsNoException() {
+    public ImmutableMap<Long, Backend> getAllClusterBackendsNoException() {
         try {
             return getAllBackendsByAllCluster();
         } catch (AnalysisException e) {

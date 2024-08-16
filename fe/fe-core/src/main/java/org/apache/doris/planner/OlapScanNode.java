@@ -40,6 +40,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
@@ -751,7 +752,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     private void addScanRangeLocations(Partition partition,
-            List<Tablet> tablets) throws UserException {
+            List<Tablet> tablets, Map<Long, Set<Long>> backendAlivePathHashs) throws UserException {
         long visibleVersion = Partition.PARTITION_INIT_VERSION;
 
         // For cloud mode, set scan range visible version in Coordinator.exec so that we could
@@ -804,7 +805,8 @@ public class OlapScanNode extends ScanNode {
             //
             // ATTN: visibleVersion is not used in cloud mode, see CloudReplica.checkVersionCatchup
             // for details.
-            List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion, skipMissingVersion);
+            List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion,
+                    backendAlivePathHashs, skipMissingVersion);
             if (replicas.isEmpty()) {
                 if (ConnectContext.get().getSessionVariable().skipBadTablet) {
                     continue;
@@ -1168,6 +1170,12 @@ public class OlapScanNode extends ScanNode {
          */
         Preconditions.checkState(scanBackendIds.size() == 0);
         Preconditions.checkState(scanTabletIds.size() == 0);
+        Map<Long, Set<Long>> backendAlivePathHashs = Maps.newHashMap();
+        for (Backend backend : Env.getCurrentSystemInfo().getAllClusterBackendsNoException().values()) {
+            backendAlivePathHashs.put(backend.getId(), backend.getDisks().values().stream()
+                    .filter(DiskInfo::isAlive).map(DiskInfo::getPathHash).collect(Collectors.toSet()));
+        }
+
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
@@ -1209,7 +1217,7 @@ public class OlapScanNode extends ScanNode {
 
             totalTabletsNum += selectedTable.getTablets().size();
             selectedSplitNum += tablets.size();
-            addScanRangeLocations(partition, tablets);
+            addScanRangeLocations(partition, tablets, backendAlivePathHashs);
         }
     }
 
