@@ -2817,16 +2817,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public String getPartitionName(long partitionId) throws AnalysisException {
-        readLock();
-        try {
-            return getPartitionOrAnalysisException(partitionId).getName();
-        } finally {
-            readUnlock();
-        }
-    }
-
-    @Override
     public boolean needAutoRefresh() {
         return true;
     }
