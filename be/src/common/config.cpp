@@ -273,11 +273,6 @@ DEFINE_mInt32(doris_scanner_row_num, "16384");
 // single read execute fragment row bytes
 DEFINE_mInt32(doris_scanner_row_bytes, "10485760");
 DEFINE_mInt32(min_bytes_in_scanner_queue, "67108864");
-// number of max scan keys
-DEFINE_mInt32(doris_max_scan_key_num, "48");
-// the max number of push down values of a single column.
-// if exceed, no conditions will be pushed down for that column.
-DEFINE_mInt32(max_pushdown_conditions_per_column, "1024");
 // (Advanced) Maximum size of per-query receive-side buffer
 DEFINE_mInt32(exchg_node_buffer_size_bytes, "20485760");
 DEFINE_mInt32(exchg_buffer_queue_capacity_factor, "64");
@@ -810,14 +805,6 @@ DEFINE_Int32(load_stream_eagain_wait_seconds, "600");
 DEFINE_Int32(load_stream_flush_token_max_tasks, "15");
 // max wait flush token time in load stream
 DEFINE_Int32(load_stream_max_wait_flush_token_time_ms, "600000");
-
-// max send batch parallelism for OlapTableSink
-// The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
-// if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
-DEFINE_mInt32(max_send_batch_parallelism_per_job, "5");
-DEFINE_Validator(max_send_batch_parallelism_per_job,
-                 [](const int config) -> bool { return config >= 1; });
-
 // number of send batch thread pool size
 DEFINE_Int32(send_batch_thread_pool_thread_num, "64");
 // number of send batch thread pool queue size
