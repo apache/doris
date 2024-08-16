@@ -457,6 +457,9 @@ if (NOT EXISTS ${THIRDPARTY_DIR}/include/foundationdb)
     execute_process(COMMAND "tar" "xf" "${THIRDPARTY_SRC}/${FDB_LIB}" "-C" "${THIRDPARTY_DIR}/")
 endif ()
 
+# enable glog custom prefix
+add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
+
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lfdb_c -L${THIRDPARTY_DIR}/lib")
 
 add_subdirectory(${SRC_DIR}/common)
