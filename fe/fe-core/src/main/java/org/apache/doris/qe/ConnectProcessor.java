@@ -304,6 +304,12 @@ public abstract class ConnectProcessor {
 
         // stmts == null when Nereids cannot planner this query or Nereids is disabled.
         if (stmts == null) {
+            if (mysqlCommand == MysqlCommand.COM_STMT_PREPARE) {
+                // avoid fall back to legacy planner
+                ctx.getState().setError(ErrorCode.ERR_UNSUPPORTED_PS, "Not supported such prepared statement");
+                ctx.getState().setErrType(QueryState.ErrType.OTHER_ERR);
+                return;
+            }
             try {
                 stmts = parse(convertedStmt);
             } catch (Throwable throwable) {
