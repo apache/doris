@@ -98,7 +98,7 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
                 for (int j = 0; j < qualifier.size(); j++) {
                     newQualifier.set(newQualifier.size() - qualifier.size() + j, qualifier.get(j));
                 }
-            } else if (newQualifier.isEmpty()){
+            } else if (newQualifier.isEmpty()) {
                 newQualifier.addAll(qualifier);
             }
 
