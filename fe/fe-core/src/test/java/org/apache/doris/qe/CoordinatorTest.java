@@ -452,19 +452,19 @@ public class CoordinatorTest extends Coordinator {
         Deencapsulation.setField(bucketShuffleJoinController, "fragmentIdBucketSeqToScanRangeMap", fragmentIdBucketSeqToScanRangeMap);
 
         FragmentExecParams params = new FragmentExecParams(null);
-        Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 1, params);
+        Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 1, params, false);
         Assert.assertEquals(1, params.instanceExecParams.size());
 
         params = new FragmentExecParams(null);
-        Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 2, params);
+        Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 2, params, false);
         Assert.assertEquals(2, params.instanceExecParams.size());
 
         params = new FragmentExecParams(null);
-        Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 3, params);
+        Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 3, params, false);
         Assert.assertEquals(3, params.instanceExecParams.size());
 
         params = new FragmentExecParams(null);
-        Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 5, params);
+        Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 5, params, false);
         Assert.assertEquals(3, params.instanceExecParams.size());
     }
 
@@ -506,7 +506,7 @@ public class CoordinatorTest extends Coordinator {
                 new DataPartition(TPartitionType.UNPARTITIONED));
 
         FragmentExecParams params = new FragmentExecParams(fragment);
-        Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 1, params);
+        Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 1, params, false);
         Assert.assertEquals(1, params.instanceExecParams.size());
         StringBuilder sb = new StringBuilder();
         params.appendTo(sb);
