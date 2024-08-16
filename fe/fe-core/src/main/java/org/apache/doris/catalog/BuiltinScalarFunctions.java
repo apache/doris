@@ -74,6 +74,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayZip;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraysOverlap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AutoPartitionName;
@@ -530,6 +531,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArraysOverlap.class, "arrays_overlap"),
             scalar(Ascii.class, "ascii"),
             scalar(Asin.class, "asin"),
+            scalar(AssertTrue.class, "assert_true"),
             scalar(Atan.class, "atan"),
             scalar(Atan2.class, "atan2"),
             scalar(AutoPartitionName.class, "auto_partition_name"),
