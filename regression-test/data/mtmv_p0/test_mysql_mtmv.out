@@ -5,7 +5,7 @@
 123	20
 
 -- !desc_random --
-count_value	TEXT	Yes	false	\N	NONE
+count_value	text	Yes	false	\N	NONE
 id	INT	Yes	true	\N	
 
 -- !mtmv --
@@ -14,6 +14,6 @@ id	INT	Yes	true	\N
 123	20
 
 -- !desc_hash --
-count_value	VARCHAR(65533)	Yes	true	\N	
+count_value	varchar(65533)	Yes	true	\N
 id	INT	Yes	true	\N	
 

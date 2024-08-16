@@ -91,22 +91,22 @@ varchar_col	text	Yes	false	\N	NONE
 3	99	778108157	61873080930551778	true	9.8627565E8	\N	Technology gene shame stock grandfather initiate cluster. Sympathy including grind right. Colleague pour interference vanish eligible. Campaign fold poison various between. Formal proper prize ray do1.	\N	2022-08-29T19:43:46	908171.0209	desktops	bigint_col	2020-02-29	[8.289095771326624e+17, 1.9573475208108093e+17, 6.703456714526179e+17, 7.245677936816932e+17]	["zJldV", "BWhpggYvPlozXm", "bAbglLACbIPnJXpyjDIa"]	desktops	bigint_col
 
 -- !desc_2 --
-bigint_col	BIGINT	Yes	false	\N	NONE
-binary_col	TEXT	Yes	false	\N	NONE
-boolean_col	BOOLEAN	Yes	false	\N	NONE
-char_col	VARCHAR(65533)	Yes	false	\N	NONE
-date_col	DATE	Yes	false	\N	NONE
-decimal_col	DECIMAL(12, 4)	Yes	false	\N	NONE
-double_col	DOUBLE	Yes	false	\N	NONE
-float_col	FLOAT	Yes	false	\N	NONE
-int_col	INT	Yes	true	\N	
-list_double_col	ARRAY<DOUBLE>	Yes	false	\N	NONE
-list_string_col	ARRAY<TEXT>	Yes	false	\N	NONE
-smallint_col	SMALLINT	Yes	true	\N	
-string_col	TEXT	Yes	false	\N	NONE
-timestamp_col	DATETIME(6)	Yes	false	\N	NONE
-tinyint_col	TINYINT	Yes	true	\N	
-varchar_col	TEXT	Yes	false	\N	NONE
+bigint_col	bigint	Yes	false	\N	NONE
+binary_col	text	Yes	false	\N	NONE
+boolean_col	boolean	Yes	false	\N	NONE
+char_col	varchar(65533)	Yes	false	\N	NONE
+date_col	date	Yes	false	\N	NONE
+decimal_col	decimal(12,4)	Yes	false	\N	NONE
+double_col	double	Yes	false	\N	NONE
+float_col	float	Yes	false	\N	NONE
+int_col	int	Yes	true	\N
+list_double_col	array<double>	Yes	false	\N	NONE
+list_string_col	array<text>	Yes	false	\N	NONE
+smallint_col	smallint	Yes	true	\N
+string_col	text	Yes	false	\N	NONE
+timestamp_col	datetime(6)	Yes	false	\N	NONE
+tinyint_col	tinyint	Yes	true	\N
+varchar_col	text	Yes	false	\N	NONE
 
 -- !select_2 --
 1	\N	\N	757403305318104467	false	3.26199968E8	1.0049111235672792E17	Consolidate iron breakfast inhibit obesity mount hearing. Limitation bite sibling creation between sound. Plus1 layer injury favourable detain. Learn pronounced entrepreneur personnel wool strive. Pose curiosity spite absolutely combination right.	\N	2022-08-11T10:09:31	996888.8617	desktops	bigint_col	2015-08-24	[5.084045411017597e+17, 3.942856911182207e+17, 8.38109720690003e+17, 5.0079271855467546e+17]	["NRcqedH", "JIkT", "JXw", "JLvj"]
