@@ -125,5 +125,9 @@ suite("regression_test_variant_rowstore", "variant_type"){
         );
     """
     sql """insert into table_rs_invalid_json values (1, '1|[""]')"""
-    qt_sql "select * from table_rs_invalid_json where col0 = 1"
+    def result2 = connect(user=user, password=password, url=prepare_url) {
+        def stmt = prepareStatement "select * from table_rs_invalid_json where col0 = ?"
+        stmt.setInt(1, 1)
+        qe_point_select stmt
+    }
 }
