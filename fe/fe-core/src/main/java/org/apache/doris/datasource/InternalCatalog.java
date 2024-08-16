@@ -2282,9 +2282,13 @@ public class InternalCatalog implements CatalogIf<Database> {
             return;
         }
         for (int i = 0; i < item.size(); i++) {
-            if (!partitionSlotNullables.get(i) && item.get(i).isNullPartition()) {
-                throw new AnalysisException("Can't have null partition is for NOT NULL partition "
-                        + "column in partition expr's index " + i);
+            try {
+                if (!partitionSlotNullables.get(i) && item.get(i).isNullPartition()) {
+                    throw new AnalysisException("Can't have null partition is for NOT NULL partition "
+                            + "column in partition expr's index " + i);
+                }
+            } catch (IndexOutOfBoundsException e) {
+                throw new AnalysisException("partition item's size out of partition columns: " + e.getMessage());
             }
         }
     }
