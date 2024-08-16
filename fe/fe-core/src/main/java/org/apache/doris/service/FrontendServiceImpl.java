@@ -985,10 +985,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             List<TScanRangeLocations> locations = splitSource.getNextBatch(request.getMaxNumSplits());
             result.setSplits(locations);
+            result.status = new TStatus(TStatusCode.OK);
             return result;
         } catch (Exception e) {
-            throw new TException("Failed to get split source " + request.getSplitSourceId(), e);
+            LOG.warn("failed to fetch split batch with source id {}", request.getSplitSourceId(), e);
+            result.status = new TStatus(TStatusCode.INTERNAL_ERROR);
+            result.status.addToErrorMsgs(e.getMessage());
         }
+        return result;
     }
 
     @Override
