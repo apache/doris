@@ -30,10 +30,8 @@ import com.google.common.collect.ImmutableMap;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Common interface for logical/physical project.
@@ -65,7 +63,7 @@ public interface Project {
      * @return project list for merged project
      */
     default List<NamedExpression> mergeProjections(Project childProject) {
-        Set<NamedExpression> projects = new HashSet<>();
+        List<NamedExpression> projects = new ArrayList<>();
         projects.addAll(PlanUtils.mergeProjections(childProject.getProjects(), getProjects()));
         for (NamedExpression expression : childProject.getProjects()) {
             // keep NoneMovableFunction for later use
@@ -73,7 +71,7 @@ public interface Project {
                 projects.add(expression);
             }
         }
-        return new ArrayList<>(projects);
+        return projects;
     }
 
     /**

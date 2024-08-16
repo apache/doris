@@ -378,7 +378,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             }
 
             if (!ctx.subqueryIsAnalyzed(subqueryExpr)) {
-                tmpPlan = addApply(subqueryExpr, childPlan,
+                tmpPlan = addApply(subqueryExpr, tmpPlan.first,
                     subqueryToMarkJoinSlot, ctx, conjunct,
                     isProject, subqueryExprs.size() == 1, isMarkJoinSlotNotNull);
             }
@@ -410,6 +410,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         Slot anyValueSlot = null;
         Optional<Expression> newConjunct = conjunct;
         if (needAddScalarSubqueryOutputToProjects && subquery instanceof ScalarSubquery
+                && !subquery.getCorrelateSlots().isEmpty()
                 && !((ScalarSubquery) subquery).hasTopLevelScalarAgg()) {
             // if scalar subquery doesn't have top level scalar agg we will create one, for example
             // select (select t2.c1 from t2 where t2.c2 = t1.c2) from t1;
