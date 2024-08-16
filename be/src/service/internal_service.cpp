@@ -912,9 +912,8 @@ void PInternalService::tablet_batch_fetch_data(google::protobuf::RpcController* 
     auto pending_requests =
             std::make_shared<std::atomic_int>(batchRequest->sub_key_lookup_req_size());
     auto done_called = std::make_shared<std::atomic_bool>(false);
-    bool ret = _light_work_pool.try_offer([this, controller,
-                                           batchRequest, batchResponse,
-                                           done, pending_requests, done_called]() {
+    bool ret = _light_work_pool.try_offer([this, controller, batchRequest, batchResponse, done,
+                                           pending_requests, done_called]() {
         for (int i = 0; i < batchRequest->sub_key_lookup_req_size(); ++i) {
             batchResponse->add_sub_key_lookup_res();
             const PTabletKeyLookupRequest* request = &batchRequest->sub_key_lookup_req(i);
