@@ -51,6 +51,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
                 "enable_hms_events_incremental_sync" ="true",
                "hms_events_batch_size_per_rpc" = "100000"
             );"""
+            sleep(wait_time);
 
             sql """ switch ${catalog_name} """
             

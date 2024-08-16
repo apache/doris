@@ -49,6 +49,8 @@ suite("test_hms_event_notification", "p0,external,hive,external_docker,external_
                 "use_meta_cache" = "false",
                 "enable_hms_events_incremental_sync" ="true"
             );"""
+            
+            sleep(wait_time);
 
             sql """ switch ${catalog_name} """
             
