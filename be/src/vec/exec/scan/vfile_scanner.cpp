@@ -581,8 +581,11 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                                                                          _num_of_columns_from_file);
                                 },
                                 [&]() -> std::string {
-                                    auto raw_value = _src_block_ptr->get_by_position(ctx_idx)
-                                                             .column->get_data_at(i);
+                                    auto raw_value =
+                                            _src_block_ptr
+                                                    ->get_by_position(_dest_slot_to_src_slot_index
+                                                                              [dest_index])
+                                                    .column->get_data_at(i);
                                     std::string raw_string = raw_value.to_string();
                                     fmt::memory_buffer error_msg;
                                     fmt::format_to(error_msg,
