@@ -179,13 +179,17 @@ Status ParallelScannerBuilder::_load() {
             RETURN_IF_ERROR(tablet->capture_consistent_rowsets_unlocked({0, version}, &rowsets));
         }
 
+        bool enable_segment_cache = _state->query_options().__isset.enable_segment_cache
+                                            ? _state->query_options().enable_segment_cache
+                                            : true;
         for (auto& rowset : rowsets) {
             RETURN_IF_ERROR(rowset->load());
             const auto rowset_id = rowset->rowset_id();
             auto& segment_cache_handle = _segment_cache_handles[rowset_id];
 
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                    std::dynamic_pointer_cast<BetaRowset>(rowset), &segment_cache_handle, true));
+                    std::dynamic_pointer_cast<BetaRowset>(rowset), &segment_cache_handle,
+                    enable_segment_cache, false));
             _total_rows += rowset->num_rows();
         }
     }
