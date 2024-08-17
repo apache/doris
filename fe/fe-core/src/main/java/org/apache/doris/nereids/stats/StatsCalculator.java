@@ -1437,6 +1437,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private ColumnStatistic unionColumn(ColumnStatistic leftStats, double leftRowCount, ColumnStatistic rightStats,
             double rightRowCount, DataType dataType) {
+        if (leftStats.isUnKnown() || rightStats.isUnKnown()) {
+            return new ColumnStatisticBuilder(leftStats).setCount(leftRowCount + rightRowCount).build();
+        }
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
         columnStatisticBuilder.setMaxValue(Math.max(leftStats.maxValue, rightStats.maxValue));
         columnStatisticBuilder.setMinValue(Math.min(leftStats.minValue, rightStats.minValue));

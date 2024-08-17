@@ -374,7 +374,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     public ColumnStatistic visitCount(Count count, Statistics context) {
         double width = count.getDataType().width();
         // for scalar agg, ndv and row count will be normalized by 1 in StatsCalculator.computeAggregate()
-        return new  ColumnStatisticBuilder(ColumnStatistic.UNKNOWN).setCount(context.getRowCount())
+        return new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN).setCount(context.getRowCount())
                 .setAvgSizeByte(width).build();
     }
 
