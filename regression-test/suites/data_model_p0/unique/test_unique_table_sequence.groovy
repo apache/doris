@@ -173,6 +173,9 @@ suite("test_unique_table_sequence") {
         }
         sql "commit;"
 
+        sql """set enable_nereids_dml = true; """
+        sql """set enable_nereids_planner=true"""
+
         sql "begin;"
         sql "insert into ${tableName} (k1, v1, v2, v3, `or`, __doris_sequence_col__) values (1,1,1,1,1,1),(2,2,2,2,2,2),(3,3,3,3,3,3);"
         sql "commit;"

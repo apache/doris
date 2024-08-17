@@ -242,6 +242,9 @@ suite("insert_group_commit_into") {
                 assertEquals(23, rowCount[0][0])
 
                 // txn insert
+                sql """ set enable_nereids_dml = true; """
+                sql """ set enable_nereids_planner=true; """
+                sql """ set enable_fallback_to_original_planner=false; """
                 def stmt = prepareStatement """ begin  """
                 stmt.executeUpdate()
                 txn_insert """ insert into ${table}(id, name, score) values(20, 'i', 101);  """, 1

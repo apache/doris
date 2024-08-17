@@ -40,11 +40,11 @@ public class GroupBitAnd extends NullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(TinyIntType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(SmallIntType.INSTANCE).args(SmallIntType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE),
+            FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
-            FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE)
+            FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE),
+            FunctionSignature.ret(SmallIntType.INSTANCE).args(SmallIntType.INSTANCE),
+            FunctionSignature.ret(TinyIntType.INSTANCE).args(TinyIntType.INSTANCE)
     );
 
     /**
