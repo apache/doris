@@ -21,7 +21,7 @@ suite("test_hms_event_notification", "p0,external,hive,external_docker,external_
         logger.info("diable Hive test.")
         return;
     }
-
+    for (String useMetaCache : ["true","false"] ) {
     for (String hivePrefix : [ "hive2","hive3"]) {
         try {
             setHivePrefix(hivePrefix)
@@ -38,7 +38,7 @@ suite("test_hms_event_notification", "p0,external,hive,external_docker,external_
             sql """create catalog if not exists ${catalog_name} properties (
                 "type"="hms",
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-                "use_meta_cache" = "false",
+                "use_meta_cache" = "${useMetaCache}",
                 "enable_hms_events_incremental_sync" ="true",
                "hms_events_batch_size_per_rpc" = "1000"
             );"""
@@ -46,7 +46,7 @@ suite("test_hms_event_notification", "p0,external,hive,external_docker,external_
             sql """create catalog if not exists ${catalog_name_2} properties (
                 "type"="hms",
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-                "use_meta_cache" = "false",
+                "use_meta_cache" = "${useMetaCache}",
                 "enable_hms_events_incremental_sync" ="true"
             );"""
             
@@ -382,6 +382,7 @@ suite("test_hms_event_notification", "p0,external,hive,external_docker,external_
 
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
+        }
         }
     }
 }

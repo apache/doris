@@ -128,7 +128,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
                 } catch (MetastoreNotificationFetchException e) {
                     LOG.warn("Failed to fetch hms events on {}. msg: ", hmsExternalCatalog.getName(), e);
                 } catch (Exception ex) {
-                    hmsExternalCatalog.onRefresh(true);
+                    hmsExternalCatalog.onRefreshCache(true);
                     updateLastSyncedEventId(hmsExternalCatalog, -1);
                     LOG.warn("Failed to process hive metastore [{}] events .",
                             hmsExternalCatalog.getName(), ex);
@@ -212,9 +212,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             return null;
         }
 
-        int batchSize = hmsExternalCatalog.getHmsEventsBatchSizePerRpc() == -1
-                ? Config.hms_events_batch_size_per_rpc
-                : hmsExternalCatalog.getHmsEventsBatchSizePerRpc();
+        int batchSize = hmsExternalCatalog.getHmsEventsBatchSizePerRpc();
         try {
             NotificationEventResponse notificationEventResponse =
                     hmsExternalCatalog.getClient().getNextNotification(lastSyncedEventId, batchSize, null);

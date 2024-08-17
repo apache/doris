@@ -492,8 +492,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 metaCache.updateCache(tableName, (T) tableIf, Util.genIdByName(getQualifiedName(tableName)));
             }
         } else {
-            tableNameToId.put(tableName, tableId);
-            idToTbl.put(tableId, buildTableForInit(tableName, tableId, extCatalog));
+            if (!tableNameToId.containsKey(tableName)) {
+                tableNameToId.put(tableName, tableId);
+                idToTbl.put(tableId, buildTableForInit(tableName, tableId, extCatalog));
+            }
         }
         setLastUpdateTime(System.currentTimeMillis());
         return true;
