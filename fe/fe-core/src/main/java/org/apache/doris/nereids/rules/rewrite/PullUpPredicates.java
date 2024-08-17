@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
@@ -176,8 +177,10 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             ImmutableSet<Expression> rightPredicates = join.right().accept(this, context);
             predicates.addAll(leftPredicates);
             predicates.addAll(rightPredicates);
-            predicates.addAll(join.getHashJoinConjuncts());
-            predicates.addAll(join.getOtherJoinConjuncts());
+            if (join.getJoinType() == JoinType.CROSS_JOIN || join.getJoinType() == JoinType.INNER_JOIN) {
+                predicates.addAll(join.getHashJoinConjuncts());
+                predicates.addAll(join.getOtherJoinConjuncts());
+            }
             return getAvailableExpressions(predicates, join);
         });
     }
