@@ -230,7 +230,7 @@ public:
 
     virtual bool can_push_down_to_index() const { return false; }
     virtual bool can_fast_execute() const { return false; }
-    virtual Status eval_inverted_index(VExprContext* context, segment_v2::FuncExprParams& params,
+    virtual Status eval_inverted_index(segment_v2::FuncExprParams& params,
                                        std::shared_ptr<roaring::Roaring>& result) {
         return Status::NotSupported("Not supported execute_with_inverted_index");
     }
