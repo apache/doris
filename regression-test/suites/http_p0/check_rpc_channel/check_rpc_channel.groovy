@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -15,21 +16,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+suite('check_rpc_channel') {
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    def backendId_to_backendBrpcPort = [:]    
 
-#include "http/http_handler_with_auth.h"
-
-namespace doris {
-class ExecEnv;
-class HttpRequest;
-
-class CheckRPCChannelAction : public HttpHandlerWithAuth {
-public:
-    explicit CheckRPCChannelAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
-                                   TPrivilegeType::type type);
-
-    ~CheckRPCChannelAction() override = default;
-
-    void handle(HttpRequest* req) override;
-};
-} // namespace doris
+    getBackendIpHttpAndBrpcPort(backendId_to_backendIP, backendId_to_backendHttpPort, backendId_to_backendBrpcPort);
+    for (int i=0;i<backendId_to_backendIP.size();i++){
+        def beHttpAddress =backendId_to_backendIP.entrySet()[i].getValue()+":"+backendId_to_backendHttpPort.entrySet()[i].getValue()
+        curl("POST",beHttpAddress+"/api/check_rpc_channel/"+backendId_to_backendIP.entrySet()[i].getValue()+"/"+backendId_to_backendBrpcPort.entrySet()[i].getValue()+"/1024000")
+    }
+}
