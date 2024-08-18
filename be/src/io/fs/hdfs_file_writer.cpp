@@ -20,9 +20,12 @@
 #include <fcntl.h>
 #include <fmt/core.h>
 #include <glog/logging.h>
+#include <hadoop_hdfs/hdfs.h>
 
 #include <chrono>
+#include <condition_variable>
 #include <filesystem>
+#include <mutex>
 #include <ostream>
 #include <random>
 #include <string>
@@ -55,6 +58,10 @@ bvar::Adder<uint64_t> hdfs_file_writer_async_close_queuing("hdfs_file_writer_asy
 bvar::Adder<uint64_t> hdfs_file_writer_async_close_processing(
         "hdfs_file_writer_async_close_processing");
 
+bvar::Adder<uint64_t> hdfs_write_acquire_memory_failed("hdfs_write_acquire_memory_failed");
+bvar::Adder<uint64_t> hdfs_write_acquire_memory_reach_max_retry(
+        "hdfs_write_acquire_memory_reach_max_retry");
+
 static constexpr size_t MB = 1024 * 1024;
 #ifndef USE_LIBHDFS3
 static constexpr size_t CLIENT_WRITE_PACKET_SIZE = 64 * 1024; // 64 KB
@@ -63,86 +70,81 @@ static constexpr size_t CLIENT_WRITE_PACKET_SIZE = 64 * 1024; // 64 KB
 using namespace std::chrono;
 
 inline std::default_random_engine make_random_engine() {
-    return std::default_random_engine(
+    static auto rand = std::default_random_engine(
             static_cast<uint32_t>(std::chrono::steady_clock::now().time_since_epoch().count()));
+    return rand;
 }
 
 // In practice, we've found that if the import frequency to HDFS is too fast,
 // it can cause an OutOfMemoryError (OOM) in the JVM started by the JNI.
 // For this, we should have a method to monitor how much JVM memory is currently being used.
-// The HdfsWriteMemUsageRecorder class increments a recorded value during hdfsWrite when writing to HDFS.
+// The HdfsWriteMemUsageLimiter class increments a recorded value during hdfsWrite when writing to HDFS.
 // The HDFS client will blockingly call hdfsHsync or hdfsCloseFile
 // which ensures that the client's buffer is sent to the data node and returned with an acknowledgment before returning to the caller.
-// HdfsWriteMemUsageRecorder would reduce the mem usage at that time.
+// HdfsWriteMemUsageLimiter would reduce the mem usage at that time.
 // If the current usage exceeds the maximum set by the user, the current mem acquire would return failure.
 // The caller could do sleep to wait for free memory.
-class HdfsWriteMemUsageRecorder {
+class HdfsWriteMemUsageLimiter {
 public:
-    HdfsWriteMemUsageRecorder() = default;
-    ~HdfsWriteMemUsageRecorder() = default;
-    size_t max_usage() const {
+    HdfsWriteMemUsageLimiter() = default;
+    ~HdfsWriteMemUsageLimiter() = default;
+
+    size_t usage_limit() const {
         return static_cast<size_t>(max_jvm_heap_size() *
                                    config::max_hdfs_wirter_jni_heap_usage_ratio);
     }
-    Status acquire_memory(size_t memory_size, int try_time) {
-#if defined(USE_LIBHDFS3) || defined(BE_TEST)
-        return Status::OK();
-#else
-        if (!config::enable_hdfs_mem_limiter) {
+
+    Status acquire_memory(size_t memory_size, int retry_time) {
+        size_t mem_usage_limit = usage_limit();
+        std::unique_lock lck {cur_memory_latch};
+        if (cur_memory_comsuption + memory_size <= mem_usage_limit) {
+            cur_memory_comsuption += memory_size;
             return Status::OK();
         }
-        auto unit = config::hdfs_jni_write_sleep_milliseconds;
-        std::default_random_engine rng = make_random_engine();
-        std::uniform_int_distribution<uint32_t> u(unit, 2 * unit);
-        std::uniform_int_distribution<uint32_t> u2(2 * unit, 4 * unit);
-        auto duration_ms =
-                try_time < (config::hdfs_jni_write_max_retry_time / 2) ? u(rng) : u2(rng);
-        std::unique_lock lck {cur_memory_latch};
-        cv.wait_for(lck, std::chrono::milliseconds(duration_ms),
-                    [&]() { return cur_memory_comsuption + memory_size <= max_usage(); });
-        if (cur_memory_comsuption + memory_size > max_usage()) {
-            lck.unlock();
-            return Status::InternalError<false>(
-                    "Run out of Jni jvm heap space, current limit size is {}, max heap size is {}, "
-                    "ratio is {}",
-                    max_usage(), max_jvm_heap_size(), config::max_hdfs_wirter_jni_heap_usage_ratio);
-        }
-        cur_memory_comsuption += memory_size;
-        lck.unlock();
 
-        LOG_EVERY_T(INFO, 30) << "HdfsWriteMemUsage: " << cur_memory_comsuption;
+        auto rng = make_random_engine();
+        auto unit = config::hdfs_jni_write_sleep_milliseconds;
+        std::uniform_int_distribution<uint32_t> u(unit, 2 * unit);
+        auto sleep_ms = u(rng);
+        if (retry_time >= config::hdfs_jni_write_max_retry_time / 2) {
+            sleep_ms *= 2;
+        }
+
+        cv.wait_for(lck, std::chrono::milliseconds(sleep_ms),
+                    [&]() { return cur_memory_comsuption + memory_size <= mem_usage_limit; });
+
+        if (cur_memory_comsuption + memory_size > mem_usage_limit) {
+            lck.unlock();
+            hdfs_write_acquire_memory_failed << 1;
+            return Status::InternalError<false>(
+                    "Run out of Jni jvm heap space, current usage: {}, limit: {}",
+                    cur_memory_comsuption, mem_usage_limit);
+        }
 
         return Status::OK();
-#endif
     }
 
     void release_memory(size_t memory_size) {
-#if defined(USE_LIBHDFS3) || defined(BE_TEST)
-#else
-        if (!config::enable_hdfs_mem_limiter) {
-            return;
-        }
+        size_t mem_usage_limit = usage_limit();
         std::unique_lock lck {cur_memory_latch};
         size_t origin_size = cur_memory_comsuption;
         cur_memory_comsuption -= memory_size;
-        if (cur_memory_comsuption < max_usage() && origin_size > max_usage()) {
+        if (origin_size > mem_usage_limit && cur_memory_comsuption < mem_usage_limit) {
             cv.notify_all();
         }
-#endif
     }
 
 private:
-    // clang-format off
-    size_t max_jvm_heap_size() const {
-        return JniUtil::get_max_jni_heap_memory_size();
-    }
-    // clang-format on
-    [[maybe_unused]] std::size_t cur_memory_comsuption {0};
+    size_t max_jvm_heap_size() const { return JniUtil::get_max_jni_heap_memory_size(); }
+
+    std::size_t cur_memory_comsuption {0};
     std::mutex cur_memory_latch;
     std::condition_variable cv;
 };
 
-static HdfsWriteMemUsageRecorder g_hdfs_write_rate_limiter;
+namespace {
+HdfsWriteMemUsageLimiter g_hdfs_write_rate_limiter;
+}
 
 HdfsFileWriter::HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, hdfsFile hdfs_file,
                                std::string fs_name, const FileWriterOptions* opts)
@@ -176,51 +178,59 @@ HdfsFileWriter::~HdfsFileWriter() {
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_close_latency);
         hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
         inflight_hdfs_file_writer << -1;
-        _flush_and_reset_approximate_jni_buffer_size();
+        _reset_approximate_jni_buffer_size();
     }
 }
 
-void HdfsFileWriter::_flush_and_reset_approximate_jni_buffer_size() {
-    g_hdfs_write_rate_limiter.release_memory(_approximate_jni_buffer_size);
-    _approximate_jni_buffer_size = 0;
+void HdfsFileWriter::_reset_approximate_jni_buffer_size() {
+#if defined(USE_LIBHDFS3) || defined(BE_TEST)
+#else
+    if (_approximate_jni_buffer_size > 0) {
+        g_hdfs_write_rate_limiter.release_memory(_approximate_jni_buffer_size);
+        _approximate_jni_buffer_size = 0;
+    }
+#endif
 }
 
 Status HdfsFileWriter::_acquire_jni_memory(size_t size) {
-#ifdef USE_LIBHDFS3
+#if defined(USE_LIBHDFS3) || defined(BE_TEST)
     return Status::OK();
 #else
-    size_t actual_size = std::max(CLIENT_WRITE_PACKET_SIZE, size);
-    int try_time = 0;
-    if (auto st = g_hdfs_write_rate_limiter.acquire_memory(actual_size, try_time); !st.ok()) {
-        if (_approximate_jni_buffer_size > 0) {
-            int ret;
-            {
-                SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_hflush_latency);
-                ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsHFlush(_hdfs_handler->hdfs_fs, _hdfs_file),
-                                                   "HdfsFileWriter::close::hdfsHFlush");
-            }
-            _flush_and_reset_approximate_jni_buffer_size();
-            if (ret != 0) {
-                return Status::InternalError(
-                        "Write hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}, "
-                        "file_size={}",
-                        BackendOptions::get_localhost(), _fs_name, _path.native(), hdfs_error(),
-                        bytes_appended());
-            }
-        }
-        // Other hdfs writers might have occupied too much memory, we need to sleep for a while to wait for them
-        // releasing their memory
-        for (; try_time < config::hdfs_jni_write_max_retry_time; try_time++) {
-            if (g_hdfs_write_rate_limiter.acquire_memory(actual_size, try_time).ok()) {
-                _approximate_jni_buffer_size += actual_size;
-                return Status::OK();
-            }
-        }
+    size = std::max(CLIENT_WRITE_PACKET_SIZE, size);
+    int retry_time = 0;
+    auto st = g_hdfs_write_rate_limiter.acquire_memory(size, retry_time);
+    if (st.ok()) {
+        _approximate_jni_buffer_size += size;
         return st;
     }
 
-    _approximate_jni_buffer_size += actual_size;
-    return Status::OK();
+    if (_approximate_jni_buffer_size > 0) {
+        int ret;
+        {
+            SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_hflush_latency);
+            ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsHFlush(_hdfs_handler->hdfs_fs, _hdfs_file),
+                                               "HdfsFileWriter::close::hdfsHFlush");
+        }
+        _reset_approximate_jni_buffer_size();
+        if (ret != 0) {
+            return Status::InternalError(
+                    "Write hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}, "
+                    "file_size={}",
+                    BackendOptions::get_localhost(), _fs_name, _path.native(), hdfs_error(),
+                    bytes_appended());
+        }
+    }
+
+    while (++retry_time <= config::hdfs_jni_write_max_retry_time) {
+        st = g_hdfs_write_rate_limiter.acquire_memory(size, retry_time);
+        if (st.ok()) {
+            _approximate_jni_buffer_size += size;
+            return st;
+        }
+    }
+
+    hdfs_write_acquire_memory_reach_max_retry << 1;
+    return st;
 #endif
 }
 
@@ -260,8 +270,7 @@ Status HdfsFileWriter::close(bool non_block) {
 }
 
 Status HdfsFileWriter::_close_impl() {
-    TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsCloseFile",
-                                           Status::InternalError("failed to close hdfs file"));
+    TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsCloseFile", Status::OK());
 
     if (_batch_buffer.size() != 0) {
         if (_st = _flush_buffer(); !_st.ok()) {
@@ -278,11 +287,10 @@ Status HdfsFileWriter::_close_impl() {
 #else
             ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsHSync(_hdfs_handler->hdfs_fs, _hdfs_file),
                                                "HdfsFileWriter::close::hdfsHSync");
-            _flush_and_reset_approximate_jni_buffer_size();
 #endif
         }
-        TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsSync",
-                                               Status::InternalError("failed to sync hdfs file"));
+        _reset_approximate_jni_buffer_size();
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsSync", Status::OK());
 
         if (ret != 0) {
             _st = Status::InternalError(
@@ -299,9 +307,9 @@ Status HdfsFileWriter::_close_impl() {
         ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file),
                                            "HdfsFileWriter::close::hdfsCloseFile");
     }
+    _reset_approximate_jni_buffer_size();
 
     inflight_hdfs_file_writer << -1;
-    _flush_and_reset_approximate_jni_buffer_size();
     auto inflight_duration =
             duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count() -
             _creation_time_ms;
@@ -387,11 +395,8 @@ Status HdfsFileWriter::append_hdfs_file(std::string_view content) {
                     hdfsWrite(_hdfs_handler->hdfs_fs, _hdfs_file, content.data(), content.size()),
                     "HdfsFileWriter::append_hdfs_file::hdfsWrite", content);
             {
-                TEST_INJECTION_POINT_RETURN_WITH_VALUE(
-                        "HdfsFileWriter::append_hdfs_file_error",
-                        Status::InternalError(
-                                "write hdfs failed. fs_name: {}, path: {}, error: inject error",
-                                _fs_name, _path.native()));
+                TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::append_hdfs_file_error",
+                                                       Status::OK());
             }
         }
         if (written_bytes < 0) {
@@ -401,6 +406,21 @@ Status HdfsFileWriter::append_hdfs_file(std::string_view content) {
         }
         hdfs_bytes_written_total << written_bytes;
         content.remove_prefix(written_bytes);
+
+        if (_approximate_jni_buffer_size >= config::hdfs_flush_threshold) {
+            int ret;
+            {
+                SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_hflush_latency);
+                ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsHFlush(_hdfs_handler->hdfs_fs, _hdfs_file),
+                                                   "HdfsFileWriter::append_hdfs_file::hdfsHFlush");
+            }
+            _reset_approximate_jni_buffer_size();
+            if (ret != 0) {
+                return Status::InternalError(
+                        "failed to flush hdfs file. fs_name: {}, path: {}, error: {}, file_size={}",
+                        _fs_name, _path.native(), hdfs_error(), bytes_appended());
+            }
+        }
     }
     return Status::OK();
 }

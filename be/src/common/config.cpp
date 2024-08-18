@@ -1289,6 +1289,8 @@ DEFINE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio, "0.5");
 DEFINE_mInt64(hdfs_jni_write_sleep_milliseconds, "300");
 // The max retry times when hdfs write failed
 DEFINE_mInt64(hdfs_jni_write_max_retry_time, "3");
+// Trigger flush when the single HdfsFileWriter's approximate memory usage exceeds this threshold
+DEFINE_mInt64(hdfs_flush_threshold, "10485760"); // 10MB
 
 // The min thread num for NonBlockCloseThreadPool
 DEFINE_Int64(min_nonblock_close_thread_num, "12");

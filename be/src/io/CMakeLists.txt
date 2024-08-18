@@ -56,3 +56,25 @@ if (${BUILD_FS_BENCHMARK} STREQUAL "ON")
         )
 
 endif()
+
+if (${BUILD_HDFS_FILE_WRITER_BENCHMARK} STREQUAL "ON")
+    add_executable(hdfs_file_writer_benchmark
+        fs/benchmark/hdfs_file_writer_benchmark.cpp
+    )
+
+    target_link_libraries(hdfs_file_writer_benchmark
+        ${DORIS_LINK_LIBS}
+    )
+
+    set_target_properties(hdfs_file_writer_benchmark PROPERTIES COMPILE_FLAGS "-fno-access-control")
+
+    install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
+    install(TARGETS hdfs_file_writer_benchmark DESTINATION ${OUTPUT_DIR}/lib/)
+
+    add_custom_command(TARGET hdfs_file_writer_benchmark POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:hdfs_file_writer_benchmark> $<TARGET_FILE:hdfs_file_writer_benchmark>.dbg
+        COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:hdfs_file_writer_benchmark>
+        COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:hdfs_file_writer_benchmark>.dbg $<TARGET_FILE:hdfs_file_writer_benchmark>
+        )
+
+endif()

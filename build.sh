@@ -562,10 +562,15 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         BUILD_FS_BENCHMARK=OFF
     fi
 
+    if [[ -z "${BUILD_HDFS_FILE_WRITER_BENCHMARK}" ]]; then
+        BUILD_HDFS_FILE_WRITER_BENCHMARK=OFF
+    fi
+
     echo "-- Make program: ${MAKE_PROGRAM}"
     echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
     echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
     echo "-- Build fs benchmark tool: ${BUILD_FS_BENCHMARK}"
+    echo "-- Build hdfs file writer benchmark: ${BUILD_HDFS_FILE_WRITER_BENCHMARK}"
 
     mkdir -p "${CMAKE_BUILD_DIR}"
     cd "${CMAKE_BUILD_DIR}"
@@ -576,6 +581,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_INJECTION_POINT="${ENABLE_INJECTION_POINT}" \
         -DMAKE_TEST=OFF \
         -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
+        -DBUILD_HDFS_FILE_WRITER_BENCHMARK="${BUILD_HDFS_FILE_WRITER_BENCHMARK}" \
         ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
         -DWITH_MYSQL="${WITH_MYSQL}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
@@ -784,6 +790,9 @@ EOF
     fi
     if [[ -f "${DORIS_HOME}/be/output/lib/fs_benchmark_tool" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/fs_benchmark_tool" "${DORIS_OUTPUT}/be/lib"/
+    fi
+    if [[ -f "${DORIS_HOME}/be/output/lib/hdfs_file_writer_benchmark" ]]; then
+        cp -r -p "${DORIS_HOME}/be/output/lib/hdfs_file_writer_benchmark" "${DORIS_OUTPUT}/be/lib"/
     fi
 
     if [[ "${BUILD_META_TOOL}" = "ON" ]]; then

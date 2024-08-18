@@ -89,7 +89,7 @@ public:
     static Status clean_udf_class_load_cache(const std::string& function_signature);
 
 private:
-    static void parse_max_heap_memory_size_from_jvm(JNIEnv* env);
+    static void parse_max_heap_memory_size_from_jvm();
     static Status GetJNIEnvSlowPath(JNIEnv** env);
     static Status init_jni_scanner_loader(JNIEnv* env);
 
