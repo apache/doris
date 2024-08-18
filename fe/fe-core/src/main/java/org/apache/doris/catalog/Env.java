@@ -1836,9 +1836,8 @@ public class Env {
         domainResolver.start();
         // fe disk updater
         feDiskUpdater.start();
-        if (Config.enable_hms_events_incremental_sync) {
-            metastoreEventsProcessor.start();
-        }
+
+        metastoreEventsProcessor.start();
 
         dnsCache.start();
 
