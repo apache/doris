@@ -619,7 +619,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String BYPASS_WORKLOAD_GROUP = "bypass_workload_group";
 
-    public static final String WG_QUERY_SLOT_COUNT = "wg_query_slot_count";
+    public static final String QUERY_SLOT_COUNT = "query_slot_count";
 
     public static final String ENABLE_QUERY_SLOT_HARD_LIMIT = "enable_query_slot_hard_limit";
 
@@ -765,7 +765,7 @@ public class SessionVariable implements Serializable, Writable {
             "whether bypass workload group's limitation, currently only support bypass query queue"})
     public boolean bypassWorkloadGroup = false;
 
-    @VariableMgr.VarAttr(name = WG_QUERY_SLOT_COUNT, needForward = true, description = {
+    @VariableMgr.VarAttr(name = QUERY_SLOT_COUNT, needForward = true, description = {
             "每个查询占用的slot的数量，workload group的query slot的总数等于设置的最大并发数",
             "Number of slots occupied by each query, the total number of query slots "
             + "of the workload group equals the maximum number of concurrent requests"})

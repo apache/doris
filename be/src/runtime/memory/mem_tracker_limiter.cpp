@@ -506,7 +506,7 @@ std::string MemTrackerLimiter::tracker_limit_exceeded_str() {
     std::string err_msg = fmt::format(
             "memory tracker limit exceeded, tracker label:{}, type:{}, limit "
             "{}, peak used {}, current used {}. backend {}, {}.",
-            label(), type_string(_type), print_bytes(limit()),
+            label(), type_string(_type), print_bytes(_limit),
             print_bytes(_consumption->peak_value()), print_bytes(_consumption->current_value()),
             BackendOptions::get_localhost(), GlobalMemoryArbitrator::process_memory_used_str());
     if (_type == Type::QUERY || _type == Type::LOAD) {
@@ -694,7 +694,7 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
                     seek_num++;
                     // 32M small query does not cancel
                     if (tracker->consumption() <= 33554432 ||
-                        tracker->consumption() < tracker->limit()) {
+                        tracker->consumption() < tracker->_limit) {
                         small_num++;
                         continue;
                     }
@@ -704,7 +704,7 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
                         continue;
                     }
                     auto overcommit_ratio = int64_t(
-                            (static_cast<double>(tracker->consumption()) / tracker->limit()) *
+                            (static_cast<double>(tracker->consumption()) / tracker->_limit) *
                             10000);
                     max_pq.emplace(overcommit_ratio, tracker->label());
                     query_consumption[tracker->label()] = tracker->consumption();

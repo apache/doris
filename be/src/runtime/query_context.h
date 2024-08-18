@@ -219,8 +219,6 @@ public:
 
     std::vector<TUniqueId> get_fragment_instance_ids() const { return fragment_instance_ids; }
 
-    int64_t mem_limit() const { return _bytes_limit; }
-
     void set_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
         _merge_controller_handler = handler;
@@ -240,8 +238,14 @@ public:
         return _running_big_mem_op_num.load(std::memory_order_relaxed);
     }
 
-    void set_spill_threshold(int64_t spill_threshold) { _spill_threshold = spill_threshold; }
+    void set_mem_limit(int64_t new_mem_limit) {
+        // Temp logic need spill threshold, but it is useless and will remove it.
+        _spill_threshold = spill_threshold;
+        query_mem_tracker->reset_mem_limit(new_mem_limit);
+    }
+    // Should remove this method when using reserve logic
     int64_t spill_threshold() { return _spill_threshold; }
+
     int32_t get_slot_count() {
         return _query_options.__isset.query_slot_count ? _query_options.query_slot_count : 1;
     }
