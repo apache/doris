@@ -23,7 +23,6 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/io/io_helper.h"
 
-// TODO: 支持offset可选参数
 // TODO: 支持decimal类型
 // TODO: 支持时间类型
 // TODO: json格式输出
@@ -37,11 +36,12 @@ namespace doris::vectorized {
 template <typename T>
 struct AggregateFunctionLinearHistogramData {
     // max buckets number
-    const static size_t MAX_BUCKETS = 0x01000000;
+    const static size_t MAX_BUCKETS = std::numeric_limits<size_t>::max() >> 7;
 
 private:
-    double offset;
+    // influxdb use double
     double interval;
+    double offset;
     std::map<size_t, size_t> buckets;
 
 public:
@@ -52,18 +52,23 @@ public:
         buckets.clear();
     }
 
-    void set_parameters(double interval_, double offset_ = 0) {
+    void set_parameters(double interval_, double offset_) {
         interval = interval_;
         offset = offset_;
     }
     
     // add
     void add(const T& value) {
-        size_t key = bucket_key(value);
+        auto key = std::floor((value - offset) / interval);
         if (key < 0) {
             return;
         }
-        buckets[key]++;
+        if (key >= MAX_BUCKETS) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "{} is too large to fit in the buckets",
+                                       value);
+        }
+        buckets[static_cast<size_t>(key)]++;
     }
     
     // merge
@@ -108,31 +113,20 @@ public:
         auto& column = assert_cast<ColumnString&>(to);
         std::string res = "";
         for (const auto& [key, count] : buckets) {
-            res += std::to_string(key) + ":" + std::to_string(count) + ",";
+            res += std::to_string(key * interval + offset) + ":" + std::to_string(count) + ",";
         }
         column.insert_data(res.c_str(), res.length());
     }
 
     // get
-    
-    // bucket_key
-    inline size_t bucket_key(const T& value) {
-        auto key = static_cast<size_t>((value - offset) / interval);
-        if (key >= MAX_BUCKETS) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "{} is too large to fit in the buckets",
-                                       value);
-        }
-        return static_cast<size_t>(key);
-    }
 };
 
-template <typename T, typename Data>
+template <typename T, typename Data, bool has_offset>
 class AggregateFunctionLinearHistogram final 
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionLinearHistogram<T, Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionLinearHistogram<T, Data, has_offset>> {
 public:
     AggregateFunctionLinearHistogram(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionLinearHistogram<T, Data>>(argument_types_) {}
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionLinearHistogram<T, Data, has_offset>>(argument_types_) {}
     
     std::string get_name() const override { return "linear_histogram"; }
 
@@ -147,7 +141,14 @@ public:
                                    "Invalid interval {}, row_num {}",
                                    interval, row_num);
         }
-        this->data(place).set_parameters(interval);
+
+        double offset = 0;
+        if constexpr (has_offset) {
+            offset = assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[2])
+                        .get_data()[row_num];
+        }
+
+        this->data(place).set_parameters(interval, offset);
         
         this->data(place).add(
                 assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*columns[0])

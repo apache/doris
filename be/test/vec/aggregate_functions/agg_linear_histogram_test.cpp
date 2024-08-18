@@ -30,7 +30,6 @@ namespace doris::vectorized {
 void register_aggregate_function_linear_histogram(AggregateFunctionSimpleFactory& factory);
 
 class AggLinearHistogramTest : public testing::Test {
-    constexpr static double INTERVAL = 10;
 public:
     void SetUp() override {
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
@@ -40,31 +39,49 @@ public:
     void TearDown() override {}
 
     template <typename DataType>
-    void agg_linear_histogram_add_elements(AggregateFunctionPtr agg_function, AggregateDataPtr place, size_t input_rows) {
+    void agg_linear_histogram_add_elements(AggregateFunctionPtr agg_function, AggregateDataPtr place, 
+                                            size_t input_rows, double interval, double offset) {
         using FieldType = typename DataType::FieldType;
         auto type = std::make_shared<DataType>();
 
-        MutableColumns columns(2);
+        MutableColumns columns(3);
         columns[0] = type->create_column();
         columns[1] = ColumnFloat64::create();
+        columns[2] = ColumnFloat64::create();
 
         for (size_t i = 0; i < input_rows; ++i) {
             auto item0 = FieldType(static_cast<uint64_t>(i));
             columns[0]->insert_data(reinterpret_cast<const char*>(&item0), 0);
-            columns[1]->insert_data(reinterpret_cast<const char*>(&INTERVAL), 0);
+            columns[1]->insert_data(reinterpret_cast<const char*>(&interval), 0);
+            if (offset != 0) {
+                columns[2]->insert_data(reinterpret_cast<const char*>(&offset), 0);
+            }
         }
 
         EXPECT_EQ(columns[0]->size(), input_rows);
 
-        const IColumn* column[2] = {columns[0].get(), columns[1].get()};
-        for (int i = 0; i < input_rows; i++) {
-            agg_function->add(place, column, i, &_agg_arena_pool);
+        if (offset != 0) {
+            const IColumn* column[3] = {columns[0].get(), columns[1].get(), columns[2].get()};
+            for (int i = 0; i < input_rows; i++) {
+                agg_function->add(place, column, i, &_agg_arena_pool);
+            }
+        } else {
+            const IColumn* column[2] = {columns[0].get(), columns[1].get()};
+            for (int i = 0; i < input_rows; i++) {
+                agg_function->add(place, column, i, &_agg_arena_pool);
+            }
         }
     }
 
     template <typename DataType>
-    void test_agg_linear_histogram(size_t input_rows) {
-        DataTypes data_types = {(DataTypePtr)std::make_shared<DataType>()};
+    void test_agg_linear_histogram(size_t input_rows, double interval, double offset) {
+        DataTypes data_types1 = {(DataTypePtr)std::make_shared<DataType>(), 
+                                 std::make_shared<DataTypeFloat64>()};
+        DataTypes data_types2 = {(DataTypePtr)std::make_shared<DataType>(), 
+                                 std::make_shared<DataTypeFloat64>(), 
+                                 std::make_shared<DataTypeFloat64>()};
+
+        auto data_types = (offset == 0) ? data_types1 : data_types2;
 
         GTEST_LOG_(INFO) << "test_agg_linear_histogram for type"
                   << "(" << data_types[0]->get_name() << ")";
@@ -76,7 +93,7 @@ public:
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
         AggregateDataPtr place = memory.get();
         agg_function->create(place);
-        agg_linear_histogram_add_elements<DataType>(agg_function, place, input_rows);
+        agg_linear_histogram_add_elements<DataType>(agg_function, place, input_rows, interval, offset);
 
         ColumnString buf;
         VectorBufferWriter buf_writer(buf);
@@ -88,7 +105,7 @@ public:
         std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
         AggregateDataPtr place2 = memory2.get();
         agg_function->create(place2);
-        agg_linear_histogram_add_elements<DataType>(agg_function, place2, input_rows);
+        agg_linear_histogram_add_elements<DataType>(agg_function, place2, input_rows, interval, offset);
         agg_function->merge(place, place2, &_agg_arena_pool);
 
         auto column_result1 = ColumnString::create();
@@ -110,14 +127,23 @@ private:
 };
 
 TEST_F(AggLinearHistogramTest, test_with_data) {
-    // rows 100
-    test_agg_linear_histogram<DataTypeInt8>(100);
-    test_agg_linear_histogram<DataTypeInt16>(100);
-    test_agg_linear_histogram<DataTypeInt32>(100);
-    test_agg_linear_histogram<DataTypeInt64>(100);
-    test_agg_linear_histogram<DataTypeInt128>(100);
-    test_agg_linear_histogram<DataTypeFloat32>(100);
-    test_agg_linear_histogram<DataTypeFloat64>(100);
+    GTEST_LOG_(INFO) << "no offset";
+    test_agg_linear_histogram<DataTypeInt8>(100, 10, 0);
+    test_agg_linear_histogram<DataTypeInt16>(100, 10, 0);
+    test_agg_linear_histogram<DataTypeInt32>(100, 10, 0);
+    test_agg_linear_histogram<DataTypeInt64>(100, 10, 0);
+    test_agg_linear_histogram<DataTypeInt128>(100, 10, 0);
+    test_agg_linear_histogram<DataTypeFloat32>(5, 0.5, 0);
+    test_agg_linear_histogram<DataTypeFloat64>(5, 0.5, 0);
+
+    GTEST_LOG_(INFO) << "has offset";
+    test_agg_linear_histogram<DataTypeInt8>(100, 10, 10);
+    test_agg_linear_histogram<DataTypeInt16>(100, 10, 10);
+    test_agg_linear_histogram<DataTypeInt32>(100, 10, 10);
+    test_agg_linear_histogram<DataTypeInt64>(100, 10, 10);
+    test_agg_linear_histogram<DataTypeInt128>(100, 10, 10);
+    test_agg_linear_histogram<DataTypeFloat32>(5, 0.5, 0.5);
+    test_agg_linear_histogram<DataTypeFloat64>(5, 0.5, 0.5);
 }
 
 } // namespace doris::vectorized

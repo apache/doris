@@ -23,9 +23,17 @@ namespace doris::vectorized {
 template <typename T>
 AggregateFunctionPtr create_agg_function_linear_histogram(const DataTypes& argument_types,
                                                    const bool result_is_nullable) {
-    return creator_without_type::create<
-            AggregateFunctionLinearHistogram<T, AggregateFunctionLinearHistogramData<T>>>(
-            argument_types, result_is_nullable);
+    bool has_offset = (argument_types.size() == 3);
+
+    if (has_offset) {
+        return creator_without_type::create<
+                AggregateFunctionLinearHistogram<T, AggregateFunctionLinearHistogramData<T>, true>>(
+                argument_types, result_is_nullable);
+    } else {
+        return creator_without_type::create<
+                AggregateFunctionLinearHistogram<T, AggregateFunctionLinearHistogramData<T>, false>>(
+                argument_types, result_is_nullable);
+    }
 }
 
 AggregateFunctionPtr create_aggregate_function_linear_histogram(const std::string& name,
