@@ -102,12 +102,12 @@ public:
     void set_consumption() { LOG(FATAL) << "MemTrackerLimiter set_consumption not supported"; }
     int64_t group_num() const { return _group_num; }
 
-    bool try_consume(int64_t bytes) const {
+    bool try_consume(int64_t bytes, bool overcommit) const {
         if (UNLIKELY(bytes == 0)) {
             return true;
         }
         bool st = true;
-        if (_limit <= 0 || bytes <= 0) {
+        if (_limit <= 0 || bytes <= 0 || overcommit) {
             _consumption->add(bytes);
         } else {
             st = _consumption->try_add(bytes, _limit);

@@ -290,10 +290,13 @@ inline bool ThreadMemTrackerMgr::try_reserve(int64_t size) {
     // if _reserved_mem not equal to 0, repeat reserve,
     // _untracked_mem store bytes that not synchronized to process reserved memory.
     flush_untracked_mem();
-    if (!_limiter_tracker_raw->try_consume(size)) {
+    auto wg_ptr = _wg_wptr.lock();
+    bool overcommit = wg_ptr == nullptr ? false : wg_ptr->enable_memory_overcommit();
+    // If the related wg is enable overcommit, then not check query memlimit.
+    // Only process limit affects.
+    if (!_limiter_tracker_raw->try_consume(size, overcommit)) {
         return false;
     }
-    auto wg_ptr = _wg_wptr.lock();
     if (wg_ptr) {
         if (!wg_ptr->add_wg_refresh_interval_memory_growth(size)) {
             _limiter_tracker_raw->release(size); // rollback

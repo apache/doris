@@ -197,16 +197,18 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
         bool is_low_wartermark = false;
         bool is_high_wartermark = false;
         wg.second->check_mem_used(&is_low_wartermark, &is_high_wartermark);
+        int64_t weighted_high_water_mark_limit =
+                wg_weighted_mem_limit * wg.second->spill_threshold_high_water_mark() / 100;
         std::string debug_msg;
         if (is_high_wartermark || is_low_wartermark) {
             debug_msg = fmt::format(
                     "\nWorkload Group {}: mem limit: {}, mem used: {}, weighted mem limit: {}, "
-                    "used "
-                    "ratio: {}, query count: {}",
+                    "high water mark mem limit: {}, used ratio: {}, query count: {}",
                     wg.second->name(),
                     PrettyPrinter::print(wg.second->memory_limit(), TUnit::BYTES),
                     PrettyPrinter::print(wgs_mem_info[wg.first].total_mem_used, TUnit::BYTES),
                     PrettyPrinter::print(wg_weighted_mem_limit, TUnit::BYTES),
+                    PrettyPrinter::print(weighted_high_water_mark_limit, TUnit::BYTES),
                     (double)wgs_mem_info[wg.first].total_mem_used / wg_weighted_mem_limit,
                     all_query_ctxs.size());
             LOG_EVERY_T(INFO, 60) << debug_msg;
@@ -236,6 +238,7 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
             total_used_slot_count += query_ctx->get_slot_count();
         }
         // calculate per query weighted memory limit
+        debug_msg = "Query Memory Summary:";
         for (const auto& query : all_query_ctxs) {
             auto query_ctx = query.second.lock();
             if (!query_ctx) {
@@ -250,27 +253,25 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
                             << " enabled hard limit, but the slot count < 1, could not take affect";
                 } else {
                     query_weighted_mem_limit =
-                            (wg_weighted_mem_limit * query_ctx->get_slot_count()) /
+                            (weighted_high_water_mark_limit * query_ctx->get_slot_count()) /
                             total_slot_count;
                 }
             } else {
                 query_weighted_mem_limit =
                         total_used_slot_count > 0
-                                ? (wg_weighted_mem_limit + total_used_slot_count) *
+                                ? (weighted_high_water_mark_limit + total_used_slot_count) *
                                           query_ctx->get_slot_count() / total_used_slot_count
-                                : wg_weighted_mem_limit;
+                                : weighted_high_water_mark_limit;
             }
+            debug_msg += fmt::format(
+                    "\n    MemTracker Label={}, Parent Label={}, Used={}, Limit={}, "
+                    "Peak={}",
+                    query_mem_tracker->label(), query_ctx->get_mem_tracker()->parent_label(),
+                    PrettyPrinter::print(query_ctx->get_mem_tracker()->consumption(), TUnit::BYTES),
+                    PrettyPrinter::print(query_weighted_mem_limit, TUnit::BYTES),
+                    PrettyPrinter::print(query_ctx->get_mem_tracker()->peak_consumption(),
+                                         TUnit::BYTES));
 
-            debug_msg = "Query Memory Summary:";
-            for (const auto& query_mem_tracker : wgs_mem_info[wg.first].tracker_snapshots) {
-                debug_msg += fmt::format(
-                        "\n    MemTracker Label={}, Parent Label={}, Used={}, Limit={}, "
-                        "Peak={}",
-                        query_mem_tracker->label(), query_mem_tracker->parent_label(),
-                        PrettyPrinter::print(query_mem_tracker->consumption(), TUnit::BYTES),
-                        PrettyPrinter::print(query_weighted_mem_limit, TUnit::BYTES),
-                        PrettyPrinter::print(query_mem_tracker->peak_consumption(), TUnit::BYTES));
-            }
             query_ctx->set_mem_limit(query_weighted_mem_limit);
         }
         LOG_EVERY_T(INFO, 60) << debug_msg;

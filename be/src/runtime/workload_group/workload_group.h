@@ -95,7 +95,7 @@ public:
         return _spill_low_watermark.load(std::memory_order_relaxed);
     }
 
-    int spill_threashold_high_water_mark() const {
+    int spill_threshold_high_water_mark() const {
         return _spill_high_watermark.load(std::memory_order_relaxed);
     }
 
@@ -103,8 +103,13 @@ public:
         return _total_query_slot_count.load(std::memory_order_relaxed);
     }
 
-    void set_weighted_memory_ratio(double ratio);
     bool add_wg_refresh_interval_memory_growth(int64_t size) {
+        // If a group is enable memory overcommit, then not need check the limit
+        // It is always true, and it will only fail when process memory is not
+        // enough.
+        if (_enable_memory_overcommit) {
+            return true;
+        }
         auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
         if ((realtime_total_mem_used >
              ((double)_weighted_memory_limit *

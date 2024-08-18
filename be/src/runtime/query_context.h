@@ -243,6 +243,9 @@ public:
         _spill_threshold = new_mem_limit;
         query_mem_tracker->reset_mem_limit(new_mem_limit);
     }
+
+    std::shared_ptr<MemTrackerLimiter>& get_mem_tracker() { return query_mem_tracker; }
+
     // Should remove this method when using reserve logic
     int64_t spill_threshold() { return _spill_threshold; }
 
