@@ -277,12 +277,9 @@ struct WorkloadGroupInfo {
     const int min_remote_scan_thread_num = 0;
     const int spill_low_watermark = 0;
     const int spill_high_watermark = 0;
-<<<<<<< HEAD
     const int read_bytes_per_second = -1;
     const int remote_read_bytes_per_second = -1;
-=======
     const int total_query_slot_count = 0;
->>>>>>> 5ad0005a4d ([feature](workloadgroup) use slot num to control memory distribution among queries)
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;

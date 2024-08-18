@@ -122,12 +122,9 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
             _min_remote_scan_thread_num = tg_info.min_remote_scan_thread_num;
             _spill_low_watermark = tg_info.spill_low_watermark;
             _spill_high_watermark = tg_info.spill_high_watermark;
-<<<<<<< HEAD
             _scan_bytes_per_second = tg_info.read_bytes_per_second;
             _remote_scan_bytes_per_second = tg_info.remote_read_bytes_per_second;
-=======
             _total_query_slot_count = tg_info.total_query_slot_count;
->>>>>>> 5ad0005a4d ([feature](workloadgroup) use slot num to control memory distribution among queries)
         } else {
             return;
         }
