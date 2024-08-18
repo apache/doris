@@ -266,7 +266,8 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
             debug_msg += fmt::format(
                     "\n    MemTracker Label={}, Parent Label={}, Used={}, Limit={}, "
                     "Peak={}",
-                    query_mem_tracker->label(), query_ctx->get_mem_tracker()->parent_label(),
+                    query_ctx->get_mem_tracker()->label(),
+                    query_ctx->get_mem_tracker()->parent_label(),
                     PrettyPrinter::print(query_ctx->get_mem_tracker()->consumption(), TUnit::BYTES),
                     PrettyPrinter::print(query_weighted_mem_limit, TUnit::BYTES),
                     PrettyPrinter::print(query_ctx->get_mem_tracker()->peak_consumption(),
