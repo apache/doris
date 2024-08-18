@@ -164,6 +164,8 @@ private:
     void change_cache_type(const Key& key, size_t offset, CacheType new_type,
                            std::lock_guard<std::mutex>& cache_lock) override;
 
+    std::map<std::string, double> get_stats() override;
+
     size_t get_available_cache_size(CacheType cache_type) const;
 
     Status load_cache_info_into_memory(std::lock_guard<std::mutex>& cache_lock);

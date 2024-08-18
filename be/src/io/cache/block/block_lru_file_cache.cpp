@@ -1202,5 +1202,34 @@ void LRUFileCache::update_cache_metrics() const {
     file_cache_segment_reader_cache_size->set_value(IFileCache::file_reader_cache_size());
 }
 
+std::map<std::string, double> LRUFileCache::get_stats() {
+    update_cache_metrics();
+    std::map<std::string, double> stats;
+    stats["hits_ratio"] = (double)file_cache_hits_ratio->value();
+    stats["hits_ratio_5m"] = (double)file_cache_hits_ratio_5m->value();
+    stats["hits_ratio_1h"] = (double)file_cache_hits_ratio_1h->value();
+
+    stats["index_queue_max_size"] = (double)file_cache_index_queue_max_size->value();
+    stats["index_queue_curr_size"] = (double)file_cache_index_queue_curr_size->value();
+    stats["index_queue_max_elements"] = (double)file_cache_index_queue_max_elements->value();
+    stats["index_queue_curr_elements"] = (double)file_cache_index_queue_curr_elements->value();
+
+    stats["normal_queue_max_size"] = (double)file_cache_normal_queue_max_size->value();
+    stats["normal_queue_curr_size"] = (double)file_cache_normal_queue_curr_size->value();
+    stats["normal_queue_max_elements"] = (double)file_cache_normal_queue_max_elements->value();
+    stats["normal_queue_curr_elements"] = (double)file_cache_normal_queue_curr_elements->value();
+
+    stats["disposable_queue_max_size"] = (double)file_cache_disposable_queue_max_size->value();
+    stats["disposable_queue_curr_size"] = (double)file_cache_disposable_queue_curr_size->value();
+    stats["disposable_queue_max_elements"] =
+            (double)file_cache_disposable_queue_max_elements->value();
+    stats["disposable_queue_curr_elements"] =
+            (double)file_cache_disposable_queue_curr_elements->value();
+
+    stats["segment_reader_cache_size"] = (double)IFileCache::file_reader_cache_size();
+
+    return stats;
+}
+
 } // namespace io
 } // namespace doris

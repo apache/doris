@@ -87,7 +87,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
     private PartitionInfo backendPartitionInfo;
     // partitionID -> backendID
     private Map<Long, Long> partitionIDToBackendID;
-    private Collection<Long> selectedPartiytionIds = Lists.newArrayList();
+    private Collection<Long> selectedPartitionIds = Lists.newArrayList();
 
     public BackendPartitionedSchemaScanNode(PlanNodeId id, TupleDescriptor desc) {
         super(id, desc);

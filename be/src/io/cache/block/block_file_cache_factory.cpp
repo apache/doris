@@ -32,6 +32,7 @@
 #include "io/cache/block/block_lru_file_cache.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "vec/core/block.h"
 
 namespace doris {
 class TUniqueId;
@@ -112,5 +113,52 @@ std::vector<IFileCache::QueryFileCacheContextHolderPtr> FileCacheFactory::get_qu
     return holders;
 }
 
+void FileCacheFactory::get_cache_stats_block(vectorized::Block* block) {
+    // std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
+    int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
+
+    auto insert_int_value = [&](int col_index, int64_t int_val, vectorized::Block* block) {
+        vectorized::MutableColumnPtr mutable_col_ptr;
+        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
+        auto* nullable_column =
+                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
+        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(
+                int_val);
+        nullable_column->get_null_map_data().emplace_back(0);
+    };
+
+    auto insert_double_value = [&](int col_index, double double_val, vectorized::Block* block) {
+        vectorized::MutableColumnPtr mutable_col_ptr;
+        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
+        auto* nullable_column =
+                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
+        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Float64>*>(col_ptr)->insert_value(
+                double_val);
+        nullable_column->get_null_map_data().emplace_back(0);
+    };
+
+    auto insert_string_value = [&](int col_index, std::string str_val, vectorized::Block* block) {
+        vectorized::MutableColumnPtr mutable_col_ptr;
+        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
+        auto* nullable_column =
+                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
+        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
+        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_val.data(),
+                                                                          str_val.size());
+        nullable_column->get_null_map_data().emplace_back(0);
+    };
+
+    for (auto& cache : _caches) {
+        std::map<std::string, double> stats = cache->get_stats();
+        for (auto& [k, v] : stats) {
+            insert_int_value(0, be_id, block);                     // be id
+            insert_string_value(1, cache->get_base_path(), block); // cache path
+            insert_string_value(2, k, block);                      // metric name
+            insert_double_value(3, v, block);                      // metric value
+        }
+    }
+}
 } // namespace io
 } // namespace doris

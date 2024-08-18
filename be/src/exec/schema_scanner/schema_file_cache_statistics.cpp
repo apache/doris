@@ -15,24 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/schema_scanner/schema_backend_active_tasks.h"
+#include "exec/schema_scanner/schema_file_cache_statistics.h"
 
+#include "io/cache/block/block_file_cache_factory.h"
 #include "runtime/exec_env.h"
-#include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+
 std::vector<SchemaScanner::ColumnDesc> SchemaFileCacheStatisticsScanner::_s_tbls_columns = {
         //   name,       type,          size
         {"BE_ID", TYPE_BIGINT, sizeof(StringRef), false},
         {"CACHE_PATH", TYPE_VARCHAR, sizeof(StringRef), false},
         {"CACHE_TYPE", TYPE_VARCHAR, sizeof(StringRef), false},
         {"METRIC_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"METRIC_VALUE", TYPE_DOUBLE, sizeof(double), false}
-};
+        {"METRIC_VALUE", TYPE_DOUBLE, sizeof(double), false}};
 
 SchemaFileCacheStatisticsScanner::SchemaFileCacheStatisticsScanner()
         : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_FILE_CACHE_STATISTICS) {}
@@ -45,7 +45,7 @@ Status SchemaFileCacheStatisticsScanner::start(RuntimeState* state) {
 }
 
 Status SchemaFileCacheStatisticsScanner::get_next_block_internal(vectorized::Block* block,
-                                                                bool* eos) {
+                                                                 bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -54,22 +54,21 @@ Status SchemaFileCacheStatisticsScanner::get_next_block_internal(vectorized::Blo
         return Status::InternalError("input pointer is nullptr.");
     }
 
-    if (_task_stats_block == nullptr) {
-        _task_stats_block = vectorized::Block::create_unique();
+    if (_stats_block == nullptr) {
+        _stats_block = vectorized::Block::create_unique();
 
         for (int i = 0; i < _s_tbls_columns.size(); ++i) {
             TypeDescriptor descriptor(_s_tbls_columns[i].type);
             auto data_type =
                     vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
-            _task_stats_block->insert(vectorized::ColumnWithTypeAndName(
+            _stats_block->insert(vectorized::ColumnWithTypeAndName(
                     data_type->create_column(), data_type, _s_tbls_columns[i].name));
         }
 
-        _task_stats_block->reserve(_block_rows_limit);
+        _stats_block->reserve(_block_rows_limit);
 
-        ExecEnv::GetInstance()->runtime_query_statistics_mgr()->get_active_be_tasks_block(
-                _task_stats_block.get());
-        _total_rows = _task_stats_block->rows();
+        ExecEnv::GetInstance()->file_cache_factory()->get_cache_stats_block(_stats_block.get());
+        _total_rows = _stats_block->rows();
     }
 
     if (_row_idx == _total_rows) {
@@ -79,7 +78,7 @@ Status SchemaFileCacheStatisticsScanner::get_next_block_internal(vectorized::Blo
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
     vectorized::MutableBlock mblock = vectorized::MutableBlock::build_mutable_block(block);
-    RETURN_IF_ERROR(mblock.add_rows(_task_stats_block.get(), _row_idx, current_batch_rows));
+    RETURN_IF_ERROR(mblock.add_rows(_stats_block.get(), _row_idx, current_batch_rows));
     _row_idx += current_batch_rows;
 
     *eos = _row_idx == _total_rows;
