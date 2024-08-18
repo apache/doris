@@ -143,6 +143,23 @@ private:
     vectorized::Arena _agg_arena_pool;
 };
 
+
+TEST_F(AggLinearHistogramTest, test_empty) {
+    test_agg_linear_histogram<DataTypeInt8>(0, 10, 0);
+    test_agg_linear_histogram<DataTypeInt16>(0, 10, 0);
+    test_agg_linear_histogram<DataTypeInt32>(0, 10, 0);
+    test_agg_linear_histogram<DataTypeInt64>(0, 10, 0);
+    test_agg_linear_histogram<DataTypeInt128>(0, 10, 0);
+    test_agg_linear_histogram<DataTypeFloat32>(0, 0.5, 0);
+    test_agg_linear_histogram<DataTypeFloat64>(0, 0.5, 0);
+
+    test_agg_linear_histogram<DataTypeDecimal<Decimal32>>(0, 0.5, 0);
+    test_agg_linear_histogram<DataTypeDecimal<Decimal64>>(0, 0.5, 0);
+    test_agg_linear_histogram<DataTypeDecimal<Decimal128V2>>(0, 0.5, 0);
+    test_agg_linear_histogram<DataTypeDecimal<Decimal128V3>>(0, 0.5, 0);
+    test_agg_linear_histogram<DataTypeDecimal<Decimal256>>(0, 0.5, 0);
+}
+
 TEST_F(AggLinearHistogramTest, test_with_data) {
     GTEST_LOG_(INFO) << "no offset";
     test_agg_linear_histogram<DataTypeInt8>(100, 10, 0);

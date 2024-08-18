@@ -25,8 +25,6 @@
 
 // TODO: 支持时间类型
 // TODO: json格式输出
-// TODO: 空数据处理
-// TODO: 可空列处理
 // TODO: 完善单元测试
 
 namespace doris::vectorized {
@@ -109,14 +107,12 @@ public:
     // insert_result_into
     void insert_result_into(IColumn& to) const {
         auto& column = assert_cast<ColumnString&>(to);
-        std::string res = "";
+        std::string res = "result: ";
         for (const auto& [key, count] : buckets) {
             res += std::to_string(key * interval + offset) + ":" + std::to_string(count) + ",";
         }
         column.insert_data(res.c_str(), res.length());
     }
-
-    // get
 };
 
 template <typename T, typename Data, bool has_offset>
