@@ -20,6 +20,8 @@ suite("test_pull_up_predicate_literal") {
     sql "set enable_fallback_to_original_planner=false"
     sql """SET ignore_shape_nodes='PhysicalDistribute'"""
     sql 'set runtime_filter_mode=off'
+    sql 'set enable_fold_constant_by_be=true'
+    sql 'set debug_skip_fold_constant=false'
 
     sql """
      CREATE TABLE `test_pull_up_predicate_literal` (

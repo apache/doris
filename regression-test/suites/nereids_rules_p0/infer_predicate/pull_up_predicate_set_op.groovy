@@ -20,6 +20,8 @@ suite("test_pull_up_predicate_set_op") {
     sql "set enable_fallback_to_original_planner=false"
     sql """SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"""
     sql 'set runtime_filter_mode=off'
+    sql 'set enable_fold_constant_by_be=true'
+    sql 'set debug_skip_fold_constant=false'
 
     sql "drop table if exists test_pull_up_predicate_set_op1"
     sql "drop table if exists test_pull_up_predicate_set_op2"
