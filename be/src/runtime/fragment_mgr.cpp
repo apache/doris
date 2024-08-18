@@ -609,7 +609,8 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
     cb(fragment_executor->runtime_state(), &status);
 }
 
-Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, const QuerySource query_source) {
+Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
+                                       const QuerySource query_source) {
     if (params.txn_conf.need_txn) {
         std::shared_ptr<StreamLoadContext> stream_load_ctx =
                 std::make_shared<StreamLoadContext>(_exec_env);
@@ -723,7 +724,8 @@ void FragmentMgr::remove_pipeline_context(
 
 template <typename Params>
 Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
-                                   QuerySource query_source, std::shared_ptr<QueryContext>& query_ctx) {
+                                   QuerySource query_source,
+                                   std::shared_ptr<QueryContext>& query_ctx) {
     DBUG_EXECUTE_IF("FragmentMgr._get_query_ctx.failed",
                     { return Status::InternalError("FragmentMgr._get_query_ctx.failed"); });
     if (params.is_simplified_param) {
@@ -764,10 +766,9 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
         // This may be a first fragment request of the query.
         // Create the query fragments context.
-        query_ctx =
-                QueryContext::create_shared(query_id, params.fragment_num_on_host, _exec_env,
-                                                params.query_options, params.coord, pipeline,
-                                                params.is_nereids, current_connect_fe_addr, query_source);
+        query_ctx = QueryContext::create_shared(
+                query_id, params.fragment_num_on_host, _exec_env, params.query_options,
+                params.coord, pipeline, params.is_nereids, current_connect_fe_addr, query_source);
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
@@ -1253,7 +1254,7 @@ void FragmentMgr::cancel_worker() {
         } else {
             running_queries_on_all_fes.clear();
         }
-                
+
         VecDateTimeValue now = VecDateTimeValue::local_time();
         {
             std::lock_guard<std::mutex> lock(_lock);
@@ -1305,22 +1306,22 @@ void FragmentMgr::cancel_worker() {
                     }
 
                     // If the query is not running on the any frontends, cancel it.
-                        if (auto itr = running_queries_on_all_fes.find(fe_process_uuid);
-                            itr != running_queries_on_all_fes.end()) {
-                            // Query not found on this frontend, and the query arrives before the last check
-                            if (itr->second.find(q_ctx->query_id()) == itr->second.end() &&
-                                q_ctx->get_query_arrival_timestamp().tv_nsec <
-                                        check_invalid_query_last_timestamp.tv_nsec &&
-                                q_ctx->get_query_source() == QuerySource::INTERNAL_FRONTEND) {
-                                queries_pipeline_task_leak.push_back(q_ctx->query_id());
-                                LOG_INFO(
-                                        "Query {}, type {} is not found on any frontends, maybe it "
-                                        "is leaked.",
-                                        print_id(q_ctx->query_id()),
-                                        toString(q_ctx->get_query_source()));
-                                continue;
-                            }
+                    if (auto itr = running_queries_on_all_fes.find(fe_process_uuid);
+                        itr != running_queries_on_all_fes.end()) {
+                        // Query not found on this frontend, and the query arrives before the last check
+                        if (itr->second.find(q_ctx->query_id()) == itr->second.end() &&
+                            q_ctx->get_query_arrival_timestamp().tv_nsec <
+                                    check_invalid_query_last_timestamp.tv_nsec &&
+                            q_ctx->get_query_source() == QuerySource::INTERNAL_FRONTEND) {
+                            queries_pipeline_task_leak.push_back(q_ctx->query_id());
+                            LOG_INFO(
+                                    "Query {}, type {} is not found on any frontends, maybe it "
+                                    "is leaked.",
+                                    print_id(q_ctx->query_id()),
+                                    toString(q_ctx->get_query_source()));
+                            continue;
                         }
+                    }
 
                     auto query_context = q.second;
 

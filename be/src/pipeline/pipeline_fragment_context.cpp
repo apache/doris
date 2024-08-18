@@ -189,7 +189,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     if (reason == PPlanFragmentCancelReason::INTERNAL_ERROR && !msg.empty()) {
         if (msg.find("Pipeline task leak.") != std::string::npos) {
             LOG_WARNING("PipelineFragmentContext is cancelled due to illegal state : {}",
-            this->debug_string());
+                        this->debug_string());
         }
     }
 
