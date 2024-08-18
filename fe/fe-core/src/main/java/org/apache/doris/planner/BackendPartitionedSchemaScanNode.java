@@ -66,6 +66,9 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
 
         BACKEND_TABLE.add("backend_active_tasks");
         BEACKEND_ID_COLUMN_SET.add("be_id");
+
+        BACKEND_TABLE.add("file_cache_statistics");
+        BEACKEND_ID_COLUMN_SET.add("be_id");
     }
 
     public static boolean isBackendPartitionedSchemaTable(String tableName) {
@@ -84,7 +87,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
     private PartitionInfo backendPartitionInfo;
     // partitionID -> backendID
     private Map<Long, Long> partitionIDToBackendID;
-    private Collection<Long> selectedPartitionIds = Lists.newArrayList();
+    private Collection<Long> selectedPartiytionIds = Lists.newArrayList();
 
     public BackendPartitionedSchemaScanNode(PlanNodeId id, TupleDescriptor desc) {
         super(id, desc);

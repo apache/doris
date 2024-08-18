@@ -516,6 +516,14 @@ public class SchemaTable extends Table {
                                     .column("VERSION", ScalarType.createType(PrimitiveType.INT))
                                     .column("WORKLOAD_GROUP", ScalarType.createStringType())
                                     .build()))
+            .put("file_cache_statistics",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "file_cache_statistics", TableType.SCHEMA,
+                            builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CACHE_PATH", ScalarType.createVarchar(256))
+                                    .column("CACHE_TYPE", ScalarType.createVarchar(256))
+                                    .column("METRIC_NAME", ScalarType.createVarchar(256))
+                                    .column("METRIC_VALUE", ScalarType.createType(PrimitiveType.DOUBLE))
+                                    .build()))
             .build();
 
     private boolean fetchAllFe = false;
