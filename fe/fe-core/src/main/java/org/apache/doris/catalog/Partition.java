@@ -461,4 +461,8 @@ public class Partition extends MetaObject implements Writable {
             distributionInfo = ((HashDistributionInfo) distributionInfo).toRandomDistributionInfo();
         }
     }
+
+    public boolean isRollupIndex(long id) {
+        return idToVisibleRollupIndex.containsKey(id);
+    }
 }
