@@ -176,6 +176,12 @@ void PipelineFragmentContext::cancel(const Status reason) {
     if (reason.is<ErrorCode::TIMEOUT>()) {
         LOG(WARNING) << "PipelineFragmentContext is cancelled due to timeout : " << debug_string();
     }
+
+    if (reason.is<ErrorCode::ILLEGAL_STATE>()) {
+        LOG_WARNING("PipelineFragmentContext is cancelled due to illegal state : {}",
+                    this->debug_string());
+    }
+
     _query_ctx->cancel(reason, _fragment_id);
     if (reason.is<ErrorCode::LIMIT_REACH>()) {
         _is_report_on_cancel = false;
@@ -800,7 +806,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     }
     operator_xs.insert(operator_xs.begin(), source_op);
 
-    shared_state->create_dependencies(source_op->operator_id(), source_op->node_id());
+    shared_state->create_dependencies(local_exchange_id);
 
     // 5. Set children for two pipelines separately.
     std::vector<std::shared_ptr<Pipeline>> new_children;

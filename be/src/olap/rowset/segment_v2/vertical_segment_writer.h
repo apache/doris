@@ -99,7 +99,9 @@ public:
     [[nodiscard]] std::string data_dir_path() const {
         return _data_dir == nullptr ? "" : _data_dir->path();
     }
-    [[nodiscard]] size_t inverted_index_file_size() const { return _inverted_index_file_size; }
+    [[nodiscard]] InvertedIndexFileInfo get_inverted_index_file_info() const {
+        return _inverted_index_file_info;
+    }
     [[nodiscard]] uint32_t num_rows_written() const { return _num_rows_written; }
 
     // for partial update
@@ -120,13 +122,14 @@ public:
 
     TabletSchemaSPtr flush_schema() const { return _flush_schema; };
 
+    int64_t get_inverted_index_total_size();
+
     void clear();
 
 private:
     void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column);
     Status _create_column_writer(uint32_t cid, const TabletColumn& column,
                                  const TabletSchemaSPtr& schema);
-    size_t _calculate_inverted_index_file_size();
     uint64_t _estimated_remaining_size();
     Status _write_ordinal_index();
     Status _write_zone_map();
@@ -171,7 +174,7 @@ private:
     SegmentFooterPB _footer;
     size_t _num_key_columns;
     size_t _num_short_key_columns;
-    size_t _inverted_index_file_size;
+    InvertedIndexFileInfo _inverted_index_file_info;
     std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
     std::unique_ptr<PrimaryKeyIndexBuilder> _primary_key_index_builder;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;

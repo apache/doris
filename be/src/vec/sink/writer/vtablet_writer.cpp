@@ -1077,10 +1077,8 @@ Status VTabletWriter::open(doris::RuntimeState* state, doris::RuntimeProfile* pr
 
         RETURN_IF_ERROR(index_channel->check_intolerable_failure());
     }
-    int32_t send_batch_parallelism =
-            MIN(_send_batch_parallelism, config::max_send_batch_parallelism_per_job);
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
-            ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
+            ThreadPool::ExecutionMode::CONCURRENT, _send_batch_parallelism);
 
     // start to send batch continually. this must be called after _init
     if (bthread_start_background(&_sender_thread, nullptr, periodic_send_batch, (void*)this) != 0) {

@@ -190,7 +190,8 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
             RETURN_IF_ERROR(_normalize_predicate(conjunct->root(), conjunct.get(), new_root));
             if (new_root) {
                 conjunct->set_root(new_root);
-                if (_should_push_down_common_expr(conjunct->root())) {
+                if (_should_push_down_common_expr() &&
+                    vectorized::VExpr::is_acting_on_a_slot(*(conjunct->root()))) {
                     _common_expr_ctxs_push_down.emplace_back(conjunct);
                     it = _conjuncts.erase(it);
                     continue;
@@ -1392,13 +1393,9 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
     const TQueryOptions& query_options = state->query_options();
     if (query_options.__isset.max_scan_key_num) {
         _max_scan_key_num = query_options.max_scan_key_num;
-    } else {
-        _max_scan_key_num = config::doris_max_scan_key_num;
     }
     if (query_options.__isset.max_pushdown_conditions_per_column) {
         _max_pushdown_conditions_per_column = query_options.max_pushdown_conditions_per_column;
-    } else {
-        _max_pushdown_conditions_per_column = config::max_pushdown_conditions_per_column;
     }
     // tnode.olap_scan_node.push_down_agg_type_opt field is deprecated
     // Introduced a new field : tnode.push_down_agg_type_opt
@@ -1478,12 +1475,7 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
     // remove them when query leave scan node to avoid other nodes use block->columns() to make a wrong decision
     Defer drop_block_temp_column {[&]() {
         std::unique_lock l(local_state._block_lock);
-        auto all_column_names = block->get_names();
-        for (auto& name : all_column_names) {
-            if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
-                block->erase(name);
-            }
-        }
+        block->erase_tmp_columns();
     }};
 
     if (state->is_cancelled()) {

@@ -811,9 +811,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Lambda lambdaClosure = lambda.withLambdaFunctionArguments(lambdaFunction, arrayItemReferences);
 
         // We don't add the ArrayExpression in high order function at all
-        return unboundFunction.withChildren(ImmutableList.<Expression>builder()
-                .add(lambdaClosure)
-                .build());
+        return unboundFunction.withChildren(ImmutableList.of(lambdaClosure));
     }
 
     private boolean shouldBindSlotBy(int namePartSize, Slot boundSlot) {

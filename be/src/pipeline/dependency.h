@@ -817,9 +817,9 @@ public:
     std::atomic<int64_t> mem_usage = 0;
     // We need to make sure to add mem_usage first and then enqueue, otherwise sub mem_usage may cause negative mem_usage during concurrent dequeue.
     std::mutex le_lock;
-    virtual void create_dependencies(int operator_id, int node_id) {
+    virtual void create_dependencies(int local_exchange_id) {
         for (auto& source_dep : source_deps) {
-            source_dep = std::make_shared<Dependency>(operator_id, node_id,
+            source_dep = std::make_shared<Dependency>(local_exchange_id, local_exchange_id,
                                                       "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY");
             source_dep->set_shared_state(this);
         }
@@ -874,6 +874,7 @@ public:
 };
 
 struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
+    ENABLE_FACTORY_CREATOR(LocalMergeExchangeSharedState);
     LocalMergeExchangeSharedState(int num_instances)
             : LocalExchangeSharedState(num_instances),
               _queues_mem_usage(num_instances),
@@ -883,14 +884,18 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
         }
     }
 
-    void create_dependencies(int operator_id, int node_id) override {
+    void create_dependencies(int local_exchange_id) override {
         sink_deps.resize(source_deps.size());
+        std::vector<DependencySPtr> new_deps(sink_deps.size(), nullptr);
+        source_deps.swap(new_deps);
         for (size_t i = 0; i < source_deps.size(); i++) {
-            source_deps[i] = std::make_shared<Dependency>(operator_id, node_id,
-                                                          "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY");
+            source_deps[i] =
+                    std::make_shared<Dependency>(local_exchange_id, local_exchange_id,
+                                                 "LOCAL_MERGE_EXCHANGE_OPERATOR_DEPENDENCY");
             source_deps[i]->set_shared_state(this);
             sink_deps[i] = std::make_shared<Dependency>(
-                    operator_id, node_id, "LOCAL_EXCHANGE_OPERATOR_SINK_DEPENDENCY", true);
+                    local_exchange_id, local_exchange_id,
+                    "LOCAL_MERGE_EXCHANGE_OPERATOR_SINK_DEPENDENCY", true);
             sink_deps[i]->set_shared_state(this);
         }
     }

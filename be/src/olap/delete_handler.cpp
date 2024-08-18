@@ -124,18 +124,20 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
         } else {
             // write sub predicate v1 for compactbility
             std::string condition_str = construct_sub_predicate(condition);
-            if (TCondition tmp; !DeleteHandler::parse_condition(condition_str, &tmp)) {
+            VLOG_NOTICE << __PRETTY_FUNCTION__ << " condition_str: " << condition_str;
+            del_pred->add_sub_predicates(condition_str);
+            DeleteSubPredicatePB* sub_predicate = del_pred->add_sub_predicates_v2();
+            if (condition.__isset.column_unique_id) {
+                // only light schema change capable table set this field
+                sub_predicate->set_column_unique_id(condition.column_unique_id);
+            } else if (TCondition tmp; !DeleteHandler::parse_condition(condition_str, &tmp)) {
+                // for non light shema change tables, check regex match for condition str
                 LOG(WARNING) << "failed to parse condition_str, condtion="
                              << ThriftDebugString(condition);
                 return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                         "failed to parse condition_str, condtion={}", ThriftDebugString(condition));
             }
-            VLOG_NOTICE << __PRETTY_FUNCTION__ << " condition_str: " << condition_str;
-            del_pred->add_sub_predicates(condition_str);
-            DeleteSubPredicatePB* sub_predicate = del_pred->add_sub_predicates_v2();
-            if (condition.__isset.column_unique_id) {
-                sub_predicate->set_column_unique_id(condition.column_unique_id);
-            }
+
             sub_predicate->set_column_name(condition.column_name);
             sub_predicate->set_op(trans_op(condition.condition_op));
             sub_predicate->set_cond_value(condition.condition_values[0]);

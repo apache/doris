@@ -124,7 +124,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         }
         String index = "";
         if (selectedIndexId != getTable().getBaseIndexId()) {
-            index = "(" + selectedIndexId + ")";
+            index = "(" + getTable().getIndexNameById(selectedIndexId) + ")";
         }
         String partitions = "";
         int partitionCount = this.table.getPartitionNames().size();

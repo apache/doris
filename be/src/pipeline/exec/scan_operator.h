@@ -207,7 +207,7 @@ protected:
         RETURN_IF_ERROR(_normalize_conjuncts(state));
         return Status::OK();
     }
-    virtual bool _should_push_down_common_expr(const vectorized::VExprSPtr& expr) { return false; }
+    virtual bool _should_push_down_common_expr() { return false; }
 
     virtual bool _storage_no_merge() { return false; }
     virtual bool _push_down_topn(const vectorized::RuntimePredicate& predicate) { return false; }
@@ -451,8 +451,8 @@ protected:
     std::unordered_map<std::string, int> _colname_to_slot_id;
 
     // These two values are from query_options
-    int _max_scan_key_num;
-    int _max_pushdown_conditions_per_column;
+    int _max_scan_key_num = 48;
+    int _max_pushdown_conditions_per_column = 1024;
 
     // If the query like select * from table limit 10; then the query should run in
     // single scanner to avoid too many scanners which will cause lots of useless read.

@@ -43,6 +43,7 @@
 #include "exec/schema_scanner/schema_schemata_scanner.h"
 #include "exec/schema_scanner/schema_table_options_scanner.h"
 #include "exec/schema_scanner/schema_table_privileges_scanner.h"
+#include "exec/schema_scanner/schema_table_properties_scanner.h"
 #include "exec/schema_scanner/schema_tables_scanner.h"
 #include "exec/schema_scanner/schema_user_privileges_scanner.h"
 #include "exec/schema_scanner/schema_user_scanner.h"
@@ -233,6 +234,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaWorkloadGroupPrivilegesScanner::create_unique();
     case TSchemaTableType::SCH_WORKLOAD_GROUP_RESOURCE_USAGE:
         return SchemaBackendWorkloadGroupResourceUsage::create_unique();
+    case TSchemaTableType::SCH_TABLE_PROPERTIES:
+        return SchemaTablePropertiesScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

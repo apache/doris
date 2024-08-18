@@ -203,8 +203,6 @@ public:
     }
     ThreadPool* send_table_stats_thread_pool() { return _send_table_stats_thread_pool.get(); }
     ThreadPool* s3_file_upload_thread_pool() { return _s3_file_upload_thread_pool.get(); }
-    ThreadPool* send_report_thread_pool() { return _send_report_thread_pool.get(); }
-    ThreadPool* join_node_thread_pool() { return _join_node_thread_pool.get(); }
     ThreadPool* lazy_release_obj_pool() { return _lazy_release_obj_pool.get(); }
     ThreadPool* non_block_close_thread_pool();
     ThreadPool* s3_file_system_thread_pool() { return _s3_file_system_thread_pool.get(); }
@@ -221,6 +219,9 @@ public:
     BrokerMgr* broker_mgr() const { return _broker_mgr; }
     BrpcClientCache<PBackendService_Stub>* brpc_internal_client_cache() const {
         return _internal_client_cache;
+    }
+    BrpcClientCache<PBackendService_Stub>* brpc_streaming_client_cache() const {
+        return _streaming_client_cache;
     }
     BrpcClientCache<PFunctionService_Stub>* brpc_function_client_cache() const {
         return _function_client_cache;
@@ -379,10 +380,7 @@ private:
     std::unique_ptr<ThreadPool> _send_table_stats_thread_pool;
     // Threadpool used to upload local file to s3
     std::unique_ptr<ThreadPool> _s3_file_upload_thread_pool;
-    // Pool used by fragment manager to send profile or status to FE coordinator
-    std::unique_ptr<ThreadPool> _send_report_thread_pool;
     // Pool used by join node to build hash table
-    std::unique_ptr<ThreadPool> _join_node_thread_pool;
     // Pool to use a new thread to release object
     std::unique_ptr<ThreadPool> _lazy_release_obj_pool;
     std::unique_ptr<ThreadPool> _non_block_close_thread_pool;
@@ -403,6 +401,7 @@ private:
     // TODO(zhiqiang): Do not use shared_ptr in exec_env, we can not control its life cycle.
     std::shared_ptr<NewLoadStreamMgr> _new_load_stream_mgr;
     BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;
+    BrpcClientCache<PBackendService_Stub>* _streaming_client_cache = nullptr;
     BrpcClientCache<PFunctionService_Stub>* _function_client_cache = nullptr;
 
     std::shared_ptr<StreamLoadExecutor> _stream_load_executor;

@@ -147,7 +147,13 @@ struct ArrayAggregateImpl {
         const DataTypeArray* data_type_array =
                 static_cast<const DataTypeArray*>(remove_nullable(arguments[0]).get());
         auto function = Function::create(data_type_array->get_nested_type());
-        return function->get_return_type();
+        if (function) {
+            return function->get_return_type();
+        } else {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Unexpected type {} for aggregation {}",
+                                   data_type_array->get_nested_type()->get_name(), operation);
+        }
     }
 
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
