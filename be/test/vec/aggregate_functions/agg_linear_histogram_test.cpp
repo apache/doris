@@ -30,7 +30,7 @@ namespace doris::vectorized {
 void register_aggregate_function_linear_histogram(AggregateFunctionSimpleFactory& factory);
 
 class AggLinearHistogramTest : public testing::Test {
-    const static size_t INTERVAL = 10;
+    constexpr static double INTERVAL = 10;
 public:
     void SetUp() override {
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
@@ -46,14 +46,12 @@ public:
 
         MutableColumns columns(2);
         columns[0] = type->create_column();
-        columns[1] = type->create_column();
+        columns[1] = ColumnFloat64::create();
 
         for (size_t i = 0; i < input_rows; ++i) {
             auto item0 = FieldType(static_cast<uint64_t>(i));
             columns[0]->insert_data(reinterpret_cast<const char*>(&item0), 0);
-
-            auto item1 = FieldType(static_cast<uint64_t>(INTERVAL));
-            columns[1]->insert_data(reinterpret_cast<const char*>(&item1), 0);
+            columns[1]->insert_data(reinterpret_cast<const char*>(&INTERVAL), 0);
         }
 
         EXPECT_EQ(columns[0]->size(), input_rows);

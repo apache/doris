@@ -23,7 +23,6 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/io/io_helper.h"
 
-// TODO: 确定interval和offset参数类型
 // TODO: 支持offset可选参数
 // TODO: 支持decimal类型
 // TODO: 支持时间类型
@@ -41,8 +40,8 @@ struct AggregateFunctionLinearHistogramData {
     const static size_t MAX_BUCKETS = 0x01000000;
 
 private:
-    T offset;
-    T interval;
+    double offset;
+    double interval;
     std::map<size_t, size_t> buckets;
 
 public:
@@ -53,7 +52,7 @@ public:
         buckets.clear();
     }
 
-    void set_parameters(const T& interval_, const T& offset_ = 0) {
+    void set_parameters(double interval_, double offset_ = 0) {
         interval = interval_;
         offset = offset_;
     }
@@ -141,7 +140,7 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
-        auto interval = assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*columns[1])
+        double interval = assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1])
                         .get_data()[row_num];
         if (interval <= 0) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
