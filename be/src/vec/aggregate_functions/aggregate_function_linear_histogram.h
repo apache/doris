@@ -23,39 +23,56 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/io/io_helper.h"
 
-// TODO: 桶的最大数量界定
-// TODO: 支持interval必须参数
+// TODO: 确定interval和offset参数类型
 // TODO: 支持offset可选参数
 // TODO: 支持decimal类型
 // TODO: 支持时间类型
 // TODO: json格式输出
+// TODO: 空数据处理
+// TODO: 可空列处理
+// TODO: 优化参数反复赋值
+// TODO: 完善单元测试
 
 namespace doris::vectorized {
 
 template <typename T>
 struct AggregateFunctionLinearHistogramData {
+    // max buckets number
+    const static size_t MAX_BUCKETS = 0x01000000;
+
 private:
-    T offset = 0;
-    T interval = 10;
+    T offset;
+    T interval;
     std::map<size_t, size_t> buckets;
 
 public:
     // reset
     void reset() {
         offset = 0;
+        interval = 0;
         buckets.clear();
+    }
+
+    void set_parameters(const T& interval_, const T& offset_ = 0) {
+        interval = interval_;
+        offset = offset_;
     }
     
     // add
-    void add(T value) {
+    void add(const T& value) {
         size_t key = bucket_key(value);
+        if (key < 0) {
+            return;
+        }
         buckets[key]++;
     }
     
     // merge
     void merge(const AggregateFunctionLinearHistogramData& rhs) {
-        assert(offset == rhs.offset);
-        assert(interval == rhs.interval);
+        if (rhs.interval == 0) {
+            return;
+        }
+
         for (const auto& [key, count] : rhs.buckets) {
             buckets[key] += count;
         }
@@ -100,8 +117,14 @@ public:
     // get
     
     // bucket_key
-    inline size_t bucket_key(T value) {
-        return static_cast<size_t>(std::floor((value - offset) / interval));
+    inline size_t bucket_key(const T& value) {
+        auto key = static_cast<size_t>((value - offset) / interval);
+        if (key >= MAX_BUCKETS) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "{} is too large to fit in the buckets",
+                                       value);
+        }
+        return static_cast<size_t>(key);
     }
 };
 
@@ -118,6 +141,15 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
+        auto interval = assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*columns[1])
+                        .get_data()[row_num];
+        if (interval <= 0) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Invalid interval {}, row_num {}",
+                                   interval, row_num);
+        }
+        this->data(place).set_parameters(interval);
+        
         this->data(place).add(
                 assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*columns[0])
                         .get_data()[row_num]);
