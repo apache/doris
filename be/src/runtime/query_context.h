@@ -240,7 +240,7 @@ public:
 
     void set_mem_limit(int64_t new_mem_limit) {
         // Temp logic need spill threshold, but it is useless and will remove it.
-        _spill_threshold = spill_threshold;
+        _spill_threshold = new_mem_limit;
         query_mem_tracker->reset_mem_limit(new_mem_limit);
     }
     // Should remove this method when using reserve logic
