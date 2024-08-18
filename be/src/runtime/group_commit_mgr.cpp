@@ -535,9 +535,9 @@ Status GroupCommitTable::_exec_plan_fragment(int64_t db_id, int64_t table_id,
         }
     };
     if (is_pipeline) {
-        return _exec_env->fragment_mgr()->exec_plan_fragment(pipeline_params, finish_cb);
+        return _exec_env->fragment_mgr()->exec_plan_fragment(pipeline_params, QuerySource::GROUP_COMMIT_LOAD, finish_cb);
     } else {
-        return _exec_env->fragment_mgr()->exec_plan_fragment(params, finish_cb);
+        return _exec_env->fragment_mgr()->exec_plan_fragment(params, QuerySource::GROUP_COMMIT_LOAD, finish_cb);
     }
 }
 
