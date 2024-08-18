@@ -352,6 +352,15 @@ Status CsvReader::init_reader(bool is_load) {
     } else {
         _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
     }
+
+    if (_params.file_attributes.text_params.__isset.escape_char) {
+        _options.escape_char = _params.file_attributes.text_params.escape_char[0];
+    }
+
+    if (_params.file_attributes.text_params.__isset.null_format) {
+        _options.null_format = _params.file_attributes.text_params.null_format.c_str();
+    }
+
     _use_nullable_string_opt.resize(_file_slot_descs.size());
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
         auto data_type_ptr = _file_slot_descs[i]->get_data_type_ptr();

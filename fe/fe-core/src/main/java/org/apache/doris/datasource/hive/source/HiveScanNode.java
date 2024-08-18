@@ -457,7 +457,18 @@ public class HiveScanNode extends FileQueryScanNode {
         textParams.setCollectionDelimiter(
                 HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
                         DEFAULT_COLLECTION_DELIMITER, collectionDelimHive2, collectionDelimHive3)));
-        // 5. set quote char
+        // 5. set escape delimiter
+        Optional<String> escapeDelim = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_ESCAPE_DELIMITER);
+        textParams
+                .setEscapeChar(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                        DEFAULT_ESCAPE_DELIMIER, escapeDelim)));
+        // 6. set null format
+        Optional<String> nullFormat = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_NULL_FORMAT);
+        textParams.setNullFormat(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_NULL_FORMAT, nullFormat));
+        // 7. set quote char
         Map<String, String> serdeParams = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
         if (serdeParams.containsKey(PROP_QUOTE_CHAR)) {
             textParams.setEnclose(serdeParams.get(PROP_QUOTE_CHAR).getBytes()[0]);
