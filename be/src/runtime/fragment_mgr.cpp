@@ -574,7 +574,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 static void empty_function(RuntimeState*, Status*) {}
 
 void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_executor,
-                               const QuerySource query_source, const FinishCallback& cb) {
+                               const FinishCallback& cb) {
     VLOG_DEBUG << fmt::format("Instance {}|{} executing", print_id(fragment_executor->query_id()),
                               print_id(fragment_executor->fragment_instance_id()));
 
@@ -643,7 +643,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx));
         return Status::OK();
     } else {
-        return exec_plan_fragment(params, empty_function);
+        return exec_plan_fragment(params, query_source, empty_function);
     }
 }
 
@@ -818,7 +818,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 }
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
-                                       const FinishCallback& cb) {
+                                       QuerySource query_source, const FinishCallback& cb) {
     VLOG_ROW << "exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
@@ -840,8 +840,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     bool pipeline_engine_enabled = params.query_options.__isset.enable_pipeline_engine &&
                                    params.query_options.enable_pipeline_engine;
 
-    RETURN_IF_ERROR(
-            _get_query_ctx(params, params.params.query_id, pipeline_engine_enabled, query_ctx));
+    RETURN_IF_ERROR(_get_query_ctx(params, params.params.query_id, pipeline_engine_enabled,
+                                   query_source, query_ctx));
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
     {
         // Need lock here, because it will modify fragment ids and std::vector may resize and reallocate
@@ -945,7 +945,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 
     std::shared_ptr<QueryContext> query_ctx;
-    RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
+    RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_source, query_ctx));
     SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, params.query_id);
     const bool enable_pipeline_x = params.query_options.__isset.enable_pipeline_x_engine &&
                                    params.query_options.enable_pipeline_x_engine;
@@ -1313,13 +1313,15 @@ void FragmentMgr::cancel_worker() {
                             q_ctx->get_query_arrival_timestamp().tv_nsec <
                                     check_invalid_query_last_timestamp.tv_nsec &&
                             q_ctx->get_query_source() == QuerySource::INTERNAL_FRONTEND) {
-                            queries_pipeline_task_leak.push_back(q_ctx->query_id());
-                            LOG_INFO(
-                                    "Query {}, type {} is not found on any frontends, maybe it "
-                                    "is leaked.",
-                                    print_id(q_ctx->query_id()),
-                                    toString(q_ctx->get_query_source()));
-                            continue;
+                            if (q_ctx->enable_pipeline_x_exec()) {
+                                queries_pipeline_task_leak.push_back(q_ctx->query_id());
+                                LOG_INFO(
+                                        "Query {}, type {} is not found on any frontends, maybe it "
+                                        "is leaked.",
+                                        print_id(q_ctx->query_id()),
+                                        toString(q_ctx->get_query_source()));
+                                continue;
+                            }
                         }
                     }
 
