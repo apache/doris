@@ -368,7 +368,6 @@ private:
     QuerySource _query_source;
 
 public:
-    TReportExecStatusParams get_realtime_exec_status() const;
     timespec get_query_arrival_timestamp() const { return this->_query_arrival_timestamp; }
     QuerySource get_query_source() const { return this->_query_source; }
 };
