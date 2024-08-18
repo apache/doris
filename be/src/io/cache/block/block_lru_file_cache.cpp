@@ -59,6 +59,8 @@ namespace doris {
 namespace io {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_hits_ratio, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_hits_ratio_5m, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_hits_ratio_1h, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_removed_elements, MetricUnit::OPERATIONS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_index_queue_max_size, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_index_queue_curr_size, MetricUnit::BYTES);
@@ -73,6 +75,17 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_curr_size, Metric
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_max_elements, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_curr_elements, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_segment_reader_cache_size, MetricUnit::NOUNIT);
+
+bvar::Adder<int64_t> g_file_cache_num_read_segments("doris_file_cache_num_read_segments");
+bvar::Adder<int64_t> g_file_cache_num_hit_segments("doris_file_cache_num_hit_segments");
+bvar::Window<bvar::Adder<int64_t>> g_file_cache_num_hit_segments_5m(&g_file_cache_num_hit_segments,
+                                                                    300);
+bvar::Window<bvar::Adder<int64_t>> g_file_cache_num_read_segments_5m(
+        &g_file_cache_num_read_segments, 300);
+bvar::Window<bvar::Adder<int64_t>> g_file_cache_num_hit_segments_1h(&g_file_cache_num_hit_segments,
+                                                                    3600);
+bvar::Window<bvar::Adder<int64_t>> g_file_cache_num_read_segments_1h(
+        &g_file_cache_num_read_segments, 3600);
 
 LRUFileCache::LRUFileCache(const std::string& cache_base_path,
                            const FileCacheSettings& cache_settings)
@@ -89,6 +102,8 @@ LRUFileCache::LRUFileCache(const std::string& cache_base_path,
     _entity->register_hook(_cache_base_path, std::bind(&LRUFileCache::update_cache_metrics, this));
 
     INT_DOUBLE_METRIC_REGISTER(_entity, file_cache_hits_ratio);
+    INT_DOUBLE_METRIC_REGISTER(_entity, file_cache_hits_ratio_5m);
+    INT_DOUBLE_METRIC_REGISTER(_entity, file_cache_hits_ratio_1h);
     INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_removed_elements);
 
     INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_index_queue_max_size);
@@ -416,10 +431,10 @@ FileBlocksHolder LRUFileCache::get_or_set(const Key& key, size_t offset, size_t 
     }
 
     DCHECK(!file_blocks.empty());
-    _num_read_segments += file_blocks.size();
+    g_file_cache_num_read_segments << file_blocks.size();
     for (auto& segment : file_blocks) {
         if (segment->state() == FileBlock::State::DOWNLOADED) {
-            _num_hit_segments++;
+            g_file_cache_num_hit_segments << 1;
         }
     }
     return FileBlocksHolder(std::move(file_blocks));
@@ -1147,11 +1162,27 @@ void LRUFileCache::run_background_operation() {
 void LRUFileCache::update_cache_metrics() const {
     std::lock_guard<std::mutex> l(_mutex);
     double hit_ratio = 0;
-    if (_num_read_segments > 0) {
-        hit_ratio = (double)_num_hit_segments / (double)_num_read_segments;
+    double hit_ratio_5m = 0;
+    double hit_ratio_1h = 0;
+    if (g_file_cache_num_read_segments.get_value() > 0) {
+        hit_ratio = ((double)g_file_cache_num_hit_segments.get_value()) /
+                    ((double)g_file_cache_num_read_segments.get_value());
+    }
+    if (g_file_cache_num_read_segments_5m.get_value() > 0) {
+        hit_ratio_5m = ((double)g_file_cache_num_hit_segments_5m.get_value()) /
+                       ((double)g_file_cache_num_read_segments_5m.get_value());
+    } else {
+        hit_ratio_5m = 0.0;
+    }
+    if (g_file_cache_num_read_segments_1h.get_value() > 0) {
+        hit_ratio_1h = ((double)g_file_cache_num_hit_segments_1h.get_value()) /
+                       ((double)g_file_cache_num_read_segments_1h.get_value());
+        hit_ratio_1h = 0.0;
     }
 
     file_cache_hits_ratio->set_value(hit_ratio);
+    file_cache_hits_ratio_5m->set_value(hit_ratio_5m);
+    file_cache_hits_ratio_1h->set_value(hit_ratio_1h);
     file_cache_removed_elements->set_value(_num_removed_segments);
 
     file_cache_index_queue_max_size->set_value(_index_queue.get_max_size());
