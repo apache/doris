@@ -19,26 +19,30 @@
 
 #include <map>
 
+#include <rapidjson/document.h>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/stringbuffer.h>
+
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/io/io_helper.h"
 
 // TODO: 支持时间类型
-// TODO: json格式输出
 // TODO: 完善单元测试
+// TODO: 确定最大桶数
 
 namespace doris::vectorized {
 
 template <typename T>
 struct AggregateFunctionLinearHistogramData {
     // max buckets number
-    const static size_t MAX_BUCKETS = std::numeric_limits<size_t>::max() >> 7;
+    const static unsigned MAX_BUCKETS = std::numeric_limits<unsigned>::max();
 
 private:
     // influxdb use double
     double interval;
     double offset;
-    std::map<size_t, size_t> buckets;
+    std::map<unsigned, size_t> buckets;
 
 public:
     // reset
@@ -64,7 +68,7 @@ public:
                                        "{} is too large to fit in the buckets",
                                        value);
         }
-        buckets[static_cast<size_t>(key)]++;
+        buckets[static_cast<unsigned>(key)]++;
     }
     
     // merge
@@ -96,7 +100,7 @@ public:
         size_t size;
         read_binary(size, buf);
         for (size_t i = 0; i < size; i++) {
-            size_t key;
+            unsigned key;
             size_t count;
             read_binary(key, buf);
             read_binary(count, buf);
@@ -105,12 +109,60 @@ public:
     }
 
     // insert_result_into
-    void insert_result_into(IColumn& to) const {
+    void insert_result_into_test(IColumn& to) const {
         auto& column = assert_cast<ColumnString&>(to);
         std::string res = "result: ";
         for (const auto& [key, count] : buckets) {
             res += std::to_string(key * interval + offset) + ":" + std::to_string(count) + ",";
         }
+        column.insert_data(res.c_str(), res.length());
+    }
+
+    void insert_result_into(IColumn& to) const {
+        rapidjson::Document doc;
+        doc.SetObject();
+        rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
+
+        unsigned num_buckets = buckets.empty() ? 0 : buckets.rbegin()->first + 1;
+        doc.AddMember("num_buckets", num_buckets, allocator);
+
+        rapidjson::Value bucket_arr(rapidjson::kArrayType);
+        bucket_arr.Reserve(num_buckets, allocator);
+
+        unsigned idx = 0;
+        auto data_type = std::make_shared<DataTypeFloat64>();
+        double left = offset;
+        std::string left_str = data_type->to_string(left);
+        size_t count = 0;
+        size_t pre_sum = 0;
+        rapidjson::Value buf;     
+
+        for (const auto& [key, count_] : buckets) {
+            for (; idx <= key; ++idx) {
+                rapidjson::Value bucket_json(rapidjson::kObjectType);
+                buf.SetString(left_str.data(), static_cast<rapidjson::SizeType>(left_str.size()), allocator);
+                bucket_json.AddMember("lower", buf, allocator);
+                left += interval;
+                left_str = data_type->to_string(left);
+                buf.SetString(left_str.data(), static_cast<rapidjson::SizeType>(left_str.size()), allocator);
+                bucket_json.AddMember("upper", buf, allocator);
+                count = (idx == key) ? count_ : 0;
+                bucket_json.AddMember("count", count, allocator);
+                bucket_json.AddMember("pre_sum", pre_sum, allocator);
+                pre_sum += count;
+
+                bucket_arr.PushBack(bucket_json, allocator);
+            }
+        }
+
+        doc.AddMember("buckets", bucket_arr, allocator);
+        
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+        doc.Accept(writer);
+        auto res = std::string(buffer.GetString());
+
+        auto& column = assert_cast<ColumnString&>(to);
         column.insert_data(res.c_str(), res.length());
     }
 };
