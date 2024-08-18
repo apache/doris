@@ -23,6 +23,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/common/arena.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
@@ -42,7 +43,15 @@ public:
     void agg_linear_histogram_add_elements(AggregateFunctionPtr agg_function, AggregateDataPtr place, 
                                             size_t input_rows, double interval, double offset) {
         using FieldType = typename DataType::FieldType;
-        auto type = std::make_shared<DataType>();
+
+        std::shared_ptr<DataType> type;
+        if constexpr (std::is_same_v<DataType, DataTypeDecimal<Decimal32>>) {
+            type = std::make_shared<DataType>(9, 2);
+        } else if constexpr (std::is_same_v<DataType, DataTypeDecimal<Decimal64>>) {
+            type = std::make_shared<DataType>(18, 2);
+        } else {
+            type = std::make_shared<DataType>();
+        }
 
         MutableColumns columns(3);
         columns[0] = type->create_column();
@@ -75,9 +84,17 @@ public:
 
     template <typename DataType>
     void test_agg_linear_histogram(size_t input_rows, double interval, double offset) {
-        DataTypes data_types1 = {(DataTypePtr)std::make_shared<DataType>(), 
+        std::shared_ptr<DataType> type;
+        if constexpr (std::is_same_v<DataType, DataTypeDecimal<Decimal32>>) {
+            type = std::make_shared<DataType>(9, 2);
+        } else if constexpr (std::is_same_v<DataType, DataTypeDecimal<Decimal64>>) {
+            type = std::make_shared<DataType>(18, 2);
+        } else {
+            type = std::make_shared<DataType>();
+        }
+        DataTypes data_types1 = {(DataTypePtr)type, 
                                  std::make_shared<DataTypeFloat64>()};
-        DataTypes data_types2 = {(DataTypePtr)std::make_shared<DataType>(), 
+        DataTypes data_types2 = {(DataTypePtr)type,
                                  std::make_shared<DataTypeFloat64>(), 
                                  std::make_shared<DataTypeFloat64>()};
 
@@ -136,6 +153,12 @@ TEST_F(AggLinearHistogramTest, test_with_data) {
     test_agg_linear_histogram<DataTypeFloat32>(5, 0.5, 0);
     test_agg_linear_histogram<DataTypeFloat64>(5, 0.5, 0);
 
+    test_agg_linear_histogram<DataTypeDecimal<Decimal32>>(5, 0.5, 0);
+    test_agg_linear_histogram<DataTypeDecimal<Decimal64>>(5, 0.5, 0);
+    test_agg_linear_histogram<DataTypeDecimal<Decimal128V2>>(5, 0.5, 0);
+    test_agg_linear_histogram<DataTypeDecimal<Decimal128V3>>(5, 0.5, 0);
+    test_agg_linear_histogram<DataTypeDecimal<Decimal256>>(5, 0.5, 0);
+
     GTEST_LOG_(INFO) << "has offset";
     test_agg_linear_histogram<DataTypeInt8>(100, 10, 10);
     test_agg_linear_histogram<DataTypeInt16>(100, 10, 10);
@@ -144,6 +167,12 @@ TEST_F(AggLinearHistogramTest, test_with_data) {
     test_agg_linear_histogram<DataTypeInt128>(100, 10, 10);
     test_agg_linear_histogram<DataTypeFloat32>(5, 0.5, 0.5);
     test_agg_linear_histogram<DataTypeFloat64>(5, 0.5, 0.5);
+
+    test_agg_linear_histogram<DataTypeDecimal<Decimal32>>(5, 0.5, 0.5);
+    test_agg_linear_histogram<DataTypeDecimal<Decimal64>>(5, 0.5, 0.5);
+    test_agg_linear_histogram<DataTypeDecimal<Decimal128V2>>(5, 0.5, 0.5);
+    test_agg_linear_histogram<DataTypeDecimal<Decimal128V3>>(5, 0.5, 0.5);
+    test_agg_linear_histogram<DataTypeDecimal<Decimal256>>(5, 0.5, 0.5);
 }
 
 } // namespace doris::vectorized

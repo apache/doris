@@ -23,12 +23,10 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/io/io_helper.h"
 
-// TODO: 支持decimal类型
 // TODO: 支持时间类型
 // TODO: json格式输出
 // TODO: 空数据处理
 // TODO: 可空列处理
-// TODO: 优化参数反复赋值
 // TODO: 完善单元测试
 
 namespace doris::vectorized {
@@ -125,6 +123,8 @@ template <typename T, typename Data, bool has_offset>
 class AggregateFunctionLinearHistogram final 
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionLinearHistogram<T, Data, has_offset>> {
 public:
+    using ColVecType = ColumnVectorOrDecimal<T>;
+
     AggregateFunctionLinearHistogram(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionLinearHistogram<T, Data, has_offset>>(argument_types_) {}
     
@@ -151,7 +151,7 @@ public:
         this->data(place).set_parameters(interval, offset);
         
         this->data(place).add(
-                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0])
                         .get_data()[row_num]);
     }
 

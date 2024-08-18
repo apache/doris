@@ -45,6 +45,7 @@ AggregateFunctionPtr create_aggregate_function_linear_histogram(const std::strin
     if (type.idx == TypeIndex::TYPE) \
         return create_agg_function_linear_histogram<TYPE>(argument_types, result_is_nullable);
     FOR_NUMERIC_TYPES(DISPATCH)
+    FOR_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
 
     LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",
