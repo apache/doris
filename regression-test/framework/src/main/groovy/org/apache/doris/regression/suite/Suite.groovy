@@ -1456,26 +1456,57 @@ class Suite implements GroovyInterceptable {
         return result.values().toList()
     }
 
-    def check_mv_rewrite_success = { db, mv_sql, query_sql, mv_name ->
-
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS ${mv_sql}
-        """
-
-        def job_name = getJobName(db, mv_name);
-        waitingMTMVTaskFinished(job_name)
+    def mv_rewrite_success = { query_sql, mv_name ->
         explain {
-            sql("${query_sql}")
-            contains("${mv_name}(${mv_name})")
+            sql(" memo plan ${query_sql}")
+            contains("${mv_name} chose")
         }
     }
 
-    def check_mv_rewrite_success_without_check_chosen = { db, mv_sql, query_sql, mv_name ->
+    def mv_rewrite_success_without_check_chosen = { query_sql, mv_name ->
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("${mv_name} not chose")
+        }
+    }
+
+    def mv_rewrite_fail = { query_sql, mv_name ->
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("${mv_name} fail")
+        }
+    }
+
+    def mv_rewrite_all_fail = {query_sql ->
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("chose: none")
+            contains("not chose: none")
+        }
+    }
+
+    def async_mv_rewrite_success = { db, mv_sql, query_sql, mv_name ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+
+        sql "analyze table ${mv_name} with sync;"
+
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("${mv_name} chose")
+        }
+    }
+
+    def async_mv_rewrite_success_without_check_chosen = { db, mv_sql, query_sql, mv_name ->
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
         sql"""
@@ -1488,17 +1519,17 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
+
+        sql "analyze table ${mv_name} with sync;"
+
         explain {
-            sql("${query_sql}")
-            check {result ->
-                def splitResult = result.split("MaterializedViewRewriteFail")
-                splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
-            }
+            sql(" memo plan ${query_sql}")
+            notContains("${mv_name} fail")
         }
     }
 
 
-    def check_mv_rewrite_fail = { db, mv_sql, query_sql, mv_name ->
+    def async_mv_rewrite_fail = { db, mv_sql, query_sql, mv_name ->
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
         sql"""
@@ -1511,9 +1542,13 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
+
+        sql "analyze table ${mv_name} with sync;"
+
         explain {
-            sql("${query_sql}")
-            notContains("${mv_name}(${mv_name})")
+            sql(" memo plan ${query_sql}")
+            notContains("${mv_name} chose")
+            notContains("${mv_name} not chose")
         }
     }
 
