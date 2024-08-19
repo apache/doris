@@ -302,6 +302,7 @@ public class EditLog {
                 case OperationType.OP_RENAME_TABLE: {
                     TableInfo info = (TableInfo) journal.getData();
                     env.replayRenameTable(info);
+                    Env.getCurrentEnv().getBinlogManager().addTableRename(info, logId);
                     break;
                 }
                 case OperationType.OP_MODIFY_VIEW_DEF: {
@@ -312,6 +313,7 @@ public class EditLog {
                 case OperationType.OP_RENAME_PARTITION: {
                     TableInfo info = (TableInfo) journal.getData();
                     env.replayRenamePartition(info);
+                    Env.getCurrentEnv().getBinlogManager().addTableRename(info, logId);
                     break;
                 }
                 case OperationType.OP_RENAME_COLUMN: {
@@ -358,6 +360,7 @@ public class EditLog {
                 case OperationType.OP_RENAME_ROLLUP: {
                     TableInfo info = (TableInfo) journal.getData();
                     env.replayRenameRollup(info);
+                    Env.getCurrentEnv().getBinlogManager().addTableRename(info, logId);
                     break;
                 }
                 case OperationType.OP_LOAD_START:
@@ -1521,7 +1524,9 @@ public class EditLog {
     }
 
     public void logTableRename(TableInfo tableInfo) {
-        logEdit(OperationType.OP_RENAME_TABLE, tableInfo);
+        long logId = logEdit(OperationType.OP_RENAME_TABLE, tableInfo);
+        LOG.info("log table rename, logId : {}, infos: {}", logId, tableInfo);
+        Env.getCurrentEnv().getBinlogManager().addTableRename(tableInfo, logId);
     }
 
     public void logModifyViewDef(AlterViewInfo alterViewInfo) {
@@ -1529,11 +1534,15 @@ public class EditLog {
     }
 
     public void logRollupRename(TableInfo tableInfo) {
-        logEdit(OperationType.OP_RENAME_ROLLUP, tableInfo);
+        long logId = logEdit(OperationType.OP_RENAME_ROLLUP, tableInfo);
+        LOG.info("log rollup rename, logId : {}, infos: {}", logId, tableInfo);
+        Env.getCurrentEnv().getBinlogManager().addTableRename(tableInfo, logId);
     }
 
     public void logPartitionRename(TableInfo tableInfo) {
-        logEdit(OperationType.OP_RENAME_PARTITION, tableInfo);
+        long logId = logEdit(OperationType.OP_RENAME_PARTITION, tableInfo);
+        LOG.info("log partition rename, logId : {}, infos: {}", logId, tableInfo);
+        Env.getCurrentEnv().getBinlogManager().addTableRename(tableInfo, logId);
     }
 
     public void logColumnRename(TableRenameColumnInfo info) {
