@@ -42,8 +42,8 @@ void IColumn::append_data_by_selector_impl(MutablePtr& res, const Selector& sele
                                "Size of selector: {} is larger than size of column: {}",
                                selector.size(), num_rows);
     }
-
-    res->reserve(num_rows);
+    DCHECK_GE(end, begin);
+    res->reserve(end - begin);
 
     for (size_t i = begin; i < end; ++i) {
         static_cast<Derived&>(*res).insert_from(*this, selector[i]);
