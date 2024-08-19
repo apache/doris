@@ -58,11 +58,6 @@ public class Diagnoser {
         }
         results.add(Lists.newArrayList("TabletExist", "Yes", ""));
         results.add(Lists.newArrayList("TabletId", String.valueOf(tabletId), ""));
-        if (Env.getCurrentRecycleBin().isRecyclePartition(tabletMeta.getDbId(),
-                tabletMeta.getTableId(), tabletMeta.getPartitionId())) {
-            results.add(Lists.newArrayList("Partition", "In catalog recycle bin", ""));
-            return results;
-        }
         // database
         Database db = Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
         if (db == null) {
