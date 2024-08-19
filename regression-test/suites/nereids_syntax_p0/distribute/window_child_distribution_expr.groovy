@@ -51,48 +51,48 @@ suite("window_child_distribution_expr") {
                 sql """
                 select * from (select t2.k2, row_number() over (partition by t1.k1, t1.k2 order by t1.k3) rn from baseall t1 join test t2 on t1.k1=t2.k1) tmp;
 		"""
-    	        contains "distribute expr lists: k1[#17], k2[#18]"
+    	        contains "distribute expr lists: k1[#13], k2[#14]"
         }
 	explain {
                 sql """
                 select * from (select t2.k2, row_number() over (partition by t1.k1, t1.k2 order by t1.k3) rn from baseall t1 join test t2 on t1.k1=t2.k1) tmp where rn <=1;
 		"""
-    	        contains "distribute expr lists: k1[#21], k2[#22]"
+    	        contains "distribute expr lists: k1[#17], k2[#18]"
         }
 	explain {
                 sql """
                 select * from (select t2.k2, row_number() over (partition by t1.k2, t1.k3 order by t1.k4) rn from baseall t1 join test t2 on t1.k1=t2.k1) tmp;
 		"""
-    	        contains "distribute expr lists: k2[#18], k3[#19]"
+    	        contains "distribute expr lists: k2[#14], k3[#15]"
         }
 	explain {
                 sql """
                 select * from (select t2.k2, row_number() over (partition by t1.k2, t1.k3 order by t1.k4) rn from baseall t1 join test t2 on t1.k1=t2.k1) tmp where rn <=1;
 		"""
-    	        contains "distribute expr lists: k2[#22], k3[#23]"
+    	        contains "distribute expr lists: k2[#18], k3[#19]"
         }
 	explain {
                 sql """
                 select * from (select t2.k2, row_number() over (partition by t1.k2, t1.k3 order by t1.k4) rn from baseall t1 join test t2 on t1.k2=t2.k2) tmp;
 		"""
-    	        contains "distribute expr lists: k2[#15], k3[#16]"
+    	        contains "distribute expr lists: k2[#11], k3[#12]"
         }
 	explain {
                 sql """
                 select * from (select t2.k2, row_number() over (partition by t1.k2, t1.k3 order by t1.k4) rn from baseall t1 join test t2 on t1.k2=t2.k2) tmp where rn <=1;
 		"""
-    	        contains "distribute expr lists: k2[#19], k3[#20]"
+    	        contains "distribute expr lists: k2[#15], k3[#16]"
         }
 	explain {
                 sql """
                 select * from (select t2.k2, row_number() over (partition by t1.k1 order by t1.k3) rn from baseall t1 join test t2 on t1.k2=t2.k2) tmp;
 		"""
-    	        contains "distribute expr lists: k1[#15]"
+    	        contains "distribute expr lists: k1[#12]"
         }
 	explain {
                 sql """
                 select * from (select t2.k2, row_number() over (partition by t1.k1 order by t1.k3) rn from baseall t1 join test t2 on t1.k2=t2.k2) tmp where rn <=1;
 		"""
-    	        contains "distribute expr lists: k1[#18]"
+    	        contains "distribute expr lists: k1[#15]"
         }
 }
