@@ -82,7 +82,6 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         List<Slot> childOutput = child().getOutput();
         List<String> columnAliases = this.columnAliases.orElseGet(ImmutableList::of);
         ImmutableList.Builder<Slot> currentOutput = ImmutableList.builder();
-
         for (int i = 0; i < childOutput.size(); i++) {
             Slot originSlot = childOutput.get(i);
             String columnAlias;
