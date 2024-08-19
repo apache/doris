@@ -760,6 +760,9 @@ DEFINE_mInt32(max_tablet_version_num, "2000");
 // the thrift_server_type_of_fe should be set THREADED_SELECTOR to make be thrift client to fe constructed with TFramedTransport
 DEFINE_String(thrift_server_type_of_fe, "THREAD_POOL");
 
+// should keep the same with thrift type of fe, but leave it as it was.
+DEFINE_String(thrift_server_type_of_be, "THREADED");
+
 // disable zone map index when page row is too few
 DEFINE_mInt32(zone_map_row_num_threshold, "20");
 

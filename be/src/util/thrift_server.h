@@ -68,17 +68,29 @@ public:
     //                is working on behalf of the connection.
     enum ServerType { THREAD_POOL = 0, THREADED, NON_BLOCKING };
 
+    // added config`s thrift_server_type_of_be to create a thriftserver
+    static ServerType GetServerTypeFromConfig() {
+        auto &server_type = config::thrift_server_type_of_be;
+        std::transform(server_type.begin(), server_type.end(),
+                    server_type.begin(), [](auto c) { return std::toupper(c); });
+        if (server_type == "THREAD_POOL") {
+            return ServerType::THREAD_POOL;
+        } else if (server_type == "NON_BLOCKING") {
+            return ServerType::NON_BLOCKING;
+        }
+        return ServerType::THREADED;
+    }
     // Creates, but does not start, a new server on the specified port
     // that exports the supplied interface.
     //  - name: human-readable name of this server. Should not contain spaces
     //  - processor: Thrift processor to handle RPCs
     //  - port: The port the server will listen for connections on
     //  - num_worker_threads: the number of worker threads to use in any thread pool
-    //  - server_type: the type of IO strategy this server should employ
+    //  - server_type: the type of IO strategy this server should employ,default is THREADED
     ThriftServer(const std::string& name,
                  const std::shared_ptr<apache::thrift::TProcessor>& processor, int port,
                  int num_worker_threads = DEFAULT_WORKER_THREADS,
-                 ServerType server_type = THREADED);
+                 ServerType server_type = ThriftServer::GetServerTypeFromConfig());
 
     ~ThriftServer();
 
