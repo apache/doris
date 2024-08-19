@@ -917,14 +917,16 @@ public class InternalCatalog implements CatalogIf<Database> {
             } finally {
                 table.writeUnlock();
             }
-            DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, -1L, stmt.isForceDrop(), recycleTime);
+            DropInfo info = new DropInfo(
+                    db.getId(), table.getId(), tableName, -1L, stmt.isView(), stmt.isForceDrop(), recycleTime);
             Env.getCurrentEnv().getEditLog().logDropTable(info);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
                     db.getId(), table.getId());
         } finally {
             db.writeUnlock();
         }
-        LOG.info("finished dropping table: {} from db: {}, is force: {}", tableName, dbName, stmt.isForceDrop());
+        LOG.info("finished dropping table: {} from db: {}, is view: {}, is force: {}",
+                tableName, dbName, stmt.isView(), stmt.isForceDrop());
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
@@ -2683,7 +2685,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             try {
                 dropTable(db, tableId, true, false, 0L);
                 if (hadLogEditCreateTable) {
-                    DropInfo info = new DropInfo(db.getId(), tableId, olapTable.getName(), -1L, true, 0L);
+                    DropInfo info = new DropInfo(db.getId(), tableId, olapTable.getName(), -1L, false, true, 0L);
                     Env.getCurrentEnv().getEditLog().logDropTable(info);
                 }
             } catch (Exception ex) {
