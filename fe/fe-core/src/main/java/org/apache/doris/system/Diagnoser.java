@@ -58,24 +58,34 @@ public class Diagnoser {
         }
         results.add(Lists.newArrayList("TabletExist", "Yes", ""));
         results.add(Lists.newArrayList("TabletId", String.valueOf(tabletId), ""));
+        if (Env.getCurrentRecycleBin().isRecyclePartition(tabletMeta.getDbId(),
+                tabletMeta.getTableId(), tabletMeta.getPartitionId())) {
+            results.add(Lists.newArrayList("Partition", "In catalog recycle bin", ""));
+            return results;
+        }
         // database
         Database db = Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
         if (db == null) {
-            results.add(Lists.newArrayList("Database", "Not exist", ""));
+            boolean inRecyleBin = Env.getCurrentRecycleBin().isRecycleDatabase(tabletMeta.getDbId());
+            results.add(Lists.newArrayList("Database", inRecyleBin ? "In catalog recycle bin" : "Not exist", ""));
             return results;
         }
         results.add(Lists.newArrayList("Database", db.getFullName() + ": " + db.getId(), ""));
         // table
         OlapTable tbl = (OlapTable) db.getTableNullable(tabletMeta.getTableId());
         if (tbl == null) {
-            results.add(Lists.newArrayList("Table", "Not exist", ""));
+            boolean inRecyleBin = Env.getCurrentRecycleBin().isRecycleTable(tabletMeta.getDbId(),
+                    tabletMeta.getTableId());
+            results.add(Lists.newArrayList("Table", inRecyleBin ? "In catalog recycle bin" : "Not exist", ""));
             return results;
         }
         results.add(Lists.newArrayList("Table", tbl.getName() + ": " + tbl.getId(), ""));
         // partition
         Partition partition = tbl.getPartition(tabletMeta.getPartitionId());
         if (partition == null) {
-            results.add(Lists.newArrayList("Partition", "Not exist", ""));
+            boolean inRecyleBin = Env.getCurrentRecycleBin().isRecyclePartition(tabletMeta.getDbId(),
+                    tabletMeta.getTableId(), tabletMeta.getPartitionId());
+            results.add(Lists.newArrayList("Partition", inRecyleBin ? "In catalog recycle bin" : "Not exist", ""));
             return results;
         }
         results.add(Lists.newArrayList("Partition", partition.getName() + ": " + partition.getId(), ""));

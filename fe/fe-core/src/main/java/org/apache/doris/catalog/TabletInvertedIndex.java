@@ -475,7 +475,10 @@ public class TabletInvertedIndex {
                 table.readUnlock();
             }
         } catch (RuntimeException e) {
-            LOG.warn("failed to get tablet. tabletId={}", beTabletInfo.tablet_id);
+            if (!Env.getCurrentRecycleBin().isRecyclePartition(tabletMeta.getDbId(),
+                    tabletMeta.getTableId(), tabletMeta.getPartitionId())) {
+                LOG.warn("failed to get tablet. tabletId={}", beTabletInfo.tablet_id);
+            }
             return;
         }
         Pair<Long, Long> cooldownConf = tablet.getCooldownConf();
