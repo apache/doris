@@ -22,11 +22,10 @@
 
 #include <chrono>
 #include <cstddef>
+#include <sstream>
 
-#include "common/bvars.h"
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/stopwatch.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/keys.h"
@@ -58,21 +57,33 @@ static constexpr int SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID = -2;
 // 2. When if cu compaction, we need to guarantee the start version
 // is large than alter_version.
 bool check_compaction_input_verions(const TabletCompactionJobPB& compaction,
-                                    const TabletJobInfoPB& job_pb) {
-    if (!job_pb.has_schema_change() || !job_pb.schema_change().has_alter_version()) return true;
+                                    const TabletJobInfoPB& job_pb, std::stringstream& ss) {
+    if (!job_pb.has_schema_change() || !job_pb.schema_change().has_alter_version()) {
+        return true;
+    }
+    if (compaction.type() == TabletCompactionJobPB::EMPTY_CUMULATIVE) {
+        return true;
+    }
     if (compaction.input_versions_size() != 2 ||
         compaction.input_versions(0) > compaction.input_versions(1)) {
-        LOG(WARNING) << "The compaction need to know [start_version, end_version], and \
-                            the start_version should LE end_version. \n"
-                     << proto_to_json(compaction);
+        SS << "The compaction need to know [start_version, end_version], and the start_version "
+              "should LE end_version. \n"
+           << "compaction job=" << proto_to_json(compaction);
         return false;
     }
 
     int64_t alter_version = job_pb.schema_change().alter_version();
-    return (compaction.type() == TabletCompactionJobPB_CompactionType_BASE &&
-            compaction.input_versions(1) <= alter_version) ||
-           (compaction.type() == TabletCompactionJobPB_CompactionType_CUMULATIVE &&
-            compaction.input_versions(0) > alter_version);
+    bool legal = (compaction.type() == TabletCompactionJobPB::BASE &&
+                  compaction.input_versions(1) <= alter_version) ||
+                 (compaction.type() == TabletCompactionJobPB::CUMULATIVE &&
+                  compaction.input_versions(0) > alter_version);
+    if (legal) {
+        return true;
+    }
+    SS << "Check compaction input versions failed in schema change. input_version_start="
+       << compaction.input_versions(0) << " input_version_end=" << compaction.input_versions(1)
+       << " schema_change_alter_version=" << job_pb.schema_change().alter_version();
+    return false;
 }
 
 void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
@@ -150,11 +161,7 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
     }
     while (err == TxnErrorCode::TXN_OK) {
         job_pb.ParseFromString(job_val);
-        if (!check_compaction_input_verions(compaction, job_pb)) {
-            SS << "Check compaction input versions failed in schema change. input_version_start="
-               << compaction.input_versions(0)
-               << " input_version_end=" << compaction.input_versions(1)
-               << " schema_change_alter_version=" << job_pb.schema_change().alter_version();
+        if (!check_compaction_input_verions(compaction, job_pb, ss)) {
             msg = ss.str();
             INSTANCE_LOG(INFO) << msg;
             code = MetaServiceCode::JOB_CHECK_ALTER_VERSION;
@@ -612,10 +619,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
 
     bool abort_compaction = false;
     if (request->action() == FinishTabletJobRequest::COMMIT &&
-        !check_compaction_input_verions(compaction, recorded_job)) {
-        SS << "Check compaction input versions failed in schema change. input_version_start="
-           << compaction.input_versions(0) << " input_version_end=" << compaction.input_versions(1)
-           << " schema_change_alter_version=" << recorded_job.schema_change().alter_version();
+        !check_compaction_input_verions(compaction, recorded_job, ss)) {
         msg = ss.str();
         INSTANCE_LOG(INFO) << msg;
         abort_compaction = true;
