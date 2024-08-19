@@ -1069,7 +1069,7 @@ public class OlapScanNode extends ScanNode {
         switch (partitionInfo.getType()) {
             case RANGE:
                 selectedPartitionIds = partitionPrune(partitionInfo, partitionNames);
-                if (partitionPruner instanceof RangePartitionPrunerV2) {
+                if (isPointQuery() && partitionPruner instanceof RangePartitionPrunerV2) {
                     RangePartitionPrunerV2 rangePartitionPruner = (RangePartitionPrunerV2) partitionPruner;
                     this.partitionCol2PartitionID = rangePartitionPruner.getPartitionCol2PartitionID();
                 }
@@ -1387,7 +1387,6 @@ public class OlapScanNode extends ScanNode {
 
     // Only called when Coordinator exec in high performance point query
     public List<TScanRangeLocations> lazyEvaluateRangeLocations() throws UserException {
-        LOG.info("[LazyEvaluate] lazyEvaluateRangeLocations");
         // Lazy evaluation
         selectedIndexId = olapTable.getBaseIndexId();
         // Only key columns

@@ -28,6 +28,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeMap;
+import com.google.common.collect.Sets;
 import com.google.common.collect.TreeRangeMap;
 
 import java.util.Collection;
@@ -184,21 +185,19 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
                 genSingleColumnRangeMap();
                 Preconditions.checkNotNull(singleColumnRangeMap);
                 partitionCol2PartitionID.put(partitionCol.getName(), TreeRangeMap.create());
-                Set<Long> resultPartID =
-                        finalFilters.filters.stream()
-                        .map(filter -> {
-                            RangeMap<ColumnBound, UniqueId> filtered = singleColumnRangeMap.subRangeMap(filter);
-                            filtered.asMapOfRanges().forEach((range, partID) -> {
-                                partitionCol2PartitionID.get(partitionCol.getName())
-                                            .asMapOfRanges()
-                                            .computeIfAbsent(range, k -> Lists.newArrayList(partID.getPartitionId()));
-                            });
-                            return filtered.asMapOfRanges().values().stream()
-                                    .map(UniqueId::getPartitionId)
-                                    .collect(Collectors.toSet());
-                        })
-                        .flatMap(Set::stream)
-                        .collect(Collectors.toSet());
+                Set<Long> resultPartID = Sets.newHashSet();
+                finalFilters.filters.forEach(filter -> {
+                    RangeMap<ColumnBound, UniqueId> filtered = singleColumnRangeMap.subRangeMap(filter);
+
+                    filtered.asMapOfRanges().forEach((range, partID) -> {
+                        partitionCol2PartitionID.get(partitionCol.getName())
+                                .asMapOfRanges()
+                                .computeIfAbsent(range, k -> Lists.newArrayList())
+                                .add(partID.getPartitionId());
+
+                        resultPartID.add(partID.getPartitionId());
+                    });
+                });
                 return resultPartID;
             case NO_FILTERS:
             default:
