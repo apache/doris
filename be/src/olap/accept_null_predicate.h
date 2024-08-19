@@ -163,6 +163,7 @@ private:
                     uint16_t row_idx = sel[i];
                     selected[row_idx] = true;
                 }
+                // reset null from original data
                 for (uint16_t i = 0; i < size; ++i) {
                     uint16_t row_idx = old_sel[i];
                     selected[row_idx] |= nullmap[row_idx];

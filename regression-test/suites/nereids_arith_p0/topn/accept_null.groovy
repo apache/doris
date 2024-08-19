@@ -27,7 +27,6 @@ suite ("accept_null") {
             `accident_type_name` VARCHAR(512) NULL
             ) ENGINE=OLAP
             UNIQUE KEY(`id`)
-            COMMENT '整车事故台账明细'
             DISTRIBUTED BY HASH(`id`) BUCKETS AUTO
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
