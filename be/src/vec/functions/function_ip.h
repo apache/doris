@@ -421,7 +421,6 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
     const Chars& vec_src = string_column.get_chars();
 
     size_t src_offset = 0;
-    char src_ipv4_buf[sizeof("::ffff:") + IPV4_MAX_TEXT_LENGTH + 1] = "::ffff:";
 
     /// ColumnString contains not null terminated strings. But functions parseIPv6, parseIPv4 expect null terminated string.
     /// TODO fix this - now parseIPv6/parseIPv4 accept end iterator, so can be parsed in-place
@@ -437,6 +436,7 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
 
         const char* src_value = nullptr;
         auto* res_value = reinterpret_cast<unsigned char*>(&vec_res[out_offset]);
+        char src_ipv4_buf[sizeof("::ffff:") + IPV4_MAX_TEXT_LENGTH + 1] = "::ffff:";
 
         if constexpr (std::is_same_v<StringColumnType, ColumnString>) {
             src_value = reinterpret_cast<const char*>(&vec_src[src_offset]);
@@ -476,7 +476,7 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
         size_t string_length = src_next_offset - src_offset;
         if (string_length != 0) {
             if (try_parse_ipv4(src_value, dummy_result)) {
-                strcat(src_ipv4_buf, src_value);
+                strncat(src_ipv4_buf, src_value, sizeof(src_ipv4_buf) - strlen(src_ipv4_buf) - 1);
                 parse_result = parse_ipv6_whole(src_ipv4_buf, res_value);
             } else {
                 parse_result = parse_ipv6_whole(src_value, res_value);

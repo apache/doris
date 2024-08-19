@@ -113,15 +113,15 @@ suite("test_index_multi_match", "p0"){
         qt_sql """ select count() from ${indexTbName2} where (clientip match_phrase_prefix '2' or request match_phrase_prefix '2' or status match_phrase_prefix '2' or size match_phrase_prefix '2'); """
         qt_sql """ select count() from ${indexTbName2} where (clientip match_phrase_prefix 'a' or request match_phrase_prefix 'a' or status match_phrase_prefix 'a' or size match_phrase_prefix 'a'); """
 
-        qt_sql """ select count() from ${indexTbName3} where multi_match(clientip, '', 'phrase_prefix', '2'); """
-        qt_sql """ select count() from ${indexTbName3} where multi_match(clientip, 'request', 'phrase_prefix', '2'); """
-        qt_sql """ select count() from ${indexTbName3} where multi_match(clientip, 'request, status, size', 'phrase_prefix', '2'); """
-        qt_sql """ select count() from ${indexTbName3} where multi_match(clientip, 'request, status, size', 'phrase_prefix', 'a'); """
+        qt_sql """ select count() from ${indexTbName3} where multi_match(clientip, 'phrase_prefix', '2'); """
+        qt_sql """ select count() from ${indexTbName3} where multi_match(clientip, request, 'phrase_prefix', '2'); """
+        qt_sql """ select count() from ${indexTbName3} where multi_match(clientip, request, status, size, 'phrase_prefix', '2'); """
+        qt_sql """ select count() from ${indexTbName3} where multi_match(clientip, request, status, size, 'phrase_prefix', 'a'); """
 
-        qt_sql """ select count() from ${indexTbName4} where multi_match(clientip, '', 'phrase_prefix', '2'); """
-        qt_sql """ select count() from ${indexTbName4} where multi_match(clientip, 'request', 'phrase_prefix', '2'); """
-        qt_sql """ select count() from ${indexTbName4} where multi_match(clientip, 'request, status, size', 'phrase_prefix', '2'); """
-        qt_sql """ select count() from ${indexTbName4} where multi_match(clientip, 'request, status, size', 'phrase_prefix', 'a'); """
+        qt_sql """ select count() from ${indexTbName4} where multi_match(clientip, 'phrase_prefix', '2'); """
+        qt_sql """ select count() from ${indexTbName4} where multi_match(clientip, request, 'phrase_prefix', '2'); """
+        qt_sql """ select count() from ${indexTbName4} where multi_match(clientip, request, status, size, 'phrase_prefix', '2'); """
+        qt_sql """ select count() from ${indexTbName4} where multi_match(clientip, request, status, size, 'phrase_prefix', 'a'); """
 
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
