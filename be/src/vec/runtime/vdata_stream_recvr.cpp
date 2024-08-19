@@ -62,11 +62,6 @@ VDataStreamRecvr::SenderQueue::~SenderQueue() {
     _pending_closures.clear();
 }
 
-bool VDataStreamRecvr::SenderQueue::should_wait() {
-    std::unique_lock<std::mutex> l(_lock);
-    return !_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0;
-}
-
 Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
     std::unique_lock<std::mutex> l(_lock);
     // wait until something shows up or we know we're done
@@ -333,10 +328,8 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
                                    int num_senders, bool is_merging, RuntimeProfile* profile)
         : HasTaskExecutionCtx(state),
           _mgr(stream_mgr),
-#ifdef USE_MEM_TRACKER
-          _query_mem_tracker(state->query_mem_tracker()),
-          _query_id(state->query_id()),
-#endif
+          _query_thread_context(state->query_id(), state->query_mem_tracker(),
+                                state->get_query_ctx()->workload_group()),
           _fragment_instance_id(fragment_instance_id),
           _dest_node_id(dest_node_id),
           _row_desc(row_desc),
@@ -408,7 +401,7 @@ Status VDataStreamRecvr::create_merger(const VExprContextSPtrs& ordering_expr,
 
 Status VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_number,
                                    int64_t packet_seq, ::google::protobuf::Closure** done) {
-    SCOPED_ATTACH_TASK_WITH_ID(_query_mem_tracker, _query_id);
+    SCOPED_ATTACH_TASK(_query_thread_context);
     int use_sender_id = _is_merging ? sender_id : 0;
     return _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done);
 }
@@ -418,24 +411,10 @@ void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
     _sender_queues[use_sender_id]->add_block(block, use_move);
 }
 
-bool VDataStreamRecvr::sender_queue_empty(int sender_id) {
-    int use_sender_id = _is_merging ? sender_id : 0;
-    return _sender_queues[use_sender_id]->queue_empty();
-}
-
 std::shared_ptr<pipeline::Dependency> VDataStreamRecvr::get_local_channel_dependency(
         int sender_id) {
     DCHECK(_sender_to_local_channel_dependency[_is_merging ? sender_id : 0] != nullptr);
     return _sender_to_local_channel_dependency[_is_merging ? sender_id : 0];
-}
-
-bool VDataStreamRecvr::ready_to_read() {
-    for (const auto& queue : _sender_queues) {
-        if (queue->should_wait()) {
-            return false;
-        }
-    }
-    return true;
 }
 
 Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
@@ -503,7 +482,7 @@ void VDataStreamRecvr::close() {
     }
     _is_closed = true;
     for (auto& it : _sender_to_local_channel_dependency) {
-        it->set_ready();
+        it->set_always_ready();
     }
     for (int i = 0; i < _sender_queues.size(); ++i) {
         _sender_queues[i]->close();

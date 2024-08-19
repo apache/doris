@@ -67,4 +67,9 @@ public class DropEncryptKeyStmt extends DdlStmt {
         stringBuilder.append("DROP ENCRYPTKEY ").append(encryptKeyName.getKeyName());
         return stringBuilder.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
+    }
 }

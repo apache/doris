@@ -316,13 +316,17 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                                 () -> Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER)));
                 for (Predicate condition : deleteConditions) {
                     SlotRef slotRef = (SlotRef) condition.getChild(0);
-                    String columnName = new String(slotRef.getColumnName());
+                    String columnName = slotRef.getColumnName();
                     TColumn column = colNameToColDesc.get(slotRef.getColumnName());
                     if (column == null) {
                         columnName = CreateMaterializedViewStmt.mvColumnBuilder(columnName);
                         column = colNameToColDesc.get(columnName);
                     }
                     if (column == null) {
+                        if (partition.isRollupIndex(index.getId())) {
+                            throw new AnalysisException("If MV or rollup index exists, do not support delete."
+                                    + "Drop existing rollup or MV and try again.");
+                        }
                         throw new AnalysisException(
                                 "condition's column not founded in index, column=" + columnName + " , index=" + index);
                     }
@@ -379,6 +383,12 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
         long timeoutMs = getTimeoutMs();
         boolean ok = countDownLatch.await(timeoutMs, TimeUnit.MILLISECONDS);
         if (ok) {
+            if (!countDownLatch.getStatus().ok()) {
+                // encounter some errors that don't need to retry, abort directly
+                LOG.warn("delete job failed, errmsg={}", countDownLatch.getStatus().getErrorMsg());
+                throw new UserException(String.format("delete job failed, errmsg:%s",
+                        countDownLatch.getStatus().getErrorMsg()));
+            }
             return;
         }
 

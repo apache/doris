@@ -54,11 +54,6 @@ namespace doris::pipeline {
     }
 
 template <typename Derived>
-bool ScanLocalState<Derived>::ready_to_read() {
-    return !_scanner_ctx->empty_in_queue(0);
-}
-
-template <typename Derived>
 bool ScanLocalState<Derived>::should_run_serial() const {
     return _parent->cast<typename Derived::Parent>()._should_run_serial;
 }
@@ -107,7 +102,7 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         RETURN_IF_ERROR(
                 p._common_expr_ctxs_push_down[i]->clone(state, _common_expr_ctxs_push_down[i]));
     }
-    RETURN_IF_ERROR(_acquire_runtime_filter(true));
+    RETURN_IF_ERROR(_acquire_runtime_filter());
     _stale_expr_ctxs.resize(p._stale_expr_ctxs.size());
     for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));
@@ -1105,18 +1100,12 @@ Status ScanLocalState<Derived>::_normalize_in_and_not_in_compound_predicate(
         auto hybrid_set = expr->get_set_func();
 
         if (hybrid_set != nullptr) {
-            if (hybrid_set->size() <=
-                _parent->cast<typename Derived::Parent>()._max_pushdown_conditions_per_column) {
-                iter = hybrid_set->begin();
-            } else {
-                _filter_predicates.in_filters.emplace_back(slot->col_name(), expr->get_set_func());
-                *pdt = PushDownType::ACCEPTABLE;
-                return Status::OK();
-            }
+            *pdt = PushDownType::UNACCEPTABLE;
+            return Status::OK();
         } else {
-            vectorized::VInPredicate* pred = static_cast<vectorized::VInPredicate*>(expr);
+            auto* pred = static_cast<vectorized::VInPredicate*>(expr);
 
-            vectorized::InState* state = reinterpret_cast<vectorized::InState*>(
+            auto* state = reinterpret_cast<vectorized::InState*>(
                     expr_ctx->fn_context(pred->fn_context_index())
                             ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
@@ -1125,6 +1114,11 @@ Status ScanLocalState<Derived>::_normalize_in_and_not_in_compound_predicate(
             }
 
             iter = state->hybrid_set->begin();
+
+            if (state->hybrid_set->contain_null()) {
+                *pdt = PushDownType::UNACCEPTABLE;
+                return Status::OK();
+            }
         }
 
         while (iter->has_next()) {
@@ -1298,7 +1292,6 @@ Status ScanLocalState<Derived>::_init_profile() {
 
     _scan_timer = ADD_TIMER(_scanner_profile, "ScannerGetBlockTime");
     _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScannerCpuTime");
-    _prefilter_timer = ADD_TIMER(_scanner_profile, "ScannerPrefilterTime");
     _convert_block_timer = ADD_TIMER(_scanner_profile, "ScannerConvertBlockTime");
     _filter_timer = ADD_TIMER(_scanner_profile, "ScannerFilterTime");
 
@@ -1400,13 +1393,9 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
     const TQueryOptions& query_options = state->query_options();
     if (query_options.__isset.max_scan_key_num) {
         _max_scan_key_num = query_options.max_scan_key_num;
-    } else {
-        _max_scan_key_num = config::doris_max_scan_key_num;
     }
     if (query_options.__isset.max_pushdown_conditions_per_column) {
         _max_pushdown_conditions_per_column = query_options.max_pushdown_conditions_per_column;
-    } else {
-        _max_pushdown_conditions_per_column = config::max_pushdown_conditions_per_column;
     }
     // tnode.olap_scan_node.push_down_agg_type_opt field is deprecated
     // Introduced a new field : tnode.push_down_agg_type_opt
@@ -1486,12 +1475,7 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
     // remove them when query leave scan node to avoid other nodes use block->columns() to make a wrong decision
     Defer drop_block_temp_column {[&]() {
         std::unique_lock l(local_state._block_lock);
-        auto all_column_names = block->get_names();
-        for (auto& name : all_column_names) {
-            if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
-                block->erase(name);
-            }
-        }
+        block->erase_tmp_columns();
     }};
 
     if (state->is_cancelled()) {

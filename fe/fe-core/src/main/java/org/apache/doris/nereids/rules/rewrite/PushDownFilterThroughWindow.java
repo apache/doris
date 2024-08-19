@@ -64,18 +64,9 @@ public class PushDownFilterThroughWindow extends OneRewriteRuleFactory {
             Set<Expression> bottomConjuncts = Sets.newHashSet();
             Set<Expression> upperConjuncts = Sets.newHashSet();
             for (Expression expr : filter.getConjuncts()) {
-                boolean pushed = false;
-                for (Expression partitionKey : commonPartitionKeys) {
-                    // partitionKey is a single slot reference,
-                    // we want to push expressions which have only one input slot, and the input slot is used as
-                    // partition key in all windowExpressions.
-                    if (partitionKey.getInputSlots().containsAll(expr.getInputSlots())) {
-                        bottomConjuncts.add(expr);
-                        pushed = true;
-                        break;
-                    }
-                }
-                if (!pushed) {
+                if (commonPartitionKeys.containsAll(expr.getInputSlots())) {
+                    bottomConjuncts.add(expr);
+                } else {
                     upperConjuncts.add(expr);
                 }
             }

@@ -144,9 +144,12 @@ class Config {
     public String kafkaBrokerList
     public String cloudVersion
 
+    public String s3Source
+
     Config() {}
 
     Config(
+            String s3Source,
             String caseNamePrefix,
             String defaultDb, 
             String jdbcUrl, 
@@ -199,6 +202,7 @@ class Config {
             String clusterDir, 
             String kafkaBrokerList, 
             String cloudVersion) {
+        this.s3Source = s3Source
         this.caseNamePrefix = caseNamePrefix
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
@@ -253,6 +257,17 @@ class Config {
         this.cloudVersion = cloudVersion
     }
 
+    static String removeDirectoryPrefix(String str) {
+        def prefixes = ["./regression-test/suites/", "regression-test/suites/"]
+
+        def prefix = prefixes.find { str.startsWith(it) }
+        if (prefix) {
+            return str.substring(prefix.length())
+        }
+
+        return str
+    }
+
     static Config fromCommandLine(CommandLine cmd) {
         String confFilePath = cmd.getOptionValue(confFileOpt, "")
         File confFile = new File(confFilePath)
@@ -295,7 +310,9 @@ class Config {
                 .toSet()
         config.directories = cmd.getOptionValue(directoriesOpt, config.testDirectories)
                 .split(",")
-                .collect({d -> d.trim()})
+                .collect({d -> 
+                    d.trim()
+                    removeDirectoryPrefix(d)})
                 .findAll({d -> d != null && d.length() > 0})
                 .toSet()
         config.excludeSuiteWildcard = cmd.getOptionValue(excludeSuiteOpt, config.excludeSuites)
@@ -436,7 +453,6 @@ class Config {
         }
         log.info("recycleAddr : $config.recycleServiceHttpAddress, socketAddr : $config.recycleServiceHttpInetSocketAddress")
 
-
         config.defaultDb = cmd.getOptionValue(defaultDbOpt, config.defaultDb)
         config.jdbcUrl = cmd.getOptionValue(jdbcOpt, config.jdbcUrl)
         config.jdbcUser = cmd.getOptionValue(userOpt, config.jdbcUser)
@@ -465,6 +481,16 @@ class Config {
         log.info("withOutLoadData is ${config.withOutLoadData}".toString())
         log.info("caseNamePrefix is ${config.caseNamePrefix}".toString())
         log.info("dryRun is ${config.dryRun}".toString())
+        def s3SourceList = ["aliyun", "aliyun-internal", "tencent", "huawei", "azure", "gcp"]
+        if (s3SourceList.contains(config.s3Source)) {
+            log.info("s3Source is ${config.s3Source}".toString())
+            log.info("s3Provider is ${config.otherConfigs.get("s3Provider")}".toString())
+            log.info("s3BucketName is ${config.otherConfigs.get("s3BucketName")}".toString())
+            log.info("s3Region is ${config.otherConfigs.get("s3Region")}".toString())
+            log.info("s3Endpoint is ${config.otherConfigs.get("s3Endpoint")}".toString())
+        } else {
+            throw new Exception("The s3Source '${config.s3Source}' is invalid, optional values ${s3SourceList}")
+        }
 
         Properties props = cmd.getOptionProperties("conf")
         config.otherConfigs.putAll(props)
@@ -477,6 +503,7 @@ class Config {
 
     static Config fromConfigObject(ConfigObject obj) {
         def config = new Config(
+            configToString(obj.s3Source),
             configToString(obj.caseNamePrefix),
             configToString(obj.defaultDb),
             configToString(obj.jdbcUrl),
@@ -564,16 +591,6 @@ class Config {
         return config
     }
 
-    static String getProvider(String endpoint) {
-        def providers = ["cos", "oss", "s3", "obs", "bos"]
-        for (final def provider in providers) {
-            if (endpoint.containsIgnoreCase(provider)) {
-                return provider
-            }
-        }
-        return ""
-    }
-
     static void checkCloudSmokeEnv(Properties properties) {
         // external stage obj info
         String s3Endpoint = properties.getOrDefault("s3Endpoint", "")
@@ -589,8 +606,7 @@ class Config {
                 s3EndpointConf:s3Endpoint,
                 s3BucketConf:s3BucketName,
                 s3AKConf:s3AK,
-                s3SKConf:s3SK,
-                s3ProviderConf:getProvider(s3Endpoint)
+                s3SKConf:s3SK
         ]
         for (final def item in items) {
             if (item.value == null || item.value.isEmpty()) {
@@ -600,6 +616,82 @@ class Config {
     }
 
     static void fillDefaultConfig(Config config) {
+        if (config.s3Source == null) {
+            config.s3Source = "aliyun"
+            log.info("Set s3Source to 'aliyun' because not specify.".toString())
+        }
+
+        if (config.otherConfigs.get("s3Provider") == null) {
+            def s3Provider = "OSS"
+            if (config.s3Source == "aliyun" || config.s3Source == "aliyun-internal") {
+                s3Provider = "OSS"
+            } else if (config.s3Source == "tencent") {
+                s3Provider = "COS"
+            } else if (config.s3Source == "huawei") {
+                s3Provider = "OBS"
+            } else if (config.s3Source == "azure") {
+                s3Provider = "AZURE"
+            } else if (config.s3Source == "gcp") {
+                s3Provider = "GCP"
+            }
+            config.otherConfigs.put("s3Provider", "${s3Provider}")
+            log.info("Set s3Provider to '${s3Provider}' because not specify.".toString())
+        }
+        if (config.otherConfigs.get("s3BucketName") == null) {
+            def s3BucketName = "doris-regression-hk"
+            if (config.s3Source == "aliyun") {
+                s3BucketName = "doris-regression-hk"
+            } else if (config.s3Source == "aliyun-internal") {
+                s3BucketName = "doris-regression"
+            } else if (config.s3Source == "tencent") {
+                s3BucketName = "doris-build-1308700295"
+            } else if (config.s3Source == "huawei") {
+                s3BucketName = "doris-build"
+            } else if (config.s3Source == "azure") {
+                s3BucketName = "qa-build"
+            } else if (config.s3Source == "gcp") {
+                s3BucketName = "doris-regression"
+            }
+            config.otherConfigs.put("s3BucketName", "${s3BucketName}")
+            log.info("Set s3BucketName to '${s3BucketName}' because not specify.".toString())
+        }
+        if (config.otherConfigs.get("s3Region") == null) {
+            def s3Region = "oss-cn-hongkong"
+            if (config.s3Source == "aliyun") {
+                s3Region = "oss-cn-hongkong"
+            } else if (config.s3Source == "aliyun-internal") {
+                s3Region = "oss-cn-beijing"
+            } else if (config.s3Source == "tencent") {
+                s3Region = "ap-beijing"
+            } else if (config.s3Source == "huawei") {
+                s3Region = "cn-north-4"
+            } else if (config.s3Source == "azure") {
+                s3Region = "azure-region"
+            } else if (config.s3Source == "gcp") {
+                s3Region = "us-central1"
+            }
+            config.otherConfigs.put("s3Region", "${s3Region}")
+            log.info("Set s3Region to '${s3Region}' because not specify.".toString())
+        }
+        if (config.otherConfigs.get("s3Endpoint") == null) {
+            def s3Endpoint = "oss-cn-hongkong.aliyuncs.com"
+            if (config.s3Source == "aliyun") {
+                s3Endpoint = "oss-cn-hongkong.aliyuncs.com"
+            } else if (config.s3Source == "aliyun-internal") {
+                s3Endpoint = "oss-cn-beijing-internal.aliyuncs.com"
+            } else if (config.s3Source == "tencent") {
+                s3Endpoint = "cos.ap-beijing.myqcloud.com"
+            } else if (config.s3Source == "huawei") {
+                s3Endpoint = "obs.cn-north-4.myhuaweicloud.com"
+            } else if (config.s3Source == "azure") {
+                s3Endpoint = "azure-endpoint"
+            } else if (config.s3Source == "gcp") {
+                s3Endpoint = "storage.googleapis.com"
+            }
+            config.otherConfigs.put("s3Endpoint", "${s3Endpoint}")
+            log.info("Set s3Endpoint to '${s3Endpoint}' because not specify.".toString())
+        }
+
         if (config.caseNamePrefix == null) {
             config.caseNamePrefix = ""
             log.info("set caseNamePrefix to '' because not specify.".toString())

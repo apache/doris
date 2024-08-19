@@ -68,8 +68,6 @@ public:
                                     parent->row_descriptor(), _conjuncts) {}
     ~ScanLocalStateBase() override = default;
 
-    virtual bool ready_to_read() = 0;
-
     [[nodiscard]] virtual bool should_run_serial() const = 0;
 
     virtual RuntimeProfile* scanner_profile() = 0;
@@ -113,8 +111,6 @@ protected:
     // time of get block from scanner
     RuntimeProfile::Counter* _scan_timer = nullptr;
     RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
-    // time of prefilter input block from scanner
-    RuntimeProfile::Counter* _prefilter_timer = nullptr;
     // time of convert input block to output block from scanner
     RuntimeProfile::Counter* _convert_block_timer = nullptr;
     // time of filter output block from scanner
@@ -145,8 +141,6 @@ class ScanLocalState : public ScanLocalStateBase {
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const final;
-
-    bool ready_to_read() override;
 
     [[nodiscard]] bool should_run_serial() const override;
 
@@ -457,8 +451,8 @@ protected:
     std::unordered_map<std::string, int> _colname_to_slot_id;
 
     // These two values are from query_options
-    int _max_scan_key_num;
-    int _max_pushdown_conditions_per_column;
+    int _max_scan_key_num = 48;
+    int _max_pushdown_conditions_per_column = 1024;
 
     // If the query like select * from table limit 10; then the query should run in
     // single scanner to avoid too many scanners which will cause lots of useless read.

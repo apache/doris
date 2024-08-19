@@ -25,6 +25,7 @@
 #include <thread>
 
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
 
 namespace doris {
@@ -162,14 +163,14 @@ Status FileBlock::read(Slice buffer, size_t read_offset) {
 
 Status FileBlock::change_cache_type_by_mgr(FileCacheType new_type) {
     std::lock_guard block_lock(_mutex);
-    if (new_type == _key.meta.type) {
-        return Status::OK();
-    }
+    DCHECK(new_type != _key.meta.type);
     if (_download_state == State::DOWNLOADED) {
         KeyMeta new_meta;
         new_meta.expiration_time = _key.meta.expiration_time;
         new_meta.type = new_type;
-        RETURN_IF_ERROR(_mgr->_storage->change_key_meta(_key, new_meta));
+        auto st = _mgr->_storage->change_key_meta(_key, new_meta);
+        TEST_SYNC_POINT_CALLBACK("FileBlock::change_cache_type", &st);
+        if (!st.ok()) return st;
     }
     _key.meta.type = new_type;
     return Status::OK();
@@ -198,7 +199,10 @@ Status FileBlock::update_expiration_time(uint64_t expiration_time) {
         KeyMeta new_meta;
         new_meta.expiration_time = expiration_time;
         new_meta.type = _key.meta.type;
-        RETURN_IF_ERROR(_mgr->_storage->change_key_meta(_key, new_meta));
+        auto st = _mgr->_storage->change_key_meta(_key, new_meta);
+        if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+            return st;
+        }
     }
     _key.meta.expiration_time = expiration_time;
     return Status::OK();

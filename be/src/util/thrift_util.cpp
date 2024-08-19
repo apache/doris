@@ -156,7 +156,7 @@ std::string to_string(const TUniqueId& id) {
     return std::to_string(id.hi).append(std::to_string(id.lo));
 }
 
-bool _has_inverted_index_or_partial_update(TOlapTableSink sink) {
+bool _has_inverted_index_v1_or_partial_update(TOlapTableSink sink) {
     OlapTableSchemaParam schema;
     if (!schema.init(sink.schema).ok()) {
         return false;
@@ -167,7 +167,12 @@ bool _has_inverted_index_or_partial_update(TOlapTableSink sink) {
     for (const auto& index_schema : schema.indexes()) {
         for (const auto& index : index_schema->indexes) {
             if (index->index_type() == INVERTED) {
-                return true;
+                if (sink.schema.inverted_index_file_storage_format ==
+                    TInvertedIndexFileStorageFormat::V1) {
+                    return true;
+                } else {
+                    return false;
+                }
             }
         }
     }

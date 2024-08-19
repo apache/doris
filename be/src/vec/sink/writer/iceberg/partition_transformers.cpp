@@ -25,16 +25,16 @@
 namespace doris {
 namespace vectorized {
 
-const std::chrono::time_point<std::chrono::system_clock> PartitionColumnTransformUtils::EPOCH =
-        std::chrono::system_clock::from_time_t(0);
+const std::chrono::sys_days PartitionColumnTransformUtils::EPOCH = std::chrono::sys_days(
+        std::chrono::year {1970} / std::chrono::January / std::chrono::day {1});
 
 std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
         const doris::iceberg::PartitionField& field, const TypeDescriptor& source_type) {
     auto& transform = field.transform();
-    static const std::regex hasWidth(R"((\w+)\[(\d+)\])");
+    static const std::regex has_width(R"((\w+)\[(\d+)\])");
     std::smatch width_match;
 
-    if (std::regex_match(transform, width_match, hasWidth)) {
+    if (std::regex_match(transform, width_match, has_width)) {
         std::string name = width_match[1];
         int parsed_width = std::stoi(width_match[2]);
 

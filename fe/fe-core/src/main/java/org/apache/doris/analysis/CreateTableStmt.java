@@ -70,7 +70,8 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 
-public class CreateTableStmt extends DdlStmt {
+@Deprecated
+public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CreateTableStmt.class);
 
     protected static final String DEFAULT_ENGINE_NAME = "olap";
@@ -126,7 +127,7 @@ public class CreateTableStmt extends DdlStmt {
             distributionDesc.setBuckets(FeConstants.default_bucket_num);
         } else {
             long partitionSize = ParseUtil
-                    .analyzeDataVolumn(newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
+                    .analyzeDataVolume(newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
             distributionDesc.setBuckets(AutoBucketUtils.getBucketsNum(partitionSize, Config.autobucket_min_buckets));
         }
 
@@ -318,6 +319,11 @@ public class CreateTableStmt extends DdlStmt {
             if (Objects.equals(columnDef.getType(), Type.ALL)) {
                 throw new AnalysisException("Disable to create table with `ALL` type columns.");
             }
+            String columnNameUpperCase = columnDef.getName().toUpperCase();
+            if (columnNameUpperCase.startsWith("__DORIS_")) {
+                throw new AnalysisException(
+                        "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
+            }
             if (Objects.equals(columnDef.getType(), Type.DATE) && Config.disable_datev1) {
                 throw new AnalysisException("Disable to create table with `DATE` type columns, please use `DATEV2`.");
             }
@@ -486,7 +492,8 @@ public class CreateTableStmt extends DdlStmt {
 
             if (columnDef.getType().isComplexType() && engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
                 if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE
-                        && columnDef.getAggregateType() != AggregateType.REPLACE) {
+                        && columnDef.getAggregateType() != AggregateType.REPLACE
+                        && columnDef.getAggregateType() != AggregateType.REPLACE_IF_NOT_NULL) {
                     throw new AnalysisException(
                             columnDef.getType().getPrimitiveType() + " column can't support aggregation "
                                     + columnDef.getAggregateType());
@@ -732,14 +739,13 @@ public class CreateTableStmt extends DdlStmt {
             ColumnDef columnDef = columnDefs.get(i);
             nameToColumnDef.put(columnDef.getName(), Pair.of(columnDef, i));
         }
-        SlotRefRewriteRule.initializeslotRefMap(nameToColumnDef);
         List<GeneratedColumnUtil.ExprAndname> exprAndnames = Lists.newArrayList();
         for (int i = 0; i < columnDefs.size(); i++) {
             ColumnDef columnDef = columnDefs.get(i);
             if (!columnDef.getGeneratedColumnInfo().isPresent()) {
                 continue;
             }
-            SlotRefRewriteRule slotRefRewriteRule = new SlotRefRewriteRule(i);
+            SlotRefRewriteRule slotRefRewriteRule = new SlotRefRewriteRule(i, nameToColumnDef);
             ExprRewriter rewriter = new ExprRewriter(slotRefRewriteRule);
             GeneratedColumnInfo generatedColumnInfo = columnDef.getGeneratedColumnInfo().get();
             Expr expr = rewriter.rewrite(generatedColumnInfo.getExpr(), analyzer);
@@ -830,15 +836,12 @@ public class CreateTableStmt extends DdlStmt {
     }
 
     public static final class SlotRefRewriteRule implements ExprRewriteRule {
-        private static Map<String, Pair<ColumnDef, Integer>> nameToColumnDefMap = new HashMap<>();
+        private final Map<String, Pair<ColumnDef, Integer>> nameToColumnDefMap;
         private final int index;
 
-        public SlotRefRewriteRule(int index) {
+        public SlotRefRewriteRule(int index, Map<String, Pair<ColumnDef, Integer>> nameToColumnDefMap) {
             this.index = index;
-        }
-
-        public static void initializeslotRefMap(Map<String, Pair<ColumnDef, Integer>>  map) {
-            nameToColumnDefMap = map;
+            this.nameToColumnDefMap = nameToColumnDefMap;
         }
 
         @Override
@@ -876,5 +879,10 @@ public class CreateTableStmt extends DdlStmt {
                         "Tables can only have generated columns if the olap engine is used");
             }
         }
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

@@ -17,18 +17,16 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TTabletCommitInfo;
 
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
-public class TabletCommitInfo implements Writable {
+public class TabletCommitInfo {
 
     private long tabletId;
     private long backendId;
@@ -55,12 +53,7 @@ public class TabletCommitInfo implements Writable {
         return commitInfos;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeLong(tabletId);
-        out.writeLong(backendId);
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         tabletId = in.readLong();
         backendId = in.readLong();

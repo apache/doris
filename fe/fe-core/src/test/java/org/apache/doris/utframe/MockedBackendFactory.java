@@ -21,6 +21,7 @@ import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.PBackendServiceGrpc;
@@ -247,6 +248,13 @@ public class MockedBackendFactory {
                 }
 
                 private void handleCloneTablet(TAgentTaskRequest request, TFinishTaskRequest finishTaskRequest) {
+                    while (DebugPointUtil.isEnable("MockedBackendFactory.handleCloneTablet.block")) {
+                        try {
+                            Thread.sleep(10);
+                        } catch (InterruptedException e) {
+                            // ignore
+                        }
+                    }
                     TCloneReq req = request.getCloneReq();
                     long dataSize = Math.max(1, CatalogTestUtil.getTabletDataSize(req.tablet_id));
                     long pathHash = req.dest_path_hash;

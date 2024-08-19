@@ -29,14 +29,25 @@
 
 namespace doris::vectorized {
 
+template <typename T>
+struct Reducer {
+    template <bool stable>
+    using Output = AggregateFunctionDistinctSingleNumericData<T, stable>;
+    using AggregateFunctionDistinctNormal = AggregateFunctionDistinct<Output, false>;
+};
+
+template <typename T>
+using AggregateFunctionDistinctNumeric = Reducer<T>::AggregateFunctionDistinctNormal;
+
 class AggregateFunctionCombinatorDistinct final : public IAggregateFunctionCombinator {
 public:
     String get_name() const override { return "Distinct"; }
 
     DataTypes transform_arguments(const DataTypes& arguments) const override {
         if (arguments.empty()) {
-            LOG(FATAL)
-                    << "Incorrect number of arguments for aggregate function with Distinct suffix";
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Incorrect number of arguments for aggregate function with Distinct suffix");
         }
         return arguments;
     }
@@ -51,22 +62,15 @@ public:
 
         if (arguments.size() == 1) {
             AggregateFunctionPtr res(
-                    creator_with_numeric_type::create<AggregateFunctionDistinct,
-                                                      AggregateFunctionDistinctSingleNumericData>(
+                    creator_with_numeric_type::create<AggregateFunctionDistinctNumeric>(
                             arguments, result_is_nullable, nested_function));
             if (res) {
                 return res;
             }
 
-            if (arguments[0]->is_value_unambiguously_represented_in_contiguous_memory_region()) {
-                res = creator_without_type::create<AggregateFunctionDistinct<
-                        AggregateFunctionDistinctSingleGenericData<true>>>(
-                        arguments, result_is_nullable, nested_function);
-            } else {
-                res = creator_without_type::create<AggregateFunctionDistinct<
-                        AggregateFunctionDistinctSingleGenericData<false>>>(
-                        arguments, result_is_nullable, nested_function);
-            }
+            res = creator_without_type::create<
+                    AggregateFunctionDistinct<AggregateFunctionDistinctSingleGenericData>>(
+                    arguments, result_is_nullable, nested_function);
             return res;
         }
         return creator_without_type::create<

@@ -23,6 +23,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.hudi.source.COWIncrementalRelation;
+import org.apache.doris.datasource.hudi.source.EmptyIncrementalRelation;
 import org.apache.doris.datasource.hudi.source.IncrementalRelation;
 import org.apache.doris.datasource.hudi.source.MORIncrementalRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -206,7 +207,9 @@ public class LogicalHudiScan extends LogicalFileScan {
                         LOG.warn("Execute incremental read on RO table: {}", table.getFullQualifiers());
                     }
                 }
-                if (isCowOrRoTable) {
+                if (hudiClient.getCommitsTimeline().filterCompletedInstants().countInstants() == 0) {
+                    newIncrementalRelation = Optional.of(new EmptyIncrementalRelation(optParams));
+                } else if (isCowOrRoTable) {
                     newIncrementalRelation = Optional.of(new COWIncrementalRelation(
                             optParams, HiveMetaStoreClientHelper.getConfiguration(table), hudiClient));
                 } else {

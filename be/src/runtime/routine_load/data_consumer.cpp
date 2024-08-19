@@ -264,8 +264,13 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
             LOG(INFO) << "consumer meet partition eof: " << _id
                       << " partition offset: " << msg->offset();
             _consuming_partition_ids.erase(msg->partition());
-            if (_consuming_partition_ids.size() <= 0) {
+            if (!queue->blocking_put(msg.get())) {
                 done = true;
+            } else if (_consuming_partition_ids.size() <= 0) {
+                msg.release();
+                done = true;
+            } else {
+                msg.release();
             }
             break;
         }
@@ -320,7 +325,7 @@ Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids
     // get topic metadata
     RdKafka::Metadata* metadata = nullptr;
     RdKafka::ErrorCode err =
-            _k_consumer->metadata(true /* for this topic */, topic, &metadata, 5000);
+            _k_consumer->metadata(false /* for this topic */, topic, &metadata, 5000);
     if (err != RdKafka::ERR_NO_ERROR) {
         std::stringstream ss;
         ss << "failed to get partition meta: " << RdKafka::err2str(err);

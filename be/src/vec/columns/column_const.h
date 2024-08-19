@@ -67,6 +67,15 @@ template <typename T>
 T index_check_const(T arg, bool constancy) noexcept {
     return constancy ? 0 : arg;
 }
+template <bool is_const, typename T>
+    requires std::is_integral_v<T>
+constexpr T index_check_const(T arg) noexcept {
+    if constexpr (is_const) {
+        return 0;
+    } else {
+        return arg;
+    }
+}
 
 /*
  * @return first : data_column_ptr for ColumnConst, itself otherwise.
@@ -219,7 +228,7 @@ public:
     size_t allocated_bytes() const override { return data->allocated_bytes() + sizeof(s); }
 
     int compare_at(size_t, size_t, const IColumn& rhs, int nan_direction_hint) const override {
-        auto rhs_const_column = assert_cast<const ColumnConst&>(rhs);
+        auto rhs_const_column = assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(rhs);
 
         const auto* this_nullable = check_and_get_column<ColumnNullable>(data.get());
         const auto* rhs_nullable =

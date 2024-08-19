@@ -19,6 +19,7 @@ suite("test_fold_constant_by_fe") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_fold_nondeterministic_fn=true'
+    sql 'set enable_fold_constant_by_be=false'
 
     def results = sql 'select uuid(), uuid()'
     assertFalse(Objects.equals(results[0][0], results[0][1]))
@@ -68,7 +69,7 @@ suite("test_fold_constant_by_fe") {
     test_year = [2001, 2013, 123, 1969, 2023]
     for (year in test_year) {
         for (integer in test_int) {
-            qt_sql "select /*+SET_VAR(time_zone=\"UTC+8\")*/ makedate(${year}, ${integer}), from_days(${year * integer}), from_unixtime(${year / 10 * year * integer})"
+            qt_sql "select /*+SET_VAR(time_zone=\"Asia/Shanghai\")*/ makedate(${year}, ${integer}), from_days(${year * integer}), from_unixtime(${year / 10 * year * integer})"
         }
     }
 
@@ -143,7 +144,7 @@ suite("test_fold_constant_by_fe") {
     // So after changing arguments of from_unixtime from int to bigint, we also changed test case to avoid precision loss cast on fe.
     for (year in test_year) {
         for (integer in test_int) {
-            res = sql "explain select /*+SET_VAR(time_zone=\"UTC+8\")*/ makedate(${year}, ${integer}), from_days(${year * integer}), from_unixtime(${year * integer * 10})"
+            res = sql "explain select /*+SET_VAR(time_zone=\"Asia/Shanghai\")*/ makedate(${year}, ${integer}), from_days(${year * integer}), from_unixtime(${year * integer * 10})"
             res = res.split('VUNION')[1]
             assertFalse(res.contains("makedate") || res.contains("from"))
         }
@@ -154,4 +155,12 @@ suite("test_fold_constant_by_fe") {
         res = res.split('VUNION')[1]
         assertFalse(res.contains("unix"))
     }
+
+    // test null like string cause of fe need to fold constant like that to enable not null derive
+    res = sql """explain select null like '%123%'"""
+    assertFalse(res.contains("like"))
+    // now fe fold constant still can not deal with this case
+    res = sql """explain select "12" like '%123%'"""
+    assertTrue(res.contains("like"))
+
 }

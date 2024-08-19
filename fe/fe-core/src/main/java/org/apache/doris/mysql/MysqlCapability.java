@@ -80,7 +80,7 @@ public class MysqlCapability {
     private static final int SSL_FLAGS = Flag.CLIENT_PROTOCOL_41.getFlagBit()
             | Flag.CLIENT_CONNECT_WITH_DB.getFlagBit() | Flag.CLIENT_SECURE_CONNECTION.getFlagBit()
             | Flag.CLIENT_PLUGIN_AUTH.getFlagBit() | Flag.CLIENT_LOCAL_FILES.getFlagBit()
-            | Flag.CLIENT_SSL.getFlagBit();
+            | Flag.CLIENT_LONG_FLAG.getFlagBit() | Flag.CLIENT_SSL.getFlagBit();
 
     public static final MysqlCapability DEFAULT_CAPABILITY = new MysqlCapability(DEFAULT_FLAGS);
     public static final MysqlCapability SSL_CAPABILITY = new MysqlCapability(SSL_FLAGS);
@@ -161,9 +161,13 @@ public class MysqlCapability {
         return (flags & Flag.CLIENT_DEPRECATE_EOF.getFlagBit()) != 0;
     }
 
+    public boolean isClientMultiStatements() {
+        return (flags & Flag.CLIENT_MULTI_STATEMENTS.getFlagBit()) != 0;
+    }
+
     @Override
     public boolean equals(Object obj) {
-        if (obj == null || !(obj instanceof MysqlCapability)) {
+        if (!(obj instanceof MysqlCapability)) {
             return false;
         }
         if (flags != ((MysqlCapability) obj).flags) {

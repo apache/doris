@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.metacache;
 
 import org.apache.doris.common.CacheFactory;
-import org.apache.doris.common.util.Util;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -58,7 +57,7 @@ public class MetaCache<T> {
         CacheFactory namesCacheFactory = new CacheFactory(
                 expireAfterWriteSec,
                 refreshAfterWriteSec,
-                maxSize,
+                1, // names cache has one and only one entry
                 true,
                 null);
         CacheFactory objCacheFactory = new CacheFactory(
@@ -75,12 +74,12 @@ public class MetaCache<T> {
         return namesCache.get("");
     }
 
-    public Optional<T> getMetaObj(String name) {
+    public Optional<T> getMetaObj(String name, long id) {
         Optional<T> val = metaObjCache.getIfPresent(name);
         if (val == null) {
             synchronized (metaObjCache) {
                 val = metaObjCache.get(name);
-                idToName.put(Util.genTableIdByName(name), name);
+                idToName.put(id, name);
             }
         }
         return val;
@@ -88,7 +87,7 @@ public class MetaCache<T> {
 
     public Optional<T> getMetaObjById(long id) {
         String name = idToName.get(id);
-        return name == null ? Optional.empty() : getMetaObj(name);
+        return name == null ? Optional.empty() : getMetaObj(name, id);
     }
 
     public void updateCache(String objName, T obj) {

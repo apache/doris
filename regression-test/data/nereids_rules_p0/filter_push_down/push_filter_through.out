@@ -229,19 +229,17 @@ PhysicalResultSink
 -- !filter_aggregation_group_set --
 PhysicalResultSink
 --filter((cast(msg as DOUBLE) = 1.0))
-----hashAgg[GLOBAL]
-------hashAgg[LOCAL]
---------PhysicalRepeat
-----------filter((t1.id > 10))
-------------PhysicalOlapScan[t1]
+----hashAgg[LOCAL]
+------PhysicalRepeat
+--------filter((t1.id > 10))
+----------PhysicalOlapScan[t1]
 
 -- !filter_aggregation_group_set --
 PhysicalResultSink
 --filter(((t1.id > 10) OR (cast(msg as DOUBLE) = 1.0)))
-----hashAgg[GLOBAL]
-------hashAgg[LOCAL]
---------PhysicalRepeat
-----------PhysicalOlapScan[t1]
+----hashAgg[LOCAL]
+------PhysicalRepeat
+--------PhysicalOlapScan[t1]
 
 -- !filter_aggregation_filtered_key --
 PhysicalResultSink

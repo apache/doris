@@ -33,7 +33,7 @@ struct DecimalScaleParams {
     int64_t scale_factor = 1;
 
     template <typename DecimalPrimitiveType>
-    static inline constexpr DecimalPrimitiveType get_scale_factor(int32_t n) {
+    static inline constexpr DecimalPrimitiveType::NativeType get_scale_factor(int32_t n) {
         if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal32>) {
             return common::exp10_i32(n);
         } else if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal64>) {
@@ -42,6 +42,8 @@ struct DecimalScaleParams {
             return common::exp10_i128(n);
         } else if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal128V3>) {
             return common::exp10_i128(n);
+        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal256>) {
+            return common::exp10_i256(n);
         } else {
             static_assert(!sizeof(DecimalPrimitiveType),
                           "All types must be matched with if constexpr.");

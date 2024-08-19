@@ -62,6 +62,7 @@ public class RandomDistributionInfo extends DistributionInfo {
         return builder.toString();
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);

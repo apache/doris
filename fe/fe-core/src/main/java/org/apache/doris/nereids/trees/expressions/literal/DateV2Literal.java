@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
-import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -25,12 +24,18 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 
+import com.google.common.base.Suppliers;
+
 import java.time.LocalDateTime;
+import java.util.function.Supplier;
 
 /**
  * date v2 literal for nereids
  */
 public class DateV2Literal extends DateLiteral {
+    private final Supplier<org.apache.doris.analysis.DateLiteral> legacyLiteral = Suppliers.memoize(() ->
+            new org.apache.doris.analysis.DateLiteral(year, month, day, Type.DATEV2)
+    );
 
     public DateV2Literal(String s) throws AnalysisException {
         super(DateV2Type.INSTANCE, s);
@@ -41,8 +46,8 @@ public class DateV2Literal extends DateLiteral {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
-        return new org.apache.doris.analysis.DateLiteral(year, month, day, Type.DATEV2);
+    public org.apache.doris.analysis.DateLiteral toLegacyLiteral() {
+        return legacyLiteral.get();
     }
 
     @Override

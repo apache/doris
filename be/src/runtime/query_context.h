@@ -49,7 +49,6 @@ class PipelineFragmentContext;
 } // namespace pipeline
 
 struct ReportStatusRequest {
-    bool is_pipeline_x;
     const Status status;
     std::vector<RuntimeState*> runtime_states;
     RuntimeProfile* profile = nullptr;
@@ -64,6 +63,16 @@ struct ReportStatusRequest {
     std::function<void(const Status&)> cancel_fn;
 };
 
+enum class QuerySource {
+    INTERNAL_FRONTEND,
+    STREAM_LOAD,
+    GROUP_COMMIT_LOAD,
+    ROUTINE_LOAD,
+    EXTERNAL_CONNECTOR
+};
+
+const std::string toString(QuerySource query_source);
+
 // Save the common components of fragments in a query.
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
@@ -74,7 +83,7 @@ class QueryContext {
 public:
     QueryContext(TUniqueId query_id, ExecEnv* exec_env, const TQueryOptions& query_options,
                  TNetworkAddress coord_addr, bool is_pipeline, bool is_nereids,
-                 TNetworkAddress current_connect_fe);
+                 TNetworkAddress current_connect_fe, QuerySource query_type);
 
     ~QueryContext();
 
@@ -206,7 +215,7 @@ public:
 
     doris::pipeline::TaskScheduler* get_pipe_exec_scheduler();
 
-    ThreadPool* get_non_pipe_exec_thread_pool();
+    ThreadPool* get_memtable_flush_pool();
 
     std::vector<TUniqueId> get_fragment_instance_ids() const { return fragment_instance_ids; }
 
@@ -231,17 +240,8 @@ public:
         return _running_big_mem_op_num.load(std::memory_order_relaxed);
     }
 
-    void set_weighted_mem(int64_t weighted_limit, int64_t weighted_consumption) {
-        std::lock_guard<std::mutex> l(_weighted_mem_lock);
-        _weighted_consumption = weighted_consumption;
-        _weighted_limit = weighted_limit;
-    }
-    void get_weighted_mem_info(int64_t& weighted_limit, int64_t& weighted_consumption) {
-        std::lock_guard<std::mutex> l(_weighted_mem_lock);
-        weighted_limit = _weighted_limit;
-        weighted_consumption = _weighted_consumption;
-    }
-
+    void set_spill_threshold(int64_t spill_threshold) { _spill_threshold = spill_threshold; }
+    int64_t spill_threshold() { return _spill_threshold; }
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
@@ -259,6 +259,12 @@ public:
     // plan node id -> TFileScanRangeParams
     // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
+
+    void update_wg_cpu_adder(int64_t delta_cpu_time) {
+        if (_workload_group != nullptr) {
+            _workload_group->update_cpu_adder(delta_cpu_time);
+        }
+    }
 
 private:
     int _timeout_second;
@@ -299,7 +305,7 @@ private:
 
     doris::pipeline::TaskScheduler* _task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
-    ThreadPool* _non_pipe_thread_pool = nullptr;
+    ThreadPool* _memtable_flush_pool = nullptr;
     vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
 
@@ -311,11 +317,13 @@ private:
     std::map<int, std::weak_ptr<pipeline::PipelineFragmentContext>> _fragment_id_to_pipeline_ctx;
     std::mutex _pipeline_map_write_lock;
 
-    std::mutex _weighted_mem_lock;
-    int64_t _weighted_consumption = 0;
-    int64_t _weighted_limit = 0;
+    std::atomic<int64_t> _spill_threshold {0};
 
     std::mutex _profile_mutex;
+    timespec _query_arrival_timestamp;
+    // Distinguish the query source, for query that comes from fe, we will have some memory structure on FE to
+    // help us manage the query.
+    QuerySource _query_source;
 
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
     // flatten profile of one fragment:
@@ -354,6 +362,9 @@ public:
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
     }
+
+    timespec get_query_arrival_timestamp() const { return this->_query_arrival_timestamp; }
+    QuerySource get_query_source() const { return this->_query_source; }
 };
 
 } // namespace doris

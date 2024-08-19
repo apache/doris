@@ -137,8 +137,8 @@ public abstract class AbstractTask implements Task {
     @Override
     public void cancel() throws JobException {
         try {
-            executeCancelLogic();
             status = TaskStatus.CANCELED;
+            executeCancelLogic();
         } catch (Exception e) {
             log.warn("cancel task failed, job id is {}, task id is {}", jobId, taskId, e);
             throw new JobException(e);
@@ -192,4 +192,17 @@ public abstract class AbstractTask implements Task {
         return job;
     }
 
+    @Override
+    public String toString() {
+        return "AbstractTask{"
+                + "jobId=" + jobId
+                + ", taskId=" + taskId
+                + ", status=" + status
+                + ", createTimeMs=" + createTimeMs
+                + ", startTimeMs=" + startTimeMs
+                + ", finishTimeMs=" + finishTimeMs
+                + ", taskType=" + taskType
+                + ", errMsg='" + errMsg + '\''
+                + '}';
+    }
 }

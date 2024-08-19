@@ -677,9 +677,9 @@ public class Util {
         }
     }
 
-    // Only used for external table's id generation
-    // And the table's id must >=0, see DescriptorTable.toThrift()
-    public static long genTableIdByName(String tblName) {
-        return Math.abs(sha256long(tblName));
+    // Only used for external db/table's id generation
+    // And the db/table's id must >=0, see DescriptorTable.toThrift()
+    public static long genIdByName(String... names) {
+        return Math.abs(sha256long(String.join(".", names)));
     }
 }

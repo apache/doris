@@ -122,7 +122,7 @@ public class CascadesContext implements ScheduleContext {
     private final Optional<CTEId> currentTree;
     private final Optional<CascadesContext> parent;
 
-    private final List<MaterializationContext> materializationContexts;
+    private final Set<MaterializationContext> materializationContexts;
     private boolean isLeadingJoin = false;
 
     private boolean isLeadingDisableJoinReorder = false;
@@ -160,7 +160,7 @@ public class CascadesContext implements ScheduleContext {
         this.currentJobContext = new JobContext(this, requireProperties, Double.MAX_VALUE);
         this.subqueryExprIsAnalyzed = new HashMap<>();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
-        this.materializationContexts = new ArrayList<>();
+        this.materializationContexts = new HashSet<>();
         if (statementContext.getConnectContext() != null) {
             ConnectContext connectContext = statementContext.getConnectContext();
             SessionVariable sessionVariable = connectContext.getSessionVariable();
@@ -240,19 +240,11 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public Analyzer newAnalyzer() {
-        return newAnalyzer(false);
-    }
-
-    public Analyzer newAnalyzer(boolean analyzeView) {
-        return new Analyzer(this, analyzeView);
-    }
-
-    public Analyzer newAnalyzer(boolean analyzeView, Optional<CustomTableResolver> customTableResolver) {
-        return new Analyzer(this, analyzeView, customTableResolver);
+        return newAnalyzer(Optional.empty());
     }
 
     public Analyzer newAnalyzer(Optional<CustomTableResolver> customTableResolver) {
-        return newAnalyzer(false, customTableResolver);
+        return new Analyzer(this, customTableResolver);
     }
 
     @Override
@@ -269,7 +261,8 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public void setTables(List<TableIf> tables) {
-        this.tables = tables.stream().collect(Collectors.toMap(TableIf::getId, t -> t, (t1, t2) -> t1));
+        this.tables = tables.stream()
+                .collect(Collectors.toMap(TableIf::getId, t -> t, (t1, t2) -> t1, () -> Maps.newTreeMap()));
     }
 
     public final ConnectContext getConnectContext() {
@@ -407,7 +400,7 @@ public class CascadesContext implements ScheduleContext {
      */
     public void extractTables(LogicalPlan logicalPlan) {
         Set<List<String>> tableNames = getTables(logicalPlan);
-        tables = Maps.newHashMap();
+        tables = Maps.newTreeMap();
         for (List<String> tableName : tableNames) {
             try {
                 TableIf table = getTable(tableName);
@@ -560,16 +553,13 @@ public class CascadesContext implements ScheduleContext {
         if (db == null) {
             throw new RuntimeException("Database [" + dbName + "] does not exist in catalog [" + ctlName + "].");
         }
-        db.readLock();
-        try {
-            TableIf table = db.getTableNullable(tableName);
-            if (table == null) {
-                throw new RuntimeException("Table [" + tableName + "] does not exist in database [" + dbName + "].");
-            }
-            return table;
-        } finally {
-            db.readUnlock();
+
+        TableIf table = db.getTableNullable(tableName);
+        if (table == null) {
+            throw new RuntimeException("Table [" + tableName + "] does not exist in database [" + dbName + "].");
         }
+        return table;
+
     }
 
     /**

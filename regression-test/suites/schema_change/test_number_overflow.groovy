@@ -25,26 +25,6 @@ suite ("test_number_overflow") {
 
     try {
 
-        String backend_id;
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        
-        logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def configList = parseJson(out.trim())
-        assert configList instanceof List
-
-        for (Object ele in (List) configList) {
-            assert ele instanceof List<String>
-            if (((List<String>) ele)[0] == "disable_auto_compaction") {
-                disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
-            }
-        }
-
         sql """ DROP TABLE IF EXISTS test_number_overflow """
         sql """
                 CREATE TABLE IF NOT EXISTS test_number_overflow ( k1 INT NOT NULL, k2 VARCHAR(4096) NOT NULL, k3 VARCHAR(4096) NOT NULL, k4 VARCHAR(4096) NOT NULL, k5 VARCHAR(4096) NOT NULL, k6 VARCHAR(4096) NOT NULL, k7 VARCHAR(4096) NOT NULL, k8 VARCHAR(4096) NOT NULL, k9 VARCHAR(4096) NOT NULL, v1 FLOAT SUM NOT NULL, v2 DECIMAL(20,7) SUM NOT NULL ) AGGREGATE KEY(k1,k2,k3,k4,k5,k6,k7,k8,k9) PARTITION BY RANGE(k1) ( PARTITION partition_a VALUES LESS THAN ("5"), PARTITION partition_b VALUES LESS THAN ("30"), PARTITION partition_c VALUES LESS THAN ("100"), PARTITION partition_d VALUES LESS THAN ("500"), PARTITION partition_e VALUES LESS THAN ("1000"), PARTITION partition_f VALUES LESS THAN ("2000"), PARTITION partition_g VALUES LESS THAN MAXVALUE ) DISTRIBUTED BY HASH(k1, k2) BUCKETS 3

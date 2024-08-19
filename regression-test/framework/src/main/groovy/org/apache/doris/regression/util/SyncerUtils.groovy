@@ -17,7 +17,6 @@
 
 package org.apache.doris.regression.util
 
-
 import org.apache.doris.regression.suite.SyncerContext
 import org.apache.doris.regression.suite.client.BackendClientImpl
 import org.apache.doris.regression.suite.client.FrontendClientImpl
@@ -34,11 +33,16 @@ import org.apache.doris.thrift.TIngestBinlogResult
 import org.apache.doris.thrift.TRestoreSnapshotRequest
 import org.apache.doris.thrift.TRestoreSnapshotResult
 import org.apache.doris.thrift.TSnapshotType
+import org.apache.doris.thrift.TSubTxnInfo
 import org.apache.thrift.TException
 import org.apache.doris.thrift.TGetBinlogRequest
 import org.apache.doris.thrift.TGetBinlogResult
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 
 class SyncerUtils {
+    private static final Logger logger = LoggerFactory.getLogger(SyncerUtils.class)
+
     private static <T> void setAuthorInformation(T request, SyncerContext context) {
         request.setUser(context.user)
         request.setPasswd(context.passwd)
@@ -62,7 +66,7 @@ class SyncerUtils {
         return clientImpl.client.getBinlog(request)
     }
 
-    static TBeginTxnResult beginTxn(FrontendClientImpl clientImpl, SyncerContext context, Long tableId) throws TException {
+    static TBeginTxnResult beginTxn(FrontendClientImpl clientImpl, SyncerContext context, Long tableId, Long subTxnNum) throws TException {
         TBeginTxnRequest request = new TBeginTxnRequest()
         setAuthorInformation(request, context)
         request.setDb("TEST_" + context.db)
@@ -70,8 +74,11 @@ class SyncerUtils {
             request.addToTableIds(tableId)
         }
         request.setLabel(newLabel(context, tableId))
+        if (subTxnNum > 0) {
+            request.setSubTxnNum(subTxnNum)
+        }
+        logger.info("begin txn request: ${request}")
         return clientImpl.client.beginTxn(request)
-
     }
 
     static TIngestBinlogResult ingestBinlog(BackendClientImpl clientImpl, TIngestBinlogRequest request) throws TException {
@@ -82,8 +89,14 @@ class SyncerUtils {
         TCommitTxnRequest request = new TCommitTxnRequest()
         setAuthorInformation(request, context)
         request.setDb("TEST_" + context.db)
-        request.setCommitInfos(context.commitInfos)
         request.setTxnId(context.txnId)
+        if (context.txnInsert) {
+            request.setTxnInsert(true)
+            request.setSubTxnInfos(context.subTxnInfos)
+        } else {
+            request.setCommitInfos(context.commitInfos)
+        }
+        logger.info("commit txn request: ${request}")
         return clientImpl.client.commitTxn(request)
     }
 

@@ -51,7 +51,7 @@ size_t DataTypeDateV2::number_length() const {
     //2024-01-01
     return 10;
 }
-void DataTypeDateV2::push_bumber(ColumnString::Chars& chars, const UInt32& num) const {
+void DataTypeDateV2::push_number(ColumnString::Chars& chars, const UInt32& num) const {
     DateV2Value<DateV2ValueType> val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(num);
 
     char buf[64];
@@ -171,7 +171,7 @@ size_t DataTypeDateTimeV2::number_length() const {
     //2024-01-01 00:00:00-000000
     return 32;
 }
-void DataTypeDateTimeV2::push_bumber(ColumnString::Chars& chars, const UInt64& num) const {
+void DataTypeDateTimeV2::push_number(ColumnString::Chars& chars, const UInt64& num) const {
     DateV2Value<DateTimeV2ValueType> val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(num);
     char buf[64];

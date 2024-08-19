@@ -156,7 +156,7 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = backendIds;
 
-                systemInfoService.getIdToBackend();
+                systemInfoService.getAllBackendsByAllCluster();
                 minTimes = 0;
                 result = backendMap;
 

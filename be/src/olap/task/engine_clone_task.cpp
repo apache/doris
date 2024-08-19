@@ -190,7 +190,7 @@ Status EngineCloneTask::_do_clone() {
                                                               tablet->replica_id(), false));
         tablet.reset();
     }
-    bool is_new_tablet = tablet == nullptr;
+    _is_new_tablet = tablet == nullptr;
     // try to incremental clone
     Versions missed_versions;
     // try to repair a tablet with missing version
@@ -228,7 +228,7 @@ Status EngineCloneTask::_do_clone() {
         if (missed_versions.empty()) {
             LOG(INFO) << "missed version size = 0, skip clone and return success. tablet_id="
                       << _clone_req.tablet_id << " replica_id=" << _clone_req.replica_id;
-            RETURN_IF_ERROR(_set_tablet_info(is_new_tablet));
+            RETURN_IF_ERROR(_set_tablet_info());
             return Status::OK();
         }
 
@@ -307,10 +307,11 @@ Status EngineCloneTask::_do_clone() {
                 TabletMeta::construct_header_file_path(tablet_dir, _clone_req.tablet_id);
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(header_path));
     }
-    return _set_tablet_info(is_new_tablet);
+
+    return _set_tablet_info();
 }
 
-Status EngineCloneTask::_set_tablet_info(bool is_new_tablet) {
+Status EngineCloneTask::_set_tablet_info() {
     // Get clone tablet info
     TTabletInfo tablet_info;
     tablet_info.__set_tablet_id(_clone_req.tablet_id);
@@ -320,7 +321,7 @@ Status EngineCloneTask::_set_tablet_info(bool is_new_tablet) {
     if (_clone_req.__isset.version && tablet_info.version < _clone_req.version) {
         // if it is a new tablet and clone failed, then remove the tablet
         // if it is incremental clone, then must not drop the tablet
-        if (is_new_tablet) {
+        if (_is_new_tablet) {
             // we need to check if this cloned table's version is what we expect.
             // if not, maybe this is a stale remaining table which is waiting for drop.
             // we drop it.
@@ -420,7 +421,7 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
         }
         // No need to try again with another BE
         _pending_rs_guards = DORIS_TRY(_engine.snapshot_mgr()->convert_rowset_ids(
-                local_data_path, _clone_req.tablet_id, _clone_req.replica_id,
+                local_data_path, _clone_req.tablet_id, _clone_req.replica_id, _clone_req.table_id,
                 _clone_req.partition_id, _clone_req.schema_hash));
         break;
     } // clone copy from one backend
@@ -522,26 +523,8 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
     uint64_t total_file_size = 0;
     MonotonicStopWatch watch;
     watch.start();
-    auto curl = std::unique_ptr<CURL, decltype(&curl_easy_cleanup)>(curl_easy_init(),
-                                                                    &curl_easy_cleanup);
-    if (!curl) {
-        return Status::InternalError("engine clone task init curl failed");
-    }
     for (auto& file_name : file_name_list) {
-        // The file name of the variant column with the inverted index contains %
-        // such as: 020000000000003f624c4c322c568271060f9b5b274a4a95_0_10133@properties%2Emessage.idx
-        //  {rowset_id}_{seg_num}_{index_id}_{variant_column_name}{%2E}{extracted_column_name}.idx
-        // We need to handle %, otherwise it will cause an HTTP 404 error.
-        // Because the percent ("%") character serves as the indicator for percent-encoded octets,
-        // it must be percent-encoded as "%25" for that octet to be used as data within a URI.
-        // https://datatracker.ietf.org/doc/html/rfc3986
-        auto output = std::unique_ptr<char, decltype(&curl_free)>(
-                curl_easy_escape(curl.get(), file_name.c_str(), file_name.length()), &curl_free);
-        if (!output) {
-            return Status::InternalError("escape file name failed, file name={}", file_name);
-        }
-        std::string encoded_filename(output.get());
-        auto remote_file_url = remote_url_prefix + encoded_filename;
+        auto remote_file_url = remote_url_prefix + file_name;
 
         // get file length
         uint64_t file_size = 0;
@@ -875,7 +858,7 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
         }
     }
     if (tablet->enable_unique_key_merge_on_write()) {
-        tablet->tablet_meta()->delete_bitmap() = cloned_tablet_meta->delete_bitmap();
+        tablet->tablet_meta()->delete_bitmap().merge(cloned_tablet_meta->delete_bitmap());
     }
     return tablet->revise_tablet_meta(to_add, to_delete, false);
     // TODO(plat1ko): write cooldown meta to remote if this replica is cooldown replica

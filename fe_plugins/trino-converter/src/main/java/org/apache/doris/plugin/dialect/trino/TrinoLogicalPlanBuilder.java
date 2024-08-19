@@ -320,7 +320,7 @@ public class TrinoLogicalPlanBuilder extends io.trino.sql.tree.AstVisitor<Object
                 throw new DialectTransformException("transform not standard decimal data type ");
             }
             // Trino only support signed, safe unsigned is false here
-            return DataType.convertPrimitiveFromStrings(types, false);
+            return DataType.convertPrimitiveFromStrings(types);
         } else if (dataType instanceof io.trino.sql.tree.DateTimeDataType) {
             // TODO: support date data type mapping
             throw new DialectTransformException("transform date data type");

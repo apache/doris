@@ -88,8 +88,19 @@ suite("advance_mv") {
     sql """insert into ${tbName2} values (5,5,5,'e');"""
     sql """insert into ${tbName2} values (6,6,6,'f');"""
 
+    sql "analyze table ${tbName1} with sync;"
+    sql "analyze table ${tbName2} with sync;"
+    sql "analyze table ${tbName3} with sync;"
+    sql """set enable_stats=false;"""
+
     createMV("CREATE materialized VIEW mv1 AS SELECT k1, sum(v2) FROM ${tbName1} GROUP BY k1;")
 
+    explain {
+        sql("select k1, sum(v2) from ${tbName1} group by k1 order by k1;")
+        contains "(mv1)"
+    }
+
+    sql """set enable_stats=true;"""
     explain {
         sql("select k1, sum(v2) from ${tbName1} group by k1 order by k1;")
         contains "(mv1)"
@@ -98,6 +109,11 @@ suite("advance_mv") {
 
     createMV("CREATE materialized VIEW mv2 AS SELECT abs(k1)+k2+1 tmp, sum(abs(k2+2)+k3+3) FROM ${tbName2} GROUP BY tmp;")
 
+    explain {
+        sql("SELECT abs(k1)+k2+1 tmp, sum(abs(k2+2)+k3+3) FROM ${tbName2} GROUP BY tmp;")
+        contains "(mv2)"
+    }
+    sql """set enable_stats=false;"""
     explain {
         sql("SELECT abs(k1)+k2+1 tmp, sum(abs(k2+2)+k3+3) FROM ${tbName2} GROUP BY tmp;")
         contains "(mv2)"
@@ -126,6 +142,12 @@ suite("advance_mv") {
     }
     order_qt_select_star "SELECT abs(k1)+k2+1 tmp, abs(k2+2)+k3+3 FROM ${tbName2};"
 
+    sql """set enable_stats=true;"""
+    explain {
+        sql("SELECT abs(k1)+k2+1 tmp, abs(k2+2)+k3+3 FROM ${tbName2};")
+        contains "(mv3)"
+    }
+
 
     sql "create materialized view mv4 as select date, user_id, city, sum(age) from ${tbName3} group by date, user_id, city;"
     int max_try_secs3 = 60
@@ -148,4 +170,10 @@ suite("advance_mv") {
         contains "(mv4)"
     }
     order_qt_select_star "select sum(age) from ${tbName3};"
+
+    sql """set enable_stats=false;"""
+    explain {
+        sql("select sum(age) from ${tbName3};")
+        contains "(mv4)"
+    }
 }

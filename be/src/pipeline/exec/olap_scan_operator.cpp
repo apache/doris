@@ -129,6 +129,8 @@ Status OlapScanLocalState::_init_profile() {
     _inverted_index_query_cache_miss_counter =
             ADD_COUNTER(_segment_profile, "InvertedIndexQueryCacheMiss", TUnit::UNIT);
     _inverted_index_query_timer = ADD_TIMER(_segment_profile, "InvertedIndexQueryTime");
+    _inverted_index_query_null_bitmap_timer =
+            ADD_TIMER(_segment_profile, "InvertedIndexQueryNullBitmapTime");
     _inverted_index_query_bitmap_copy_timer =
             ADD_TIMER(_segment_profile, "InvertedIndexQueryBitmapCopyTime");
     _inverted_index_query_bitmap_op_timer =
@@ -137,6 +139,10 @@ Status OlapScanLocalState::_init_profile() {
             ADD_TIMER(_segment_profile, "InvertedIndexSearcherOpenTime");
     _inverted_index_searcher_search_timer =
             ADD_TIMER(_segment_profile, "InvertedIndexSearcherSearchTime");
+    _inverted_index_searcher_cache_hit_counter =
+            ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheHit", TUnit::UNIT);
+    _inverted_index_searcher_cache_miss_counter =
+            ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheMiss", TUnit::UNIT);
 
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTimer");
 
@@ -573,8 +579,8 @@ void OlapScanLocalState::add_filter_info(int id, const PredicateFilterInfo& upda
                                                      TUnit::UNIT, "RuntimeFilterInfo", 1);
     auto* filtered_count = ADD_CHILD_COUNTER_WITH_LEVEL(_runtime_profile, rf_name + "filtered",
                                                         TUnit::UNIT, "RuntimeFilterInfo", 1);
-    COUNTER_UPDATE(input_count, info.input_row);
-    COUNTER_UPDATE(filtered_count, info.filtered_row);
+    COUNTER_SET(input_count, (int64_t)info.input_row);
+    COUNTER_SET(filtered_count, (int64_t)info.filtered_row);
 }
 
 OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,

@@ -65,7 +65,7 @@ public:
     }
 
     size_t number_length() const;
-    void push_bumber(ColumnString::Chars& chars, const Int64& num) const;
+    void push_number(ColumnString::Chars& chars, const Int64& num) const;
     std::string to_string(Int64 int_val) const {
         doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
         char buf[64];

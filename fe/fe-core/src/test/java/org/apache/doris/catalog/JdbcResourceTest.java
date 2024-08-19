@@ -87,7 +87,7 @@ public class JdbcResourceTest {
         // Verify the default properties were applied during the replay
         Map<String, String> properties = jdbcResource.getCopiedProperties();
         Assert.assertEquals("1", properties.get("connection_pool_min_size"));
-        Assert.assertEquals("10", properties.get("connection_pool_max_size"));
+        Assert.assertEquals("30", properties.get("connection_pool_max_size"));
         Assert.assertEquals("1800000", properties.get("connection_pool_max_life_time"));
         Assert.assertEquals("5000", properties.get("connection_pool_max_wait_time"));
         Assert.assertEquals("false", properties.get("connection_pool_keep_alive"));
@@ -110,7 +110,7 @@ public class JdbcResourceTest {
         // Verify the default properties were applied during the replay
         Map<String, String> properties = replayedResource.getCopiedProperties();
         Assert.assertEquals("1", properties.get("connection_pool_min_size"));
-        Assert.assertEquals("10", properties.get("connection_pool_max_size"));
+        Assert.assertEquals("30", properties.get("connection_pool_max_size"));
         Assert.assertEquals("1800000", properties.get("connection_pool_max_life_time"));
         Assert.assertEquals("5000", properties.get("connection_pool_max_wait_time"));
         Assert.assertEquals("false", properties.get("connection_pool_keep_alive"));

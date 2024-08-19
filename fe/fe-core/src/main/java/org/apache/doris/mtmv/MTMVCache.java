@@ -89,7 +89,7 @@ public class MTMVCache {
         }
         // Can not convert to table sink, because use the same column from different table when self join
         // the out slot is wrong
-        planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
+        planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
         Plan originPlan = planner.getCascadesContext().getRewritePlan();
         // Eliminate result sink because sink operator is useless in query rewrite by materialized view
         // and the top sort can also be removed
@@ -108,7 +108,7 @@ public class MTMVCache {
             return childContext.getRewritePlan();
         }, mvPlan, originPlan);
         // Construct structInfo once for use later
-        Optional<StructInfo> structInfoOptional = MaterializationContext.constructStructInfo(mvPlan,
+        Optional<StructInfo> structInfoOptional = MaterializationContext.constructStructInfo(mvPlan, originPlan,
                 planner.getCascadesContext(),
                 new BitSet());
         return new MTMVCache(mvPlan, originPlan, planner.getCascadesContext().getMemo().getRoot().getStatistics(),

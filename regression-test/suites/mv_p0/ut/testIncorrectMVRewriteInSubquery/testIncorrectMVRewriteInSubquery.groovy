@@ -35,6 +35,9 @@ suite ("testIncorrectMVRewriteInSubquery") {
 
     sql """insert into user_tags values("2020-01-01",1,"a",2);"""
 
+    sql "analyze table user_tags with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from user_tags order by time_col;")
         contains "(user_tags)"
@@ -46,4 +49,16 @@ suite ("testIncorrectMVRewriteInSubquery") {
         contains "(user_tags)"
     }
     qt_select_mv "select user_id, bitmap_union(to_bitmap(tag_id)) from user_tags where user_name in (select user_name from user_tags group by user_name having bitmap_union_count(to_bitmap(tag_id)) >1 ) group by user_id order by user_id;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from user_tags order by time_col;")
+        contains "(user_tags)"
+    }
+
+    explain {
+        sql("select user_id, bitmap_union(to_bitmap(tag_id)) from user_tags where user_name in (select user_name from user_tags group by user_name having bitmap_union_count(to_bitmap(tag_id)) >1 ) group by user_id order by user_id;")
+        contains "(user_tags)"
+    }
+
 }

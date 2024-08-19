@@ -149,9 +149,7 @@ public class Statistics {
     }
 
     public double dataSizeFactor(List<Slot> slots) {
-        double lowerBound = 0.03;
-        double upperBound = 0.07;
-        return Math.min(Math.max(computeTupleSize(slots) / K_BYTES, lowerBound), upperBound);
+        return 0.05 * computeTupleSize(slots);
     }
 
     @Override
@@ -224,5 +222,23 @@ public class Statistics {
 
     public int getWidthInJoinCluster() {
         return widthInJoinCluster;
+    }
+
+    public Statistics normalizeByRatio(double originRowCount) {
+        if (rowCount >= originRowCount || rowCount <= 0) {
+            return this;
+        }
+        StatisticsBuilder builder = new StatisticsBuilder(this);
+        double ratio = rowCount / originRowCount;
+        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
+            ColumnStatistic colStats = entry.getValue();
+            if (colStats.numNulls != 0 || colStats.ndv > rowCount) {
+                ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(colStats);
+                colStatsBuilder.setNumNulls(colStats.numNulls * ratio);
+                colStatsBuilder.setNdv(Math.min(rowCount - colStatsBuilder.getNumNulls(), colStats.ndv));
+                builder.putColumnStatistics(entry.getKey(), colStatsBuilder.build());
+            }
+        }
+        return builder.build();
     }
 }

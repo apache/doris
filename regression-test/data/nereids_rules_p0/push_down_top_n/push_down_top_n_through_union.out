@@ -106,16 +106,14 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalTopN[LOCAL_SORT]
 ------PhysicalUnion
---------PhysicalTopN[MERGE_SORT]
-----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalLimit[GLOBAL]
---------------PhysicalLimit[LOCAL]
-----------------PhysicalOlapScan[table1]
---------PhysicalTopN[MERGE_SORT]
-----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalLimit[GLOBAL]
---------------PhysicalLimit[LOCAL]
-----------------PhysicalOlapScan[table1]
+--------PhysicalTopN[GATHER_SORT]
+----------PhysicalLimit[GLOBAL]
+------------PhysicalLimit[LOCAL]
+--------------PhysicalOlapScan[table1]
+--------PhysicalTopN[GATHER_SORT]
+----------PhysicalLimit[GLOBAL]
+------------PhysicalLimit[LOCAL]
+--------------PhysicalOlapScan[table1]
 
 -- !push_down_topn_union_complex_conditions --
 PhysicalResultSink

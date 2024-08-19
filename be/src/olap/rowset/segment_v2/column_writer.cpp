@@ -206,6 +206,11 @@ Status ColumnWriter::create_map_writer(const ColumnWriterOptions& opts, const Ta
                                        io::FileWriter* file_writer,
                                        std::unique_ptr<ColumnWriter>* writer) {
     DCHECK(column->get_subtype_count() == 2);
+    if (column->get_subtype_count() < 2) {
+        return Status::InternalError(
+                "If you upgraded from version 1.2.*, please DROP the MAP columns and then "
+                "ADD the MAP columns back.");
+    }
     // create key & value writer
     std::vector<std::unique_ptr<ColumnWriter>> inner_writer_list;
     for (int i = 0; i < 2; ++i) {
@@ -463,6 +468,7 @@ Status ScalarColumnWriter::init() {
                         return Status::OK();
                     }
                     Status add_nulls(uint32_t count) override { return Status::OK(); }
+                    Status add_array_nulls(uint32_t row_id) override { return Status::OK(); }
                     Status finish() override { return Status::OK(); }
                     int64_t size() const override { return 0; }
                     void close_on_error() override {}
@@ -941,10 +947,18 @@ Status ArrayColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t
                                           size_t num_rows) {
     RETURN_IF_ERROR(append_data(ptr, num_rows));
     if (is_nullable()) {
+        if (_opts.need_inverted_index) {
+            for (int row_id = 0; row_id < num_rows; row_id++) {
+                if (null_map[row_id] == 1) {
+                    RETURN_IF_ERROR(_inverted_index_builder->add_array_nulls(row_id));
+                }
+            }
+        }
         RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows));
     }
     return Status::OK();
 }
+
 Status ArrayColumnWriter::finish() {
     RETURN_IF_ERROR(_offset_writer->finish());
     if (is_nullable()) {

@@ -187,7 +187,7 @@ protected:
         chars.reserve(static_cast<const Derived*>(this)->number_length() * size);
         for (int row_num = 0; row_num < size; row_num++) {
             auto num = is_const ? col_vec.get_element(0) : col_vec.get_element(row_num);
-            static_cast<const Derived*>(this)->push_bumber(chars, num);
+            static_cast<const Derived*>(this)->push_number(chars, num);
             offsets[row_num] = chars.size();
         }
     }

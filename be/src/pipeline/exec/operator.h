@@ -152,7 +152,6 @@ public:
     // If use projection, we should clear `_origin_block`.
     void clear_origin_block();
 
-    [[nodiscard]] bool reached_limit() const;
     void reached_limit(vectorized::Block* block, bool* eos);
     RuntimeProfile* profile() { return _runtime_profile.get(); }
 
@@ -771,6 +770,8 @@ protected:
 
     int64_t _limit; // -1: no limit
 
+    uint32_t _debug_point_count = 0;
+
     std::string _op_name;
     bool _ignore_data_distribution = false;
     int _parallel_tasks = 0;
@@ -870,8 +871,7 @@ protected:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
     std::unique_ptr<Writer> _writer;
 
-    std::shared_ptr<AsyncWriterDependency> _async_writer_dependency;
-
+    std::shared_ptr<Dependency> _async_writer_dependency;
     std::shared_ptr<Dependency> _finish_dependency;
 };
 

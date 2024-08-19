@@ -219,14 +219,15 @@ suite("test_build_index_fault", "inverted_index, nonConcurrent,p2"){
     GetDebugPoint().enableDebugPointForAllBEs("fault_inject::BetaRowset::link_files_to::_link_inverted_index_file")
     sql """ BUILD INDEX idx_title ON ${tableName}; """
     state = wait_for_last_build_index_on_table_finish(tableName, timeout)
-    assertEquals("wait_timeout", state)
+    assertEquals("CANCELLED", state)
     // check data
     qt_count5 """ SELECT COUNT() from ${tableName}; """
 
     // disable error_inject for BetaRowset link inverted index file and expect state is FINISHED
     GetDebugPoint().disableDebugPointForAllBEs("fault_inject::BetaRowset::link_files_to::_link_inverted_index_file")
-    // timeout * 10 for possible fe schedule delay
-    state = wait_for_last_build_index_on_table_finish(tableName, timeout * 10)
+    // rebuild index
+    sql """ BUILD INDEX idx_title ON ${tableName}; """
+    state = wait_for_last_build_index_on_table_finish(tableName, timeout)
     assertEquals("FINISHED", state)
     // check data
     qt_count6 """ SELECT COUNT() from ${tableName}; """
@@ -236,13 +237,14 @@ suite("test_build_index_fault", "inverted_index, nonConcurrent,p2"){
     GetDebugPoint().enableDebugPointForAllBEs("IndexBuilder::handle_single_rowset")
     sql """ BUILD INDEX idx_url ON ${tableName}; """
     state = wait_for_last_build_index_on_table_finish(tableName, timeout)
-    assertEquals("wait_timeout", state)
+    assertEquals("CANCELLED", state)
     // check data
     qt_count7 """ SELECT COUNT() from ${tableName}; """
 
     GetDebugPoint().disableDebugPointForAllBEs("IndexBuilder::handle_single_rowset")
-    // timeout * 10 for possible fe schedule delay
-    state = wait_for_last_build_index_on_table_finish(tableName, timeout * 10)
+    // rebuild index
+    sql """ BUILD INDEX idx_url ON ${tableName}; """
+    state = wait_for_last_build_index_on_table_finish(tableName, timeout)
     assertEquals("FINISHED", state)
     // check data
     qt_count8 """ SELECT COUNT() from ${tableName}; """

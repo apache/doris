@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Queriable;
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -101,5 +102,10 @@ public class ExecuteCommand extends Command {
                 .collect(Collectors.toList());
         return "EXECUTE `" + stmtName + "`"
                 + realValueExpr.stream().map(Expression::toSql).collect(Collectors.joining(", ", " USING ", ""));
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.EXECUTE;
     }
 }

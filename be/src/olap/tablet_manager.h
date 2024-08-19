@@ -82,7 +82,7 @@ public:
     // single compaction tasks for the tablet.
     std::vector<TabletSharedPtr> find_best_tablets_to_compaction(
             CompactionType compaction_type, DataDir* data_dir,
-            const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
+            const std::unordered_set<TabletSharedPtr>& tablet_submitted_compaction, uint32_t* score,
             const std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>&
                     all_cumulative_compaction_policies);
 
@@ -194,8 +194,8 @@ private:
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
 
-    Status _drop_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id, bool keep_files,
-                                 bool is_drop_table_or_partition);
+    Status _drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool keep_files,
+                        bool is_drop_table_or_partition, bool had_held_shard_lock);
 
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id);
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, bool include_deleted,

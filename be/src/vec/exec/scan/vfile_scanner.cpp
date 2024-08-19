@@ -88,16 +88,20 @@ class ShardedKVCache;
 namespace doris::vectorized {
 using namespace ErrorCode;
 
-VFileScanner::VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* local_state,
-                           int64_t limit,
-                           std::shared_ptr<vectorized::SplitSourceConnector> split_source,
-                           RuntimeProfile* profile, ShardedKVCache* kv_cache)
+VFileScanner::VFileScanner(
+        RuntimeState* state, pipeline::FileScanLocalState* local_state, int64_t limit,
+        std::shared_ptr<vectorized::SplitSourceConnector> split_source, RuntimeProfile* profile,
+        ShardedKVCache* kv_cache,
+        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+        const std::unordered_map<std::string, int>* colname_to_slot_id)
         : VScanner(state, local_state, limit, profile),
           _split_source(split_source),
           _cur_reader(nullptr),
           _cur_reader_eof(false),
+          _colname_to_value_range(colname_to_value_range),
           _kv_cache(kv_cache),
-          _strict_mode(false) {
+          _strict_mode(false),
+          _col_name_to_slot_id(colname_to_slot_id) {
     if (state->get_query_ctx() != nullptr &&
         state->get_query_ctx()->file_scan_range_params_map.count(local_state->parent_id()) > 0) {
         _params = &(state->get_query_ctx()->file_scan_range_params_map[local_state->parent_id()]);
@@ -116,13 +120,8 @@ VFileScanner::VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* lo
     _is_load = (_input_tuple_desc != nullptr);
 }
 
-Status VFileScanner::prepare(
-        const VExprContextSPtrs& conjuncts,
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-        const std::unordered_map<std::string, int>* colname_to_slot_id) {
-    RETURN_IF_ERROR(VScanner::prepare(_state, conjuncts));
-    _colname_to_value_range = colname_to_value_range;
-    _col_name_to_slot_id = colname_to_slot_id;
+Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    RETURN_IF_ERROR(VScanner::prepare(state, conjuncts));
     _get_block_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerGetBlockTime");
     _open_reader_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerOpenReaderTime");
     _cast_to_input_block_timer =
@@ -135,10 +134,11 @@ Status VFileScanner::prepare(
     _convert_to_output_block_timer =
             ADD_TIMER(_local_state->scanner_profile(), "FileScannerConvertOuputBlockTime");
     _empty_file_counter = ADD_COUNTER(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT);
+    _not_found_file_counter =
+            ADD_COUNTER(_local_state->scanner_profile(), "NotFoundFileNum", TUnit::UNIT);
     _file_counter = ADD_COUNTER(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT);
     _has_fully_rf_file_counter =
             ADD_COUNTER(_local_state->scanner_profile(), "HasFullyRfFileNumber", TUnit::UNIT);
-    _get_split_timer = ADD_TIMER(_local_state->scanner_profile(), "GetSplitTime");
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _io_ctx.reset(new io::IOContext());
@@ -284,9 +284,9 @@ Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool*
             // And the file may already be removed from storage.
             // Just ignore not found files.
             Status st = _get_next_reader();
-            if (st.is<ErrorCode::NOT_FOUND>()) {
+            if (st.is<ErrorCode::NOT_FOUND>() && config::ignore_not_found_file_in_external_table) {
                 _cur_reader_eof = true;
-                COUNTER_UPDATE(_empty_file_counter, 1);
+                COUNTER_UPDATE(_not_found_file_counter, 1);
                 continue;
             } else if (!st) {
                 return st;
@@ -450,13 +450,10 @@ Status VFileScanner::_fill_columns_from_path(size_t rows) {
         auto& [value, slot_desc] = kv.second;
         auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
         Slice slice(value.data(), value.size());
-        vector<Slice> slices(rows);
-        for (int i = 0; i < rows; i++) {
-            slices[i] = {value.data(), value.size()};
-        }
         int num_deserialized = 0;
-        if (_text_serde->deserialize_column_from_json_vector(*col_ptr, slices, &num_deserialized,
-                                                             _text_formatOptions) != Status::OK()) {
+        if (_text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
+                                                            &num_deserialized,
+                                                            _text_formatOptions) != Status::OK()) {
             return Status::InternalError("Failed to fill partition column: {}={}",
                                          slot_desc->col_name(), value);
         }
@@ -584,8 +581,11 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                                                                          _num_of_columns_from_file);
                                 },
                                 [&]() -> std::string {
-                                    auto raw_value = _src_block_ptr->get_by_position(ctx_idx)
-                                                             .column->get_data_at(i);
+                                    auto raw_value =
+                                            _src_block_ptr
+                                                    ->get_by_position(_dest_slot_to_src_slot_index
+                                                                              [dest_index])
+                                                    .column->get_data_at(i);
                                     std::string raw_string = raw_value.to_string();
                                     fmt::memory_buffer error_msg;
                                     fmt::format_to(error_msg,
@@ -787,20 +787,9 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
-            static const cctz::time_zone utc0 = cctz::utc_time_zone();
-            cctz::time_zone* tz;
-            if (range.__isset.table_format_params &&
-                range.table_format_params.table_format_type == "paimon") {
-                // The timestmap generated by paimon does not carry metadata information (e.g., isAdjustToUTC, etc.),
-                // and the stored data is UTC0 by default, so it is directly set to the UTC time zone.
-                // In version 0.7, paimon fixed this issue and can remove the judgment here
-                tz = const_cast<cctz::time_zone*>(&utc0);
-            } else {
-                tz = const_cast<cctz::time_zone*>(&_state->timezone_obj());
-            }
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
-                    _profile, *_params, range, _state->query_options().batch_size, tz,
-                    _io_ctx.get(), _state,
+                    _profile, *_params, range, _state->query_options().batch_size,
+                    const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state,
                     _shoudl_enable_file_meta_cache() ? ExecEnv::GetInstance()->file_meta_cache()
                                                      : nullptr,
                     _state->query_options().enable_parquet_lazy_mat);
@@ -837,12 +826,21 @@ Status VFileScanner::_get_next_reader() {
                 RETURN_IF_ERROR(paimon_reader->init_row_filters(range));
                 _cur_reader = std::move(paimon_reader);
             } else {
+                bool hive_parquet_use_column_names = true;
+
+                if (range.__isset.table_format_params &&
+                    range.table_format_params.table_format_type == "hive" && _state != nullptr)
+                        [[likely]] {
+                    hive_parquet_use_column_names =
+                            _state->query_options().hive_parquet_use_column_names;
+                }
+
                 std::vector<std::string> place_holder;
                 init_status = parquet_reader->init_reader(
                         _file_col_names, place_holder, _colname_to_value_range,
                         _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
                         _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
-                        &_slot_id_to_filter_conjuncts);
+                        &_slot_id_to_filter_conjuncts, true, hive_parquet_use_column_names);
                 _cur_reader = std::move(parquet_reader);
             }
             need_to_get_parsed_schema = true;
@@ -898,10 +896,18 @@ Status VFileScanner::_get_next_reader() {
                 RETURN_IF_ERROR(paimon_reader->init_row_filters(range));
                 _cur_reader = std::move(paimon_reader);
             } else {
+                bool hive_orc_use_column_names = true;
+
+                if (range.__isset.table_format_params &&
+                    range.table_format_params.table_format_type == "hive" && _state != nullptr)
+                        [[likely]] {
+                    hive_orc_use_column_names = _state->query_options().hive_orc_use_column_names;
+                }
                 init_status = orc_reader->init_reader(
                         &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
                         _real_tuple_desc, _default_val_row_desc.get(),
-                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
+                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts,
+                        hive_orc_use_column_names);
                 _cur_reader = std::move(orc_reader);
             }
             need_to_get_parsed_schema = true;
@@ -952,13 +958,19 @@ Status VFileScanner::_get_next_reader() {
         }
 
         COUNTER_UPDATE(_file_counter, 1);
-        if (init_status.is<END_OF_FILE>() || init_status.is<ErrorCode::NOT_FOUND>()) {
-            // The VFileScanner for external table may try to open not exist files,
-            // Because FE file cache for external table may out of date.
-            // So, NOT_FOUND for VFileScanner is not a fail case.
-            // Will remove this after file reader refactor.
+        // The VFileScanner for external table may try to open not exist files,
+        // Because FE file cache for external table may out of date.
+        // So, NOT_FOUND for VFileScanner is not a fail case.
+        // Will remove this after file reader refactor.
+        if (init_status.is<END_OF_FILE>()) {
             COUNTER_UPDATE(_empty_file_counter, 1);
             continue;
+        } else if (init_status.is<ErrorCode::NOT_FOUND>()) {
+            if (config::ignore_not_found_file_in_external_table) {
+                COUNTER_UPDATE(_not_found_file_counter, 1);
+                continue;
+            }
+            return Status::InternalError("failed to find reader, err: {}", init_status.to_string());
         } else if (!init_status.ok()) {
             return Status::InternalError("failed to init reader, err: {}", init_status.to_string());
         }
@@ -1163,7 +1175,6 @@ Status VFileScanner::close(RuntimeState* state) {
     if (_cur_reader) {
         RETURN_IF_ERROR(_cur_reader->close());
     }
-    COUNTER_UPDATE(_get_split_timer, _split_source->get_split_time());
 
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();

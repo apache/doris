@@ -21,6 +21,11 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InitDatabaseLog;
 
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.SupportsNamespaces;
+
+import java.util.Map;
+
 public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTable> {
 
     public IcebergExternalDatabase(ExternalCatalog extCatalog, Long id, String name) {
@@ -30,5 +35,11 @@ public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTab
     @Override
     protected IcebergExternalTable buildTableForInit(String tableName, long tblId, ExternalCatalog catalog) {
         return new IcebergExternalTable(tblId, tableName, name, (IcebergExternalCatalog) extCatalog);
+    }
+
+    public String getLocation() {
+        Map<String, String> props = ((SupportsNamespaces) ((IcebergExternalCatalog) getCatalog()).getCatalog())
+                .loadNamespaceMetadata(Namespace.of(name));
+        return props.getOrDefault("location", "");
     }
 }

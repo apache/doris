@@ -53,8 +53,7 @@ void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFacto
                     "name {} , args {}",
                     nested_function_name, types_name(types));
         }
-        return creator_without_type::create<AggregateFunctionForEach>(transform_arguments, true,
-                                                                      nested_function);
+        return creator_without_type::create<AggregateFunctionForEach>(types, true, nested_function);
     };
     factory.register_foreach_function_combinator(
             creator, AggregateFunctionForEach::AGG_FOREACH_SUFFIX, true);

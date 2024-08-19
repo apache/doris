@@ -18,6 +18,8 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import mockit.Mocked;
 import org.junit.Assert;
@@ -85,20 +87,19 @@ public class ReplicaTest {
             Replica olapReplica = new Replica(100L * count, 100L * count, 100L * count, 0,
                                               100L * count, 0,  100 * count, ReplicaState.NORMAL, 0, 100L * count);
             list1.add(olapReplica);
-            olapReplica.write(dos);
+            Text.writeString(dos, GsonUtils.GSON.toJson(olapReplica));
         }
 
         Replica replica = new Replica(10L, 20L, 0, null);
         list1.add(replica);
-        replica.write(dos);
+        Text.writeString(dos, GsonUtils.GSON.toJson(replica));
         dos.flush();
         dos.close();
 
         // 2. Read a object from file
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         for (int count = 0; count < 10; ++count) {
-            Replica olapReplica = new Replica();
-            olapReplica.readFields(dis);
+            Replica olapReplica = GsonUtils.GSON.fromJson(Text.readString(dis), Replica.class);
             Assert.assertEquals(100 * count, olapReplica.getId());
             Assert.assertEquals(100 * count, olapReplica.getBackendId());
             Assert.assertEquals(100 * count, olapReplica.getVersion());
@@ -107,8 +108,7 @@ public class ReplicaTest {
             Assert.assertEquals(Replica.ReplicaState.NORMAL, olapReplica.getState());
             list2.add(olapReplica);
         }
-        Replica olapReplica = new Replica();
-        olapReplica.readFields(dis);
+        Replica olapReplica = GsonUtils.GSON.fromJson(Text.readString(dis), Replica.class);
         list2.add(olapReplica);
 
         // 3. Check equal

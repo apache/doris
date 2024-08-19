@@ -91,7 +91,7 @@ struct ColumnIteratorOptions {
     // for page cache allocation
     // page types are divided into DATA_PAGE & INDEX_PAGE
     // INDEX_PAGE including index_page, dict_page and short_key_page
-    PageTypePB type;
+    PageTypePB type = PageTypePB::UNKNOWN_PAGE_TYPE;
     io::FileReader* file_reader = nullptr; // Ref
     // reader statistics
     OlapReaderStatistics* stats = nullptr; // Ref

@@ -906,8 +906,14 @@ void DataDir::disks_compaction_num_increment(int64_t delta) {
 }
 
 Status DataDir::move_to_trash(const std::string& tablet_path) {
-    Status res = Status::OK();
+    if (config::trash_file_expire_time_sec <= 0) {
+        LOG(INFO) << "delete tablet dir " << tablet_path
+                  << " directly due to trash_file_expire_time_sec is 0";
+        RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_path));
+        return delete_tablet_parent_path_if_empty(tablet_path);
+    }
 
+    Status res = Status::OK();
     // 1. get timestamp string
     string time_str;
     if ((res = gen_timestamp_string(&time_str)) != Status::OK()) {

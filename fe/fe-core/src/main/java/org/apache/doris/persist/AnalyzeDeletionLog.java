@@ -17,7 +17,13 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -25,6 +31,7 @@ import java.io.IOException;
 
 public class AnalyzeDeletionLog implements Writable {
 
+    @SerializedName("id")
     public final long id;
 
     public AnalyzeDeletionLog(long id) {
@@ -33,10 +40,14 @@ public class AnalyzeDeletionLog implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(id);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public static AnalyzeDeletionLog read(DataInput dataInput) throws IOException {
-        return new AnalyzeDeletionLog(dataInput.readLong());
+    public static AnalyzeDeletionLog read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
+            return new AnalyzeDeletionLog(in.readLong());
+        } else {
+            return GsonUtils.GSON.fromJson(Text.readString(in), AnalyzeDeletionLog.class);
+        }
     }
 }

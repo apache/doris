@@ -34,7 +34,7 @@
 namespace doris {
 ResetRPCChannelAction::ResetRPCChannelAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
                                              TPrivilegeType::type type)
-        : HttpHandlerWithAuth(exec_env, hier, type) {}
+        : HttpHandlerWithAuth(exec_env, hier, type), _exec_env(exec_env) {}
 void ResetRPCChannelAction::handle(HttpRequest* req) {
     std::string endpoints = req->param("endpoints");
     if (iequal(endpoints, "all")) {

@@ -61,17 +61,35 @@ public:
     // all public functions are thread safe
     AutoIncIDBuffer(int64_t _db_id, int64_t _table_id, int64_t column_id);
     void set_batch_size_at_least(size_t batch_size);
-    Status sync_request_ids(size_t length, std::vector<std::pair<int64_t, size_t>>* result);
+    Status sync_request_ids(size_t request_length, std::vector<std::pair<int64_t, size_t>>* result);
+
+    struct AutoIncRange {
+        int64_t start;
+        size_t length;
+
+        bool empty() const { return length == 0; }
+
+        void consume(size_t l) {
+            start += l;
+            length -= l;
+        }
+    };
 
 private:
-    Status _prefetch_ids(size_t length);
     [[nodiscard]] size_t _prefetch_size() const {
         return _batch_size * config::auto_inc_prefetch_size_ratio;
     }
+
     [[nodiscard]] size_t _low_water_level_mark() const {
         return _batch_size * config::auto_inc_low_water_level_mark_size_ratio;
     };
-    void _wait_for_prefetching();
+
+    void _get_autoinc_ranges_from_buffers(size_t& request_length,
+                                          std::vector<std::pair<int64_t, size_t>>* result);
+
+    Status _launch_async_fetch_task(size_t length);
+
+    Result<int64_t> _fetch_ids_from_fe(size_t length);
 
     std::atomic<size_t> _batch_size {MIN_BATCH_SIZE};
 
@@ -81,12 +99,14 @@ private:
 
     std::unique_ptr<ThreadPoolToken> _rpc_token;
     Status _rpc_status {Status::OK()};
+
     std::atomic<bool> _is_fetching {false};
 
-    std::pair<int64_t, size_t> _front_buffer {0, 0};
-    std::pair<int64_t, size_t> _backend_buffer {0, 0};
-    std::mutex _backend_buffer_latch; // for _backend_buffer
     std::mutex _mutex;
+
+    mutable std::mutex _latch;
+    std::list<AutoIncRange> _buffers;
+    size_t _current_volume {0};
 };
 
 class GlobalAutoIncBuffers {
@@ -115,8 +135,7 @@ public:
         auto key = std::make_tuple(db_id, table_id, column_id);
         auto it = _buffers.find(key);
         if (it == _buffers.end()) {
-            _buffers.emplace(std::make_pair(
-                    key, AutoIncIDBuffer::create_shared(db_id, table_id, column_id)));
+            _buffers.emplace(key, AutoIncIDBuffer::create_shared(db_id, table_id, column_id));
         }
         return _buffers[{db_id, table_id, column_id}];
     }

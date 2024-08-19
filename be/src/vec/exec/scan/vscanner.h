@@ -69,7 +69,8 @@ public:
     }
 
     virtual Status init() { return Status::OK(); }
-
+    // Not virtual, all child will call this method explictly
+    virtual Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
     virtual Status open(RuntimeState* state) { return Status::OK(); }
 
     Status get_block(RuntimeState* state, Block* block, bool* eos);
@@ -98,9 +99,6 @@ protected:
 
     Status _do_projections(vectorized::Block* origin_block, vectorized::Block* output_block);
 
-    // Not virtual, all child will call this method explictly
-    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
-
 public:
     int64_t get_time_cost_ns() const { return _per_scanner_timer; }
 
@@ -127,11 +125,7 @@ public:
 
     int64_t get_scanner_wait_worker_timer() const { return _scanner_wait_worker_timer; }
 
-    void update_scan_cpu_timer() {
-        int64_t cpu_time = _cpu_watch.elapsed_time();
-        _scan_cpu_timer += cpu_time;
-        _query_statistics->add_cpu_nanos(cpu_time);
-    }
+    void update_scan_cpu_timer();
 
     RuntimeState* runtime_state() { return _state; }
 

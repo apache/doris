@@ -39,7 +39,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "common/config.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -103,7 +103,7 @@ bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs) {
     if (!ret) {
         return false;
     }
-    if (min_key < pre_max_key) {
+    if (min_key <= pre_max_key) {
         return false;
     }
     CHECK(rhs->max_key(&pre_max_key));
@@ -149,6 +149,15 @@ void Compaction::init_profile(const std::string& label) {
     _merge_rowsets_latency_timer = ADD_TIMER(_profile, "merge_rowsets_latency");
 }
 
+int64_t Compaction::merge_way_num() {
+    int64_t way_num = 0;
+    for (auto&& rowset : _input_rowsets) {
+        way_num += rowset->rowset_meta()->get_merge_way_num();
+    }
+
+    return way_num;
+}
+
 Status Compaction::merge_input_rowsets() {
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
     input_rs_readers.reserve(_input_rowsets.size());
@@ -170,23 +179,24 @@ Status Compaction::merge_input_rowsets() {
         _stats.rowid_conversion = &_rowid_conversion;
     }
 
+    int64_t way_num = merge_way_num();
+
     Status res;
     {
         SCOPED_TIMER(_merge_rowsets_latency_timer);
         if (_is_vertical) {
             res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
                                                  input_rs_readers, _output_rs_writer.get(),
-                                                 get_avg_segment_rows(), &_stats);
+                                                 get_avg_segment_rows(), way_num, &_stats);
         } else {
             res = Merger::vmerge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
                                          input_rs_readers, _output_rs_writer.get(), &_stats);
         }
     }
 
+    _tablet->last_compaction_status = res;
+
     if (!res.ok()) {
-        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
-                     << ", tablet=" << _tablet->tablet_id()
-                     << ", output_version=" << _output_version;
         return res;
     }
 
@@ -339,7 +349,9 @@ bool CompactionMixin::handle_ordered_data_compaction() {
 
     // check delete version: if compaction type is base compaction and
     // has a delete version, use original compaction
-    if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
+    if (compaction_type() == ReaderType::READER_BASE_COMPACTION ||
+        (_allow_delete_in_cumu_compaction &&
+         compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION)) {
         for (auto& rowset : _input_rowsets) {
             if (rowset->rowset_meta()->has_delete_predicate()) {
                 return false;
@@ -387,15 +399,14 @@ Status CompactionMixin::execute_compact() {
     data_dir->disks_compaction_score_increment(permits);
     data_dir->disks_compaction_num_increment(1);
 
-    Status st = execute_compact_impl(permits);
-    _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
+    auto record_compaction_stats = [&](const doris::Exception& ex) {
+        _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
+        data_dir->disks_compaction_score_increment(-permits);
+        data_dir->disks_compaction_num_increment(-1);
+    };
 
-    data_dir->disks_compaction_score_increment(-permits);
-    data_dir->disks_compaction_num_increment(-1);
-
-    if (!st.ok()) {
-        return st;
-    }
+    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits), record_compaction_stats);
+    record_compaction_stats(doris::Exception());
 
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
@@ -498,8 +509,8 @@ Status Compaction::do_inverted_index_compaction() {
             } else {
                 DCHECK(false) << err_msg;
             }
+            // log here just for debugging, do not return error
             LOG(WARNING) << err_msg;
-            return Status::InternalError(err_msg);
         }
     }
 
@@ -629,9 +640,13 @@ Status Compaction::do_inverted_index_compaction() {
     // format: rowsetId_segmentId
     std::vector<std::unique_ptr<InvertedIndexFileWriter>> inverted_index_file_writers(
             dest_segment_num);
-    for (int i = 0; i < dest_segment_num; ++i) {
+
+    // Some columns have already been indexed
+    // key: seg_id, value: inverted index file size
+    std::unordered_map<int, int64_t> compacted_idx_file_size;
+    for (int seg_id = 0; seg_id < dest_segment_num; ++seg_id) {
         std::string index_path_prefix {
-                InvertedIndexDescriptor::get_index_file_path_prefix(ctx.segment_path(i))};
+                InvertedIndexDescriptor::get_index_file_path_prefix(ctx.segment_path(seg_id))};
         auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
                 ctx.fs(), index_path_prefix,
                 _cur_tablet_schema->get_inverted_index_storage_format());
@@ -641,20 +656,38 @@ Status Compaction::do_inverted_index_compaction() {
         if (st.ok()) {
             auto index_not_need_to_compact =
                     DORIS_TRY(inverted_index_file_reader->get_all_directories());
+            // V1: each index is a separate file
+            // V2: all indexes are in a single file
+            if (_cur_tablet_schema->get_inverted_index_storage_format() !=
+                doris::InvertedIndexStorageFormatPB::V1) {
+                int64_t fsize = 0;
+                st = ctx.fs()->file_size(
+                        InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix), &fsize);
+                if (!st.ok()) {
+                    LOG(ERROR) << "file size error in index compaction, error:" << st.msg();
+                    return st;
+                }
+                compacted_idx_file_size[seg_id] = fsize;
+            }
             auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                    ctx.fs(), index_path_prefix, ctx.rowset_id.to_string(), i,
+                    ctx.fs(), index_path_prefix, ctx.rowset_id.to_string(), seg_id,
                     _cur_tablet_schema->get_inverted_index_storage_format());
             RETURN_IF_ERROR(inverted_index_file_writer->initialize(index_not_need_to_compact));
-            inverted_index_file_writers[i] = std::move(inverted_index_file_writer);
+            inverted_index_file_writers[seg_id] = std::move(inverted_index_file_writer);
         } else if (st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
             auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                    ctx.fs(), index_path_prefix, ctx.rowset_id.to_string(), i,
+                    ctx.fs(), index_path_prefix, ctx.rowset_id.to_string(), seg_id,
                     _cur_tablet_schema->get_inverted_index_storage_format());
-            inverted_index_file_writers[i] = std::move(inverted_index_file_writer);
+            inverted_index_file_writers[seg_id] = std::move(inverted_index_file_writer);
+            // no index file
+            compacted_idx_file_size[seg_id] = 0;
         } else {
             LOG(ERROR) << "inverted_index_file_reader init failed in index compaction, error:"
                        << st;
             return st;
+        }
+        for (const auto& writer : inverted_index_file_writers) {
+            writer->set_file_writer_opts(ctx.get_file_writer_options());
         }
     }
 
@@ -729,21 +762,41 @@ Status Compaction::do_inverted_index_compaction() {
             status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(e.what());
         }
     }
-    for (auto& inverted_index_file_writer : inverted_index_file_writers) {
+
+    std::vector<InvertedIndexFileInfo> all_inverted_index_file_info(dest_segment_num);
+    uint64_t inverted_index_file_size = 0;
+    for (int seg_id = 0; seg_id < dest_segment_num; ++seg_id) {
+        auto inverted_index_file_writer = inverted_index_file_writers[seg_id].get();
         if (Status st = inverted_index_file_writer->close(); !st.ok()) {
             status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
+        } else {
+            inverted_index_file_size += inverted_index_file_writer->get_index_file_total_size();
+            inverted_index_file_size -= compacted_idx_file_size[seg_id];
         }
+        all_inverted_index_file_info[seg_id] = inverted_index_file_writer->get_index_file_info();
     }
     // check index compaction status. If status is not ok, we should return error and end this compaction round.
     if (!status.ok()) {
         return status;
     }
 
+    // index compaction should update total disk size and index disk size
+    _output_rowset->rowset_meta()->set_data_disk_size(_output_rowset->data_disk_size() +
+                                                      inverted_index_file_size);
+    _output_rowset->rowset_meta()->set_total_disk_size(_output_rowset->data_disk_size() +
+                                                       inverted_index_file_size);
+    _output_rowset->rowset_meta()->set_index_disk_size(_output_rowset->index_disk_size() +
+                                                       inverted_index_file_size);
+
+    _output_rowset->rowset_meta()->update_inverted_index_files_info(all_inverted_index_file_info);
+    COUNTER_UPDATE(_output_rowset_data_size_counter, _output_rowset->data_disk_size());
+
     LOG(INFO) << "succeed to do index compaction"
               << ". tablet=" << _tablet->tablet_id() << ", input row number=" << _input_row_num
               << ", output row number=" << _output_rowset->num_rows()
               << ", input_rowset_size=" << _input_rowsets_size
               << ", output_rowset_size=" << _output_rowset->data_disk_size()
+              << ", inverted index file size=" << inverted_index_file_size
               << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
 
     return Status::OK();
@@ -858,7 +911,9 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     if (config::inverted_index_compaction_enable &&
         (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
            _tablet->enable_unique_key_merge_on_write()) ||
-          _tablet->keys_type() == KeysType::DUP_KEYS))) {
+          _tablet->keys_type() == KeysType::DUP_KEYS)) &&
+        _cur_tablet_schema->get_inverted_index_storage_format() ==
+                InvertedIndexStorageFormatPB::V1) {
         construct_skip_inverted_index(ctx);
     }
     ctx.version = _output_version;
@@ -881,8 +936,19 @@ Status CompactionMixin::modify_rowsets() {
         _tablet->tablet_schema()->cluster_key_idxes().empty()) {
         Version version = tablet()->max_version();
         DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
-        std::set<RowLocation> missed_rows;
-        std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
+        std::unique_ptr<RowLocationSet> missed_rows;
+        if ((config::enable_missing_rows_correctness_check ||
+             config::enable_mow_compaction_correctness_check_core) &&
+            !_allow_delete_in_cumu_compaction &&
+            compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
+            missed_rows = std::make_unique<RowLocationSet>();
+            LOG(INFO) << "RowLocation Set inited succ for tablet:" << _tablet->tablet_id();
+        }
+        std::unique_ptr<std::map<RowsetSharedPtr, RowLocationPairList>> location_map;
+        if (config::enable_rowid_conversion_correctness_check) {
+            location_map = std::make_unique<std::map<RowsetSharedPtr, RowLocationPairList>>();
+            LOG(INFO) << "Location Map inited succ for tablet:" << _tablet->tablet_id();
+        }
         // Convert the delete bitmap of the input rowsets to output rowset.
         // New loads are not blocked, so some keys of input rowsets might
         // be deleted during the time. We need to deal with delete bitmap
@@ -890,13 +956,12 @@ Status CompactionMixin::modify_rowsets() {
         // TODO(LiaoXin): check if there are duplicate keys
         std::size_t missed_rows_size = 0;
         tablet()->calc_compaction_output_rowset_delete_bitmap(
-                _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows,
-                &location_map, _tablet->tablet_meta()->delete_bitmap(),
+                _input_rowsets, _rowid_conversion, 0, version.second + 1, missed_rows.get(),
+                location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
                 &output_rowset_delete_bitmap);
-        if (!_allow_delete_in_cumu_compaction) {
-            missed_rows_size = missed_rows.size();
-            if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
-                _tablet->tablet_state() == TABLET_RUNNING &&
+        if (missed_rows) {
+            missed_rows_size = missed_rows->size();
+            if (_tablet->tablet_state() == TABLET_RUNNING &&
                 _stats.merged_rows != missed_rows_size) {
                 std::stringstream ss;
                 ss << "cumulative compaction: the merged rows(" << _stats.merged_rows
@@ -930,10 +995,10 @@ Status CompactionMixin::modify_rowsets() {
             }
         }
 
-        if (config::enable_rowid_conversion_correctness_check) {
-            RETURN_IF_ERROR(tablet()->check_rowid_conversion(_output_rowset, location_map));
+        if (location_map) {
+            RETURN_IF_ERROR(tablet()->check_rowid_conversion(_output_rowset, *location_map));
+            location_map->clear();
         }
-        location_map.clear();
 
         {
             std::lock_guard<std::mutex> wrlock_(tablet()->get_rowset_update_lock());
@@ -960,8 +1025,8 @@ Status CompactionMixin::modify_rowsets() {
                 }
                 DeleteBitmap txn_output_delete_bitmap(_tablet->tablet_id());
                 tablet()->calc_compaction_output_rowset_delete_bitmap(
-                        _input_rowsets, _rowid_conversion, 0, UINT64_MAX, &missed_rows,
-                        &location_map, *it.delete_bitmap.get(), &txn_output_delete_bitmap);
+                        _input_rowsets, _rowid_conversion, 0, UINT64_MAX, missed_rows.get(),
+                        location_map.get(), *it.delete_bitmap.get(), &txn_output_delete_bitmap);
                 if (config::enable_merge_on_write_correctness_check) {
                     RowsetIdUnorderedSet rowsetids;
                     rowsetids.insert(_output_rowset->rowset_id());
@@ -980,21 +1045,20 @@ Status CompactionMixin::modify_rowsets() {
             // Convert the delete bitmap of the input rowsets to output rowset for
             // incremental data.
             tablet()->calc_compaction_output_rowset_delete_bitmap(
-                    _input_rowsets, _rowid_conversion, version.second, UINT64_MAX, &missed_rows,
-                    &location_map, _tablet->tablet_meta()->delete_bitmap(),
+                    _input_rowsets, _rowid_conversion, version.second, UINT64_MAX,
+                    missed_rows.get(), location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
                     &output_rowset_delete_bitmap);
 
-            if (!_allow_delete_in_cumu_compaction &&
-                compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
-                DCHECK_EQ(missed_rows.size(), missed_rows_size);
-                if (missed_rows.size() != missed_rows_size) {
+            if (missed_rows) {
+                DCHECK_EQ(missed_rows->size(), missed_rows_size);
+                if (missed_rows->size() != missed_rows_size) {
                     LOG(WARNING) << "missed rows don't match, before: " << missed_rows_size
-                                 << " after: " << missed_rows.size();
+                                 << " after: " << missed_rows->size();
                 }
             }
 
-            if (config::enable_rowid_conversion_correctness_check) {
-                RETURN_IF_ERROR(tablet()->check_rowid_conversion(_output_rowset, location_map));
+            if (location_map) {
+                RETURN_IF_ERROR(tablet()->check_rowid_conversion(_output_rowset, *location_map));
             }
 
             tablet()->merge_delete_bitmap(output_rowset_delete_bitmap);
@@ -1123,13 +1187,10 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
 Status CloudCompactionMixin::execute_compact() {
     TEST_INJECTION_POINT("Compaction::do_compaction");
     int64_t permits = get_compaction_permits();
-    Status st = execute_compact_impl(permits);
-    if (!st.ok()) {
-        garbage_collection();
-        return st;
-    }
+    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits),
+                                        [&](const doris::Exception& ex) { garbage_collection(); });
     _load_segment_to_cache();
-    return st;
+    return Status::OK();
 }
 
 Status CloudCompactionMixin::modify_rowsets() {
@@ -1141,7 +1202,9 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     if (config::inverted_index_compaction_enable &&
         (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
            _tablet->enable_unique_key_merge_on_write()) ||
-          _tablet->keys_type() == KeysType::DUP_KEYS))) {
+          _tablet->keys_type() == KeysType::DUP_KEYS)) &&
+        _cur_tablet_schema->get_inverted_index_storage_format() ==
+                InvertedIndexStorageFormatPB::V1) {
         construct_skip_inverted_index(ctx);
     }
 
@@ -1161,8 +1224,10 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
 
     auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
-    ctx.compaction_level =
-            _engine.cumu_compaction_policy(compaction_policy)->new_compaction_level(_input_rowsets);
+    if (_tablet->tablet_meta()->time_series_compaction_level_threshold() >= 2) {
+        ctx.compaction_level = _engine.cumu_compaction_policy(compaction_policy)
+                                       ->new_compaction_level(_input_rowsets);
+    }
 
     ctx.write_file_cache = compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION;
     ctx.file_cache_ttl_sec = _tablet->ttl_seconds();

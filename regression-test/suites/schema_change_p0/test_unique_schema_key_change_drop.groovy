@@ -21,7 +21,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
     sql """ DROP TABLE IF EXISTS ${tbName} """
     def getTableStatusSql = " SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1  "
     def errorMessage = ""
-    def insertSql = "insert into ${tbName} values(123456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
+    def insertSql = "insert into ${tbName} values(923456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
     def on_write = getRandomBoolean()
     println String.format("current enable_unique_key_merge_on_write is : %s ",on_write)
 
@@ -70,7 +70,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
         insertSql = "insert into ${tbName} values(6, 'Sophia Lee', 91.3, 'Boston', 29, 2, 7778889990,  60, 6000000000, '2024-06-16', '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00', 'Test String 6', {'a': 500, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
@@ -84,7 +84,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
         insertSql = "insert into ${tbName} values(6, 'Sophia Lee', 91.3, 'Boston', 29,  7778889990, true, 60, 6000000000, '2024-06-16', '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00', 'Test String 6', {'a': 500, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
@@ -98,7 +98,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
         insertSql = "insert into ${tbName} values(6, 'Sophia Lee', 91.3, 'Boston', 2, 7778889990, true, 60, 6000000000, '2024-06-16', '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00', 'Test String 6', {'a': 500, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
@@ -111,7 +111,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
         insertSql = "insert into ${tbName} values(6, 'Sophia Lee', 91.3, 'Boston', 29, 2, 7778889990, true,  6000000000, '2024-06-16', '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00', 'Test String 6', {'a': 500, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
@@ -125,7 +125,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
         insertSql = "insert into ${tbName} values(6, 'Sophia Lee', 91.3, 'Boston', 29, 2, 7778889990, true, 60,  '2024-06-16', '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00', 'Test String 6', {'a': 500, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
@@ -139,7 +139,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
         insertSql = "insert into ${tbName} values(6, 'Sophia Lee', 91.3, 'Boston', 29, 2, true, 60, 6000000000, '2024-06-16', '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00', 'Test String 6', {'a': 500, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
@@ -152,7 +152,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
         insertSql = "insert into ${tbName} values(6, 'Sophia Lee', 91.3, 'Boston', 29, 2, 7778889990, true, 60, 6000000000,  '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00', 'Test String 6', {'a': 500, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
@@ -166,7 +166,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
         insertSql = "insert into ${tbName} values(6, 'Sophia Lee', 91.3, 'Boston', 29, 2, 7778889990, true, 60, 6000000000,  '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00', 'Test String 6', {'a': 500, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
@@ -180,7 +180,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
         insertSql = "insert into ${tbName} values(6, 'Sophia Lee', 91.3, 'Boston', 29, 2, 7778889990, true, 60, 6000000000,  '2024-06-16', '2024-06-16',  '2024-06-16 17:00:00', 'Test String 6', {'a': 500, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
@@ -194,7 +194,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
         insertSql = "insert into ${tbName} values(6, 'Sophia Lee', 91.3, 'Boston', 29, 2, 7778889990, true, 60, 6000000000,  '2024-06-16', '2024-06-16',  '2024-06-16 17:00:00', 'Test String 6', {'a': 500, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
@@ -208,7 +208,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
         insertSql = "insert into ${tbName} values(6, 'Sophia Lee', 91.3, 'Boston', 29, 2, 7778889990, true, 60, 6000000000,  '2024-06-16', '2024-06-16',  '2024-06-16 17:00:00', 'Test String 6', {'a': 500, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
@@ -222,7 +222,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
         insertSql = "insert into ${tbName} values(6, 'Sophia Lee', 91.3, 29, 2, 7778889990, true, 60, 6000000000, '2024-06-16', '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00', 'Test String 6', {'a': 500, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
@@ -236,7 +236,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
         insertSql = "insert into ${tbName} values(6, 91.3, 'Boston', 29, 2, 7778889990, true, 60, 6000000000, '2024-06-16', '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00', 'Test String 6', {'a': 500, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 

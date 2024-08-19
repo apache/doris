@@ -41,7 +41,7 @@
 #include "cloud/pb_convert.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/Types_types.h"
@@ -329,6 +329,9 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
             error_msg = cntl.ErrorText();
         } else if (res->status().code() == MetaServiceCode::OK) {
             return Status::OK();
+        } else if (res->status().code() == MetaServiceCode::INVALID_ARGUMENT) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("failed to {}: {}", op_name,
+                                                                     res->status().msg());
         } else if (res->status().code() != MetaServiceCode::KV_TXN_CONFLICT) {
             return Status::Error<ErrorCode::INTERNAL_ERROR, false>("failed to {}: {}", op_name,
                                                                    res->status().msg());
@@ -559,14 +562,29 @@ bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64
         }
         txn_processed.insert(txn_id);
         DeleteBitmapPtr tmp_delete_bitmap;
-        RowsetIdUnorderedSet tmp_rowset_ids;
         std::shared_ptr<PublishStatus> publish_status =
                 std::make_shared<PublishStatus>(PublishStatus::INIT);
         CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
         Status status = engine.txn_delete_bitmap_cache().get_delete_bitmap(
-                txn_id, tablet->tablet_id(), &tmp_delete_bitmap, &tmp_rowset_ids, &publish_status);
-        if (status.ok() && *(publish_status.get()) == PublishStatus::SUCCEED) {
-            delete_bitmap->merge(*tmp_delete_bitmap);
+                txn_id, tablet->tablet_id(), &tmp_delete_bitmap, nullptr, &publish_status);
+        // CloudMetaMgr::sync_tablet_delete_bitmap_by_cache() is called after we sync rowsets from meta services.
+        // If the control flows reaches here, it's gauranteed that the rowsets is commited in meta services, so we can
+        // use the delete bitmap from cache directly if *publish_status == PublishStatus::SUCCEED without checking other
+        // stats(version or compaction stats)
+        if (status.ok() && *publish_status == PublishStatus::SUCCEED) {
+            // tmp_delete_bitmap contains sentinel marks, we should remove it before merge it to delete bitmap.
+            // Also, the version of delete bitmap key in tmp_delete_bitmap is DeleteBitmap::TEMP_VERSION_COMMON,
+            // we should replace it with the rowset's real version
+            DCHECK(rs_meta.start_version() == rs_meta.end_version());
+            int64_t rowset_version = rs_meta.start_version();
+            for (const auto& [delete_bitmap_key, bitmap_value] : tmp_delete_bitmap->delete_bitmap) {
+                // skip sentinel mark, which is used for delete bitmap correctness check
+                if (std::get<1>(delete_bitmap_key) != DeleteBitmap::INVALID_SEGMENT_ID) {
+                    delete_bitmap->merge({std::get<0>(delete_bitmap_key),
+                                          std::get<1>(delete_bitmap_key), rowset_version},
+                                         bitmap_value);
+                }
+            }
             engine.txn_delete_bitmap_cache().remove_unused_tablet_txn_info(txn_id,
                                                                            tablet->tablet_id());
         } else {
@@ -747,7 +765,12 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
 
-    RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb(true);
+    // Variant schema maybe updated, so we need to update the schema as well.
+    // The updated rowset meta after `rowset->merge_rowset_meta` in `BaseTablet::update_delete_bitmap`
+    // will be lost in `update_tmp_rowset` if skip_schema.So in order to keep the latest schema we should keep schema in update_tmp_rowset
+    // for variant type
+    bool skip_schema = rs_meta.tablet_schema()->num_variant_columns() == 0;
+    RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb(skip_schema);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
     Status st =
             retry_rpc("update committed rowset", req, &resp, &MetaService_Stub::update_tmp_rowset);
@@ -839,8 +862,12 @@ Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
     if (ctx.db_id > 0 && !ctx.label.empty()) {
         req.set_db_id(ctx.db_id);
         req.set_label(ctx.label);
-    } else {
+    } else if (ctx.txn_id > 0) {
         req.set_txn_id(ctx.txn_id);
+    } else {
+        LOG(WARNING) << "failed abort txn, with illegal input, db_id=" << ctx.db_id
+                     << " txn_id=" << ctx.txn_id << " label=" << ctx.label;
+        return Status::InternalError<false>("failed to abort txn");
     }
     return retry_rpc("abort txn", req, &res, &MetaService_Stub::abort_txn);
 }

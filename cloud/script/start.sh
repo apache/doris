@@ -16,6 +16,8 @@
 # specific language governing permissions and limitations
 # under the License.
 
+set -eo pipefail
+
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 DORIS_HOME="$(
@@ -30,15 +32,31 @@ if [[ ! -d bin || ! -d conf || ! -d lib ]]; then
     exit 1
 fi
 
-daemonized=0
+RUN_DAEMON=0
+RUN_VERSION=0
 for arg; do
     shift
-    [[ "${arg}" = "--daemonized" ]] && daemonized=1 && continue
-    [[ "${arg}" = "-daemonized" ]] && daemonized=1 && continue
-    [[ "${arg}" = "--daemon" ]] && daemonized=1 && continue
+    [[ "${arg}" = "--daemonized" ]] && RUN_DAEMON=1 && continue
+    [[ "${arg}" = "-daemonized" ]] && RUN_DAEMON=1 && continue
+    [[ "${arg}" = "--daemon" ]] && RUN_DAEMON=1 && continue
+    [[ "${arg}" = "--version" ]] && RUN_VERSION=1 && continue
     set -- "$@" "${arg}"
 done
 # echo "$@" "daemonized=${daemonized}"}
+
+# export env variables from doris_cloud.conf
+# read from doris_cloud.conf
+while read -r line; do
+    envline="$(echo "${line}" |
+        sed 's/[[:blank:]]*=[[:blank:]]*/=/g' |
+        sed 's/^[[:blank:]]*//g' |
+        grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=" ||
+        true)"
+    envline="$(eval "echo ${envline}")"
+    if [[ "${envline}" == *"="* ]]; then
+        eval 'export "${envline}"'
+    fi
+done <"${DORIS_HOME}/conf/doris_cloud.conf"
 
 process=doris_cloud
 
@@ -104,9 +122,14 @@ echo "LIBHDFS3_CONF=${LIBHDFS3_CONF}"
 
 export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:15000,dirty_decay_ms:15000,oversize_threshold:0,prof:true,prof_prefix:jeprof.out"
 
+if [[ "${RUN_VERSION}" -eq 1 ]]; then
+    "${bin}" --version
+    exit 0
+fi
+
 mkdir -p "${DORIS_HOME}/log"
 echo "starts ${process} with args: $*"
-if [[ "${daemonized}" -eq 1 ]]; then
+if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     date >>"${DORIS_HOME}/log/${process}.out"
     nohup "${bin}" "$@" >>"${DORIS_HOME}/log/${process}.out" 2>&1 &
     # wait for log flush

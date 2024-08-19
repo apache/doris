@@ -47,4 +47,9 @@ public class StopRoutineLoadStmt extends DdlStmt {
         super.analyze(analyzer);
         labelName.analyze(analyzer);
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.STOP;
+    }
 }

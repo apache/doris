@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <bvar/bvar.h>
 #include <gen_cpp/BackendService_types.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -40,6 +41,7 @@ class ThreadPool;
 class ExecEnv;
 class CgroupCpuCtl;
 class QueryContext;
+class IOThrottle;
 
 namespace vectorized {
 class SimplifiedScanScheduler;
@@ -76,7 +78,18 @@ public:
         return _memory_limit;
     };
 
+    int64_t weighted_memory_limit() const { return _weighted_memory_limit; };
+
+    void set_weighted_memory_limit(int64_t weighted_memory_limit) {
+        _weighted_memory_limit = weighted_memory_limit;
+    }
+
+    // make memory snapshots and refresh total memory used at the same time.
+    int64_t make_memory_tracker_snapshots(
+            std::list<std::shared_ptr<MemTrackerLimiter>>* tracker_snapshots);
+    // call make_memory_tracker_snapshots, so also refresh total memory used.
     int64_t memory_used();
+    void refresh_memory(int64_t used_memory);
 
     int spill_threshold_low_water_mark() const {
         return _spill_low_watermark.load(std::memory_order_relaxed);
@@ -85,16 +98,30 @@ public:
         return _spill_high_watermark.load(std::memory_order_relaxed);
     }
 
-    void set_weighted_memory_used(int64_t wg_total_mem_used, double ratio);
+    void set_weighted_memory_ratio(double ratio);
+    bool add_wg_refresh_interval_memory_growth(int64_t size) {
+        auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
+        if ((realtime_total_mem_used >
+             ((double)_weighted_memory_limit *
+              _spill_high_watermark.load(std::memory_order_relaxed) / 100))) {
+            return false;
+        } else {
+            _wg_refresh_interval_memory_growth.fetch_add(size);
+            return true;
+        }
+    }
+    void sub_wg_refresh_interval_memory_growth(int64_t size) {
+        _wg_refresh_interval_memory_growth.fetch_sub(size);
+    }
 
     void check_mem_used(bool* is_low_wartermark, bool* is_high_wartermark) const {
-        auto weighted_mem_used = _weighted_mem_used.load(std::memory_order_relaxed);
-        *is_low_wartermark =
-                (weighted_mem_used > ((double)_memory_limit *
-                                      _spill_low_watermark.load(std::memory_order_relaxed) / 100));
-        *is_high_wartermark =
-                (weighted_mem_used > ((double)_memory_limit *
-                                      _spill_high_watermark.load(std::memory_order_relaxed) / 100));
+        auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
+        *is_low_wartermark = (realtime_total_mem_used >
+                              ((double)_weighted_memory_limit *
+                               _spill_low_watermark.load(std::memory_order_relaxed) / 100));
+        *is_high_wartermark = (realtime_total_mem_used >
+                               ((double)_weighted_memory_limit *
+                                _spill_high_watermark.load(std::memory_order_relaxed) / 100));
     }
 
     std::string debug_string() const;
@@ -137,7 +164,7 @@ public:
 
     bool can_be_dropped() {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
-        return _is_shutdown && _query_ctxs.size() == 0;
+        return _is_shutdown && _query_ctxs.empty();
     }
 
     int query_num() {
@@ -151,7 +178,7 @@ public:
 
     void get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
                              vectorized::SimplifiedScanScheduler** scan_sched,
-                             ThreadPool** non_pipe_thread_pool,
+                             ThreadPool** memtable_flush_pool,
                              vectorized::SimplifiedScanScheduler** remote_scan_sched);
 
     void try_stop_schedulers();
@@ -161,13 +188,37 @@ public:
         return _query_ctxs;
     }
 
+    std::string thread_debug_info();
+
+    std::shared_ptr<IOThrottle> get_local_scan_io_throttle(const std::string& disk_dir);
+
+    std::shared_ptr<IOThrottle> get_remote_scan_io_throttle();
+
+    void upsert_scan_io_throttle(WorkloadGroupInfo* tg_info);
+
+    void update_cpu_adder(int64_t delta_cpu_time);
+
+    void update_total_local_scan_io_adder(size_t scan_bytes);
+
+    int64_t get_mem_used() { return _mem_used_status->get_value(); }
+    uint64_t get_cpu_usage() { return _cpu_usage_per_second->get_value(); }
+    int64_t get_local_scan_bytes_per_second() {
+        return _total_local_scan_io_per_second->get_value();
+    }
+    int64_t get_remote_scan_bytes_per_second();
+
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
     std::string _name;
     int64_t _version;
-    int64_t _memory_limit;                      // bytes
-    std::atomic_int64_t _weighted_mem_used = 0; // bytes
+    int64_t _memory_limit; // bytes
+    // `weighted_memory_limit` less than or equal to _memory_limit, calculate after exclude public memory.
+    // more detailed description in `refresh_wg_weighted_memory_limit`.
+    std::atomic<int64_t> _weighted_memory_limit {0}; //
+    // last value of make_memory_tracker_snapshots, refresh every time make_memory_tracker_snapshots is called.
+    std::atomic_int64_t _total_mem_used = 0; // bytes
+    std::atomic_int64_t _wg_refresh_interval_memory_growth;
     bool _enable_memory_overcommit;
     std::atomic<uint64_t> _cpu_share;
     std::vector<TrackerLimiterGroup> _mem_tracker_limiter_pool;
@@ -177,6 +228,8 @@ private:
     std::atomic<int> _min_remote_scan_thread_num;
     std::atomic<int> _spill_low_watermark;
     std::atomic<int> _spill_high_watermark;
+    std::atomic<int64_t> _scan_bytes_per_second {-1};
+    std::atomic<int64_t> _remote_scan_bytes_per_second {-1};
 
     // means workload group is mark dropped
     // new query can not submit
@@ -185,35 +238,47 @@ private:
     std::unordered_map<TUniqueId, std::weak_ptr<QueryContext>> _query_ctxs;
 
     std::shared_mutex _task_sched_lock;
-    std::unique_ptr<CgroupCpuCtl> _cgroup_cpu_ctl = nullptr;
+    std::unique_ptr<CgroupCpuCtl> _cgroup_cpu_ctl {nullptr};
     std::unique_ptr<doris::pipeline::TaskScheduler> _task_sched {nullptr};
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _scan_task_sched {nullptr};
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _remote_scan_task_sched {nullptr};
-    std::unique_ptr<ThreadPool> _non_pipe_thread_pool = nullptr;
+    std::unique_ptr<ThreadPool> _memtable_flush_pool {nullptr};
+
+    std::map<std::string, std::shared_ptr<IOThrottle>> _scan_io_throttle_map;
+    std::shared_ptr<IOThrottle> _remote_scan_io_throttle {nullptr};
+
+    // bvar metric
+    std::unique_ptr<bvar::Status<int64_t>> _mem_used_status;
+    std::unique_ptr<bvar::Adder<uint64_t>> _cpu_usage_adder;
+    std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _cpu_usage_per_second;
+    std::unique_ptr<bvar::Adder<size_t>> _total_local_scan_io_adder;
+    std::unique_ptr<bvar::PerSecond<bvar::Adder<size_t>>> _total_local_scan_io_per_second;
 };
 
 using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;
 
 struct WorkloadGroupInfo {
-    uint64_t id;
-    std::string name;
-    uint64_t cpu_share;
-    int64_t memory_limit;
-    bool enable_memory_overcommit;
-    int64_t version;
-    int cpu_hard_limit;
-    bool enable_cpu_hard_limit;
-    int scan_thread_num;
-    int max_remote_scan_thread_num;
-    int min_remote_scan_thread_num;
-    int spill_low_watermark;
-    int spill_high_watermark;
+    const uint64_t id = 0;
+    const std::string name;
+    const uint64_t cpu_share = 0;
+    const int64_t memory_limit = 0;
+    const bool enable_memory_overcommit = false;
+    const int64_t version = 0;
+    const int cpu_hard_limit = 0;
+    const bool enable_cpu_hard_limit = false;
+    const int scan_thread_num = 0;
+    const int max_remote_scan_thread_num = 0;
+    const int min_remote_scan_thread_num = 0;
+    const int spill_low_watermark = 0;
+    const int spill_high_watermark = 0;
+    const int read_bytes_per_second = -1;
+    const int remote_read_bytes_per_second = -1;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;
+    const bool valid = true;
 
-    static Status parse_topic_info(const TWorkloadGroupInfo& tworkload_group_info,
-                                   WorkloadGroupInfo* workload_group_info);
+    static WorkloadGroupInfo parse_topic_info(const TWorkloadGroupInfo& tworkload_group_info);
 };
 
 } // namespace doris

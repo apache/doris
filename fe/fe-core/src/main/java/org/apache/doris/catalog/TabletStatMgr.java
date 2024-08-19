@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
@@ -51,7 +52,13 @@ public class TabletStatMgr extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        ImmutableMap<Long, Backend> backends = Env.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> backends;
+        try {
+            backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
+        } catch (AnalysisException e) {
+            LOG.warn("can't get backends info", e);
+            return;
+        }
         long start = System.currentTimeMillis();
         taskPool.submit(() -> {
             // no need to get tablet stat if backend is not alive

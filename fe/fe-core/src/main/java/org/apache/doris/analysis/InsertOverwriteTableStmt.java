@@ -105,4 +105,10 @@ public class InsertOverwriteTableStmt extends DdlStmt {
                     getDb() + ": " + getTbl());
         }
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.INSERT;
+    }
+
 }

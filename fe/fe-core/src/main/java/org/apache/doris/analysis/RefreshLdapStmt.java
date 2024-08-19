@@ -69,4 +69,9 @@ public class RefreshLdapStmt extends DdlStmt {
         return stringBuilder.toString();
     }
 
+    @Override
+    public StmtType stmtType() {
+        return StmtType.REFRESH;
+    }
+
 }

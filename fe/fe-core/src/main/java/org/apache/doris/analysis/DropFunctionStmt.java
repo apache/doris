@@ -25,6 +25,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Joiner;
+
 public class DropFunctionStmt extends DdlStmt {
     private final boolean ifExists;
     private final FunctionName functionName;
@@ -81,8 +83,20 @@ public class DropFunctionStmt extends DdlStmt {
         return stringBuilder.toString();
     }
 
+    public String signatureString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(functionName.getFunction()).append("(").append(Joiner.on(", ").join(argsDef.getArgTypes()));
+        sb.append(")");
+        return sb.toString();
+    }
+
     @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.FORWARD_WITH_SYNC;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
     }
 }

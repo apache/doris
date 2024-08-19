@@ -30,6 +30,7 @@ FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cach
                                           size_t normal_percent, size_t disposable_percent,
                                           size_t index_percent) {
     io::FileCacheSettings settings;
+    if (capacity == 0) return settings;
     settings.capacity = capacity;
     settings.max_file_block_size = config::file_cache_each_block_size;
     settings.max_query_cache_size = max_query_cache_size;

@@ -119,8 +119,7 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     }
     VExpr::register_function_context(state, context);
     _function_name = _fn.name.function_name;
-    _can_fast_execute = _function->can_fast_execute() && _children.size() == 2 &&
-                        _children[0]->is_slot_ref() && _children[1]->is_literal();
+    _can_fast_execute = can_fast_execute();
     _prepare_finished = true;
     return Status::OK();
 }
@@ -247,4 +246,44 @@ std::string VectorizedFnCall::debug_string(const std::vector<VectorizedFnCall*>&
     out << "]";
     return out.str();
 }
+
+bool VectorizedFnCall::can_push_down_to_index() const {
+    return _function->can_push_down_to_index();
+}
+
+bool VectorizedFnCall::can_fast_execute() const {
+    auto function_name = _function->get_name();
+    if (function_name == "eq" || function_name == "ne" || function_name == "lt" ||
+        function_name == "gt" || function_name == "le" || function_name == "ge") {
+        if (_children.size() == 2 && _children[0]->is_slot_ref() && _children[1]->is_literal()) {
+            return true;
+        }
+    }
+    return _function->can_push_down_to_index();
+}
+
+Status VectorizedFnCall::eval_inverted_index(segment_v2::FuncExprParams& params,
+                                             std::shared_ptr<roaring::Roaring>& result) {
+    return _function->eval_inverted_index(this, params, result);
+}
+
+bool VectorizedFnCall::equals(const VExpr& other) {
+    const auto* other_ptr = dynamic_cast<const VectorizedFnCall*>(&other);
+    if (!other_ptr) {
+        return false;
+    }
+    if (this->_function_name != other_ptr->_function_name) {
+        return false;
+    }
+    if (this->children().size() != other_ptr->children().size()) {
+        return false;
+    }
+    for (size_t i = 0; i < this->children().size(); i++) {
+        if (!this->get_child(i)->equals(*other_ptr->get_child(i))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace doris::vectorized

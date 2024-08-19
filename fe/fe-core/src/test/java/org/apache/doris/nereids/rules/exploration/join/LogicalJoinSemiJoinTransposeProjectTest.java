@@ -105,4 +105,28 @@ class LogicalJoinSemiJoinTransposeProjectTest implements MemoPatternMatchSupport
                         )
                 );
     }
+
+    @Test
+    public void generateTopProjectMarkJoin() {
+        LogicalPlan topJoin1 = new LogicalPlanBuilder(scan1)
+                .markJoinWithMarkConjuncts(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0)) // t1.id = t2.id
+                .project(ImmutableList.of(1))
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t3.id
+                .project(ImmutableList.of(0))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin1)
+                .applyExploration(LogicalJoinSemiJoinTransposeProject.INSTANCE.buildRules())
+                .matchesExploration(
+                        logicalProject(
+                                leftSemiLogicalJoin(
+                                        logicalProject(innerLogicalJoin(
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
+                                        )),
+                                        logicalProject(logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")))
+                                )
+                        )
+                );
+    }
 }

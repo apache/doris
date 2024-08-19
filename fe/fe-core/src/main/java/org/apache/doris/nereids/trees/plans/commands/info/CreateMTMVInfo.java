@@ -37,7 +37,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
@@ -48,10 +47,12 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -59,11 +60,16 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.AnalyzerForCreateView;
+import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.PlanSlotFinder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -98,11 +104,10 @@ public class CreateMTMVInfo {
     private Map<String, String> mvProperties = Maps.newHashMap();
 
     private final LogicalPlan logicalQuery;
-    private final String querySql;
+    private String querySql;
     private final MTMVRefreshInfo refreshInfo;
     private final List<ColumnDefinition> columns = Lists.newArrayList();
     private final List<SimpleColumnDefinition> simpleColumnDefinitions;
-    private final EnvInfo envInfo;
     private final MTMVPartitionDefinition mvPartitionDefinition;
     private PartitionDesc partitionDesc;
     private MTMVRelation relation;
@@ -129,8 +134,6 @@ public class CreateMTMVInfo {
         this.refreshInfo = Objects.requireNonNull(refreshInfo, "require refreshInfo object");
         this.simpleColumnDefinitions = Objects
                 .requireNonNull(simpleColumnDefinitions, "require simpleColumnDefinitions object");
-        this.envInfo = new EnvInfo(ConnectContext.get().getCurrentCatalog().getId(),
-                ConnectContext.get().getCurrentDbId());
         this.mvPartitionDefinition = Objects
                 .requireNonNull(mvPartitionDefinition, "require mtmvPartitionInfo object");
     }
@@ -138,7 +141,7 @@ public class CreateMTMVInfo {
     /**
      * analyze create table info
      */
-    public void analyze(ConnectContext ctx) {
+    public void analyze(ConnectContext ctx) throws Exception {
         // analyze table name
         mvName.analyze(ctx);
         try {
@@ -159,7 +162,7 @@ public class CreateMTMVInfo {
         final boolean finalEnableMergeOnWrite = false;
         Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         keysSet.addAll(keys);
-        columns.forEach(c -> c.validate(true, keysSet, finalEnableMergeOnWrite, KeysType.DUP_KEYS));
+        columns.forEach(c -> c.validate(true, keysSet, Sets.newHashSet(), finalEnableMergeOnWrite, KeysType.DUP_KEYS));
 
         if (distribution == null) {
             throw new AnalysisException("Create async materialized view should contain distribution desc");
@@ -179,6 +182,28 @@ public class CreateMTMVInfo {
         refreshInfo.validate();
 
         analyzeProperties();
+        rewriteQuerySql(ctx);
+    }
+
+    private void rewriteQuerySql(ConnectContext ctx) {
+        analyzeAndFillRewriteSqlMap(querySql, ctx);
+        querySql = BaseViewInfo.rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
+    }
+
+    private void analyzeAndFillRewriteSqlMap(String sql, ConnectContext ctx) {
+        StatementContext stmtCtx = ctx.getStatementContext();
+        LogicalPlan parsedViewPlan = new NereidsParser().parseForCreateView(sql);
+        if (parsedViewPlan instanceof UnboundResultSink) {
+            parsedViewPlan = (LogicalPlan) ((UnboundResultSink<?>) parsedViewPlan).child();
+        }
+        CascadesContext viewContextForStar = CascadesContext.initContext(
+                stmtCtx, parsedViewPlan, PhysicalProperties.ANY);
+        AnalyzerForCreateView analyzerForStar = new AnalyzerForCreateView(viewContextForStar);
+        analyzerForStar.analyze();
+        Plan analyzedPlan = viewContextForStar.getRewritePlan();
+        // Traverse all slots in the plan, and add the slot's location information
+        // and the fully qualified replacement string to the indexInSqlToString of the StatementContext.
+        analyzedPlan.accept(PlanSlotFinder.INSTANCE, ctx.getStatementContext());
     }
 
     private void analyzeProperties() {
@@ -198,13 +223,15 @@ public class CreateMTMVInfo {
     /**
      * analyzeQuery
      */
-    public void analyzeQuery(ConnectContext ctx, Map<String, String> mvProperties) {
+    public void analyzeQuery(ConnectContext ctx, Map<String, String> mvProperties) throws Exception {
         // create table as select
         StatementContext statementContext = ctx.getStatementContext();
         NereidsPlanner planner = new NereidsPlanner(statementContext);
         // this is for expression column name infer when not use alias
         LogicalSink<Plan> logicalSink = new UnboundResultSink<>(logicalQuery);
-        Plan plan = planner.plan(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
+        // must disable constant folding by be, because be constant folding may return wrong type
+        ctx.getSessionVariable().disableConstantFoldingByBEOnce();
+        Plan plan = planner.planWithLock(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
         if (plan.anyMatch(node -> node instanceof OneRowRelation)) {
             throw new AnalysisException("at least contain one table");
         }
@@ -275,7 +302,7 @@ public class CreateMTMVInfo {
         }
         Plan plan;
         try {
-            plan = planner.plan(logicalQuery, PhysicalProperties.ANY, ExplainLevel.NONE);
+            plan = planner.planWithLock(logicalQuery, PhysicalProperties.ANY, ExplainLevel.NONE);
         } finally {
             sessionVariable.setDisableNereidsRules(String.join(",", tempDisableRules));
             ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
@@ -376,7 +403,8 @@ public class CreateMTMVInfo {
             // If datatype is AggStateType, AggregateType should be generic, or column definition check will fail
             columns.add(new ColumnDefinition(
                     colName,
-                    slots.get(i).getDataType(),
+                    TypeCoercionUtils.replaceSpecifiedType(slots.get(i).getDataType(),
+                            NullType.class, TinyIntType.INSTANCE),
                     false,
                     slots.get(i).getDataType() instanceof AggStateType ? AggregateType.GENERIC : null,
                     slots.get(i).nullable(),
@@ -408,7 +436,7 @@ public class CreateMTMVInfo {
                 .map(ColumnDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
         return new CreateMTMVStmt(ifNotExists, tableName, catalogColumns, refreshInfo, keysDesc,
-                distribution.translateToCatalogStyle(), properties, mvProperties, querySql, comment, envInfo,
+                distribution.translateToCatalogStyle(), properties, mvProperties, querySql, comment,
                 partitionDesc, mvPartitionInfo, relation);
     }
 

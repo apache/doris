@@ -39,7 +39,7 @@ suite("test_count_on_index_httplogs_arr", "array_contains_inverted_index") {
                           INDEX size_idx (`size`) USING INVERTED COMMENT '',
                           INDEX status_idx (`status`) USING INVERTED COMMENT '',
                           INDEX clientip_idx (`clientip`) USING INVERTED COMMENT '',
-                          INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser"="english") COMMENT ''
+                          INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser"="none") COMMENT ''
                         ) ENGINE=OLAP
                         DUPLICATE KEY(`@timestamp`)
                         COMMENT 'OLAP'
@@ -75,7 +75,7 @@ suite("test_count_on_index_httplogs_arr", "array_contains_inverted_index") {
                               INDEX size_idx (`size`) USING INVERTED COMMENT '',
                               INDEX status_idx (`status`) USING INVERTED COMMENT '',
                               INDEX clientip_idx (`clientip`) USING INVERTED COMMENT '',
-                              INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser"="english") COMMENT ''
+                              INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser"="none") COMMENT ''
                             ) ENGINE=OLAP
                             UNIQUE KEY(`@timestamp`)
                             COMMENT 'OLAP'

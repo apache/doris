@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS routine_load_mow_tbl_basic;

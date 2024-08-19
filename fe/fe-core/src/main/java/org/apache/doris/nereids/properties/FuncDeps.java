@@ -27,12 +27,13 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Function dependence items.
  */
 public class FuncDeps {
-    class FuncDepsItem {
+    static class FuncDepsItem {
         final Set<Slot> determinants;
         final Set<Slot> dependencies;
 
@@ -61,6 +62,7 @@ public class FuncDeps {
     }
 
     private final Set<FuncDepsItem> items;
+    // determinants -> dependencies
     private final Map<Set<Slot>, Set<Set<Slot>>> edges;
 
     public FuncDeps() {
@@ -96,11 +98,25 @@ public class FuncDeps {
         }
     }
 
-    // find item that not in a circle
-    private Set<FuncDepsItem> findValidItems() {
+    // Find items that are not part of a circular dependency.
+    // To keep the slots in requireOutputs, we need to always keep the edges that start with output slots.
+    // Note: We reduce the last edge in a circular dependency,
+    // so we need to traverse from parents that contain the required output slots.
+    private Set<FuncDepsItem> findValidItems(Set<Slot> requireOutputs) {
         Set<FuncDepsItem> circleItem = new HashSet<>();
         Set<Set<Slot>> visited = new HashSet<>();
-        for (Set<Slot> parent : edges.keySet()) {
+        Set<Set<Slot>> parentInOutput = edges.keySet().stream()
+                .filter(requireOutputs::containsAll)
+                .collect(Collectors.toSet());
+        for (Set<Slot> parent : parentInOutput) {
+            if (!visited.contains(parent)) {
+                dfs(parent, visited, circleItem);
+            }
+        }
+        Set<Set<Slot>> otherParent = edges.keySet().stream()
+                .filter(parent -> !parentInOutput.contains(parent))
+                .collect(Collectors.toSet());
+        for (Set<Slot> parent : otherParent) {
             if (!visited.contains(parent)) {
                 dfs(parent, visited, circleItem);
             }
@@ -109,27 +125,43 @@ public class FuncDeps {
     }
 
     /**
-     * Reduces a given set of slot sets by eliminating dependencies using a breadth-first search (BFS) approach.
+     * Reduces a given set of slot sets by eliminating dependencies based on valid functional dependency items.
      * <p>
-     * Let's assume we have the following sets of slots and functional dependencies:
-     * Slots: {A, B, C}, {D, E}, {F}
-     * Dependencies: {A} -> {B}, {D, E} -> {F}
-     * The BFS reduction process would look like this:
-     * 1. Initial set: [{A, B, C}, {D, E}, {F}]
-     * 2. Apply {A} -> {B}:
-     *    - New set: [{A, C}, {D, E}, {F}]
-     * 3. Apply {D, E} -> {F}:
-     *    - New set: [{A, C}, {D, E}]
-     * 4. No more dependencies can be applied, output: [{A, C}, {D, E}]
+     * This method works as follows:
+     * 1. Find valid functional dependency items (those not part of circular dependencies).
+     * 2. For each valid functional dependency item:
+     *    - If both the determinants and dependencies are present in the current set of slots,
+     *      mark the dependencies for elimination.
+     * 3. Remove all marked dependencies from the set of slots.
+     * </p>
+     * <p>
+     * Example:
+     * Given:
+     * - Initial slots: {{A, B, C}, {D, E}, {F, G}}
+     * - Required outputs: {A, D, F}
+     * - Valid functional dependencies: {A} -> {B}, {D, E} -> {G}, {F} -> {G}
+     *
+     * Process:
+     * 1. Start with minSlotSet = {{A, B, C}, {D, E}, {F, G}}
+     * 2. For {A} -> {B}:
+     *    - Both {A} and {B} are in minSlotSet, so mark {B} for elimination
+     * 3. For {D, E} -> {G}:
+     *    - Both {D, E} and {G} are in minSlotSet, so mark {G} for elimination
+     * 4. For {F} -> {G}:
+     *    - Both {F} and {G} are in minSlotSet, but {G} is already marked for elimination
+     * 5. Remove eliminated slots: {B} and {G}
+     *
+     * Result: {{A, C}, {D, E}, {F}}
      * </p>
      *
      * @param slots the initial set of slot sets to be reduced
+     * @param requireOutputs the set of slots that must be preserved in the output
      * @return the minimal set of slot sets after applying all possible reductions
-     */
-    public Set<Set<Slot>> eliminateDeps(Set<Set<Slot>> slots) {
+    */
+    public Set<Set<Slot>> eliminateDeps(Set<Set<Slot>> slots, Set<Slot> requireOutputs) {
         Set<Set<Slot>> minSlotSet = Sets.newHashSet(slots);
         Set<Set<Slot>> eliminatedSlots = new HashSet<>();
-        Set<FuncDepsItem> validItems = findValidItems();
+        Set<FuncDepsItem> validItems = findValidItems(requireOutputs);
         for (FuncDepsItem funcDepsItem : validItems) {
             if (minSlotSet.contains(funcDepsItem.dependencies)
                     && minSlotSet.contains(funcDepsItem.determinants)) {
@@ -142,6 +174,28 @@ public class FuncDeps {
 
     public boolean isFuncDeps(Set<Slot> dominate, Set<Slot> dependency) {
         return items.contains(new FuncDepsItem(dominate, dependency));
+    }
+
+    public boolean isCircleDeps(Set<Slot> dominate, Set<Slot> dependency) {
+        return items.contains(new FuncDepsItem(dominate, dependency))
+                && items.contains(new FuncDepsItem(dependency, dominate));
+    }
+
+    public Set<FuncDeps.FuncDepsItem> getItems() {
+        return items;
+    }
+
+    /**
+     * find the determinants of dependencies
+     */
+    public Set<Set<Slot>> findDeterminats(Set<Slot> dependency) {
+        Set<Set<Slot>> determinants = new HashSet<>();
+        for (FuncDepsItem item : items) {
+            if (item.dependencies.equals(dependency)) {
+                determinants.add(item.determinants);
+            }
+        }
+        return determinants;
     }
 
     @Override

@@ -31,8 +31,8 @@
 
 #include "common/config.h"
 #include "common/stopwatch.h"
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/codec.h"
 #include "meta-service/doris_txn.h"
 #include "meta-service/keys.h"
@@ -283,9 +283,9 @@ TEST(TxnKvTest, CompatibleGetTest) {
 TEST(TxnKvTest, PutLargeValueTest) {
     auto txn_kv = std::make_shared<MemTxnKv>();
 
-    auto sp = SyncPoint::get_instance();
+    auto sp = doris::SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+            (int*)0x01, [](int*) { doris::SyncPoint::get_instance()->clear_all_call_backs(); });
     sp->enable_processing();
 
     doris::TabletSchemaCloudPB schema;
@@ -325,7 +325,10 @@ TEST(TxnKvTest, PutLargeValueTest) {
         EXPECT_EQ(saved_col.name(), col.name());
     }
     // Check multi range get
-    sp->set_call_back("memkv::Transaction::get", [](void* limit) { *((int*)limit) = 100; });
+    sp->set_call_back("memkv::Transaction::get", [](auto&& args) {
+        auto* limit = doris::try_any_cast<int*>(args[0]);
+        *limit = 100;
+    });
     err = doris::cloud::get(txn.get(), key, &val_buf);
     ASSERT_EQ(err, TxnErrorCode::TXN_OK);
     std::cout << "num iterators=" << val_buf.iters.size() << std::endl;
@@ -569,9 +572,9 @@ TEST(TxnKvTest, FullRangeGetIterator) {
     std::string end {prefix};
     encode_int64(INT64_MAX, &end);
 
-    auto* sp = SyncPoint::get_instance();
+    auto* sp = doris::SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+            (int*)0x01, [](int*) { doris::SyncPoint::get_instance()->clear_all_call_backs(); });
     sp->enable_processing();
 
     {
@@ -626,10 +629,14 @@ TEST(TxnKvTest, FullRangeGetIterator) {
         opts.prefetch = true;
 
         int prefetch_cnt = 0;
-        sp->set_call_back("fdb.FullRangeGetIterator.has_next_prefetch", [&](void* p) {
-            ++prefetch_cnt;
-            std::cout << "With prefetch prefetch_cnt=" << prefetch_cnt << std::endl;
-        });
+        doris::SyncPoint::CallbackGuard guard;
+        sp->set_call_back(
+                "fdb.FullRangeGetIterator.has_next_prefetch",
+                [&](auto&&) {
+                    ++prefetch_cnt;
+                    std::cout << "With prefetch prefetch_cnt=" << prefetch_cnt << std::endl;
+                },
+                &guard);
 
         auto it = txn_kv->full_range_get(begin, end, opts);
         ASSERT_TRUE(it->is_valid());
@@ -644,8 +651,6 @@ TEST(TxnKvTest, FullRangeGetIterator) {
         }
         ASSERT_TRUE(it->is_valid());
         EXPECT_EQ(cnt, 100);
-
-        sp->clear_call_back("fdb.FullRangeGetIterator.has_next_prefetch");
     }
 
     {
@@ -712,10 +717,14 @@ TEST(TxnKvTest, FullRangeGetIterator) {
     {
         // Abnormal dtor
         int prefetch_cnt = 0;
-        sp->set_call_back("fdb.FullRangeGetIterator.has_next_prefetch", [&](void* p) {
-            ++prefetch_cnt;
-            std::cout << "Abnormal dtor prefetch_cnt=" << prefetch_cnt << std::endl;
-        });
+        doris::SyncPoint::CallbackGuard guard;
+        sp->set_call_back(
+                "fdb.FullRangeGetIterator.has_next_prefetch",
+                [&](auto&&) {
+                    ++prefetch_cnt;
+                    std::cout << "Abnormal dtor prefetch_cnt=" << prefetch_cnt << std::endl;
+                },
+                &guard);
 
         FullRangeGetIteratorOptions opts(txn_kv);
         opts.limit = 11;
@@ -729,8 +738,6 @@ TEST(TxnKvTest, FullRangeGetIterator) {
         ASSERT_TRUE(fdb_it->fut_ != nullptr); // There is an inflight range get
         // Since there is an inflight range get, should not trigger another prefetch
         ASSERT_FALSE(fdb_it->prefetch());
-
-        sp->clear_call_back("fdb.FullRangeGetIterator.has_next_prefetch");
 
         // `~FullRangeGetIterator` without consuming inflight range get result
     }

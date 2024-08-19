@@ -24,6 +24,7 @@
 #include <google/protobuf/stubs/callback.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <limits>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -79,6 +80,13 @@ void GetResultBatchCtx::on_data(const std::unique_ptr<TFetchDataResult>& t_resul
         result->set_empty_batch(true);
         result->set_packet_seq(packet_seq);
         result->set_eos(eos);
+    }
+
+    /// The size limit of proto buffer message is 2G
+    if (result->ByteSizeLong() > std::numeric_limits<int32_t>::max()) {
+        st = Status::InternalError("Message size exceeds 2GB: {}", result->ByteSizeLong());
+        result->clear_row_batch();
+        result->set_empty_batch(true);
     }
     st.to_protobuf(result->mutable_status());
     { done->Run(); }
@@ -151,10 +159,6 @@ Status BufferControlBlock::add_arrow_batch(RuntimeState* state,
 
     int num_rows = result->num_rows();
 
-    if (_is_cancelled) {
-        return Status::Cancelled("Cancelled");
-    }
-
     // TODO: merge RocordBatch, ToStructArray -> Make again
 
     _arrow_flight_batch_queue.push_back(std::move(result));
@@ -162,6 +166,7 @@ Status BufferControlBlock::add_arrow_batch(RuntimeState* state,
     _instance_rows_in_queue.emplace_back();
     _instance_rows[state->fragment_instance_id()] += num_rows;
     _instance_rows_in_queue.back()[state->fragment_instance_id()] += num_rows;
+    _arrow_data_arrival.notify_one();
     _update_dependency();
     return Status::OK();
 }
@@ -212,6 +217,10 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* 
         return Status::Cancelled("Cancelled");
     }
 
+    while (_arrow_flight_batch_queue.empty() && !_is_cancelled && !_is_close) {
+        _arrow_data_arrival.wait_for(l, std::chrono::seconds(1));
+    }
+
     if (_is_cancelled) {
         return Status::Cancelled("Cancelled");
     }
@@ -234,7 +243,7 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* 
         _update_dependency();
         return Status::OK();
     }
-    return Status::InternalError("Abnormal Ending");
+    return Status::InternalError("Get Arrow Batch Abnormal Ending");
 }
 
 Status BufferControlBlock::close(const TUniqueId& id, Status exec_status) {
@@ -250,6 +259,7 @@ Status BufferControlBlock::close(const TUniqueId& id, Status exec_status) {
 
     _is_close = true;
     _status = exec_status;
+    _arrow_data_arrival.notify_all();
 
     if (!_waiting_rpc.empty()) {
         if (_status.ok()) {
@@ -269,6 +279,7 @@ Status BufferControlBlock::close(const TUniqueId& id, Status exec_status) {
 void BufferControlBlock::cancel() {
     std::unique_lock<std::mutex> l(_lock);
     _is_cancelled = true;
+    _arrow_data_arrival.notify_all();
     for (auto& ctx : _waiting_rpc) {
         ctx->on_failure(Status::Cancelled("Cancelled"));
     }

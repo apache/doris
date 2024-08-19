@@ -61,7 +61,7 @@ void DiskInfo::get_device_names() {
     std::sort(std::begin(mount_infos), std::end(mount_infos),
               [](const auto& info, const auto& other) {
                   const auto& mount_point = info.second;
-                  const auto& other_mount_point = info.second;
+                  const auto& other_mount_point = other.second;
                   return mount_point < other_mount_point;
               });
 

@@ -31,7 +31,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
@@ -50,6 +50,9 @@ bvar::Adder<uint64_t> hdfs_file_writer_total("hdfs_file_writer_total_num");
 bvar::Adder<uint64_t> hdfs_bytes_written_total("hdfs_file_writer_bytes_written");
 bvar::Adder<uint64_t> hdfs_file_created_total("hdfs_file_writer_file_created");
 bvar::Adder<uint64_t> inflight_hdfs_file_writer("inflight_hdfs_file_writer");
+bvar::Adder<uint64_t> hdfs_file_writer_async_close_queuing("hdfs_file_writer_async_close_queuing");
+bvar::Adder<uint64_t> hdfs_file_writer_async_close_processing(
+        "hdfs_file_writer_async_close_processing");
 
 static constexpr size_t MB = 1024 * 1024;
 #ifndef USE_LIBHDFS3
@@ -82,6 +85,9 @@ public:
 #if defined(USE_LIBHDFS3) || defined(BE_TEST)
         return Status::OK();
 #else
+        if (!config::enable_hdfs_mem_limiter) {
+            return Status::OK();
+        }
         auto unit = config::hdfs_jni_write_sleep_milliseconds;
         std::default_random_engine rng = make_random_engine();
         std::uniform_int_distribution<uint32_t> u(unit, 2 * unit);
@@ -106,6 +112,9 @@ public:
     void release_memory(size_t memory_size) {
 #if defined(USE_LIBHDFS3) || defined(BE_TEST)
 #else
+        if (!config::enable_hdfs_mem_limiter) {
+            return;
+        }
         std::unique_lock lck {cur_memory_latch};
         size_t origin_size = cur_memory_comsuption;
         cur_memory_comsuption -= memory_size;
@@ -116,7 +125,11 @@ public:
     }
 
 private:
-    size_t max_jvm_heap_size() const { return JniUtil::get_max_jni_heap_memory_size(); }
+    // clang-format off
+    size_t max_jvm_heap_size() const {
+        return JniUtil::get_max_jni_heap_memory_size();
+    }
+    // clang-format on
     [[maybe_unused]] std::size_t cur_memory_comsuption {0};
     std::mutex cur_memory_latch;
     std::condition_variable cv;
@@ -224,8 +237,13 @@ Status HdfsFileWriter::close(bool non_block) {
         _state = State::ASYNC_CLOSING;
         _async_close_pack = std::make_unique<AsyncCloseStatusPack>();
         _async_close_pack->future = _async_close_pack->promise.get_future();
-        return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func(
-                [&]() { _async_close_pack->promise.set_value(_close_impl()); });
+        hdfs_file_writer_async_close_queuing << 1;
+        return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func([&]() {
+            hdfs_file_writer_async_close_queuing << -1;
+            hdfs_file_writer_async_close_processing << 1;
+            _async_close_pack->promise.set_value(_close_impl());
+            hdfs_file_writer_async_close_processing << -1;
+        });
     }
     _st = _close_impl();
     _state = State::CLOSED;

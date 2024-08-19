@@ -63,4 +63,9 @@ public class ResumeRoutineLoadStmt extends DdlStmt {
             db = analyzer.getDefaultDb();
         }
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.RESUME;
+    }
 }

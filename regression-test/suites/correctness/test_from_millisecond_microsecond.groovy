@@ -316,4 +316,35 @@ suite("test_from_millisecond_microsecond") {
     qt_sql " select from_second(-1) "
     qt_sql " select from_microsecond(253402271999999999) "
     qt_sql " select from_microsecond(253402272000000000) "
+
+
+    qt_sql_all_constent """
+        select microseconds_add('2010-11-30 23:50:50', 2) , microseconds_sub('2010-11-30 23:50:50', 2) , milliseconds_add('2010-11-30 23:50:50', 2) , milliseconds_sub('2010-11-30 23:50:50', 2);
+    """
+
+    qt_sql_all_constent """
+        select microseconds_add(cast('2010-11-30 23:50:50' as DATETIME(3)), 2) , microseconds_sub(cast('2010-11-30 23:50:50' as DATETIME(3)), 2) , milliseconds_add(cast('2010-11-30 23:50:50' as DATETIME(3)), 2) , milliseconds_sub(cast('2010-11-30 23:50:50' as DATETIME(3)), 2);
+    """
+
+    qt_select_null_datetime """
+        select 
+        id,
+        microseconds_add(t,2),
+        microseconds_sub(t,2),
+        milliseconds_add(t,2),
+        milliseconds_sub(t,2)
+        from millimicro
+        order by id;
+    """ 
+
+    qt_select_null_datetime """
+        select 
+        id,
+        microseconds_add(cast(t as DATETIME(3)),2),
+        microseconds_sub(cast(t as DATETIME(3)),2),
+        milliseconds_add(cast(t as DATETIME(3)),2),
+        milliseconds_sub(cast(t as DATETIME(3)),2)
+        from millimicro
+        order by id;
+    """ 
 }

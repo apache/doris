@@ -115,8 +115,9 @@ public class CloudUpgradeMgr extends MasterDaemon {
     public void registerWaterShedTxnId(long be) throws UserException {
         LinkedBlockingQueue<DbWithWaterTxn> txnIds = new LinkedBlockingQueue<>();
         List<Long> dbids = Env.getCurrentInternalCatalog().getDbIds();
+        Long nextTransactionId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
         for (long dbid : dbids) {
-            txnIds.offer(new DbWithWaterTxn(dbid, Env.getCurrentGlobalTransactionMgr().getNextTransactionId()));
+            txnIds.offer(new DbWithWaterTxn(dbid, nextTransactionId));
         }
         txnBePairList.offer(new DbWithWaterTxnInBe(txnIds, be));
         LOG.info("register watershedtxnid {} for BE {}", txnIds.stream()

@@ -58,6 +58,12 @@ public:
     }
 
 protected:
+    void _collect_profile_before_close() override {
+        if (_jni_connector) {
+            _jni_connector->collect_profile_before_close();
+        }
+    }
+
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;

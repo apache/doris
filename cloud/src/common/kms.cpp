@@ -24,7 +24,7 @@
 #include <memory>
 
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 namespace doris::cloud {
 
 int create_kms_client(KmsConf&& conf, std::unique_ptr<KmsClient>* kms_client) {
@@ -59,14 +59,6 @@ int AliKmsClient::init() {
 }
 
 int AliKmsClient::encrypt(const std::string& plaintext, std::string* output) {
-    {
-        [[maybe_unused]] int ret = -1;
-        [[maybe_unused]] const auto* p = &plaintext;
-        TEST_SYNC_POINT_CALLBACK("alikms::encrypt::plaintext",
-                                 reinterpret_cast<void*>(const_cast<std::string*>(p)));
-        TEST_SYNC_POINT_CALLBACK("alikms::encrypt::output", output);
-        TEST_SYNC_POINT_RETURN_WITH_VALUE("alikms::encrypt::ret", &ret);
-    }
     AlibabaCloud::CommonRequest request(AlibabaCloud::CommonRequest::RequestPattern::RpcPattern);
     request.setHttpMethod(AlibabaCloud::HttpRequest::Method::Post);
     request.setDomain(conf_.endpoint);
@@ -95,11 +87,7 @@ int AliKmsClient::encrypt(const std::string& plaintext, std::string* output) {
 }
 
 int AliKmsClient::decrypt(const std::string& ciphertext, std::string* output) {
-    {
-        [[maybe_unused]] int ret = -1;
-        TEST_SYNC_POINT_CALLBACK("alikms::decrypt::output", output);
-        TEST_SYNC_POINT_RETURN_WITH_VALUE("alikms::decrypt::ret", &ret);
-    }
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("alikms::decrypt", (int)0, output);
     AlibabaCloud::CommonRequest request(AlibabaCloud::CommonRequest::RequestPattern::RpcPattern);
     request.setHttpMethod(AlibabaCloud::HttpRequest::Method::Post);
     request.setDomain(conf_.endpoint);
@@ -127,12 +115,7 @@ int AliKmsClient::decrypt(const std::string& ciphertext, std::string* output) {
 }
 
 int AliKmsClient::generate_data_key(std::string* ciphertext, std::string* plaintext) {
-    {
-        [[maybe_unused]] int ret = -1;
-        TEST_SYNC_POINT_CALLBACK("alikms::generate_data_key::ciphertext", ciphertext);
-        TEST_SYNC_POINT_CALLBACK("alikms::generate_data_key::plaintext", plaintext);
-        TEST_SYNC_POINT_RETURN_WITH_VALUE("alikms::generate_data_key::ret", &ret);
-    }
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("alikms::generate_data_key", (int)0, ciphertext, plaintext);
     AlibabaCloud::CommonRequest request(AlibabaCloud::CommonRequest::RequestPattern::RpcPattern);
     request.setHttpMethod(AlibabaCloud::HttpRequest::Method::Post);
     request.setDomain(conf_.endpoint);

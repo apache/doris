@@ -33,6 +33,7 @@ import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
+import org.apache.ranger.plugin.service.RangerAuthContextListener;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 import java.util.ArrayList;
@@ -50,7 +51,11 @@ public class RangerDorisAccessController extends RangerAccessController {
     // private RangerHiveAuditHandler auditHandler;
 
     public RangerDorisAccessController(String serviceName) {
-        dorisPlugin = new RangerDorisPlugin(serviceName);
+        this(serviceName, null);
+    }
+
+    public RangerDorisAccessController(String serviceName, RangerAuthContextListener rangerAuthContextListener) {
+        dorisPlugin = new RangerDorisPlugin(serviceName, rangerAuthContextListener);
         // auditHandler = new RangerHiveAuditHandler(dorisPlugin.getConfig());
         // start a timed log flusher
         // logFlushTimer.scheduleAtFixedRate(new RangerHiveAuditLogFlusher(auditHandler), 10, 20L, TimeUnit.SECONDS);

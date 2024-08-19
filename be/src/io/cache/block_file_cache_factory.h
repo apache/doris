@@ -70,6 +70,15 @@ public:
 
     std::vector<std::string> get_base_paths();
 
+    /**
+     * Clears data of all file cache instances
+     *
+     * @param path file cache absolute path
+     * @param new_capacity
+     * @return summary message
+     */
+    std::string reset_capacity(const std::string& path, int64_t new_capacity);
+
     FileCacheFactory() = default;
     FileCacheFactory& operator=(const FileCacheFactory&) = delete;
     FileCacheFactory(const FileCacheFactory&) = delete;

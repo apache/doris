@@ -18,23 +18,15 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.properties.DataTrait;
-import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-
-import com.google.common.collect.ImmutableSet;
 
 /**
  * Block fd propagation, it always returns an empty fd
  */
 public interface BlockFuncDepsPropagation extends LogicalPlan {
     @Override
-    default DataTrait computeFuncDeps() {
+    default DataTrait computeDataTrait() {
         return DataTrait.EMPTY_TRAIT;
-    }
-
-    @Override
-    default ImmutableSet<FdItem> computeFdItems() {
-        return ImmutableSet.of();
     }
 
     @Override

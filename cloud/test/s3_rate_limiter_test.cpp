@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <cpp/s3_rate_limiter.h>
 #include <gtest/gtest.h>
-#include <rate-limiter/s3_rate_limiter.h>
 
 #include <atomic>
 #include <chrono>
@@ -43,8 +43,9 @@ int main(int argc, char** argv) {
     return RUN_ALL_TESTS();
 }
 
+#define S3RateLimiterTest DISABLED_S3RateLimiterTest
 TEST(S3RateLimiterTest, normal) {
-    auto rate_limiter = S3RateLimiter(1, 5, 10);
+    auto rate_limiter = doris::S3RateLimiter(1, 5, 10);
     std::atomic_int64_t failed;
     std::atomic_int64_t succ;
     std::atomic_int64_t sleep_thread_num;

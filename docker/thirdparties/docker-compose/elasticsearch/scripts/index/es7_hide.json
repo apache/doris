@@ -98,6 +98,9 @@
             "type": "integer"
           }
         }
+      },
+      "c_user": {
+        "type": "nested"
       }
     }
   }

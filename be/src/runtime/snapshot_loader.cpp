@@ -458,7 +458,6 @@ Status SnapshotLoader::remote_http_download(
     }
 
     // Step 3: Validate remote tablet snapshot paths && remote files map
-    // TODO(Drogon): Add md5sum check
     // key is remote snapshot paths, value is filelist
     // get all these use http download action
     // http://172.16.0.14:6781/api/_tablet/_download?token=e804dd27-86da-4072-af58-70724075d2a4&file=/home/ubuntu/doris_master/output/be/storage/snapshot/20230410102306.9.180//2774718/217609978/2774718.hdr
@@ -753,8 +752,9 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
     }
 
     // rename the rowset ids and tabletid info in rowset meta
-    auto res = _engine.snapshot_mgr()->convert_rowset_ids(
-            snapshot_path, tablet_id, tablet->replica_id(), tablet->partition_id(), schema_hash);
+    auto res = _engine.snapshot_mgr()->convert_rowset_ids(snapshot_path, tablet_id,
+                                                          tablet->replica_id(), tablet->table_id(),
+                                                          tablet->partition_id(), schema_hash);
     if (!res.has_value()) [[unlikely]] {
         auto err_msg =
                 fmt::format("failed to convert rowsetids in snapshot: {}, tablet path: {}, err: {}",

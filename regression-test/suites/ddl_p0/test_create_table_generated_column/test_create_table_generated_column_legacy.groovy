@@ -161,7 +161,8 @@ suite("test_create_table_generated_column_legacy") {
     // qt_common_default_test_insert_null
     test {
         sql "INSERT INTO test_gen_col_common_legacy(a,b) values(1,null);"
-        exception "Insert has filtered data in strict mode."
+        def exception_str = isGroupCommitMode() ? "too many filtered rows" : "Insert has filtered data in strict mode"
+        exception exception_str
     }
 
     // qt_common_default_test_insert_gencol

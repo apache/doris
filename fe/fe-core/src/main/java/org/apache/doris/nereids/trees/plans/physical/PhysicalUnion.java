@@ -88,7 +88,7 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalUnion" + getGroupIdWithPrefix(),
+        return Utils.toSqlString("PhysicalUnion" + "[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "qualifier", qualifier,
                 "outputs", outputs,
                 "regularChildrenOutputs", regularChildrenOutputs,
@@ -98,7 +98,7 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
 
     @Override
     public PhysicalUnion withChildren(List<Plan> children) {
-        return new PhysicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList,
+        return new PhysicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList, groupExpression,
                 getLogicalProperties(), children);
     }
 
@@ -119,7 +119,7 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
     public PhysicalUnion withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList,
-                Optional.empty(), getLogicalProperties(), physicalProperties, statistics, children);
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, children);
     }
 
     @Override

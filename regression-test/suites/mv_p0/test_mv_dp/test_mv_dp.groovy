@@ -44,6 +44,8 @@ suite ("test_mv_dp") {
                     group by d;""")
 
     sql """INSERT INTO `dp` VALUES (1,'success',["3","4"]),(2,'success',["5"]);"""
+    sql "analyze table dp with sync;"
+    sql """set enable_stats=false;"""
 /*
     streamLoad {
         table "test"
@@ -68,4 +70,13 @@ suite ("test_mv_dp") {
                         bitmap_union_count(bitmap_from_array(if(status='success', cast(uid_list as array<bigint>), array())))
                     from dp
                     group by d order by 1;"""
+    sql """set enable_stats=true;"""
+    explain {
+        sql("""select d,
+                        bitmap_union_count(bitmap_from_array(cast(uid_list as array<bigint>))),
+                        bitmap_union_count(bitmap_from_array(if(status='success', cast(uid_list as array<bigint>), array())))
+                    from dp
+                    group by d;""")
+        contains "(view_2)"
+    }
 }

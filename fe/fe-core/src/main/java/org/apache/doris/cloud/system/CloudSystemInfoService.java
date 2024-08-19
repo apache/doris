@@ -24,6 +24,7 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB;
 import org.apache.doris.cloud.proto.Cloud.InstanceInfoPB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -368,25 +369,18 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     @Override
-    public List<Backend> getBackendsByCurrentCluster() throws UserException {
+    public ImmutableMap<Long, Backend> getBackendsByCurrentCluster() throws AnalysisException {
         ConnectContext ctx = ConnectContext.get();
         if (ctx == null) {
-            throw new UserException("connect context is null");
+            throw new AnalysisException("connect context is null");
         }
 
         String cluster = ctx.getCurrentCloudCluster();
         if (Strings.isNullOrEmpty(cluster)) {
-            throw new UserException("cluster name is empty");
+            throw new AnalysisException("cluster name is empty");
         }
 
-        //((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cluster);
-
-        return getBackendsByClusterName(cluster);
-    }
-
-    @Override
-    public ImmutableMap<Long, Backend> getBackendsWithIdByCurrentCluster() throws UserException {
-        List<Backend> backends = getBackendsByCurrentCluster();
+        List<Backend> backends =  getBackendsByClusterName(cluster);
         Map<Long, Backend> idToBackend = Maps.newHashMap();
         for (Backend be : backends) {
             idToBackend.put(be.getId(), be);
@@ -450,7 +444,7 @@ public class CloudSystemInfoService extends SystemInfoService {
                 LOG.warn("cant find clusterId by clusteName {}", clusterName);
                 return "";
             }
-            return getCloudStatusById(clusterId);
+            return getCloudStatusByIdNoLock(clusterId);
         } finally {
             rlock.unlock();
         }
@@ -459,11 +453,16 @@ public class CloudSystemInfoService extends SystemInfoService {
     public String getCloudStatusById(final String clusterId) {
         rlock.lock();
         try {
-            return clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>())
-                .stream().map(Backend::getCloudClusterStatus).findFirst().orElse("");
+            return getCloudStatusByIdNoLock(clusterId);
         } finally {
             rlock.unlock();
         }
+    }
+
+    public String getCloudStatusByIdNoLock(final String clusterId) {
+        return clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>())
+            .stream().map(Backend::getCloudClusterStatus).findFirst()
+            .orElse(String.valueOf(Cloud.ClusterStatus.UNKNOWN));
     }
 
     public void updateClusterNameToId(final String newName,
@@ -578,13 +577,20 @@ public class CloudSystemInfoService extends SystemInfoService {
         ClusterPB cpb = response.getCluster(0);
         clusterId = cpb.getClusterId();
         String clusterNameMeta = cpb.getClusterName();
-
+        Cloud.ClusterStatus clusterStatus = cpb.hasClusterStatus()
+                ? cpb.getClusterStatus() : Cloud.ClusterStatus.NORMAL;
+        String publicEndpoint = cpb.getPublicEndpoint();
+        String privateEndpoint = cpb.getPrivateEndpoint();
         // Prepare backends
         List<Backend> backends = new ArrayList<>();
         for (Cloud.NodeInfoPB node : cpb.getNodesList()) {
             Map<String, String> newTagMap = Tag.DEFAULT_BACKEND_TAG.toMap();
             newTagMap.put(Tag.CLOUD_CLUSTER_NAME, clusterNameMeta);
             newTagMap.put(Tag.CLOUD_CLUSTER_ID, clusterId);
+            newTagMap.put(Tag.CLOUD_CLUSTER_STATUS, String.valueOf(clusterStatus));
+            newTagMap.put(Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT, publicEndpoint);
+            newTagMap.put(Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT, privateEndpoint);
+            newTagMap.put(Tag.CLOUD_UNIQUE_ID, node.getCloudUniqueId());
             Backend b = new Backend(Env.getCurrentEnv().getNextId(), node.getIp(), node.getHeartbeatPort());
             b.setTagMap(newTagMap);
             backends.add(b);

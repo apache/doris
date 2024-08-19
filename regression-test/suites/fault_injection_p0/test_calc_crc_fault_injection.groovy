@@ -17,10 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_calc_crc") {
-    if (isCloudMode()) {
-        return;
-    }
+suite("test_calc_crc", "nonConcurrent") {
     def calc_file_crc_on_tablet = { ip, port, tablet ->
         return curl("GET", String.format("http://%s:%s/api/calc_crc?tablet_id=%s", ip, port, tablet))
     }
@@ -79,12 +76,12 @@ suite("test_calc_crc") {
     assertEquals("12", parseJson(out_0.trim()).file_count)
 
     try {
-        GetDebugPoint().enableDebugPointForAllBEs("fault_inject::BetaRowset::calc_local_file_crc")
+        GetDebugPoint().enableDebugPointForAllBEs("fault_inject::BetaRowset::calc_file_crc")
         def (code_1, out_1, err_1) = calc_file_crc_on_tablet(ip, port, tablet_id)
         logger.info("Run calc_file_crc_on_tablet: code=" + code_1 + ", out=" + out_1 + ", err=" + err_1)
-        assertTrue(out_1.contains("fault_inject calc_local_file_crc error"))
+        assertTrue(out_1.contains("fault_inject calc_file_crc error"))
     } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("fault_inject::BetaRowset::calc_local_file_crc")
+        GetDebugPoint().disableDebugPointForAllBEs("fault_inject::BetaRowset::calc_file_crc")
     }
 
     def (code_2, out_2, err_2) = calc_file_crc_on_tablet_with_start(ip, port, tablet_id, 0)
@@ -125,7 +122,7 @@ suite("test_calc_crc") {
 
     def (code_6, out_6, err_6) = calc_file_crc_on_tablet(ip, port, 123)
     logger.info("Run calc_file_crc_on_tablet: code=" + code_6 + ", out=" + out_6 + ", err=" + err_6)
-    assertTrue(out_6.contains("Tablet not found."))
+    assertTrue(out_6.contains("failed to get tablet"))
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 }

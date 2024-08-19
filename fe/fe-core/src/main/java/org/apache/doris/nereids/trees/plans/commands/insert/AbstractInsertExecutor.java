@@ -188,6 +188,7 @@ public abstract class AbstractInsertExecutor {
     public void executeSingleInsert(StmtExecutor executor, long jobId) throws Exception {
         beforeExec();
         try {
+            executor.updateProfile(false);
             execImpl(executor, jobId);
             checkStrictModeAndFilterRatio();
             int retryTimes = 0;

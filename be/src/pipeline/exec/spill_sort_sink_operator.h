@@ -96,6 +96,5 @@ public:
 private:
     friend class SpillSortSinkLocalState;
     std::unique_ptr<SortSinkOperatorX> _sort_sink_operator;
-    bool _enable_spill = false;
 };
 } // namespace doris::pipeline

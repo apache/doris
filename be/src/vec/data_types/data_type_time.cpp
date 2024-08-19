@@ -48,7 +48,7 @@ size_t DataTypeTime::number_length() const {
     //59:59:59
     return 8;
 }
-void DataTypeTime::push_bumber(ColumnString::Chars& chars, const Float64& num) const {
+void DataTypeTime::push_number(ColumnString::Chars& chars, const Float64& num) const {
     auto time_str = time_to_buffer_from_double(num);
     chars.insert(time_str.begin(), time_str.end());
 }
@@ -87,7 +87,7 @@ size_t DataTypeTimeV2::number_length() const {
     //59:59:59:000000
     return 14;
 }
-void DataTypeTimeV2::push_bumber(ColumnString::Chars& chars, const Float64& num) const {
+void DataTypeTimeV2::push_number(ColumnString::Chars& chars, const Float64& num) const {
     auto timev2_str = timev2_to_buffer_from_double(num, _scale);
     chars.insert(timev2_str.begin(), timev2_str.end());
 }

@@ -302,11 +302,11 @@ public:
             }
             size_t target = is_consts[then_idx[row_idx]] ? 0 : row_idx;
             if constexpr (then_null) {
-                assert_cast<ColumnNullable*>(result_column_ptr.get())
+                assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(result_column_ptr.get())
                         ->insert_from_with_type<ColumnType>(*raw_columns[then_idx[row_idx]],
                                                             target);
             } else {
-                assert_cast<ColumnType*>(result_column_ptr.get())
+                assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(result_column_ptr.get())
                         ->insert_from(*raw_columns[then_idx[row_idx]], target);
             }
         }
@@ -323,7 +323,9 @@ public:
         size_t rows_count = column_holder.rows_count;
         result_column_ptr->resize(rows_count);
         auto* __restrict result_raw_data =
-                assert_cast<ColumnType*>(result_column_ptr.get())->get_data().data();
+                assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(result_column_ptr.get())
+                        ->get_data()
+                        .data();
 
         // set default value
         for (int i = 0; i < rows_count; i++) {

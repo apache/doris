@@ -169,6 +169,61 @@ public class BackupJob extends AbstractJob {
         return BackupContent.ALL;
     }
 
+    private synchronized boolean tryNewTabletSnapshotTask(SnapshotTask task) {
+        Table table = env.getInternalCatalog().getTableByTableId(task.getTableId());
+        if (table == null) {
+            return false;
+        }
+        OlapTable tbl = (OlapTable) table;
+        tbl.readLock();
+        try {
+            if (tbl.getId() != task.getTableId()) {
+                return false;
+            }
+            Partition partition = tbl.getPartition(task.getPartitionId());
+            if (partition == null) {
+                return false;
+            }
+            MaterializedIndex index = partition.getIndex(task.getIndexId());
+            if (index == null) {
+                return false;
+            }
+            Tablet tablet = index.getTablet(task.getTabletId());
+            if (tablet == null) {
+                return false;
+            }
+            Replica replica = chooseReplica(tablet, task.getVersion());
+            if (replica == null) {
+                return false;
+            }
+
+            //clear old task
+            AgentTaskQueue.removeTaskOfType(TTaskType.MAKE_SNAPSHOT, task.getTabletId());
+            unfinishedTaskIds.remove(task.getTabletId());
+            taskProgress.remove(task.getTabletId());
+            taskErrMsg.remove(task.getTabletId());
+
+            SnapshotTask newTask = new SnapshotTask(null, replica.getBackendId(), task.getTabletId(),
+                    task.getJobId(), task.getDbId(), tbl.getId(), task.getPartitionId(),
+                    task.getIndexId(), task.getTabletId(),
+                    task.getVersion(),
+                    task.getSchemaHash(), timeoutMs, false /* not restore task */);
+            AgentBatchTask batchTask = new AgentBatchTask();
+            batchTask.addTask(newTask);
+            unfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
+
+            //send task
+            AgentTaskQueue.addTask(newTask);
+            AgentTaskExecutor.submit(batchTask);
+
+        } finally {
+            tbl.readUnlock();
+        }
+
+        return true;
+    }
+
+
     public synchronized boolean finishTabletSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
         Preconditions.checkState(task.getJobId() == jobId);
 
@@ -181,6 +236,20 @@ public class BackupJob extends AbstractJob {
                         "make snapshot failed, version already merged");
                 cancelInternal();
             }
+
+            if (request.getTaskStatus().getStatusCode() == TStatusCode.TABLET_MISSING
+                    && !tryNewTabletSnapshotTask(task)) {
+                status = new Status(ErrCode.NOT_FOUND,
+                        "make snapshot failed, failed to ge tablet, table will be droped or truncated");
+                cancelInternal();
+            }
+
+            if (request.getTaskStatus().getStatusCode() == TStatusCode.NOT_IMPLEMENTED_ERROR) {
+                status = new Status(ErrCode.COMMON_ERROR,
+                    "make snapshot failed, currently not support backup tablet with cooldowned remote data");
+                cancelInternal();
+            }
+
             return false;
         }
 
@@ -454,7 +523,7 @@ public class BackupJob extends AbstractJob {
             }
         }
 
-        backupMeta = new BackupMeta(copiedTables, copiedResources);
+        backupMeta = new BackupMeta(db.getName(), copiedTables, copiedResources);
 
         // send tasks
         for (AgentTask task : batchTask.getAllTasks()) {
@@ -735,7 +804,8 @@ public class BackupJob extends AbstractJob {
     }
 
     private void saveMetaInfo() {
-        String createTimeStr = TimeUtils.longToTimeString(createTime, TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
+        String createTimeStr = TimeUtils.longToTimeString(createTime,
+                TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
         // local job dir: backup/repo__repo_id/label__createtime/
         // Add repo_id to isolate jobs from different repos.
         localJobDirPath = Paths.get(BackupHandler.BACKUP_ROOT_DIR.toString(),
@@ -991,8 +1061,6 @@ public class BackupJob extends AbstractJob {
 
         // table refs
         int size = in.readInt();
-        LOG.info("read {} tablerefs ", size);
-
         tableRefs = Lists.newArrayList();
         for (int i = 0; i < size; i++) {
             TableRef tblRef = TableRef.read(in);
@@ -1007,8 +1075,6 @@ public class BackupJob extends AbstractJob {
 
         // snapshot info
         size = in.readInt();
-        LOG.info("read {} snapshotinfo ", size);
-
         for (int i = 0; i < size; i++) {
             SnapshotInfo snapshotInfo = SnapshotInfo.read(in);
             snapshotInfos.put(snapshotInfo.getTabletId(), snapshotInfo);
@@ -1016,7 +1082,6 @@ public class BackupJob extends AbstractJob {
 
         // backup meta
         if (in.readBoolean()) {
-            LOG.info("read backup meta");
             backupMeta = BackupMeta.read(in);
         }
 
@@ -1032,8 +1097,6 @@ public class BackupJob extends AbstractJob {
         }
         // read properties
         size = in.readInt();
-        LOG.info("read {} property ", size);
-
         for (int i = 0; i < size; i++) {
             String key = Text.readString(in);
             String value = Text.readString(in);

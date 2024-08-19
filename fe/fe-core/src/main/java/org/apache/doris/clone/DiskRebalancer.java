@@ -17,7 +17,6 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.catalog.CatalogRecycleBin;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -59,6 +58,7 @@ public class DiskRebalancer extends Rebalancer {
     public DiskRebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex,
             Map<Long, PathSlot> backendsWorkingSlots) {
         super(infoService, invertedIndex, backendsWorkingSlots);
+        canBalanceColocateTable = true;
     }
 
     public List<BackendLoadStatistic> filterByPrioBackends(List<BackendLoadStatistic> bes) {
@@ -163,12 +163,6 @@ public class DiskRebalancer extends Rebalancer {
             return alternativeTablets;
         }
 
-        // Clone ut mocked env, but CatalogRecycleBin is not mockable (it extends from Thread)
-        // so in clone ut recycleBin need to set to null.
-        CatalogRecycleBin recycleBin = null;
-        if (!FeConstants.runningUnitTest) {
-            recycleBin = Env.getCurrentRecycleBin();
-        }
         Set<Long> alternativeTabletIds = Sets.newHashSet();
         Set<Long> unbalancedBEs = Sets.newHashSet();
         // choose tablets from backends randomly.
@@ -243,11 +237,7 @@ public class DiskRebalancer extends Rebalancer {
                 long replicaPathHash = replica.getPathHash();
                 if (remainingPaths.containsKey(replicaPathHash)) {
                     TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-                    if (tabletMeta == null) {
-                        continue;
-                    }
-                    if (recycleBin != null && recycleBin.isRecyclePartition(tabletMeta.getDbId(),
-                            tabletMeta.getTableId(), tabletMeta.getPartitionId())) {
+                    if (!canBalanceTablet(tabletMeta)) {
                         continue;
                     }
 

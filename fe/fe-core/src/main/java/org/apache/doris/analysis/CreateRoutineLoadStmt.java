@@ -141,6 +141,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(LOAD_TO_SINGLE_TABLET)
             .add(PARTIAL_COLUMNS)
             .add(WORKLOAD_GROUP)
+            .add(LoadStmt.KEY_ENCLOSE)
+            .add(LoadStmt.KEY_ESCAPE)
             .build();
 
     private final LabelName labelName;
@@ -178,9 +180,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private boolean numAsString = false;
     private boolean fuzzyParse = false;
 
-    private String enclose;
+    private byte enclose;
 
-    private String escape;
+    private byte escape;
 
     private long workloadGroupId = -1;
 
@@ -311,11 +313,11 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return jsonPaths;
     }
 
-    public String getEnclose() {
+    public byte getEnclose() {
         return enclose;
     }
 
-    public String getEscape() {
+    public byte getEscape() {
         return escape;
     }
 
@@ -507,14 +509,24 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         loadToSingleTablet = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET),
                 RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
                 LoadStmt.LOAD_TO_SINGLE_TABLET + " should be a boolean");
-        enclose = jobProperties.get(LoadStmt.KEY_ENCLOSE);
-        if (enclose != null && enclose.length() != 1) {
-            throw new AnalysisException("enclose must be single-char");
+
+        String encloseStr = jobProperties.get(LoadStmt.KEY_ENCLOSE);
+        if (encloseStr != null) {
+            if (encloseStr.length() != 1) {
+                throw new AnalysisException("enclose must be single-char");
+            } else {
+                enclose = encloseStr.getBytes()[0];
+            }
         }
-        escape = jobProperties.get(LoadStmt.KEY_ESCAPE);
-        if (escape != null && escape.length() != 1) {
-            throw new AnalysisException("escape must be single-char");
+        String escapeStr = jobProperties.get(LoadStmt.KEY_ESCAPE);
+        if (escapeStr != null) {
+            if (escapeStr.length() != 1) {
+                throw new AnalysisException("enclose must be single-char");
+            } else {
+                escape = escapeStr.getBytes()[0];
+            }
         }
+
         String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
         if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
             this.workloadGroupId = Env.getCurrentEnv().getWorkloadGroupMgr()
@@ -548,5 +560,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private void checkDataSourceProperties() throws UserException {
         this.dataSourceProperties.setTimezone(this.timezone);
         this.dataSourceProperties.analyze();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

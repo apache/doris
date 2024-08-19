@@ -27,8 +27,8 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/stopwatch.h"
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_tablet_stats.h"
@@ -295,6 +295,11 @@ void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::strin
            << " key=" << hex(job_key) << " err=" << err;
         msg = ss.str();
         code = cast_as<ErrCategory::READ>(err);
+        return;
+    }
+    if (!job_pb.ParseFromString(job_val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = "pb deserialization failed";
         return;
     }
     job_pb.mutable_idx()->CopyFrom(request->job().idx());

@@ -73,12 +73,6 @@ public class CollectList extends AggregateFunction
         super("collect_list", distinct, arg0, arg1);
     }
 
-    @Override
-    public FunctionSignature computeSignature(FunctionSignature signature) {
-        signature = signature.withReturnType(ArrayType.of(getArgumentType(0)));
-        return super.computeSignature(signature);
-    }
-
     /**
      * withDistinctAndChildren.
      */

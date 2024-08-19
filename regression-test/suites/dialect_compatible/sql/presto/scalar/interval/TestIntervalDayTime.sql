@@ -1,0 +1,64 @@
+set sql_dialect='presto';
+set enable_fallback_to_original_planner=false;
+set debug_skip_fold_constant=false;
+-- SELECT INTERVAL '12 10:45:32.123' DAY TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12 10:45:32.123' DAY TO SECOND;	                                      ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12 10:45:32.12' DAY TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12 10:45:32.12' DAY TO SECOND;	                                     ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12 10:45:32' DAY TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12 10:45:32' DAY TO SECOND;	                                  ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12 10:45' DAY TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12 10:45' DAY TO SECOND;	                               ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12 10' DAY TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12 10' DAY TO SECOND;	                            ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12' DAY TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12' DAY TO SECOND	                         ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12 10:45' DAY TO MINUTE; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12 10:45' DAY TO MINUTE;	                               ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12 10' DAY TO MINUTE; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12 10' DAY TO MINUTE;	                            ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12' DAY TO MINUTE; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12' DAY TO MINUTE	                         ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12 10' DAY TO HOUR; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12 10' DAY TO HOUR;	                            ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12' DAY TO HOUR; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12' DAY TO HOUR	                         ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12' DAY; # error: errCode = 2, detailMessage = Invalid call to sql on unbound object
+-- SELECT INTERVAL '30' DAY; # error: errCode = 2, detailMessage = Invalid call to sql on unbound object
+-- SELECT INTERVAL '90' DAY; # error: errCode = 2, detailMessage = Invalid call to sql on unbound object
+-- SELECT INTERVAL '10:45:32.123' HOUR TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '10:45:32.123' HOUR TO SECOND	                                    ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '10:45:32.12' HOUR TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '10:45:32.12' HOUR TO SECOND	                                   ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '10:45:32' HOUR TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '10:45:32' HOUR TO SECOND	                                ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '10:45' HOUR TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '10:45' HOUR TO SECOND	                             ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '10' HOUR TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '10' HOUR TO SECOND	                          ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '10:45' HOUR TO MINUTE; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '10:45' HOUR TO MINUTE	                             ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '10' HOUR TO MINUTE; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '10' HOUR TO MINUTE	                          ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '10' HOUR; # error: errCode = 2, detailMessage = Invalid call to sql on unbound object
+-- SELECT INTERVAL '45:32.123' MINUTE TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '45:32.123' MINUTE TO SECOND	                                   ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '45:32.12' MINUTE TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '45:32.12' MINUTE TO SECOND	                                  ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '45:32' MINUTE TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '45:32' MINUTE TO SECOND	                               ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '45' MINUTE TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '45' MINUTE TO SECOND	                            ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '45' MINUTE; # error: errCode = 2, detailMessage = Invalid call to sql on unbound object
+-- SELECT INTERVAL '32.123' SECOND; # error: errCode = 2, detailMessage = Invalid call to sql on unbound object
+-- SELECT INTERVAL '32.12' SECOND; # error: errCode = 2, detailMessage = Invalid call to sql on unbound object
+-- SELECT INTERVAL '32' SECOND; # error: errCode = 2, detailMessage = Invalid call to sql on unbound object
+set debug_skip_fold_constant=true;
+-- SELECT INTERVAL '12 10:45:32.123' DAY TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12 10:45:32.123' DAY TO SECOND;	                                      ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12 10:45:32.12' DAY TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12 10:45:32.12' DAY TO SECOND;	                                     ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12 10:45:32' DAY TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12 10:45:32' DAY TO SECOND;	                                  ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12 10:45' DAY TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12 10:45' DAY TO SECOND;	                               ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12 10' DAY TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12 10' DAY TO SECOND;	                            ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12' DAY TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12' DAY TO SECOND	                         ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12 10:45' DAY TO MINUTE; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12 10:45' DAY TO MINUTE;	                               ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12 10' DAY TO MINUTE; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12 10' DAY TO MINUTE;	                            ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12' DAY TO MINUTE; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12' DAY TO MINUTE	                         ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12 10' DAY TO HOUR; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12 10' DAY TO HOUR;	                            ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12' DAY TO HOUR; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '12' DAY TO HOUR	                         ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '12' DAY; # error: errCode = 2, detailMessage = Invalid call to sql on unbound object
+-- SELECT INTERVAL '30' DAY; # error: errCode = 2, detailMessage = Invalid call to sql on unbound object
+-- SELECT INTERVAL '90' DAY; # error: errCode = 2, detailMessage = Invalid call to sql on unbound object
+-- SELECT INTERVAL '10:45:32.123' HOUR TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '10:45:32.123' HOUR TO SECOND	                                    ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '10:45:32.12' HOUR TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '10:45:32.12' HOUR TO SECOND	                                   ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '10:45:32' HOUR TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '10:45:32' HOUR TO SECOND	                                ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '10:45' HOUR TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '10:45' HOUR TO SECOND	                             ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '10' HOUR TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '10' HOUR TO SECOND	                          ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '10:45' HOUR TO MINUTE; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '10:45' HOUR TO MINUTE	                             ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '10' HOUR TO MINUTE; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '10' HOUR TO MINUTE	                          ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '10' HOUR; # error: errCode = 2, detailMessage = Invalid call to sql on unbound object
+-- SELECT INTERVAL '45:32.123' MINUTE TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '45:32.123' MINUTE TO SECOND	                                   ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '45:32.12' MINUTE TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '45:32.12' MINUTE TO SECOND	                                  ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '45:32' MINUTE TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '45:32' MINUTE TO SECOND	                               ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '45' MINUTE TO SECOND; # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT INTERVAL '45' MINUTE TO SECOND	                            ^	Encountered: TO	Expected	
+-- SELECT INTERVAL '45' MINUTE; # error: errCode = 2, detailMessage = Invalid call to sql on unbound object
+-- SELECT INTERVAL '32.123' SECOND; # error: errCode = 2, detailMessage = Invalid call to sql on unbound object
+-- SELECT INTERVAL '32.12' SECOND; # error: errCode = 2, detailMessage = Invalid call to sql on unbound object
+-- SELECT INTERVAL '32' SECOND # error: errCode = 2, detailMessage = Invalid call to sql on unbound object

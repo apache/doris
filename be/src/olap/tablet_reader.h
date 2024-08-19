@@ -183,6 +183,8 @@ public:
         void check_validation() const;
 
         std::string to_string() const;
+
+        int64_t batch_size = -1;
     };
 
     TabletReader() = default;
@@ -293,6 +295,7 @@ protected:
     // for agg query, we don't need to finalize when scan agg object data
     ReaderType _reader_type = ReaderType::READER_QUERY;
     bool _next_delete_flag = false;
+    bool _delete_sign_available = false;
     bool _filter_delete = false;
     int32_t _sequence_col_idx = -1;
     bool _direct_mode = false;

@@ -80,7 +80,8 @@ public:
                 "add_rowset_for_linked_schema_change is not implemented");
     }
 
-    Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer) override;
+    Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer,
+                              FileType file_type = FileType::SEGMENT_FILE) override;
 
     Status flush() override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>("flush is not implemented");
@@ -129,6 +130,8 @@ public:
 
     int32_t allocate_segment_id() override { return _segment_creator.allocate_segment_id(); };
 
+    int32_t next_segment_id() { return _segment_creator.next_segment_id(); };
+
     int64_t delete_bitmap_ns() override { return _delete_bitmap_ns; }
 
     int64_t segment_writer_ns() override { return _segment_writer_ns; }
@@ -153,6 +156,8 @@ private:
     SegmentFileCollection _seg_files;
 
     SegmentCreator _segment_creator;
+
+    InvertedIndexFilesInfo _idx_files_info;
 
     fmt::memory_buffer vlog_buffer;
 

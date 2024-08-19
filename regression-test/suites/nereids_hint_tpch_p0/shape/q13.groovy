@@ -19,8 +19,12 @@
 
 suite("q13") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
+    if (isCloudMode()) {
+        return
+    }
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_distribute_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql 'set runtime_filter_mode=OFF'

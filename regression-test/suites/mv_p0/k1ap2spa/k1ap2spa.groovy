@@ -44,9 +44,19 @@ suite ("k1ap2spa") {
 
     qt_select_star "select * from d_table order by k1;"
 
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select abs(k1)+1 t,sum(abs(k2+1)) from d_table group by t order by t;")
         contains "(k1ap2spa)"
     }
     qt_select_mv "select abs(k1)+1 t,sum(abs(k2+1)) from d_table group by t order by t;"
+
+    sql """set enable_stats=true;"""
+
+    explain {
+        sql("select abs(k1)+1 t,sum(abs(k2+1)) from d_table group by t order by t;")
+        contains "(k1ap2spa)"
+    }
 }

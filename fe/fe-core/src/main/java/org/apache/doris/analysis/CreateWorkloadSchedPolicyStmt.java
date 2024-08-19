@@ -31,7 +31,7 @@ import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionMeta;
 import java.util.List;
 import java.util.Map;
 
-public class CreateWorkloadSchedPolicyStmt extends DdlStmt {
+public class CreateWorkloadSchedPolicyStmt extends DdlStmt implements NotFallbackInParser {
 
     private final boolean ifNotExists;
     private final String policyName;
@@ -121,5 +121,10 @@ public class CreateWorkloadSchedPolicyStmt extends DdlStmt {
         str = str + ")";
 
         return str;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

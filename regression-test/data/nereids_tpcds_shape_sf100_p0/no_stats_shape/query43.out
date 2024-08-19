@@ -8,17 +8,15 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((store.s_store_sk = store_sales.ss_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = store_sales.ss_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
-----------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------PhysicalProject
---------------------------filter((date_dim.d_year = 2000))
-----------------------------PhysicalOlapScan[date_dim]
-------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------PhysicalProject
-----------------------filter((store.s_gmt_offset = -5.00))
-------------------------PhysicalOlapScan[store]
+----------------------PhysicalProject
+------------------------filter((date_dim.d_year = 2000))
+--------------------------PhysicalOlapScan[date_dim]
+------------------PhysicalProject
+--------------------filter((store.s_gmt_offset = -5.00))
+----------------------PhysicalOlapScan[store]
 
