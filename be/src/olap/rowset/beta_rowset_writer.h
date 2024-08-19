@@ -187,6 +187,11 @@ protected:
     /// In other processes, such as merger or schema change, we will use this unified writer for data writing.
     std::unique_ptr<segment_v2::SegmentWriter> _segment_writer;
 
+    uint64_t get_rowset_num_rows() {
+        std::lock_guard l(_segid_statistics_map_mutex);
+        return std::accumulate(_segment_num_rows.begin(), _segment_num_rows.end(), uint64_t(0));
+    }
+
     mutable SpinLock _lock; // protect following vectors.
     // record rows number of every segment already written, using for rowid
     // conversion when compaction in unique key with MoW model
