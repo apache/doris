@@ -1177,6 +1177,7 @@ void LRUFileCache::update_cache_metrics() const {
     if (g_file_cache_num_read_segments_1h.get_value() > 0) {
         hit_ratio_1h = ((double)g_file_cache_num_hit_segments_1h.get_value()) /
                        ((double)g_file_cache_num_read_segments_1h.get_value());
+    } else {
         hit_ratio_1h = 0.0;
     }
 

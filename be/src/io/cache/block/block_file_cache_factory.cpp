@@ -32,6 +32,7 @@
 #include "io/cache/block/block_lru_file_cache.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "service/backend_options.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -115,7 +116,9 @@ std::vector<IFileCache::QueryFileCacheContextHolderPtr> FileCacheFactory::get_qu
 
 void FileCacheFactory::get_cache_stats_block(vectorized::Block* block) {
     // std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
-    int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
+    TBackend be = BackendOptions::get_local_backend();
+    int64_t be_id = be.id;
+    std::string be_ip = be.host;
 
     auto insert_int_value = [&](int col_index, int64_t int_val, vectorized::Block* block) {
         vectorized::MutableColumnPtr mutable_col_ptr;
@@ -154,9 +157,10 @@ void FileCacheFactory::get_cache_stats_block(vectorized::Block* block) {
         std::map<std::string, double> stats = cache->get_stats();
         for (auto& [k, v] : stats) {
             insert_int_value(0, be_id, block);                     // be id
-            insert_string_value(1, cache->get_base_path(), block); // cache path
-            insert_string_value(2, k, block);                      // metric name
-            insert_double_value(3, v, block);                      // metric value
+            insert_string_value(1, be_ip, block);                  // be ip
+            insert_string_value(2, cache->get_base_path(), block); // cache path
+            insert_string_value(3, k, block);                      // metric name
+            insert_double_value(4, v, block);                      // metric value
         }
     }
 }
