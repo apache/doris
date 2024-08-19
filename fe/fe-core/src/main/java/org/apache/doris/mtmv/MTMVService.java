@@ -182,9 +182,9 @@ public class MTMVService implements EventListener {
         TableIf table;
         try {
             table = Env.getCurrentEnv().getCatalogMgr()
-                    .getCatalogOrAnalysisException(tableEvent.getCtlId())
-                    .getDbOrAnalysisException(tableEvent.getDbId())
-                    .getTableOrAnalysisException(tableEvent.getTableId());
+                    .getCatalogOrAnalysisException(tableEvent.getCtlName())
+                    .getDbOrAnalysisException(tableEvent.getDbName())
+                    .getTableOrAnalysisException(tableEvent.getTableName());
         } catch (AnalysisException e) {
             throw new EventException(e);
         }
