@@ -298,8 +298,13 @@ public class Log4jConfig extends XmlConfiguration {
         properties.put("warn_sys_accumulated_file_size", String.valueOf(Config.warn_sys_accumulated_file_size));
         properties.put("audit_sys_accumulated_file_size", String.valueOf(Config.audit_sys_accumulated_file_size));
 
-        properties.put("include_location_flag", sysLogMode.equalsIgnoreCase("NORMAL") ? "true" : "false");
-        properties.put("immediate_flush_flag", sysLogMode.equalsIgnoreCase("ASYNC") ? "false" : "true");
+        // BRIEF: async, no location
+        // ASYNC: async, with location
+        // NORMAL: sync, with location
+        boolean includeLocation = !sysLogMode.equalsIgnoreCase("BRIEF");
+        boolean immediateFlush = sysLogMode.equalsIgnoreCase("NORMAL");
+        properties.put("include_location_flag", Boolean.toString(includeLocation));
+        properties.put("immediate_flush_flag", Boolean.toString(immediateFlush));
         properties.put("audit_file_postfix", compressAuditLog ? ".gz" : "");
 
         strSub = new StrSubstitutor(new Interpolator(properties));
