@@ -128,7 +128,7 @@ public class PublishVersionDaemon extends MasterDaemon {
 
             try {
                 Map<Long, Set<Long>> map = getBaseTabletIdsForEachBe(transactionState, tableCommitInfo);
-                    map.forEach((beId, newSet) -> {
+                map.forEach((beId, newSet) -> {
                     beIdToBaseTabletIds.computeIfPresent(beId, (id, orgSet) -> {
                         orgSet.addAll(newSet);
                         return orgSet;
