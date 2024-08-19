@@ -129,13 +129,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         return expression.accept(INSTANCE, context);
     }
 
-    public static Expr translateUseBackup(Expression expression, PlanTranslatorContext context) {
-        context.setTranslateUsingBackup(true);
-        Expr result = expression.accept(INSTANCE, context);
-        context.setTranslateUsingBackup(false);
-        return result;
-    }
-
     @Override
     public Expr visitAlias(Alias alias, PlanTranslatorContext context) {
         return alias.child().accept(this, context);
@@ -299,9 +292,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
-        boolean translateUsingBackup = context.getTranslateUsingBackup();
-        return translateUsingBackup ? context.findBackupSlotRef(slotReference.getExprId())
-            : context.findSlotRef(slotReference.getExprId());
+        return context.getCloneExprIdToSlot() == null ? context.findSlotRef(slotReference.getExprId())
+            : context.findCloneSlotRef(slotReference.getExprId());
     }
 
     @Override

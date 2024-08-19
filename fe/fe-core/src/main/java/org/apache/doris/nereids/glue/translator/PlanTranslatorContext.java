@@ -79,10 +79,9 @@ public class PlanTranslatorContext {
      */
     private final Map<ExprId, SlotRef> exprIdToSlotRef = Maps.newHashMap();
 
-    private boolean translateUsingBackup = false;
-    private final Map<Plan, Map<ExprId, SlotRef>> savedPlanToExprIdToSlotRef = Maps.newHashMap();
+    private final Map<Plan, Map<ExprId, SlotRef>> clonePlanToExprIdToSlotRefMap = Maps.newHashMap();
 
-    private Map<ExprId, SlotRef> backUpExprIdToSlot = Maps.newHashMap();
+    private Map<ExprId, SlotRef> cloneExprIdToSlot = Maps.newHashMap();
 
     /**
      * Inverted index from legacy slot to Nereids' slot.
@@ -193,14 +192,6 @@ public class PlanTranslatorContext {
         return descTable.createTupleDescriptor();
     }
 
-    public boolean getTranslateUsingBackup() {
-        return translateUsingBackup;
-    }
-
-    public void setTranslateUsingBackup(boolean usingBackup) {
-        this.translateUsingBackup = usingBackup;
-    }
-
     public Optional<RuntimeFilterTranslator> getRuntimeTranslator() {
         return Optional.ofNullable(translator);
     }
@@ -230,12 +221,12 @@ public class PlanTranslatorContext {
         slotIdToExprId.put(slotRef.getDesc().getId(), exprId);
     }
 
-    public void backupPlanToExprIdSlotRefMap(Plan planNode) {
-        Map<ExprId, SlotRef> newExprIdToSlotRef = Maps.newHashMap();
+    public void addPlanToExprIdSlotRefMap(Plan plan) {
+        Map<ExprId, SlotRef> cloneExprIdToSlotRef = Maps.newHashMap();
         for (Map.Entry<ExprId, SlotRef> entry : exprIdToSlotRef.entrySet()) {
-            newExprIdToSlotRef.put(entry.getKey(), (SlotRef) entry.getValue().clone());
+            cloneExprIdToSlotRef.put(entry.getKey(), (SlotRef) entry.getValue().clone());
         }
-        savedPlanToExprIdToSlotRef.put(planNode, newExprIdToSlotRef);
+        clonePlanToExprIdToSlotRefMap.put(plan, cloneExprIdToSlotRef);
     }
 
     public void addExprIdColumnRefPair(ExprId exprId, ColumnRefExpr columnRefExpr) {
@@ -258,16 +249,20 @@ public class PlanTranslatorContext {
         return exprIdToSlotRef.get(exprId);
     }
 
-    public SlotRef findBackupSlotRef(ExprId exprId) {
-        return backUpExprIdToSlot.get(exprId);
+    public SlotRef findCloneSlotRef(ExprId exprId) {
+        return cloneExprIdToSlot.get(exprId);
     }
 
-    public Map<ExprId, SlotRef> findBackupExprIdToSlotMap(Plan plan) {
-        return savedPlanToExprIdToSlotRef.get(plan);
+    public boolean findExprIdToSlotRefFromMap(Plan plan) {
+        return (cloneExprIdToSlot = clonePlanToExprIdToSlotRefMap.get(plan)) != null;
     }
 
-    public void setBackUpExprIdToSlot(Map<ExprId, SlotRef> map) {
-        backUpExprIdToSlot = map;
+    public Map<ExprId, SlotRef> getCloneExprIdToSlot() {
+        return cloneExprIdToSlot;
+    }
+
+    public void resetCloneExprIdToSlot() {
+        cloneExprIdToSlot = null;
     }
 
     public ColumnRefExpr findColumnRef(ExprId exprId) {

@@ -2122,7 +2122,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
         PlanFragment inputFragment = sort.child(0).accept(this, context);
         List<List<Expr>> distributeExprLists = getDistributeExprs(sort.child(0));
-        context.backupPlanToExprIdSlotRefMap(sort);
+        // 1. Backup current plan to exprIdToSlotRef map
+        context.addPlanToExprIdSlotRefMap(sort);
+
         // 2. According to the type of sort, generate physical plan
         if (!sort.getSortPhase().isMerge()) {
             // For localSort or Gather->Sort, we just need to add sortNode
@@ -2279,8 +2281,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalWindow(PhysicalWindow<? extends Plan> physicalWindow,
             PlanTranslatorContext context) {
-        PlanFragment inputPlanFragment = physicalWindow.child(0).accept(this, context);
-        List<List<Expr>> distributeExprLists = getDistributeExprs(physicalWindow.child(0));
+        Plan childPlan = physicalWindow.child(0);
+        PlanFragment inputPlanFragment = childPlan.accept(this, context);
+        List<List<Expr>> distributeExprLists = getDistributeExprs(childPlan);
 
         // 1. translate to old optimizer variable
         // variable in Nereids
@@ -2332,13 +2335,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // current op tree only has two patterns, one is the window with sort child, and another is two phase
             // global partition topn child, and the latter is no need to refresh its distribution expr list since
             // it's expected to be the same as window's, for the former pattern, it is the real candidate.
-            Map<ExprId, SlotRef> exprIdToSlotRef = context.findBackupExprIdToSlotMap(physicalWindow.child(0));
-            context.setBackUpExprIdToSlot(exprIdToSlotRef);
-            List<Expr> newPartitionExprs = partitionKeyList.stream()
-                    .map(e -> ExpressionTranslator.translateUseBackup(e, context))
-                    .collect(Collectors.toList());
-            newChildDistributeExprLists.add(newPartitionExprs);
-            inputPlanFragment.getPlanRoot().setChildrenDistributeExprLists(newChildDistributeExprLists);
+            if (context.findExprIdToSlotRefFromMap(childPlan)) {
+                List<Expr> newPartitionExprs = partitionKeyList.stream()
+                        .map(e -> ExpressionTranslator.translate(e, context))
+                        .collect(Collectors.toList());
+                newChildDistributeExprLists.add(newPartitionExprs);
+                inputPlanFragment.getPlanRoot().setChildrenDistributeExprLists(newChildDistributeExprLists);
+                context.resetCloneExprIdToSlot();
+            }
         }
 
         // 2. get bufferedTupleDesc from SortNode and compute isNullableMatched
