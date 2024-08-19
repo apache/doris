@@ -51,7 +51,12 @@ statementBase
     | materailizedViewStatement         #materailizedViewStatementAlias
     | constraintStatement               #constraintStatementAlias
     | supportedDropStatement            #supportedDropStatementAlias
+    | useStatement                      #useStatementAlias
     | unsupportedStatement              #unsupported
+    ;
+
+useStatement
+    :  USE (catalog=identifier DOT)? database=identifier                              #useDatabase
     ;
 
 unsupportedStatement
@@ -314,8 +319,7 @@ unsupoortedUnsetStatement
     ;
 
 unsupportedUseStatement
-    : USE (catalog=identifier DOT)? database=identifier                              #useDatabase
-    | USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
+    : USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
     | SWITCH catalog=identifier                                                      #switchCatalog
     ;
 
