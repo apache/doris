@@ -119,8 +119,14 @@ public class BaseTableInfo {
             return false;
         }
         BaseTableInfo that = (BaseTableInfo) o;
-        return Objects.equal(tableName, that.tableName) && Objects.equal(
-                dbName, that.dbName) && Objects.equal(ctlName, that.ctlName);
+        // for compatibility
+        if (StringUtils.isEmpty(ctlName) || StringUtils.isEmpty(that.ctlName)) {
+            return Objects.equal(tableId, that.tableId) && Objects.equal(
+                    dbId, that.dbId) && Objects.equal(ctlId, that.ctlId);
+        } else {
+            return Objects.equal(tableName, that.tableName) && Objects.equal(
+                    dbName, that.dbName) && Objects.equal(ctlName, that.ctlName);
+        }
     }
 
     @Override
