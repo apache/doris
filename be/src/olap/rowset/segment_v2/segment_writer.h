@@ -184,6 +184,8 @@ private:
             vectorized::IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
     Status _generate_short_key_index(std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                                      size_t num_rows, const std::vector<size_t>& short_key_pos);
+    bool _is_mow();
+    bool _is_mow_with_cluster_key();
 
 private:
     uint32_t _segment_id;
@@ -196,7 +198,9 @@ private:
     io::FileWriter* _file_writer = nullptr;
     std::unique_ptr<InvertedIndexFileWriter> _inverted_index_file_writer;
     SegmentFooterPB _footer;
-    size_t _num_key_columns;
+    // for mow tables with cluster key, the sort key is the cluster keys not unique keys
+    // for other tables, the sort key is the keys
+    size_t _num_sort_key_columns;
     size_t _num_short_key_columns;
     InvertedIndexFileInfo _inverted_index_file_info;
     std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
