@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/cast_set.h"
 #include "vec/exec/format/table/iceberg/struct_like.h"
 
 namespace doris {
@@ -27,7 +28,7 @@ public:
     explicit PartitionData(std::vector<std::any> partition_values)
             : _partition_values(std::move(partition_values)) {}
 
-    int size() const override { return _partition_values.size(); }
+    int size() const override { return cast_set<int>(_partition_values.size()); }
 
     std::any get(int pos) const override {
         if (pos < 0 || pos >= _partition_values.size()) {

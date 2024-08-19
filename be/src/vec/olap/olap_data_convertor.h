@@ -180,7 +180,7 @@ private:
             memset(padded_column->chars.data(), 0, input->size() * padding_length);
 
             for (size_t i = 0; i < input->size(); i++) {
-                column->offsets[i] = (i + 1) * padding_length;
+                cast_set(column->offsets[i], (i + 1) * padding_length);
 
                 auto str = input->get_data_at(i);
 

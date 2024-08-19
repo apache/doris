@@ -106,8 +106,8 @@ Status AggLocalState::_serialize_with_serialized_key_result(RuntimeState* state,
                                                             vectorized::Block* block, bool* eos) {
     SCOPED_TIMER(_serialize_result_timer);
     auto& shared_state = *_shared_state;
-    int key_size = _shared_state->probe_expr_ctxs.size();
-    int agg_size = _shared_state->aggregate_evaluators.size();
+    const size_t key_size = _shared_state->probe_expr_ctxs.size();
+    const size_t agg_size = _shared_state->aggregate_evaluators.size();
     vectorized::MutableColumns value_columns(agg_size);
     vectorized::DataTypes value_data_types(agg_size);
 
@@ -207,12 +207,12 @@ Status AggLocalState::_serialize_with_serialized_key_result(RuntimeState* state,
 
     if (!mem_reuse) {
         vectorized::ColumnsWithTypeAndName columns_with_schema;
-        for (int i = 0; i < key_size; ++i) {
+        for (size_t i = 0; i < key_size; ++i) {
             columns_with_schema.emplace_back(std::move(key_columns[i]),
                                              shared_state.probe_expr_ctxs[i]->root()->data_type(),
                                              shared_state.probe_expr_ctxs[i]->root()->expr_name());
         }
-        for (int i = 0; i < agg_size; ++i) {
+        for (size_t i = 0; i < agg_size; ++i) {
             columns_with_schema.emplace_back(std::move(value_columns[i]), value_data_types[i], "");
         }
         *block = vectorized::Block(columns_with_schema);
@@ -229,10 +229,10 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vecto
 
     auto columns_with_schema = vectorized::VectorizedUtils::create_columns_with_type_and_name(
             _parent->cast<AggSourceOperatorX>()._row_descriptor);
-    int key_size = shared_state.probe_expr_ctxs.size();
+    const size_t key_size = shared_state.probe_expr_ctxs.size();
 
     vectorized::MutableColumns key_columns;
-    for (int i = 0; i < key_size; ++i) {
+    for (size_t i = 0; i < key_size; ++i) {
         if (!mem_reuse) {
             key_columns.emplace_back(columns_with_schema[i].type->create_column());
         } else {
@@ -240,7 +240,7 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vecto
         }
     }
     vectorized::MutableColumns value_columns;
-    for (int i = key_size; i < columns_with_schema.size(); ++i) {
+    for (size_t i = key_size; i < columns_with_schema.size(); ++i) {
         if (!mem_reuse) {
             value_columns.emplace_back(columns_with_schema[i].type->create_column());
         } else {
@@ -346,7 +346,7 @@ Status AggLocalState::_serialize_without_key(RuntimeState* state, vectorized::Bl
     block->clear();
 
     DCHECK(shared_state.agg_data->without_key != nullptr);
-    int agg_size = shared_state.aggregate_evaluators.size();
+    const size_t agg_size = shared_state.aggregate_evaluators.size();
 
     vectorized::MutableColumns value_columns(agg_size);
     std::vector<vectorized::DataTypePtr> data_types(agg_size);
@@ -385,7 +385,7 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::B
 
     auto& p = _parent->cast<AggSourceOperatorX>();
     *block = vectorized::VectorizedUtils::create_empty_columnswithtypename(p._row_descriptor);
-    int agg_size = shared_state.aggregate_evaluators.size();
+    const size_t agg_size = shared_state.aggregate_evaluators.size();
 
     vectorized::MutableColumns columns(agg_size);
     std::vector<vectorized::DataTypePtr> data_types(agg_size);
@@ -489,7 +489,7 @@ Status AggLocalState::merge_with_serialized_key_helper(vectorized::Block* block)
         key_columns[i] = block->get_by_position(i).column.get();
     }
 
-    int rows = block->rows();
+    size_t rows = block->rows();
     if (_places.size() < rows) {
         _places.resize(rows);
     }
@@ -533,7 +533,7 @@ Status AggLocalState::merge_with_serialized_key_helper(vectorized::Block* block)
         _emplace_into_hash_table(_places.data(), key_columns, rows);
 
         for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
-            int col_id = 0;
+            size_t col_id = 0;
             col_id = Base::_shared_state->probe_expr_ctxs.size() + i;
             auto column = block->get_by_position(col_id).column;
             if (column->is_nullable()) {

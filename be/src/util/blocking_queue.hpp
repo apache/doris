@@ -133,7 +133,7 @@ public:
         _put_cv.notify_all();
     }
 
-    uint32_t get_size() const {
+    size_t get_size() const {
         std::lock_guard<std::mutex> l(_lock);
         return _list.size();
     }
@@ -148,7 +148,7 @@ public:
 
 private:
     bool _shutdown;
-    const int _max_elements;
+    const int64_t _max_elements;
     std::condition_variable _get_cv; // 'get' callers wait on this
     std::condition_variable _put_cv; // 'put' callers wait on this
     // _lock guards access to _list, total_get_wait_time, and total_put_wait_time

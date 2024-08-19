@@ -16,7 +16,10 @@
 // under the License.
 
 #pragma once
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshorten-64-to-32"
+#endif
 #include <gen_cpp/PlanNodes_types.h>
 
 #include "common/status.h"
@@ -742,3 +745,6 @@ struct ExtractType<T(U)> {
     INSTANTIATION(JoinOpType, (I136FixedKeyHashTableContext<false>));
 
 } // namespace doris::pipeline
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

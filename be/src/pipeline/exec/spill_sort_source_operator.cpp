@@ -70,7 +70,8 @@ Status SpillSortLocalState::close(RuntimeState* state) {
     return Base::close(state);
 }
 int SpillSortLocalState::_calc_spill_blocks_to_merge() const {
-    int count = _external_sort_bytes_threshold / SpillSortSharedState::SORT_BLOCK_SPILL_BATCH_BYTES;
+    int count = cast_set<int>(_external_sort_bytes_threshold /
+                              SpillSortSharedState::SORT_BLOCK_SPILL_BATCH_BYTES);
     return std::max(2, count);
 }
 Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* state) {

@@ -151,7 +151,7 @@ void ExecEnv::wait_for_all_tasks_done() {
     // For graceful shutdown, need to wait for all running queries to stop
     int32_t wait_seconds_passed = 0;
     while (true) {
-        int num_queries = _fragment_mgr->running_query_num();
+        size_t num_queries = _fragment_mgr->running_query_num();
         if (num_queries < 1) {
             break;
         }

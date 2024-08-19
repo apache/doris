@@ -14,6 +14,10 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshorten-64-to-32"
+#endif
 
 #include "pipeline/local_exchange/local_exchanger.h"
 
@@ -504,3 +508,6 @@ void AdaptivePassthroughExchanger::close(LocalExchangeSourceLocalState& local_st
 }
 
 } // namespace doris::pipeline
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

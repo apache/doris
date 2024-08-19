@@ -134,7 +134,7 @@ public:
 
     ThreadPool* get_thread_pool() { return _thread_pool.get(); }
 
-    int32_t running_query_num() {
+    size_t running_query_num() {
         std::unique_lock<std::mutex> ctx_lock(_lock);
         return _query_ctx_map.size();
     }

@@ -25,6 +25,7 @@
 #include <map>
 #include <unordered_map>
 
+#include "common/cast_set.h"
 #include "util/hash_util.hpp"
 
 namespace doris {
@@ -32,7 +33,8 @@ namespace doris {
 // Hash function for TNetworkAddress. This function must be called hash_value to be picked
 // up properly by boost.
 inline std::size_t hash_value(const TNetworkAddress& host_port) {
-    uint32_t hash = HashUtil::hash(host_port.hostname.c_str(), host_port.hostname.length(), 0);
+    uint32_t hash = HashUtil::hash(host_port.hostname.c_str(),
+                                   cast_set<int32_t>(host_port.hostname.length()), 0);
     return HashUtil::hash(&host_port.port, sizeof(host_port.port), hash);
 }
 

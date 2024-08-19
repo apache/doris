@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "runtime/client_cache.h"
 #include "runtime/runtime_state.h"
@@ -57,8 +58,8 @@ protected:
         // In the insert statement, reading data in partition order can reduce the memory usage of BE
         // and prevent the generation of smaller tables.
         merged_ranges.resize(_max_scanners);
-        int num_ranges = scan_ranges.size() / _max_scanners;
-        int num_add_one = scan_ranges.size() - num_ranges * _max_scanners;
+        int64_t num_ranges = scan_ranges.size() / _max_scanners;
+        int64_t num_add_one = scan_ranges.size() - num_ranges * _max_scanners;
         int scan_index = 0;
         int range_index = 0;
         for (int i = 0; i < num_add_one; ++i) {
@@ -71,11 +72,11 @@ protected:
                 ranges.insert(ranges.end(), merged_ranges.begin(), merged_ranges.end());
             }
         }
-        for (int i = num_add_one; i < _max_scanners; ++i) {
+        for (int64_t i = num_add_one; i < _max_scanners; ++i) {
             merged_ranges[scan_index] = scan_ranges[range_index++];
             auto& ranges =
                     merged_ranges[scan_index++].scan_range.ext_scan_range.file_scan_range.ranges;
-            for (int j = 0; j < num_ranges - 1; j++) {
+            for (int64_t j = 0; j < num_ranges - 1; j++) {
                 auto& merged_ranges =
                         scan_ranges[range_index++].scan_range.ext_scan_range.file_scan_range.ranges;
                 ranges.insert(ranges.end(), merged_ranges.begin(), merged_ranges.end());
@@ -109,7 +110,7 @@ public:
 
     Status get_next(bool* has_next, TFileRangeDesc* range) override;
 
-    int num_scan_ranges() override { return _scan_ranges.size(); }
+    int num_scan_ranges() override { return cast_set<int>(_scan_ranges.size()); }
 
     TFileScanRangeParams* get_params() override {
         if (_scan_ranges.size() > 0 &&

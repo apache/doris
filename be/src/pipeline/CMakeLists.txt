@@ -32,3 +32,6 @@ add_library(Pipeline STATIC
 )
 
 pch_reuse(Pipeline)
+if (COMPILER_CLANG)
+   target_compile_options(Pipeline PRIVATE -Wshorten-64-to-32)
+endif ()

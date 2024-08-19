@@ -136,7 +136,7 @@ public:
         bool lhs_is_nullable = lhs_column->is_nullable();
         auto [lhs_data_column, lhs_null_map] =
                 _get_raw_data_and_null_map(lhs_column, lhs_is_nullable);
-        int filted = simd::count_zero_num((int8_t*)lhs_data_column, size);
+        auto filted = simd::count_zero_num((int8_t*)lhs_data_column, size);
         bool lhs_all_true = (filted == 0);
         bool lhs_all_false = (filted == size);
 
@@ -164,7 +164,7 @@ public:
                 auto rhs_nullable_column = _get_raw_data_and_null_map(rhs_column, rhs_is_nullable);
                 rhs_data_column = rhs_nullable_column.first;
                 rhs_null_map = rhs_nullable_column.second;
-                int filted = simd::count_zero_num((int8_t*)rhs_data_column, size);
+                auto filted = simd::count_zero_num((int8_t*)rhs_data_column, size);
                 rhs_all_true = (filted == 0);
                 rhs_all_false = (filted == size);
                 if (rhs_is_nullable) {
@@ -179,7 +179,7 @@ public:
             if (result_is_nullable && !res_column->is_nullable()) {
                 auto result_column =
                         ColumnNullable::create(res_column, ColumnUInt8::create(size, 0));
-                res_id = block->columns();
+                cast_set(res_id, block->columns());
                 block->insert({std::move(result_column), _data_type, _expr_name});
             }
             return res_id;
@@ -220,7 +220,7 @@ public:
                 }
             }
             auto result_column = ColumnNullable::create(std::move(col_res), std::move(col_nulls));
-            *result_column_id = block->columns();
+            cast_set(*result_column_id, block->columns());
             block->insert({std::move(result_column), _data_type, _expr_name});
         };
 

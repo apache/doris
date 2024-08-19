@@ -139,7 +139,7 @@ Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int col
 }
 
 Status VExprContext::filter_block(const VExprContextSPtrs& expr_contexts, Block* block,
-                                  int column_to_keep) {
+                                  int64_t column_to_keep) {
     if (expr_contexts.empty() || block->rows() == 0) {
         return Status::OK();
     }
@@ -313,7 +313,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, Block
 // need exception safety
 Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs& ctxs, Block* block,
                                                         std::vector<uint32_t>& columns_to_filter,
-                                                        int column_to_keep) {
+                                                        int64_t column_to_keep) {
     IColumn::Filter result_filter(block->rows(), 1);
     bool can_filter_all;
     RETURN_IF_ERROR(

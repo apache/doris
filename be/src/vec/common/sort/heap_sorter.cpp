@@ -38,7 +38,7 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris::vectorized {
-HeapSorter::HeapSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset,
+HeapSorter::HeapSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
                        ObjectPool* pool, std::vector<bool>& is_asc_order,
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc)
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),

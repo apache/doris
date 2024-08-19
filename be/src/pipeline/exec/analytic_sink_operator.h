@@ -53,7 +53,7 @@ private:
         return need_more_input;
     }
     BlockRowPos _get_partition_by_end();
-    BlockRowPos _compare_row_to_find_end(int idx, BlockRowPos start, BlockRowPos end,
+    BlockRowPos _compare_row_to_find_end(int64_t idx, BlockRowPos start, BlockRowPos end,
                                          bool need_check_first = false);
     bool _whether_need_next_partition(BlockRowPos& found_partition_end);
 

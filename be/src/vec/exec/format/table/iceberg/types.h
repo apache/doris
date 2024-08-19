@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/exception.h"
 
 namespace doris {
@@ -232,7 +233,7 @@ public:
 
     virtual std::string to_string() const override;
 
-    virtual int field_count() const override { return _fields.size(); }
+    int field_count() const override { return cast_set<int>(_fields.size()); }
 
     virtual Type* field_type(const std::string& field_name) override;
 

@@ -102,12 +102,16 @@ public:
     char* nullable_cell_ptr(uint32_t cid) const { return _fixed_buf + _schema->column_offset(cid); }
     char* cell_ptr(uint32_t cid) const { return _fixed_buf + _schema->column_offset(cid) + 1; }
 
-    bool is_null(size_t index) const { return *reinterpret_cast<bool*>(nullable_cell_ptr(index)); }
+    bool is_null(size_t index) const {
+        return *reinterpret_cast<bool*>(nullable_cell_ptr(cast_set<uint32_t>(index)));
+    }
 
-    void set_null(size_t index) const { *reinterpret_cast<bool*>(nullable_cell_ptr(index)) = true; }
+    void set_null(size_t index) const {
+        *reinterpret_cast<bool*>(nullable_cell_ptr(cast_set<uint32_t>(index))) = true;
+    }
 
     void set_not_null(size_t index) const {
-        *reinterpret_cast<bool*>(nullable_cell_ptr(index)) = false;
+        *reinterpret_cast<bool*>(nullable_cell_ptr(cast_set<uint32_t>(index))) = false;
     }
 
     size_t column_size(uint32_t cid) const { return _schema->column_size(cid); }

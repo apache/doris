@@ -36,7 +36,7 @@ public:
     using Parent = NestedLoopJoinProbeOperatorX;
     ENABLE_FACTORY_CREATOR(NestedLoopJoinProbeLocalState);
     NestedLoopJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent);
-    ~NestedLoopJoinProbeLocalState() = default;
+    ~NestedLoopJoinProbeLocalState() override = default;
 
     void add_tuple_is_null_column(vectorized::Block* block) override;
 #define CLEAR_BLOCK                                                  \
@@ -61,8 +61,9 @@ private:
                                    const vectorized::Block& now_process_build_block) const;
     template <typename Filter, bool SetBuildSideFlag, bool SetProbeSideFlag>
     void _do_filtering_and_update_visited_flags_impl(vectorized::Block* block, int column_to_keep,
-                                                     int build_block_idx, int processed_blocks_num,
-                                                     bool materialize, Filter& filter) {
+                                                     int64_t build_block_idx,
+                                                     int processed_blocks_num, bool materialize,
+                                                     Filter& filter) {
         if constexpr (SetBuildSideFlag) {
             for (size_t i = 0; i < processed_blocks_num; i++) {
                 auto& build_side_flag =
@@ -81,11 +82,11 @@ private:
             }
         }
         if constexpr (SetProbeSideFlag) {
-            int end = filter.size();
+            int64_t end = filter.size();
             for (int i = _left_block_pos == _child_block->rows() ? _left_block_pos - 1
                                                                  : _left_block_pos;
                  i >= _left_block_start_pos; i--) {
-                int offset = 0;
+                int64_t offset = 0;
                 if (!_probe_offset_stack.empty()) {
                     offset = _probe_offset_stack.top();
                     _probe_offset_stack.pop();
@@ -132,8 +133,8 @@ private:
             } else {
                 _do_filtering_and_update_visited_flags_impl<decltype(filter), SetBuildSideFlag,
                                                             SetProbeSideFlag>(
-                        block, column_to_keep, build_block_idx, processed_blocks_num, materialize,
-                        filter);
+                        block, cast_set<int>(column_to_keep), build_block_idx,
+                        cast_set<int>(processed_blocks_num), materialize, filter);
             }
         } else if (block->rows() > 0) {
             if constexpr (SetBuildSideFlag) {

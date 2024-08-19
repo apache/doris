@@ -99,12 +99,12 @@ void _close_task(PipelineTask* task, Status exec_status) {
 
 void TaskScheduler::_do_work(size_t index) {
     while (_markers[index]) {
-        auto* task = _task_queue->take(index);
+        auto* task = _task_queue->take(cast_set<int>(index));
         if (!task) {
             continue;
         }
         if (task->is_running()) {
-            static_cast<void>(_task_queue->push_back(task, index));
+            static_cast<void>(_task_queue->push_back(task, cast_set<int>(index)));
             continue;
         }
         task->log_detail_if_need();
@@ -153,7 +153,7 @@ void TaskScheduler::_do_work(size_t index) {
                 } else { status = task->execute(&eos); },
                 status);
 
-        task->set_previous_core_id(index);
+        task->set_previous_core_id(cast_set<int>(index));
 
         if (!status.ok()) {
             // Print detail informations below when you debugging here.

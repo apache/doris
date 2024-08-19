@@ -16,7 +16,10 @@
 // under the License.
 
 #pragma once
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshorten-64-to-32"
+#endif
 #include <gen_cpp/PaloInternalService_types.h>
 #include <glog/logging.h>
 #include <stddef.h>
@@ -1269,3 +1272,6 @@ struct ScanPredicate {
 };
 
 } // namespace doris
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

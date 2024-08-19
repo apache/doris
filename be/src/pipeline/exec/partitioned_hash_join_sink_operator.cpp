@@ -365,7 +365,7 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
 }
 
 void PartitionedHashJoinSinkLocalState::_spill_to_disk(
-        uint32_t partition_index, const vectorized::SpillStreamSPtr& spilling_stream) {
+        uint64_t partition_index, const vectorized::SpillStreamSPtr& spilling_stream) {
     auto& partitioned_block = _shared_state->partitioned_build_blocks[partition_index];
 
     if (_spill_status_ok) {

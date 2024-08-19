@@ -17,6 +17,7 @@
 
 #include "pipeline/common/runtime_filter_consumer.h"
 
+#include "common/cast_set.h"
 #include "pipeline/pipeline_task.h"
 
 namespace doris::pipeline {
@@ -48,10 +49,10 @@ void RuntimeFilterConsumer::_init_profile(RuntimeProfile* profile) {
 }
 
 Status RuntimeFilterConsumer::_register_runtime_filter(bool need_local_merge) {
-    int filter_size = _runtime_filter_descs.size();
+    int64_t filter_size = _runtime_filter_descs.size();
     _runtime_filter_ctxs.reserve(filter_size);
     _runtime_filter_ready_flag.reserve(filter_size);
-    for (int i = 0; i < filter_size; ++i) {
+    for (int64_t i = 0; i < filter_size; ++i) {
         std::shared_ptr<IRuntimeFilter> runtime_filter;
         const auto& filter_desc = _runtime_filter_descs[i];
         RETURN_IF_ERROR(_state->register_consumer_runtime_filter(filter_desc, need_local_merge,
@@ -139,7 +140,7 @@ Status RuntimeFilterConsumer::_append_rf_into_conjuncts(
 
 Status RuntimeFilterConsumer::try_append_late_arrival_runtime_filter(int* arrived_rf_num) {
     if (_is_all_rf_applied) {
-        *arrived_rf_num = _runtime_filter_descs.size();
+        cast_set(*arrived_rf_num, _runtime_filter_descs.size());
         return Status::OK();
     }
 
@@ -147,7 +148,7 @@ Status RuntimeFilterConsumer::try_append_late_arrival_runtime_filter(int* arrive
     // So need to add lock
     std::unique_lock l(_rf_locks);
     if (_is_all_rf_applied) {
-        *arrived_rf_num = _runtime_filter_descs.size();
+        cast_set(*arrived_rf_num, _runtime_filter_descs.size());
         return Status::OK();
     }
 

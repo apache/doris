@@ -80,7 +80,7 @@ public:
 
     PipelinePtr add_pipeline();
 
-    PipelinePtr add_pipeline(PipelinePtr parent, int idx = -1);
+    PipelinePtr add_pipeline(PipelinePtr parent, int64_t idx = -1);
 
     RuntimeState* get_runtime_state() { return _runtime_state.get(); }
 
@@ -165,19 +165,19 @@ private:
     Status _plan_local_exchange(int num_buckets,
                                 const std::map<int, int>& bucket_seq_to_instance_idx,
                                 const std::map<int, int>& shuffle_idx_to_instance_idx);
-    Status _plan_local_exchange(int num_buckets, int pip_idx, PipelinePtr pip,
+    Status _plan_local_exchange(int num_buckets, int64_t pip_idx, PipelinePtr pip,
                                 const std::map<int, int>& bucket_seq_to_instance_idx,
                                 const std::map<int, int>& shuffle_idx_to_instance_idx,
                                 const bool ignore_data_distribution);
     void _inherit_pipeline_properties(const DataDistribution& data_distribution,
                                       PipelinePtr pipe_with_source, PipelinePtr pipe_with_sink);
-    Status _add_local_exchange(int pip_idx, int idx, int node_id, ObjectPool* pool,
+    Status _add_local_exchange(int64_t pip_idx, int idx, int node_id, ObjectPool* pool,
                                PipelinePtr cur_pipe, DataDistribution data_distribution,
                                bool* do_local_exchange, int num_buckets,
                                const std::map<int, int>& bucket_seq_to_instance_idx,
                                const std::map<int, int>& shuffle_idx_to_instance_idx,
                                const bool ignore_data_distribution);
-    Status _add_local_exchange_impl(int idx, ObjectPool* pool, PipelinePtr cur_pipe,
+    Status _add_local_exchange_impl(int64_t idx, ObjectPool* pool, PipelinePtr cur_pipe,
                                     PipelinePtr new_pip, DataDistribution data_distribution,
                                     bool* do_local_exchange, int num_buckets,
                                     const std::map<int, int>& bucket_seq_to_instance_idx,

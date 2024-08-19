@@ -227,9 +227,9 @@ public:
                                   const VOlapTablePartition& partition) -> uint32_t {
                 if (partition.load_tablet_idx == -1) {
                     // for compatible with old version, just do random
-                    return butil::fast_rand() % partition.num_buckets;
+                    return cast_set<uint32_t>(butil::fast_rand() % partition.num_buckets);
                 }
-                return partition.load_tablet_idx % partition.num_buckets;
+                return cast_set<uint32_t>(partition.load_tablet_idx % partition.num_buckets);
             };
         }
 
@@ -242,7 +242,7 @@ public:
                 auto* partition = partitions[index];
                 if (auto it = partition_tablets_buffer->find(partition);
                     it != partition_tablets_buffer->end()) {
-                    tablet_indexes[index] = it->second; // tablet
+                    cast_set(tablet_indexes[index], it->second); // tablet
                 } else {
                     // compute and save in buffer
                     (*partition_tablets_buffer)[partition] = tablet_indexes[index] =

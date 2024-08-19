@@ -15,6 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshorten-64-to-32"
+#endif
+
 #include "exchange_sink_operator.h"
 
 #include <gen_cpp/DataSinks_types.h>
@@ -665,3 +670,6 @@ DataDistribution ExchangeSinkOperatorX::required_data_distribution() const {
 }
 
 } // namespace doris::pipeline
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

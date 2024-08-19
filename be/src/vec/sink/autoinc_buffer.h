@@ -18,6 +18,7 @@
 #pragma once
 #include <list>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
@@ -118,8 +119,8 @@ public:
 
     GlobalAutoIncBuffers() {
         static_cast<void>(ThreadPoolBuilder("AsyncFetchAutoIncIDExecutor")
-                                  .set_min_threads(config::auto_inc_fetch_thread_num)
-                                  .set_max_threads(config::auto_inc_fetch_thread_num)
+                                  .set_min_threads(cast_set<int>(config::auto_inc_fetch_thread_num))
+                                  .set_max_threads(cast_set<int>(config::auto_inc_fetch_thread_num))
                                   .set_max_queue_size(std::numeric_limits<int>::max())
                                   .build(&_fetch_autoinc_id_executor));
     }

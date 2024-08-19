@@ -21,6 +21,7 @@
 
 #include <utility>
 
+#include "common/cast_set.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
@@ -82,26 +83,26 @@ public:
         if (!_predicate->has_value()) {
             block->insert({create_always_true_column(block->rows(), _data_type->is_nullable()),
                            _data_type, _expr_name});
-            *result_column_id = block->columns() - 1;
+            *result_column_id = cast_set<int>(block->columns()) - 1;
             return Status::OK();
         }
 
         Field field = _predicate->get_value();
         auto column_ptr = _children[0]->data_type()->create_column_const(1, field);
         size_t row_size = std::max(block->rows(), column_ptr->size());
-        int topn_value_id = VExpr::insert_param(
+        size_t topn_value_id = VExpr::insert_param(
                 block, {column_ptr, _children[0]->data_type(), _expr_name}, row_size);
 
         int slot_id = -1;
         RETURN_IF_ERROR(_children[0]->execute(context, block, &slot_id));
 
-        std::vector<size_t> arguments = {(size_t)slot_id, (size_t)topn_value_id};
+        std::vector<size_t> arguments = {(size_t)slot_id, topn_value_id};
 
         size_t num_columns_without_result = block->columns();
         block->insert({nullptr, _data_type, _expr_name});
         RETURN_IF_ERROR(_function->execute(nullptr, *block, arguments, num_columns_without_result,
                                            block->rows(), false));
-        *result_column_id = num_columns_without_result;
+        cast_set(*result_column_id, num_columns_without_result);
 
         if (is_nullable() && _predicate->nulls_first()) {
             // null values ​​are always not filtered

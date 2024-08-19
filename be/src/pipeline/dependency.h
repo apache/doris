@@ -689,7 +689,7 @@ public:
     std::vector<vectorized::VExprContextSPtrs> child_exprs_lists;
 
     /// init in build side
-    int child_quantity;
+    int64_t child_quantity;
     vectorized::VExprContextSPtrs build_child_exprs;
     std::vector<Dependency*> probe_finished_children_dependency;
 

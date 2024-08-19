@@ -214,7 +214,7 @@ PipelinePtr PipelineFragmentContext::add_pipeline() {
     return pipeline;
 }
 
-PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
+PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int64_t idx) {
     // _prepared、_submitted, _canceled should do not add pipeline
     PipelineId id = _next_pipeline_id++;
     auto pipeline = std::make_shared<Pipeline>(
@@ -247,7 +247,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _prepare_all_pipelines_timer = ADD_TIMER(_runtime_profile, "PrepareAllPipelinesTime");
     {
         SCOPED_TIMER(_init_context_timer);
-        _num_instances = request.local_params.size();
+        cast_set(_num_instances, request.local_params.size());
         _total_instances =
                 request.__isset.total_instances ? request.total_instances : _num_instances;
 
@@ -358,11 +358,11 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 Status PipelineFragmentContext::_build_pipeline_tasks(
         const doris::TPipelineFragmentParams& request) {
     _total_tasks = 0;
-    int target_size = request.local_params.size();
+    int64_t target_size = request.local_params.size();
     _tasks.resize(target_size);
     auto pipeline_id_to_profile = _runtime_state->build_pipeline_profile(_pipelines.size());
 
-    for (size_t i = 0; i < target_size; i++) {
+    for (int64_t i = 0; i < target_size; i++) {
         const auto& local_params = request.local_params[i];
         auto fragment_instance_id = local_params.fragment_instance_id;
         _fragment_instance_ids.push_back(fragment_instance_id);
@@ -681,7 +681,7 @@ void PipelineFragmentContext::_inherit_pipeline_properties(
 }
 
 Status PipelineFragmentContext::_add_local_exchange_impl(
-        int idx, ObjectPool* pool, PipelinePtr cur_pipe, PipelinePtr new_pip,
+        int64_t idx, ObjectPool* pool, PipelinePtr cur_pipe, PipelinePtr new_pip,
         DataDistribution data_distribution, bool* do_local_exchange, int num_buckets,
         const std::map<int, int>& bucket_seq_to_instance_idx,
         const std::map<int, int>& shuffle_idx_to_instance_idx,
@@ -846,7 +846,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
 }
 
 Status PipelineFragmentContext::_add_local_exchange(
-        int pip_idx, int idx, int node_id, ObjectPool* pool, PipelinePtr cur_pipe,
+        int64_t pip_idx, int idx, int node_id, ObjectPool* pool, PipelinePtr cur_pipe,
         DataDistribution data_distribution, bool* do_local_exchange, int num_buckets,
         const std::map<int, int>& bucket_seq_to_instance_idx,
         const std::map<int, int>& shuffle_idx_to_instance_idx,
@@ -887,7 +887,7 @@ Status PipelineFragmentContext::_add_local_exchange(
 Status PipelineFragmentContext::_plan_local_exchange(
         int num_buckets, const std::map<int, int>& bucket_seq_to_instance_idx,
         const std::map<int, int>& shuffle_idx_to_instance_idx) {
-    for (int pip_idx = _pipelines.size() - 1; pip_idx >= 0; pip_idx--) {
+    for (int64_t pip_idx = _pipelines.size() - 1; pip_idx >= 0; pip_idx--) {
         _pipelines[pip_idx]->init_data_distribution();
         // Set property if child pipeline is not join operator's child.
         if (!_pipelines[pip_idx]->children().empty()) {
@@ -917,7 +917,7 @@ Status PipelineFragmentContext::_plan_local_exchange(
 }
 
 Status PipelineFragmentContext::_plan_local_exchange(
-        int num_buckets, int pip_idx, PipelinePtr pip,
+        int num_buckets, int64_t pip_idx, PipelinePtr pip,
         const std::map<int, int>& bucket_seq_to_instance_idx,
         const std::map<int, int>& shuffle_idx_to_instance_idx,
         const bool ignore_data_hash_distribution) {
@@ -1067,8 +1067,8 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         }
 
         _sink.reset(new MultiCastDataStreamSinkOperatorX(
-                sink_id, sources, thrift_sink.multi_cast_stream_sink.sinks.size(), pool,
-                thrift_sink.multi_cast_stream_sink, row_desc));
+                sink_id, sources, cast_set<int>(thrift_sink.multi_cast_stream_sink.sinks.size()),
+                pool, thrift_sink.multi_cast_stream_sink, row_desc));
         for (int i = 0; i < sender_size; ++i) {
             auto new_pipeline = add_pipeline();
             RowDescriptor* _row_desc = nullptr;

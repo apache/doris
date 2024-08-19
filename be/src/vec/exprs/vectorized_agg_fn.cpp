@@ -351,11 +351,11 @@ AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
     }
 }
 
-Status AggFnEvaluator::check_agg_fn_output(int key_size,
+Status AggFnEvaluator::check_agg_fn_output(int64_t key_size,
                                            const std::vector<vectorized::AggFnEvaluator*>& agg_fn,
                                            const RowDescriptor& output_row_desc) {
     auto name_and_types = VectorizedUtils::create_name_and_data_types(output_row_desc);
-    for (int i = key_size, j = 0; i < name_and_types.size(); i++, j++) {
+    for (int64_t i = key_size, j = 0; i < name_and_types.size(); i++, j++) {
         auto&& [name, column_type] = name_and_types[i];
         auto agg_return_type = agg_fn[j]->function()->get_return_type();
         if (!column_type->equals(*agg_return_type)) {

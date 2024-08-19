@@ -198,7 +198,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
         }
     }
 
-    int rows = in_block->rows();
+    auto rows = in_block->rows();
     _distinct_row.clear();
     _distinct_row.reserve(rows);
 
@@ -376,8 +376,8 @@ Status DistinctStreamingAggOperatorX::prepare(RuntimeState* state) {
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child_x->row_desc()));
 
-    int j = _probe_expr_ctxs.size();
-    for (int i = 0; i < j; ++i) {
+    int64_t j = _probe_expr_ctxs.size();
+    for (int64_t i = 0; i < j; ++i) {
         auto nullable_output = _output_tuple_desc->slots()[i]->is_nullable();
         auto nullable_input = _probe_expr_ctxs[i]->root()->is_nullable();
         if (nullable_output != nullable_input) {

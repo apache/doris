@@ -21,6 +21,7 @@
 
 #include <memory>
 
+#include "common/cast_set.h"
 #include "pipeline/exec/operator.h"
 #include "vec/common/hash_table/hash_table_set_probe.h"
 
@@ -83,7 +84,7 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
                     using HashTableCtxType = std::decay_t<decltype(arg)>;
                     if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                         vectorized::HashTableProbe<HashTableCtxType, is_intersect>
-                                process_hashtable_ctx(&local_state, probe_rows);
+                                process_hashtable_ctx(&local_state, cast_set<int>(probe_rows));
                         return process_hashtable_ctx.mark_data_in_hashtable(arg);
                     } else {
                         LOG(FATAL) << "FATAL: uninited hash table";

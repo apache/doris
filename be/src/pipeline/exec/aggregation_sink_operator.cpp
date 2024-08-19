@@ -270,7 +270,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
     for (size_t i = 0; i < key_size; ++i) {
         if constexpr (for_spill) {
             key_columns[i] = block->get_by_position(i).column.get();
-            key_locs[i] = i;
+            cast_set(key_locs[i], i);
         } else {
             int& result_column_id = key_locs[i];
             RETURN_IF_ERROR(
@@ -280,7 +280,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
         }
     }
 
-    int rows = block->rows();
+    size_t rows = block->rows();
     if (_places.size() < rows) {
         _places.resize(rows);
     }
@@ -337,7 +337,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
         if (need_do_agg) {
             for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
                 if (Base::_shared_state->aggregate_evaluators[i]->is_merge() || for_spill) {
-                    int col_id = 0;
+                    size_t col_id = 0;
                     if constexpr (for_spill) {
                         col_id = Base::_shared_state->probe_expr_ctxs.size() + i;
                     } else {
@@ -460,7 +460,7 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
         }
     }
 
-    int rows = block->rows();
+    const size_t rows = block->rows();
     if (_places.size() < rows) {
         _places.resize(rows);
     }
@@ -757,10 +757,10 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
         const auto& agg_sort_info = tnode.agg_node.agg_sort_info_by_group_key;
         DCHECK_EQ(agg_sort_info.nulls_first.size(), agg_sort_info.is_asc_order.size());
 
-        const int order_by_key_size = agg_sort_info.is_asc_order.size();
+        const int64_t order_by_key_size = agg_sort_info.is_asc_order.size();
         _order_directions.resize(order_by_key_size);
         _null_directions.resize(order_by_key_size);
-        for (int i = 0; i < order_by_key_size; ++i) {
+        for (int64_t i = 0; i < order_by_key_size; ++i) {
             _order_directions[i] = agg_sort_info.is_asc_order[i] ? 1 : -1;
             _null_directions[i] =
                     agg_sort_info.nulls_first[i] ? -_order_directions[i] : _order_directions[i];
@@ -777,8 +777,8 @@ Status AggSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(vectorized::VExpr::prepare(
             _probe_expr_ctxs, state, DataSinkOperatorX<AggSinkLocalState>::_child_x->row_desc()));
 
-    int j = _probe_expr_ctxs.size();
-    for (int i = 0; i < j; ++i) {
+    int64_t j = _probe_expr_ctxs.size();
+    for (int64_t i = 0; i < j; ++i) {
         auto nullable_output = _output_tuple_desc->slots()[i]->is_nullable();
         auto nullable_input = _probe_expr_ctxs[i]->root()->is_nullable();
         if (nullable_output != nullable_input) {

@@ -290,7 +290,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
                         using HashTableCtxType = std::decay_t<decltype(arg)>;
                         using JoinOpType = std::decay_t<decltype(join_op)>;
                         ProcessHashTableBuild<HashTableCtxType> hash_table_build_process(
-                                rows, raw_ptrs, this, state->batch_size(), state);
+                                cast_set<int>(rows), raw_ptrs, this, state->batch_size(), state);
                         auto old_hash_table_size = arg.hash_table->get_byte_size();
                         auto old_key_size = arg.serialized_keys_size(true);
                         auto st = hash_table_build_process.template run<

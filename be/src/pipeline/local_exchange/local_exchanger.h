@@ -16,6 +16,10 @@
 // under the License.
 
 #pragma once
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshorten-64-to-32"
+#endif
 
 #include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
@@ -356,3 +360,7 @@ private:
 };
 
 } // namespace doris::pipeline
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

@@ -19,6 +19,7 @@
 
 #include <memory>
 
+#include "common/cast_set.h"
 #include "pipeline/exec/operator.h"
 #include "vec/common/hash_table/hash_table_set_build.h"
 #include "vec/core/materialize_block.h"
@@ -93,7 +94,8 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     vectorized::HashTableBuild<HashTableCtxType, is_intersect>
-                            hash_table_build_process(&local_state, rows, raw_ptrs, state);
+                            hash_table_build_process(&local_state, cast_set<int>(rows), raw_ptrs,
+                                                     state);
                     static_cast<void>(hash_table_build_process(arg, local_state._arena));
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
@@ -136,7 +138,7 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
             auto column_ptr = make_nullable(block.get_by_position(result_col_id).column, false);
             block.insert(
                     {column_ptr, make_nullable(block.get_by_position(result_col_id).type), ""});
-            result_col_id = block.columns() - 1;
+            result_col_id = cast_set<int>(block.columns()) - 1;
         }
 
         raw_ptrs[i] = block.get_by_position(result_col_id).column.get();

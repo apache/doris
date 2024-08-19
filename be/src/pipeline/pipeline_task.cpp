@@ -102,7 +102,7 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
     query_ctx->register_query_statistics(
             _state->get_sink_local_state()->get_query_statistics_ptr());
 
-    for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
+    for (int64_t op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& op = _operators[op_idx];
         LocalStateInfo info {parent_profile, _scan_ranges, get_op_shared_state(op->operator_id()),
                              _le_state_map, _task_idx};
@@ -244,7 +244,7 @@ bool PipelineTask::_wait_to_start() {
 bool PipelineTask::_is_blocked() {
     // `_dry_run = true` means we do not need data from source operator.
     if (!_dry_run) {
-        for (int i = _read_dependencies.size() - 1; i >= 0; i--) {
+        for (int64_t i = _read_dependencies.size() - 1; i >= 0; i--) {
             // `_read_dependencies` is organized according to operators. For each operator, running condition is met iff all dependencies are ready.
             for (auto* dep : _read_dependencies[i]) {
                 _blocked_dep = dep->is_blocked_by(this);
@@ -487,40 +487,41 @@ std::string PipelineTask::debug_string() {
                    (void*)this, _index, _opened, _eos, _finalized, _dry_run, elapsed,
                    cur_blocked_dep && !_finalized ? cur_blocked_dep->debug_string() : "NULL",
                    is_running());
-    for (size_t i = 0; i < _operators.size(); i++) {
+    for (int i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}",
                        _opened && !_finalized ? _operators[i]->debug_string(_state, i)
                                               : _operators[i]->debug_string(i));
     }
     fmt::format_to(debug_string_buffer, "\n{}\n",
-                   _opened && !_finalized ? _sink->debug_string(_state, _operators.size())
-                                          : _sink->debug_string(_operators.size()));
+                   _opened && !_finalized
+                           ? _sink->debug_string(_state, cast_set<int>(_operators.size()))
+                           : _sink->debug_string(cast_set<int>(_operators.size())));
     if (_finalized) {
         return fmt::to_string(debug_string_buffer);
     }
 
-    size_t i = 0;
+    int i = 0;
     for (; i < _read_dependencies.size(); i++) {
-        for (size_t j = 0; j < _read_dependencies[i].size(); j++) {
+        for (int j = 0; j < _read_dependencies[i].size(); j++) {
             fmt::format_to(debug_string_buffer, "{}. {}\n", i,
                            _read_dependencies[i][j]->debug_string(i + 1));
         }
     }
 
     fmt::format_to(debug_string_buffer, "Write Dependency Information: \n");
-    for (size_t j = 0; j < _write_dependencies.size(); j++, i++) {
+    for (int j = 0; j < _write_dependencies.size(); j++, i++) {
         fmt::format_to(debug_string_buffer, "{}. {}\n", i,
                        _write_dependencies[j]->debug_string(i + 1));
     }
 
     fmt::format_to(debug_string_buffer, "\nRuntime Filter Dependency Information: \n");
-    for (size_t j = 0; j < _filter_dependencies.size(); j++, i++) {
+    for (int j = 0; j < _filter_dependencies.size(); j++, i++) {
         fmt::format_to(debug_string_buffer, "{}. {}\n", i,
                        _filter_dependencies[j]->debug_string(i + 1));
     }
 
     fmt::format_to(debug_string_buffer, "Finish Dependency Information: \n");
-    for (size_t j = 0; j < _finish_dependencies.size(); j++, i++) {
+    for (int j = 0; j < _finish_dependencies.size(); j++, i++) {
         fmt::format_to(debug_string_buffer, "{}. {}\n", i,
                        _finish_dependencies[j]->debug_string(j + 1));
     }

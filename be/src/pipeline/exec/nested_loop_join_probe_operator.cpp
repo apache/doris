@@ -237,7 +237,7 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(vectorized::Block& b
 
             std::vector<uint32_t> selector(num_rows);
             size_t selector_idx = 0;
-            for (size_t j = 0; j < num_rows; j++) {
+            for (uint32_t j = 0; j < num_rows; j++) {
                 if constexpr (IsSemi) {
                     if (cur_visited_flags[j]) {
                         selector[selector_idx++] = j;
@@ -375,7 +375,7 @@ void NestedLoopJoinProbeLocalState::_process_left_child_block(
         vectorized::Block& block, const vectorized::Block& now_process_build_block) const {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
     auto dst_columns = block.mutate_columns();
-    const int max_added_rows = now_process_build_block.rows();
+    const int64_t max_added_rows = now_process_build_block.rows();
     for (size_t i = 0; i < p._num_probe_side_columns; ++i) {
         const vectorized::ColumnWithTypeAndName& src_column = _child_block->get_by_position(i);
         if (!src_column.column->is_nullable() && dst_columns[i]->is_nullable()) {
