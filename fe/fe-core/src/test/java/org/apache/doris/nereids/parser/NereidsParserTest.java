@@ -430,7 +430,7 @@ public class NereidsParserTest extends ParserTestBase {
 
         sql = "use a";
         plan = nereidsParser.parseSingle(sql);
-        Assertions.assertEquals(plan.stmtType(), StmtType.OTHER);
+        Assertions.assertEquals(plan.stmtType(), StmtType.USE);
 
         sql = "CREATE TABLE tbl (`id` INT NOT NULL) DISTRIBUTED BY HASH(`id`) BUCKETS 1";
         plan = nereidsParser.parseSingle(sql);
