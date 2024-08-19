@@ -115,8 +115,8 @@ public class CreateStageStmt extends DdlStmt implements NotFallbackInParser {
             LOG.warn("Failed to access object storage, proto={}, err={}",
                     stageProperties.getObjectStoreInfoPB(), e.toString());
             String msg;
-            if (e instanceof UserException ue) {
-                msg = ue.getDetailMessage();
+            if (e instanceof UserException) {
+                msg = ((UserException) e).getDetailMessage();
             } else {
                 msg = e.getMessage();
             }

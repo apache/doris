@@ -609,8 +609,8 @@ public class LoadStmt extends DdlStmt {
         } catch (Exception e) {
             LOG.warn("Failed to connect endpoint={}, err={}", endpoint, e);
             String msg;
-            if (e instanceof UserException ue) {
-                msg = ue.getDetailMessage();
+            if (e instanceof UserException) {
+                msg = ((UserException) e).getDetailMessage();
             } else {
                 msg = e.getMessage();
             }
@@ -682,8 +682,8 @@ public class LoadStmt extends DdlStmt {
         } catch (Exception e) {
             LOG.warn("Failed to access object storage, file={}, proto={}, err={}", curFile, objectInfo, e.toString());
             String msg;
-            if (e instanceof UserException ue) {
-                msg = ue.getDetailMessage();
+            if (e instanceof UserException) {
+                msg = ((UserException) e).getDetailMessage();
             } else {
                 msg = e.getMessage();
             }
