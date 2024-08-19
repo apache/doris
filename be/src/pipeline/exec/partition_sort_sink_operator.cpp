@@ -119,6 +119,8 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
             &_vsort_exec_exprs, p._limit, 0, p._pool, p._is_asc_order, p._nulls_first,
             p._child->row_desc(), state, _profile, p._has_global_limit, p._partition_inner_limit,
             p._top_n_algorithm, p._topn_phase);
+    _profile->add_info_string("PartitionTopNPhase", to_string(p._topn_phase));
+    _profile->add_info_string("PartitionTopNLimit", std::to_string(p._partition_inner_limit));
     RETURN_IF_ERROR(_init_hash_method());
     return Status::OK();
 }
