@@ -27,12 +27,11 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/io/io_helper.h"
 
-// TODO: 添加upper和lower
-// TODO: pre_sum修改为acc_count
-// TODO: 避免深拷贝string
-// TODO: 支持时间类型
+// TODO: count=0输出优化
 // TODO: 完善单元测试
 // TODO: 端到端测试
+// TODO: offset优化 [0, interval)
+// TODO: 支持时间类型
 
 namespace doris::vectorized {
 
@@ -46,6 +45,8 @@ private:
     // influxdb use double
     double interval;
     double offset;
+    double lower; // not used yet
+    double upper; // not used yet
     std::map<int32_t, size_t> buckets;
 
 public:
@@ -87,6 +88,8 @@ public:
     void write(BufferWritable& buf) const {
         write_binary(offset, buf);
         write_binary(interval, buf);
+        write_binary(lower, buf);
+        write_binary(upper, buf);
         write_binary(buckets.size(), buf);
         for (const auto& [key, count] : buckets) {
             write_binary(key, buf);
@@ -98,6 +101,8 @@ public:
     void read(BufferReadable& buf) {
         read_binary(offset, buf);
         read_binary(interval, buf);
+        read_binary(lower, buf);
+        read_binary(upper, buf);
         size_t size;
         read_binary(size, buf);
         for (size_t i = 0; i < size; i++) {
@@ -124,33 +129,27 @@ public:
         doc.SetObject();
         rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
 
-        unsigned num_buckets = buckets.empty() ? 0 : buckets.rbegin()->first + 1;
+        unsigned num_buckets = buckets.empty() ? 0 : buckets.rbegin()->first - buckets.begin()->first + 1;
         doc.AddMember("num_buckets", num_buckets, allocator);
 
         rapidjson::Value bucket_arr(rapidjson::kArrayType);
         bucket_arr.Reserve(num_buckets, allocator);
 
-        unsigned idx = 0;
-        auto data_type = std::make_shared<DataTypeFloat64>();
-        double left = offset;
-        std::string left_str = data_type->to_string(left);
+        int32_t idx = buckets.begin()->first;
+        double left = buckets.begin()->first * interval + offset;
         size_t count = 0;
-        size_t pre_sum = 0;
-        rapidjson::Value buf;     
+        size_t acc_count = 0;
 
         for (const auto& [key, count_] : buckets) {
             for (; idx <= key; ++idx) {
                 rapidjson::Value bucket_json(rapidjson::kObjectType);
-                buf.SetString(left_str.data(), static_cast<rapidjson::SizeType>(left_str.size()), allocator);
-                bucket_json.AddMember("lower", buf, allocator);
+                bucket_json.AddMember("lower", left, allocator);
                 left += interval;
-                left_str = data_type->to_string(left);
-                buf.SetString(left_str.data(), static_cast<rapidjson::SizeType>(left_str.size()), allocator);
-                bucket_json.AddMember("upper", buf, allocator);
+                bucket_json.AddMember("upper", left, allocator);
                 count = (idx == key) ? count_ : 0;
                 bucket_json.AddMember("count", count, allocator);
-                bucket_json.AddMember("pre_sum", pre_sum, allocator);
-                pre_sum += count;
+                acc_count += count;
+                bucket_json.AddMember("acc_count", acc_count, allocator);
 
                 bucket_arr.PushBack(bucket_json, allocator);
             }
@@ -161,10 +160,9 @@ public:
         rapidjson::StringBuffer buffer;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         doc.Accept(writer);
-        auto res = std::string(buffer.GetString());
 
         auto& column = assert_cast<ColumnString&>(to);
-        column.insert_data(res.c_str(), res.length());
+        column.insert_data(buffer.GetString(), buffer.GetSize());
     }
 };
 
