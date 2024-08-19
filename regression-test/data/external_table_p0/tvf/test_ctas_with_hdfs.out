@@ -99,13 +99,13 @@ date_col	date	Yes	false	\N	NONE
 decimal_col	decimal(12,4)	Yes	false	\N	NONE
 double_col	double	Yes	false	\N	NONE
 float_col	float	Yes	false	\N	NONE
-int_col	int	Yes	true	\N
+int_col	int	Yes	true	\N	
 list_double_col	array<double>	Yes	false	\N	NONE
 list_string_col	array<text>	Yes	false	\N	NONE
-smallint_col	smallint	Yes	true	\N
+smallint_col	smallint	Yes	true	\N	
 string_col	text	Yes	false	\N	NONE
 timestamp_col	datetime(6)	Yes	false	\N	NONE
-tinyint_col	tinyint	Yes	true	\N
+tinyint_col	tinyint	Yes	true	\N	
 varchar_col	text	Yes	false	\N	NONE
 
 -- !select_2 --
