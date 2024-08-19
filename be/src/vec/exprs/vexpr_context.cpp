@@ -135,7 +135,8 @@ Status VExprContext::evaluate_inverted_index(const VExprContextSPtrs& conjuncts,
                                              uint32_t segment_num_rows) {
     for (const auto& conjunct : conjuncts) {
         if (conjunct->evaluate_inverted_index(segment_num_rows) != Status::OK()) {
-            return Status::InternalError("evaluate inverted index failed");
+            return Status::InternalError("expr {} evaluate inverted index failed",
+                                         conjunct->_root->expr_name());
         }
     }
     return Status::OK();
