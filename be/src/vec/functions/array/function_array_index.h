@@ -179,17 +179,14 @@ public:
                         roaring->cardinality(), result_bitmap);
             }
         })
+        std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
         if (iter->has_null()) {
             segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
             RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
-            std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
-            segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
-            bitmap_result = result;
-        } else {
-            std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-            segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
-            bitmap_result = result;
+            null_bitmap = null_bitmap_cache_handle.get_bitmap();
         }
+        segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+        bitmap_result = result;
 
         return Status::OK();
     }

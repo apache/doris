@@ -141,6 +141,8 @@ public:
             segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
+        std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
+
         if (iter == nullptr) {
             return Status::OK();
         }
@@ -149,15 +151,23 @@ public:
             //NOT support in list when parser is FULLTEXT for expr inverted index evaluate.
             return Status::OK();
         }
+        if (iter->has_null()) {
+            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
+            null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        }
         std::string column_name = data_type_with_name.first;
-        //NOTE: maybe we got NULL process problem here, need to figure it out.
         for (const auto& arg : arguments) {
             Field param_value;
             arg.column->get(0, param_value);
             auto param_type = arg.type->get_type_as_type_descriptor().type;
-            // predicate like column NOT IN (NULL, '') should not push down to index.
-            if (negative && param_value.is_null()) {
-                return Status::OK();
+            if (param_value.is_null()) {
+                // predicate like column NOT IN (NULL, '') should not push down to index.
+                if (negative) {
+                    return Status::OK();
+                }
+                *roaring |= *null_bitmap;
+                continue;
             }
             std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
             RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
@@ -168,19 +178,8 @@ public:
                                                            query_type, num_rows, index));
             *roaring |= *index;
         }
-
-        if (iter->has_null()) {
-            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-            RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
-            std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
-            segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
-            bitmap_result = result;
-        } else {
-            std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-            segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
-            bitmap_result = result;
-        }
-
+        segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+        bitmap_result = result;
         if constexpr (negative) {
             roaring::Roaring full_result;
             full_result.addRange(0, num_rows);
