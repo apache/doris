@@ -1895,8 +1895,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 } else if (isCleanTables) {
                     // otherwise drop the entire table.
                     LOG.info("drop non restored table {}({}). {}", tableName, tableId, this);
+                    boolean isView = false;
                     boolean isForceDrop = false; // move this table into recyclebin.
-                    env.getInternalCatalog().dropTableWithoutCheck(db, table, isForceDrop);
+                    env.getInternalCatalog().dropTableWithoutCheck(db, table, isView, isForceDrop);
                 }
             }
             return Status.OK;
