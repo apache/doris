@@ -196,37 +196,80 @@ public class PointQueryExecutor implements CoordInterface {
                         .getMysqlChannel(), null, null);
     }
 
-    private static void updateScanNodeConjuncts(OlapScanNode scanNode, List<Expr> conjunctVals) {
-        for (int i = 0; i < conjunctVals.size(); ++i) {
-            Expr expr = scanNode.getConjuncts().get(i);
-            if (expr instanceof InPredicate) {
-                InPredicate inPredicate = (InPredicate) expr;
-                if (inPredicate.isNotIn()) {
-                    throw new AnalysisException("Not support NOT IN predicate in point query");
-                }
-                // if (inPredicate.getChild(0) instanceof LiteralExpr) {   // seems not necessary
-                //     inPredicate.setChild(0, conjunctVals.get(i));
-                // }
-                for (int j = 1; j < inPredicate.getChildren().size(); ++j) {
-                    if (inPredicate.getChild(j) instanceof LiteralExpr) {
-                        inPredicate.setChild(j, conjunctVals.get(i + j - 1));
-                    } else {
-                        Preconditions.checkState(false, "Should conatains literal in " + inPredicate.toSqlImpl());
-                    }
-                }
-            } else if (expr instanceof BinaryPredicate) {
-                BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
-                if (binaryPredicate.getChild(0) instanceof LiteralExpr) {
-                    binaryPredicate.setChild(0, conjunctVals.get(i));
-                } else if (binaryPredicate.getChild(1) instanceof LiteralExpr) {
-                    binaryPredicate.setChild(1, conjunctVals.get(i));
+    /*
+     * Interface for handling different conjunct types
+     */
+    private interface ConjunctHandler {
+        int handle(Expr expr, List<Expr> conjunctVals, int conjunctValsBegin) throws AnalysisException;
+    }
+
+    private static class InPredicateHandler implements ConjunctHandler {
+        @Override
+        public int handle(Expr expr, List<Expr> conjunctVals, int conjunctValsBegin) throws AnalysisException {
+            InPredicate inPredicate = (InPredicate) expr;
+            if (inPredicate.isNotIn()) {
+                throw new AnalysisException("Not support NOT IN predicate in point query");
+            }
+            for (int j = 1; j < inPredicate.getChildren().size(); ++j) {
+                if (inPredicate.getChild(j) instanceof LiteralExpr) {
+                    inPredicate.setChild(j, conjunctVals.get(conjunctValsBegin++));
                 } else {
-                    Preconditions.checkState(false, "Should conatains literal in " + binaryPredicate.toSqlImpl());
+                    Preconditions.checkState(false, "Should contains literal in " + inPredicate.toSqlImpl());
                 }
+            }
+            return conjunctValsBegin;
+        }
+    }
+
+    private static class BinaryPredicateHandler implements ConjunctHandler {
+        @Override
+        public int handle(Expr expr, List<Expr> conjunctVals, int conjunctValsBegin) throws AnalysisException {
+            BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
+            Expr left = binaryPredicate.getChild(0);
+            Expr right = binaryPredicate.getChild(1);
+
+            if (isDeleteSign(left) || isDeleteSign(right)) {
+                return conjunctValsBegin;
+            }
+
+            if (isLiteralExpr(left)) {
+                binaryPredicate.setChild(0, conjunctVals.get(conjunctValsBegin++));
+            } else if (isLiteralExpr(right)) {
+                binaryPredicate.setChild(1, conjunctVals.get(conjunctValsBegin++));
             } else {
+                Preconditions.checkState(false, "Should contains literal in " + binaryPredicate.toSqlImpl());
+            }
+            return conjunctValsBegin;
+        }
+
+        private boolean isLiteralExpr(Expr expr) {
+            return expr instanceof LiteralExpr;
+        }
+
+        private boolean isDeleteSign(Expr expr) {
+            return expr instanceof SlotRef && ((SlotRef) expr).getColumnName().equalsIgnoreCase(Column.DELETE_SIGN);
+        }
+    }
+
+    /*
+     * a in (?,?,?,?) and b in (?,?,?)
+     * conjunctVals: [1, 2, 3, 4, 5, 6, 7]
+     */
+    private static void updateScanNodeConjuncts(OlapScanNode scanNode, List<Expr> conjunctVals) {
+        List<Expr> conjuncts = scanNode.getConjuncts();
+        Map<Class<? extends Expr>, ConjunctHandler> handlers = Maps.newHashMap();
+        handlers.put(InPredicate.class, new InPredicateHandler());
+        handlers.put(BinaryPredicate.class, new BinaryPredicateHandler());
+        int conjunctValsBegin = 0;
+        for (Expr expr : conjuncts) {
+            ConjunctHandler handler = handlers.get(expr.getClass());
+            if (handler == null) {
                 throw new AnalysisException("Not support conjunct type " + expr.getClass().getName());
             }
+            conjunctValsBegin = handler.handle(expr, conjunctVals, conjunctValsBegin);
         }
+
+        Preconditions.checkState(conjunctValsBegin == conjunctVals.size());
     }
 
     public static byte[] appendBytes(byte[] original, byte[] toAppend) {
