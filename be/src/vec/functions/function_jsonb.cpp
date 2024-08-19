@@ -254,8 +254,6 @@ public:
                                     (size_t)parser.getWriter().getOutput()->getSize());
             } else {
                 error = parser.getErrorCode();
-                LOG(WARNING) << "json parse error: " << JsonbErrMsg::getErrMsg(error)
-                             << " for value: " << std::string_view(val.data, val.size);
 
                 switch (parse_error_handle_mode) {
                 case JsonbParseErrorMode::FAIL:

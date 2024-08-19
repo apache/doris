@@ -162,7 +162,8 @@ void ColumnVector<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
                                        uint8* __restrict filter) const {
     const auto sz = data.size();
     DCHECK(cmp_res.size() == sz);
-    const auto& cmp_base = assert_cast<const ColumnVector<T>&>(rhs).get_data()[rhs_row_id];
+    const auto& cmp_base = assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(rhs)
+                                   .get_data()[rhs_row_id];
     size_t begin = simd::find_zero(cmp_res, 0);
     while (begin < sz) {
         size_t end = simd::find_one(cmp_res, begin + 1);
@@ -255,7 +256,8 @@ void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direct
 
     if (s == 0) return;
 
-    if (limit >= s) limit = 0;
+    // std::partial_sort need limit << s can get performance benefit
+    if (limit > (s / 8.0)) limit = 0;
 
     if (limit) {
         for (size_t i = 0; i < s; ++i) res[i] = i;
@@ -404,20 +406,19 @@ ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_si
         *  completely pass or do not pass the filter.
         * Therefore, we will optimistically check the parts of `SIMD_BYTES` values.
         */
-    static constexpr size_t SIMD_BYTES = 32;
+    static constexpr size_t SIMD_BYTES = simd::bits_mask_length();
     const UInt8* filt_end_sse = filt_pos + size / SIMD_BYTES * SIMD_BYTES;
 
     while (filt_pos < filt_end_sse) {
-        uint32_t mask = simd::bytes32_mask_to_bits32_mask(filt_pos);
-
-        if (0xFFFFFFFF == mask) {
+        auto mask = simd::bytes_mask_to_bits_mask(filt_pos);
+        if (0 == mask) {
+            //pass
+        } else if (simd::bits_mask_all() == mask) {
             res_data.insert(data_pos, data_pos + SIMD_BYTES);
         } else {
-            while (mask) {
-                const size_t idx = __builtin_ctzll(mask);
-                res_data.push_back_without_reserve(data_pos[idx]);
-                mask = mask & (mask - 1);
-            }
+            simd::iterate_through_bits_mask(
+                    [&](const size_t idx) { res_data.push_back_without_reserve(data_pos[idx]); },
+                    mask);
         }
 
         filt_pos += SIMD_BYTES;
@@ -451,22 +452,23 @@ size_t ColumnVector<T>::filter(const IColumn::Filter& filter) {
         *  completely pass or do not pass the filter.
         * Therefore, we will optimistically check the parts of `SIMD_BYTES` values.
         */
-    static constexpr size_t SIMD_BYTES = 32;
+    static constexpr size_t SIMD_BYTES = simd::bits_mask_length();
     const UInt8* filter_end_sse = filter_pos + size / SIMD_BYTES * SIMD_BYTES;
 
     while (filter_pos < filter_end_sse) {
-        uint32_t mask = simd::bytes32_mask_to_bits32_mask(filter_pos);
-
-        if (0xFFFFFFFF == mask) {
+        auto mask = simd::bytes_mask_to_bits_mask(filter_pos);
+        if (0 == mask) {
+            //pass
+        } else if (simd::bits_mask_all() == mask) {
             memmove(result_data, data_pos, sizeof(T) * SIMD_BYTES);
             result_data += SIMD_BYTES;
         } else {
-            while (mask) {
-                const size_t idx = __builtin_ctzll(mask);
-                *result_data = data_pos[idx];
-                ++result_data;
-                mask = mask & (mask - 1);
-            }
+            simd::iterate_through_bits_mask(
+                    [&](const size_t idx) {
+                        *result_data = data_pos[idx];
+                        ++result_data;
+                    },
+                    mask);
         }
 
         filter_pos += SIMD_BYTES;

@@ -197,9 +197,6 @@ Status Compaction::merge_input_rowsets() {
     _tablet->last_compaction_status = res;
 
     if (!res.ok()) {
-        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
-                     << ", tablet=" << _tablet->tablet_id()
-                     << ", output_version=" << _output_version;
         return res;
     }
 
@@ -352,7 +349,9 @@ bool CompactionMixin::handle_ordered_data_compaction() {
 
     // check delete version: if compaction type is base compaction and
     // has a delete version, use original compaction
-    if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
+    if (compaction_type() == ReaderType::READER_BASE_COMPACTION ||
+        (_allow_delete_in_cumu_compaction &&
+         compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION)) {
         for (auto& rowset : _input_rowsets) {
             if (rowset->rowset_meta()->has_delete_predicate()) {
                 return false;
@@ -510,8 +509,8 @@ Status Compaction::do_inverted_index_compaction() {
             } else {
                 DCHECK(false) << err_msg;
             }
+            // log here just for debugging, do not return error
             LOG(WARNING) << err_msg;
-            return Status::InternalError(err_msg);
         }
     }
 
@@ -687,6 +686,9 @@ Status Compaction::do_inverted_index_compaction() {
                        << st;
             return st;
         }
+        for (const auto& writer : inverted_index_file_writers) {
+            writer->set_file_writer_opts(ctx.get_file_writer_options());
+        }
     }
 
     // use tmp file dir to store index files
@@ -761,15 +763,17 @@ Status Compaction::do_inverted_index_compaction() {
         }
     }
 
+    std::vector<InvertedIndexFileInfo> all_inverted_index_file_info(dest_segment_num);
     uint64_t inverted_index_file_size = 0;
     for (int seg_id = 0; seg_id < dest_segment_num; ++seg_id) {
         auto inverted_index_file_writer = inverted_index_file_writers[seg_id].get();
         if (Status st = inverted_index_file_writer->close(); !st.ok()) {
             status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
         } else {
-            inverted_index_file_size += inverted_index_file_writer->get_index_file_size();
+            inverted_index_file_size += inverted_index_file_writer->get_index_file_total_size();
             inverted_index_file_size -= compacted_idx_file_size[seg_id];
         }
+        all_inverted_index_file_info[seg_id] = inverted_index_file_writer->get_index_file_info();
     }
     // check index compaction status. If status is not ok, we should return error and end this compaction round.
     if (!status.ok()) {
@@ -784,6 +788,7 @@ Status Compaction::do_inverted_index_compaction() {
     _output_rowset->rowset_meta()->set_index_disk_size(_output_rowset->index_disk_size() +
                                                        inverted_index_file_size);
 
+    _output_rowset->rowset_meta()->update_inverted_index_files_info(all_inverted_index_file_info);
     COUNTER_UPDATE(_output_rowset_data_size_counter, _output_rowset->data_disk_size());
 
     LOG(INFO) << "succeed to do index compaction"
@@ -1219,8 +1224,10 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
 
     auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
-    ctx.compaction_level =
-            _engine.cumu_compaction_policy(compaction_policy)->new_compaction_level(_input_rowsets);
+    if (_tablet->tablet_meta()->time_series_compaction_level_threshold() >= 2) {
+        ctx.compaction_level = _engine.cumu_compaction_policy(compaction_policy)
+                                       ->new_compaction_level(_input_rowsets);
+    }
 
     ctx.write_file_cache = compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION;
     ctx.file_cache_ttl_sec = _tablet->ttl_seconds();

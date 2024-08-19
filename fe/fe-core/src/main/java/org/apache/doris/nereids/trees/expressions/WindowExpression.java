@@ -124,6 +124,12 @@ public class WindowExpression extends Expression {
                 .orElseGet(() -> new WindowExpression(function, partitionKeys, orderKeys));
     }
 
+    public WindowExpression withFunctionPartitionKeysOrderKeys(Expression function,
+            List<Expression> partitionKeys, List<OrderExpression> orderKeys) {
+        return windowFrame.map(frame -> new WindowExpression(function, partitionKeys, orderKeys, frame))
+                .orElseGet(() -> new WindowExpression(function, partitionKeys, orderKeys));
+    }
+
     @Override
     public boolean nullable() {
         return function.nullable();

@@ -31,7 +31,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF2
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((c.c_current_addr_sk = ca.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[c_current_addr_sk]
-------------------------------hashJoin[LEFT_ANTI_JOIN shuffle] hashCondition=((c.c_customer_sk = web_sales.ws_bill_customer_sk)) otherCondition=()
+------------------------------hashJoin[LEFT_ANTI_JOIN broadcast] hashCondition=((c.c_customer_sk = web_sales.ws_bill_customer_sk)) otherCondition=()
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[customer] apply RFs: RF1
 --------------------------------PhysicalProject

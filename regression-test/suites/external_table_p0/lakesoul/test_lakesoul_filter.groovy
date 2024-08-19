@@ -53,6 +53,22 @@ suite("test_lakesoul_filter", "p0,external,doris,external_docker,external_docker
         sql """select * from nation where n_regionkey = 0 and n_nationkey > 0;"""
 
         sql """select * from nation where n_regionkey = 0;"""
+
+        // non-selecting query
+        sql """select count(*) from customer;"""
+
+        // filter by non-partition column
+        sql """select count(*) from customer where c_mktsegment='BUILDING';"""
+
+        // filter by partition column
+        sql """select count(*) from customer where c_nationkey=19;"""
+
+        // filter by both partition and non-partition column
+        sql """select count(*) from customer where c_mktsegment='BUILDING' and c_nationkey=19;"""
+
+        sql """select * from lineitem where l_shipdate <= DATE '1992-12-01' limit 10;"""
+
+        sql """select count(*) from part where p_type like 'MEDIUM POLISHED%';"""
     }
 }
 

@@ -223,17 +223,17 @@ public:
         return nested_function->allocates_memory_in_arena();
     }
 
-    bool is_state() const override { return nested_function->is_state(); }
-
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         std::vector<const IColumn*> nested(num_arguments);
 
         for (size_t i = 0; i < num_arguments; ++i) {
-            nested[i] = &assert_cast<const ColumnArray&>(*columns[i]).get_data();
+            nested[i] = &assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[i])
+                                 .get_data();
         }
 
-        const auto& first_array_column = assert_cast<const ColumnArray&>(*columns[0]);
+        const auto& first_array_column =
+                assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& offsets = first_array_column.get_offsets();
 
         size_t begin = offsets[row_num - 1];
@@ -241,7 +241,8 @@ public:
 
         /// Sanity check. NOTE We can implement specialization for a case with single argument, if the check will hurt performance.
         for (size_t i = 1; i < num_arguments; ++i) {
-            const auto& ith_column = assert_cast<const ColumnArray&>(*columns[i]);
+            const auto& ith_column =
+                    assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[i]);
             const auto& ith_offsets = ith_column.get_offsets();
 
             if (ith_offsets[row_num] != end ||

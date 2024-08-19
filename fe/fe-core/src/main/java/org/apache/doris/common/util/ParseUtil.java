@@ -41,7 +41,7 @@ public class ParseUtil {
 
     private static Pattern dataVolumnPattern = Pattern.compile("(\\d+)(\\D*)");
 
-    public static long analyzeDataVolumn(String dataVolumnStr) throws AnalysisException {
+    public static long analyzeDataVolume(String dataVolumnStr) throws AnalysisException {
         long dataVolumn = 0;
         Matcher m = dataVolumnPattern.matcher(dataVolumnStr);
         if (m.matches()) {

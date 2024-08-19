@@ -108,100 +108,82 @@ public class ColumnStatistic {
     }
 
     public static ColumnStatistic fromResultRow(List<ResultRow> resultRows) {
-        ColumnStatistic columnStatistic = null;
-        try {
-            for (ResultRow resultRow : resultRows) {
-                String partId = resultRow.get(6);
-                if (partId == null) {
-                    columnStatistic = fromResultRow(resultRow);
-                } else {
-                    LOG.warn("Column statistics table shouldn't contain partition stats. [{}]", resultRow);
-                }
+        ColumnStatistic columnStatistic = ColumnStatistic.UNKNOWN;
+        for (ResultRow resultRow : resultRows) {
+            String partId = resultRow.get(6);
+            if (partId == null) {
+                columnStatistic = fromResultRow(resultRow);
+            } else {
+                LOG.warn("Column statistics table shouldn't contain partition stats. [{}]", resultRow);
             }
-        } catch (Throwable t) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Failed to deserialize column stats", t);
-            }
-            return ColumnStatistic.UNKNOWN;
-        }
-        if (columnStatistic == null) {
-            return ColumnStatistic.UNKNOWN;
         }
         return columnStatistic;
     }
 
     // TODO: use thrift
     public static ColumnStatistic fromResultRow(ResultRow row) {
-        try {
-            ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
-            double count = Double.parseDouble(row.get(7));
-            columnStatisticBuilder.setCount(count);
-            double ndv = Double.parseDouble(row.getWithDefault(8, "0"));
-            columnStatisticBuilder.setNdv(ndv);
-            String nullCount = row.getWithDefault(9, "0");
-            columnStatisticBuilder.setNumNulls(Double.parseDouble(nullCount));
-            columnStatisticBuilder.setDataSize(Double
-                    .parseDouble(row.getWithDefault(12, "0")));
-            columnStatisticBuilder.setAvgSizeByte(columnStatisticBuilder.getCount() == 0
-                    ? 0 : columnStatisticBuilder.getDataSize()
-                    / columnStatisticBuilder.getCount());
-            long catalogId = Long.parseLong(row.get(1));
-            long idxId = Long.parseLong(row.get(4));
-            long dbID = Long.parseLong(row.get(2));
-            long tblId = Long.parseLong(row.get(3));
-            String colName = row.get(5);
-            Column col = StatisticsUtil.findColumn(catalogId, dbID, tblId, idxId, colName);
-            if (col == null) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Failed to deserialize column statistics, ctlId: {} dbId: {}"
-                                    + "tblId: {} column: {} not exists",
-                            catalogId, dbID, tblId, colName);
-                }
-                return ColumnStatistic.UNKNOWN;
-            }
-            String min = row.get(10);
-            String max = row.get(11);
-            if (min != null && !min.equalsIgnoreCase("NULL")) {
-                // Internal catalog get the min/max value using a separate SQL,
-                // and the value is already encoded by base64. Need to handle internal and external catalog separately.
-                if (catalogId != InternalCatalog.INTERNAL_CATALOG_ID && min.equalsIgnoreCase("NULL")) {
-                    columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
-                } else {
-                    try {
-                        columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
-                        columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
-                    } catch (AnalysisException e) {
-                        LOG.warn("Failed to deserialize column {} min value {}.", col, min, e);
-                        columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
-                    }
-                }
-            } else {
-                columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
-            }
-            if (max != null && !max.equalsIgnoreCase("NULL")) {
-                if (catalogId != InternalCatalog.INTERNAL_CATALOG_ID && max.equalsIgnoreCase("NULL")) {
-                    columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
-                } else {
-                    try {
-                        columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
-                        columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
-                    } catch (AnalysisException e) {
-                        LOG.warn("Failed to deserialize column {} max value {}.", col, max, e);
-                        columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
-                    }
-                }
-            } else {
-                columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
-            }
-            columnStatisticBuilder.setUpdatedTime(row.get(13));
-            return columnStatisticBuilder.build();
-        } catch (Exception e) {
-            LOG.warn("Failed to deserialize column statistics. reason: [{}]. Row [{}]", e.getMessage(), row);
+        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
+        double count = Double.parseDouble(row.get(7));
+        columnStatisticBuilder.setCount(count);
+        double ndv = Double.parseDouble(row.getWithDefault(8, "0"));
+        columnStatisticBuilder.setNdv(ndv);
+        String nullCount = row.getWithDefault(9, "0");
+        columnStatisticBuilder.setNumNulls(Double.parseDouble(nullCount));
+        columnStatisticBuilder.setDataSize(Double
+                .parseDouble(row.getWithDefault(12, "0")));
+        columnStatisticBuilder.setAvgSizeByte(columnStatisticBuilder.getCount() == 0
+                ? 0 : columnStatisticBuilder.getDataSize()
+                / columnStatisticBuilder.getCount());
+        long catalogId = Long.parseLong(row.get(1));
+        long idxId = Long.parseLong(row.get(4));
+        long dbID = Long.parseLong(row.get(2));
+        long tblId = Long.parseLong(row.get(3));
+        String colName = row.get(5);
+        Column col = StatisticsUtil.findColumn(catalogId, dbID, tblId, idxId, colName);
+        if (col == null) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug(e);
+                LOG.debug("Failed to deserialize column statistics, ctlId: {} dbId: {}"
+                                + "tblId: {} column: {} not exists",
+                        catalogId, dbID, tblId, colName);
             }
             return ColumnStatistic.UNKNOWN;
         }
+        String min = row.get(10);
+        String max = row.get(11);
+        if (min != null && !min.equalsIgnoreCase("NULL")) {
+            // Internal catalog get the min/max value using a separate SQL,
+            // and the value is already encoded by base64. Need to handle internal and external catalog separately.
+            if (catalogId != InternalCatalog.INTERNAL_CATALOG_ID && min.equalsIgnoreCase("NULL")) {
+                columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
+            } else {
+                try {
+                    columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
+                    columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+                } catch (AnalysisException e) {
+                    LOG.warn("Failed to deserialize column {} min value {}.", col, min, e);
+                    columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
+                }
+            }
+        } else {
+            columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
+        }
+        if (max != null && !max.equalsIgnoreCase("NULL")) {
+            if (catalogId != InternalCatalog.INTERNAL_CATALOG_ID && max.equalsIgnoreCase("NULL")) {
+                columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
+            } else {
+                try {
+                    columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
+                    columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
+                } catch (AnalysisException e) {
+                    LOG.warn("Failed to deserialize column {} max value {}.", col, max, e);
+                    columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
+                }
+            }
+        } else {
+            columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
+        }
+        columnStatisticBuilder.setUpdatedTime(row.get(13));
+        return columnStatisticBuilder.build();
     }
 
     public static boolean isAlmostUnique(double ndv, double rowCount) {

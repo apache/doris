@@ -61,7 +61,8 @@ suite("test_pk_uk_case_cluster_key") {
         PROPERTIES (
         "replication_num" = "1",
         "disable_auto_compaction" = "true",
-        "enable_unique_key_merge_on_write" = "true"
+        "enable_unique_key_merge_on_write" = "true",
+        "enable_mow_light_delete" = "true"
         )
     """
 

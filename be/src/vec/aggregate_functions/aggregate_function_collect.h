@@ -69,7 +69,8 @@ struct AggregateFunctionCollectSetData {
     size_t size() const { return data_set.size(); }
 
     void add(const IColumn& column, size_t row_num) {
-        data_set.insert(assert_cast<const ColVecType&>(column).get_data()[row_num]);
+        data_set.insert(assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(column)
+                                .get_data()[row_num]);
     }
 
     void merge(const SelfType& rhs) {
@@ -191,7 +192,8 @@ struct AggregateFunctionCollectListData {
     size_t size() const { return data.size(); }
 
     void add(const IColumn& column, size_t row_num) {
-        const auto& vec = assert_cast<const ColVecType&>(column).get_data();
+        const auto& vec =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(column).get_data();
         data.push_back(vec[row_num]);
     }
 
@@ -256,8 +258,10 @@ struct AggregateFunctionCollectListData<StringRef, HasLimit> {
             }
             max_size = rhs.max_size;
 
-            data->insert_range_from(*rhs.data, 0,
-                                    std::min(assert_cast<size_t>(max_size - size()), rhs.size()));
+            data->insert_range_from(
+                    *rhs.data, 0,
+                    std::min(assert_cast<size_t, TypeCheckOnRelease::DISABLE>(max_size - size()),
+                             rhs.size()));
         } else {
             data->insert_range_from(*rhs.data, 0, rhs.size());
         }
@@ -326,8 +330,10 @@ struct AggregateFunctionArrayAggData {
     }
 
     void add(const IColumn& column, size_t row_num) {
-        const auto& col = assert_cast<const ColumnNullable&>(column);
-        const auto& vec = assert_cast<const ColVecType&>(col.get_nested_column()).get_data();
+        const auto& col = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
+        const auto& vec =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(col.get_nested_column())
+                        .get_data();
         null_map->push_back(col.get_null_map_data()[row_num]);
         nested_column->get_data().push_back(vec[row_num]);
         DCHECK(null_map->size() == nested_column->size());
@@ -426,8 +432,9 @@ struct AggregateFunctionArrayAggData<StringRef> {
     }
 
     void add(const IColumn& column, size_t row_num) {
-        const auto& col = assert_cast<const ColumnNullable&>(column);
-        const auto& vec = assert_cast<const ColVecType&>(col.get_nested_column());
+        const auto& col = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
+        const auto& vec = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
+                col.get_nested_column());
         null_map->push_back(col.get_null_map_data()[row_num]);
         nested_column->insert_from(vec, row_num);
         DCHECK(null_map->size() == nested_column->size());
@@ -561,7 +568,9 @@ public:
         if constexpr (HasLimit::value) {
             if (data.max_size == -1) {
                 data.max_size =
-                        (UInt64)assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num);
+                        (UInt64)assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(
+                                columns[1])
+                                ->get_element(row_num);
             }
             if (data.size() >= data.max_size) {
                 return;
@@ -711,15 +720,20 @@ public:
             for (size_t i = 0; i < num_rows; ++i) {
                 col_null->get_null_map_data().push_back(col_src.get_null_map_data()[i]);
                 if constexpr (std::is_same_v<StringRef, typename Data::ElementType>) {
-                    auto& vec = assert_cast<ColumnString&>(col_null->get_nested_column());
+                    auto& vec = assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(
+                            col_null->get_nested_column());
                     const auto& vec_src =
-                            assert_cast<const ColumnString&>(col_src.get_nested_column());
+                            assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(
+                                    col_src.get_nested_column());
                     vec.insert_from(vec_src, i);
                 } else {
                     using ColVecType = ColumnVectorOrDecimal<typename Data::ElementType>;
-                    auto& vec = assert_cast<ColVecType&>(col_null->get_nested_column()).get_data();
-                    auto& vec_src =
-                            assert_cast<const ColVecType&>(col_src.get_nested_column()).get_data();
+                    auto& vec = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(
+                                        col_null->get_nested_column())
+                                        .get_data();
+                    auto& vec_src = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
+                                            col_src.get_nested_column())
+                                            .get_data();
                     vec.push_back(vec_src[i]);
                 }
                 to_arr.get_offsets().push_back(to_nested_col.size());

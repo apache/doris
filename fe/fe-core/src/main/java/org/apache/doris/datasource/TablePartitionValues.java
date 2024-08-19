@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
@@ -43,15 +44,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 @Data
 public class TablePartitionValues {
     public static final String HIVE_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__";
 
-    private final ReadWriteLock readWriteLock;
+    private final MonitoredReentrantReadWriteLock readWriteLock;
     private long lastUpdateTimestamp;
     private long nextPartitionId;
     private final Map<Long, PartitionItem> idToPartitionItem;
@@ -68,7 +67,7 @@ public class TablePartitionValues {
     private Map<UniqueId, Range<ColumnBound>> singleUidToColumnRangeMap;
 
     public TablePartitionValues() {
-        readWriteLock = new ReentrantReadWriteLock();
+        readWriteLock = new MonitoredReentrantReadWriteLock();
         lastUpdateTimestamp = 0;
         nextPartitionId = 0;
         idToPartitionItem = new HashMap<>();

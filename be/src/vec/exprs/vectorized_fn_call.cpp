@@ -262,9 +262,9 @@ bool VectorizedFnCall::can_fast_execute() const {
     return _function->can_push_down_to_index();
 }
 
-Status VectorizedFnCall::eval_inverted_index(VExprContext* context,
-                                             segment_v2::FuncExprParams& params) {
-    return _function->eval_inverted_index(context->fn_context(_fn_context_index), params);
+Status VectorizedFnCall::eval_inverted_index(segment_v2::FuncExprParams& params,
+                                             std::shared_ptr<roaring::Roaring>& result) {
+    return _function->eval_inverted_index(this, params, result);
 }
 
 bool VectorizedFnCall::equals(const VExpr& other) {

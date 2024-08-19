@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -188,6 +189,16 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     @Override
     public Expression visitLiteral(Literal literal, ExpressionRewriteContext context) {
         return literal;
+    }
+
+    @Override
+    public Expression visitMatch(Match match, ExpressionRewriteContext context) {
+        match = rewriteChildren(match, context);
+        Optional<Expression> checkedExpr = preProcess(match);
+        if (checkedExpr.isPresent()) {
+            return checkedExpr.get();
+        }
+        return super.visitMatch(match, context);
     }
 
     @Override

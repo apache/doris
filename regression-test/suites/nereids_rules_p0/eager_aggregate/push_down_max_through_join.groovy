@@ -20,6 +20,7 @@ suite("push_down_max_through_join") {
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "set DISABLE_NEREIDS_RULES='ONE_PHASE_AGGREGATE_WITHOUT_DISTINCT, ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI'"
 
     sql """
         DROP TABLE IF EXISTS max_t;
@@ -47,6 +48,7 @@ suite("push_down_max_through_join") {
     sql "insert into max_t values (8, null, 'c')"
     sql "insert into max_t values (9, 3, null)"
     sql "insert into max_t values (10, null, null)"
+    sql "analyze table max_t with sync;"
 
     qt_groupby_pushdown_basic """
         explain shape plan select max(t1.score) from max_t t1, max_t t2 where t1.id = t2.id group by t1.name;

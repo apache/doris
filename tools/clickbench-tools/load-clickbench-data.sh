@@ -169,3 +169,13 @@ check_doris_conf
 load
 end=$(date +%s)
 echo "load cost time: $((end - start)) seconds"
+
+run_sql() {
+  echo $@
+  mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "$@"
+}
+
+echo '============================================'
+echo "analyzing table hits"
+run_sql "analyze table hits with sync;"
+echo "analyzing table hits finished!"

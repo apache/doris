@@ -98,7 +98,7 @@ public:
 
     // send CLOSE_LOAD to all streams, return ERROR if any.
     // only call this method after release() returns true.
-    Status close_load(bool incremental);
+    void close_load(bool incremental);
 
 private:
     const UniqueId _load_id;

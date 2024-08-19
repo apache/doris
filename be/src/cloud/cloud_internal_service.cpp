@@ -94,6 +94,7 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
                     meta->set_rowset_id(rowset_id);
                     meta->set_segment_id(segment_id);
                     meta->set_file_name(file_name);
+                    meta->set_file_size(rowset->rowset_meta()->segment_file_size(segment_id));
                     meta->set_offset(std::get<0>(tuple));
                     meta->set_size(std::get<1>(tuple));
                     meta->set_cache_type(cache_type_to_pb(std::get<2>(tuple)));

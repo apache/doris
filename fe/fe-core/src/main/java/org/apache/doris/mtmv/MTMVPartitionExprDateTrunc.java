@@ -47,7 +47,7 @@ import java.util.Optional;
 import java.util.Set;
 
 public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
-    private static Set<String> timeUnits = ImmutableSet.of("year", "month", "day", "hour");
+    private static Set<String> timeUnits = ImmutableSet.of("year", "quarter", "week", "month", "day", "hour");
     private String timeUnit;
 
     public MTMVPartitionExprDateTrunc(FunctionCallExpr functionCallExpr) throws AnalysisException {
@@ -78,6 +78,8 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
                         "partitionColumnType should be date/datetime "
                                 + "when PartitionType is range and expr is date_trunc");
             }
+        } else {
+            throw new AnalysisException("date_trunc only support range partition");
         }
     }
 
@@ -196,8 +198,14 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
             case "year":
                 result = value.plusYears(1L);
                 break;
+            case "quarter":
+                result = value.plusMonths(3L);
+                break;
             case "month":
                 result = value.plusMonths(1L);
+                break;
+            case "week":
+                result = value.plusWeeks(1L);
                 break;
             case "day":
                 result = value.plusDays(1L);
