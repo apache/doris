@@ -57,7 +57,7 @@ suite("inner_join_x") {
     drop table if  exists t2;
     """
 
-    sql """
+    createMV ("""
     CREATE TABLE IF NOT EXISTS t2 (
                 k int,
                 a int
@@ -65,13 +65,11 @@ suite("inner_join_x") {
             ENGINE=OLAP
             duplicate KEY(k)
             DISTRIBUTED BY HASH(k) BUCKETS 2 properties("replication_num" = "1")
-    """
+    """)
 
     sql """
     insert into t2 values(1,2),(2,2);
     """
-
-    sleep(2000)
 
     def query =  """
     select max(t1.date_value) from t1 inner join t2 on t1.a=t2.a group by t2.k;
