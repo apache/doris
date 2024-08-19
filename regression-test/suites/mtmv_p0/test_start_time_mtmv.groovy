@@ -55,13 +55,13 @@ suite("test_start_time_mtmv","mtmv") {
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_init "SELECT * FROM ${mvName}"
 
-    order_qt_create "select RecurringStrategy from jobs("type"="mv") where MvName="${mvName}"
+    order_qt_create "select RecurringStrategy from jobs('type'='mv') where MvName='${mvName}'"
 
     sql """
        alter MATERIALIZED VIEW ${mvName} REFRESH auto ON SCHEDULE EVERY 2 HOUR STARTS "9998-12-13 21:07:09";
         """
 
-    order_qt_alter "select RecurringStrategy from jobs("type"="mv") where MvName="${mvName}"
+    order_qt_alter "select RecurringStrategy from jobs('type'='mv') where MvName='${mvName}'"
 
    // refresh mv
     sql """
