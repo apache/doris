@@ -192,10 +192,9 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
                 clearEndJob(job);
                 continue;
             }
-            if (!job.getJobStatus().equals(JobStatus.RUNNING) && !job.getJobConfig().checkIsTimerJob()) {
-                continue;
+            if (job.getJobStatus().equals(JobStatus.RUNNING) && job.getJobConfig().checkIsTimerJob()) {
+                cycleTimerJobScheduler(job, lastTimeWindowMs);
             }
-            cycleTimerJobScheduler(job, lastTimeWindowMs);
         }
     }
 
