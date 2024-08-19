@@ -28,7 +28,7 @@ suite("query20") {
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql "set enable_parallel_result_sink=false;"
 
-    sql 'set topn_opt_limit_threshold = 1024'
+    sql 'set topn_filter_limit_threshold = 1024'
     def ckBench = """SELECT UserID FROM hits WHERE UserID = 435090932899640449"""
     qt_ckbench_shape_20 """
     explain shape plan

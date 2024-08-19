@@ -70,7 +70,6 @@ suite("regression_test_variant_logdata", "nonConcurrent,p2"){
     // 12. streamload remote file
     table_name = "logdata"
     create_table.call(table_name, "DUPLICATE", "4")
-    // sql "set enable_two_phase_read_opt = false;"
     // no sparse columns
     set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1.0")
     load_json_data.call(table_name, """${getS3Url() + '/regression/load/logdata.json'}""")

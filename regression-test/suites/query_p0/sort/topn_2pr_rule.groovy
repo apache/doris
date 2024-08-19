@@ -16,8 +16,7 @@
 // under the License.
 
 suite("topn_2pr_rule") {
-    sql """set topn_opt_limit_threshold = 1024"""
-    sql """set enable_two_phase_read_opt= true"""
+    sql """set two_phase_read_limit_threshold = 1024"""
 
     def create_table = { table_name, key_type="DUPLICATE" ->
         sql "DROP TABLE IF EXISTS ${table_name}"

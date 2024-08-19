@@ -24,7 +24,7 @@ suite("push_down_limit_distinct_through_join") {
       SET ENABLE_NEREIDS_RULES=push_down_limit_distinct_through_join;
       set push_topn_to_agg = true;
       SET disable_join_reorder=true;
-      set topn_opt_limit_threshold=1024;
+      set topn_filter_limit_threshold=1024;
       """
 
     sql """

@@ -1219,7 +1219,7 @@ public class OlapScanNode extends ScanNode {
     public boolean checkPushSort(SortNode sortNode) {
         // Ensure limit is less then threshold
         if (sortNode.getLimit() <= 0
-                || sortNode.getLimit() > ConnectContext.get().getSessionVariable().topnOptLimitThreshold) {
+                || sortNode.getLimit() > ConnectContext.get().getSessionVariable().pushLimitToAggThreshold) {
             return false;
         }
 

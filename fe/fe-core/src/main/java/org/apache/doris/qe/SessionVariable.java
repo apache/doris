@@ -397,8 +397,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
 
-    public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
-    public static final String TOPN_OPT_LIMIT_THRESHOLD = "topn_opt_limit_threshold";
+    public static final String TOPN_FILTER_LIMIT_THRESHOLD = "topn_filter_limit_threshold";
+    public static final String TWO_PHASE_READ_LIMIT_THRESHOLD = "two_phase_read_limit_threshold";
+    public static final String PUSH_LIMIT_TO_AGG_THRESHOLD = "push_limit_to_agg_threshold";
     public static final String ENABLE_SNAPSHOT_POINT_QUERY = "enable_snapshot_point_query";
 
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
@@ -1459,13 +1460,15 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
     public long groupConcatMaxLen = 2147483646;
 
-    // Whether enable two phase read optimization
+    @VariableMgr.VarAttr(name = TOPN_FILTER_LIMIT_THRESHOLD)
+    public long topnFilterLimitThreshold = 10240000;
     // 1. read related rowids along with necessary column data
     // 2. spawn fetch RPC to other nodes to get related data by sorted rowids
-    @VariableMgr.VarAttr(name = ENABLE_TWO_PHASE_READ_OPT, fuzzy = true)
-    public boolean enableTwoPhaseReadOpt = true;
-    @VariableMgr.VarAttr(name = TOPN_OPT_LIMIT_THRESHOLD)
-    public long topnOptLimitThreshold = 10240000;
+    @VariableMgr.VarAttr(name = TWO_PHASE_READ_LIMIT_THRESHOLD)
+    public long twoPhaseReadLimitThreshold = 1024;
+    @VariableMgr.VarAttr(name = PUSH_LIMIT_TO_AGG_THRESHOLD)
+    public long pushLimitToAggThreshold = 1024;
+
     @VariableMgr.VarAttr(name = ENABLE_SNAPSHOT_POINT_QUERY)
     public boolean enableSnapshotPointQuery = true;
 
@@ -2148,14 +2151,30 @@ public class SessionVariable implements Serializable, Writable {
             this.rewriteOrToInPredicateThreshold = 100000;
             this.enableFunctionPushdown = false;
             this.enableDeleteSubPredicateV2 = false;
-            this.topnOptLimitThreshold = 0;
+            this.topnFilterLimitThreshold = 0;
             this.enableSyncRuntimeFilterSize = true;
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
             this.enableFunctionPushdown = true;
             this.enableDeleteSubPredicateV2 = true;
-            this.topnOptLimitThreshold = 1024;
             this.enableSyncRuntimeFilterSize = false;
+        }
+
+        int randomInt8 = random.nextInt(8);
+        if ((randomInt8 & 1) != 0) {
+            this.topnFilterLimitThreshold = 0;
+        } else {
+            this.topnFilterLimitThreshold = (int) Math.pow(10, random.nextInt(5));
+        }
+        if ((randomInt8 & 2) != 0) {
+            this.twoPhaseReadLimitThreshold = 0;
+        } else {
+            this.twoPhaseReadLimitThreshold = (int) Math.pow(10, random.nextInt(5));
+        }
+        if ((randomInt8 & 4) != 0) {
+            this.pushLimitToAggThreshold = 0;
+        } else {
+            this.pushLimitToAggThreshold = (int) Math.pow(10, random.nextInt(5));
         }
 
         /*
@@ -2248,9 +2267,6 @@ public class SessionVariable implements Serializable, Writable {
                 }
             }
         }
-
-        // set random 1, 10, 100, 1000, 10000
-        this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
 
         // for spill to disk
         if (Config.pull_request_id > 10000) {
@@ -2408,8 +2424,8 @@ public class SessionVariable implements Serializable, Writable {
         return analyzeTimeoutS;
     }
 
-    public void setEnableTwoPhaseReadOpt(boolean enable) {
-        enableTwoPhaseReadOpt = enable;
+    public void disableTwoPhaseReadOpt() {
+        twoPhaseReadLimitThreshold = 0;
     }
 
     public int getMaxExecutionTimeMS() {

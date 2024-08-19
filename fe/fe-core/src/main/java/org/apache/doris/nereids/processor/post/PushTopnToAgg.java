@@ -72,7 +72,7 @@ public class PushTopnToAgg extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx) {
         topN.child().accept(this, ctx);
-        if (ConnectContext.get().getSessionVariable().topnOptLimitThreshold <= topN.getLimit() + topN.getOffset()) {
+        if (ConnectContext.get().getSessionVariable().pushLimitToAggThreshold <= topN.getLimit() + topN.getOffset()) {
             return topN;
         }
         Plan topnChild = topN.child();
@@ -135,7 +135,7 @@ public class PushTopnToAgg extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalLimit(PhysicalLimit<? extends Plan> limit, CascadesContext ctx) {
         limit.child().accept(this, ctx);
-        if (ConnectContext.get().getSessionVariable().topnOptLimitThreshold <= limit.getLimit() + limit.getOffset()) {
+        if (ConnectContext.get().getSessionVariable().pushLimitToAggThreshold <= limit.getLimit() + limit.getOffset()) {
             return limit;
         }
         Plan limitChild = limit.child();

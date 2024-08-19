@@ -21,7 +21,7 @@ sql 'set enable_agg_spill=false'
 
 sql 'set enable_force_spill=false'
 
-sql 'set topn_opt_limit_threshold=10'
+sql 'set topn_filter_limit_threshold=10'
 
 
 // different types

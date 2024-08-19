@@ -16,8 +16,7 @@
 // under the License.
 suite("test_key_topn", "p0") {
 
-    sql """ set topn_opt_limit_threshold = 1024; """
-    sql """ set enable_two_phase_read_opt = 1; """
+    sql """ set two_phase_read_limit_threshold = 1024; """
 
     sql """
         drop table if exists `test_key_topn`;

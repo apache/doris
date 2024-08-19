@@ -53,29 +53,25 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                RuleType.DEFER_MATERIALIZE_TOP_N_RESULT.build(
-                        logicalResultSink(logicalTopN(logicalOlapScan()))
-                                .when(r -> r.child().getLimit() < getTopNOptLimitThreshold())
-                                .whenNot(r -> r.child().getOrderKeys().isEmpty())
-                                .when(r -> r.child().getOrderKeys().stream().map(OrderKey::getExpr)
-                                        .allMatch(Expression::isColumnFromTable))
-                                .when(r -> r.child().child().getTable().getEnableLightSchemaChange())
-                                .when(r -> r.child().child().getTable().isDupKeysOrMergeOnWrite())
-                                .then(r -> deferMaterialize(r, r.child(), Optional.empty(), r.child().child()))
-                ),
-                RuleType.DEFER_MATERIALIZE_TOP_N_RESULT.build(
-                        logicalResultSink(logicalTopN(logicalFilter(logicalOlapScan())))
-                                .when(r -> r.child().getLimit() < getTopNOptLimitThreshold())
+                RuleType.DEFER_MATERIALIZE_TOP_N_RESULT.build(logicalResultSink(logicalTopN(logicalOlapScan()))
+                        .when(r -> r.child().getLimit() < getTwoPhaseReadLimitThreshold())
+                        .whenNot(r -> r.child().getOrderKeys().isEmpty())
+                        .when(r -> r.child().getOrderKeys().stream().map(OrderKey::getExpr)
+                                .allMatch(Expression::isColumnFromTable))
+                        .when(r -> r.child().child().getTable().getEnableLightSchemaChange())
+                        .when(r -> r.child().child().getTable().isDupKeysOrMergeOnWrite())
+                        .then(r -> deferMaterialize(r, r.child(), Optional.empty(), r.child().child()))),
+                RuleType.DEFER_MATERIALIZE_TOP_N_RESULT
+                        .build(logicalResultSink(logicalTopN(logicalFilter(logicalOlapScan())))
+                                .when(r -> r.child().getLimit() < getTwoPhaseReadLimitThreshold())
                                 .whenNot(r -> r.child().getOrderKeys().isEmpty())
                                 .when(r -> r.child().getOrderKeys().stream().map(OrderKey::getExpr)
                                         .allMatch(Expression::isColumnFromTable))
                                 .when(r -> r.child().child().child().getTable().getEnableLightSchemaChange())
-                                .when(r -> r.child().child().child().getTable().isDupKeysOrMergeOnWrite())
-                                .then(r -> {
+                                .when(r -> r.child().child().child().getTable().isDupKeysOrMergeOnWrite()).then(r -> {
                                     LogicalFilter<LogicalOlapScan> filter = r.child().child();
                                     return deferMaterialize(r, r.child(), Optional.of(filter), filter.child());
-                                })
-                )
+                                }))
         );
     }
 
@@ -104,12 +100,12 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
                 logicalOlapScan.getTable(), logicalOlapScan.getSelectedIndexId());
     }
 
-    private long getTopNOptLimitThreshold() {
+    private long getTwoPhaseReadLimitThreshold() {
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
-            if (!ConnectContext.get().getSessionVariable().enableTwoPhaseReadOpt) {
+            if (ConnectContext.get().getSessionVariable().twoPhaseReadLimitThreshold != 0) {
                 return -1;
             }
-            return ConnectContext.get().getSessionVariable().topnOptLimitThreshold;
+            return ConnectContext.get().getSessionVariable().twoPhaseReadLimitThreshold;
         }
         return -1;
     }

@@ -541,9 +541,9 @@ public class OriginalPlanner extends Planner {
         if (node instanceof SortNode && node.getChildren().size() == 1) {
             SortNode sortNode = (SortNode) node;
             PlanNode child = sortNode.getChild(0);
-            if (child instanceof OlapScanNode && sortNode.getLimit() > 0
-                    && ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null
-                    && sortNode.getLimit() <= ConnectContext.get().getSessionVariable().topnOptLimitThreshold
+            if (child instanceof OlapScanNode && sortNode.getLimit() > 0 && ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable() != null
+                    && sortNode.getLimit() <= ConnectContext.get().getSessionVariable().topnFilterLimitThreshold
                     && sortNode.getSortInfo().getOrigOrderingExprs().size() > 0) {
                 Expr firstSortExpr = sortNode.getSortInfo().getOrigOrderingExprs().get(0);
                 if (firstSortExpr instanceof SlotRef && !firstSortExpr.getType().isFloatingPointType()) {

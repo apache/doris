@@ -794,9 +794,8 @@ public class SelectStmt extends QueryStmt {
     // 3. final matrialize all data
     public boolean checkEnableTwoPhaseRead(Analyzer analyzer) {
         // only vectorized mode and session opt variable enabled
-        if (ConnectContext.get() == null
-                || ConnectContext.get().getSessionVariable() == null
-                || !ConnectContext.get().getSessionVariable().enableTwoPhaseReadOpt) {
+        if (ConnectContext.get() == null || ConnectContext.get().getSessionVariable() == null
+                || ConnectContext.get().getSessionVariable().twoPhaseReadLimitThreshold == 0) {
             return false;
         }
         // Only handle the simplest `SELECT ... FROM <tbl> WHERE ... [ORDER BY ...] [LIMIT ...]` query
@@ -854,9 +853,8 @@ public class SelectStmt extends QueryStmt {
                 return false;
             }
             // case1: general topn query, like: select * from tbl where xxx order by yyy limit n
-            if (!hasLimit()
-                        || getLimit() <= 0
-                        || getLimit() > ConnectContext.get().getSessionVariable().topnOptLimitThreshold) {
+            if (!hasLimit() || getLimit() <= 0
+                    || getLimit() > ConnectContext.get().getSessionVariable().twoPhaseReadLimitThreshold) {
                 return false;
             }
             // Check order by exprs are all slot refs

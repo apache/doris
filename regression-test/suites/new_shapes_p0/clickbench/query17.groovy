@@ -27,7 +27,7 @@ suite("query17") {
     sql 'set enable_fallback_to_original_planner=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
-    sql 'set topn_opt_limit_threshold = 1024'
+    sql 'set topn_filter_limit_threshold = 1024'
     def ckBench = """SELECT UserID, SearchPhrase, COUNT(*) FROM hits GROUP BY UserID, SearchPhrase ORDER BY COUNT(*) DESC LIMIT 10"""
     qt_ckbench_shape_17 """
     explain shape plan

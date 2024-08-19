@@ -47,7 +47,7 @@ suite("query51") {
     sql "set insert_visible_timeout_ms=60000"
     sql "set partitioned_hash_agg_rows_threshold=1048576"
     sql "set partitioned_hash_join_rows_threshold=8"
-    sql "set topn_opt_limit_threshold=1"
+    sql "set topn_filter_limit_threshold=1"
     sql "set wait_timeout=31000"
 
 

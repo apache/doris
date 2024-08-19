@@ -68,7 +68,7 @@ suite("test_load_and_schema_change_row_store", "p0") {
         }
     }
 
-    sql "set topn_opt_limit_threshold = 100"
+    sql "set topn_filter_limit_threshold = 100"
     qt_sql "SELECT * from ${testTable} order by 1, 2, 3 limit 10"
     qt_sql "SELECT * from ${testTable} where c_tinyint = 10 order by 1, 2, 3 limit 10 "
 

@@ -514,9 +514,9 @@ public class PlannerTest extends TestWithFeService {
         Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
         Assertions.assertFalse(plan1.contains("TOPN OPT"));
 
-        // Push sort fail limit > topnOptLimitThreshold
+        // Push sort fail limit > topnFilterLimitThreshold
         sql1 = "explain select k1 from db1.tbl3 order by k1, k2 limit "
-            + (connectContext.getSessionVariable().topnOptLimitThreshold + 1);
+                + (connectContext.getSessionVariable().topnFilterLimitThreshold + 1);
         stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
         planner1 = stmtExecutor1.planner();
@@ -525,9 +525,9 @@ public class PlannerTest extends TestWithFeService {
         Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
         Assertions.assertFalse(plan1.contains("TOPN OPT"));
 
-        // Push sort success limit = topnOptLimitThreshold
+        // Push sort success limit = topnFilterLimitThreshold
         sql1 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl3 order by k1, k2 limit "
-            + (connectContext.getSessionVariable().topnOptLimitThreshold);
+                + (connectContext.getSessionVariable().topnFilterLimitThreshold);
         stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
         planner1 = stmtExecutor1.planner();
@@ -537,9 +537,9 @@ public class PlannerTest extends TestWithFeService {
         Assertions.assertTrue(plan1.contains("TOPN OPT"));
 
         // Push sort success limit < topnOptLimitThreshold
-        if (connectContext.getSessionVariable().topnOptLimitThreshold > 1) {
+        if (connectContext.getSessionVariable().topnFilterLimitThreshold > 1) {
             sql1 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl3 order by k1, k2 limit "
-                + (connectContext.getSessionVariable().topnOptLimitThreshold - 1);
+                    + (connectContext.getSessionVariable().topnFilterLimitThreshold - 1);
             stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             planner1 = stmtExecutor1.planner();

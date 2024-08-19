@@ -23,7 +23,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("test_nestedtypes_json_insert_into_with_s3", "p0") {
     sql 'use regression_test_datatype_p0_nested_types'
     sql 'set max_allowed_packet=4194304'
-    sql 'set topn_opt_limit_threshold=10000'
+    sql 'set topn_filter_limit_threshold=10000'
 
     String ak = getS3AK()
     String sk = getS3SK()

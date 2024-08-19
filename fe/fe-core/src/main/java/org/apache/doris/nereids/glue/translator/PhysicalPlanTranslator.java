@@ -2682,8 +2682,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      */
     private boolean checkPushSort(SortNode sortNode, OlapTable olapTable) {
         // Ensure limit is less than threshold
-        if (sortNode.getLimit() <= 0
-                || sortNode.getLimit() > context.getSessionVariable().topnOptLimitThreshold) {
+        if (sortNode.getLimit() <= 0 || sortNode.getLimit() > context.getSessionVariable().pushLimitToAggThreshold) {
             return false;
         }
 

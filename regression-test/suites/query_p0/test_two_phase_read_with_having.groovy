@@ -17,8 +17,7 @@
 suite("test_two_phase_read_with_having") { // "arrow_flight_sql" not support two phase read
 
     sql """ set enable_partition_topn = 1; """
-    sql """ set topn_opt_limit_threshold = 1024; """
-    sql """ set enable_two_phase_read_opt = 1; """
+    sql """ set two_phase_read_limit_threshold = 1024; """
 
     sql """
         drop table if exists `test_two_phase_read_with_having_tbl`;

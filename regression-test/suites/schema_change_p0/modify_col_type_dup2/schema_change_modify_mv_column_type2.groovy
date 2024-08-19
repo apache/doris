@@ -70,7 +70,7 @@ suite("schema_change_modify_mv_column_type2") {
     }
     createMV ("""CREATE MATERIALIZED VIEW mv_${testTable}_2 AS SELECT k1, sum(c_int), max(c_int), min(c_int) FROM ${testTable} GROUP BY k1""")
     qt_sql """ desc ${testTable} all """
-    sql "set topn_opt_limit_threshold = 100"
+    sql "set topn_filter_limit_threshold = 100"
     qt_sql "SELECT * from ${testTable} order by 1, 2, 3 limit 10"
     qt_sql "SELECT * from ${testTable} where c_tinyint = 10 order by 1, 2, 3 limit 10 "
 

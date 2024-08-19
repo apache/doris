@@ -24,7 +24,7 @@ suite("query24") {
     sql 'set enable_fallback_to_original_planner=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
-    sql 'set topn_opt_limit_threshold = 1024'
+    sql 'set topn_filter_limit_threshold = 1024'
     def ckBench = """SELECT * FROM hits WHERE URL LIKE '%google%' ORDER BY EventTime LIMIT 10"""
     qt_ckbench_shape_24 """
     explain shape plan
