@@ -23,21 +23,27 @@
 
 namespace doris::segment_v2 {
 
-struct StreamReader {
+// This file Defined ColumnIterator and ColumnReader for reading variant subcolumns. The types from read schema and from storage are
+// different, so we need to wrap the ColumnIterator from execution phase and storage column reading phase.And we also
+// maintain the tree structure to get the full JSON structure for variants.
+
+// Wrapped ColumnIterator from execution phase, the type is from read schema
+struct SubstreamIterator {
     vectorized::MutableColumnPtr column;
     std::unique_ptr<ColumnIterator> iterator;
     std::shared_ptr<const vectorized::IDataType> type;
     bool inited = false;
     size_t rows_read = 0;
-    StreamReader() = default;
-    StreamReader(vectorized::MutableColumnPtr&& col, std::unique_ptr<ColumnIterator>&& it,
-                 std::shared_ptr<const vectorized::IDataType> t)
+    SubstreamIterator() = default;
+    SubstreamIterator(vectorized::MutableColumnPtr&& col, std::unique_ptr<ColumnIterator>&& it,
+                      std::shared_ptr<const vectorized::IDataType> t)
             : column(std::move(col)), iterator(std::move(it)), type(t) {}
 };
 
 // path -> StreamReader
-using SubstreamReaderTree = vectorized::SubcolumnsTree<StreamReader>;
+using SubstreamReaderTree = vectorized::SubcolumnsTree<SubstreamIterator>;
 
+// Reader for the storage layer, the file_column_type indicates the read type of the column in segment file
 struct SubcolumnReader {
     std::unique_ptr<ColumnReader> reader;
     std::shared_ptr<const vectorized::IDataType> file_column_type;

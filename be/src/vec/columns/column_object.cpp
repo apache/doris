@@ -484,7 +484,7 @@ Array create_empty_array_field(size_t num_dimensions) {
 static ColumnPtr recreate_column_with_default_values(const ColumnPtr& column, TypeIndex scalar_type,
                                                      size_t num_dimensions) {
     const auto* column_array = check_and_get_column<ColumnArray>(remove_nullable(column).get());
-    if (column_array && num_dimensions) {
+    if (column_array != nullptr && num_dimensions != 0) {
         return make_nullable(ColumnArray::create(
                 recreate_column_with_default_values(column_array->get_data_ptr(), scalar_type,
                                                     num_dimensions - 1),
@@ -496,7 +496,7 @@ static ColumnPtr recreate_column_with_default_values(const ColumnPtr& column, Ty
             ->clone_resized(column->size());
 }
 
-ColumnObject::Subcolumn ColumnObject::Subcolumn::recreate_with_default_values(
+ColumnObject::Subcolumn ColumnObject::Subcolumn::clone_with_default_values(
         const FieldInfo& field_info) const {
     Subcolumn new_subcolumn(*this);
     new_subcolumn.least_common_type =
@@ -999,7 +999,7 @@ void ColumnObject::get(size_t n, Field& res) const {
     for (const auto& entry : subcolumns) {
         Field field;
         entry->data.get(n, field);
-        // Notice: we treat null as empty field
+        // Notice: we treat null as empty field, since we do not distinguish null and empty for Variant type.
         if (field.get_type() != Field::Types::Null) {
             object.try_emplace(entry->path.get_path(), field);
         }
@@ -1020,13 +1020,15 @@ void ColumnObject::add_nested_subcolumn(const PathInData& key, const FieldInfo& 
     /// We find node that represents the same Nested type as @key.
     const auto* nested_node = subcolumns.find_best_match(key);
 
-    if (nested_node && nested_node->is_nested()) {
+    // If we have a nested subcolumn and it contains nested node in it's path
+    if (nested_node &&
+        Subcolumns::find_parent(nested_node, [](const auto& node) { return node.is_nested(); })) {
         /// Find any leaf of Nested subcolumn.
         const auto* leaf = Subcolumns::find_leaf(nested_node, [&](const auto&) { return true; });
         assert(leaf);
 
         /// Recreate subcolumn with default values and the same sizes of arrays.
-        auto new_subcolumn = leaf->data.recreate_with_default_values(field_info);
+        auto new_subcolumn = leaf->data.clone_with_default_values(field_info);
 
         /// It's possible that we have already inserted value from current row
         /// to this subcolumn. So, adjust size to expected.
@@ -1972,7 +1974,7 @@ bool ColumnObject::try_insert_many_defaults_from_nested(const Subcolumns::NodePt
     /// and replace scalar values to the correct
     /// default values for given entry.
     auto new_subcolumn = leaf->data.cut(old_size, leaf->data.size() - old_size)
-                                 .recreate_with_default_values(field_info);
+                                 .clone_with_default_values(field_info);
 
     entry->data.insert_range_from(new_subcolumn, 0, new_subcolumn.size());
     return true;

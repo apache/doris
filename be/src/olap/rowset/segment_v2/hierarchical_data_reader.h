@@ -72,11 +72,11 @@ public:
 
     Status add_stream(const SubcolumnColumnReaders::Node* node);
 
-    void set_root(std::unique_ptr<StreamReader>&& root) { _root_reader = std::move(root); }
+    void set_root(std::unique_ptr<SubstreamIterator>&& root) { _root_reader = std::move(root); }
 
 private:
     SubstreamReaderTree _substream_reader;
-    std::unique_ptr<StreamReader> _root_reader;
+    std::unique_ptr<SubstreamIterator> _root_reader;
     size_t _rows_read = 0;
     vectorized::PathInData _path;
 
@@ -132,17 +132,18 @@ private:
         PathsWithColumnAndType non_nested_subcolumns;
         RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
             MutableColumnPtr column = node.data.column->get_ptr();
-            PathInData real_path = node.path.copy_pop_nfront(_path.get_parts().size());
+            PathInData relative_path = node.path.copy_pop_nfront(_path.get_parts().size());
 
             if (node.path.has_nested_part()) {
                 CHECK_EQ(getTypeName(remove_nullable(node.data.type)->get_type_id()),
                          getTypeName(TypeIndex::Array));
                 PathInData parent_path = node.path.get_nested_prefix_path().copy_pop_nfront(
                         _path.get_parts().size());
-                nested_subcolumns[parent_path].emplace_back(real_path, column->get_ptr(),
+                nested_subcolumns[parent_path].emplace_back(relative_path, column->get_ptr(),
                                                             node.data.type);
             } else {
-                non_nested_subcolumns.emplace_back(real_path, column->get_ptr(), node.data.type);
+                non_nested_subcolumns.emplace_back(relative_path, column->get_ptr(),
+                                                   node.data.type);
             }
             return Status::OK();
         }));
@@ -156,6 +157,10 @@ private:
                                              entry.type->get_name());
             }
         }
+        // Iterate nested subcolumns and flatten them, the entry contains the nested subcolumns of the same nested parent
+        // first we pick the first subcolumn as base array and using it's offset info. Then we flatten all nested subcolumns
+        // into a new object column and wrap it with array column using the first element offsets.The wrapped array column
+        // will type the type of ColumnObject::NESTED_TYPE, whih is Nullable<ColumnArray<NULLABLE(ColumnObject)>>.
         for (auto& entry : nested_subcolumns) {
             MutableColumnPtr nested_object = ColumnObject::create(true, false);
             const auto* base_array =
@@ -173,15 +178,15 @@ private:
                 }
                 const auto* target_array =
                         check_and_get_column<ColumnArray>(remove_nullable(subcolumn.column).get());
+#ifndef NDEBUG
                 if (!base_array->has_equal_offsets(*target_array)) {
                     return Status::InvalidArgument(
                             "Meet none equal offsets array when flatten nested array, path {}, "
                             "type {}",
                             subcolumn.path.get_path(), subcolumn.type->get_name());
                 }
-                MutableColumnPtr flattend_column = check_and_get_column<ColumnArray>(target_array)
-                                                           ->get_data_ptr()
-                                                           ->assume_mutable();
+#endif
+                MutableColumnPtr flattend_column = target_array->get_data_ptr()->assume_mutable();
                 DataTypePtr flattend_type =
                         check_and_get_data_type<DataTypeArray>(remove_nullable(type).get())
                                 ->get_nested_type();
@@ -256,7 +261,7 @@ private:
 // encodes sparse columns that are not materialized
 class ExtractReader : public ColumnIterator {
 public:
-    ExtractReader(const TabletColumn& col, std::unique_ptr<StreamReader>&& root_reader,
+    ExtractReader(const TabletColumn& col, std::unique_ptr<SubstreamIterator>&& root_reader,
                   vectorized::DataTypePtr target_type_hint)
             : _col(col),
               _root_reader(std::move(root_reader)),
@@ -280,7 +285,7 @@ private:
 
     TabletColumn _col;
     // may shared among different column iterators
-    std::unique_ptr<StreamReader> _root_reader;
+    std::unique_ptr<SubstreamIterator> _root_reader;
     vectorized::DataTypePtr _target_type_hint;
 };
 

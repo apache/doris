@@ -569,9 +569,9 @@ Status Segment::_new_iterator_with_variant_root(const TabletColumn& tablet_colum
     RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
     auto* stream_iter = new ExtractReader(
             tablet_column,
-            std::make_unique<StreamReader>(root->data.file_column_type->create_column(),
-                                           std::unique_ptr<ColumnIterator>(it),
-                                           root->data.file_column_type),
+            std::make_unique<SubstreamIterator>(root->data.file_column_type->create_column(),
+                                                std::unique_ptr<ColumnIterator>(it),
+                                                root->data.file_column_type),
             target_type_hint);
     iter->reset(stream_iter);
     return Status::OK();
@@ -606,42 +606,40 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
                type == ReaderType::READER_FULL_COMPACTION || type == ReaderType::READER_CHECKSUM;
     };
 
-    auto new_default_iter = [&]() {
-        if (tablet_column.is_nested_subcolumn() &&
-            type_to_read_flat_leaves(opt->io_ctx.reader_type)) {
-            // We find node that represents the same Nested type as path.
-            const auto* parent = _sub_column_tree.find_best_match(*tablet_column.path_info_ptr());
-            VLOG_DEBUG << "find with path " << tablet_column.path_info_ptr()->get_path()
-                       << " parent " << (parent ? parent->path.get_path() : "nullptr") << ", type "
-                       << ", parent is nested " << (parent ? parent->is_nested() : false) << ", "
-                       << TabletColumn::get_string_by_field_type(tablet_column.type());
-            // find it's common parent with nested part
-            // why not use parent->path->has_nested_part? because parent may not be a leaf node
-            // none leaf node may not contain path info
-            // Example:
-            // {"payload" : {"commits" : [{"issue" : {"id" : 123, "email" : "a@b"}}]}}
-            // nested node path          : payload.commits(NESTED)
-            // tablet_column path_info   : payload.commits.issue.id(SCALAR
-            // parent path node          : payload.commits.issue(TUPLE)
-            // leaf path_info            : payload.commits.issue.email(SCALAR)
-            if (parent && SubcolumnColumnReaders::find_parent(
-                                  parent, [](const auto& node) { return node.is_nested(); })) {
-                /// Find any leaf of Nested subcolumn.
-                const auto* leaf = SubcolumnColumnReaders::find_leaf(
-                        parent, [](const auto& node) { return node.path.has_nested_part(); });
-                assert(leaf);
-                std::unique_ptr<ColumnIterator> sibling_iter;
-                ColumnIterator* sibling_iter_ptr;
-                RETURN_IF_ERROR(leaf->data.reader->new_iterator(&sibling_iter_ptr));
-                sibling_iter.reset(sibling_iter_ptr);
-                *iter = std::make_unique<DefaultNestedColumnIterator>(std::move(sibling_iter),
-                                                                      leaf->data.file_column_type);
-            } else {
-                *iter = std::make_unique<DefaultNestedColumnIterator>(nullptr, nullptr);
-            }
-            return Status::OK();
+    // find the sibling of the nested column to fill the target nested column
+    auto new_default_iter_with_same_nested = [&](const TabletColumn& tablet_column,
+                                                 std::unique_ptr<ColumnIterator>* iter) {
+        // We find node that represents the same Nested type as path.
+        const auto* parent = _sub_column_tree.find_best_match(*tablet_column.path_info_ptr());
+        VLOG_DEBUG << "find with path " << tablet_column.path_info_ptr()->get_path() << " parent "
+                   << (parent ? parent->path.get_path() : "nullptr") << ", type "
+                   << ", parent is nested " << (parent ? parent->is_nested() : false) << ", "
+                   << TabletColumn::get_string_by_field_type(tablet_column.type());
+        // find it's common parent with nested part
+        // why not use parent->path->has_nested_part? because parent may not be a leaf node
+        // none leaf node may not contain path info
+        // Example:
+        // {"payload" : {"commits" : [{"issue" : {"id" : 123, "email" : "a@b"}}]}}
+        // nested node path          : payload.commits(NESTED)
+        // tablet_column path_info   : payload.commits.issue.id(SCALAR)
+        // parent path node          : payload.commits.issue(TUPLE)
+        // leaf path_info            : payload.commits.issue.email(SCALAR)
+        if (parent && SubcolumnColumnReaders::find_parent(
+                              parent, [](const auto& node) { return node.is_nested(); })) {
+            /// Find any leaf of Nested subcolumn.
+            const auto* leaf = SubcolumnColumnReaders::find_leaf(
+                    parent, [](const auto& node) { return node.path.has_nested_part(); });
+            assert(leaf);
+            std::unique_ptr<ColumnIterator> sibling_iter;
+            ColumnIterator* sibling_iter_ptr;
+            RETURN_IF_ERROR(leaf->data.reader->new_iterator(&sibling_iter_ptr));
+            sibling_iter.reset(sibling_iter_ptr);
+            *iter = std::make_unique<DefaultNestedColumnIterator>(std::move(sibling_iter),
+                                                                  leaf->data.file_column_type);
+        } else {
+            *iter = std::make_unique<DefaultNestedColumnIterator>(nullptr, nullptr);
         }
-        return new_default_iterator(tablet_column, iter);
+        return Status::OK();
     };
 
     if (opt != nullptr && type_to_read_flat_leaves(opt->io_ctx.reader_type)) {
@@ -655,7 +653,12 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
                 RETURN_IF_ERROR(_new_iterator_with_variant_root(
                         tablet_column, iter, root, sparse_node->data.file_column_type));
             } else {
-                RETURN_IF_ERROR(new_default_iter());
+                if (tablet_column.is_nested_subcolumn()) {
+                    // using the sibling of the nested column to fill the target nested column
+                    RETURN_IF_ERROR(new_default_iter_with_same_nested(tablet_column, iter));
+                } else {
+                    RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
+                }
             }
             return Status::OK();
         }
@@ -692,7 +695,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
                                                             sparse_node->data.file_column_type));
         } else {
             // No such variant column in this segment, get a default one
-            RETURN_IF_ERROR(new_default_iter());
+            RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
         }
     }
 

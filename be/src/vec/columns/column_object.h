@@ -97,7 +97,8 @@ public:
     constexpr static TypeIndex MOST_COMMON_TYPE_ID = TypeIndex::JSONB;
     // Nullable(Array(Nullable(Object)))
     const static DataTypePtr NESTED_TYPE;
-    // Finlize mode for subcolumns, write mode will deal with sparse columns, only affects in flush block to segments.
+    // Finlize mode for subcolumns, write mode will estimate which subcolumns are sparse columns(too many null values inside column),
+    // merge and encode them into a shared column in root column. Only affects in flush block to segments.
     // Otherwise read mode should be as default mode.
     enum class FinalizeMode { WRITE_MODE, READ_MODE };
     class Subcolumn {
@@ -146,10 +147,11 @@ public:
 
         /// Recreates subcolumn with default scalar values and keeps sizes of arrays.
         /// Used to create columns of type Nested with consistent array sizes.
-        Subcolumn recreate_with_default_values(const FieldInfo& field_info) const;
+        Subcolumn clone_with_default_values(const FieldInfo& field_info) const;
 
         void pop_back(size_t n);
 
+        // Cut a new subcolumns from current one, element from start to start + length
         Subcolumn cut(size_t start, size_t length) const;
 
         /// Converts all column's parts to the common type and
@@ -325,7 +327,6 @@ public:
 
     /// Adds a subcolumn of specific size with default values.
     bool add_sub_column(const PathInData& key, size_t new_size);
-
     /// Adds a subcolumn of type Nested of specific size with default values.
     /// It cares about consistency of sizes of Nested arrays.
     void add_nested_subcolumn(const PathInData& key, const FieldInfo& field_info, size_t new_size);

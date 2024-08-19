@@ -58,7 +58,7 @@ public class ExplodeVariantArray extends TableGeneratingFunction implements Unar
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (!(child().getDataType() instanceof VariantType)) {
-            throw new AnalysisException("only support map type for explode_map function but got "
+            throw new AnalysisException("only support variant type for explode_variant_array function but got "
                     + child().getDataType());
         }
     }

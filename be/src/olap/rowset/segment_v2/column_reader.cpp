@@ -1672,8 +1672,6 @@ static void fill_nested_with_defaults(vectorized::MutableColumnPtr& dst,
                                       vectorized::MutableColumnPtr& sibling_column, size_t nrows) {
     const auto* sibling_array = vectorized::check_and_get_column<vectorized::ColumnArray>(
             remove_nullable(sibling_column->get_ptr()));
-    CHECK(sibling_array) << "Expected array column, but mmet " << sibling_column->get_name();
-    ;
     const auto* dst_array = vectorized::check_and_get_column<vectorized::ColumnArray>(
             remove_nullable(dst->get_ptr()));
     if (!dst_array || !sibling_array) {
