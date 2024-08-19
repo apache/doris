@@ -848,7 +848,7 @@ public class ReportHandler extends Daemon {
                                 && !backendHealthPathHashs.contains(replica.getPathHash())
                                 && !backendHealthPathHashs.contains(0L);
 
-                        boolean existsOtherHealthReplica = tablets.getReplicas().stream()
+                        boolean existsOtherHealthReplica = tablet.getReplicas().stream()
                                 .anyMatch(r -> r.getBackendId() != replica.getBackendId()
                                         && r.getVersion() >= replica.getVersion()
                                         && r.getLastFailedVersion() == -1L
