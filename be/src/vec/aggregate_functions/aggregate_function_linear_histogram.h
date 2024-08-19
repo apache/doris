@@ -27,22 +27,26 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/io/io_helper.h"
 
+// TODO: 添加upper和lower
+// TODO: pre_sum修改为acc_count
+// TODO: 避免深拷贝string
 // TODO: 支持时间类型
 // TODO: 完善单元测试
-// TODO: 确定最大桶数
+// TODO: 端到端测试
 
 namespace doris::vectorized {
 
 template <typename T>
 struct AggregateFunctionLinearHistogramData {
-    // max buckets number
-    const static unsigned MAX_BUCKETS = std::numeric_limits<unsigned>::max();
-
+    // bucket key limits
+    const static int32_t MIN_BUCKET_KEY = std::numeric_limits<int32_t>::min();
+    const static int32_t MAX_BUCKET_KEY = std::numeric_limits<int32_t>::max();
+    
 private:
     // influxdb use double
     double interval;
     double offset;
-    std::map<unsigned, size_t> buckets;
+    std::map<int32_t, size_t> buckets;
 
 public:
     // reset
@@ -52,23 +56,20 @@ public:
         buckets.clear();
     }
 
-    void set_parameters(double interval_, double offset_) {
-        interval = interval_;
-        offset = offset_;
+    void set_parameters(double input_interval, double input_offset) {
+        interval = input_interval;
+        offset = input_offset;
     }
     
     // add
     void add(const T& value) {
         auto key = std::floor((value - offset) / interval);
-        if (key < 0) {
-            return;
-        }
-        if (key >= MAX_BUCKETS) {
+        if (key <= MIN_BUCKET_KEY || key >= MAX_BUCKET_KEY) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "{} is too large to fit in the buckets",
+                                       "{} exceeds the bucket range limit",
                                        value);
         }
-        buckets[static_cast<unsigned>(key)]++;
+        buckets[static_cast<int32_t>(key)]++;
     }
     
     // merge
@@ -100,7 +101,7 @@ public:
         size_t size;
         read_binary(size, buf);
         for (size_t i = 0; i < size; i++) {
-            unsigned key;
+            int32_t key;
             size_t count;
             read_binary(key, buf);
             read_binary(count, buf);
