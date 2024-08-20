@@ -426,6 +426,23 @@ public:
                     }
                 }
                 start_off += array_elem_size;
+                // here to make debug for array field with current doc which should has expected number of fields
+                DBUG_EXECUTE_IF("array_inverted_index.write_index", {
+                    auto single_array_field_count =
+                            DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                                    "array_inverted_index.write_index", "single_array_field_count",
+                                    0);
+                    if (single_array_field_count < 0) {
+                        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                                "indexes count cannot be negative");
+                    }
+                    if (_doc->getFields()->size() != single_array_field_count) {
+                        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                                "array field has fields count {} not equal to expected {}",
+                                _doc->getFields()->size(), single_array_field_count);
+                    }
+                })
+
                 if (!_doc->getFields()->empty()) {
                     // if this array is null, we just ignore to write inverted index
                     RETURN_IF_ERROR(add_document());

@@ -39,11 +39,11 @@ import java.util.List;
 public class BitmapAgg extends AggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BitmapType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(BitmapType.INSTANCE).args(SmallIntType.INSTANCE),
+            FunctionSignature.ret(BitmapType.INSTANCE).args(BigIntType.INSTANCE),
             FunctionSignature.ret(BitmapType.INSTANCE).args(IntegerType.INSTANCE),
-            FunctionSignature.ret(BitmapType.INSTANCE).args(BigIntType.INSTANCE)
-    );
+            FunctionSignature.ret(BitmapType.INSTANCE).args(SmallIntType.INSTANCE),
+            FunctionSignature.ret(BitmapType.INSTANCE).args(TinyIntType.INSTANCE)
+            );
 
     public BitmapAgg(Expression arg0) {
         super("bitmap_agg", arg0);

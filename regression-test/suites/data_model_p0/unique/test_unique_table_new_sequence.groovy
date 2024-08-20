@@ -171,6 +171,8 @@ suite("test_unique_table_new_sequence") {
 
         qt_1 "select * from ${tableName} order by k1;"
 
+        sql """set enable_nereids_dml = true; """
+        sql """set enable_nereids_planner=true"""
         sql "begin;"
         sql "insert into ${tableName} (k1, v1, v2, v3, `OR`) values (2,20,20,20,20);"
         sql "commit;"

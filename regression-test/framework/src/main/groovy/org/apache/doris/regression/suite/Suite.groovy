@@ -939,6 +939,19 @@ class Suite implements GroovyInterceptable {
         return;
     }
 
+    void getBackendIpHttpAndBrpcPort(Map<String, String> backendId_to_backendIP,
+        Map<String, String> backendId_to_backendHttpPort, Map<String, String> backendId_to_backendBrpcPort) {
+
+        List<List<Object>> backends = sql("show backends");
+        for (List<Object> backend : backends) {
+            backendId_to_backendIP.put(String.valueOf(backend[0]), String.valueOf(backend[1]));
+            backendId_to_backendHttpPort.put(String.valueOf(backend[0]), String.valueOf(backend[4]));
+            backendId_to_backendBrpcPort.put(String.valueOf(backend[0]), String.valueOf(backend[5]));
+        }
+        return;
+    }
+
+
     int getTotalLine(String filePath) {
         def file = new File(filePath)
         int lines = 0;
@@ -1332,6 +1345,39 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    def getMVJobState = { tableName, limit  ->
+        def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC limit ${limit}"""
+        if (jobStateResult.size() != limit) {
+            logger.info("show alter table roll is empty" + jobStateResult)
+            return "NOT_READY"
+        }
+        for (int i = 0; i < jobStateResult.size(); i++) {
+            logger.info("getMVJobState is " + jobStateResult[i][8])
+            if (!jobStateResult[i][8].equals("FINISHED")) {
+                return "NOT_READY"
+            }
+        }
+        return "FINISHED";
+    }
+    def waitForRollUpJob =  (tbName, timeoutMillisecond, limit) -> {
+
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + timeoutMillisecond
+
+        String result
+        // time out or has run exceed 10 minute, then break
+        while (timeoutTimestamp > System.currentTimeMillis() && System.currentTimeMillis() - startTime < 600000){
+            result = getMVJobState(tbName, limit)
+            if (result == "FINISHED") {
+                sleep(200)
+                return
+            } else {
+                sleep(200)
+            }
+        }
+        Assert.assertEquals("FINISHED", result)
+    }
+
     String getJobName(String dbName, String mtmvName) {
         String showMTMV = "select JobName from mv_infos('database'='${dbName}') where Name = '${mtmvName}'";
 	    logger.info(showMTMV)
@@ -1456,26 +1502,57 @@ class Suite implements GroovyInterceptable {
         return result.values().toList()
     }
 
-    def check_mv_rewrite_success = { db, mv_sql, query_sql, mv_name ->
-
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS ${mv_sql}
-        """
-
-        def job_name = getJobName(db, mv_name);
-        waitingMTMVTaskFinished(job_name)
+    def mv_rewrite_success = { query_sql, mv_name ->
         explain {
-            sql("${query_sql}")
-            contains("${mv_name}(${mv_name})")
+            sql(" memo plan ${query_sql}")
+            contains("${mv_name} chose")
         }
     }
 
-    def check_mv_rewrite_success_without_check_chosen = { db, mv_sql, query_sql, mv_name ->
+    def mv_rewrite_success_without_check_chosen = { query_sql, mv_name ->
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("${mv_name} not chose")
+        }
+    }
+
+    def mv_rewrite_fail = { query_sql, mv_name ->
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("${mv_name} fail")
+        }
+    }
+
+    def mv_rewrite_all_fail = {query_sql ->
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("chose: none")
+            contains("not chose: none")
+        }
+    }
+
+    def async_mv_rewrite_success = { db, mv_sql, query_sql, mv_name ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+
+        sql "analyze table ${mv_name} with sync;"
+
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("${mv_name} chose")
+        }
+    }
+
+    def async_mv_rewrite_success_without_check_chosen = { db, mv_sql, query_sql, mv_name ->
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
         sql"""
@@ -1488,17 +1565,17 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
+
+        sql "analyze table ${mv_name} with sync;"
+
         explain {
-            sql("${query_sql}")
-            check {result ->
-                def splitResult = result.split("MaterializedViewRewriteFail")
-                splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
-            }
+            sql(" memo plan ${query_sql}")
+            notContains("${mv_name} fail")
         }
     }
 
 
-    def check_mv_rewrite_fail = { db, mv_sql, query_sql, mv_name ->
+    def async_mv_rewrite_fail = { db, mv_sql, query_sql, mv_name ->
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
         sql"""
@@ -1511,9 +1588,13 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
+
+        sql "analyze table ${mv_name} with sync;"
+
         explain {
-            sql("${query_sql}")
-            notContains("${mv_name}(${mv_name})")
+            sql(" memo plan ${query_sql}")
+            notContains("${mv_name} chose")
+            notContains("${mv_name} not chose")
         }
     }
 

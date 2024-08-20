@@ -72,13 +72,13 @@ public class Config extends ConfigBase {
     @ConfField(description = {"FE 日志的级别", "The level of FE log"}, options = {"INFO", "WARN", "ERROR", "FATAL"})
     public static String sys_log_level = "INFO";
 
-    @ConfField(description = {"FE 日志的输出模式，其中 NORMAL 模式是日志同步输出且包含位置信息，BRIEF 模式是日志同步输出"
-                    + "但不包含位置信息，ASYNC 模式为默认的输出模式，是日志异步输出且不包含位置信息，三种日志输出模式的性能依次递增",
-            "The output mode of FE log, and NORMAL mode means the logs are synchronized and contain location "
-                    + "information. BRIEF mode is synchronized and does not contain location information. "
-                    + "ASYNC mode is the default output mode, which is asynchronous and does not contain "
-                    + "location information. The performance of the three log output modes increases in sequence"},
-            options = {"NORMAL", "BRIEF", "ASYNC"})
+    @ConfField(description = {"FE 日志的输出模式，其中 NORMAL 模式是日志同步输出且包含位置信息；ASYNC 模式为默认模式，日志异步输出"
+            + "且包含位置信息；BRIEF 是日志异步输出但不包含位置信息，三种日志输出模式的性能依次递增",
+            "The output mode of FE log. NORMAL mode is synchronous output with location information; "
+                    + "ASYNC mode is the default mode, asynchronous output with location information; "
+                    + "BRIEF is asynchronous output without location information. "
+                    + "The performance of the three log output modes increases in turn"},
+            options = {"NORMAL", "ASYNC", "BRIEF"})
     public static String sys_log_mode = "ASYNC";
 
     @ConfField(description = {"FE 日志文件的最大数量。超过这个数量后，最老的日志文件会被删除",
@@ -1910,7 +1910,7 @@ public class Config extends ConfigBase {
      * Max query profile num.
      */
     @ConfField(mutable = true, masterOnly = false)
-    public static int max_query_profile_num = 100;
+    public static int max_query_profile_num = 500;
 
     /**
      * Set to true to disable backend black list, so that even if we failed to send task to a backend,
@@ -2693,6 +2693,12 @@ public class Config extends ConfigBase {
             "Whether to enable proxy protocol"
     })
     public static boolean enable_proxy_protocol = false;
+
+    @ConfField(description = {
+            "Profile 异步收集过期时间，在 query 完成后，如果在该参数指定的时长内 profile 没有收集完成，则未完成的 profile 会被放弃。",
+            "Profile async collect expire time, after the query is completed, if the profile is not collected within "
+                    + " the time specified by this parameter, the uncompleted profile will be abandoned."
+    })
     public static int profile_async_collect_expire_time_secs = 5;
 
     // Used to check compatibility when upgrading.
@@ -2987,8 +2993,8 @@ public class Config extends ConfigBase {
         "create table in cloud mode, check recycler key remained, default true"})
     public static boolean check_create_table_recycle_key_remained = true;
 
-    @ConfField(mutable = true, description = {"存算分离模式下fe向ms请求锁的过期时间，默认10s"})
-    public static int delete_bitmap_lock_expiration_seconds = 10;
+    @ConfField(mutable = true, description = {"存算分离模式下fe向ms请求锁的过期时间，默认60s"})
+    public static int delete_bitmap_lock_expiration_seconds = 60;
 
     @ConfField(mutable = true, description = {"存算分离模式下calculate delete bitmap task 超时时间，默认15s"})
     public static int calculate_delete_bitmap_task_timeout_seconds = 15;
