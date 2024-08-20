@@ -143,6 +143,8 @@ import org.apache.doris.thrift.TDropPlsqlPackageRequest;
 import org.apache.doris.thrift.TDropPlsqlStoredProcedureRequest;
 import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
+import org.apache.doris.thrift.TFetchRunningQueriesRequest;
+import org.apache.doris.thrift.TFetchRunningQueriesResult;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TFetchSplitBatchRequest;
@@ -985,10 +987,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             List<TScanRangeLocations> locations = splitSource.getNextBatch(request.getMaxNumSplits());
             result.setSplits(locations);
+            result.status = new TStatus(TStatusCode.OK);
             return result;
         } catch (Exception e) {
-            throw new TException("Failed to get split source " + request.getSplitSourceId(), e);
+            LOG.warn("failed to fetch split batch with source id {}", request.getSplitSourceId(), e);
+            result.status = new TStatus(TStatusCode.INTERNAL_ERROR);
+            result.status.addToErrorMsgs(e.getMessage());
         }
+        return result;
     }
 
     @Override
@@ -2990,6 +2996,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         LabelName label = new LabelName(request.getDb(), request.getLabelName());
         String repoName = request.getRepoName();
         Map<String, String> properties = request.getProperties();
+
+        // Restore requires that all properties are known, so the old version of FE will not be able
+        // to recognize the properties of the new version. Therefore, request parameters are used here
+        // instead of directly putting them in properties to avoid compatibility issues of cross-version
+        // synchronization.
+        if (request.isCleanPartitions()) {
+            properties.put(RestoreStmt.PROP_CLEAN_PARTITIONS, "true");
+        }
+        if (request.isCleanTables()) {
+            properties.put(RestoreStmt.PROP_CLEAN_TABLES, "true");
+        }
+
         AbstractBackupTableRefClause restoreTableRefClause = null;
         if (request.isSetTableRefs()) {
             List<TableRef> tableRefs = new ArrayList<>();
@@ -3966,4 +3984,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return new TStatus(TStatusCode.OK);
     }
 
+    @Override
+    public TFetchRunningQueriesResult fetchRunningQueries(TFetchRunningQueriesRequest request) {
+        TFetchRunningQueriesResult result = new TFetchRunningQueriesResult();
+        if (!Env.getCurrentEnv().isReady()) {
+            result.setStatus(new TStatus(TStatusCode.ILLEGAL_STATE));
+            return result;
+        }
+
+        List<TUniqueId> runningQueries = Lists.newArrayList();
+        List<Coordinator> allCoordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
+
+        for (Coordinator coordinator : allCoordinators) {
+            runningQueries.add(coordinator.getQueryId());
+        }
+
+        result.setStatus(new TStatus(TStatusCode.OK));
+        result.setRunningQueries(runningQueries);
+        return result;
+    }
 }

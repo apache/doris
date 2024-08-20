@@ -427,7 +427,9 @@ public class InsertUtils {
                 return new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())), column.getName());
             }
             if (column.getDefaultValue() == null) {
-                throw new AnalysisException("Column has no default value, column=" + column.getName());
+                if (!column.isAllowNull()) {
+                    throw new AnalysisException("Column has no default value, column=" + column.getName());
+                }
             }
             if (column.getDefaultValueExpr() != null) {
                 Expression defualtValueExpression = new NereidsParser().parseExpression(

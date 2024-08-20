@@ -55,18 +55,18 @@ suite("test_external_table_lakesoul", "p2,external,lakesoul,external_remote,exte
             );"""
 
             // analyze
-            sql """use `${catalog_name}`.`${db_name}`""" 
-        
-	   sql q1
-           sql q2
-           sql q3
-           sql q4
-           sql q5
-           sql q6
-           sql q7
-           sql q8
-           sql q9
-           sql q11
+            sql """use `${catalog_name}`.`${db_name}`"""
+
+        sql q1
+        sql q2
+        sql q3
+        sql q4
+        sql q5
+        sql q6
+        sql q7
+        sql q8
+        sql q9
+        sql q11
 
     }
 }

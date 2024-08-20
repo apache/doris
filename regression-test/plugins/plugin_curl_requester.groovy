@@ -36,7 +36,7 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
         throw new Exception("Invalid url: ${url}")
     }
     
-    Integer timeout = 60 // seconds
+    Integer timeout = 300 // seconds
     Integer maxRetries = 10
     Integer retryCount = 0
     Integer sleepTime = 1000 // milliseconds
@@ -90,6 +90,7 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
                 timeout = timeout + 10
                 logger.warn("Read timed out, retrying (${++retryCount}/${maxRetries}): ${e.message}")
             } catch (Exception e) {
+                code = 500 // Internal Server Error
                 logger.error("Error executing HTTP request: ${e.message}")
                 err = e.message
                 return [code, out, err]
@@ -101,6 +102,7 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
 
         logger.error("HTTP request failed after ${maxRetries} attempts")
         err = "Failed after ${maxRetries} attempts"
+        code = 500 // Internal Server Error
         return [code, out, err]
     } finally {
         httpClient.close()

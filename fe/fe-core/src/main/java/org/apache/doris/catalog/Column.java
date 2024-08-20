@@ -518,6 +518,9 @@ public class Column implements GsonPostProcessable {
     }
 
     public Expr getDefaultValueExpr() throws AnalysisException {
+        if (defaultValue == null) {
+            return null;
+        }
         StringLiteral defaultValueLiteral = new StringLiteral(defaultValue);
         if (getDataType() == PrimitiveType.VARCHAR) {
             return defaultValueLiteral;
@@ -814,6 +817,11 @@ public class Column implements GsonPostProcessable {
     public void checkSchemaChangeAllowed(Column other) throws DdlException {
         if (Strings.isNullOrEmpty(other.name)) {
             throw new DdlException("Dest column name is empty");
+        }
+
+        // now nested type can only support change order
+        if (type.isComplexType() && !type.equals(other.type)) {
+            throw new DdlException("Can not change " + type + " to " + other);
         }
 
         if (!ColumnType.isSchemaChangeAllowed(type, other.type)) {

@@ -125,10 +125,6 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
     return read_columns_string;
 }
 
-Status NewOlapScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
-    return VScanner::prepare(state, conjuncts);
-}
-
 Status NewOlapScanner::init() {
     _is_init = true;
     auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
@@ -668,7 +664,7 @@ void NewOlapScanner::_collect_profile_before_close() {
     // Update counters from tablet reader's stats
     auto& stats = _tablet_reader->stats();
 
-    pipeline::OlapScanLocalState* local_state = (pipeline::OlapScanLocalState*)_local_state;
+    auto* local_state = (pipeline::OlapScanLocalState*)_local_state;
     INCR_COUNTER(local_state);
 
 #undef INCR_COUNTER

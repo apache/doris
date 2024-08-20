@@ -336,8 +336,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) throws UserException {
-        super.updateProgress(attachment);
         updateProgressAndOffsetsCache(attachment);
+        super.updateProgress(attachment);
     }
 
     @Override

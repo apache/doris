@@ -297,7 +297,7 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, Streams& stream
                 continue;
             }
         });
-        auto st = stream->open(_state->exec_env()->brpc_internal_client_cache(), *node_info,
+        auto st = stream->open(_state->exec_env()->brpc_streaming_client_cache(), *node_info,
                                _txn_id, *_schema, tablets_for_schema, _total_streams,
                                idle_timeout_ms, _state->enable_profile());
         if (st.ok()) {

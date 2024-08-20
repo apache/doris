@@ -102,10 +102,10 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.l_orderkey = orders.o_orderkey) and (t1.l_shipdate = orders.o_orderdate)) otherCondition=()
---------filter((t1.l_shipdate = '2023-12-09'))
-----------PhysicalOlapScan[lineitem]
 --------filter((orders.o_orderdate = '2023-12-09') and (orders.o_shippriority = 1) and (orders.o_totalprice = 11.50))
 ----------PhysicalOlapScan[orders]
+--------filter((t1.l_shipdate = '2023-12-09'))
+----------PhysicalOlapScan[lineitem]
 
 -- !query7_1_after --
 yy	4	11.50	11.50	11.50	1

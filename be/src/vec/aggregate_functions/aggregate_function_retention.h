@@ -127,7 +127,9 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, const ssize_t row_num,
              Arena*) const override {
         for (int i = 0; i < get_argument_types().size(); i++) {
-            auto event = assert_cast<const ColumnVector<UInt8>*>(columns[i])->get_data()[row_num];
+            auto event =
+                    assert_cast<const ColumnVector<UInt8>*, TypeCheckOnRelease::DISABLE>(columns[i])
+                            ->get_data()[row_num];
             if (event) {
                 this->data(place).set(i);
             }

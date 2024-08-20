@@ -132,8 +132,7 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_function_expand_outer_default<DataTypeInt64>(factory, "explode_json_array_int");
     register_table_function_expand_outer_default<DataTypeString>(factory,
                                                                  "explode_json_array_string");
-    register_table_function_expand_outer_default<DataTypeString>(factory,
-                                                                 "explode_json_array_json");
+    register_table_function_expand_outer_default<DataTypeJsonb>(factory, "explode_json_array_json");
     register_table_function_expand_outer_default<DataTypeFloat64>(factory,
                                                                   "explode_json_array_double");
     register_table_function_expand_outer_default<DataTypeInt64>(factory, "explode_bitmap");

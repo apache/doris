@@ -348,7 +348,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         } else if (type.isBooleanType()) {
             int num = resultContent.getUint32ValueCount();
             for (int i = 0; i < num; ++i) {
-                Literal literal = BooleanLiteral.of(resultContent.getUint32Value(i) == 1);
+                Literal literal = BooleanLiteral.of(resultContent.getUint32Value(i) != 0);
                 res.add(literal);
             }
         } else if (type.isTinyIntType()) {

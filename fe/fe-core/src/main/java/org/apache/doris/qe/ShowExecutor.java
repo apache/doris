@@ -199,6 +199,8 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.DeleteHandler;
@@ -230,6 +232,7 @@ import org.apache.doris.statistics.query.QueryStatsUtil;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
+import org.apache.doris.system.NodeType;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentClient;
@@ -256,6 +259,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.JSONArray;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -1099,6 +1103,12 @@ public class ShowExecutor {
                     .append(" LOCATION '")
                     .append(db.getLocationUri())
                     .append("'");
+        } else if (catalog instanceof IcebergExternalCatalog) {
+            IcebergExternalDatabase db = (IcebergExternalDatabase) catalog.getDbOrAnalysisException(showStmt.getDb());
+            sb.append("CREATE DATABASE `").append(showStmt.getDb()).append("`")
+                .append(" LOCATION '")
+                .append(db.getLocation())
+                .append("'");
         } else {
             DatabaseIf db = catalog.getDbOrAnalysisException(showStmt.getDb());
             sb.append("CREATE DATABASE `").append(ClusterNamespace.getNameFromFullName(showStmt.getDb())).append("`");
@@ -2381,17 +2391,80 @@ public class ShowExecutor {
 
     private void handleAdminShowConfig() throws AnalysisException {
         ShowConfigStmt showStmt = (ShowConfigStmt) stmt;
-        List<List<String>> results;
+        if (showStmt.getType() == NodeType.FRONTEND) {
+            List<List<String>> results;
+            PatternMatcher matcher = null;
+            if (showStmt.getPattern() != null) {
+                matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
+                        CaseSensibility.CONFIG.getCaseSensibility());
+            }
+            results = ConfigBase.getConfigInfo(matcher);
+            // Sort all configs by config key.
+            results.sort(Comparator.comparing(o -> o.get(0)));
+            resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+        } else {
+            handShowBackendConfig(showStmt);
+        }
+    }
+
+    private void handShowBackendConfig(ShowConfigStmt stmt) throws AnalysisException {
+        List<List<String>> results = new ArrayList<>();
+        List<Long> backendIds;
+        final SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+        if (stmt.isShowSingleBackend()) {
+            long backendId = stmt.getBackendId();
+            if (systemInfoService.getBackend(backendId) == null) {
+                throw new AnalysisException("Backend " + backendId + " not exists");
+            }
+            Backend backend = systemInfoService.getBackend(backendId);
+            if (!backend.isAlive()) {
+                throw new AnalysisException("Backend " + backendId + " is not alive");
+            }
+            backendIds = Lists.newArrayList(backendId);
+        } else {
+            backendIds = systemInfoService.getAllBackendIds(true);
+        }
 
         PatternMatcher matcher = null;
-        if (showStmt.getPattern() != null) {
-            matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
+        if (stmt.getPattern() != null) {
+            matcher = PatternMatcherWrapper.createMysqlPattern(stmt.getPattern(),
                     CaseSensibility.CONFIG.getCaseSensibility());
         }
-        results = ConfigBase.getConfigInfo(matcher);
-        // Sort all configs by config key.
-        results.sort(Comparator.comparing(o -> o.get(0)));
-        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+        for (long beId : backendIds) {
+            Backend backend = systemInfoService.getBackend(beId);
+            String host = backend.getHost();
+            int httpPort = backend.getHttpPort();
+            String urlString = String.format("http://%s:%d/api/show_config", host, httpPort);
+            try {
+                URL url = new URL(urlString);
+                URLConnection urlConnection = url.openConnection();
+                InputStream inputStream = urlConnection.getInputStream();
+                BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
+                while (reader.ready()) {
+                    // line's format like [["k1","v1"], ["k2","v2"]]
+                    String line = reader.readLine();
+                    JSONArray outer = new JSONArray(line);
+                    for (int i = 0; i < outer.length(); ++i) {
+                        // [key, type, value, isMutable]
+                        JSONArray inner = outer.getJSONArray(i);
+                        if (matcher == null || matcher.match(inner.getString(0))) {
+                            List<String> rows = Lists.newArrayList();
+                            rows.add(String.valueOf(beId));
+                            rows.add(host);
+                            rows.add(inner.getString(0));  // key
+                            rows.add(inner.getString(2));  // value
+                            rows.add(inner.getString(1));  // Type
+                            rows.add(inner.getString(3));  // isMutable
+                            results.add(rows);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                throw new AnalysisException(
+                        String.format("Can’t get backend config, backendId: %d, host: %s", beId, host));
+            }
+        }
+        resultSet = new ShowResultSet(stmt.getMetaData(), results);
     }
 
     private void handleShowSmallFiles() throws AnalysisException {

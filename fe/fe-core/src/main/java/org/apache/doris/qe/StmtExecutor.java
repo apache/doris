@@ -2187,6 +2187,11 @@ public class StmtExecutor {
         if (!(queryStmt instanceof SelectStmt)) {
             throw new TException("queryStmt is not SelectStmt, insert command error");
         }
+        if (((NativeInsertStmt) insertStmt).getTargetColumnNames() != null) {
+            throw new TException(
+                    "The legacy planner does not support specifying column names when using ·insert into values`."
+                            + " If you want to specify column names, please `set enable_nereids_planner=true`.");
+        }
         TransactionEntry txnEntry = context.getTxnEntry();
         SelectStmt selectStmt = (SelectStmt) queryStmt;
         int effectRows = 0;

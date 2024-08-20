@@ -63,7 +63,6 @@ excludeGroups = ""
 // load_stream_fault_injection may cause bad disk
 
 excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
-    "test_bitmap_filter," +
     "test_dump_image," +
     "test_index_failure_injection," +
     "test_information_schema_external," +
@@ -146,6 +145,9 @@ aliYunSk="***********"
 txYunAk="***********"
 txYunSk="***********"
 
+// max compute catalog test config
+enableMaxComputeTest=true
+
 max_failure_num=50
 
 externalEnvIp="127.0.0.1"
@@ -157,6 +159,7 @@ hdfs_port=8020
 oracle_11_port=1521
 sqlserver_2022_port=1433
 clickhouse_22_port=8123
+oceanbase_port=2881
 db2_11_port=50000
 
 // trino-connector catalog test config

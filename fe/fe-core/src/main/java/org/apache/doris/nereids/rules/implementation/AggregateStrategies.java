@@ -253,8 +253,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     logicalProject(
                         logicalFileScan()
                     )
-                )
-                    .when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
+                ).when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
                     .thenApply(ctx -> {
                         LogicalAggregate<LogicalProject<LogicalFileScan>> agg = ctx.root;
                         LogicalProject<LogicalFileScan> project = agg.child();

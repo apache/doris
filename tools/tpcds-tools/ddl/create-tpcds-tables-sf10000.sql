@@ -46,7 +46,7 @@ drop table if exists date_dim;
 CREATE TABLE IF NOT EXISTS date_dim (
     d_date_sk bigint not null,
     d_date_id char(16) not null,
-    d_date datev2,
+    d_date date,
     d_month_seq integer,
     d_week_seq integer,
     d_quarter_seq integer,
@@ -222,8 +222,8 @@ drop table if exists call_center;
 CREATE TABLE IF NOT EXISTS call_center (
   cc_call_center_sk bigint not null,
   cc_call_center_id char(16) not null,
-  cc_rec_start_date datev2,
-  cc_rec_end_date datev2,
+  cc_rec_start_date date,
+  cc_rec_end_date date,
   cc_closed_date_sk integer,
   cc_open_date_sk integer,
   cc_name varchar(50),
@@ -521,8 +521,8 @@ drop table if exists item;
 CREATE TABLE IF NOT EXISTS item (
     i_item_sk bigint not null,
     i_item_id char(16) not null,
-    i_rec_start_date datev2,
-    i_rec_end_date datev2,
+    i_rec_start_date date,
+    i_rec_end_date date,
     i_item_desc varchar(200),
     i_current_price decimal(7,2),
     i_wholesale_cost decimal(7,2),
@@ -659,8 +659,8 @@ drop table if exists web_site;
 CREATE TABLE IF NOT EXISTS web_site (
     web_site_sk bigint not null,
     web_site_id char(16) not null,
-    web_rec_start_date datev2,
-    web_rec_end_date datev2,
+    web_rec_start_date date,
+    web_rec_end_date date,
     web_name varchar(50),
     web_open_date_sk bigint,
     web_close_date_sk bigint,
@@ -838,8 +838,8 @@ drop table if exists store;
 CREATE TABLE IF NOT EXISTS store (
     s_store_sk bigint not null,
     s_store_id char(16) not null,
-    s_rec_start_date datev2,
-    s_rec_end_date datev2,
+    s_rec_start_date date,
+    s_rec_end_date date,
     s_closed_date_sk bigint,
     s_store_name varchar(50),
     s_number_employees integer,
@@ -893,8 +893,8 @@ drop table if exists web_page;
 CREATE TABLE IF NOT EXISTS web_page (
         wp_web_page_sk bigint not null,
         wp_web_page_id char(16) not null,
-        wp_rec_start_date datev2,
-        wp_rec_end_date datev2,
+        wp_rec_start_date date,
+        wp_rec_end_date date,
         wp_creation_date_sk bigint,
         wp_access_date_sk bigint,
         wp_autogen_flag char(1),
@@ -1166,7 +1166,7 @@ drop table if exists dbgen_version;
 CREATE TABLE IF NOT EXISTS dbgen_version
 (
     dv_version                varchar(16)                   ,
-    dv_create_date            datev2                        ,
+    dv_create_date            date                        ,
     dv_create_time            datetime                      ,
     dv_cmdline_args           varchar(200)                  
 )

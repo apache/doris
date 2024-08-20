@@ -156,18 +156,7 @@ public class RefreshCatalogTest extends TestWithFeService {
         } catch (Exception e) {
             // Do nothing
         }
-        Assertions.assertFalse(((ExternalCatalog) test2).isInitialized());
-        table.makeSureInitialized();
         Assertions.assertTrue(((ExternalCatalog) test2).isInitialized());
-        // table.makeSureInitialized() triggered init method
-        long l4 = test2.getLastUpdateTime();
-        Assertions.assertTrue(l4 > l3);
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
-        Assertions.assertFalse(((ExternalCatalog) test2).isInitialized());
     }
 
     public static class RefreshCatalogProvider implements TestExternalCatalog.TestCatalogProvider {

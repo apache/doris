@@ -49,7 +49,7 @@ class Dependency;
 class PipelineTask;
 struct BasicSharedState;
 using DependencySPtr = std::shared_ptr<Dependency>;
-using DependencyMap = std::map<int, std::vector<DependencySPtr>>;
+class LocalExchangeSourceLocalState;
 
 static constexpr auto SLOW_DEPENDENCY_THRESHOLD = 60 * 1000L * 1000L * 1000L;
 static constexpr auto TIME_UNIT_DEPENDENCY_LOG = 30 * 1000L * 1000L * 1000L;
@@ -811,20 +811,21 @@ struct LocalExchangeSharedState : public BasicSharedState {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
     LocalExchangeSharedState(int num_instances);
+    ~LocalExchangeSharedState() override;
     std::unique_ptr<ExchangerBase> exchanger {};
     std::vector<MemTracker*> mem_trackers;
     std::atomic<int64_t> mem_usage = 0;
     // We need to make sure to add mem_usage first and then enqueue, otherwise sub mem_usage may cause negative mem_usage during concurrent dequeue.
     std::mutex le_lock;
-    void create_source_dependencies(int operator_id, int node_id) {
+    virtual void create_dependencies(int local_exchange_id) {
         for (auto& source_dep : source_deps) {
-            source_dep = std::make_shared<Dependency>(operator_id, node_id,
+            source_dep = std::make_shared<Dependency>(local_exchange_id, local_exchange_id,
                                                       "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY");
             source_dep->set_shared_state(this);
         }
-    };
+    }
     void sub_running_sink_operators();
-    void sub_running_source_operators();
+    void sub_running_source_operators(LocalExchangeSourceLocalState& local_state);
     void _set_always_ready() {
         for (auto& dep : source_deps) {
             DCHECK(dep);
@@ -836,7 +837,10 @@ public:
         }
     }
 
-    Dependency* get_dep_by_channel_id(int channel_id) { return source_deps[channel_id].get(); }
+    virtual std::vector<DependencySPtr> get_dep_by_channel_id(int channel_id) {
+        return {source_deps[channel_id]};
+    }
+    virtual Dependency* get_sink_dep_by_channel_id(int channel_id) { return nullptr; }
 
     void set_ready_to_read(int channel_id) {
         auto& dep = source_deps[channel_id];
@@ -847,28 +851,84 @@ public:
     void add_mem_usage(int channel_id, size_t delta, bool update_total_mem_usage = true) {
         mem_trackers[channel_id]->consume(delta);
         if (update_total_mem_usage) {
-            add_total_mem_usage(delta);
+            add_total_mem_usage(delta, channel_id);
         }
     }
 
-    void sub_mem_usage(int channel_id, size_t delta, bool update_total_mem_usage = true) {
-        mem_trackers[channel_id]->release(delta);
-        if (update_total_mem_usage) {
-            sub_total_mem_usage(delta);
-        }
-    }
+    void sub_mem_usage(int channel_id, size_t delta) { mem_trackers[channel_id]->release(delta); }
 
-    void add_total_mem_usage(size_t delta) {
+    virtual void add_total_mem_usage(size_t delta, int channel_id = 0) {
         if (mem_usage.fetch_add(delta) + delta > config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->block();
         }
     }
 
-    void sub_total_mem_usage(size_t delta) {
-        if (mem_usage.fetch_sub(delta) - delta <= config::local_exchange_buffer_mem_limit) {
+    virtual void sub_total_mem_usage(size_t delta, int channel_id = 0) {
+        auto prev_usage = mem_usage.fetch_sub(delta);
+        DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta
+                                         << " channel_id: " << channel_id;
+        if (prev_usage - delta <= config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->set_ready();
         }
     }
+};
+
+struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
+    ENABLE_FACTORY_CREATOR(LocalMergeExchangeSharedState);
+    LocalMergeExchangeSharedState(int num_instances)
+            : LocalExchangeSharedState(num_instances),
+              _queues_mem_usage(num_instances),
+              _each_queue_limit(config::local_exchange_buffer_mem_limit / num_instances) {
+        for (size_t i = 0; i < num_instances; i++) {
+            _queues_mem_usage[i] = 0;
+        }
+    }
+
+    void create_dependencies(int local_exchange_id) override {
+        sink_deps.resize(source_deps.size());
+        std::vector<DependencySPtr> new_deps(sink_deps.size(), nullptr);
+        source_deps.swap(new_deps);
+        for (size_t i = 0; i < source_deps.size(); i++) {
+            source_deps[i] =
+                    std::make_shared<Dependency>(local_exchange_id, local_exchange_id,
+                                                 "LOCAL_MERGE_EXCHANGE_OPERATOR_DEPENDENCY");
+            source_deps[i]->set_shared_state(this);
+            sink_deps[i] = std::make_shared<Dependency>(
+                    local_exchange_id, local_exchange_id,
+                    "LOCAL_MERGE_EXCHANGE_OPERATOR_SINK_DEPENDENCY", true);
+            sink_deps[i]->set_shared_state(this);
+        }
+    }
+
+    void sub_total_mem_usage(size_t delta, int channel_id) override {
+        auto prev_usage = _queues_mem_usage[channel_id].fetch_sub(delta);
+        DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta
+                                         << " channel_id: " << channel_id;
+        if (prev_usage - delta <= _each_queue_limit) {
+            sink_deps[channel_id]->set_ready();
+        }
+        if (_queues_mem_usage[channel_id] == 0) {
+            source_deps[channel_id]->block();
+        }
+    }
+    void add_total_mem_usage(size_t delta, int channel_id) override {
+        if (_queues_mem_usage[channel_id].fetch_add(delta) + delta > _each_queue_limit) {
+            sink_deps[channel_id]->block();
+        }
+        source_deps[channel_id]->set_ready();
+    }
+
+    Dependency* get_sink_dep_by_channel_id(int channel_id) override {
+        return sink_deps[channel_id].get();
+    }
+
+    std::vector<DependencySPtr> get_dep_by_channel_id(int channel_id) override {
+        return source_deps;
+    }
+
+private:
+    std::vector<std::atomic_int64_t> _queues_mem_usage;
+    const int64_t _each_queue_limit;
 };
 
 } // namespace doris::pipeline

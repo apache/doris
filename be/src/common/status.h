@@ -290,7 +290,8 @@ namespace ErrorCode {
     E(KEY_ALREADY_EXISTS, -7001, false);                     \
     E(ENTRY_NOT_FOUND, -7002, false);                        \
     E(INVALID_TABLET_STATE, -7211, false);                   \
-    E(ROWSETS_EXPIRED, -7311, false);
+    E(ROWSETS_EXPIRED, -7311, false);                        \
+    E(CGROUP_ERROR, -7411, false);
 
 // Define constexpr int error_code_name = error_code_value
 #define M(NAME, ERRORCODE, ENABLESTACKTRACE) constexpr int NAME = ERRORCODE;
@@ -484,6 +485,7 @@ public:
     ERROR_CTOR_NOSTACK(NotAuthorized, NOT_AUTHORIZED)
     ERROR_CTOR(HttpError, HTTP_ERROR)
     ERROR_CTOR_NOSTACK(NeedSendAgain, NEED_SEND_AGAIN)
+    ERROR_CTOR_NOSTACK(CgroupError, CGROUP_ERROR)
 #undef ERROR_CTOR
 
     template <int code>
