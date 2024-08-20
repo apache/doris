@@ -185,7 +185,7 @@ public class MTMV extends OlapTable {
                 this.relation = relation;
                 if (!Env.isCheckpointThread() && !Config.enable_check_compatibility_mode) {
                     try {
-                        this.cache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this));
+                        this.cache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this), true);
                     } catch (Throwable e) {
                         this.cache = null;
                         LOG.warn("generate cache failed", e);
@@ -272,7 +272,7 @@ public class MTMV extends OlapTable {
             writeMvLock();
             try {
                 if (cache == null) {
-                    this.cache = MTMVCache.from(this, connectionContext);
+                    this.cache = MTMVCache.from(this, connectionContext, true);
                 }
             } finally {
                 writeMvUnlock();
