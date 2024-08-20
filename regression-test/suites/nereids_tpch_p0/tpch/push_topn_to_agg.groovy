@@ -20,7 +20,7 @@
 suite("push_topn_to_agg") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql "use ${db}"
-    sql "set topn_filter_limit_threshold=1024"
+    sql ""
     // limit -> agg
         // verify switch
     sql "set push_topn_to_agg=false"

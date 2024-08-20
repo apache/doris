@@ -39,7 +39,7 @@ suite("query23") {
     set enable_pipeline_engine = true;
     set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
     set push_topn_to_agg = true;
-    set topn_filter_limit_threshold=1024;
+    ;
     """
 
 

@@ -46,33 +46,35 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 // limit -> agg to topn->agg
-                logicalLimit(logicalAggregate()).when(
-                        limit -> ConnectContext.get() != null && ConnectContext.get().getSessionVariable().pushTopnToAgg
-                                && ConnectContext.get().getSessionVariable().pushLimitToAggThreshold >= limit.getLimit()
-                                        + limit.getOffset())
+                logicalLimit(logicalAggregate())
+                        .when(limit -> ConnectContext.get() != null
+                                && ConnectContext.get().getSessionVariable().pushTopnToAgg
+                                && ConnectContext.get().getSessionVariable().pushLimitToAggThreshold
+                                >= limit.getLimit() + limit.getOffset())
                         .then(limit -> {
                             LogicalAggregate<? extends Plan> agg = limit.child();
                             List<OrderKey> orderKeys = generateOrderKeyByGroupKey(agg);
                             return new LogicalTopN<>(orderKeys, limit.getLimit(), limit.getOffset(), agg);
                         }).toRule(RuleType.LIMIT_AGG_TO_TOPN_AGG),
-                // limit->project->agg to topn->project->agg
+                //limit->project->agg to topn->project->agg
                 logicalLimit(logicalProject(logicalAggregate()))
                         .when(limit -> ConnectContext.get() != null
                                 && ConnectContext.get().getSessionVariable().pushTopnToAgg
-                                && ConnectContext.get().getSessionVariable().pushLimitToAggThreshold >= limit.getLimit()
-                                        + limit.getOffset())
-                        .when(limit -> outputAllGroupKeys(limit, limit.child().child())).then(limit -> {
+                                && ConnectContext.get().getSessionVariable().pushLimitToAggThreshold
+                                >= limit.getLimit() + limit.getOffset())
+                        .when(limit -> outputAllGroupKeys(limit, limit.child().child()))
+                        .then(limit -> {
                             LogicalProject<? extends Plan> project = limit.child();
                             LogicalAggregate<? extends Plan> agg = (LogicalAggregate<? extends Plan>) project.child();
                             List<OrderKey> orderKeys = generateOrderKeyByGroupKey(agg);
                             return new LogicalTopN<>(orderKeys, limit.getLimit(), limit.getOffset(), project);
                         }).toRule(RuleType.LIMIT_AGG_TO_TOPN_AGG),
-                // topn -> agg: add all group key to sort key, if sort key is prefix of group
-                // key
-                logicalTopN(logicalAggregate()).when(
-                        topn -> ConnectContext.get() != null && ConnectContext.get().getSessionVariable().pushTopnToAgg
-                                && ConnectContext.get().getSessionVariable().pushLimitToAggThreshold >= topn.getLimit()
-                                        + topn.getOffset())
+                // topn -> agg: add all group key to sort key, if sort key is prefix of group key
+                logicalTopN(logicalAggregate())
+                        .when(topn -> ConnectContext.get() != null
+                                && ConnectContext.get().getSessionVariable().pushTopnToAgg
+                                && ConnectContext.get().getSessionVariable().pushLimitToAggThreshold
+                                >= topn.getLimit() + topn.getOffset())
                         .then(topn -> {
                             LogicalAggregate<? extends Plan> agg = (LogicalAggregate<? extends Plan>) topn.child();
                             List<OrderKey> newOrders = tryGenerateOrderKeyByGroupKeyAndTopnKey(topn, agg);
