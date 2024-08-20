@@ -17,10 +17,13 @@
 
 #pragma once
 #include <cstdint>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
 
+#include "common/status.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/tablet_fwd.h"
 
 namespace doris {
@@ -31,6 +34,7 @@ namespace vectorized {
 class Block;
 }
 struct RowsetWriterContext;
+struct RowsetId;
 
 struct PartialUpdateInfo {
     void init(const TabletSchema& tablet_schema, bool partial_update,

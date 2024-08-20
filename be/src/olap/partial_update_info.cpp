@@ -20,6 +20,8 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include "olap/base_tablet.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
