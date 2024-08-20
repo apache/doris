@@ -252,7 +252,7 @@ suite("nested_materialized_view") {
             """
     order_qt_query1_0_before "${query1_0}"
     create_mtmv(db, "mv1_0_inner_mv", mv1_0_inner_mv)
-    check_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0_inner_mv"""
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
@@ -262,7 +262,7 @@ suite("nested_materialized_view") {
 
     order_qt_query1_1_before "${query1_0}"
     create_mtmv(db, "mv1_0_inner_mv", mv1_0_inner_mv)
-    check_mv_rewrite_fail(db, mv1_0, query1_0, "mv1_0")
+    async_mv_rewrite_fail(db, mv1_0, query1_0, "mv1_0")
 
     explain {
         sql("${query1_0}")

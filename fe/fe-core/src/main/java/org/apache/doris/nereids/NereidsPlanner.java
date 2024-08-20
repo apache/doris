@@ -182,7 +182,7 @@ public class NereidsPlanner extends Planner {
             if (plan instanceof LogicalSqlCache) {
                 rewrittenPlan = analyzedPlan = plan;
                 LogicalSqlCache logicalSqlCache = (LogicalSqlCache) plan;
-                physicalPlan = new PhysicalSqlCache(
+                optimizedPlan = physicalPlan = new PhysicalSqlCache(
                         logicalSqlCache.getQueryId(),
                         logicalSqlCache.getColumnLabels(), logicalSqlCache.getFieldInfos(),
                         logicalSqlCache.getResultExprs(), logicalSqlCache.getResultSetInFe(),
@@ -482,8 +482,7 @@ public class NereidsPlanner extends Planner {
             // add groupExpression to plan so that we could print group id in plan.treeString()
             plan = plan.withGroupExpression(Optional.of(groupExpression));
             PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
-                    groupExpression.getOutputProperties(physicalProperties),
-                    groupExpression.getOwnerGroup().getStatistics());
+                    physicalProperties, groupExpression.getOwnerGroup().getStatistics());
             return physicalPlan;
         } catch (Exception e) {
             if (e instanceof AnalysisException && e.getMessage().contains("Failed to choose best plan")) {
@@ -534,6 +533,12 @@ public class NereidsPlanner extends Planner {
     public String getExplainString(ExplainOptions explainOptions) {
         ExplainLevel explainLevel = getExplainLevel(explainOptions);
         String plan = "";
+        String mvSummary = "";
+        if (this.getPhysicalPlan() != null && cascadesContext != null) {
+            mvSummary = "\n\n========== MATERIALIZATIONS ==========\n"
+                    + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
+                    this.getPhysicalPlan());
+        }
         switch (explainLevel) {
             case PARSED_PLAN:
                 plan = parsedPlan.treeString();
@@ -545,22 +550,16 @@ public class NereidsPlanner extends Planner {
                 plan = rewrittenPlan.treeString();
                 break;
             case OPTIMIZED_PLAN:
-                plan = "cost = " + cost + "\n" + optimizedPlan.treeString();
+                plan = "cost = " + cost + "\n" + optimizedPlan.treeString() + mvSummary;
                 break;
             case SHAPE_PLAN:
                 plan = optimizedPlan.shape("");
                 break;
             case MEMO_PLAN:
-                StringBuilder materializationStringBuilder = new StringBuilder();
-                materializationStringBuilder.append("materializationContexts:").append("\n");
-                for (MaterializationContext ctx : cascadesContext.getMaterializationContexts()) {
-                    materializationStringBuilder.append("\n").append(ctx).append("\n");
-                }
                 plan = cascadesContext.getMemo().toString()
                         + "\n\n========== OPTIMIZED PLAN ==========\n"
                         + optimizedPlan.treeString()
-                        + "\n\n========== MATERIALIZATIONS ==========\n"
-                        + materializationStringBuilder;
+                        + mvSummary;
                 break;
             case DISTRIBUTED_PLAN:
                 StringBuilder distributedPlanStringBuilder = new StringBuilder();
@@ -592,17 +591,18 @@ public class NereidsPlanner extends Planner {
                             + getTimeMetricString(SummaryProfile::getPrettyNereidsDistributeTime) + " ==========\n";
                     plan += DistributedPlan.toString(Lists.newArrayList(distributedPlans.values())) + "\n\n";
                 }
+                plan += mvSummary;
                 break;
             default:
-                plan = super.getExplainString(explainOptions)
-                        + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
-                        this.getPhysicalPlan());
+                plan = super.getExplainString(explainOptions);
+                plan += mvSummary;
                 if (statementContext != null) {
                     if (statementContext.isHasUnknownColStats()) {
                         plan += "\n\nStatistics\n planed with unknown column statistics\n";
                     }
                 }
         }
+
         if (statementContext != null) {
             if (!statementContext.getHints().isEmpty()) {
                 String hint = getHintExplainString(statementContext.getHints());

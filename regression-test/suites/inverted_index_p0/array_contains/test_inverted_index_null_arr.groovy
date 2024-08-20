@@ -36,7 +36,7 @@ suite("test_inverted_index_null_arr", "array_contains_inverted_index") {
       `compy` varchar(20) NULL COMMENT "",
       `n` array<int> NULL COMMENT "[]",
       INDEX idx_city(city) USING INVERTED,
-      INDEX idx_addr(addr) USING INVERTED PROPERTIES("parser"="english"),
+      INDEX idx_addr(addr) USING INVERTED PROPERTIES("parser"="none"),
       INDEX idx_n(n) USING INVERTED
     ) ENGINE=OLAP
     DUPLICATE KEY(`id`)

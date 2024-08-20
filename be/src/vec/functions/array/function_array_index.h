@@ -172,6 +172,21 @@ public:
         }
 
         *bitmap = *roaring;
+        // here debug for check array_contains function really filter rows by inverted index correctly
+        DBUG_EXECUTE_IF("array_func.array_contains", {
+            auto result_bitmap = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                    "array_func.array_contains", "result_bitmap", 0);
+            if (result_bitmap < 0) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "result_bitmap count cannot be negative");
+            }
+            if (bitmap->cardinality() != result_bitmap) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "array_contains really filtered {} by inverted index not equal to expected "
+                        "{}",
+                        bitmap->cardinality(), result_bitmap);
+            }
+        })
         return Status::OK();
     }
 

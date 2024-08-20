@@ -34,9 +34,9 @@ suite("test_char_replace_array_contains_arr", "array_contains_inverted_index") {
 		`a` array<text> NULL,
         `b` array<string> NULL,
         `c` array<string> NULL,
-        INDEX a_idx(`a`) USING INVERTED PROPERTIES("parser" = "unicode", "support_phrase" = "true") COMMENT '',
-		INDEX b_idx(`b`) USING INVERTED PROPERTIES("parser" = "unicode", "support_phrase" = "true", "char_filter_type" = "char_replace", "char_filter_pattern" = "._", "char_filter_replacement" = " ") COMMENT '',
-        INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser" = "unicode", "support_phrase" = "true", "char_filter_type" = "char_replace", "char_filter_pattern" = "._") COMMENT ''
+        INDEX a_idx(`a`) USING INVERTED PROPERTIES("parser" = "none") COMMENT '',
+		INDEX b_idx(`b`) USING INVERTED PROPERTIES("parser" = "none") COMMENT '',
+        INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser" = "none") COMMENT ''
 	) ENGINE=OLAP
 	DUPLICATE KEY(`id`)
 	COMMENT 'OLAP'

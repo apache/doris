@@ -135,7 +135,7 @@ suite("mv_tpch_test") {
             l_linestatus;
     """
     order_qt_query1_before "${query1}"
-    check_mv_rewrite_success(db, mv1, query1, "mv1")
+    async_mv_rewrite_success(db, mv1, query1, "mv1")
     order_qt_query1_after "${query1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1"""
 
@@ -228,7 +228,7 @@ suite("mv_tpch_test") {
     """
     // contains limit, doesn't support now
     order_qt_query2_before "${query2}"
-    check_mv_rewrite_fail(db, mv2, query2, "mv2")
+    async_mv_rewrite_fail(db, mv2, query2, "mv2")
     order_qt_query2_after "${query2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2"""
 
@@ -286,7 +286,7 @@ suite("mv_tpch_test") {
     """
     // contains limit, doesn't support now
     order_qt_query3_before "${query3}"
-    check_mv_rewrite_fail(db, mv3, query3, "mv3")
+    async_mv_rewrite_fail(db, mv3, query3, "mv3")
     order_qt_query3_after "${query3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3"""
 
@@ -333,7 +333,7 @@ suite("mv_tpch_test") {
     """
     // contains subquery, doesn't support now
     order_qt_query4_before "${query4}"
-    check_mv_rewrite_success(db, mv4, query4, "mv4")
+    async_mv_rewrite_success(db, mv4, query4, "mv4")
     order_qt_query4_after "${query4}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4"""
 
@@ -391,7 +391,7 @@ suite("mv_tpch_test") {
             revenue DESC            
     """
     order_qt_query5_before "${query5}"
-    check_mv_rewrite_success(db, mv5, query5, "mv5")
+    async_mv_rewrite_success(db, mv5, query5, "mv5")
     order_qt_query5_after "${query5}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5"""
 
@@ -417,7 +417,7 @@ suite("mv_tpch_test") {
             AND l_quantity < 24            
     """
     order_qt_query6_before "${query6}"
-    check_mv_rewrite_success(db, mv6, query6, "mv6")
+    async_mv_rewrite_success(db, mv6, query6, "mv6")
     order_qt_query6_after "${query6}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6"""
 
@@ -504,7 +504,7 @@ suite("mv_tpch_test") {
     """
     // contains subquery, doesn't support now
     order_qt_query7_before "${query7}"
-    check_mv_rewrite_fail(db, mv7, query7, "mv7")
+    async_mv_rewrite_fail(db, mv7, query7, "mv7")
     order_qt_query7_after "${query7}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv7"""
 
@@ -588,7 +588,7 @@ suite("mv_tpch_test") {
               o_year              
     """
     order_qt_query8_before "${query8}"
-    check_mv_rewrite_success(db, mv8, query8, "mv8")
+    async_mv_rewrite_success(db, mv8, query8, "mv8")
     order_qt_query8_after "${query8}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv8"""
 
@@ -660,7 +660,7 @@ suite("mv_tpch_test") {
               o_year DESC             
     """
     order_qt_query9_before "${query9}"
-    check_mv_rewrite_success(db, mv9, query9, "mv9")
+    async_mv_rewrite_success(db, mv9, query9, "mv9")
     order_qt_query9_after "${query9}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv9"""
 
@@ -735,7 +735,7 @@ suite("mv_tpch_test") {
     """
     // contains limit, doesn't support now
     order_qt_query10_before "${query10}"
-    check_mv_rewrite_fail(db, mv10, query10, "mv10")
+    async_mv_rewrite_fail(db, mv10, query10, "mv10")
     order_qt_query10_after "${query10}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv10"""
 
@@ -800,7 +800,7 @@ suite("mv_tpch_test") {
     """
     // contains subquery, doesn't support now
     order_qt_query11_before "${query11}"
-    check_mv_rewrite_fail(db, mv11, query11, "mv11")
+    async_mv_rewrite_fail(db, mv11, query11, "mv11")
     order_qt_query11_after "${query11}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv11"""
 
@@ -866,7 +866,7 @@ suite("mv_tpch_test") {
               l_shipmode            
     """
     order_qt_query12_before "${query12}"
-    check_mv_rewrite_success(db, mv12, query12, "mv12")
+    async_mv_rewrite_success(db, mv12, query12, "mv12")
     order_qt_query12_after "${query12}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv12"""
 
@@ -917,7 +917,7 @@ suite("mv_tpch_test") {
     """
     // when aggregate rewrite, should only contains one aggregate
     order_qt_query13_before "${query13}"
-    check_mv_rewrite_fail(db, mv13, query13, "mv13")
+    async_mv_rewrite_fail(db, mv13, query13, "mv13")
     order_qt_query13_after "${query13}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv13"""
 
@@ -951,7 +951,7 @@ suite("mv_tpch_test") {
               AND l_shipdate < DATE '1995-09-01' + INTERVAL '1' MONTH            
     """
     order_qt_query14_before "${query14}"
-    check_mv_rewrite_success(db, mv14, query14, "mv14")
+    async_mv_rewrite_success(db, mv14, query14, "mv14")
     order_qt_query14_after "${query14}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv14"""
 
@@ -998,7 +998,7 @@ suite("mv_tpch_test") {
     """
     // revenue1 in materialized view is view, can not create materialized view support now
 //    order_qt_query15_before "${query15}"
-//    check_mv_rewrite_fail(db, mv15, query15, "mv15")
+//    async_mv_rewrite_fail(db, mv15, query15, "mv15")
 //    order_qt_query15_after "${query15}"
 //    sql """ DROP MATERIALIZED VIEW IF EXISTS mv15"""
 
@@ -1067,7 +1067,7 @@ suite("mv_tpch_test") {
     """
     // contains subquery, doesn't support now
     order_qt_query16_before "${query16}"
-    check_mv_rewrite_success(db, mv16, query16, "mv16")
+    async_mv_rewrite_success(db, mv16, query16, "mv16")
     order_qt_query16_after "${query16}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv16"""
 
@@ -1108,7 +1108,7 @@ suite("mv_tpch_test") {
     """
     // contains subquery, doesn't support now
     order_qt_query17_before "${query17}"
-    check_mv_rewrite_fail(db, mv17, query17, "mv17")
+    async_mv_rewrite_fail(db, mv17, query17, "mv17")
     order_qt_query17_after "${query17}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv17"""
 
@@ -1185,7 +1185,7 @@ suite("mv_tpch_test") {
     """
     // contains limit, doesn't support now
     order_qt_query18_before "${query18}"
-    check_mv_rewrite_fail(db, mv18, query18, "mv18")
+    async_mv_rewrite_fail(db, mv18, query18, "mv18")
     order_qt_query18_after "${query18}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv18"""
 
@@ -1264,7 +1264,7 @@ suite("mv_tpch_test") {
     """
     // join condition is not conjunctions, doesn't support now
     order_qt_query19_before "${query19}"
-    check_mv_rewrite_fail(db, mv19, query19, "mv19")
+    async_mv_rewrite_fail(db, mv19, query19, "mv19")
     order_qt_query19_after "${query19}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv19"""
 
@@ -1339,7 +1339,7 @@ suite("mv_tpch_test") {
     """
     // contains subquery, doesn't support now
     order_qt_query20_before "${query20}"
-    check_mv_rewrite_fail(db, mv20, query20, "mv20")
+    async_mv_rewrite_fail(db, mv20, query20, "mv20")
     order_qt_query20_after "${query20}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv20"""
 
@@ -1426,7 +1426,7 @@ suite("mv_tpch_test") {
     """
     // contains limit, doesn't support now
     order_qt_query21_before "${query21}"
-    check_mv_rewrite_fail(db, mv21, query21, "mv21")
+    async_mv_rewrite_fail(db, mv21, query21, "mv21")
     order_qt_query21_after "${query21}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv21"""
 
@@ -1505,7 +1505,7 @@ suite("mv_tpch_test") {
     """
     // contains subquery, doesn't support now
     order_qt_query22_before "${query22}"
-    check_mv_rewrite_fail(db, mv22, query22, "mv22")
+    async_mv_rewrite_fail(db, mv22, query22, "mv22")
     order_qt_query22_after "${query22}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv22"""
 }

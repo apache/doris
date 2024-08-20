@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -509,6 +510,7 @@ public class MaterializedViewUtils {
         @Override
         public Void visit(Plan plan, IncrementCheckerContext context) {
             if (plan instanceof LogicalProject
+                    || plan instanceof LogicalLimit
                     || plan instanceof LogicalFilter
                     || plan instanceof LogicalJoin
                     || plan instanceof LogicalAggregate

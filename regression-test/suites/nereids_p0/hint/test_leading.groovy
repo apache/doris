@@ -1001,7 +1001,7 @@ suite("test_leading") {
     qt_select94_2 """explain shape plan select /*+ leading(t2 shuffle {t3 t1}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
 
     // outer join
-    qt_select95_1 """explain shape plan select /*+ leading(t1 broadcast t2 t3) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
+    qt_select95_1 """explain shape plan select /*+ leading(t1 broadcast t2 broadcast t3) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
     explain {
         sql """shape plan select /*+ leading(t1 broadcast {t2 t3}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
         contains("UnUsed: leading(t1 broadcast { t2 t3 })")

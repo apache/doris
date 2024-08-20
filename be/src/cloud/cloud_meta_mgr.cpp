@@ -329,6 +329,9 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
             error_msg = cntl.ErrorText();
         } else if (res->status().code() == MetaServiceCode::OK) {
             return Status::OK();
+        } else if (res->status().code() == MetaServiceCode::INVALID_ARGUMENT) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("failed to {}: {}", op_name,
+                                                                     res->status().msg());
         } else if (res->status().code() != MetaServiceCode::KV_TXN_CONFLICT) {
             return Status::Error<ErrorCode::INTERNAL_ERROR, false>("failed to {}: {}", op_name,
                                                                    res->status().msg());

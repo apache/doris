@@ -81,6 +81,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayZip;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraysOverlap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AutoPartitionName;
@@ -340,6 +341,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RandomBytes;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtractAll;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtractOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpReplaceOne;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Repeat;
@@ -704,6 +706,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitAsin(Asin asin, C context) {
         return visitScalarFunction(asin, context);
+    }
+
+    default R visitAssertTrue(AssertTrue assertTrue, C context) {
+        return visitScalarFunction(assertTrue, context);
     }
 
     default R visitAtan(Atan atan, C context) {
@@ -1724,6 +1730,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitRegexpExtractAll(RegexpExtractAll regexpExtractAll, C context) {
         return visitScalarFunction(regexpExtractAll, context);
+    }
+
+    default R visitRegexpExtractOrNull(RegexpExtractOrNull regexpExtractOrNull, C context) {
+        return visitScalarFunction(regexpExtractOrNull, context);
     }
 
     default R visitRegexpReplace(RegexpReplace regexpReplace, C context) {

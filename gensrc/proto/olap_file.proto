@@ -131,6 +131,9 @@ message RowsetMetaPB {
     // the segments_file_size maybe is empty or error
     optional bool enable_segments_file_size = 1004;
     optional bool has_variant_type_in_schema = 1005;
+
+    optional bool enable_inverted_index_file_info = 1006;
+    repeated InvertedIndexFileInfo inverted_index_file_info = 1007;
 }
 
 message SchemaDictKeyList {
@@ -214,6 +217,9 @@ message RowsetMetaCloudPB {
     optional bool has_variant_type_in_schema = 104;
     // dict key lists for compress schema info
     optional SchemaDictKeyList schema_dict_key_list = 105;
+
+    optional bool enable_inverted_index_file_info = 106;
+    repeated InvertedIndexFileInfo inverted_index_file_info = 107;
 }
 
 message SegmentStatisticsPB {

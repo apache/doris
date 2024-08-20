@@ -126,6 +126,12 @@ public class InvertedIndexUtil {
             parser = INVERTED_INDEX_PARSER_NONE;
         }
 
+        // array type is not supported parser except "none"
+        if (colType.isArrayType() && !parser.equals(INVERTED_INDEX_PARSER_NONE)) {
+            throw new AnalysisException("INVERTED index with parser: " + parser
+                + " is not supported for array column: " + indexColName);
+        }
+
         if (colType.isStringType() || colType.isVariantType()) {
             if (!(parser.equals(INVERTED_INDEX_PARSER_NONE)
                     || parser.equals(INVERTED_INDEX_PARSER_STANDARD)
