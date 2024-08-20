@@ -2137,7 +2137,7 @@ public class Coordinator implements CoordInterface {
                                 leftMostNode.getNumInstances());
                         boolean forceToLocalShuffle = context != null
                                 && context.getSessionVariable().isForceToLocalShuffle()
-                                && !fragment.hasNullAwareLeftAntiJoin();
+                                && !fragment.hasNullAwareLeftAntiJoin() && useNereids;
                         boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream()
                                 .allMatch(scanNode -> scanNode.ignoreStorageDataDistribution(context,
                                         addressToBackendID.size())) && useNereids);
@@ -3094,7 +3094,7 @@ public class Coordinator implements CoordInterface {
          * 2. Use Nereids planner.
          */
         boolean forceToLocalShuffle = context != null
-                && context.getSessionVariable().isForceToLocalShuffle() && !hasNullAwareLeftAntiJoin;
+                && context.getSessionVariable().isForceToLocalShuffle() && !hasNullAwareLeftAntiJoin && useNereids;
         boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream()
                 .allMatch(node -> node.ignoreStorageDataDistribution(context,
                         addressToBackendID.size()))
