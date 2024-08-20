@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -34,6 +35,7 @@ public class StatisticConstants {
     public static final String TABLE_STATISTIC_TBL_NAME = "column_statistics";
     public static final String PARTITION_STATISTIC_TBL_NAME = "partition_statistics";
     public static final String HISTOGRAM_TBL_NAME = "histogram_statistics";
+    public static final String STATISTICS_WORKLOAD_GROUP_NAME = WorkloadGroupMgr.INTERNAL_GROUP_PREFIX + "statistics";
 
     public static final int MAX_NAME_LEN = 64;
 

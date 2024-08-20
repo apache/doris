@@ -68,6 +68,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPostProcessable {
 
     public static final String DEFAULT_GROUP_NAME = "normal";
+    public static final String INTERNAL_GROUP_PREFIX = "__internal_wlg_";
 
     public static final Long DEFAULT_GROUP_ID = 1L;
 
@@ -336,7 +337,12 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
                 }
                 throw new DdlException("workload group " + workloadGroupName + " already exist");
             }
-            if (idToWorkloadGroup.size() >= Config.workload_group_max_num) {
+            if (!stmt.isInternal() && workloadGroupName.startsWith(INTERNAL_GROUP_PREFIX)) {
+                throw new DdlException("workload group " + workloadGroupName
+                        + " is preserved for internal use, try another name.");
+            }
+            if (idToWorkloadGroup.size() >= Config.workload_group_max_num
+                    && !workloadGroupName.startsWith(INTERNAL_GROUP_PREFIX)) {
                 throw new DdlException(
                         "workload group number can not be exceed " + Config.workload_group_max_num);
             }
