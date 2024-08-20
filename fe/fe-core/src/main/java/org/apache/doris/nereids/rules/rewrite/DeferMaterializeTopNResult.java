@@ -102,9 +102,6 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
 
     private long getTwoPhaseReadLimitThreshold() {
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
-            if (ConnectContext.get().getSessionVariable().twoPhaseReadLimitThreshold != 0) {
-                return -1;
-            }
             return ConnectContext.get().getSessionVariable().twoPhaseReadLimitThreshold;
         }
         return -1;
