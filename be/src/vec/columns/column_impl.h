@@ -43,6 +43,9 @@ void IColumn::append_data_by_selector_impl(MutablePtr& res, const Selector& sele
                                selector.size(), num_rows);
     }
     DCHECK_GE(end, begin);
+    // here wants insert some value from this column, and the nums is (end - begin)
+    // and many be this column num_rows is 4096, but only need insert num is (1 - 0) = 1
+    // so can't call res->reserve(num_rows), it's will be too mush waste memory
     res->reserve(res->size() + (end - begin));
 
     for (size_t i = begin; i < end; ++i) {
