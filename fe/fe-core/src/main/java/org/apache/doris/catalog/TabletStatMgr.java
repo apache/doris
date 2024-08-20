@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
@@ -31,7 +32,6 @@ import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ForkJoinPool;
@@ -52,7 +52,13 @@ public class TabletStatMgr extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        ImmutableMap<Long, Backend> backends = Env.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> backends;
+        try {
+            backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
+        } catch (AnalysisException e) {
+            LOG.warn("can't get backends info", e);
+            return;
+        }
         long start = System.currentTimeMillis();
         taskPool.submit(() -> {
             // no need to get tablet stat if backend is not alive
@@ -124,7 +130,6 @@ public class TabletStatMgr extends MasterDaemon {
                 if (!table.tryWriteLockIfExist(3000, TimeUnit.MILLISECONDS)) {
                     continue;
                 }
-                Map<Long, Long> indexesRowCount = new HashMap<>();
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         long version = partition.getVisibleVersion();
@@ -161,13 +166,12 @@ public class TabletStatMgr extends MasterDaemon {
                                 indexRowCount += tabletRowCount;
                             } // end for tablets
                             index.setRowCount(indexRowCount);
-                            indexesRowCount.put(index.getId(), indexRowCount);
                         } // end for indices
                     } // end for partitions
 
                     olapTable.setStatistics(new OlapTable.Statistics(db.getName(), table.getName(),
                             tableDataSize, tableTotalReplicaDataSize,
-                            tableRemoteDataSize, tableReplicaCount, tableRowCount, 0L, 0L, indexesRowCount));
+                            tableRemoteDataSize, tableReplicaCount, tableRowCount, 0L, 0L));
 
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("finished to set row num for table: {} in database: {}",

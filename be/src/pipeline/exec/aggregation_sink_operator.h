@@ -189,7 +189,6 @@ protected:
     /// The total size of the row from the aggregate functions.
     size_t _total_size_of_aggregate_states = 0;
 
-    size_t _external_agg_bytes_threshold;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     ObjectPool* _pool = nullptr;

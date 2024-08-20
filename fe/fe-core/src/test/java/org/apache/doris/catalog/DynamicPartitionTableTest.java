@@ -29,6 +29,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
@@ -87,8 +88,8 @@ public class DynamicPartitionTableTest {
         UtFrameUtils.cleanDorisFeDir(runningDir);
     }
 
-    private static void changeBeDisk(TStorageMedium storageMedium) {
-        List<Backend> backends = Env.getCurrentSystemInfo().getAllBackends();
+    private static void changeBeDisk(TStorageMedium storageMedium) throws UserException {
+        List<Backend> backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         for (Backend be : backends) {
             for (DiskInfo diskInfo : be.getDisks().values()) {
                 diskInfo.setStorageMedium(storageMedium);

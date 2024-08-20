@@ -20,17 +20,18 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[item]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[date_dim]
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=()
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=()
-------------------------PhysicalProject
---------------------------filter(ws_bill_addr_sk IS NULL)
-----------------------------PhysicalOlapScan[web_sales]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[item]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[date_dim]
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=()
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=()
+--------------------------PhysicalProject
+----------------------------filter(ws_bill_addr_sk IS NULL)
+------------------------------PhysicalOlapScan[web_sales]
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[item]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalDistribute[DistributionSpecExecutionAny]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=()

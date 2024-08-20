@@ -61,4 +61,9 @@ public class DropWorkloadGroupStmt extends DdlStmt {
         sb.append("RESOURCE GROUP '").append(workloadGroupName).append("' ");
         return sb.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
+    }
 }

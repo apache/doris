@@ -328,10 +328,8 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
                                    int num_senders, bool is_merging, RuntimeProfile* profile)
         : HasTaskExecutionCtx(state),
           _mgr(stream_mgr),
-#ifdef USE_MEM_TRACKER
-          _query_mem_tracker(state->query_mem_tracker()),
-          _query_id(state->query_id()),
-#endif
+          _query_thread_context(state->query_id(), state->query_mem_tracker(),
+                                state->get_query_ctx()->workload_group()),
           _fragment_instance_id(fragment_instance_id),
           _dest_node_id(dest_node_id),
           _row_desc(row_desc),
@@ -403,7 +401,7 @@ Status VDataStreamRecvr::create_merger(const VExprContextSPtrs& ordering_expr,
 
 Status VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_number,
                                    int64_t packet_seq, ::google::protobuf::Closure** done) {
-    SCOPED_ATTACH_TASK_WITH_ID(_query_mem_tracker, _query_id);
+    SCOPED_ATTACH_TASK(_query_thread_context);
     int use_sender_id = _is_merging ? sender_id : 0;
     return _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done);
 }
@@ -484,7 +482,7 @@ void VDataStreamRecvr::close() {
     }
     _is_closed = true;
     for (auto& it : _sender_to_local_channel_dependency) {
-        it->set_ready();
+        it->set_always_ready();
     }
     for (int i = 0; i < _sender_queues.size(); ++i) {
         _sender_queues[i]->close();

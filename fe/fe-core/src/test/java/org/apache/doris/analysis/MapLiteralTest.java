@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
 
-import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -65,50 +65,51 @@ public class MapLiteralTest {
     public void testGetStringValueForArray() throws AnalysisException {
         FormatOptions options = FormatOptions.getDefault();
         MapLiteral mapLiteral1 = new MapLiteral(intLiteral1, floatLiteral);
-        Assert.assertEquals("{\"1\":\"2.15\"}", mapLiteral1.getStringValueForArray(options));
+        Assertions.assertEquals("{\"1\":\"2.15\"}", mapLiteral1.getStringValueForArray(options));
         MapLiteral mapLiteral2 = new MapLiteral(boolLiteral, stringLiteral);
-        Assert.assertEquals("{\"1\":\"shortstring\"}", mapLiteral2.getStringValueForArray(options));
+        Assertions.assertEquals("{\"1\":\"shortstring\"}", mapLiteral2.getStringValueForArray(options));
         MapLiteral mapLiteral3 = new MapLiteral(largeIntLiteral, dateLiteral);
-        Assert.assertEquals("{\"1000000000000000000000\":\"2022-10-10\"}", mapLiteral3.getStringValueForArray(options));
+        Assertions.assertEquals("{\"1000000000000000000000\":\"2022-10-10\"}", mapLiteral3.getStringValueForArray(options));
         MapLiteral mapLiteral4 = new MapLiteral(nullLiteral, nullLiteral);
-        Assert.assertEquals("{null:null}", mapLiteral4.getStringValueForArray(options));
+        Assertions.assertEquals("{null:null}", mapLiteral4.getStringValueForArray(options));
         MapLiteral mapLiteral5 = new MapLiteral(datetimeLiteral, dateLiteral);
-        Assert.assertEquals("{\"2022-10-10 12:10:10\":\"2022-10-10\"}", mapLiteral5.getStringValueForArray(options));
+        Assertions.assertEquals("{\"2022-10-10 12:10:10\":\"2022-10-10\"}",
+                mapLiteral5.getStringValueForArray(options));
 
         MapLiteral mapLiteral6 = new MapLiteral();
-        Assert.assertEquals("{}", mapLiteral6.getStringValueForArray(options));
+        Assertions.assertEquals("{}", mapLiteral6.getStringValueForArray(options));
 
         MapLiteral mapLiteral7 = new MapLiteral(nullLiteral, intLiteral1);
-        Assert.assertEquals("{null:\"1\"}", mapLiteral7.getStringValueForArray(options));
+        Assertions.assertEquals("{null:\"1\"}", mapLiteral7.getStringValueForArray(options));
         MapLiteral mapLiteral8 = new MapLiteral(intLiteral1, nullLiteral);
-        Assert.assertEquals("{\"1\":null}", mapLiteral8.getStringValueForArray(options));
+        Assertions.assertEquals("{\"1\":null}", mapLiteral8.getStringValueForArray(options));
 
         MapLiteral mapLiteral10 = new MapLiteral(intLiteral1, arrayLiteral);
-        Assert.assertEquals("{\"1\":[\"1\", \"2.15\"]}", mapLiteral10.getStringValueForArray(options));
+        Assertions.assertEquals("{\"1\":[\"1\", \"2.15\"]}", mapLiteral10.getStringValueForArray(options));
         try {
             new MapLiteral(arrayLiteral, floatLiteral);
         } catch (Exception e) {
-            Assert.assertEquals("errCode = 2, "
-                    + "detailMessage = Invalid key type in Map, not support ARRAY<DOUBLE>", e.getMessage());
+            Assertions.assertEquals("errCode = 2, "
+                    + "detailMessage = Invalid key type in Map, not support array<double>", e.getMessage());
         }
 
         MapLiteral mapLiteral11 = new MapLiteral(decimalLiteral1, mapLiteral);
-        Assert.assertEquals("{\"1.0\":{\"1\":\"2.15\"}}", mapLiteral11.getStringValueForArray(options));
+        Assertions.assertEquals("{\"1.0\":{\"1\":\"2.15\"}}", mapLiteral11.getStringValueForArray(options));
         try {
             new MapLiteral(mapLiteral, decimalLiteral1);
         } catch (Exception e) {
-            Assert.assertEquals("errCode = 2, "
-                    + "detailMessage = Invalid key type in Map, not support MAP<TINYINT,DOUBLE>", e.getMessage());
+            Assertions.assertEquals("errCode = 2, "
+                    + "detailMessage = Invalid key type in Map, not support map<tinyint,double>", e.getMessage());
         }
 
         MapLiteral mapLiteral13 = new MapLiteral(stringLiteral, structLiteral);
-        Assert.assertEquals("{\"shortstring\":{\"1\", \"2.15\", \"1.0\", \"2022-10-10\"}}",
+        Assertions.assertEquals("{\"shortstring\":{\"1\", \"2.15\", \"1.0\", \"2022-10-10\"}}",
                 mapLiteral13.getStringValueForArray(options));
         try {
             new MapLiteral(structLiteral, stringLiteral);
         } catch (Exception e) {
-            Assert.assertEquals("errCode = 2, detailMessage = Invalid key type in Map, "
-                    + "not support STRUCT<col1:TINYINT,col2:DOUBLE,col3:DECIMALV3(2, 1),col4:DATE>", e.getMessage());
+            Assertions.assertEquals("errCode = 2, detailMessage = Invalid key type in Map, "
+                    + "not support struct<col1:tinyint,col2:double,col3:decimalv3(2,1),col4:date>", e.getMessage());
         }
     }
 
@@ -116,50 +117,50 @@ public class MapLiteralTest {
     public void testGetStringValueForArrayForPresto() throws AnalysisException {
         FormatOptions options = FormatOptions.getForPresto();
         MapLiteral mapLiteral1 = new MapLiteral(intLiteral1, floatLiteral);
-        Assert.assertEquals("{1=2.15}", mapLiteral1.getStringValueForArray(options));
+        Assertions.assertEquals("{1=2.15}", mapLiteral1.getStringValueForArray(options));
         MapLiteral mapLiteral2 = new MapLiteral(boolLiteral, stringLiteral);
-        Assert.assertEquals("{1=shortstring}", mapLiteral2.getStringValueForArray(options));
+        Assertions.assertEquals("{1=shortstring}", mapLiteral2.getStringValueForArray(options));
         MapLiteral mapLiteral3 = new MapLiteral(largeIntLiteral, dateLiteral);
-        Assert.assertEquals("{1000000000000000000000=2022-10-10}", mapLiteral3.getStringValueForArray(options));
+        Assertions.assertEquals("{1000000000000000000000=2022-10-10}", mapLiteral3.getStringValueForArray(options));
         MapLiteral mapLiteral4 = new MapLiteral(nullLiteral, nullLiteral);
-        Assert.assertEquals("{NULL=NULL}", mapLiteral4.getStringValueForArray(options));
+        Assertions.assertEquals("{NULL=NULL}", mapLiteral4.getStringValueForArray(options));
         MapLiteral mapLiteral5 = new MapLiteral(datetimeLiteral, dateLiteral);
-        Assert.assertEquals("{2022-10-10 12:10:10=2022-10-10}", mapLiteral5.getStringValueForArray(options));
+        Assertions.assertEquals("{2022-10-10 12:10:10=2022-10-10}", mapLiteral5.getStringValueForArray(options));
 
         MapLiteral mapLiteral6 = new MapLiteral();
-        Assert.assertEquals("{}", mapLiteral6.getStringValueForArray(options));
+        Assertions.assertEquals("{}", mapLiteral6.getStringValueForArray(options));
 
         MapLiteral mapLiteral7 = new MapLiteral(nullLiteral, intLiteral1);
-        Assert.assertEquals("{NULL=1}", mapLiteral7.getStringValueForArray(options));
+        Assertions.assertEquals("{NULL=1}", mapLiteral7.getStringValueForArray(options));
         MapLiteral mapLiteral8 = new MapLiteral(intLiteral1, nullLiteral);
-        Assert.assertEquals("{1=NULL}", mapLiteral8.getStringValueForArray(options));
+        Assertions.assertEquals("{1=NULL}", mapLiteral8.getStringValueForArray(options));
 
         MapLiteral mapLiteral10 = new MapLiteral(intLiteral1, arrayLiteral);
-        Assert.assertEquals("{1=[1, 2.15]}", mapLiteral10.getStringValueForArray(options));
+        Assertions.assertEquals("{1=[1, 2.15]}", mapLiteral10.getStringValueForArray(options));
         try {
             new MapLiteral(arrayLiteral, floatLiteral);
         } catch (Exception e) {
-            Assert.assertEquals("errCode = 2, "
-                    + "detailMessage = Invalid key type in Map, not support ARRAY<DOUBLE>", e.getMessage());
+            Assertions.assertEquals("errCode = 2, "
+                    + "detailMessage = Invalid key type in Map, not support array<double>", e.getMessage());
         }
 
         MapLiteral mapLiteral11 = new MapLiteral(decimalLiteral1, mapLiteral);
-        Assert.assertEquals("{1.0={1=2.15}}", mapLiteral11.getStringValueForArray(options));
+        Assertions.assertEquals("{1.0={1=2.15}}", mapLiteral11.getStringValueForArray(options));
         try {
             new MapLiteral(mapLiteral, decimalLiteral1);
         } catch (Exception e) {
-            Assert.assertEquals("errCode = 2, "
-                    + "detailMessage = Invalid key type in Map, not support MAP<TINYINT,DOUBLE>", e.getMessage());
+            Assertions.assertEquals("errCode = 2, "
+                    + "detailMessage = Invalid key type in Map, not support map<tinyint,double>", e.getMessage());
         }
 
         MapLiteral mapLiteral13 = new MapLiteral(stringLiteral, structLiteral);
-        Assert.assertEquals("{shortstring={1, 2.15, 1.0, 2022-10-10}}",
+        Assertions.assertEquals("{shortstring={1, 2.15, 1.0, 2022-10-10}}",
                 mapLiteral13.getStringValueForArray(options));
         try {
             new MapLiteral(structLiteral, stringLiteral);
         } catch (Exception e) {
-            Assert.assertEquals("errCode = 2, detailMessage = Invalid key type in Map, "
-                    + "not support STRUCT<col1:TINYINT,col2:DOUBLE,col3:DECIMALV3(2, 1),col4:DATE>", e.getMessage());
+            Assertions.assertEquals("errCode = 2, detailMessage = Invalid key type in Map, "
+                    + "not support struct<col1:tinyint,col2:double,col3:decimalv3(2,1),col4:date>", e.getMessage());
         }
     }
 
@@ -167,54 +168,54 @@ public class MapLiteralTest {
     public void testGetStringInFe() throws AnalysisException {
         FormatOptions options = FormatOptions.getDefault();
         MapLiteral mapLiteral1 = new MapLiteral(intLiteral1, floatLiteral);
-        Assert.assertEquals("{1:2.15}", mapLiteral1.getStringValueInFe(options));
+        Assertions.assertEquals("{1:2.15}", mapLiteral1.getStringValueInFe(options));
         MapLiteral mapLiteral11 = new MapLiteral(intLiteral1, floatLiteral1);
-        Assert.assertEquals("{1:\"11:22:33\"}", mapLiteral11.getStringValueInFe(options));
+        Assertions.assertEquals("{1:\"11:22:33\"}", mapLiteral11.getStringValueInFe(options));
         MapLiteral mapLiteral2 = new MapLiteral(boolLiteral, stringLiteral);
-        Assert.assertEquals("{1:\"shortstring\"}", mapLiteral2.getStringValueInFe(options));
+        Assertions.assertEquals("{1:\"shortstring\"}", mapLiteral2.getStringValueInFe(options));
         MapLiteral mapLiteral3 = new MapLiteral(largeIntLiteral, dateLiteral);
-        Assert.assertEquals("{1000000000000000000000:\"2022-10-10\"}", mapLiteral3.getStringValueInFe(options));
+        Assertions.assertEquals("{1000000000000000000000:\"2022-10-10\"}", mapLiteral3.getStringValueInFe(options));
         MapLiteral mapLiteral4 = new MapLiteral(floatLiteral1, nullLiteral);
-        Assert.assertEquals("{\"11:22:33\":null}", mapLiteral4.getStringValueInFe(options));
+        Assertions.assertEquals("{\"11:22:33\":null}", mapLiteral4.getStringValueInFe(options));
         MapLiteral mapLiteral5 = new MapLiteral(datetimeLiteral, dateLiteral);
-        Assert.assertEquals("{\"2022-10-10 12:10:10\":\"2022-10-10\"}", mapLiteral5.getStringValueInFe(options));
+        Assertions.assertEquals("{\"2022-10-10 12:10:10\":\"2022-10-10\"}", mapLiteral5.getStringValueInFe(options));
         MapLiteral mapLiteral6 = new MapLiteral(decimalLiteral1, decimalLiteral2);
-        Assert.assertEquals("{1.0:2}", mapLiteral6.getStringValueInFe(options));
+        Assertions.assertEquals("{1.0:2}", mapLiteral6.getStringValueInFe(options));
 
         MapLiteral mapLiteral7 = new MapLiteral();
-        Assert.assertEquals("{}", mapLiteral7.getStringValueInFe(options));
+        Assertions.assertEquals("{}", mapLiteral7.getStringValueInFe(options));
         MapLiteral mapLiteral8 = new MapLiteral(nullLiteral, intLiteral1);
-        Assert.assertEquals("{null:1}", mapLiteral8.getStringValueInFe(options));
+        Assertions.assertEquals("{null:1}", mapLiteral8.getStringValueInFe(options));
         MapLiteral mapLiteral9 = new MapLiteral(intLiteral1, nullLiteral);
-        Assert.assertEquals("{1:null}", mapLiteral9.getStringValueInFe(options));
+        Assertions.assertEquals("{1:null}", mapLiteral9.getStringValueInFe(options));
 
         MapLiteral mapLiteral10 = new MapLiteral(intLiteral1, arrayLiteral);
-        Assert.assertEquals("{\"1\":[\"1\", \"2.15\"]}", mapLiteral10.getStringValueForArray(options));
+        Assertions.assertEquals("{\"1\":[\"1\", \"2.15\"]}", mapLiteral10.getStringValueForArray(options));
         try {
             new MapLiteral(arrayLiteral, floatLiteral);
         } catch (Exception e) {
-            Assert.assertEquals("errCode = 2, "
-                    + "detailMessage = Invalid key type in Map, not support ARRAY<DOUBLE>", e.getMessage());
+            Assertions.assertEquals("errCode = 2, "
+                    + "detailMessage = Invalid key type in Map, not support array<double>", e.getMessage());
         }
 
         MapLiteral mapLiteral12 = new MapLiteral(decimalLiteral1, mapLiteral);
-        Assert.assertEquals("{\"1.0\":{\"1\":\"2.15\"}}", mapLiteral12.getStringValueForArray(options));
+        Assertions.assertEquals("{\"1.0\":{\"1\":\"2.15\"}}", mapLiteral12.getStringValueForArray(options));
         try {
             new MapLiteral(mapLiteral, decimalLiteral1);
         } catch (Exception e) {
-            Assert.assertEquals("errCode = 2, "
-                    + "detailMessage = Invalid key type in Map, not support MAP<TINYINT,DOUBLE>", e.getMessage());
+            Assertions.assertEquals("errCode = 2, "
+                    + "detailMessage = Invalid key type in Map, not support map<tinyint,double>", e.getMessage());
         }
 
         MapLiteral mapLiteral13 = new MapLiteral(stringLiteral, structLiteral);
-        Assert.assertEquals("{\"shortstring\":{\"1\", \"2.15\", \"1.0\", \"2022-10-10\"}}",
+        Assertions.assertEquals("{\"shortstring\":{\"1\", \"2.15\", \"1.0\", \"2022-10-10\"}}",
                 mapLiteral13.getStringValueForArray(options));
         try {
             new MapLiteral(structLiteral, stringLiteral);
         } catch (Exception e) {
-            Assert.assertEquals("errCode = 2, "
+            Assertions.assertEquals("errCode = 2, "
                     + "detailMessage = Invalid key type in Map, "
-                    + "not support STRUCT<col1:TINYINT,col2:DOUBLE,col3:DECIMALV3(2, 1),col4:DATE>", e.getMessage());
+                    + "not support struct<col1:tinyint,col2:double,col3:decimalv3(2,1),col4:date>", e.getMessage());
         }
     }
 
@@ -222,54 +223,54 @@ public class MapLiteralTest {
     public void testGetStringInFeForPresto() throws AnalysisException {
         FormatOptions options = FormatOptions.getForPresto();
         MapLiteral mapLiteral1 = new MapLiteral(intLiteral1, floatLiteral);
-        Assert.assertEquals("{1=2.15}", mapLiteral1.getStringValueInFe(options));
+        Assertions.assertEquals("{1=2.15}", mapLiteral1.getStringValueInFe(options));
         MapLiteral mapLiteral11 = new MapLiteral(intLiteral1, floatLiteral1);
-        Assert.assertEquals("{1=11:22:33}", mapLiteral11.getStringValueInFe(options));
+        Assertions.assertEquals("{1=11:22:33}", mapLiteral11.getStringValueInFe(options));
         MapLiteral mapLiteral2 = new MapLiteral(boolLiteral, stringLiteral);
-        Assert.assertEquals("{1=shortstring}", mapLiteral2.getStringValueInFe(options));
+        Assertions.assertEquals("{1=shortstring}", mapLiteral2.getStringValueInFe(options));
         MapLiteral mapLiteral3 = new MapLiteral(largeIntLiteral, dateLiteral);
-        Assert.assertEquals("{1000000000000000000000=2022-10-10}", mapLiteral3.getStringValueInFe(options));
+        Assertions.assertEquals("{1000000000000000000000=2022-10-10}", mapLiteral3.getStringValueInFe(options));
         MapLiteral mapLiteral4 = new MapLiteral(floatLiteral1, nullLiteral);
-        Assert.assertEquals("{11:22:33=NULL}", mapLiteral4.getStringValueInFe(options));
+        Assertions.assertEquals("{11:22:33=NULL}", mapLiteral4.getStringValueInFe(options));
         MapLiteral mapLiteral5 = new MapLiteral(datetimeLiteral, dateLiteral);
-        Assert.assertEquals("{2022-10-10 12:10:10=2022-10-10}", mapLiteral5.getStringValueInFe(options));
+        Assertions.assertEquals("{2022-10-10 12:10:10=2022-10-10}", mapLiteral5.getStringValueInFe(options));
         MapLiteral mapLiteral6 = new MapLiteral(decimalLiteral1, decimalLiteral2);
-        Assert.assertEquals("{1.0=2}", mapLiteral6.getStringValueInFe(options));
+        Assertions.assertEquals("{1.0=2}", mapLiteral6.getStringValueInFe(options));
 
         MapLiteral mapLiteral7 = new MapLiteral();
-        Assert.assertEquals("{}", mapLiteral7.getStringValueInFe(options));
+        Assertions.assertEquals("{}", mapLiteral7.getStringValueInFe(options));
         MapLiteral mapLiteral8 = new MapLiteral(nullLiteral, intLiteral1);
-        Assert.assertEquals("{NULL=1}", mapLiteral8.getStringValueInFe(options));
+        Assertions.assertEquals("{NULL=1}", mapLiteral8.getStringValueInFe(options));
         MapLiteral mapLiteral9 = new MapLiteral(intLiteral1, nullLiteral);
-        Assert.assertEquals("{1=NULL}", mapLiteral9.getStringValueInFe(options));
+        Assertions.assertEquals("{1=NULL}", mapLiteral9.getStringValueInFe(options));
 
         MapLiteral mapLiteral10 = new MapLiteral(intLiteral1, arrayLiteral);
-        Assert.assertEquals("{1=[1, 2.15]}", mapLiteral10.getStringValueForArray(options));
+        Assertions.assertEquals("{1=[1, 2.15]}", mapLiteral10.getStringValueForArray(options));
         try {
             new MapLiteral(arrayLiteral, floatLiteral);
         } catch (Exception e) {
-            Assert.assertEquals("errCode = 2, "
-                    + "detailMessage = Invalid key type in Map, not support ARRAY<DOUBLE>", e.getMessage());
+            Assertions.assertEquals("errCode = 2, "
+                    + "detailMessage = Invalid key type in Map, not support array<double>", e.getMessage());
         }
 
         MapLiteral mapLiteral12 = new MapLiteral(decimalLiteral1, mapLiteral);
-        Assert.assertEquals("{1.0={1=2.15}}", mapLiteral12.getStringValueForArray(options));
+        Assertions.assertEquals("{1.0={1=2.15}}", mapLiteral12.getStringValueForArray(options));
         try {
             new MapLiteral(mapLiteral, decimalLiteral1);
         } catch (Exception e) {
-            Assert.assertEquals("errCode = 2, "
-                    + "detailMessage = Invalid key type in Map, not support MAP<TINYINT,DOUBLE>", e.getMessage());
+            Assertions.assertEquals("errCode = 2, "
+                    + "detailMessage = Invalid key type in Map, not support map<tinyint,double>", e.getMessage());
         }
 
         MapLiteral mapLiteral13 = new MapLiteral(stringLiteral, structLiteral);
-        Assert.assertEquals("{shortstring={1, 2.15, 1.0, 2022-10-10}}",
+        Assertions.assertEquals("{shortstring={1, 2.15, 1.0, 2022-10-10}}",
                 mapLiteral13.getStringValueForArray(options));
         try {
             new MapLiteral(structLiteral, stringLiteral);
         } catch (Exception e) {
-            Assert.assertEquals("errCode = 2, "
+            Assertions.assertEquals("errCode = 2, "
                     + "detailMessage = Invalid key type in Map, "
-                    + "not support STRUCT<col1:TINYINT,col2:DOUBLE,col3:DECIMALV3(2, 1),col4:DATE>", e.getMessage());
+                    + "not support struct<col1:tinyint,col2:double,col3:decimalv3(2,1),col4:date>", e.getMessage());
         }
     }
 }

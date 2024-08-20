@@ -80,7 +80,7 @@ public class DecommissionTest {
         // 127.0.0.3
         // 127.0.0.4
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 4);
-        List<Backend> backends = Env.getCurrentSystemInfo().getAllBackends();
+        List<Backend> backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         for (Backend be : backends) {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();
@@ -139,7 +139,7 @@ public class DecommissionTest {
         int totalReplicaNum = 1 * 2400;
         checkBalance(1, totalReplicaNum, 4);
 
-        Backend backend = Env.getCurrentSystemInfo().getAllBackends().get(0);
+        Backend backend = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList().get(0);
         String decommissionStmtStr = "alter system decommission backend \"" + backend.getHost()
                 + ":" + backend.getHeartbeatPort() + "\"";
         AlterSystemStmt decommissionStmt =

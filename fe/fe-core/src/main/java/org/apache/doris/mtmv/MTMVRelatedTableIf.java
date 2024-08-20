@@ -69,7 +69,7 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @return partition snapshot at current time
      * @throws AnalysisException
      */
-    MTMVSnapshotIf getPartitionSnapshot(String partitionName) throws AnalysisException;
+    MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context) throws AnalysisException;
 
     /**
      * getTableSnapshot
@@ -77,16 +77,7 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @return table snapshot at current time
      * @throws AnalysisException
      */
-    MTMVSnapshotIf getTableSnapshot() throws AnalysisException;
-
-    /**
-     * getPartitionName
-     *
-     * @param partitionId
-     * @return partitionName
-     * @throws AnalysisException
-     */
-    String getPartitionName(long partitionId) throws AnalysisException;
+    MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context) throws AnalysisException;
 
     /**
      * Does the current type of table allow timed triggering

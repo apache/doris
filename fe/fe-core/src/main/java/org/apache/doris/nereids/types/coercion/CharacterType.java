@@ -57,4 +57,8 @@ public abstract class CharacterType extends PrimitiveType {
     public int width() {
         return WIDTH;
     }
+
+    public boolean isLengthSet() {
+        return len > 0;
+    }
 }

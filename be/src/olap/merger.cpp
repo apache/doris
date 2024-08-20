@@ -336,16 +336,12 @@ Status Merger::vertical_compact_one_group(
 }
 
 // for segcompaction
-Status Merger::vertical_compact_one_group(int64_t tablet_id, ReaderType reader_type,
-                                          const TabletSchema& tablet_schema, bool is_key,
-                                          const std::vector<uint32_t>& column_group,
-                                          vectorized::RowSourcesBuffer* row_source_buf,
-                                          vectorized::VerticalBlockReader& src_block_reader,
-                                          segment_v2::SegmentWriter& dst_segment_writer,
-                                          int64_t max_rows_per_segment, Statistics* stats_output,
-                                          uint64_t* index_size, KeyBoundsPB& key_bounds) {
-    // build tablet reader
-    VLOG_NOTICE << "vertical compact one group, max_rows_per_segment=" << max_rows_per_segment;
+Status Merger::vertical_compact_one_group(
+        int64_t tablet_id, ReaderType reader_type, const TabletSchema& tablet_schema, bool is_key,
+        const std::vector<uint32_t>& column_group, vectorized::RowSourcesBuffer* row_source_buf,
+        vectorized::VerticalBlockReader& src_block_reader,
+        segment_v2::SegmentWriter& dst_segment_writer, Statistics* stats_output,
+        uint64_t* index_size, KeyBoundsPB& key_bounds, SimpleRowIdConversion* rowid_conversion) {
     // TODO: record_rowids
     vectorized::Block block = tablet_schema.create_block(column_group);
     size_t output_rows = 0;
@@ -362,6 +358,9 @@ Status Merger::vertical_compact_one_group(int64_t tablet_id, ReaderType reader_t
                                        "failed to write block when merging rowsets of tablet " +
                                                std::to_string(tablet_id));
 
+        if (is_key && rowid_conversion != nullptr) {
+            rowid_conversion->add(src_block_reader.current_block_row_locations());
+        }
         output_rows += block.rows();
         block.clear_column_data();
     }

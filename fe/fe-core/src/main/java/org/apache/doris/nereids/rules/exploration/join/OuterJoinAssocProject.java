@@ -104,7 +104,7 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                     topProject.getProjects().forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     bottomJoin.getHashJoinConjuncts().forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
                     bottomJoin.getOtherJoinConjuncts().forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
-                    Plan left = CBOUtils.newProject(topUsedExprIds, a);
+                    Plan left = CBOUtils.newProjectIfNeeded(topUsedExprIds, a);
                     Plan right = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
 
                     LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(left, right, null);

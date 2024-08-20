@@ -270,7 +270,7 @@ public class PolicyTest extends TestWithFeService {
         createPolicy("CREATE ROW POLICY test_row_policy4 ON test.table1 AS PERMISSIVE TO test_policy USING (k2 = 1)");
         String queryStr = "EXPLAIN select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.table1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assertions.assertTrue(explainString.contains("(`k1` = 1) AND (`k2` = 1) AND (`k2` = 2) OR (`k2` = 1)"));
+        Assertions.assertTrue(explainString.contains("(((`k1` = 1) AND (`k2` = 1)) AND ((`k2` = 2) OR (`k2` = 1)))"));
         dropPolicy("DROP ROW POLICY test_row_policy1 ON test.table1");
         dropPolicy("DROP ROW POLICY test_row_policy2 ON test.table1");
         dropPolicy("DROP ROW POLICY test_row_policy3 ON test.table1");
@@ -318,13 +318,13 @@ public class PolicyTest extends TestWithFeService {
         createPolicy("CREATE ROW POLICY test_row_policy1 ON test.table1 AS RESTRICTIVE TO test_policy USING (k1 = 1)");
         createPolicy("CREATE ROW POLICY test_row_policy2 ON test.table1 AS RESTRICTIVE TO test_policy USING (k2 = 1)");
         String joinSql = "select * from table1 join table2 on table1.k1=table2.k1";
-        Assertions.assertTrue(getSQLPlanOrErrorMsg(joinSql).contains("PREDICATES: (k1 = 1) AND (k2 = 1)"));
+        Assertions.assertTrue(getSQLPlanOrErrorMsg(joinSql).contains("PREDICATES: ((k1 = 1) AND (k2 = 1))"));
         String unionSql = "select * from table1 union select * from table2";
-        Assertions.assertTrue(getSQLPlanOrErrorMsg(unionSql).contains("PREDICATES: (k1 = 1) AND (k2 = 1)"));
+        Assertions.assertTrue(getSQLPlanOrErrorMsg(unionSql).contains("PREDICATES: ((k1 = 1) AND (k2 = 1))"));
         String subQuerySql = "select * from table2 where k1 in (select k1 from table1)";
-        Assertions.assertTrue(getSQLPlanOrErrorMsg(subQuerySql).contains("PREDICATES: (k1 = 1) AND (k2 = 1)"));
+        Assertions.assertTrue(getSQLPlanOrErrorMsg(subQuerySql).contains("PREDICATES: ((k1 = 1) AND (k2 = 1))"));
         String aliasSql = "select * from table1 t1 join table2 t2 on t1.k1=t2.k1";
-        Assertions.assertTrue(getSQLPlanOrErrorMsg(aliasSql).contains("PREDICATES: (k1 = 1) AND (k2 = 1)"));
+        Assertions.assertTrue(getSQLPlanOrErrorMsg(aliasSql).contains("PREDICATES: ((k1 = 1) AND (k2 = 1))"));
         dropPolicy("DROP ROW POLICY test_row_policy1 ON test.table1");
         dropPolicy("DROP ROW POLICY test_row_policy2 ON test.table1");
     }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
@@ -169,11 +170,12 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         try {
             if (isAutoDetectOverwrite()) {
                 // taskId here is a group id. it contains all replace tasks made and registered in rpc process.
-                taskId = Env.getCurrentEnv().getInsertOverwriteManager().preRegisterTask();
-                // When inserting, BE will call to replace partition by FrontendService. FE do the real
-                // add&replacement and return replace result. So there's no need to do anything else.
+                taskId = Env.getCurrentEnv().getInsertOverwriteManager().registerTaskGroup();
+                // When inserting, BE will call to replace partition by FrontendService. FE will register new temp
+                // partitions and return. for transactional, the replacement will really occur when insert successed,
+                // i.e. `insertInto` finished. then we call taskGroupSuccess to make replacement.
                 insertInto(ctx, executor, taskId);
-                Env.getCurrentEnv().getInsertOverwriteManager().taskGroupSuccess(taskId);
+                Env.getCurrentEnv().getInsertOverwriteManager().taskGroupSuccess(taskId, (OlapTable) targetTable);
             } else {
                 List<String> tempPartitionNames = InsertOverwriteUtil.generateTempPartitionNames(partitionNames);
                 taskId = Env.getCurrentEnv().getInsertOverwriteManager()
@@ -184,7 +186,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                 Env.getCurrentEnv().getInsertOverwriteManager().taskSuccess(taskId);
             }
         } catch (Exception e) {
-            LOG.warn("insert into overwrite failed");
+            LOG.warn("insert into overwrite failed with task(or group) id " + taskId);
             if (isAutoDetectOverwrite()) {
                 Env.getCurrentEnv().getInsertOverwriteManager().taskGroupFail(taskId);
             } else {
@@ -307,5 +309,10 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitInsertOverwriteTableCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.INSERT;
     }
 }

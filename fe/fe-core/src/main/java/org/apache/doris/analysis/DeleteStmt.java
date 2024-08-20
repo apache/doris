@@ -169,6 +169,7 @@ public class DeleteStmt extends DdlStmt implements NotFallbackInParser {
         }
 
         FromClause fromUsedInInsert;
+        targetTableRef.setPartitionNames(partitionNames);
         if (fromClause == null) {
             fromUsedInInsert = new FromClause(Lists.newArrayList(targetTableRef));
         } else {
@@ -462,5 +463,10 @@ public class DeleteStmt extends DdlStmt implements NotFallbackInParser {
         }
         sb.append(" WHERE ").append(wherePredicate.toSql());
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DELETE;
     }
 }

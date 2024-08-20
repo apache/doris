@@ -53,4 +53,9 @@ public class DropRepositoryStmt extends DdlStmt {
         sb.append("REPOSITORY `").append(repoName).append("`");
         return sb.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
+    }
 }

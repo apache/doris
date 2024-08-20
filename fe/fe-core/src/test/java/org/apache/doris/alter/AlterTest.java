@@ -94,7 +94,7 @@ public class AlterTest {
         Config.enable_odbc_mysql_broker_table = true;
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 5);
 
-        List<Backend> backends = Env.getCurrentSystemInfo().getIdToBackend().values().asList();
+        List<Backend> backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
 
         Map<String, String> tagMap = Maps.newHashMap();
         tagMap.put(Tag.TYPE_LOCATION, "group_a");

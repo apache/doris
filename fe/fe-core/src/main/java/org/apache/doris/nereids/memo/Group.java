@@ -59,7 +59,7 @@ public class Group {
 
     private final List<GroupExpression> logicalExpressions = Lists.newArrayList();
     private final List<GroupExpression> physicalExpressions = Lists.newArrayList();
-    private final List<GroupExpression> enforcers = Lists.newArrayList();
+    private final Map<GroupExpression, GroupExpression> enforcers = Maps.newHashMap();
     private boolean isStatsReliable = true;
     private LogicalProperties logicalProperties;
 
@@ -239,10 +239,10 @@ public class Group {
 
     public void addEnforcer(GroupExpression enforcer) {
         enforcer.setOwnerGroup(this);
-        enforcers.add(enforcer);
+        enforcers.put(enforcer, enforcer);
     }
 
-    public List<GroupExpression> getEnforcers() {
+    public Map<GroupExpression, GroupExpression> getEnforcers() {
         return enforcers;
     }
 
@@ -346,9 +346,9 @@ public class Group {
         parentExpressions.keySet().forEach(parent -> target.addParentExpression(parent));
 
         // move enforcers Ownership
-        enforcers.forEach(ge -> ge.children().set(0, target));
+        enforcers.forEach((k, v) -> k.children().set(0, target));
         // TODO: dedup?
-        enforcers.forEach(enforcer -> target.addEnforcer(enforcer));
+        enforcers.forEach((k, v) -> target.addEnforcer(k));
         enforcers.clear();
 
         // move LogicalExpression PhysicalExpression Ownership
@@ -458,7 +458,7 @@ public class Group {
             str.append("    ").append(physicalExpression).append("\n");
         }
         str.append("  enforcers:\n");
-        for (GroupExpression enforcer : enforcers) {
+        for (GroupExpression enforcer : enforcers.keySet()) {
             str.append("    ").append(enforcer).append("\n");
         }
         if (!chosenEnforcerIdList.isEmpty()) {

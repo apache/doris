@@ -18,20 +18,18 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
-
-import com.google.common.collect.ImmutableList;
 
 import java.util.Collection;
 import java.util.List;
@@ -57,7 +55,8 @@ public class SyncMaterializationContext extends MaterializationContext {
     public SyncMaterializationContext(Plan mvPlan, Plan mvOriginalPlan, OlapTable olapTable,
             long indexId, String indexName, CascadesContext cascadesContext, Statistics statistics) {
         super(mvPlan, mvOriginalPlan,
-                MaterializedViewUtils.generateMvScanPlan(olapTable, indexId, cascadesContext), cascadesContext, null);
+                MaterializedViewUtils.generateMvScanPlan(olapTable, indexId, olapTable.getPartitionIds(),
+                        PreAggStatus.unset(), cascadesContext), cascadesContext, null);
         this.olapTable = olapTable;
         this.indexId = indexId;
         this.indexName = indexName;
@@ -66,14 +65,17 @@ public class SyncMaterializationContext extends MaterializationContext {
 
     @Override
     Plan doGenerateScanPlan(CascadesContext cascadesContext) {
-        return MaterializedViewUtils.generateMvScanPlan(olapTable, indexId, cascadesContext);
+        return MaterializedViewUtils.generateMvScanPlan(olapTable, indexId, olapTable.getPartitionIds(),
+                PreAggStatus.unset(), cascadesContext);
     }
 
     @Override
-    List<String> getMaterializationQualifier() {
-        return ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
-                ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
-                olapTable.getName(), indexName);
+    List<String> generateMaterializationIdentifier() {
+        if (super.identifier == null) {
+            // for performance
+            super.identifier = MaterializationContext.generateMaterializationIdentifier(olapTable, indexName);
+        }
+        return super.identifier;
     }
 
     @Override
@@ -89,7 +91,7 @@ public class SyncMaterializationContext extends MaterializationContext {
             }
         }
         failReasonBuilder.append("\n").append("]");
-        return Utils.toSqlString("MaterializationContext[" + getMaterializationQualifier() + "]",
+        return Utils.toSqlString("MaterializationContext[" + generateMaterializationIdentifier() + "]",
                 "rewriteSuccess", this.success,
                 "failReason", failReasonBuilder.toString());
     }
@@ -97,11 +99,27 @@ public class SyncMaterializationContext extends MaterializationContext {
     @Override
     Optional<Pair<Id, Statistics>> getPlanStatistics(CascadesContext cascadesContext) {
         RelationId relationId = null;
-        Optional<LogicalOlapScan> scanObj = this.getScanPlan().collectFirst(LogicalOlapScan.class::isInstance);
+        Optional<LogicalOlapScan> scanObj = this.getScanPlan(null)
+                .collectFirst(LogicalOlapScan.class::isInstance);
         if (scanObj.isPresent()) {
             relationId = scanObj.get().getRelationId();
         }
         return Optional.of(Pair.of(relationId, normalizeStatisticsColumnExpression(statistics)));
+    }
+
+    @Override
+    public Plan getScanPlan(StructInfo queryStructInfo) {
+        if (queryStructInfo == null) {
+            return scanPlan;
+        }
+        if (queryStructInfo.getRelations().size() == 1
+                && queryStructInfo.getRelations().get(0) instanceof LogicalOlapScan
+                && !((LogicalOlapScan) queryStructInfo.getRelations().get(0)).getSelectedPartitionIds().isEmpty()
+                && scanPlan instanceof LogicalOlapScan) {
+            return ((LogicalOlapScan) scanPlan).withSelectedPartitionIds(
+                    ((LogicalOlapScan) queryStructInfo.getRelations().get(0)).getSelectedPartitionIds());
+        }
+        return scanPlan;
     }
 
     /**

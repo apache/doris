@@ -637,24 +637,33 @@ bool VExpr::fast_execute(Block& block, const ColumnNumbers& arguments, size_t re
 }
 
 std::string VExpr::gen_predicate_result_sign(Block& block, const ColumnNumbers& arguments,
-                                             const std::string& function_name) {
+                                             const std::string& function_name) const {
     std::string pred_result_sign;
-    std::string column_name = block.get_by_position(arguments[0]).name;
-    pred_result_sign +=
-            BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_" + function_name + "_";
-    if (function_name == "in" || function_name == "not_in") {
-        // Generating 'result_sign' from 'inlist' requires sorting the values.
-        std::set<std::string> values;
-        for (size_t i = 1; i < arguments.size(); i++) {
-            const auto& entry = block.get_by_position(arguments[i]);
-            values.insert(entry.type->to_string(*entry.column, 0));
-        }
-        pred_result_sign += boost::join(values, ",");
+    if (this->fn().name.function_name == "multi_match") {
+        pred_result_sign =
+                BeConsts::BLOCK_TEMP_COLUMN_PREFIX + std::to_string(this->index_unique_id());
     } else {
-        const auto& entry = block.get_by_position(arguments[1]);
-        pred_result_sign += entry.type->to_string(*entry.column, 0);
+        std::string column_name = block.get_by_position(arguments[0]).name;
+        pred_result_sign +=
+                BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_" + function_name + "_";
+        if (function_name == "in" || function_name == "not_in") {
+            // Generating 'result_sign' from 'inlist' requires sorting the values.
+            std::set<std::string> values;
+            for (size_t i = 1; i < arguments.size(); i++) {
+                const auto& entry = block.get_by_position(arguments[i]);
+                values.insert(entry.type->to_string(*entry.column, 0));
+            }
+            pred_result_sign += boost::join(values, ",");
+        } else {
+            const auto& entry = block.get_by_position(arguments[1]);
+            pred_result_sign += entry.type->to_string(*entry.column, 0);
+        }
     }
     return pred_result_sign;
+}
+
+bool VExpr::equals(const VExpr& other) {
+    return false;
 }
 
 } // namespace doris::vectorized

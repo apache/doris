@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.clone.RebalancerTestUtil;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.qe.ConnectContext;
@@ -52,7 +52,7 @@ public class AdminCancelRebalanceDiskStmtTest {
     }
 
     @Test
-    public void testParticularBackends() throws AnalysisException {
+    public void testParticularBackends() throws UserException {
         List<String> backends = Lists.newArrayList(
                 "192.168.0.10003:9051", "192.168.0.10004:9051", "192.168.0.10005:9051", "192.168.0.10006:9051");
         final AdminCancelRebalanceDiskStmt stmt = new AdminCancelRebalanceDiskStmt(backends);
@@ -61,7 +61,7 @@ public class AdminCancelRebalanceDiskStmtTest {
     }
 
     @Test
-    public void testEmpty() throws AnalysisException {
+    public void testEmpty() throws UserException {
         List<String> backends = Lists.newArrayList();
         final AdminCancelRebalanceDiskStmt stmt = new AdminCancelRebalanceDiskStmt(backends);
         stmt.analyze(analyzer);
@@ -69,7 +69,7 @@ public class AdminCancelRebalanceDiskStmtTest {
     }
 
     @Test
-    public void testNull() throws AnalysisException {
+    public void testNull() throws UserException {
         final AdminCancelRebalanceDiskStmt stmt = new AdminCancelRebalanceDiskStmt(null);
         stmt.analyze(analyzer);
         Assert.assertEquals(4, stmt.getBackends().size());

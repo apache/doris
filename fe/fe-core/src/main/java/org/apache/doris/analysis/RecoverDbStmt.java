@@ -84,4 +84,9 @@ public class RecoverDbStmt extends DdlStmt {
         }
         return sb.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.RECOVER;
+    }
 }

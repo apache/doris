@@ -108,12 +108,13 @@ PhysicalResultSink
 
 -- !groupby_pushdown_multi_table_join --
 PhysicalResultSink
---hashAgg[LOCAL]
-----hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalOlapScan[count_t_one_side]
+----------PhysicalOlapScan[count_t_one_side]
 --------PhysicalOlapScan[count_t_one_side]
---------PhysicalOlapScan[count_t_one_side]
-------PhysicalOlapScan[count_t_one_side]
 
 -- !groupby_pushdown_with_order_by --
 PhysicalResultSink
@@ -319,12 +320,13 @@ PhysicalResultSink
 
 -- !groupby_pushdown_multi_table_join --
 PhysicalResultSink
---hashAgg[LOCAL]
-----hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalOlapScan[count_t_one_side]
+----------PhysicalOlapScan[count_t_one_side]
 --------PhysicalOlapScan[count_t_one_side]
---------PhysicalOlapScan[count_t_one_side]
-------PhysicalOlapScan[count_t_one_side]
 
 -- !groupby_pushdown_with_order_by --
 PhysicalResultSink
@@ -571,12 +573,13 @@ SyntaxError:
 
 -- !with_hint_groupby_pushdown_multi_table_join --
 PhysicalResultSink
---hashAgg[LOCAL]
-----hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalOlapScan[count_t_one_side]
+----------PhysicalOlapScan[count_t_one_side]
 --------PhysicalOlapScan[count_t_one_side]
---------PhysicalOlapScan[count_t_one_side]
-------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used:
@@ -907,12 +910,13 @@ SyntaxError:
 
 -- !with_hint_groupby_pushdown_multi_table_join --
 PhysicalResultSink
---hashAgg[LOCAL]
-----hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalOlapScan[count_t_one_side]
+----------PhysicalOlapScan[count_t_one_side]
 --------PhysicalOlapScan[count_t_one_side]
---------PhysicalOlapScan[count_t_one_side]
-------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used:

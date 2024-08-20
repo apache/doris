@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
@@ -252,8 +253,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     logicalProject(
                         logicalFileScan()
                     )
-                )
-                    .when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
+                ).when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
                     .thenApply(ctx -> {
                         LogicalAggregate<LogicalProject<LogicalFileScan>> agg = ctx.root;
                         LogicalProject<LogicalFileScan> project = agg.child();
@@ -306,6 +306,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             RuleType.THREE_PHASE_AGGREGATE_WITH_DISTINCT.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 1)
+                     .whenNot(agg -> agg.mustUseMultiDistinctAgg())
                     .thenApplyMulti(ctx -> threePhaseAggregateWithDistinct(ctx.root, ctx.connectContext))
             ),
             /*
@@ -329,6 +330,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 1)
                     .when(agg -> agg.getGroupByExpressions().isEmpty())
+                    .whenNot(agg -> agg.mustUseMultiDistinctAgg())
                     .thenApplyMulti(ctx -> {
                         Function<List<Expression>, RequireProperties> secondPhaseRequireDistinctHash =
                                 groupByAndDistinct -> RequireProperties.of(
@@ -1981,7 +1983,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             }
             for (int i = 1; i < func.arity(); i++) {
                 // think about group_concat(distinct col_1, ',')
-                if (!func.child(i).getInputSlots().isEmpty()) {
+                if (!(func.child(i) instanceof OrderExpression) && !func.child(i).getInputSlots().isEmpty()) {
                     return false;
                 }
             }

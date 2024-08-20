@@ -84,6 +84,8 @@ public class AuditEvent {
     public boolean isNereids = false;
     @AuditField(value = "feIp")
     public String feIp = "";
+    @AuditField(value = "StmtType")
+    public String stmtType = "";
     @AuditField(value = "Stmt")
     public String stmt = "";
     @AuditField(value = "CpuTimeMS")
@@ -227,6 +229,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setFeIp(String feIp) {
             auditEvent.feIp = feIp;
+            return this;
+        }
+
+        public AuditEventBuilder setStmtType(String stmtType) {
+            auditEvent.stmtType = stmtType;
             return this;
         }
 

@@ -36,7 +36,7 @@ bool S3CustomRetryStrategy::ShouldRetry(const Aws::Client::AWSError<Aws::Client:
     }
     return Aws::Client::DefaultRetryStrategy::ShouldRetry(error, attemptedRetries);
 }
-
+#ifdef USE_AZURE
 AzureRetryRecordPolicy::AzureRetryRecordPolicy(int retry_cnt) : retry_cnt(retry_cnt) {}
 
 AzureRetryRecordPolicy::~AzureRetryRecordPolicy() = default;
@@ -58,4 +58,5 @@ std::unique_ptr<AzureRetryRecordPolicy::HttpPolicy> AzureRetryRecordPolicy::Clon
     ret->retry_cnt = 0;
     return ret;
 }
+#endif
 } // namespace doris

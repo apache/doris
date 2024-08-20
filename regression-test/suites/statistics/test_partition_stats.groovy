@@ -1000,6 +1000,115 @@ suite("test_partition_stats") {
     result = sql """show column stats part9 partition(*)"""
     assertEquals(9, result.size())
 
+    // Test insert overwrite.
+    sql """
+        create table part10(
+            k int null,
+            v int null
+        )
+        duplicate key (k)
+        PARTITION BY RANGE(`k`)
+        (
+            PARTITION p1 VALUES [("0"), ("2")),
+            PARTITION p2 VALUES [("2"), ("4"))
+        )
+        distributed BY hash(k) buckets 3
+        properties("replication_num" = "1");
+    """
+    sql """analyze table part10 with sync"""
+    result = sql """show column stats part10 (k)"""
+    assertEquals(1, result.size())
+    assertEquals("k", result[0][0])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
+    assertEquals("FULL", result[0][9])
+
+    result = sql """show column stats part10 (v)"""
+    assertEquals(1, result.size())
+    assertEquals("v", result[0][0])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
+    assertEquals("FULL", result[0][9])
+
+    result = sql """show column stats part10 (k) partition(*)"""
+    assertEquals(2, result.size())
+    result = sql """show column stats part10 (v) partition(*)"""
+    assertEquals(2, result.size())
+
+    sql """insert into part10 values (1, 2), (3, 6)"""
+    sql """analyze table part10 with sync"""
+    result = sql """show column stats part10 (k)"""
+    assertEquals(1, result.size())
+    assertEquals("k", result[0][0])
+    assertEquals("2.0", result[0][2])
+    assertEquals("2.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("8.0", result[0][5])
+    assertEquals("4.0", result[0][6])
+    assertEquals("1", result[0][7])
+    assertEquals("3", result[0][8])
+    assertEquals("FULL", result[0][9])
+
+    result = sql """show column stats part10 (v)"""
+    assertEquals(1, result.size())
+    assertEquals("v", result[0][0])
+    assertEquals("2.0", result[0][2])
+    assertEquals("2.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("8.0", result[0][5])
+    assertEquals("4.0", result[0][6])
+    assertEquals("2", result[0][7])
+    assertEquals("6", result[0][8])
+    assertEquals("FULL", result[0][9])
+
+    result = sql """show column stats part10 (k) partition(*)"""
+    assertEquals(2, result.size())
+    result = sql """show column stats part10 (v) partition(*)"""
+    assertEquals(2, result.size())
+
+    sql """INSERT OVERWRITE table part10 VALUES (0, 100), (2, 200);"""
+    sql """analyze table part10 with sync"""
+    result = sql """show column stats part10 (k)"""
+    assertEquals(1, result.size())
+    assertEquals("k", result[0][0])
+    assertEquals("2.0", result[0][2])
+    assertEquals("2.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("8.0", result[0][5])
+    assertEquals("4.0", result[0][6])
+    assertEquals("0", result[0][7])
+    assertEquals("2", result[0][8])
+    assertEquals("FULL", result[0][9])
+
+    result = sql """show column stats part10 (v)"""
+    assertEquals(1, result.size())
+    assertEquals("v", result[0][0])
+    assertEquals("2.0", result[0][2])
+    assertEquals("2.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("8.0", result[0][5])
+    assertEquals("4.0", result[0][6])
+    assertEquals("100", result[0][7])
+    assertEquals("200", result[0][8])
+    assertEquals("FULL", result[0][9])
+
+    result = sql """show column stats part10 (k) partition(*)"""
+    assertEquals(2, result.size())
+    result = sql """show column stats part10 (v) partition(*)"""
+    assertEquals(2, result.size())
+    result = sql """show column stats part10 partition(*)"""
+    assertEquals(4, result.size())
+
     sql """drop database test_partition_stats"""
 }
 

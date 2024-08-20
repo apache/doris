@@ -460,6 +460,12 @@ void AggLocalState::do_agg_limit(vectorized::Block* block, bool* eos) {
         } else {
             reached_limit(block, eos);
         }
+    } else {
+        if (auto rows = block->rows()) {
+            _num_rows_returned += rows;
+            COUNTER_UPDATE(_blocks_returned_counter, 1);
+            COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+        }
     }
 }
 

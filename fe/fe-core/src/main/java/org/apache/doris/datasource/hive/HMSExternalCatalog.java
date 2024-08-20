@@ -138,6 +138,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
+        if (authenticator == null) {
+            AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
+            authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
+        }
+
         HiveConf hiveConf = null;
         JdbcClientConfig jdbcClientConfig = null;
         String hiveMetastoreType = catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_TYPE, "");

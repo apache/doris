@@ -288,7 +288,15 @@ public class SystemHandler extends AlterHandler {
         Set<Tag> decommissionTags = decommissionBackends.stream().map(be -> be.getLocationTag())
                 .collect(Collectors.toSet());
         Map<Tag, Integer> tagAvailBackendNums = Maps.newHashMap();
-        for (Backend backend : Env.getCurrentSystemInfo().getAllBackends()) {
+        List<Backend> bes;
+        try {
+            bes = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values().asList();
+        } catch (UserException e) {
+            LOG.warn("Failed to get current cluster backend by current cluster.", e);
+            return;
+        }
+
+        for (Backend backend : bes) {
             long beId = backend.getId();
             if (!backend.isScheduleAvailable()
                     || decommissionBackends.stream().anyMatch(be -> be.getId() == beId)) {

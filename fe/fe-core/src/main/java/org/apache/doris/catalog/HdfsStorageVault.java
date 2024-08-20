@@ -27,6 +27,8 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -55,6 +57,11 @@ public class HdfsStorageVault extends StorageVault {
     public static String DSF_NAMESERVICES = "dfs.nameservices";
     public static final String HDFS_PREFIX = "hdfs:";
     public static final String HDFS_FILE_PREFIX = "hdfs://";
+
+    public static final HashSet<String> FORBID_CHECK_PROPERTIES = new HashSet<>(Arrays.asList(
+            VAULT_PATH_PREFIX,
+            HADOOP_FS_NAME
+    ));
 
     /**
      * Property keys used by Doris, and should not be put in HDFS client configs,
@@ -99,6 +106,8 @@ public class HdfsStorageVault extends StorageVault {
                 hdfsConfBuilder.setHdfsKerberosPrincipal(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB)) {
                 hdfsConfBuilder.setHdfsKerberosKeytab(property.getValue());
+            } else if (property.getKey().equalsIgnoreCase(VAULT_NAME)) {
+                continue;
             } else {
                 if (!nonHdfsConfPropertyKeys.contains(property.getKey().toLowerCase())) {
                     Cloud.HdfsBuildConf.HdfsConfKVPair.Builder conf = Cloud.HdfsBuildConf.HdfsConfKVPair.newBuilder();

@@ -27,6 +27,7 @@
 
 #include "util/bitmap_value.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_bitmap.h"
 
 namespace doris {
@@ -74,14 +75,16 @@ public:
              Arena* arena) const override {
         DCHECK_LT(row_num, columns[0]->size());
         if constexpr (arg_nullable) {
-            auto& nullable_col = assert_cast<const ColumnNullable&>(*columns[0]);
+            auto& nullable_col =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             auto& nullable_map = nullable_col.get_null_map_data();
             if (!nullable_map[row_num]) {
-                auto& col = assert_cast<const ColVecType&>(nullable_col.get_nested_column());
+                auto& col = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
+                        nullable_col.get_nested_column());
                 this->data(place).add(col.get_data()[row_num]);
             }
         } else {
-            auto& col = assert_cast<const ColVecType&>(*columns[0]);
+            auto& col = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             this->data(place).add(col.get_data()[row_num]);
         }
     }

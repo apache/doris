@@ -29,6 +29,8 @@
 #include "common/status.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "runtime/stream_load/stream_load_context.h"
+#include "runtime/stream_load/stream_load_recorder.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
 #include "util/thrift_server.h"
 
@@ -184,6 +186,12 @@ void CloudBackendService::check_warm_up_cache_async(TCheckWarmUpCacheAsyncRespon
     TStatus t_status;
     st.to_thrift(&t_status);
     response.status = t_status;
+}
+
+void CloudBackendService::get_stream_load_record(TStreamLoadRecordResult& result,
+                                                 int64_t last_stream_record_time) {
+    BaseBackendService::get_stream_load_record(result, last_stream_record_time,
+                                               _engine.get_stream_load_recorder());
 }
 
 } // namespace doris

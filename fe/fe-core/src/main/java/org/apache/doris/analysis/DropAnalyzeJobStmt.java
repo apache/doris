@@ -31,4 +31,9 @@ public class DropAnalyzeJobStmt extends DdlStmt {
     public long getJobId() {
         return jobId;
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
+    }
 }

@@ -56,9 +56,13 @@ public:
                       const TUniqueId fragment_instance_id,
                       const VExprContextSPtrs& _output_vexpr_ctxs,
                       std::shared_ptr<BufferControlBlock> sinker, Block* output_block,
-                      bool output_object_data, const RowDescriptor& output_row_descriptor);
+                      bool output_object_data, const RowDescriptor& output_row_descriptor,
+                      std::shared_ptr<pipeline::Dependency> dep,
+                      std::shared_ptr<pipeline::Dependency> fin_dep);
 
-    VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
+    VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
+                      std::shared_ptr<pipeline::Dependency> dep,
+                      std::shared_ptr<pipeline::Dependency> fin_dep);
 
     Status write(RuntimeState* state, Block& block) override;
 

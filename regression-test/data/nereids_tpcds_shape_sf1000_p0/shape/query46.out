@@ -5,15 +5,19 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_current_addr_sk = current_addr.ca_address_sk)) otherCondition=(( not (ca_city = bought_city))) build RFs:RF5 ca_address_sk->[c_current_addr_sk]
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((customer.c_current_addr_sk = current_addr.ca_address_sk)) otherCondition=(( not (ca_city = bought_city))) build RFs:RF5 c_current_addr_sk->[ca_address_sk]
+------------PhysicalProject
+--------------PhysicalOlapScan[customer_address] apply RFs: RF5
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN shuffle] hashCondition=((dn.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF4 ss_customer_sk->[c_customer_sk]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[customer] apply RFs: RF4 RF5
+------------------PhysicalOlapScan[customer] apply RFs: RF4
 ----------------PhysicalProject
 ------------------hashAgg[LOCAL]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF3 ca_address_sk->[ss_addr_sk]
+----------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF3 ss_addr_sk->[ca_address_sk]
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[customer_address] apply RFs: RF3
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF2 hd_demo_sk->[ss_hdemo_sk]
 ----------------------------PhysicalProject
@@ -21,7 +25,7 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF0 s_store_sk->[ss_store_sk]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
+--------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
 ------------------------------------PhysicalProject
 --------------------------------------filter(s_city IN ('Fairview', 'Midway'))
 ----------------------------------------PhysicalOlapScan[store]
@@ -31,8 +35,4 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------filter(((household_demographics.hd_dep_count = 8) OR (household_demographics.hd_vehicle_count = 0)))
 --------------------------------PhysicalOlapScan[household_demographics]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[customer_address]
-------------PhysicalProject
---------------PhysicalOlapScan[customer_address]
 

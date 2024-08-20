@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hudi.source;
 
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PartitionItem;
@@ -203,8 +204,12 @@ public class HudiScanNode extends HiveScanNode {
         }
 
         timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
-        if (desc.getRef().getTableSnapshot() != null) {
-            queryInstant = desc.getRef().getTableSnapshot().getTime();
+        TableSnapshot tableSnapshot = getQueryTableSnapshot();
+        if (tableSnapshot != null) {
+            if (tableSnapshot.getType() == TableSnapshot.VersionType.VERSION) {
+                throw new UserException("Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`");
+            }
+            queryInstant = tableSnapshot.getTime().replaceAll("[-: ]", "");
             snapshotTimestamp = Option.of(queryInstant);
         } else {
             Option<HoodieInstant> snapshotInstant = timeline.lastInstant();

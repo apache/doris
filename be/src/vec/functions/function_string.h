@@ -26,6 +26,7 @@
 #include <array>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
+#include <codecvt>
 #include <cstddef>
 #include <cstdlib>
 #include <iomanip>
@@ -33,6 +34,7 @@
 #include <memory>
 #include <ostream>
 #include <random>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <tuple>
@@ -56,6 +58,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/common/int_exp.h"
 #include "vec/common/memcmp_small.h"
 #include "vec/common/memcpy_small.h"
@@ -69,6 +72,7 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/round.h"
 #include "vec/io/io_helper.h"
 #include "vec/utils/template_helpers.hpp"
@@ -383,6 +387,218 @@ private:
         for (size_t i = 0; i < size; ++i) {
             res.get_data()[i] = vec0.get_data_at(i).compare(vec1.get_data_at(i));
         }
+    }
+};
+
+class FunctionAutoPartitionName : public IFunction {
+public:
+    static constexpr auto name = "auto_partition_name";
+    static FunctionPtr create() { return std::make_shared<FunctionAutoPartitionName>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        size_t argument_size = arguments.size();
+        if (argument_size < 2) {
+            return Status::InvalidArgument(
+                    "auto_partition_name must contains at least two arguments");
+        }
+        std::vector<const ColumnString::Chars*> chars_list(argument_size);
+        std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
+        std::vector<bool> is_const_args(argument_size);
+
+        for (int i = 0; i < argument_size; ++i) {
+            const auto& [col, is_const] =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+
+            const auto* col_str = assert_cast<const ColumnString*>(col.get());
+            chars_list[i] = &col_str->get_chars();
+            offsets_list[i] = &col_str->get_offsets();
+            is_const_args[i] = is_const;
+        }
+        auto res = ColumnString::create();
+        auto& res_data = res->get_chars();
+        auto& res_offset = res->get_offsets();
+        res_offset.resize(input_rows_count);
+
+        const char* partition_type = chars_list[0]->raw_data();
+        // partition type is list|range
+        if (std::strncmp(partition_type, "list", 4) == 0) {
+            return _auto_partition_type_of_list(chars_list, offsets_list, is_const_args, res_data,
+                                                res_offset, input_rows_count, argument_size, block,
+                                                result, res);
+        } else {
+            return _auto_partition_type_of_range(chars_list, offsets_list, is_const_args, res_data,
+                                                 res_offset, input_rows_count, argument_size, block,
+                                                 result, res);
+        }
+        return Status::OK();
+    }
+
+private:
+    std::u16string _string_to_u16string(const std::string& str) const {
+        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> convert;
+        return convert.from_bytes(str);
+    }
+
+    std::string _string_to_unicode(const std::u16string& s) const {
+        std::string res_s;
+        res_s.reserve(s.size());
+        if (s.length() > 0 && s[0] == '-') {
+            res_s += '_';
+        }
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s[i];
+            if (std::isalnum(ch)) {
+                res_s += ch;
+            } else {
+                int unicodeValue = _get_code_point_at(s, i);
+                res_s += fmt::format("{:02x}", static_cast<uint32_t>(unicodeValue));
+            }
+        }
+        return res_s;
+    }
+
+    int _get_code_point_at(const std::u16string& str, std::size_t index) const {
+        char16_t first = str[index];
+        // [0xD800,0xDBFF] is the scope of the first code unit
+        if ((first >= 0xD800 && first <= 0xDBFF) && (index + 1 < str.size())) {
+            char16_t second = str[index + 1];
+            // [0xDC00,0xDFFF] is the scope of the second code unit
+            if (second >= 0xDC00 && second <= 0xDFFF) {
+                return ((first - 0xD800) << 10) + (second - 0xDC00) + 0x10000;
+            }
+        }
+
+        return first;
+    }
+    Status _auto_partition_type_of_list(std::vector<const ColumnString::Chars*>& chars_list,
+                                        std::vector<const ColumnString::Offsets*>& offsets_list,
+                                        std::vector<bool>& is_const_args, auto& res_data,
+                                        auto& res_offset, size_t input_rows_count,
+                                        size_t argument_size, Block& block, size_t result,
+                                        auto& res) const {
+        int curr_len = 0;
+        for (int row = 0; row < input_rows_count; row++) {
+            std::string res_p;
+            res_p.reserve(argument_size * 5);
+            res_p += 'p';
+            for (int col = 1; col < argument_size; col++) {
+                const auto& current_offsets = *offsets_list[col];
+                const auto& current_chars = *chars_list[col];
+
+                auto idx = index_check_const(row, is_const_args[col]);
+                int size = current_offsets[idx] - current_offsets[idx - 1];
+                const char* raw_chars =
+                        reinterpret_cast<const char*>(&current_chars[current_offsets[idx - 1]]);
+
+                // convert string to u16string in order to convert to unicode strings
+                const std::string raw_str(raw_chars, size);
+                auto u16string = _string_to_u16string(raw_str);
+                res_p += _string_to_unicode(u16string) + std::to_string(u16string.size());
+            }
+
+            // check the name of length
+            int len = res_p.size();
+            if (len > 50) [[unlikely]] {
+                return Status::InvalidArgument(
+                        "The list partition name cannot exceed 50 characters");
+            }
+            curr_len += len;
+            res_data.resize(curr_len);
+            memcpy(&res_data[res_offset[row - 1]], res_p.c_str(), len);
+            res_offset[row] = res_offset[row - 1] + len;
+        }
+        block.get_by_position(result).column = std::move(res);
+        return Status::OK();
+    }
+
+    size_t _copy_date_str_of_len_to_res_data(auto& res_data, auto& res_offset,
+                                             std::vector<std::string>& date_str, size_t row,
+                                             size_t len) const {
+        size_t curr_len = 1;
+        for (int j = 0; j < len; j++) {
+            memcpy(&res_data[res_offset[row - 1]] + curr_len, date_str[j].c_str(),
+                   date_str[j].size());
+            curr_len += date_str[j].size();
+        }
+        return curr_len;
+    }
+
+    Status _auto_partition_type_of_range(std::vector<const ColumnString::Chars*>& chars_list,
+                                         std::vector<const ColumnString::Offsets*>& offsets_list,
+                                         std::vector<bool>& is_const_args, auto& res_data,
+                                         auto& res_offset, size_t input_rows_count,
+                                         size_t argument_size, Block& block, size_t result,
+                                         auto& res) const {
+        const char* range_type = chars_list[1]->raw_data();
+
+        res_data.resize(15 * input_rows_count);
+        for (int i = 0; i < input_rows_count; i++) {
+            const auto& current_offsets = *offsets_list[2];
+            const auto& current_chars = *chars_list[2];
+
+            auto idx = index_check_const(i, is_const_args[2]);
+            int size = current_offsets[idx] - current_offsets[idx - 1];
+            const char* tmp =
+                    reinterpret_cast<const char*>(&current_chars[current_offsets[idx - 1]]);
+            std::string to_split_s(tmp, size);
+
+            // check the str if it is date|datetime
+            RE2 date_regex(R"(^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$)");
+            if (!RE2::FullMatch(to_split_s, date_regex)) {
+                return Status::InvalidArgument("The range partition only support DATE|DATETIME");
+            }
+
+            // split date_str from (yyyy-mm-dd hh:mm:ss) to ([yyyy, mm, dd, hh, mm, ss])
+            std::vector<std::string> date_str(6);
+            date_str[0] = to_split_s.substr(0, 4);
+            for (int i = 5, j = 1; i <= size; i += 3, j++) {
+                date_str[j] = to_split_s.substr(i, 2);
+            }
+            int curr_len = 0;
+
+            res_data[res_offset[i - 1]] = 'p';
+            // raw => 2022-12-12 11:30:20
+            // year => 2022 01 01 00 00 00
+            // month => 2022 12 01 00 00 00
+            // day => 2022 12 12 00 00 00
+            // hour => 2022 12 12 11 00 00
+            // minute => 2022 12  11 30 00
+            // second => 2022 12 12 12 30 20
+
+            if (!strncmp(range_type, "year", 4)) {
+                curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 1);
+                memcpy(&res_data[res_offset[i - 1]] + curr_len, "0101", 4);
+                curr_len += 4;
+            } else if (!strncmp(range_type, "month", 5)) {
+                curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 2);
+                memcpy(&res_data[res_offset[i - 1]] + curr_len, "01", 2);
+                curr_len += 2;
+            } else if (!strncmp(range_type, "day", 3)) {
+                curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 3);
+            } else if (!strncmp(range_type, "hour", 4)) {
+                curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 4);
+            } else if (!strncmp(range_type, "minute", 6)) {
+                curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 5);
+            } else if (!strncmp(range_type, "second", 6)) {
+                curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 6);
+            }
+
+            // fill in zero
+            int zero = 15 - curr_len;
+            std::fill_n(&res_data[res_offset[i - 1]] + curr_len, zero, '0');
+            curr_len += zero;
+            res_offset[i] = res_offset[i - 1] + curr_len;
+        }
+        block.get_by_position(result).column = std::move(res);
+        return Status::OK();
     }
 };
 
@@ -2928,20 +3144,23 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
+        // We need a local variable to hold a reference to the converted column.
+        // So that the converted column will not be released before we use it.
         auto col_origin =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto col_origin_str = assert_cast<const ColumnString*>(col_origin.get());
         auto col_old =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto col_old_str = assert_cast<const ColumnString*>(col_old.get());
         auto col_new =
                 block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+        auto col_new_str = assert_cast<const ColumnString*>(col_new.get());
 
         ColumnString::MutablePtr col_res = ColumnString::create();
-
         for (int i = 0; i < input_rows_count; ++i) {
-            StringRef origin_str =
-                    assert_cast<const ColumnString*>(col_origin.get())->get_data_at(i);
-            StringRef old_str = assert_cast<const ColumnString*>(col_old.get())->get_data_at(i);
-            StringRef new_str = assert_cast<const ColumnString*>(col_new.get())->get_data_at(i);
+            StringRef origin_str = col_origin_str->get_data_at(i);
+            StringRef old_str = col_old_str->get_data_at(i);
+            StringRef new_str = col_new_str->get_data_at(i);
 
             std::string result = replace(origin_str.to_string(), old_str.to_string_view(),
                                          new_str.to_string_view());
@@ -3478,8 +3697,8 @@ public:
                     continue;
                 }
                 if (auto const_column = check_and_get_column<const ColumnConst>(*str_columns[j])) {
-                    auto str_column =
-                            assert_cast<const ColumnString*>(&(const_column->get_data_column()));
+                    auto str_column = assert_cast<const ColumnString*, TypeCheckOnRelease::DISABLE>(
+                            &(const_column->get_data_column()));
                     auto data_item = str_column->get_data_at(0);
                     memcpy_small_allow_read_write_overflow15(
                             &res_data[res_offset[i - 1]] + current_length, data_item.data,
@@ -3674,4 +3893,130 @@ private:
         }
     }
 };
+
+class FunctionNgramSearch : public IFunction {
+public:
+    static constexpr auto name = "ngram_search";
+    static FunctionPtr create() { return std::make_shared<FunctionNgramSearch>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 3; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeFloat64>();
+    }
+
+    // ngram_search(text,pattern,gram_num)
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        CHECK_EQ(arguments.size(), 3);
+        auto col_res = ColumnFloat64::create();
+        bool col_const[3];
+        ColumnPtr argument_columns[3];
+        for (int i = 0; i < 3; ++i) {
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
+        // There is no need to check if the 2-th,3-th parameters are const here because fe has already checked them.
+        auto pattern = assert_cast<const ColumnString*>(argument_columns[1].get())->get_data_at(0);
+        auto gram_num = assert_cast<const ColumnInt32*>(argument_columns[2].get())->get_element(0);
+        const auto* text_col = assert_cast<const ColumnString*>(argument_columns[0].get());
+
+        if (col_const[0]) {
+            _execute_impl<true>(text_col, pattern, gram_num, *col_res, input_rows_count);
+        } else {
+            _execute_impl<false>(text_col, pattern, gram_num, *col_res, input_rows_count);
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    using NgramMap = phmap::flat_hash_map<uint32_t, uint8_t>;
+    // In the map, the key is the CRC32 hash result of a substring in the string,
+    // and the value indicates whether this hash is found in the text or pattern.
+    constexpr static auto not_found = 0b00;
+    constexpr static auto found_in_pattern = 0b01;
+    constexpr static auto found_in_text = 0b10;
+    constexpr static auto found_in_pattern_and_text = 0b11;
+
+    uint32_t sub_str_hash(const char* data, int32_t length) const {
+        constexpr static uint32_t seed = 0;
+        return HashUtil::crc_hash(data, length, seed);
+    }
+
+    template <bool column_const>
+    void _execute_impl(const ColumnString* text_col, StringRef& pattern, int gram_num,
+                       ColumnFloat64& res, size_t size) const {
+        auto& res_data = res.get_data();
+        res_data.resize_fill(size, 0);
+        // If the length of the pattern is less than gram_num, return 0.
+        if (pattern.size < gram_num) {
+            return;
+        }
+
+        // Build a map by pattern string, which will be used repeatedly in the following loop.
+        NgramMap pattern_map;
+        int pattern_count = get_pattern_set(pattern_map, pattern, gram_num);
+        // Each time a loop is executed, the map will be modified, so it needs to be restored afterward.
+        std::vector<uint32_t> restore_map;
+
+        for (int i = 0; i < size; i++) {
+            auto text = text_col->get_data_at(index_check_const<column_const>(i));
+            if (text.size < gram_num) {
+                // If the length of the text is less than gram_num, return 0.
+                continue;
+            }
+            restore_map.reserve(text.size);
+            auto [text_count, intersection_count] =
+                    get_text_set(text, gram_num, pattern_map, restore_map);
+
+            // 2 * |Intersection| / (|text substr set| + |pattern substr set|)
+            res_data[i] = 2.0 * intersection_count / (text_count + pattern_count);
+        }
+    }
+
+    size_t get_pattern_set(NgramMap& pattern_map, StringRef& pattern, int gram_num) const {
+        size_t pattern_count = 0;
+        for (int i = 0; i + gram_num <= pattern.size; i++) {
+            uint32_t cur_hash = sub_str_hash(pattern.data + i, gram_num);
+            if (!pattern_map.contains(cur_hash)) {
+                pattern_map[cur_hash] = found_in_pattern;
+                pattern_count++;
+            }
+        }
+        return pattern_count;
+    }
+
+    pair<size_t, size_t> get_text_set(StringRef& text, int gram_num, NgramMap& pattern_map,
+                                      std::vector<uint32_t>& restore_map) const {
+        restore_map.clear();
+        //intersection_count indicates a substring both in pattern and text.
+        size_t text_count = 0, intersection_count = 0;
+        for (int i = 0; i + gram_num <= text.size; i++) {
+            uint32_t cur_hash = sub_str_hash(text.data + i, gram_num);
+            auto& val = pattern_map[cur_hash];
+            if (val == not_found) {
+                val ^= found_in_text;
+                DCHECK(val == found_in_text);
+                // only found in text
+                text_count++;
+                restore_map.push_back(cur_hash);
+            } else if (val == found_in_pattern) {
+                val ^= found_in_text;
+                DCHECK(val == found_in_pattern_and_text);
+                // found in text and pattern
+                text_count++;
+                intersection_count++;
+                restore_map.push_back(cur_hash);
+            }
+        }
+        // Restore the pattern_map.
+        for (auto& restore_hash : restore_map) {
+            pattern_map[restore_hash] ^= found_in_text;
+        }
+
+        return {text_count, intersection_count};
+    }
+};
+
 } // namespace doris::vectorized

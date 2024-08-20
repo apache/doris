@@ -748,7 +748,6 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 
     const auto& agg_functions = tnode.agg_node.aggregate_functions;
-    _external_agg_bytes_threshold = state->external_agg_bytes_threshold();
 
     _is_merge = std::any_of(agg_functions.cbegin(), agg_functions.cend(),
                             [](const auto& e) { return e.nodes[0].agg_expr.is_merge_agg; });

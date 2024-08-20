@@ -311,7 +311,7 @@ public class ColocateTableTest {
                 + ");");
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate tables distribution columns must have the same data type: k2(VARCHAR(10)) should be INT");
+        expectedEx.expectMessage("Colocate tables distribution columns must have the same data type: k2(varchar(10)) should be int");
         createTable("create table " + dbName + "." + tableName2 + " (\n"
                 + " `k1` int NULL COMMENT \"\",\n"
                 + " `k2` varchar(10) NULL COMMENT \"\"\n"

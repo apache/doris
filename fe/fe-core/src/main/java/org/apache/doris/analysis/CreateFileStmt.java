@@ -32,7 +32,7 @@ import com.google.common.collect.ImmutableSet;
 import java.util.Map;
 import java.util.Optional;
 
-public class CreateFileStmt extends DdlStmt {
+public class CreateFileStmt extends DdlStmt implements NotFallbackInParser {
     public static final String PROP_CATALOG_DEFAULT = "DEFAULT";
     private static final String PROP_CATALOG = "catalog";
     private static final String PROP_URL = "url";
@@ -161,5 +161,10 @@ public class CreateFileStmt extends DdlStmt {
     @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.FORWARD_WITH_SYNC;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

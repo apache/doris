@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -55,4 +56,8 @@ public class AlterMTMVCommand extends Command implements ForwardWithSync, NotAll
         return visitor.visitAlterMTMVCommand(this, context);
     }
 
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
+    }
 }

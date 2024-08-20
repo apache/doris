@@ -54,4 +54,9 @@ public class ExecuteStmt extends StatementBase {
         sql += ")";
         return sql;
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.EXECUTE;
+    }
 }

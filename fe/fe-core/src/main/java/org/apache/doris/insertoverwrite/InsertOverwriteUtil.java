@@ -54,6 +54,7 @@ public class InsertOverwriteUtil {
             for (int i = 0; i < partitionNames.size(); i++) {
                 Env.getCurrentEnv().addPartitionLike((Database) tableIf.getDatabase(), tableIf.getName(),
                         new AddPartitionLikeClause(tempPartitionNames.get(i), partitionNames.get(i), true));
+                LOG.info("successfully add temp partition [{}] for [{}]", tempPartitionNames.get(i), tableIf.getName());
             }
         }
     }

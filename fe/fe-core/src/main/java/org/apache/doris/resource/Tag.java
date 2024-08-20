@@ -73,6 +73,8 @@ public class Tag implements Writable {
     public static final String CLOUD_CLUSTER_PRIVATE_ENDPOINT = "cloud_cluster_private_endpoint";
     public static final String CLOUD_CLUSTER_STATUS = "cloud_cluster_status";
 
+    public static final String WORKLOAD_GROUP = "workload_group";
+
     public static final ImmutableSet<String> RESERVED_TAG_TYPE = ImmutableSet.of(
             TYPE_ROLE, TYPE_FUNCTION, TYPE_LOCATION);
     public static final ImmutableSet<String> RESERVED_TAG_VALUES = ImmutableSet.of(

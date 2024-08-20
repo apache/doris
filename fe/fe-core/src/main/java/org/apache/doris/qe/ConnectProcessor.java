@@ -326,6 +326,7 @@ public abstract class ConnectProcessor {
         if (mysqlCommand == MysqlCommand.COM_QUERY
                 && ctx.getSessionVariable().isEnableNereidsPlanner()
                 && !ctx.getSessionVariable().enableFallbackToOriginalPlanner
+                && !stmts.isEmpty()
                 && stmts.stream().allMatch(s -> s instanceof NotFallbackInParser)) {
             String errMsg;
             Throwable exception = null;
@@ -391,7 +392,7 @@ public abstract class ConnectProcessor {
                                 // when client not request CLIENT_MULTI_STATEMENTS, mysql treat all query as
                                 // single statement. Doris treat it with multi statement, but only return
                                 // the last statement result.
-                                if (getConnectContext().getCapability().isClientMultiStatements()) {
+                                if (getConnectContext().getMysqlChannel().clientMultiStatements()) {
                                     finalizeCommand();
                                 }
                             }
@@ -459,6 +460,7 @@ public abstract class ConnectProcessor {
                 logicalPlanAdapter.setColLabels(
                         Lists.newArrayList(logicalSqlCache.getColumnLabels())
                 );
+                logicalPlanAdapter.setFieldInfos(Lists.newArrayList(logicalSqlCache.getFieldInfos()));
                 logicalPlanAdapter.setResultExprs(logicalSqlCache.getResultExprs());
                 logicalPlanAdapter.setOrigStmt(statementContext.getOriginStatement());
                 logicalPlanAdapter.setUserInfo(ctx.getCurrentUserIdentity());

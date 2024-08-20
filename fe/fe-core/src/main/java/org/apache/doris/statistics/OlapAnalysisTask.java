@@ -210,9 +210,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     @Override
     protected void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException {
         TableStatsMeta tableStats = Env.getServingEnv().getAnalysisManager().findTableStatsStatus(tbl.getId());
-        // When a partition was dropped, newPartitionLoaded will set to true.
-        // So we don't need to check dropped partition if newPartitionLoaded is false.
-        if (tableStats == null || !tableStats.partitionChanged.get()) {
+        if (tableStats == null) {
             return;
         }
         OlapTable table = (OlapTable) tbl;
@@ -220,6 +218,12 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         ColStatsMeta columnStats = tableStats.findColumnStatsMeta(indexName, info.colName);
         if (columnStats == null || columnStats.partitionUpdateRows == null
                 || columnStats.partitionUpdateRows.isEmpty()) {
+            return;
+        }
+        // When a partition was dropped, partitionChanged will be set to true.
+        // So we don't need to check dropped partition if partitionChanged is false.
+        if (!tableStats.partitionChanged.get()
+                && columnStats.partitionUpdateRows.size() == table.getPartitions().size()) {
             return;
         }
         Set<Long> expiredPartition = Sets.newHashSet();

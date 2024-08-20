@@ -138,4 +138,9 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
                 .append(")");
         return sb.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
+    }
 }

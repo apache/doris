@@ -623,6 +623,11 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_range_two_param_notnull "select array_range(kint, 1000) from fn_test_not_nullable order by id"
     order_qt_sql_array_range_three_param "select array_range(kint, 10000, ktint) from fn_test order by id"
     order_qt_sql_array_range_three_param_notnull "select array_range(kint, 10000, ktint) from fn_test_not_nullable order by id"
+    // make a large size of array element, expect to throw error
+    test  {
+        sql "select array_range(kint, 1000000000) from fn_test"
+        exception ('Array size exceeds the limit 1000000')
+    }
 
     // array_remove
     order_qt_sql_array_remove_Double "select array_remove(kadbl, kdbl) from fn_test"
@@ -1276,9 +1281,73 @@ suite("nereids_scalar_fn_Array") {
     qt_sequence_datetime_hour """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint-3 hour), interval kint hour) from fn_test order by kdtmv2s1;"""
     qt_sequence_datetime_minute """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1 minute), interval kint minute) from fn_test order by kdtmv2s1;"""
     qt_sequence_datetime_second """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint second), interval kint-1 second) from fn_test order by kdtmv2s1;"""
+    // make large error size
+    test {
+        sql "select array_size(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000 year), interval kint hour)) from fn_test order by kdtmv2s1;"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+    test {
+        sql "select array_size(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+10000 month), interval kint hour)) from fn_test order by kdtmv2s1;"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+    test {
+        sql "select array_size(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000001 day), interval kint day)) from fn_test order by kdtmv2s1;"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
 
     // with array empty
     qt_array_empty_fe """select array()"""
     sql """ set debug_skip_fold_constant=true; """
     qt_array_empty_be """select array()"""
+
+    // array_min/max with nested array for args
+    test {
+        sql "select array_min(array(1,2,3),array(4,5,6));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    test {
+        sql "select array_max(array(1,2,3),array(4,5,6));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+    test {
+        sql "select array_min(array(split_by_string('a,b,c',',')));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    test {
+        sql "select array_max(array(split_by_string('a,b,c',',')));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    // array_map with string is can be succeed
+    qt_sql_array_map """select array_map(x->x!='', split_by_string('amory,is,better,committing', ','))"""
+
+    // array_apply with string should be failed
+    test {
+       sql """select array_apply(split_by_string("amory,is,better,committing", ","), '!=', '');"""
+       exception("errCode = 2")
+    }
+
 }

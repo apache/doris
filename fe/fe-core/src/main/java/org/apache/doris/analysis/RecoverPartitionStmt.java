@@ -97,4 +97,9 @@ public class RecoverPartitionStmt extends DdlStmt {
         sb.append(getTableName());
         return sb.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.RECOVER;
+    }
 }

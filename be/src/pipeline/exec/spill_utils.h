@@ -33,8 +33,6 @@ public:
     SpillRunnable(RuntimeState* state, const std::shared_ptr<BasicSharedState>& shared_state,
                   std::function<void()> func)
             : _state(state),
-              _mem_tracker(state->get_query_ctx()->query_mem_tracker),
-              _task_id(state->query_id()),
               _task_context_holder(state->get_task_execution_context()),
               _shared_state_holder(shared_state),
               _func(std::move(func)) {}
@@ -42,16 +40,17 @@ public:
     ~SpillRunnable() override = default;
 
     void run() override {
-        SCOPED_ATTACH_TASK_WITH_ID(_mem_tracker, _task_id);
-        Defer defer([&] {
-            std::function<void()> tmp;
-            std::swap(tmp, _func);
-        });
-
+        // Should lock task context before scope task, because the _state maybe
+        // destroyed when run is called.
         auto task_context_holder = _task_context_holder.lock();
         if (!task_context_holder) {
             return;
         }
+        SCOPED_ATTACH_TASK(_state);
+        Defer defer([&] {
+            std::function<void()> tmp;
+            std::swap(tmp, _func);
+        });
 
         auto shared_state_holder = _shared_state_holder.lock();
         if (!shared_state_holder) {
@@ -66,8 +65,6 @@ public:
 
 private:
     RuntimeState* _state;
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
-    TUniqueId _task_id;
     std::weak_ptr<TaskExecutionContext> _task_context_holder;
     std::weak_ptr<BasicSharedState> _shared_state_holder;
     std::function<void()> _func;

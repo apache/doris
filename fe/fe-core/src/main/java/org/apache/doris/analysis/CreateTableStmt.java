@@ -127,7 +127,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             distributionDesc.setBuckets(FeConstants.default_bucket_num);
         } else {
             long partitionSize = ParseUtil
-                    .analyzeDataVolumn(newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
+                    .analyzeDataVolume(newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
             distributionDesc.setBuckets(AutoBucketUtils.getBucketsNum(partitionSize, Config.autobucket_min_buckets));
         }
 
@@ -319,6 +319,11 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             if (Objects.equals(columnDef.getType(), Type.ALL)) {
                 throw new AnalysisException("Disable to create table with `ALL` type columns.");
             }
+            String columnNameUpperCase = columnDef.getName().toUpperCase();
+            if (columnNameUpperCase.startsWith("__DORIS_")) {
+                throw new AnalysisException(
+                        "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
+            }
             if (Objects.equals(columnDef.getType(), Type.DATE) && Config.disable_datev1) {
                 throw new AnalysisException("Disable to create table with `DATE` type columns, please use `DATEV2`.");
             }
@@ -487,7 +492,8 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
 
             if (columnDef.getType().isComplexType() && engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
                 if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE
-                        && columnDef.getAggregateType() != AggregateType.REPLACE) {
+                        && columnDef.getAggregateType() != AggregateType.REPLACE
+                        && columnDef.getAggregateType() != AggregateType.REPLACE_IF_NOT_NULL) {
                     throw new AnalysisException(
                             columnDef.getType().getPrimitiveType() + " column can't support aggregation "
                                     + columnDef.getAggregateType());
@@ -873,5 +879,10 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                         "Tables can only have generated columns if the olap engine is used");
             }
         }
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

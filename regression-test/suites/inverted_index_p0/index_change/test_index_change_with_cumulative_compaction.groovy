@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_index_change_with_cumulative_compaction") {
+suite("test_index_change_with_cumulative_compaction", "nonConcurrent") {
     def tableName = "index_change_with_cumulative_compaction_dup_keys"
 
     def timeout = 60000

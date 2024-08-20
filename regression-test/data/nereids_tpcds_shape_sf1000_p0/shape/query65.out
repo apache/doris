@@ -5,7 +5,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN shuffle] hashCondition=((item.i_item_sk = sc.ss_item_sk)) otherCondition=() build RFs:RF4 i_item_sk->[ss_item_sk]
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = sc.ss_item_sk)) otherCondition=() build RFs:RF4 i_item_sk->[ss_item_sk]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = sc.ss_store_sk)) otherCondition=() build RFs:RF3 s_store_sk->[ss_store_sk,ss_store_sk]
 ----------------PhysicalProject

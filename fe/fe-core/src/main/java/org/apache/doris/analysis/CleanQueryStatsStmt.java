@@ -141,4 +141,9 @@ public class CleanQueryStatsStmt extends DdlStmt {
     public enum Scope {
         ALL, DB, TABLE
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CLEAN;
+    }
 }

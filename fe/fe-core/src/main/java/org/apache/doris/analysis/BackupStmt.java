@@ -127,4 +127,10 @@ public class BackupStmt extends AbstractBackupStmt {
         sb.append("\n)");
         return sb.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.BACKUP;
+    }
+
 }

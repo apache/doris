@@ -33,6 +33,7 @@ import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
 import java.util.HashMap;
 import java.util.List;
@@ -369,5 +370,33 @@ public class QueryStmtTest {
             resultMap.putAll(constMap);
         }
         return resultMap;
+    }
+
+    @Test
+    public void testParseStmtType() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        String sql = "select a from c.b";
+        StatementBase stmt = UtFrameUtils.onlyParse(sql, ctx);
+        Assert.assertEquals(stmt.stmtType(), StmtType.SELECT);
+
+        sql = "drop table a";
+        stmt = UtFrameUtils.onlyParse(sql, ctx);
+        Assertions.assertEquals(stmt.stmtType(), StmtType.DROP);
+
+        sql = "use a";
+        stmt = UtFrameUtils.onlyParse(sql, ctx);
+        Assertions.assertEquals(stmt.stmtType(), StmtType.USE);
+
+        sql = "CREATE TABLE tbl (`id` INT NOT NULL) DISTRIBUTED BY HASH(`id`) BUCKETS 1";
+        stmt = UtFrameUtils.onlyParse(sql, ctx);
+        Assertions.assertEquals(stmt.stmtType(), StmtType.CREATE);
+
+        sql = "update a set b =1";
+        stmt = UtFrameUtils.onlyParse(sql, ctx);
+        Assertions.assertEquals(stmt.stmtType(), StmtType.UPDATE);
+
+        sql = "insert into a values(1)";
+        stmt = UtFrameUtils.onlyParse(sql, ctx);
+        Assertions.assertEquals(stmt.stmtType(), StmtType.INSERT);
     }
 }

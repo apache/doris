@@ -233,6 +233,7 @@ private:
 
     std::vector<std::vector<JsonPath>> _parsed_jsonpaths;
     std::vector<JsonPath> _parsed_json_root;
+    bool _parsed_from_json_root = false; // to avoid parsing json root multiple times
 
     char _value_buffer[4 * 1024 * 1024]; // 4MB
     char _parse_buffer[512 * 1024];      // 512KB

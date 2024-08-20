@@ -74,4 +74,9 @@ public class AlterJobStatusStmt extends DdlStmt {
             throw new AnalysisException("Can't alter inner job status");
         }
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
+    }
 }

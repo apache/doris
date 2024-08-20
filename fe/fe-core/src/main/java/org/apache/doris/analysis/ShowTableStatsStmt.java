@@ -70,6 +70,13 @@ public class ShowTableStatsStmt extends ShowStmt {
                     .add("row_count")
                     .build();
 
+    private static final ImmutableList<String> INDEX_TITLE_NAMES =
+            new ImmutableList.Builder<String>()
+            .add("table_name")
+            .add("index_name")
+            .add("row_count")
+            .build();
+
     private static final ImmutableList<String> COLUMN_PARTITION_TITLE_NAMES =
             new ImmutableList.Builder<String>()
                 .add("index_name")
@@ -82,15 +89,17 @@ public class ShowTableStatsStmt extends ShowStmt {
     private final List<String> columnNames;
     private final PartitionNames partitionNames;
     private final boolean cached;
+    private final String indexName;
 
     private TableIf table;
 
     public ShowTableStatsStmt(TableName tableName, List<String> columnNames,
-                              PartitionNames partitionNames, boolean cached) {
+                              PartitionNames partitionNames, boolean cached, String indexName) {
         this.tableName = tableName;
         this.columnNames = columnNames;
         this.partitionNames = partitionNames;
         this.cached = cached;
+        this.indexName = indexName;
     }
 
     public TableName getTableName() {
@@ -141,8 +150,10 @@ public class ShowTableStatsStmt extends ShowStmt {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
 
         ImmutableList<String> titles;
-        // If columnNames != null, partitionNames is also not null. Guaranteed in analyze()
-        if (columnNames != null) {
+        if (indexName != null) {
+            titles = INDEX_TITLE_NAMES;
+        } else if (columnNames != null) {
+            // If columnNames != null, partitionNames is also not null. Guaranteed in analyze()
             titles = COLUMN_PARTITION_TITLE_NAMES;
         } else if (partitionNames != null) {
             titles = PARTITION_TITLE_NAMES;
@@ -160,6 +171,9 @@ public class ShowTableStatsStmt extends ShowStmt {
     }
 
     public ShowResultSet constructResultSet(TableStatsMeta tableStatistic) {
+        if (indexName != null) {
+            return constructIndexResultSet(tableStatistic);
+        }
         if (partitionNames == null) {
             return constructTableResultSet(tableStatistic);
         }
@@ -235,6 +249,28 @@ public class ShowTableStatsStmt extends ShowStmt {
             row.add(String.valueOf(partition.getBaseIndex().getRowCount()));
             result.add(row);
         }
+        return new ShowResultSet(getMetaData(), result);
+    }
+
+    public ShowResultSet constructIndexResultSet(TableStatsMeta tableStatistic) {
+        List<List<String>> result = Lists.newArrayList();
+        if (!(table instanceof OlapTable)) {
+            return new ShowResultSet(getMetaData(), result);
+        }
+        OlapTable olapTable = (OlapTable) table;
+        Long indexId = olapTable.getIndexIdByName(indexName);
+        if (indexId == null) {
+            throw new RuntimeException(String.format("Index %s not exist.", indexName));
+        }
+        long rowCount = tableStatistic.getRowCount(olapTable.getIndexIdByName(indexName));
+        if (rowCount == -1) {
+            return new ShowResultSet(getMetaData(), result);
+        }
+        List<String> row = Lists.newArrayList();
+        row.add(table.getName());
+        row.add(indexName);
+        row.add(String.valueOf(rowCount));
+        result.add(row);
         return new ShowResultSet(getMetaData(), result);
     }
 

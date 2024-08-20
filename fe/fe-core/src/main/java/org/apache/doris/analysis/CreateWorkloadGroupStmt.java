@@ -30,7 +30,7 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 
 import java.util.Map;
 
-public class CreateWorkloadGroupStmt extends DdlStmt {
+public class CreateWorkloadGroupStmt extends DdlStmt implements NotFallbackInParser {
 
     private final boolean ifNotExists;
 
@@ -84,5 +84,10 @@ public class CreateWorkloadGroupStmt extends DdlStmt {
         sb.append("RESOURCE GROUP '").append(workloadGroupName).append("' ");
         sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

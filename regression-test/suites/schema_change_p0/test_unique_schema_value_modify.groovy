@@ -710,7 +710,7 @@ suite("test_unique_schema_value_modify","p0") {
      }, insertSql, true, "${tbName}")
 
      //Test the unique model by modify a value type from INT  to VARCHAR
-     errorMessage="errCode = 2, detailMessage = Can not change from wider type INT to narrower type VARCHAR(2)"
+     errorMessage="errCode = 2, detailMessage = Can not change from wider type int to narrower type varchar(2)"
      expectException({
           sql initTable
           sql initTableData
@@ -889,7 +889,7 @@ suite("test_unique_schema_value_modify","p0") {
 
 
      //Test the unique model by modify a value type from BIGINT  to VARCHAR(2)
-     errorMessage="errCode = 2, detailMessage = Can not change from wider type BIGINT to narrower type VARCHAR(2)"
+     errorMessage="errCode = 2, detailMessage = Can not change from wider type bigint to narrower type varchar(2)"
      expectException({
           sql initTable
           sql initTableData
@@ -1072,7 +1072,7 @@ suite("test_unique_schema_value_modify","p0") {
 
 
      //Test the unique model by modify a value type from LARGEINT  to VARCHAR(2)
-     errorMessage="errCode = 2, detailMessage = Can not change from wider type LARGEINT to narrower type VARCHAR(2)"
+     errorMessage="errCode = 2, detailMessage = Can not change from wider type largeint to narrower type varchar(2)"
      expectException({
           sql initTable
           sql initTableData

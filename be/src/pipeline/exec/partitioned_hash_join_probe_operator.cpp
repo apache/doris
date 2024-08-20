@@ -625,8 +625,7 @@ Status PartitionedHashJoinProbeOperatorX::_setup_internal_operators(
 
     local_state._runtime_state->set_desc_tbl(&state->desc_tbl());
     local_state._runtime_state->resize_op_id_to_local_state(-1);
-    local_state._runtime_state->set_pipeline_x_runtime_filter_mgr(
-            state->local_runtime_filter_mgr());
+    local_state._runtime_state->set_runtime_filter_mgr(state->local_runtime_filter_mgr());
 
     local_state._in_mem_shared_state_sptr = _inner_sink_operator->create_shared_state();
 

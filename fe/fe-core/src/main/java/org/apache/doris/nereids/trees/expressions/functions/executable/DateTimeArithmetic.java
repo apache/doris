@@ -219,6 +219,30 @@ public class DateTimeArithmetic {
     }
 
     /**
+     * datetime arithmetic function microseconds_sub.
+     */
+    @ExecFunction(name = "microseconds_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static Expression microSecondsSub(DateTimeV2Literal date, IntegerLiteral microSecond) {
+        return date.plusMicroSeconds(-microSecond.getValue());
+    }
+
+    /**
+     * datetime arithmetic function milliseconds_add.
+     */
+    @ExecFunction(name = "milliseconds_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static Expression milliSecondsAdd(DateTimeV2Literal date, IntegerLiteral milliSecond) {
+        return date.plusMilliSeconds(milliSecond.getValue());
+    }
+
+    /**
+     * datetime arithmetic function milliseconds_sub.
+     */
+    @ExecFunction(name = "milliseconds_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static Expression milliSecondsSub(DateTimeV2Literal date, IntegerLiteral milliSecond) {
+        return date.plusMilliSeconds(-milliSecond.getValue());
+    }
+
+    /**
      * datetime arithmetic function years-sub.
      */
     @ExecFunction(name = "years_sub", argTypes = {"DATE", "INT"}, returnType = "DATE")
