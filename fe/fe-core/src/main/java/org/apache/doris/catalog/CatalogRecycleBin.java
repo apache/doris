@@ -213,9 +213,16 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable, GsonPos
         idToRecycleTime.put(id, recycleTime);
     }
 
+    public synchronized boolean isRecycleDatabase(long dbId) {
+        return idToDatabase.containsKey(dbId);
+    }
+
+    public synchronized boolean isRecycleTable(long dbId, long tableId) {
+        return isRecycleDatabase(dbId) || idToTable.containsKey(tableId);
+    }
+
     public synchronized boolean isRecyclePartition(long dbId, long tableId, long partitionId) {
-        return idToDatabase.containsKey(dbId) || idToTable.containsKey(tableId)
-                || idToPartition.containsKey(partitionId);
+        return isRecycleTable(dbId, tableId) || idToPartition.containsKey(partitionId);
     }
 
     public synchronized void getRecycleIds(Set<Long> dbIds, Set<Long> tableIds, Set<Long> partitionIds) {
