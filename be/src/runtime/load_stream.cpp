@@ -145,7 +145,7 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     uint32_t new_segid = mapping->at(segid);
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
     butil::IOBuf buf = data->movable();
-    auto flush_func = [this, new_segid, eos, buf, header, &file_type]() {
+    auto flush_func = [this, new_segid, eos, buf, header, file_type]() mutable {
         signal::set_signal_task_id(_load_id);
         g_load_stream_flush_running_threads << -1;
         auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf, file_type);
