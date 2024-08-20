@@ -138,7 +138,7 @@ public class DiskRebalanceTest {
 
     private void generateStatisticsAndPathSlots() {
         LoadStatisticForTag loadStatistic = new LoadStatisticForTag(Tag.DEFAULT_BACKEND_TAG, systemInfoService,
-                invertedIndex);
+                invertedIndex, null);
         loadStatistic.init();
         statisticMap = Maps.newHashMap();
         statisticMap.put(Tag.DEFAULT_BACKEND_TAG, loadStatistic);
