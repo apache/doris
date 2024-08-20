@@ -249,10 +249,20 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     }
 
     // load segments
-    bool should_use_cache = use_cache || _read_context->reader_type == ReaderType::READER_QUERY;
+    bool enable_segment_cache = true;
+    auto* state = read_context->runtime_state;
+    if (state != nullptr) {
+        enable_segment_cache = state->query_options().__isset.enable_segment_cache
+                                       ? state->query_options().enable_segment_cache
+                                       : true;
+    }
+    // When reader type is for query, session variable `enable_segment_cache` should be respected.
+    bool should_use_cache = use_cache || (_read_context->reader_type == ReaderType::READER_QUERY &&
+                                          enable_segment_cache);
     SegmentCacheHandle segment_cache_handle;
     RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(_rowset, &segment_cache_handle,
-                                                             should_use_cache));
+                                                             should_use_cache,
+                                                             /*need_load_pk_index_and_bf*/ false));
 
     // create iterator for each segment
     auto& segments = segment_cache_handle.get_segments();

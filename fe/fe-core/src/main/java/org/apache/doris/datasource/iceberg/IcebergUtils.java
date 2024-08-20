@@ -592,22 +592,20 @@ public class IcebergUtils {
      * @return estimated row count
      */
     public static long getIcebergRowCount(ExternalCatalog catalog, String dbName, String tbName) {
-        try {
-            Table icebergTable = Env.getCurrentEnv()
-                    .getExtMetaCacheMgr()
-                    .getIcebergMetadataCache()
-                    .getIcebergTable(catalog, dbName, tbName);
-            Snapshot snapshot = icebergTable.currentSnapshot();
-            if (snapshot == null) {
-                // empty table
-                return 0;
-            }
-            Map<String, String> summary = snapshot.summary();
-            return Long.parseLong(summary.get(TOTAL_RECORDS)) - Long.parseLong(summary.get(TOTAL_POSITION_DELETES));
-        } catch (Exception e) {
-            LOG.warn("Fail to collect row count for db {} table {}", dbName, tbName, e);
+        // the table may be null when the iceberg metadata cache is not loaded.But I don't think it's a problem,
+        // because the NPE would be caught in the caller and return the default value -1.
+        // Meanwhile, it will trigger iceberg metadata cache to load the table, so we can get it next time.
+        Table icebergTable = Env.getCurrentEnv()
+                .getExtMetaCacheMgr()
+                .getIcebergMetadataCache()
+                .getIcebergTable(catalog, dbName, tbName);
+        Snapshot snapshot = icebergTable.currentSnapshot();
+        if (snapshot == null) {
+            // empty table
+            return 0;
         }
-        return -1;
+        Map<String, String> summary = snapshot.summary();
+        return Long.parseLong(summary.get(TOTAL_RECORDS)) - Long.parseLong(summary.get(TOTAL_POSITION_DELETES));
     }
 
 

@@ -26,11 +26,11 @@ options { tokenVocab = DorisLexer; }
 }
 
 multiStatements
-    : (statement SEMICOLON*)+ EOF
+    : SEMICOLON* statement? (SEMICOLON+ statement)* SEMICOLON* EOF
     ;
 
 singleStatement
-    : statement SEMICOLON* EOF
+    : SEMICOLON* statement? SEMICOLON* EOF
     ;
 
 statement
@@ -40,6 +40,7 @@ statement
     | DROP (PROCEDURE | PROC) (IF EXISTS)? name=multipartIdentifier #dropProcedure
     | SHOW PROCEDURE STATUS (LIKE pattern=valueExpression | whereClause)? #showProcedureStatus
     | SHOW CREATE PROCEDURE name=multipartIdentifier #showCreateProcedure
+    | ADMIN? SHOW type=(FRONTEND | BACKEND) CONFIG (LIKE pattern=valueExpression)? (FROM backendId=INTEGER_VALUE)? #showConfig
     ;
 
 statementBase
@@ -55,7 +56,12 @@ statementBase
 
 unsupportedStatement
     : unsupportedSetStatement
+    | unsupoortedUnsetStatement
     | unsupportedUseStatement
+    | unsupportedDmlStatement
+    | unsupportedKillStatement
+    | unsupportedDescribeStatement
+    | unsupportedCreateStatement
     ;
 
 materailizedViewStatement
@@ -158,30 +164,139 @@ supportedDropStatement
     : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE #dropCatalogRecycleBin
     ;
 
+unsupportedCreateStatement
+    : CREATE (DATABASE | SCHEMA) (IF NOT EXISTS)? name=multipartIdentifier
+        properties=propertyClause?                                              #createDatabase
+    | CREATE CATALOG (IF NOT EXISTS)? catalogName=identifier
+        (WITH RESOURCE resourceName=identifier)?
+        (COMMENT STRING_LITERAL)? properties=propertyClause?                    #createCatalog
+    | CREATE (GLOBAL | SESSION | LOCAL)?
+        (TABLES | AGGREGATE)? FUNCTION (IF NOT EXISTS)?
+        functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
+        RETURNS returnType=dataType (INTERMEDIATE intermediateType=dataType)?
+        properties=propertyClause?                                              #createUserDefineFunction
+    | CREATE (GLOBAL | SESSION | LOCAL)? ALIAS FUNCTION (IF NOT EXISTS)?
+        functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
+        WITH PARAMETER LEFT_PAREN parameters=identifierSeq? RIGHT_PAREN
+        AS expression                                                           #createAliasFunction
+    | CREATE USER (IF NOT EXISTS)? grantUserIdentify
+        (SUPERUSER | DEFAULT ROLE role=STRING_LITERAL)?
+        passwordOption (COMMENT STRING_LITERAL)?                                #createUser
+    | CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend        #createRepository
+    | CREATE ROLE (IF NOT EXISTS)? name=identifier (COMMENT STRING_LITERAL)?    #createRole
+    | CREATE FILE name=STRING_LITERAL
+        ((FROM | IN) database=identifier)? properties=propertyClause            #createFile
+    | CREATE INDEX (IF NOT EXISTS)? name=identifier
+        ON tableName=multipartIdentifier identifierList
+        (USING (BITMAP | NGRAM_BF | INVERTED))?
+        properties=propertyClause? (COMMENT STRING_LITERAL)?                    #createIndex
+    | CREATE EXTERNAL? RESOURCE (IF NOT EXISTS)?
+        name=identifierOrText properties=propertyClause?                        #createResource
+    | CREATE STORAGE VAULT (IF NOT EXISTS)?
+        name=identifierOrText properties=propertyClause?                        #createStorageVault
+    | CREATE WORKLOAD GROUP (IF NOT EXISTS)?
+        name=identifierOrText properties=propertyClause?                        #createWorkloadGroup
+    | CREATE WORKLOAD POLICY (IF NOT EXISTS)? name=identifierOrText
+        (CONDITIONS LEFT_PAREN workloadPolicyConditions RIGHT_PAREN)?
+        (ACTIONS LEFT_PAREN workloadPolicyActions RIGHT_PAREN)?
+        properties=propertyClause?                                              #createWorkloadPolicy
+    | CREATE ENCRYPTKEY (IF NOT EXISTS)? multipartIdentifier AS STRING_LITERAL  #createEncryptkey
+    | CREATE SYNC dbName=identifier DOT jobName=identifierOrText
+        LEFT_PAREN channelDescriptions RIGHT_PAREN
+        FROM BINLOG LEFT_PAREN propertyItemList RIGHT_PAREN
+        properties=propertyClause?                                              #createDataSyncJob
+    | CREATE SQL_BLOCK_RULE (IF NOT EXISTS)?
+        name=identifier properties=propertyClause?                              #createSqlBlockRule
+    | CREATE STORAGE POLICY (IF NOT EXISTS)?
+        name=identifier properties=propertyClause?                              #createStoragePolicy
+    | BUILD INDEX name=identifier ON tableName=multipartIdentifier
+        partitionSpec?                                                          #buildIndex
+    | CREATE STAGE (IF NOT EXISTS)? name=identifier properties=propertyClause?  #createStage
+    ;
+
+channelDescriptions
+    : channelDescription (COMMA channelDescription)*
+    ;
+
+channelDescription
+    : FROM source=multipartIdentifier INTO destination=multipartIdentifier
+        partitionSpec? columnList=identifierList?
+    ;
+
+workloadPolicyActions
+    : workloadPolicyAction (COMMA workloadPolicyAction)*
+    ;
+
+workloadPolicyAction
+    : SET_SESSION_VARIABLE STRING_LITERAL
+    | identifier (STRING_LITERAL)?
+    ;
+
+workloadPolicyConditions
+    : workloadPolicyCondition (COMMA workloadPolicyCondition)*
+    ;
+
+workloadPolicyCondition
+    : metricName=identifier comparisonOperator (number | STRING_LITERAL)
+    ;
+
+storageBackend
+    : (BROKER | S3 | HDFS | LOCAL) brokerName=identifier?
+        ON LOCATION STRING_LITERAL properties=propertyClause?
+    ;
+
+passwordOption
+    : (PASSWORD_HISTORY (historyDefault=DEFAULT | historyValue=INTEGER_VALUE))?
+        (PASSWORD_EXPIRE (expireDefault=DEFAULT | expireNever=NEVER
+            | INTERVAL expireValue=INTEGER_VALUE expireTimeUnit=(DAY | HOUR | SECOND)))?
+        (PASSWORD_REUSE INTERVAL (reuseDefault=DEFAULT | reuseValue=INTEGER_VALUE DAY))?
+        (FAILED_LOGIN_ATTEMPTS attemptsValue=INTEGER_VALUE)?
+        (PASSWORD_LOCK_TIME (lockUnbounded=UNBOUNDED
+            | lockValue=INTEGER_VALUE lockTimeUint=(DAY | HOUR | SECOND)))?
+        (ACCOUNT_LOCK | ACCOUNT_UNLOCK)?
+    ;
+
+functionArguments
+    : functionArgument (COMMA functionArgument)*
+    ;
+
+functionArgument
+    : DOTDOTDOT
+    | dataType
+    ;
+
+
+
 unsupportedSetStatement
-    : SET identifier AS DEFAULT STORAGE VAULT                              #setDefaultStorageVault
-    | SET PROPERTY (FOR user=identifierOrText)? propertyItemList           #setUserProperties
-    | SET (GLOBAL | LOCAL | SESSION)? identifier EQ (expression | DEFAULT) #setSystemVariableWithType
-    | SET variable                                                         #setSystemVariableWithoutType
-    | SET (CHAR SET | CHARSET) (charsetName=identifierOrText | DEFAULT)    #setCharset
-    | SET NAMES EQ expression                                              #setNames
+    : SET (optionWithType | optionWithoutType)
+        (COMMA (optionWithType | optionWithoutType))*                     #setOptions
+    | SET identifier AS DEFAULT STORAGE VAULT                             #setDefaultStorageVault
+    | SET PROPERTY (FOR user=identifierOrText)? propertyItemList          #setUserProperties
     | SET (GLOBAL | LOCAL | SESSION)? TRANSACTION
         ( transactionAccessMode
         | isolationLevel
         | transactionAccessMode COMMA isolationLevel
         | isolationLevel COMMA transactionAccessMode)                     #setTransaction
-    | SET NAMES (charsetName=identifierOrText | DEFAULT) (COLLATE collateName=identifierOrText | DEFAULT)?    #setCollate
-    | SET PASSWORD (FOR userIdentify)? EQ (STRING_LITERAL | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN)) #setPassword
-    | SET LDAP_ADMIN_PASSWORD EQ (STRING_LITERAL | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))          #setLdapAdminPassword
     ;
 
-unsupportedUseStatement
-    : USE (catalog=identifier DOT)? database=identifier                              #useDatabase
-    | USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
+optionWithType
+    : (GLOBAL | LOCAL | SESSION) identifier EQ (expression | DEFAULT)
+    ;
+
+optionWithoutType
+    : NAMES EQ expression                                               #setNames
+    | (CHAR SET | CHARSET) (charsetName=identifierOrText | DEFAULT)     #setCharset
+    | NAMES (charsetName=identifierOrText | DEFAULT)
+        (COLLATE collateName=identifierOrText | DEFAULT)?               #setCollate
+    | PASSWORD (FOR userIdentify)? EQ (STRING_LITERAL
+        | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))             #setPassword
+    | LDAP_ADMIN_PASSWORD EQ (STRING_LITERAL
+    | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))                 #setLdapAdminPassword
+    | variable                                                          #setVariableWithoutType
     ;
 
 variable
-    : (ATSIGN ATSIGN (GLOBAL | LOCAL | SESSION)?)? identifier EQ (expression | DEFAULT) #setSystemVariable
+    : (DOUBLEATSIGN ((GLOBAL | LOCAL | SESSION) DOT)?)? identifier EQ (expression | DEFAULT) #setSystemVariable
     | ATSIGN identifier EQ expression #setUserVariable
     ;
 
@@ -191,6 +306,33 @@ transactionAccessMode
 
 isolationLevel
     : ISOLATION LEVEL ((READ UNCOMMITTED) | (READ COMMITTED) | (REPEATABLE READ) | (SERIALIZABLE))
+    ;
+
+unsupoortedUnsetStatement
+    : UNSET (GLOBAL | SESSION | LOCAL)? VARIABLE (ALL | identifier)
+    | UNSET DEFAULT STORAGE VAULT
+    ;
+
+unsupportedUseStatement
+    : USE (catalog=identifier DOT)? database=identifier                              #useDatabase
+    | USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
+    | SWITCH catalog=identifier                                                      #switchCatalog
+    ;
+
+unsupportedDmlStatement
+    : TRUNCATE TABLE multipartIdentifier specifiedPartition?   # truncateTable
+    ;
+
+unsupportedKillStatement
+    : KILL (CONNECTION)? INTEGER_VALUE              #killConnection
+    | KILL QUERY (INTEGER_VALUE | STRING_LITERAL)   #killQuery
+    ;
+
+unsupportedDescribeStatement
+    : explainCommand FUNCTION tvfName=identifier LEFT_PAREN
+        (properties=propertyItemList)? RIGHT_PAREN tableAlias   #describeTableValuedFunction
+    | explainCommand multipartIdentifier ALL                    #describeTableAll
+    | explainCommand multipartIdentifier specifiedPartition?    #describeTable
     ;
 
 constraint
@@ -285,11 +427,20 @@ userIdentify
     : user=identifierOrText (ATSIGN (host=identifierOrText | LEFT_PAREN host=identifierOrText RIGHT_PAREN))?
     ;
 
+grantUserIdentify
+    : userIdentify (IDENTIFIED BY PASSWORD? STRING_LITERAL)?
+    ;
 
 explain
-    : (EXPLAIN planType? | DESC | DESCRIBE)
+    : explainCommand planType?
           level=(VERBOSE | TREE | GRAPH | PLAN)?
           PROCESS?
+    ;
+
+explainCommand
+    : EXPLAIN
+    | DESC
+    | DESCRIBE
     ;
 
 planType
@@ -385,7 +536,8 @@ query
 
 queryTerm
     : queryPrimary                                                         #queryTermDefault
-    | left=queryTerm operator=(UNION | EXCEPT | MINUS | INTERSECT)
+    | left=queryTerm operator=INTERSECT setQuantifier? right=queryTerm     #setOperation
+    | left=queryTerm operator=(UNION | EXCEPT | MINUS)
       setQuantifier? right=queryTerm                                       #setOperation
     ;
 
@@ -428,7 +580,11 @@ selectClause
 
 selectColumnClause
     : namedExpressionSeq
-    | ASTERISK EXCEPT LEFT_PAREN namedExpressionSeq RIGHT_PAREN
+    | ASTERISK exceptOrReplace+
+    ;
+
+exceptOrReplace
+    : (EXCEPT | REPLACE) LEFT_PAREN namedExpressionSeq RIGHT_PAREN
     ;
 
 whereClause
@@ -744,6 +900,7 @@ predicate
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | IS NOT? kind=NULL
+    | IS NOT? kind=(TRUE | FALSE)
     ;
 
 valueExpression
@@ -963,8 +1120,8 @@ dataType
       (COMMA INTEGER_VALUE)* RIGHT_PAREN)?                          #primitiveDataType
     ;
 
-primitiveColType:
-    | type=TINYINT
+primitiveColType
+    : type=TINYINT
     | type=SMALLINT
     | type=(INT | INTEGER)
     | type=BIGINT
@@ -1063,7 +1220,8 @@ number
 // TODO: need to stay consistent with the legacy
 nonReserved
 //--DEFAULT-NON-RESERVED-START
-    : ADDDATE
+    : ACTIONS
+    | ADDDATE
     | AFTER
     | AGG_STATE
     | AGGREGATE
@@ -1114,6 +1272,7 @@ nonReserved
     | COMPACT
     | COMPLETE
     | COMPRESS_TYPE
+    | CONDITIONS
     | CONFIG
     | CONNECTION
     | CONNECTION_ID
@@ -1321,6 +1480,7 @@ nonReserved
     | SCHEMA
     | SECOND
     | SERIALIZABLE
+    | SET_SESSION_VARIABLE
     | SEQUENCE
     | SESSION
     | SHAPE
@@ -1329,6 +1489,7 @@ nonReserved
     | SONAME
     | SPLIT
     | SQL
+    | STAGE
     | STAGES
     | START
     | STARTS
@@ -1360,10 +1521,12 @@ nonReserved
     | TYPES
     | UNCOMMITTED
     | UNLOCK
+    | UNSET
     | UP
     | USER
     | VALUE
     | VARCHAR
+    | VARIABLE
     | VARIABLES
     | VARIANT
     | VAULT

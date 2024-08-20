@@ -135,6 +135,9 @@ deprecated_enable_local_exchange	true	true	0
 show_hidden_columns	false	false	0
 
 -- !cmd --
+show_hidden_columns	false	false	0
+
+-- !cmd --
 0
 
 -- !cmd --
@@ -157,6 +160,9 @@ experimental_enable_agg_state	false	false	0
 
 -- !cmd --
 deprecated_enable_local_exchange	true	true	0
+
+-- !cmd --
+show_hidden_columns	false	false	0
 
 -- !cmd --
 show_hidden_columns	false	false	0

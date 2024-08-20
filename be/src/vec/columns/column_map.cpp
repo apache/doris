@@ -242,7 +242,7 @@ const char* ColumnMap::deserialize_and_insert_from_arena(const char* pos) {
 }
 
 int ColumnMap::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const {
-    const auto& rhs = assert_cast<const ColumnMap&>(rhs_);
+    const auto& rhs = assert_cast<const ColumnMap&, TypeCheckOnRelease::DISABLE>(rhs_);
 
     size_t lhs_size = size_at(n);
     size_t rhs_size = rhs.size_at(m);

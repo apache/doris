@@ -61,7 +61,7 @@ public class SelectHintTest {
         sv.setEnableNereidsPlanner(true);
         sv.enableFallbackToOriginalPlanner = false;
         Assertions.assertThrows(AnalysisException.class, () -> new NereidsPlanner(statementContext)
-                .plan(new NereidsParser().parseSingle(sql), PhysicalProperties.ANY));
+                .planWithLock(new NereidsParser().parseSingle(sql), PhysicalProperties.ANY));
 
         // manually recover sv
         sv.setEnableNereidsPlanner(true);

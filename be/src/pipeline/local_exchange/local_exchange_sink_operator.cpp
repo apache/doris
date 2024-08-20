@@ -27,8 +27,9 @@ LocalExchangeSinkLocalState::~LocalExchangeSinkLocalState() = default;
 
 std::vector<Dependency*> LocalExchangeSinkLocalState::dependencies() const {
     auto deps = Base::dependencies();
-    auto exchanger_deps = _exchanger->local_sink_state_dependency(_channel_id);
-    for (auto* dep : exchanger_deps) {
+
+    auto dep = _shared_state->get_sink_dep_by_channel_id(_channel_id);
+    if (dep != nullptr) {
         deps.push_back(dep);
     }
     return deps;

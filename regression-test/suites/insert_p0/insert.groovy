@@ -102,7 +102,7 @@ suite("insert") {
           partition p2 values[('50'), ('100'))
         )
         distributed by hash(id) buckets 100
-        properties('replication_num'='1')
+        properties('replication_num'='1');
         
         insert into table_test_insert1 values(1), (50);
         

@@ -694,8 +694,10 @@ public:
         case TYPE_CHAR:
         case TYPE_STRING: {
             batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
-                const auto& string_val_ref = column.stringval();
-                set->insert(&string_val_ref);
+                const std::string& string_value = column.stringval();
+                // string_value is std::string, call insert(data, size) function in StringSet will not cast as StringRef
+                // so could avoid some cast error at different class object.
+                set->insert((void*)string_value.data(), string_value.size());
             });
             break;
         }
@@ -1005,7 +1007,10 @@ Status IRuntimeFilter::publish(bool publish_local) {
 class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
                                                   DummyBrpcCallback<PSendFilterSizeResponse>> {
     std::shared_ptr<pipeline::Dependency> _dependency;
-    RuntimeFilterContextSPtr _rf_context;
+    // Should use weak ptr here, because when query context deconstructs, should also delete runtime filter
+    // context, it not the memory is not released. And rpc is in another thread, it will hold rf context
+    // after query context because the rpc is not returned.
+    std::weak_ptr<RuntimeFilterContext> _rf_context;
     std::string _rf_debug_info;
     using Base =
             AutoReleaseClosure<PSendFilterSizeRequest, DummyBrpcCallback<PSendFilterSizeResponse>>;
@@ -1021,7 +1026,13 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
         ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
         if (status.is<ErrorCode::END_OF_FILE>()) {
             // rf merger backend may finished before rf's send_filter_size, we just ignore filter in this case.
-            _rf_context->ignored = true;
+            auto ctx = _rf_context.lock();
+            if (ctx) {
+                ctx->ignored = true;
+            } else {
+                LOG(WARNING) << "sync filter size returned but context is released, filter="
+                             << _rf_debug_info;
+            }
         } else {
             LOG(WARNING) << "sync filter size meet error status, filter=" << _rf_debug_info;
             Base::_process_if_meet_error_status(status);
@@ -1279,6 +1290,9 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     params.max_in_num = options->runtime_filter_max_in_num;
     params.runtime_bloom_filter_min_size = options->__isset.runtime_bloom_filter_min_size
                                                    ? options->runtime_bloom_filter_min_size
+                                                   : 0;
+    params.runtime_bloom_filter_max_size = options->__isset.runtime_bloom_filter_max_size
+                                                   ? options->runtime_bloom_filter_max_size
                                                    : 0;
     // We build runtime filter by exact distinct count iff three conditions are met:
     // 1. Only 1 join key
@@ -1618,8 +1632,10 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {
-        batch_copy<std::string>(filter, it, [](PColumnValue* column, const std::string* value) {
-            column->set_stringval(*value);
+        //const void* void_value = it->get_value();
+        //Now the get_value return void* is StringRef
+        batch_copy<StringRef>(filter, it, [](PColumnValue* column, const StringRef* value) {
+            column->set_stringval(value->to_string());
         });
         return;
     }
@@ -1639,8 +1655,8 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
 
     switch (_wrapper->column_type()) {
     case TYPE_BOOLEAN: {
-        filter->mutable_min_val()->set_boolval(*reinterpret_cast<const int32_t*>(min_data));
-        filter->mutable_max_val()->set_boolval(*reinterpret_cast<const int32_t*>(max_data));
+        filter->mutable_min_val()->set_boolval(*reinterpret_cast<const bool*>(min_data));
+        filter->mutable_max_val()->set_boolval(*reinterpret_cast<const bool*>(max_data));
         return;
     }
     case TYPE_TINYINT: {
@@ -1817,7 +1833,9 @@ Status RuntimePredicateWrapper::get_push_exprs(
         node.__set_is_nullable(false);
         auto in_pred = vectorized::VDirectInPredicate::create_shared(node, _context->hybrid_set);
         in_pred->add_child(probe_ctx->root());
-        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, in_pred, null_aware);
+        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(
+                node, in_pred, get_in_list_ignore_thredhold(_context->hybrid_set->size()),
+                null_aware);
         container.push_back(wrapper);
         break;
     }
@@ -1832,8 +1850,8 @@ Status RuntimePredicateWrapper::get_push_exprs(
                                        min_literal));
         min_pred->add_child(probe_ctx->root());
         min_pred->add_child(min_literal);
-        container.push_back(
-                vectorized::VRuntimeFilterWrapper::create_shared(min_pred_node, min_pred));
+        container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
+                min_pred_node, min_pred, get_comparison_ignore_thredhold()));
         break;
     }
     case RuntimeFilterType::MAX_FILTER: {
@@ -1847,8 +1865,8 @@ Status RuntimePredicateWrapper::get_push_exprs(
                                        max_literal));
         max_pred->add_child(probe_ctx->root());
         max_pred->add_child(max_literal);
-        container.push_back(
-                vectorized::VRuntimeFilterWrapper::create_shared(max_pred_node, max_pred));
+        container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
+                max_pred_node, max_pred, get_comparison_ignore_thredhold()));
         break;
     }
     case RuntimeFilterType::MINMAX_FILTER: {
@@ -1862,8 +1880,8 @@ Status RuntimePredicateWrapper::get_push_exprs(
                                        max_literal));
         max_pred->add_child(probe_ctx->root());
         max_pred->add_child(max_literal);
-        container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(max_pred_node,
-                                                                             max_pred, null_aware));
+        container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
+                max_pred_node, max_pred, get_comparison_ignore_thredhold(), null_aware));
 
         vectorized::VExprContextSPtr new_probe_ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, new_probe_ctx));
@@ -1879,8 +1897,8 @@ Status RuntimePredicateWrapper::get_push_exprs(
                                        _context->minmax_func->get_min(), min_literal));
         min_pred->add_child(new_probe_ctx->root());
         min_pred->add_child(min_literal);
-        container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(min_pred_node,
-                                                                             min_pred, null_aware));
+        container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
+                min_pred_node, min_pred, get_comparison_ignore_thredhold(), null_aware));
         break;
     }
     case RuntimeFilterType::BLOOM_FILTER: {
@@ -1895,7 +1913,8 @@ Status RuntimePredicateWrapper::get_push_exprs(
         auto bloom_pred = vectorized::VBloomPredicate::create_shared(node);
         bloom_pred->set_filter(_context->bloom_filter_func);
         bloom_pred->add_child(probe_ctx->root());
-        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, bloom_pred);
+        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(
+                node, bloom_pred, get_bloom_filter_ignore_thredhold());
         container.push_back(wrapper);
         break;
     }
@@ -1911,7 +1930,7 @@ Status RuntimePredicateWrapper::get_push_exprs(
         auto bitmap_pred = vectorized::VBitmapPredicate::create_shared(node);
         bitmap_pred->set_filter(_context->bitmap_filter_func);
         bitmap_pred->add_child(probe_ctx->root());
-        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, bitmap_pred);
+        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, bitmap_pred, 0);
         container.push_back(wrapper);
         break;
     }

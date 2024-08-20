@@ -100,7 +100,7 @@ Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 
     auto* query_ctx = state->get_query_ctx();
     // init runtime predicate
-    if (query_ctx->has_runtime_predicate(_node_id)) {
+    if (query_ctx->has_runtime_predicate(_node_id) && _algorithm == TSortAlgorithm::HEAP_SORT) {
         query_ctx->get_runtime_predicate(_node_id).set_detected_source();
     }
     return Status::OK();

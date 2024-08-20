@@ -22,8 +22,6 @@
 
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_system.h"
-#include "runtime/thread_context.h"
-#include "runtime/workload_management/io_throttle.h"
 #include "util/async_io.h"
 
 namespace doris::io {
@@ -33,17 +31,7 @@ const std::string FileReader::VIRTUAL_REMOTE_DATA_DIR = "virtual_remote_data_dir
 Status FileReader::read_at(size_t offset, Slice result, size_t* bytes_read,
                            const IOContext* io_ctx) {
     DCHECK(bthread_self() == 0);
-    std::shared_ptr<IOThrottle> iot = nullptr;
-    if (auto* t_ctx = doris::thread_context(true)) {
-        iot = t_ctx->io_throttle(get_data_dir_path());
-    }
-    if (iot) {
-        iot->acquire(-1);
-    }
     Status st = read_at_impl(offset, result, bytes_read, io_ctx);
-    if (iot) {
-        iot->update_next_io_time(*bytes_read);
-    }
     if (!st) {
         LOG(WARNING) << st;
     }

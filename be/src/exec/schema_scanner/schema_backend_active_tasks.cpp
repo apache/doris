@@ -27,7 +27,7 @@
 namespace doris {
 std::vector<SchemaScanner::ColumnDesc> SchemaBackendActiveTasksScanner::_s_tbls_columns = {
         //   name,       type,          size
-        {"BE_ID", TYPE_BIGINT, sizeof(StringRef), false},
+        {"BE_ID", TYPE_BIGINT, sizeof(int64_t), false},
         {"FE_HOST", TYPE_VARCHAR, sizeof(StringRef), false},
         {"QUERY_ID", TYPE_VARCHAR, sizeof(StringRef), false},
         {"TASK_TIME_MS", TYPE_BIGINT, sizeof(int64_t), false},

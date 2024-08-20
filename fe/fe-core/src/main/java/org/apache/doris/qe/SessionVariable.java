@@ -178,6 +178,8 @@ public class SessionVariable implements Serializable, Writable {
     // when true, the partition column must be set to NOT NULL.
     public static final String ALLOW_PARTITION_COLUMN_NULLABLE = "allow_partition_column_nullable";
 
+    public static final String FORCE_SORT_ALGORITHM = "force_sort_algorithm";
+
     // runtime filter run mode
     public static final String RUNTIME_FILTER_MODE = "runtime_filter_mode";
     // Size in bytes of Bloom Filters used for runtime filters. Actual size of filter will
@@ -303,7 +305,7 @@ public class SessionVariable implements Serializable, Writable {
             = "trim_tailing_spaces_for_external_table_query";
 
     public static final String ENABLE_DPHYP_OPTIMIZER = "enable_dphyp_optimizer";
-
+    public static final String DPHYPER_LIMIT = "dphyper_limit";
     public static final String ENABLE_LEFT_ZIG_ZAG = "enable_left_zig_zag";
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
 
@@ -591,6 +593,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE = "enable_pushdown_minmax_on_unique";
 
+    public static final String HIVE_PARQUET_USE_COLUMN_NAMES = "hive_parquet_use_column_names";
+
+    public static final String HIVE_ORC_USE_COLUMN_NAMES = "hive_orc_use_column_names";
+
     public static final String KEEP_CARRIAGE_RETURN = "keep_carriage_return";
 
     public static final String ENABLE_PUSHDOWN_STRING_MINMAX = "enable_pushdown_string_minmax";
@@ -729,7 +735,7 @@ public class SessionVariable implements Serializable, Writable {
     // When enable_profile is true, profile of queries that costs more than autoProfileThresholdMs
     // will be stored to disk.
     @VariableMgr.VarAttr(name = AUTO_PROFILE_THRESHOLD_MS, needForward = true)
-    public int autoProfileThresholdMs = 500;
+    public int autoProfileThresholdMs = -1;
 
     @VariableMgr.VarAttr(name = "runtime_filter_prune_for_external")
     public boolean runtimeFilterPruneForExternal = true;
@@ -809,7 +815,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = MAX_ALLOWED_PACKET)
-    public int maxAllowedPacket = 1048576;
+    public int maxAllowedPacket = 16777216;
 
     @VariableMgr.VarAttr(name = AUTO_INCREMENT_INCREMENT)
     public int autoIncrementIncrement = 1;
@@ -947,11 +953,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DEFAULT_TMP_STORAGE_ENGINE)
     public String defaultTmpStorageEngine = "olap";
 
-    // -1 means unset, BE will use its config value
     @VariableMgr.VarAttr(name = MAX_SCAN_KEY_NUM)
-    public int maxScanKeyNum = -1;
+    public int maxScanKeyNum = 48;
     @VariableMgr.VarAttr(name = MAX_PUSHDOWN_CONDITIONS_PER_COLUMN)
-    public int maxPushdownConditionsPerColumn = -1;
+    public int maxPushdownConditionsPerColumn = 1024;
     @VariableMgr.VarAttr(name = SHOW_HIDDEN_COLUMNS, flag = VariableMgr.SESSION_ONLY)
     public boolean showHiddenColumns = false;
 
@@ -1062,6 +1067,11 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_REWRITE_ELEMENT_AT_TO_SLOT, fuzzy = true)
     private boolean enableRewriteElementAtToSlot = true;
+
+    @VariableMgr.VarAttr(name = FORCE_SORT_ALGORITHM, needForward = true, description = { "强制指定SortNode的排序算法",
+            "Force the sort algorithm of SortNode to be specified" })
+    public String forceSortAlgorithm = "";
+
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE, needForward = true)
     private String runtimeFilterMode = "GLOBAL";
 
@@ -1095,6 +1105,11 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)
     private boolean enableParallelResultSink = true;
+
+    @VariableMgr.VarAttr(name = "sort_phase_num", fuzzy = true, needForward = true,
+            description = {"如设置为1，则只生成1阶段sort，设置为2，则只生成2阶段sort，设置其它值，优化器根据代价选择sort类型",
+                    "set the number of sort phases 1 or 2. if set other value, let cbo decide the sort type"})
+    public int sortPhaseNum = 0;
 
     @VariableMgr.VarAttr(name = READ_CSV_EMPTY_LINE_AS_NULL, needForward = true,
             description = {"在读取csv文件时是否读取csv的空行为null",
@@ -1450,7 +1465,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_TWO_PHASE_READ_OPT, fuzzy = true)
     public boolean enableTwoPhaseReadOpt = true;
     @VariableMgr.VarAttr(name = TOPN_OPT_LIMIT_THRESHOLD)
-    public long topnOptLimitThreshold = 1024;
+    public long topnOptLimitThreshold = 10240000;
     @VariableMgr.VarAttr(name = ENABLE_SNAPSHOT_POINT_QUERY)
     public boolean enableSnapshotPointQuery = true;
 
@@ -1541,6 +1556,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = "memo_max_group_expression_size")
     public int memoMaxGroupExpressionSize = 10000;
+
+    @VariableMgr.VarAttr(name = DPHYPER_LIMIT)
+    public int dphyperLimit = 1000;
 
     @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
     public boolean enableMinidump = false;
@@ -1678,7 +1696,7 @@ public class SessionVariable implements Serializable, Writable {
     public String groupCommit = "off_mode";
 
     @VariableMgr.VarAttr(name = ENABLE_PREPARED_STMT_AUDIT_LOG, needForward = true)
-    public boolean enablePreparedStmtAuditLog = true;
+    public boolean enablePreparedStmtAuditLog = false;
 
     @VariableMgr.VarAttr(name = INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD,
             description = {"在match_all中求取多个倒排索引的交集时,如果最大的倒排索引中的总数是最小倒排索引中的总数的整数倍,"
@@ -1874,10 +1892,24 @@ public class SessionVariable implements Serializable, Writable {
     public int createTablePartitionMaxNum = 10000;
 
 
+    @VariableMgr.VarAttr(name = HIVE_PARQUET_USE_COLUMN_NAMES,
+            description = {"默认情况下按名称访问 Parquet 列。将此属性设置为“false”可按 Hive 表定义中的序号位置访问列。",
+                    "Access Parquet columns by name by default. Set this property to `false` to access columns "
+                            + "by their ordinal position in the Hive table definition."})
+    public boolean hiveParquetUseColumnNames = true;
+
+
+    @VariableMgr.VarAttr(name = HIVE_ORC_USE_COLUMN_NAMES,
+            description = {"默认情况下按名称访问 Orc 列。将此属性设置为“false”可按 Hive 表定义中的序号位置访问列。",
+                    "Access Parquet columns by name by default. Set this property to `false` to access columns "
+                            + "by their ordinal position in the Hive table definition."})
+    public boolean hiveOrcUseColumnNames = true;
+
     @VariableMgr.VarAttr(name = KEEP_CARRIAGE_RETURN,
             description = {"在同时处理\r和\r\n作为CSV的行分隔符时，是否保留\r",
                     "When processing both \\n and \\r\\n as CSV line separators, should \\r be retained?"})
     public boolean keepCarriageReturn = false;
+
 
     @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
             description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
@@ -1924,6 +1956,8 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public static final String IGNORE_SHAPE_NODE = "ignore_shape_nodes";
+
+    public static final String ENABLE_SEGMENT_CACHE = "enable_segment_cache";
 
     public Set<String> getIgnoreShapePlanNodes() {
         return Arrays.stream(ignoreShapePlanNodes.split(",[\\s]*")).collect(ImmutableSet.toImmutableSet());
@@ -2041,6 +2075,11 @@ public class SessionVariable implements Serializable, Writable {
                     + " whether to set the length of such a column to MAX, which is 65533. The default is true."
     })
     public boolean useMaxLengthOfVarcharInCtas = true;
+
+    // Whether enable segment cache. Segment cache only works when FE's query options sets enableSegmentCache true
+    // along with BE's config `disable_segment_cache` false
+    @VariableMgr.VarAttr(name = ENABLE_SEGMENT_CACHE, needForward = true)
+    public boolean enableSegmentCache = true;
 
     /**
      * When enabling shard scroll, FE will plan scan ranges by shards of ES indices.
@@ -3505,6 +3544,14 @@ public class SessionVariable implements Serializable, Writable {
         this.loadStreamPerNode = loadStreamPerNode;
     }
 
+    public void setEnableSegmentCache(boolean value) {
+        this.enableSegmentCache = value;
+    }
+
+    public boolean isEnableSegmentCache() {
+        return this.enableSegmentCache;
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -3544,17 +3591,13 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
-
-        if (maxScanKeyNum > -1) {
-            tResult.setMaxScanKeyNum(maxScanKeyNum);
-        }
-        if (maxPushdownConditionsPerColumn > -1) {
-            tResult.setMaxPushdownConditionsPerColumn(maxPushdownConditionsPerColumn);
-        }
+        tResult.setMaxScanKeyNum(maxScanKeyNum);
+        tResult.setMaxPushdownConditionsPerColumn(maxPushdownConditionsPerColumn);
 
         tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);
         tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
         tResult.setRuntimeBloomFilterMinSize(runtimeBloomFilterMinSize);
+        tResult.setRuntimeBloomFilterMaxSize(runtimeBloomFilterMaxSize);
         tResult.setRuntimeFilterWaitInfinitely(runtimeFilterWaitInfinitely);
 
         if (cpuResourceLimit > 0) {
@@ -3636,8 +3679,11 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableMatchWithoutInvertedIndex(enableMatchWithoutInvertedIndex);
         tResult.setEnableFallbackOnMissingInvertedIndex(enableFallbackOnMissingInvertedIndex);
-
+        tResult.setHiveOrcUseColumnNames(hiveOrcUseColumnNames);
+        tResult.setHiveParquetUseColumnNames(hiveParquetUseColumnNames);
         tResult.setKeepCarriageReturn(keepCarriageReturn);
+
+        tResult.setEnableSegmentCache(enableSegmentCache);
         return tResult;
     }
 

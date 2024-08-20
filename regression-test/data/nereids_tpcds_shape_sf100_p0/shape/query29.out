@@ -16,25 +16,25 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = store_sales.ss_store_sk)) otherCondition=() build RFs:RF6 s_store_sk->[ss_store_sk]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((item.i_item_sk = store_sales.ss_item_sk)) otherCondition=() build RFs:RF5 i_item_sk->[sr_item_sk,ss_item_sk]
+----------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((item.i_item_sk = store_sales.ss_item_sk)) otherCondition=() build RFs:RF5 ss_item_sk->[i_item_sk]
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[item] apply RFs: RF5
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((store_sales.ss_customer_sk = store_returns.sr_customer_sk) and (store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=() build RFs:RF2 sr_customer_sk->[ss_customer_sk];RF3 sr_item_sk->[ss_item_sk];RF4 sr_ticket_number->[ss_ticket_number]
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((d1.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2 RF3 RF4 RF5 RF6
+----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2 RF3 RF4 RF6
 --------------------------------------PhysicalProject
 ----------------------------------------filter((d1.d_moy = 4) and (d1.d_year = 1999))
 ------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_returns.sr_returned_date_sk = d2.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[sr_returned_date_sk]
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF0 RF5
+----------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF0
 --------------------------------------PhysicalProject
 ----------------------------------------filter((d2.d_moy <= 7) and (d2.d_moy >= 4) and (d2.d_year = 1999))
 ------------------------------------------PhysicalOlapScan[date_dim]
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[item]
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[store]
 ------------------PhysicalProject

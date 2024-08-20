@@ -214,7 +214,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
         if (!ExpressionAnalyzer.sameTableName(tableAlias == null ? tableQualifier.get(2) : tableAlias, tableName)
-                || (dbName != null && ExpressionAnalyzer.compareDbName(tableQualifier.get(1), dbName))) {
+                || (dbName != null
+                && !ExpressionAnalyzer.compareDbNameIgnoreClusterName(tableQualifier.get(1), dbName))) {
             throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
         }
     }

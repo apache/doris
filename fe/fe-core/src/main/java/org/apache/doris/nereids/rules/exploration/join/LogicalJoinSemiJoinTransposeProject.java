@@ -68,6 +68,8 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                                     .forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
                             bottomJoin.getOtherJoinConjuncts()
                                     .forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
+                            bottomJoin.getMarkJoinConjuncts()
+                                    .forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
                             Plan newBottomJoin = topJoin.withChildrenNoContext(a, c, null);
                             Plan left = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
                             Plan right = CBOUtils.newProjectIfNeeded(topUsedExprIds, b);
@@ -99,6 +101,8 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                             bottomJoin.getHashJoinConjuncts()
                                     .forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
                             bottomJoin.getOtherJoinConjuncts()
+                                    .forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
+                            bottomJoin.getMarkJoinConjuncts()
                                     .forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
                             Plan newBottomJoin = topJoin.withChildrenNoContext(a, b, null);
                             Plan left = CBOUtils.newProject(topUsedExprIds, newBottomJoin);

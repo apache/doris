@@ -210,6 +210,8 @@ message StorageVaultPB {
     }
 
     optional PathFormat path_format = 5;
+    // Set this filed when the user tries to alter name to alter_name
+    optional string alter_name = 6;
 }
 
 message HdfsBuildConf {
@@ -853,6 +855,7 @@ message AlterObjStoreInfoRequest {
         ADD_S3_VAULT = 103;
         DROP_S3_VAULT = 104;
         ALTER_S3_VAULT = 105;
+        ALTER_HDFS_VAULT = 106;
 
         SET_DEFAULT_VAULT = 200;
         UNSET_DEFAULT_VAULT = 201;
@@ -1436,6 +1439,16 @@ message GetRLTaskCommitAttachResponse {
     optional RLTaskTxnCommitAttachmentPB commit_attach = 2;
 }
 
+message ResetRLProgressRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional int64 job_id = 3;
+}
+
+message ResetRLProgressResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
 message CheckKeyInfos {
     repeated int64 db_ids = 1;
     repeated int64 table_ids = 2;
@@ -1528,6 +1541,7 @@ service MetaService {
 
     // routine load progress
     rpc get_rl_task_commit_attach(GetRLTaskCommitAttachRequest) returns (GetRLTaskCommitAttachResponse);
+    rpc reset_rl_progress(ResetRLProgressRequest) returns (ResetRLProgressResponse);
 
     // check KV
     rpc check_kv(CheckKVRequest) returns (CheckKVResponse);

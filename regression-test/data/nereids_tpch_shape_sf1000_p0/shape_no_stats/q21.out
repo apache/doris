@@ -10,12 +10,12 @@ PhysicalResultSink
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF4 n_nationkey->[s_nationkey]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN shuffle] hashCondition=((supplier.s_suppkey = l1.l_suppkey)) otherCondition=() build RFs:RF3 s_suppkey->[l_suppkey]
+--------------------hashJoin[INNER_JOIN colocated] hashCondition=((orders.o_orderkey = l1.l_orderkey)) otherCondition=() build RFs:RF3 o_orderkey->[l_orderkey,l_orderkey]
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN colocated] hashCondition=((orders.o_orderkey = l1.l_orderkey)) otherCondition=() build RFs:RF2 o_orderkey->[l_orderkey,l_orderkey]
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = l1.l_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->[l_suppkey]
 --------------------------hashJoin[RIGHT_SEMI_JOIN colocated] hashCondition=((l2.l_orderkey = l1.l_orderkey)) otherCondition=(( not (l_suppkey = l_suppkey))) build RFs:RF1 l_orderkey->[l_orderkey]
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1 RF2
+------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1 RF3
 ----------------------------hashJoin[RIGHT_ANTI_JOIN colocated] hashCondition=((l3.l_orderkey = l1.l_orderkey)) otherCondition=(( not (l_suppkey = l_suppkey))) build RFs:RF0 l_orderkey->[l_orderkey]
 ------------------------------PhysicalProject
 --------------------------------filter((l3.l_receiptdate > l3.l_commitdate))
@@ -24,10 +24,10 @@ PhysicalResultSink
 --------------------------------filter((l1.l_receiptdate > l1.l_commitdate))
 ----------------------------------PhysicalOlapScan[lineitem] apply RFs: RF2 RF3
 --------------------------PhysicalProject
-----------------------------filter((orders.o_orderstatus = 'F'))
-------------------------------PhysicalOlapScan[orders]
+----------------------------PhysicalOlapScan[supplier] apply RFs: RF4
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[supplier] apply RFs: RF4
+------------------------filter((orders.o_orderstatus = 'F'))
+--------------------------PhysicalOlapScan[orders]
 ------------------PhysicalProject
 --------------------filter((nation.n_name = 'SAUDI ARABIA'))
 ----------------------PhysicalOlapScan[nation]

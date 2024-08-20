@@ -9,25 +9,34 @@ PhysicalResultSink
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN broadcast] hashCondition=((tmp.time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF2 t_time_sk->[cs_sold_time_sk,ss_sold_time_sk,ws_sold_time_sk]
+------------------hashJoin[INNER_JOIN broadcast] hashCondition=((tmp.time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF4 t_time_sk->[cs_sold_time_sk,ss_sold_time_sk,ws_sold_time_sk]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((tmp.sold_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF1 i_item_sk->[cs_item_sk,ss_item_sk,ws_item_sk]
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = ws_sold_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_sold_date_sk,ss_sold_date_sk,ws_sold_date_sk]
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((tmp.sold_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF3 i_item_sk->[cs_item_sk,ss_item_sk,ws_item_sk]
+------------------------PhysicalUnion
+--------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------PhysicalProject
-------------------------------PhysicalUnion
---------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2
---------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2
---------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = web_sales.ws_sold_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_sold_date_sk]
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF3 RF4
+--------------------------------PhysicalProject
+----------------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 1998))
+------------------------------------PhysicalOlapScan[date_dim]
+--------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------PhysicalProject
-------------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 1998))
---------------------------------PhysicalOlapScan[date_dim]
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = catalog_sales.cs_sold_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[cs_sold_date_sk]
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF1 RF3 RF4
+--------------------------------PhysicalProject
+----------------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 1998))
+------------------------------------PhysicalOlapScan[date_dim]
+--------------------------PhysicalDistribute[DistributionSpecHash]
+----------------------------PhysicalProject
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ss_sold_date_sk]
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF3 RF4
+--------------------------------PhysicalProject
+----------------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 1998))
+------------------------------------PhysicalOlapScan[date_dim]
 ------------------------PhysicalProject
 --------------------------filter((item.i_manager_id = 1))
 ----------------------------PhysicalOlapScan[item]

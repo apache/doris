@@ -84,16 +84,18 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[web_page]
 ------------------------PhysicalProject
---------------------------hashAgg[LOCAL]
-----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_returns.wr_web_page_sk = web_page.wp_web_page_sk)) otherCondition=()
+--------------------------hashAgg[GLOBAL]
+----------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------hashAgg[LOCAL]
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_returns.wr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF6 d_date_sk->[wr_returned_date_sk]
+----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_returns.wr_web_page_sk = web_page.wp_web_page_sk)) otherCondition=()
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF6
+--------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_returns.wr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF6 d_date_sk->[wr_returned_date_sk]
+----------------------------------------PhysicalProject
+------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF6
+----------------------------------------PhysicalProject
+------------------------------------------filter((date_dim.d_date <= '1998-09-04') and (date_dim.d_date >= '1998-08-05'))
+--------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------PhysicalProject
---------------------------------------filter((date_dim.d_date <= '1998-09-04') and (date_dim.d_date >= '1998-08-05'))
-----------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[web_page]
+--------------------------------------PhysicalOlapScan[web_page]
 

@@ -21,9 +21,11 @@ suite("q92_spill") {
   sql """
     set min_revocable_mem=1;
   """
-  sql """
+  multi_sql """
     use regression_test_tpcds_sf1_unique_p1;
+    set enable_local_shuffle=false;
   """
+
   qt_q92 """
 SELECT sum(ws_ext_discount_amt) 'Excess Discount Amount'
 FROM

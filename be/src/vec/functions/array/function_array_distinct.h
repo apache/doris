@@ -21,12 +21,10 @@
 
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <string.h>
 
-#include <boost/iterator/iterator_facade.hpp>
+#include <cstring>
 #include <memory>
 #include <ostream>
-#include <string>
 #include <utility>
 
 #include "common/status.h"
@@ -103,7 +101,7 @@ public:
 
         const NullMapType* src_null_map = nullptr;
         if (src_nested_column->is_nullable()) {
-            const ColumnNullable* src_nested_nullable_col =
+            const auto* src_nested_nullable_col =
                     check_and_get_column<ColumnNullable>(*src_nested_column);
             src_nested_column = src_nested_nullable_col->get_nested_column_ptr();
             src_null_map = &src_nested_nullable_col->get_null_map_column().get_data();
@@ -111,8 +109,7 @@ public:
 
         NullMapType* dest_null_map = nullptr;
         if (dest_nested_column->is_nullable()) {
-            ColumnNullable* dest_nested_nullable_col =
-                    reinterpret_cast<ColumnNullable*>(dest_nested_column);
+            auto* dest_nested_nullable_col = reinterpret_cast<ColumnNullable*>(dest_nested_column);
             dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr();
             dest_null_map = &dest_nested_nullable_col->get_null_map_column().get_data();
         }
@@ -140,13 +137,13 @@ private:
         using NestType = typename ColumnType::value_type;
         using ElementNativeType = typename NativeType<NestType>::Type;
 
-        const ColumnType* src_data_concrete = reinterpret_cast<const ColumnType*>(&src_column);
+        const auto* src_data_concrete = reinterpret_cast<const ColumnType*>(&src_column);
         if (!src_data_concrete) {
             return false;
         }
         const PaddedPODArray<NestType>& src_datas = src_data_concrete->get_data();
 
-        ColumnType& dest_data_concrete = reinterpret_cast<ColumnType&>(dest_column);
+        auto& dest_data_concrete = reinterpret_cast<ColumnType&>(dest_column);
         PaddedPODArray<NestType>& dest_datas = dest_data_concrete.get_data();
 
         using Set = HashSetWithStackMemory<ElementNativeType, DefaultHash<ElementNativeType>,
@@ -194,12 +191,12 @@ private:
     bool _execute_string(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
                          IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
                          const NullMapType* src_null_map, NullMapType* dest_null_map) const {
-        const ColumnString* src_data_concrete = reinterpret_cast<const ColumnString*>(&src_column);
+        const auto* src_data_concrete = reinterpret_cast<const ColumnString*>(&src_column);
         if (!src_data_concrete) {
             return false;
         }
 
-        ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_column);
+        auto& dest_column_string = reinterpret_cast<ColumnString&>(dest_column);
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
         column_string_chars.reserve(src_column.size());
@@ -257,64 +254,41 @@ private:
                           IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
                           const NullMapType* src_null_map, NullMapType* dest_null_map,
                           DataTypePtr& nested_type) const {
-        bool res = false;
+#define EXECUTE_NUMBER(TYPE, NAME)                                                       \
+    if (which.is_##NAME()) {                                                             \
+        return _execute_number<TYPE>(src_column, src_offsets, dest_column, dest_offsets, \
+                                     src_null_map, dest_null_map);                       \
+    }
+
         WhichDataType which(remove_nullable(nested_type));
-        if (which.is_uint8()) {
-            res = _execute_number<ColumnUInt8>(src_column, src_offsets, dest_column, dest_offsets,
-                                               src_null_map, dest_null_map);
-        } else if (which.is_int8()) {
-            res = _execute_number<ColumnInt8>(src_column, src_offsets, dest_column, dest_offsets,
-                                              src_null_map, dest_null_map);
-        } else if (which.is_int16()) {
-            res = _execute_number<ColumnInt16>(src_column, src_offsets, dest_column, dest_offsets,
-                                               src_null_map, dest_null_map);
-        } else if (which.is_int32()) {
-            res = _execute_number<ColumnInt32>(src_column, src_offsets, dest_column, dest_offsets,
-                                               src_null_map, dest_null_map);
-        } else if (which.is_int64()) {
-            res = _execute_number<ColumnInt64>(src_column, src_offsets, dest_column, dest_offsets,
-                                               src_null_map, dest_null_map);
-        } else if (which.is_int128()) {
-            res = _execute_number<ColumnInt128>(src_column, src_offsets, dest_column, dest_offsets,
-                                                src_null_map, dest_null_map);
-        } else if (which.is_float32()) {
-            res = _execute_number<ColumnFloat32>(src_column, src_offsets, dest_column, dest_offsets,
-                                                 src_null_map, dest_null_map);
-        } else if (which.is_float64()) {
-            res = _execute_number<ColumnFloat64>(src_column, src_offsets, dest_column, dest_offsets,
-                                                 src_null_map, dest_null_map);
-        } else if (which.is_date()) {
-            res = _execute_number<ColumnDate>(src_column, src_offsets, dest_column, dest_offsets,
-                                              src_null_map, dest_null_map);
-        } else if (which.is_date_time()) {
-            res = _execute_number<ColumnDateTime>(src_column, src_offsets, dest_column,
-                                                  dest_offsets, src_null_map, dest_null_map);
-        } else if (which.is_date_v2()) {
-            res = _execute_number<ColumnDateV2>(src_column, src_offsets, dest_column, dest_offsets,
-                                                src_null_map, dest_null_map);
-        } else if (which.is_date_time_v2()) {
-            res = _execute_number<ColumnDateTimeV2>(src_column, src_offsets, dest_column,
-                                                    dest_offsets, src_null_map, dest_null_map);
-        } else if (which.is_decimal32()) {
-            res = _execute_number<ColumnDecimal32>(src_column, src_offsets, dest_column,
-                                                   dest_offsets, src_null_map, dest_null_map);
-        } else if (which.is_decimal64()) {
-            res = _execute_number<ColumnDecimal64>(src_column, src_offsets, dest_column,
-                                                   dest_offsets, src_null_map, dest_null_map);
-        } else if (which.is_decimal128v3()) {
-            res = _execute_number<ColumnDecimal128V3>(src_column, src_offsets, dest_column,
-                                                      dest_offsets, src_null_map, dest_null_map);
-        } else if (which.is_decimal256()) {
-            res = _execute_number<ColumnDecimal256>(src_column, src_offsets, dest_column,
-                                                    dest_offsets, src_null_map, dest_null_map);
-        } else if (which.is_decimal128v2()) {
-            res = _execute_number<ColumnDecimal128V2>(src_column, src_offsets, dest_column,
-                                                      dest_offsets, src_null_map, dest_null_map);
-        } else if (which.is_string()) {
-            res = _execute_string(src_column, src_offsets, dest_column, dest_offsets, src_null_map,
-                                  dest_null_map);
+        EXECUTE_NUMBER(ColumnUInt8, uint8);
+        EXECUTE_NUMBER(ColumnInt8, int8);
+        EXECUTE_NUMBER(ColumnInt16, int16);
+        EXECUTE_NUMBER(ColumnInt32, int32);
+        EXECUTE_NUMBER(ColumnInt64, int64);
+        EXECUTE_NUMBER(ColumnInt128, int128);
+        EXECUTE_NUMBER(ColumnFloat32, float32);
+        EXECUTE_NUMBER(ColumnFloat64, float64);
+        EXECUTE_NUMBER(ColumnDate, date);
+        EXECUTE_NUMBER(ColumnDateTime, date_time);
+        EXECUTE_NUMBER(ColumnDateV2, date_v2);
+        EXECUTE_NUMBER(ColumnDateTimeV2, date_time_v2);
+        EXECUTE_NUMBER(ColumnDecimal32, decimal32);
+        EXECUTE_NUMBER(ColumnDecimal64, decimal64);
+        EXECUTE_NUMBER(ColumnDecimal128V3, decimal128v3);
+        EXECUTE_NUMBER(ColumnDecimal256, decimal256);
+        EXECUTE_NUMBER(ColumnDecimal128V2, decimal128v2);
+        if (which.is_string()) {
+            return _execute_string(src_column, src_offsets, dest_column, dest_offsets, src_null_map,
+                                   dest_null_map);
+        } else {
+            LOG(ERROR) << "Unsupported array's element type: "
+                       << remove_nullable(nested_type)->get_name() << " for function "
+                       << this->get_name();
+            return false;
         }
-        return res;
+
+#undef EXECUTE_NUMBER
     }
 };
 

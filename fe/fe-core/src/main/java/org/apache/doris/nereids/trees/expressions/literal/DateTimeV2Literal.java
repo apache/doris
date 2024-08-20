@@ -215,8 +215,14 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         return fromJavaDateType(toJavaDateType().plusSeconds(seconds), getDataType().getScale());
     }
 
+    // When performing addition or subtraction with MicroSeconds, the precision must
+    // be set to 6 to display it completely.
     public Expression plusMicroSeconds(long microSeconds) {
-        return fromJavaDateType(toJavaDateType().plusNanos(microSeconds * 1000L), getDataType().getScale());
+        return fromJavaDateType(toJavaDateType().plusNanos(microSeconds * 1000L), 6);
+    }
+
+    public Expression plusMilliSeconds(long microSeconds) {
+        return plusMicroSeconds(microSeconds * 1000L);
     }
 
     /**

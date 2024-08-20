@@ -542,7 +542,9 @@ namespace doris::vectorized {
 // write result to file
 class VTabletWriter final : public AsyncResultWriter {
 public:
-    VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
+    VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
+                  std::shared_ptr<pipeline::Dependency> dep,
+                  std::shared_ptr<pipeline::Dependency> fin_dep);
 
     Status write(RuntimeState* state, Block& block) override;
 
@@ -658,9 +660,6 @@ private:
     RuntimeProfile::Counter* _max_wait_exec_timer = nullptr;
     RuntimeProfile::Counter* _add_batch_number = nullptr;
     RuntimeProfile::Counter* _num_node_channels = nullptr;
-
-    // load mem limit is for remote load channel
-    int64_t _load_mem_limit = -1;
 
     // the timeout of load channels opened by this tablet sink. in second
     int64_t _load_channel_timeout_s = 0;

@@ -238,7 +238,7 @@ public abstract class ExternalCatalog
                             name,
                             OptionalLong.of(86400L),
                             OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
-                            Config.max_hive_table_cache_num,
+                            Config.max_meta_object_cache_num,
                             ignored -> getFilteredDatabaseNames(),
                             dbName -> Optional.ofNullable(
                                     buildDbForInit(dbName, Util.genIdByName(name, dbName), logType)),
@@ -294,6 +294,7 @@ public abstract class ExternalCatalog
         if (properties.getOrDefault(ExternalCatalog.USE_META_CACHE, "true").equals("false")) {
             LOG.warn("force to set use_meta_cache to true for catalog: {} when creating", name);
             getCatalogProperty().addProperty(ExternalCatalog.USE_META_CACHE, "true");
+            useMetaCache = Optional.of(true);
         }
     }
 
@@ -389,6 +390,15 @@ public abstract class ExternalCatalog
         synchronized (this.propLock) {
             this.convertedProperties = null;
         }
+
+        refreshOnlyCatalogCache(invalidCache);
+    }
+
+    public void onRefreshCache(boolean invalidCache) {
+        refreshOnlyCatalogCache(invalidCache);
+    }
+
+    private void refreshOnlyCatalogCache(boolean invalidCache) {
         if (useMetaCache.isPresent()) {
             if (useMetaCache.get() && metaCache != null) {
                 metaCache.invalidateAll();
@@ -659,8 +669,6 @@ public abstract class ExternalCatalog
                 return new IcebergExternalDatabase(this, dbId, dbName);
             case MAX_COMPUTE:
                 return new MaxComputeExternalDatabase(this, dbId, dbName);
-            //case HUDI:
-                //return new HudiExternalDatabase(this, dbId, dbName);
             case LAKESOUL:
                 return new LakeSoulExternalDatabase(this, dbId, dbName);
             case TEST:
@@ -835,8 +843,8 @@ public abstract class ExternalCatalog
 
     @Override
     public boolean enableAutoAnalyze() {
-        // By default, external catalog disables auto analyze, uses could set catalog property to enable it:
-        // "enable.auto.analyze" = true
+        // By default, external catalog disables auto analyze, users could set catalog property to enable it:
+        // "enable.auto.analyze" = "true"
         Map<String, String> properties = catalogProperty.getProperties();
         boolean ret = false;
         if (properties.containsKey(ENABLE_AUTO_ANALYZE)

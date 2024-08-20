@@ -82,7 +82,7 @@ private:
  *    d. change some agg function nullable property: PR #37215
  *    e. change variant serde to fix PR #38413
  */
-constexpr inline int BeExecVersionManager::max_be_exec_version = 6;
+constexpr inline int BeExecVersionManager::max_be_exec_version = 7;
 constexpr inline int BeExecVersionManager::min_be_exec_version = 0;
 
 /// functional

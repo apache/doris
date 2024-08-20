@@ -186,13 +186,11 @@ DECLARE_mBool(disable_memory_gc);
 // if false, turn off all stacktrace
 DECLARE_mBool(enable_stacktrace);
 
-// Allocator check failed log stacktrace if not catch exception
-DECLARE_mBool(enable_stacktrace_in_allocator_check_failed);
-
-// malloc or new large memory larger than large_memory_check_bytes, default 2G,
-// will print a warning containing the stacktrace, but not prevent memory alloc.
-// If is -1, disable large memory check.
-DECLARE_mInt64(large_memory_check_bytes);
+// when alloc memory larger than stacktrace_in_alloc_large_memory_bytes, default 2G,
+// if alloc successful, will print a warning with stacktrace, but not prevent memory alloc.
+// if alloc failed using Doris Allocator, will print stacktrace in error log.
+// if is -1, disable print stacktrace when alloc large memory.
+DECLARE_mInt64(stacktrace_in_alloc_large_memory_bytes);
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
 DECLARE_mBool(enable_memory_orphan_check);
@@ -321,18 +319,11 @@ DECLARE_mInt32(doris_scan_range_row_count);
 DECLARE_mInt32(doris_scan_range_max_mb);
 // max bytes number for single scan block, used in segmentv2
 DECLARE_mInt32(doris_scan_block_max_mb);
-// size of scanner queue between scanner thread and compute thread
-DECLARE_mInt32(doris_scanner_queue_size);
 // single read execute fragment row number
 DECLARE_mInt32(doris_scanner_row_num);
 // single read execute fragment row bytes
 DECLARE_mInt32(doris_scanner_row_bytes);
 DECLARE_mInt32(min_bytes_in_scanner_queue);
-// number of max scan keys
-DECLARE_mInt32(doris_max_scan_key_num);
-// the max number of push down values of a single column.
-// if exceed, no conditions will be pushed down for that column.
-DECLARE_mInt32(max_pushdown_conditions_per_column);
 // (Advanced) Maximum size of per-query receive-side buffer
 DECLARE_mInt32(exchg_node_buffer_size_bytes);
 DECLARE_mInt32(exchg_buffer_queue_capacity_factor);
@@ -610,9 +601,9 @@ DECLARE_mInt32(olap_table_sink_send_interval_microseconds);
 DECLARE_mDouble(olap_table_sink_send_interval_auto_partition_factor);
 
 // Fragment thread pool
-DECLARE_Int32(fragment_pool_thread_num_min);
-DECLARE_Int32(fragment_pool_thread_num_max);
-DECLARE_Int32(fragment_pool_queue_size);
+DECLARE_Int32(fragment_mgr_asynic_work_pool_thread_num_min);
+DECLARE_Int32(fragment_mgr_asynic_work_pool_thread_num_max);
+DECLARE_Int32(fragment_mgr_asynic_work_pool_queue_size);
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DECLARE_Int32(num_disks);
@@ -876,12 +867,6 @@ DECLARE_Int32(load_stream_eagain_wait_seconds);
 DECLARE_Int32(load_stream_flush_token_max_tasks);
 // max wait flush token time in load stream
 DECLARE_Int32(load_stream_max_wait_flush_token_time_ms);
-
-// max send batch parallelism for OlapTableSink
-// The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
-// if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
-DECLARE_mInt32(max_send_batch_parallelism_per_job);
-
 // number of send batch thread pool size
 DECLARE_Int32(send_batch_thread_pool_thread_num);
 // number of send batch thread pool queue size
@@ -983,9 +968,7 @@ DECLARE_mInt32(orc_natural_read_size_mb);
 DECLARE_mInt64(big_column_size_buffer);
 DECLARE_mInt64(small_column_size_buffer);
 
-// When the rows number reached this limit, will check the filter rate the of bloomfilter
-// if it is lower than a specific threshold, the predicate will be disabled.
-DECLARE_mInt32(rf_predicate_check_row_num);
+DECLARE_mInt32(runtime_filter_sampling_frequency);
 
 // cooldown task configs
 DECLARE_Int32(cooldown_thread_num);
@@ -1443,6 +1426,8 @@ DECLARE_mBool(enable_hdfs_mem_limiter);
 // Define how many percent data in hashtable bigger than limit
 // we should do agg limit opt
 DECLARE_mInt16(topn_agg_limit_multiplier);
+
+DECLARE_mInt64(pipeline_task_leakage_detect_period_secs);
 
 #ifdef BE_TEST
 // test s3

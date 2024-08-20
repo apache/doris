@@ -648,6 +648,58 @@ void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcControlle
     }
 }
 
+void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* controller,
+                                        const ResetRLProgressRequest* request,
+                                        ResetRLProgressResponse* response,
+                                        ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(reset_rl_progress);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+    RPC_RATE_LIMIT(reset_rl_progress)
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        ss << "filed to create txn, err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    if (!request->has_db_id() || !request->has_job_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty db_id or job_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    int64_t db_id = request->db_id();
+    int64_t job_id = request->job_id();
+    std::string rl_progress_key;
+    std::string rl_progress_val;
+    RLJobProgressKeyInfo rl_progress_key_info {instance_id, db_id, job_id};
+    rl_job_progress_key_info(rl_progress_key_info, &rl_progress_key);
+    txn->remove(rl_progress_key);
+    err = txn->commit();
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = MetaServiceCode::ROUTINE_LOAD_PROGRESS_NOT_FOUND;
+        ss << "progress info not found, db_id=" << db_id << " job_id=" << job_id << " err=" << err;
+        msg = ss.str();
+        return;
+    } else if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        ss << "failed to remove progress info, db_id=" << db_id << " job_id=" << job_id
+           << " err=" << err;
+        msg = ss.str();
+        return;
+    }
+}
+
 void scan_tmp_rowset(
         const std::string& instance_id, int64_t txn_id, std::shared_ptr<TxnKv>& txn_kv,
         MetaServiceCode& code, std::string& msg, int64_t* db_id,
@@ -1207,6 +1259,23 @@ void commit_txn_immediately(
     // Finally we are done...
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
+        if ((err == TxnErrorCode::TXN_VALUE_TOO_LARGE ||
+             err == TxnErrorCode::TXN_BYTES_TOO_LARGE) &&
+            !tmp_rowsets_meta.empty()) {
+            size_t max_size = 0, max_idx = 0;
+            for (size_t i = 0; i < tmp_rowsets_meta.size(); i++) {
+                auto& [k, v] = tmp_rowsets_meta[i];
+                if (v.ByteSizeLong() > max_size) {
+                    max_size = v.ByteSizeLong();
+                    max_idx = i;
+                }
+            }
+            LOG(WARNING) << "failed to commit kv txn"
+                         << ", txn_id=" << txn_id << ", rowset_size=" << max_size << ", err=" << err
+                         << ", rowset_key=" << hex(tmp_rowsets_meta[max_idx].first)
+                         << ", rowset_value="
+                         << tmp_rowsets_meta[max_idx].second.ShortDebugString();
+        }
         code = cast_as<ErrCategory::COMMIT>(err);
         ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
         msg = ss.str();
@@ -1756,8 +1825,30 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
     // Finally we are done...
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
+        if (err == TxnErrorCode::TXN_VALUE_TOO_LARGE || err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+            size_t max_size = 0;
+            std::pair<std::string, RowsetMetaCloudPB>* max_rowset_meta = nullptr;
+            for (auto& sub_txn : sub_txn_infos) {
+                auto it = sub_txn_to_tmp_rowsets_meta.find(sub_txn.sub_txn_id());
+                if (it == sub_txn_to_tmp_rowsets_meta.end()) {
+                    continue;
+                }
+                for (auto& rowset_meta : it->second) {
+                    if (rowset_meta.second.ByteSizeLong() > max_size) {
+                        max_size = rowset_meta.second.ByteSizeLong();
+                        max_rowset_meta = &rowset_meta;
+                    }
+                }
+            }
+            if (max_rowset_meta) {
+                LOG(WARNING) << "failed to commit kv txn with sub txn"
+                             << ", txn_id=" << txn_id << ", rowset_size=" << max_size
+                             << ", err=" << err << ", rowset_key=" << hex(max_rowset_meta->first)
+                             << ", rowset_value=" << max_rowset_meta->second.ShortDebugString();
+            }
+        }
         code = cast_as<ErrCategory::COMMIT>(err);
-        ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
+        ss << "failed to commit kv txn with sub txn, txn_id=" << txn_id << " err=" << err;
         msg = ss.str();
         return;
     }

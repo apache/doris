@@ -32,6 +32,8 @@ import org.apache.http.client.methods.RequestBuilder
 import org.apache.http.entity.StringEntity
 import org.apache.http.client.methods.CloseableHttpResponse
 import org.apache.http.util.EntityUtils
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
 
 suite("test_schema_change_unique_mow", "p0") {
     def tableName3 = "test_all_unique_mow"
@@ -97,40 +99,31 @@ suite("test_schema_change_unique_mow", "p0") {
     execStreamLoad()
 
     sql """ alter table ${tableName3} modify column k4 string NULL"""
-    sleep(10)
-    int max_try_num = 60
-    while (max_try_num--) {
-        String res = getJobState(tableName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            execStreamLoad()
-            if (max_try_num < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
+
+    Awaitility.await().atMost(30, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
+        {
+            String res = getJobState(tableName3)
+            if (res == "FINISHED" || res == "CANCELLED") {
+                assertEquals("FINISHED", res)
+                return true
             }
+            execStreamLoad()
+            return false
         }
-    }
+    )
 
     sql """ alter table ${tableName3} modify column k2 bigint(11) key NULL"""
-    sleep(10)
-    max_try_num = 60
-    while (max_try_num--) {
-        String res = getJobState(tableName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            execStreamLoad()
-            if (max_try_num < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
+    Awaitility.await().atMost(30, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
+        {
+            String res = getJobState(tableName3)
+            if (res == "FINISHED" || res == "CANCELLED") {
+                assertEquals("FINISHED", res)
+                return true
             }
+            execStreamLoad()
+            return false
         }
-    }
+    )
 
     /*
     sql """ create materialized view view_1 as select k2, k1, k4, k5 from ${tableName3} """
@@ -153,47 +146,39 @@ suite("test_schema_change_unique_mow", "p0") {
     */
 
     sql """ alter table ${tableName3} modify column k5 string NULL"""
-    sleep(10)
-    max_try_num = 60
-    while (max_try_num--) {
-        String res = getJobState(tableName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            execStreamLoad()
-            if (max_try_num < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
+    Awaitility.await().atMost(30, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
+        {
+            String res = getJobState(tableName3)
+            if (res == "FINISHED" || res == "CANCELLED") {
+                assertEquals("FINISHED", res)
+                return true
             }
+            execStreamLoad()
+            return false
         }
-    }
+    )
 
     sql """ alter table ${tableName3} add column v14 int NOT NULL default "1" after k13 """
     sql """ insert into ${tableName3} values (10001, 2, 3, 4, 5, 6.6, 1.7, 8.8,
     'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', 10086) """
 
     sql """ alter table ${tableName3} modify column v14 int NULL default "1" """
-    sleep(10)
-    max_try_num = 6000
-    while (max_try_num--) {
-        String res = getJobState(tableName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            int val = 100000 + max_try_num
+
+    int cnt = 6000
+    Awaitility.await().atMost(30, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
+        {
+            String res = getJobState(tableName3)
+            if (res == "FINISHED" || res == "CANCELLED") {
+                assertEquals("FINISHED", res)
+                return true
+            }
+            cnt--;
+            int val = 100000 + cnt
             sql """ insert into ${tableName3} values (${val}, 2, 3, 4, 5, 6.6, 1.7, 8.8,
     'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', 9527) """
-            sleep(10)
-            if (max_try_num < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return false
         }
-    }
+    )
 
     sql """ alter table ${tableName3} drop column v14 """
     execStreamLoad()

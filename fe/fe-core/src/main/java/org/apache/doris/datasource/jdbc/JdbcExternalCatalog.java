@@ -73,11 +73,10 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     private transient JdbcClient jdbcClient;
 
     public JdbcExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
-            String comment, boolean isReplay)
+            String comment)
             throws DdlException {
         super(catalogId, name, InitCatalogLog.Type.JDBC, comment);
-        this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props, isReplay));
-        testJdbcConnection(isReplay);
+        this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props));
     }
 
     @Override
@@ -101,11 +100,31 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    public void setDefaultPropsIfMissing(boolean isReplay) {
+        super.setDefaultPropsIfMissing(isReplay);
+        // Modify lower_case_table_names to lower_case_meta_names if it exists
+        if (catalogProperty.getProperties().containsKey("lower_case_table_names") && isReplay) {
+            String lowerCaseTableNamesValue = catalogProperty.getProperties().get("lower_case_table_names");
+            catalogProperty.addProperty("lower_case_meta_names", lowerCaseTableNamesValue);
+            catalogProperty.deleteProperty("lower_case_table_names");
+            LOG.info("Modify lower_case_table_names to lower_case_meta_names, value: {}", lowerCaseTableNamesValue);
+        } else if (catalogProperty.getProperties().containsKey("lower_case_table_names") && !isReplay) {
+            throw new IllegalArgumentException("Jdbc catalog property lower_case_table_names is not supported,"
+                    + " please use lower_case_meta_names instead.");
+        }
+    }
+
+    @Override
     public void onRefresh(boolean invalidCache) {
         super.onRefresh(invalidCache);
         if (jdbcClient != null) {
             jdbcClient.closeClient();
         }
+    }
+
+    @Override
+    public void onRefreshCache(boolean invalidCache) {
+        onRefresh(invalidCache);
     }
 
     @Override
@@ -116,24 +135,12 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         }
     }
 
-    protected Map<String, String> processCompatibleProperties(Map<String, String> props, boolean isReplay)
+    protected Map<String, String> processCompatibleProperties(Map<String, String> props)
             throws DdlException {
         Map<String, String> properties = Maps.newHashMap();
         for (Map.Entry<String, String> kv : props.entrySet()) {
             properties.put(StringUtils.removeStart(kv.getKey(), JdbcResource.JDBC_PROPERTIES_PREFIX), kv.getValue());
         }
-
-        // Modify lower_case_table_names to lower_case_meta_names if it exists
-        if (properties.containsKey("lower_case_table_names") && isReplay) {
-            String lowerCaseTableNamesValue = properties.get("lower_case_table_names");
-            properties.put("lower_case_meta_names", lowerCaseTableNamesValue);
-            properties.remove("lower_case_table_names");
-            LOG.info("Modify lower_case_table_names to lower_case_meta_names, value: {}", lowerCaseTableNamesValue);
-        } else if (properties.containsKey("lower_case_table_names") && !isReplay) {
-            throw new DdlException("Jdbc catalog property lower_case_table_names is not supported,"
-                    + " please use lower_case_meta_names instead");
-        }
-
         String jdbcUrl = properties.getOrDefault(JdbcResource.JDBC_URL, "");
         if (!Strings.isNullOrEmpty(jdbcUrl)) {
             jdbcUrl = JdbcResource.handleJdbcUrl(jdbcUrl);
@@ -273,6 +280,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 catalogProperty.addProperty(JdbcResource.CHECK_SUM, computedChecksum);
             }
         }
+        testJdbcConnection();
     }
 
     /**
@@ -314,22 +322,20 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         jdbcTable.setConnectionPoolKeepAlive(this.isConnectionPoolKeepAlive());
     }
 
-    private void testJdbcConnection(boolean isReplay) throws DdlException {
+    private void testJdbcConnection() throws DdlException {
         if (FeConstants.runningUnitTest) {
             // skip test connection in unit test
             return;
         }
-        if (!isReplay) {
-            if (isTestConnection()) {
-                try {
-                    initLocalObjectsImpl();
-                    testFeToJdbcConnection();
-                    testBeToJdbcConnection();
-                } finally {
-                    if (jdbcClient != null) {
-                        jdbcClient.closeClient();
-                        jdbcClient = null;
-                    }
+        if (isTestConnection()) {
+            try {
+                initLocalObjectsImpl();
+                testFeToJdbcConnection();
+                testBeToJdbcConnection();
+            } finally {
+                if (jdbcClient != null) {
+                    jdbcClient.closeClient();
+                    jdbcClient = null;
                 }
             }
         }

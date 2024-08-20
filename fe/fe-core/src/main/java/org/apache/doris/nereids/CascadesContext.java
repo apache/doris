@@ -553,16 +553,13 @@ public class CascadesContext implements ScheduleContext {
         if (db == null) {
             throw new RuntimeException("Database [" + dbName + "] does not exist in catalog [" + ctlName + "].");
         }
-        db.readLock();
-        try {
-            TableIf table = db.getTableNullable(tableName);
-            if (table == null) {
-                throw new RuntimeException("Table [" + tableName + "] does not exist in database [" + dbName + "].");
-            }
-            return table;
-        } finally {
-            db.readUnlock();
+
+        TableIf table = db.getTableNullable(tableName);
+        if (table == null) {
+            throw new RuntimeException("Table [" + tableName + "] does not exist in database [" + dbName + "].");
         }
+        return table;
+
     }
 
     /**

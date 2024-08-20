@@ -103,7 +103,7 @@ public:
         auto& result_col_map_offsets = map_column->get_offsets();
         result_col_map_offsets.resize(input_rows_count);
 
-        std::unique_ptr<bool[]> col_const = std::make_unique<bool[]>(num_element);
+        std::unique_ptr<bool[]> col_const = std::make_unique_for_overwrite<bool[]>(num_element);
         for (size_t i = 0; i < num_element; ++i) {
             auto& col = block.get_by_position(arguments[i]).column;
             std::tie(col, col_const[i]) = unpack_if_const(col);

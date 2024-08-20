@@ -57,6 +57,7 @@ enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2, FULL_COMPA
 enum DataDirType {
     SPILL_DISK_DIR,
     OLAP_DATA_DIR,
+    DATA_CACHE_DIR,
 };
 
 struct DataDirInfo {
@@ -70,6 +71,7 @@ struct DataDirInfo {
     bool is_used = false;                                      // whether available mark
     TStorageMedium::type storage_medium = TStorageMedium::HDD; // Storage medium type: SSD|HDD
     DataDirType data_dir_type = DataDirType::OLAP_DATA_DIR;
+    std::string bvar_name;
 };
 struct PredicateFilterInfo {
     int type = 0;
@@ -367,10 +369,13 @@ struct OlapReaderStatistics {
     int64_t inverted_index_query_timer = 0;
     int64_t inverted_index_query_cache_hit = 0;
     int64_t inverted_index_query_cache_miss = 0;
+    int64_t inverted_index_query_null_bitmap_timer = 0;
     int64_t inverted_index_query_bitmap_copy_timer = 0;
     int64_t inverted_index_query_bitmap_op_timer = 0;
     int64_t inverted_index_searcher_open_timer = 0;
     int64_t inverted_index_searcher_search_timer = 0;
+    int64_t inverted_index_searcher_cache_hit = 0;
+    int64_t inverted_index_searcher_cache_miss = 0;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator

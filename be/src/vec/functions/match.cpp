@@ -120,8 +120,27 @@ inline doris::segment_v2::InvertedIndexQueryType FunctionMatchBase::get_query_ty
         return doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
     } else if (fn_name == MATCH_PHRASE_REGEXP_FUNCTION) {
         return doris::segment_v2::InvertedIndexQueryType::MATCH_REGEXP_QUERY;
+    } else if (fn_name == MATCH_PHRASE_EDGE_FUNCTION) {
+        return doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY;
     }
     return doris::segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY;
+}
+
+void FunctionMatchBase::analyse_query_str_token(std::vector<std::string>* query_tokens,
+                                                InvertedIndexCtx* inverted_index_ctx,
+                                                const std::string& match_query_str,
+                                                const std::string& column_name) const {
+    VLOG_DEBUG << "begin to run " << get_name() << ", parser_type: "
+               << inverted_index_parser_type_to_string(inverted_index_ctx->parser_type);
+    if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
+        query_tokens->emplace_back(match_query_str);
+        return;
+    }
+    auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
+                                                                        match_query_str);
+    doris::segment_v2::InvertedIndexReader::get_analyse_result(
+            *query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
+            get_query_type_from_fn_name());
 }
 
 inline std::vector<std::string> FunctionMatchBase::analyse_data_token(
@@ -134,10 +153,15 @@ inline std::vector<std::string> FunctionMatchBase::analyse_data_token(
         for (auto next_src_array_offset = (*array_offsets)[current_block_row_idx];
              current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
             const auto& str_ref = string_col->get_data_at(current_src_array_offset);
+            if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
+                data_tokens.emplace_back(str_ref.to_string());
+                continue;
+            }
             auto reader = doris::segment_v2::InvertedIndexReader::create_reader(
                     inverted_index_ctx, str_ref.to_string());
 
             std::vector<std::string> element_tokens;
+
             doris::segment_v2::InvertedIndexReader::get_analyse_result(
                     element_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
                     query_type, false);
@@ -145,12 +169,15 @@ inline std::vector<std::string> FunctionMatchBase::analyse_data_token(
         }
     } else {
         const auto& str_ref = string_col->get_data_at(current_block_row_idx);
-        auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
-                                                                            str_ref.to_string());
-
-        doris::segment_v2::InvertedIndexReader::get_analyse_result(data_tokens, reader.get(),
-                                                                   inverted_index_ctx->analyzer,
-                                                                   column_name, query_type, false);
+        if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
+            data_tokens.emplace_back(str_ref.to_string());
+        } else {
+            auto reader = doris::segment_v2::InvertedIndexReader::create_reader(
+                    inverted_index_ctx, str_ref.to_string());
+            doris::segment_v2::InvertedIndexReader::get_analyse_result(
+                    data_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
+                    query_type, false);
+        }
     }
     return data_tokens;
 }
@@ -177,23 +204,14 @@ Status FunctionMatchAny::execute_match(FunctionContext* context, const std::stri
                                        ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
-    if (inverted_index_ctx) {
-        parser_type = inverted_index_ctx->parser_type;
-    }
-    VLOG_DEBUG << "begin to run FunctionMatchAny::execute_match, parser_type: "
-               << inverted_index_parser_type_to_string(parser_type);
-    auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
-                                                                        match_query_str);
     std::vector<std::string> query_tokens;
-    doris::segment_v2::InvertedIndexReader::get_analyse_result(
-            query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
-            doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY);
+    analyse_query_str_token(&query_tokens, inverted_index_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
                 "please check your query: '{}' and index parser: '{}'",
-                match_query_str, inverted_index_parser_type_to_string(parser_type));
+                match_query_str,
+                inverted_index_parser_type_to_string(inverted_index_ctx->parser_type));
         return Status::OK();
     }
 
@@ -224,23 +242,14 @@ Status FunctionMatchAll::execute_match(FunctionContext* context, const std::stri
                                        ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
-    if (inverted_index_ctx) {
-        parser_type = inverted_index_ctx->parser_type;
-    }
-    VLOG_DEBUG << "begin to run FunctionMatchAll::execute_match, parser_type: "
-               << inverted_index_parser_type_to_string(parser_type);
-    auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
-                                                                        match_query_str);
     std::vector<std::string> query_tokens;
-    doris::segment_v2::InvertedIndexReader::get_analyse_result(
-            query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
-            doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY);
+    analyse_query_str_token(&query_tokens, inverted_index_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
                 "please check your query: '{}' and index parser: '{}'",
-                match_query_str, inverted_index_parser_type_to_string(parser_type));
+                match_query_str,
+                inverted_index_parser_type_to_string(inverted_index_ctx->parser_type));
         return Status::OK();
     }
 
@@ -277,23 +286,14 @@ Status FunctionMatchPhrase::execute_match(FunctionContext* context, const std::s
                                           ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
-    if (inverted_index_ctx) {
-        parser_type = inverted_index_ctx->parser_type;
-    }
-    VLOG_DEBUG << "begin to run FunctionMatchPhrase::execute_match, parser_type: "
-               << inverted_index_parser_type_to_string(parser_type);
-    auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
-                                                                        match_query_str);
     std::vector<std::string> query_tokens;
-    doris::segment_v2::InvertedIndexReader::get_analyse_result(
-            query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
-            doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY);
+    analyse_query_str_token(&query_tokens, inverted_index_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
                 "please check your query: '{}' and index parser: '{}'",
-                match_query_str, inverted_index_parser_type_to_string(parser_type));
+                match_query_str,
+                inverted_index_parser_type_to_string(inverted_index_ctx->parser_type));
         return Status::OK();
     }
 
@@ -345,25 +345,14 @@ Status FunctionMatchPhrasePrefix::execute_match(
         ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
-    if (inverted_index_ctx) {
-        parser_type = inverted_index_ctx->parser_type;
-    }
-    VLOG_DEBUG << "begin to run FunctionMatchPhrasePrefix::execute_match, parser_type: "
-               << inverted_index_parser_type_to_string(parser_type);
-
-    auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
-                                                                        match_query_str);
     std::vector<std::string> query_tokens;
-    doris::segment_v2::InvertedIndexReader::get_analyse_result(
-            query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
-            doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY);
-
+    analyse_query_str_token(&query_tokens, inverted_index_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
                 "please check your query: '{}' and index parser: '{}'",
-                match_query_str, inverted_index_parser_type_to_string(parser_type));
+                match_query_str,
+                inverted_index_parser_type_to_string(inverted_index_ctx->parser_type));
         return Status::OK();
     }
 
@@ -414,18 +403,15 @@ Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::s
                                           ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
-    if (inverted_index_ctx) {
-        parser_type = inverted_index_ctx->parser_type;
-    }
     VLOG_DEBUG << "begin to run FunctionMatchRegexp::execute_match, parser_type: "
-               << inverted_index_parser_type_to_string(parser_type);
+               << inverted_index_parser_type_to_string(inverted_index_ctx->parser_type);
 
     if (match_query_str.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
                 "please check your query: '{}' and index parser: '{}'",
-                match_query_str, inverted_index_parser_type_to_string(parser_type));
+                match_query_str,
+                inverted_index_parser_type_to_string(inverted_index_ctx->parser_type));
         return Status::OK();
     }
 
