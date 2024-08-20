@@ -514,9 +514,9 @@ public class PlannerTest extends TestWithFeService {
         Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
         Assertions.assertFalse(plan1.contains("TOPN OPT"));
 
-        // Push sort fail limit > topnFilterLimitThreshold
+        // Push sort fail limit > pushLimitToAggThreshold
         sql1 = "explain select k1 from db1.tbl3 order by k1, k2 limit "
-                + (connectContext.getSessionVariable().topnFilterLimitThreshold + 1);
+                + (connectContext.getSessionVariable().pushLimitToAggThreshold + 1);
         stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
         planner1 = stmtExecutor1.planner();
@@ -525,9 +525,9 @@ public class PlannerTest extends TestWithFeService {
         Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
         Assertions.assertFalse(plan1.contains("TOPN OPT"));
 
-        // Push sort success limit = topnFilterLimitThreshold
+        // Push sort success limit = pushLimitToAggThreshold
         sql1 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl3 order by k1, k2 limit "
-                + (connectContext.getSessionVariable().topnFilterLimitThreshold);
+                + (connectContext.getSessionVariable().pushLimitToAggThreshold);
         stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
         planner1 = stmtExecutor1.planner();
@@ -536,10 +536,10 @@ public class PlannerTest extends TestWithFeService {
         Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
         Assertions.assertTrue(plan1.contains("TOPN OPT"));
 
-        // Push sort success limit < topnOptLimitThreshold
-        if (connectContext.getSessionVariable().topnFilterLimitThreshold > 1) {
+        // Push sort success limit < pushLimitToAggThreshold
+        if (connectContext.getSessionVariable().pushLimitToAggThreshold > 1) {
             sql1 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl3 order by k1, k2 limit "
-                    + (connectContext.getSessionVariable().topnFilterLimitThreshold - 1);
+                    + (connectContext.getSessionVariable().pushLimitToAggThreshold - 1);
             stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             planner1 = stmtExecutor1.planner();

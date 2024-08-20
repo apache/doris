@@ -36,8 +36,6 @@ suite("test_array_char_orderby", "query") {
             """
     // prepare data
     sql """ INSERT INTO ${testTable} VALUES (100, [['abc']]) """
-    // set topn_filter_limit_threshold = 1024 to make sure _internal_service to be request with proto request
-    sql """ set topn_filter_limit_threshold = 1024 """
 
     explain{
         sql("select * from ${testTable} order by k1 limit 1")

@@ -24,7 +24,7 @@ suite("query23") {
     sql 'set enable_fallback_to_original_planner=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
-    sql 'set topn_filter_limit_threshold = 1024'
+    
     def ckBench = """SELECT SearchPhrase, MIN(URL), MIN(Title), COUNT(*) AS c, COUNT(DISTINCT UserID) FROM hits WHERE Title LIKE '%Google%' AND URL NOT LIKE '%.google.%' AND SearchPhrase <> '' GROUP BY SearchPhrase ORDER BY c DESC LIMIT 10"""
     qt_ckbench_shape_23 """
     explain shape plan

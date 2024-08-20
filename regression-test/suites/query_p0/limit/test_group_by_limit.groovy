@@ -25,27 +25,27 @@ sql 'set topn_filter_limit_threshold=10'
 
 
 // different types
-qt_select """ select  sum(orderkey), count(partkey), shipmode from tpch_tiny_lineitem group by shipmode limit 3; """
+qt_select """ select  sum(orderkey), count(partkey), shipmode from tpch_tiny_lineitem group by shipmode order by 1,2,3 limit 3; """
 
-qt_select """ select  sum(orderkey), count(partkey),  linenumber from tpch_tiny_lineitem group by linenumber limit 3; """
+qt_select """ select  sum(orderkey), count(partkey),  linenumber from tpch_tiny_lineitem group by linenumber order by 1,2,3 limit 3; """
 
-qt_select """ select  sum(orderkey), count(partkey),  tax from tpch_tiny_lineitem group by tax limit 3; """
+qt_select """ select  sum(orderkey), count(partkey),  tax from tpch_tiny_lineitem group by tax order by 1,2,3 limit 3; """
 
-qt_select """ select  sum(orderkey), count(partkey),  commitdate from tpch_tiny_lineitem group by commitdate limit 3; """
+qt_select """ select  sum(orderkey), count(partkey),  commitdate from tpch_tiny_lineitem group by commitdate order by 1,2,3 limit 3; """
 
 
 // group by functions
-qt_select """ select  sum(orderkey), count(partkey),  cast(commitdate as datetime) from tpch_tiny_lineitem group by cast(commitdate as datetime) limit 3; """
+qt_select """ select  sum(orderkey), count(partkey),  cast(commitdate as datetime) from tpch_tiny_lineitem group by cast(commitdate as datetime) order by 1,2,3 limit 3; """
 
-qt_select """ select  sum(orderkey), count(partkey),  month(commitdate) from tpch_tiny_lineitem group by month(commitdate) limit 3; """
+qt_select """ select  sum(orderkey), count(partkey),  month(commitdate) from tpch_tiny_lineitem group by month(commitdate) order by 1,2,3  limit 3; """
 
 
 // mutli column
-qt_select """ select  sum(orderkey), count(partkey), shipmode, linenumber from tpch_tiny_lineitem group by shipmode, linenumber limit 3; """
+qt_select """ select  sum(orderkey), count(partkey), shipmode, linenumber from tpch_tiny_lineitem group by shipmode, linenumber order by 1,2,3 limit 3; """
 
-qt_select """ select  sum(orderkey), count(partkey), shipmode, linenumber , tax from tpch_tiny_lineitem group by shipmode, linenumber, tax limit 3; """
+qt_select """ select  sum(orderkey), count(partkey), shipmode, linenumber , tax from tpch_tiny_lineitem group by shipmode, linenumber, tax order by 1,2,3 limit 3; """
 
-qt_select """ select  sum(orderkey), count(partkey), shipmode, linenumber , tax , commitdate from tpch_tiny_lineitem group by shipmode, linenumber, tax, commitdate  limit 3; """
+qt_select """ select  sum(orderkey), count(partkey), shipmode, linenumber , tax , commitdate from tpch_tiny_lineitem group by shipmode, linenumber, tax, commitdate order by 1,2,3 limit 3; """
 
 
 // group by + order by 

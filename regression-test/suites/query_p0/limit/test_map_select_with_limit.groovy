@@ -36,9 +36,6 @@ suite("test_map_select_with_limit", "query") {
             """
     // prepare data
     sql """ INSERT INTO ${testTable} VALUES (100, {1: "amory", 2: "is", 3: "better"}) """
-    // set topn_filter_limit_threshold = 1024 to make sure _internal_service to be request with proto request
-    sql """ set topn_filter_limit_threshold = 1024 """
-
     explain{
         sql("select * from ${testTable} order by k1 limit 1")
         contains "TOPN"

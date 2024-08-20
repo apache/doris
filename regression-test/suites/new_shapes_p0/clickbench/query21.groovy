@@ -27,7 +27,7 @@ suite("query21") {
     sql 'set enable_fallback_to_original_planner=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
-    sql 'set topn_filter_limit_threshold = 1024'
+    
     def ckBench = """SELECT COUNT(*) FROM hits WHERE URL LIKE '%google%'"""
     qt_ckbench_shape_21 """
     explain shape plan

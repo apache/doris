@@ -27,7 +27,7 @@ suite("query36") {
     sql 'set enable_fallback_to_original_planner=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
-    sql 'set topn_filter_limit_threshold = 1024'
+    
     def ckBench = """SELECT ClientIP, ClientIP - 1, ClientIP - 2, ClientIP - 3, COUNT(*) AS c FROM hits GROUP BY ClientIP, ClientIP - 1, ClientIP - 2, ClientIP - 3 ORDER BY c DESC LIMIT 10"""
     qt_ckbench_shape_36 """
     explain shape plan

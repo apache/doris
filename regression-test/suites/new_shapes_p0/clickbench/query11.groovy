@@ -27,7 +27,7 @@ suite("query11") {
     sql 'set enable_fallback_to_original_planner=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
-    sql 'set topn_filter_limit_threshold = 1024'
+    
     def ckBench = """SELECT MobilePhoneModel, COUNT(DISTINCT UserID) AS u FROM hits WHERE MobilePhoneModel <> '' GROUP BY MobilePhoneModel ORDER BY u DESC LIMIT 10"""
     qt_ckbench_shape_11 """
     explain shape plan
