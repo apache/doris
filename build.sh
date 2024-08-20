@@ -202,7 +202,7 @@ else
             shift
             ;;
         --index-tool)
-            BUILD_INDEX_TOOL='ON'
+            BUILD_INDEX_TOOL='OFF'
             shift
             ;;
         --spark-dpp)
@@ -263,7 +263,7 @@ else
         BUILD_CLOUD=1
         BUILD_BROKER=1
         BUILD_META_TOOL='ON'
-        BUILD_INDEX_TOOL='ON'
+        BUILD_INDEX_TOOL='OFF'
         BUILD_SPARK_DPP=1
         BUILD_HIVE_UDF=1
         BUILD_BE_JAVA_EXTENSIONS=1
@@ -678,11 +678,11 @@ function build_ui() {
 }
 
 # FE UI must be built before building FE
-if [[ "${BUILD_FE}" -eq 1 ]]; then
-    if [[ "${BUILD_UI}" -eq 1 ]]; then
-        build_ui
-    fi
-fi
+#if [[ "${BUILD_FE}" -eq 1 ]]; then
+#    if [[ "${BUILD_UI}" -eq 1 ]]; then
+#        build_ui
+#    fi
+#fi
 
 # Clean and build Frontend
 if [[ "${FE_MODULES}" != '' ]]; then
