@@ -28,7 +28,7 @@ PhysicalResultSink
 ----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((my_customers.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF3 c_current_addr_sk->[ca_address_sk]
 ------------------------------------------------PhysicalProject
 --------------------------------------------------PhysicalOlapScan[customer_address] apply RFs: RF3 RF4 RF5
-------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------------------PhysicalProject
 ----------------------------------------------------hashAgg[GLOBAL]
 ------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
