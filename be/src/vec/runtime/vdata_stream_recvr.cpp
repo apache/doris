@@ -48,7 +48,6 @@ VDataStreamRecvr::SenderQueue::SenderQueue(
         : _recvr(parent_recvr),
           _is_cancelled(false),
           _num_remaining_senders(num_senders),
-          _received_first_batch(false),
           _local_channel_dependency(local_channel_dependency) {
     _cancel_status = Status::OK();
     _queue_mem_tracker = std::make_unique<MemTracker>("local data queue mem tracker");
@@ -89,8 +88,6 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block
         *eos = true;
         return Status::OK();
     }
-
-    _received_first_batch = true;
 
     DCHECK(!_block_queue.empty());
     auto [next_block, block_byte_size] = std::move(_block_queue.front());
