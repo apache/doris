@@ -159,8 +159,8 @@ OrdinalPageIndexIterator OrdinalIndexReader::seek_at_or_before(ordinal_t ordinal
 OrdinalIndexReader::~OrdinalIndexReader() {
     if (_ordinals.size() > 0) {
         g_ordinal_index_memory_bytes << -sizeof(*this) - _ordinals.size() * sizeof(ordinal_t) -
-                                            _pages.size() * sizeof(PagePointer) -
-                                            sizeof(OrdinalIndexReader);
+                                                _pages.size() * sizeof(PagePointer) -
+                                                sizeof(OrdinalIndexReader);
     }
 }
 
