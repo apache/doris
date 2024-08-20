@@ -3135,9 +3135,18 @@ public class StmtExecutor {
                 while (true) {
                     batch = coord.getNext();
                     if (batch == null || batch.isEos()) {
+                        LOG.info("Result rows for query {} is {}", DebugUtil.printId(queryId), resultRows.size());
                         return resultRows;
                     } else {
+                        if (LOG.isDebugEnabled() && batch.getBatch() != null && batch.getBatch().rows != null) {
+                            LOG.debug("Batch size for query {} is {}",
+                                    DebugUtil.printId(queryId), batch.getBatch().rows.size());
+                        }
                         resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Result size for query {} is currently {}",
+                                    DebugUtil.printId(queryId), resultRows.size());
+                        }
                     }
                 }
             } catch (Exception e) {
