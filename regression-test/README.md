@@ -19,6 +19,7 @@ under the License.
 
 # 新加case注意事项
 
+
 ## 常规 case
 1. 变量名前要写 def，否则是全局变量，并行跑的 case 的时候可能被其他 case 影响。
 

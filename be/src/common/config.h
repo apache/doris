@@ -105,7 +105,7 @@ DECLARE_Int32(arrow_flight_sql_port);
 // If ADBC client cannot access the backend ip, can set public_access_ip to modify the fetch result ip.
 DECLARE_mString(public_access_ip);
 
-// the number of bthreads for brpc, the default value is set to -1,
+// the number of bthreads for brpc, default value is set to -1,
 // which means the number of bthreads is #cpu-cores
 DECLARE_Int32(brpc_num_threads);
 DECLARE_Int32(brpc_idle_timeout_sec);
