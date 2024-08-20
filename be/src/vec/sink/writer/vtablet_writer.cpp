@@ -568,8 +568,10 @@ static void injection_full_gc_fn() {
 
 int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
                                             std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
-    DBUG_EXECUTE_IF("VNodeChannel.try_send_and_fetch_status_full_gc",
-                    { std::thread t(injection_full_gc_fn); t.join(); });
+    DBUG_EXECUTE_IF("VNodeChannel.try_send_and_fetch_status_full_gc", {
+        std::thread t(injection_full_gc_fn);
+        t.join();
+    });
 
     if (_cancelled || _send_finished) { // not run
         return 0;
@@ -896,8 +898,10 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
 }
 
 Status VNodeChannel::close_wait(RuntimeState* state) {
-    DBUG_EXECUTE_IF("VNodeChannel.close_wait_full_gc",
-                    { std::thread t(injection_full_gc_fn); t.join(); });
+    DBUG_EXECUTE_IF("VNodeChannel.close_wait_full_gc", {
+        std::thread t(injection_full_gc_fn);
+        t.join();
+    });
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
 
     auto st = none_of({_cancelled, !_eos_is_produced});
