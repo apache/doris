@@ -14,24 +14,27 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#pragma once
 
-#include <gen_cpp/HeartbeatService_types.h>
-#include <gen_cpp/Types_types.h>
-
-#include <ctime>
-
-namespace doris {
-
-struct FrontendInfo {
-    TFrontendInfo info;
-    std::time_t first_receiving_time_ms;
-    std::time_t last_reveiving_time_ms;
-};
-
-struct FrontendAddrAndRunningQueries {
-    TNetworkAddress frontend_addr;
-    std::set<TUniqueId> running_queries;
-};
-
-} // namespace doris
+suite("test_backup_restore", "connectivity_failed") {
+    def name = "test_name"
+    def bucket = "useless_bucket"
+    def prefix = "useless_prefix"
+    def endpoint = getS3Endpoint()
+    def region = getS3Region()
+    def ak = getS3AK()
+    def sk = getS3SK()
+    expectExceptionLike({
+        sql """
+            CREATE REPOSITORY `${name}`
+            WITH S3
+            ON LOCATION "s3://${bucket}/${prefix}/${name}"
+            PROPERTIES
+            (
+                "s3.endpoint" = "http://${endpoint}",
+                "s3.region" = "${region}",
+                "s3.access_key" = "${ak}",
+                "s3.secret_key" = "${sk}"
+            )
+            """
+    }, "Failed to create repository")
+}

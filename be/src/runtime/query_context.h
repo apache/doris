@@ -61,6 +61,16 @@ struct ReportStatusRequest {
     std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
 };
 
+enum class QuerySource {
+    INTERNAL_FRONTEND,
+    STREAM_LOAD,
+    GROUP_COMMIT_LOAD,
+    ROUTINE_LOAD,
+    EXTERNAL_CONNECTOR
+};
+
+const std::string toString(QuerySource query_source);
+
 // Save the common components of fragments in a query.
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
@@ -71,7 +81,7 @@ class QueryContext {
 public:
     QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
                  const TQueryOptions& query_options, TNetworkAddress coord_addr, bool is_pipeline,
-                 bool is_nereids, TNetworkAddress current_connect_fe);
+                 bool is_nereids, TNetworkAddress current_connect_fe, QuerySource query_type);
 
     ~QueryContext();
 
@@ -352,6 +362,14 @@ private:
     std::mutex _weighted_mem_lock;
     int64_t _weighted_consumption = 0;
     int64_t _weighted_limit = 0;
+    timespec _query_arrival_timestamp;
+    // Distinguish the query source, for query that comes from fe, we will have some memory structure on FE to
+    // help us manage the query.
+    QuerySource _query_source;
+
+public:
+    timespec get_query_arrival_timestamp() const { return this->_query_arrival_timestamp; }
+    QuerySource get_query_source() const { return this->_query_source; }
 };
 
 } // namespace doris
