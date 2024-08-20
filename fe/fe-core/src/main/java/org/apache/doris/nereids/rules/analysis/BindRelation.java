@@ -215,8 +215,16 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     unboundRelation.getTableSample());
             }
         }
+        return checkAndAddDeleteSignFilter(scan, ConnectContext.get(), (OlapTable) table);
+    }
+
+    /**
+     * Add delete sign filter on olap scan if need.
+     */
+    public static LogicalPlan checkAndAddDeleteSignFilter(LogicalOlapScan scan, ConnectContext connectContext,
+            OlapTable olapTable) {
         if (!Util.showHiddenColumns() && scan.getTable().hasDeleteSign()
-                && !ConnectContext.get().getSessionVariable().skipDeleteSign()) {
+                && !connectContext.getSessionVariable().skipDeleteSign()) {
             // table qualifier is catalog.db.table, we make db.table.column
             Slot deleteSlot = null;
             for (Slot slot : scan.getOutput()) {
@@ -227,7 +235,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             }
             Preconditions.checkArgument(deleteSlot != null);
             Expression conjunct = new EqualTo(new TinyIntLiteral((byte) 0), deleteSlot);
-            if (!((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
+            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
                 scan = scan.withPreAggStatus(PreAggStatus.off(
                         Column.DELETE_SIGN + " is used as conjuncts."));
             }
