@@ -103,7 +103,7 @@ public class Profile {
     private long queryFinishTimestamp = Long.MAX_VALUE;
     private Map<Integer, String> planNodeMap = Maps.newHashMap();
     private int profileLevel = MergedProfileLevel;
-    private long autoProfileDurationMs = 500;
+    private long autoProfileDurationMs = -1;
     // Profile size is the size of profile file
     private long profileSize = 0;
 
@@ -419,7 +419,7 @@ public class Profile {
                 builder.append("\n MergedProfile \n");
                 this.executionProfiles.get(0).getAggregatedFragmentsProfile(planNodeMap).prettyPrint(builder, "     ");
             } catch (Throwable aggProfileException) {
-                LOG.warn("build merged simple profile failed", aggProfileException);
+                LOG.warn("build merged simple profile {} failed", this.id, aggProfileException);
                 builder.append("build merged simple profile failed");
             }
         }
@@ -463,6 +463,11 @@ public class Profile {
 
         // below is the case where query has finished
         boolean hasReportingProfile = false;
+
+        if (this.executionProfiles.isEmpty()) {
+            LOG.warn("Profile {} has no execution profile, it is abnormal", id);
+            return false;
+        }
 
         for (ExecutionProfile executionProfile : executionProfiles) {
             if (!executionProfile.isCompleted()) {
@@ -624,5 +629,21 @@ public class Profile {
 
     public long getProfileSize() {
         return this.profileSize;
+    }
+
+    public boolean shouldBeRemoveFromMemory() {
+        if (!this.isQueryFinished) {
+            return false;
+        }
+
+        if (this.profileHasBeenStored()) {
+            return false;
+        }
+
+        if (this.queryFinishTimestamp - this.summaryProfile.getQueryBeginTime() >= autoProfileDurationMs) {
+            return false;
+        }
+
+        return true;
     }
 }

@@ -51,11 +51,17 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.antlr.v4.runtime.ParserRuleContext;
+import org.springframework.util.CollectionUtils;
 
+import java.util.Map;
 import java.util.Optional;
 
 /**LogicalPlanBuilderForCreateView*/
 public class LogicalPlanBuilderForCreateView extends LogicalPlanBuilder {
+    public LogicalPlanBuilderForCreateView(Map<Integer, ParserRuleContext> selectHintMap) {
+        super(selectHintMap);
+    }
+
     @Override
     protected LogicalPlan withGenerate(LogicalPlan plan, LateralViewContext ctx) {
         ConnectContext.get().getStatementContext().addIndexInSqlToString(
@@ -100,7 +106,7 @@ public class LogicalPlanBuilderForCreateView extends LogicalPlanBuilder {
                 aggClause, havingClause);
         SelectColumnClauseContext selectColumnCtx = selectClause.selectColumnClause();
         if ((!aggClause.isPresent() || isRepeat(aggClause.get())) && havingClause.isPresent()
-                && selectColumnCtx.EXCEPT() != null
+                && !CollectionUtils.isEmpty(selectColumnCtx.exceptOrReplace())
                 && plan instanceof LogicalHaving && plan.child(0) instanceof LogicalProject) {
             LogicalHaving<LogicalProject<Plan>> having = (LogicalHaving) plan;
             LogicalProject<Plan> project = having.child();
@@ -118,7 +124,8 @@ public class LogicalPlanBuilderForCreateView extends LogicalPlanBuilder {
     protected LogicalPlan withProjection(LogicalPlan input, SelectColumnClauseContext selectCtx,
             Optional<AggClauseContext> aggCtx, boolean isDistinct) {
         LogicalPlan plan = super.withProjection(input, selectCtx, aggCtx, isDistinct);
-        if (!aggCtx.isPresent() && selectCtx.EXCEPT() != null && plan instanceof LogicalProject) {
+        if (!aggCtx.isPresent() && !CollectionUtils.isEmpty(selectCtx.exceptOrReplace())
+                && plan instanceof LogicalProject) {
             LogicalProject<Plan> project = (LogicalProject) plan;
             UnboundStar star = (UnboundStar) project.getProjects().get(0);
             star = star.withIndexInSql(Pair.of(selectCtx.start.getStartIndex(), selectCtx.stop.getStopIndex()));

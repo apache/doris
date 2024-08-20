@@ -388,11 +388,11 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     public void readFields(DataInput in) throws IOException {
         int count = in.readInt();
         for (int i = 0; i < count; i++) {
-            PrimitiveType type = PrimitiveType.valueOf(Text.readString(in));
+            PrimitiveType type = PrimitiveType.valueOf(Text.readString(in).toUpperCase());
             boolean isMax = in.readBoolean();
             if (type == PrimitiveType.NULL_TYPE) {
                 String realType = StringLiteral.read(in).getStringValue();
-                type = PrimitiveType.valueOf(realType);
+                type = PrimitiveType.valueOf(realType.toUpperCase());
                 types.add(type);
                 keys.add(NullLiteral.create(Type.fromPrimitiveType(type)));
                 continue;

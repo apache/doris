@@ -84,7 +84,10 @@ suite("test_primary_key_partial_update_seq_col_delete", "p0") {
 
             sql "sync"
             qt_partial_update_without_seq_hidden_columns """
-                select * from ${tableName} order by id;
+                select id, name, score, test, dft, update_time, __DORIS_DELETE_SIGN__, __DORIS_VERSION_COL__,
+                       __DORIS_SEQUENCE_COL__
+                from ${tableName}
+                order by id;
             """
 
             sql "SET show_hidden_columns=false"
@@ -114,7 +117,10 @@ suite("test_primary_key_partial_update_seq_col_delete", "p0") {
             sql "sync"
 
             qt_partial_update_with_seq_hidden_columns """
-                select * from ${tableName} order by id;
+                select id, name, score, test, dft, update_time, __DORIS_DELETE_SIGN__, __DORIS_VERSION_COL__,
+                       __DORIS_SEQUENCE_COL__
+                from ${tableName}
+                order by id;
             """
 
             // drop drop

@@ -17,6 +17,10 @@
 
 
 suite("test_index_lowercase_fault_injection", "nonConcurrent") {
+    if (isCloudMode()) {
+        return;
+    }
+
     // define a sql table
     def testTable = "httplogs_lowercase"
 

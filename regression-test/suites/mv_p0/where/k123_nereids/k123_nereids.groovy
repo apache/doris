@@ -49,148 +49,56 @@ suite ("k123p_nereids") {
     qt_select_star "select * from d_table order by k1;"
 
     sql "analyze table d_table with sync;"
-    sql """set enable_stats=false;"""
 
-    explain {
-        sql("select k1,k2+k3 from d_table order by k1;")
-        contains "(d_table)"
-    }
+    mv_rewrite_all_fail("select k1,k2+k3 from d_table order by k1;")
+    
     qt_select_mv "select k1,k2+k3 from d_table order by k1;"
 
-    explain {
-        sql("select k1,k2+k3 from d_table where k1 = 1 order by k1;")
-        contains "(k123p1w)"
-    }
+    mv_rewrite_success("select k1,k2+k3 from d_table where k1 = 1 order by k1;",
+        "k123p1w")
+    
     qt_select_mv "select k1,k2+k3 from d_table where k1 = 1 order by k1;"
 
-    explain {
-        sql("select k1,k2+k3 from d_table where k1 = 2 order by k1;")
-        contains "(d_table)"
-    }
+    mv_rewrite_all_fail("select k1,k2+k3 from d_table where k1 = 2 order by k1;")
+    
     qt_select_mv "select k1,k2+k3 from d_table where k1 = 2 order by k1;"
 
-    explain {
-        sql("select k1,k2+k3 from d_table where k1 = '1' order by k1;")
-        contains "(k123p1w)"
-    }
+    mv_rewrite_success("select k1,k2+k3 from d_table where k1 = '1' order by k1;", "k123p1w")
+
     qt_select_mv "select k1,k2+k3 from d_table where k1 = '1' order by k1;"
 
-    explain {
-        sql("select k1,k2+k3 from d_table where k4 = 'b' order by k1;")
-        contains "(k123p4w)"
-    }
+    mv_rewrite_success("select k1,k2+k3 from d_table where k4 = 'b' order by k1;", "k123p4w")
+        
     qt_select_mv "select k1,k2+k3 from d_table where k4 = 'b' order by k1;"
 
-    explain {
-        sql("select k1,k2+k3 from d_table where k4 = 'a' order by k1;")
-        contains "(d_table)"
-    }
+    mv_rewrite_all_fail("select k1,k2+k3 from d_table where k4 = 'a' order by k1;")
+        
     qt_select_mv "select k1,k2+k3 from d_table where k4 = 'a' order by k1;"
 
-    explain {
-        sql("""select k1,k2+k3 from d_table where k1 = 2 and k4 = "b";""")
-        contains "(k123p4w)"
-    }
+    mv_rewrite_success("""select k1,k2+k3 from d_table where k1 = 2 and k4 = "b";""", "k123p4w")
+
     qt_select_mv """select k1,k2+k3 from d_table where k1 = 2 and k4 = "b" order by k1;"""
 
     qt_select_mv_constant """select bitmap_empty() from d_table where true;"""
 
-    explain {
-        sql("select k2 from d_table where k1=1 and (k1>2 or k1 < 0) order by k2;")
-        contains "(d_table)"
-    }
+    mv_rewrite_all_fail("select k2 from d_table where k1=1 and (k1>2 or k1 < 0) order by k2;")
+    
     qt_select_mv "select k2 from d_table where k1=1 and (k1>2 or k1 < 0) order by k2;"
 
-    explain {
-        sql("select k2 from d_table where k1>10 order by k2;")
-        contains "(kwh2)"
-    }
+    mv_rewrite_success("select k2 from d_table where k1>10 order by k2;", "kwh2")
 
-    explain {
-        sql("select k2 from d_table where k1>10 or k2 = 0 order by k2;")
-        contains "(d_table)"
-    }
+    mv_rewrite_all_fail("select k2 from d_table where k1>10 or k2 = 0 order by k2;")
 
-    explain {
-        sql("select k2 from d_table where k1=1 and (k2>2 or k2<0) order by k2;")
-        contains "(kwh1)"
-    }
+    mv_rewrite_success("select k2 from d_table where k1=1 and (k2>2 or k2<0) order by k2;", "kwh1")
+    
     qt_select_mv "select k2 from d_table where k1=1 and (k2>2 or k2<0) order by k2;"
 
-    explain {
-        sql("select k2,k1=1 from d_table where k1=1 order by k2;")
-        contains "(kwh1)"
-    }
+    mv_rewrite_success("select k2,k1=1 from d_table where k1=1 order by k2;", "kwh1")
+    
     qt_select_mv "select k2,k1=1 from d_table where k1=1 order by k2;"
 
-    explain {
-        sql("select k2,k1=2 from d_table where k1=1 order by k2;")
-        contains "(d_table)"
-    }
+    mv_rewrite_all_fail("select k2,k1=2 from d_table where k1=1 order by k2;")
+    
     qt_select_mv "select k2,k1=2 from d_table where k1=1 order by k2;"
 
-    sql """set enable_stats=true;"""
-    explain {
-        sql("select k1,k2+k3 from d_table order by k1;")
-        contains "(d_table)"
-    }
-
-    explain {
-        sql("select k1,k2+k3 from d_table where k1 = 1 order by k1;")
-        contains "(k123p1w)"
-    }
-
-    explain {
-        sql("select k1,k2+k3 from d_table where k1 = 2 order by k1;")
-        contains "(d_table)"
-    }
-
-    explain {
-        sql("select k1,k2+k3 from d_table where k1 = '1' order by k1;")
-        contains "(k123p1w)"
-    }
-
-    explain {
-        sql("select k1,k2+k3 from d_table where k4 = 'b' order by k1;")
-        contains "(k123p4w)"
-    }
-
-    explain {
-        sql("select k1,k2+k3 from d_table where k4 = 'a' order by k1;")
-        contains "(d_table)"
-    }
-
-    explain {
-        sql("""select k1,k2+k3 from d_table where k1 = 2 and k4 = "b";""")
-        contains "(k123p4w)"
-    }
-
-    explain {
-        sql("select k2 from d_table where k1=1 and (k1>2 or k1 < 0) order by k2;")
-        contains "(d_table)"
-    }
-
-    explain {
-        sql("select k2 from d_table where k1>10 order by k2;")
-        contains "(kwh2)"
-    }
-
-    explain {
-        sql("select k2 from d_table where k1>10 or k2 = 0 order by k2;")
-        contains "(d_table)"
-    }
-
-    explain {
-        sql("select k2 from d_table where k1=1 and (k2>2 or k2<0) order by k2;")
-        contains "(kwh1)"
-    }
-
-    explain {
-        sql("select k2,k1=1 from d_table where k1=1 order by k2;")
-        contains "(kwh1)"
-    }
-
-    explain {
-        sql("select k2,k1=2 from d_table where k1=1 order by k2;")
-    }
 }

@@ -54,16 +54,16 @@ normal	20	50%	true	2147483647	0	0	1%	16
 test_group	10	11%	false	100	0	0	20%	-1
 
 -- !show_spill_1 --
-spill_group_test	1024	0%	true	2147483647	0	0	-1	-1	10%	10%
+spill_group_test	-1	0%	true	2147483647	0	0	-1	-1	10%	10%
 
 -- !show_spill_1 --
-spill_group_test	1024	0%	true	2147483647	0	0	-1	-1	-1	10%
+spill_group_test	-1	0%	true	2147483647	0	0	-1	-1	-1	10%
 
 -- !show_spill_2 --
-spill_group_test	1024	0%	true	2147483647	0	0	-1	-1	5%	10%
+spill_group_test	-1	0%	true	2147483647	0	0	-1	-1	5%	10%
 
 -- !show_spill_3 --
-spill_group_test	1024	0%	true	2147483647	0	0	-1	-1	5%	40%
+spill_group_test	-1	0%	true	2147483647	0	0	-1	-1	5%	40%
 
 -- !show_wg_tag --
 tag1_mem_wg1	50%	-1	mem_tag1

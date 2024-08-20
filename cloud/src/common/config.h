@@ -47,6 +47,11 @@ CONF_Int32(warn_log_filenum_quota, "1");
 CONF_Bool(log_immediate_flush, "false");
 CONF_Strings(log_verbose_modules, ""); // Comma seprated list: a.*,b.*
 CONF_Int32(log_verbose_level, "5");
+// Whether to use file to record log. When starting Cloud with --console,
+// all logs will be written to both standard output and file.
+// Disable this option will no longer use file to record log.
+// Only works when starting Cloud with --console.
+CONF_Bool(enable_file_logger, "true");
 
 // recycler config
 CONF_mInt64(recycle_interval_seconds, "3600");
