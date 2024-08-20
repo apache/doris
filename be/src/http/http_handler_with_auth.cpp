@@ -75,7 +75,12 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
         }
     }
 #else
-    CHECK(_exec_env == nullptr);
+    if (auth_request.user == "root" && auth_request.passwd.empty()) {
+        auth_result.status.status_code = TStatusCode::type::OK;
+        auth_result.status.error_msgs.clear();
+    } else {
+        return -1;
+    }
 #endif
     Status status(Status::create(auth_result.status));
     if (!status.ok()) {

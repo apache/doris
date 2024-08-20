@@ -239,13 +239,14 @@ Status HttpService::start() {
     ShrinkMemAction* shrink_mem_action = _pool.add(new ShrinkMemAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/shrink_mem", shrink_mem_action);
 
+#ifndef BE_TEST
     auto& engine = _env->storage_engine();
     if (config::is_cloud_mode()) {
         register_cloud_handler(engine.to_cloud());
     } else {
         register_local_handler(engine.to_local());
     }
-
+#endif
     _ev_http_server->start();
     return Status::OK();
 }
