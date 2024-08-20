@@ -560,7 +560,7 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
                          << const_col_wrapper->column_ptr->get_name();
             DCHECK_EQ(bool_column->size(), 1);
             if (bool_column->size() == 1) {
-                if (const_column->is_null_at(0) || !const_column->get_bool(0)) {
+                if (bool_column->is_null_at(0) || !bool_column->get_bool(0)) {
                     *pdt = PushDownType::ACCEPTABLE;
                     _eos = true;
                     _scan_dependency->set_ready();
