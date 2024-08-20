@@ -28,6 +28,7 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -46,6 +47,12 @@ struct FunctionFakeBaseImpl {
         }
         return std::make_shared<ReturnType>();
     }
+    static DataTypePtr get_variadic_argument_types() {
+        if constexpr (AlwaysNullable) {
+            return make_nullable(std::make_shared<ReturnType>());
+        }
+        return std::make_shared<ReturnType>();
+    }
     static std::string get_error_msg() { return "Fake function do not support execute"; }
 };
 
@@ -54,6 +61,9 @@ struct FunctionExplode {
         DCHECK(is_array(arguments[0])) << arguments[0]->get_name() << " not supported";
         return make_nullable(
                 check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type());
+    }
+    static DataTypePtr get_variadic_argument_types() {
+        return std::make_shared<DataTypeNothing>();
     }
     static std::string get_error_msg() { return "Fake function do not support execute"; }
 };
@@ -66,6 +76,9 @@ struct FunctionExplodeMap {
         fieldTypes[0] = check_and_get_data_type<DataTypeMap>(arguments[0].get())->get_key_type();
         fieldTypes[1] = check_and_get_data_type<DataTypeMap>(arguments[0].get())->get_value_type();
         return make_nullable(std::make_shared<vectorized::DataTypeStruct>(fieldTypes));
+    }
+    static DataTypePtr get_variadic_argument_types() {
+        return std::make_shared<DataTypeNothing>();
     }
     static std::string get_error_msg() { return "Fake function do not support execute"; }
 };
@@ -80,12 +93,18 @@ struct FunctionExplodeJsonObject {
         fieldTypes[1] = make_nullable(std::make_shared<DataTypeJsonb>());
         return make_nullable(std::make_shared<vectorized::DataTypeStruct>(fieldTypes));
     }
+    static DataTypePtr get_variadic_argument_types() {
+        return std::make_shared<DataTypeNothing>();
+    }
     static std::string get_error_msg() { return "Fake function do not support execute"; }
 };
 
 struct FunctionEsquery {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         return FunctionFakeBaseImpl<DataTypeUInt8>::get_return_type_impl(arguments);
+    }
+    static DataTypePtr get_variadic_argument_types() {
+        return std::make_shared<DataTypeNothing>();
     }
     static std::string get_error_msg() { return "esquery only supported on es table"; }
 };
@@ -133,6 +152,7 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_function_expand_outer_default<DataTypeString>(factory,
                                                                  "explode_json_array_string");
     register_table_function_expand_outer_default<DataTypeJsonb>(factory, "explode_json_array_json");
+    register_table_function_expand_outer_default<DataTypeString>(factory, "explode_json_array_json");
     register_table_function_expand_outer_default<DataTypeFloat64>(factory,
                                                                   "explode_json_array_double");
     register_table_function_expand_outer_default<DataTypeInt64>(factory, "explode_bitmap");

@@ -37,7 +37,7 @@ import java.util.List;
 public class ExplodeJsonArrayJsonOuter extends TableGeneratingFunction implements UnaryExpression, PropagateNullable {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(JsonType.INSTANCE).args(JsonType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(JsonType.INSTANCE)
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT)
     );
 
     /**
