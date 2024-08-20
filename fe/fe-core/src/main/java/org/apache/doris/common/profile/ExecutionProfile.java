@@ -41,7 +41,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -117,23 +116,23 @@ public class ExecutionProfile {
             List<List<RuntimeProfile>> allPipelines = Lists.newArrayList();
             int pipelineSize = -1;
             for (TNetworkAddress beAddress : multiPipeline.keySet()) {
-                List<RuntimeProfile> ProfileSingleBE = multiPipeline.get(beAddress);
+                List<RuntimeProfile> profileSingleBE = multiPipeline.get(beAddress);
                 // Check that within the same fragment across all BEs, there should be the same
                 // number of pipelines.
                 if (pipelineSize == -1) {
-                    pipelineSize = ProfileSingleBE.size();
+                    pipelineSize = profileSingleBE.size();
                 } else {
-                    if (pipelineSize != ProfileSingleBE.size()) {
+                    if (pipelineSize != profileSingleBE.size()) {
                         LOG.warn("The profile sizes of the two BE are different, {} vs {}", pipelineSize,
-                                ProfileSingleBE.size());
-                        pipelineSize = Math.max(pipelineSize, ProfileSingleBE.size());
+                                profileSingleBE.size());
+                        pipelineSize = Math.max(pipelineSize, profileSingleBE.size());
                     }
                 }
             }
             for (int pipelineIdx = 0; pipelineIdx < pipelineSize; pipelineIdx++) {
                 List<RuntimeProfile> allPipelineTask = new ArrayList<RuntimeProfile>();
-                for (List<RuntimeProfile> ProfileSingleBE : multiPipeline.values()) {
-                    RuntimeProfile pipeline = ProfileSingleBE.get(pipelineIdx);
+                for (List<RuntimeProfile> profileSingleBE : multiPipeline.values()) {
+                    RuntimeProfile pipeline = profileSingleBE.get(pipelineIdx);
                     for (Pair<RuntimeProfile, Boolean> pipelineTaskProfile : pipeline.getChildList()) {
                         allPipelineTask.add(pipelineTaskProfile.first);
                     }
