@@ -2468,9 +2468,7 @@ private:
 
             return false;
         };
-        LOG_INFO("from_type: {}, to_type: {}", from_type->get_name(), to_type->get_name());
-        LOG_INFO("from_type_id : {}, to_type_id : {}", from_type->get_type_id(),
-                 to_type->get_type_id());
+
         if (call_on_index_and_data_type<void>(to_type->get_type_id(), make_default_wrapper)) {
             return ret;
         }
