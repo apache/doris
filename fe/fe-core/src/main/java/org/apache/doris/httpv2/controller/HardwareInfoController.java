@@ -20,6 +20,8 @@ package org.apache.doris.httpv2.controller;
 import org.apache.doris.common.Version;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -51,6 +53,8 @@ import java.util.Map;
 @RequestMapping("/rest/v1")
 public class HardwareInfoController {
 
+    private static final Logger LOG = LogManager.getLogger(HardwareInfoController.class);
+
     @RequestMapping(path = "/hardware_info/fe", method = RequestMethod.GET)
     public Object index() {
         Map<String, Map<String, String>> map = new HashMap<>();
@@ -69,21 +73,27 @@ public class HardwareInfoController {
     }
 
     private void appendHardwareInfo(Map<String, Map<String, String>> content) {
-        SystemInfo si = new SystemInfo();
-        OperatingSystem os = si.getOperatingSystem();
-        HardwareAbstractionLayer hal = si.getHardware();
-        CentralProcessor processor = hal.getProcessor();
-        GlobalMemory memory = hal.getMemory();
         Map<String, String> map = new HashMap<>();
-        map.put("OS", String.join("<br>", getOperatingSystem(os)));
-        map.put("Processor", String.join("<br>", getProcessor(processor)));
-        map.put("Memory", String.join("<br>", getMemory(memory)));
-        map.put("Processes", String.join("<br>", getProcesses(os, memory)));
-        map.put("Disk", String.join("<br>", getDisks(hal.getDiskStores())));
-        map.put("FileSystem", String.join("<br>", getFileSystem(os.getFileSystem())));
-        map.put("NetworkInterface", String.join("<br>", getNetworkInterfaces(hal.getNetworkIFs())));
-        map.put("NetworkParameter", String.join("<br>", getNetworkParameters(os.getNetworkParams())));
+        try {
+            SystemInfo si = new SystemInfo();
+            OperatingSystem os = si.getOperatingSystem();
+            HardwareAbstractionLayer hal = si.getHardware();
+            CentralProcessor processor = hal.getProcessor();
+            GlobalMemory memory = hal.getMemory();
+
+            map.put("OS", String.join("<br>", getOperatingSystem(os)));
+            map.put("Processor", String.join("<br>", getProcessor(processor)));
+            map.put("Memory", String.join("<br>", getMemory(memory)));
+            map.put("Processes", String.join("<br>", getProcesses(os, memory)));
+            map.put("Disk", String.join("<br>", getDisks(hal.getDiskStores())));
+            map.put("FileSystem", String.join("<br>", getFileSystem(os.getFileSystem())));
+            map.put("NetworkInterface", String.join("<br>", getNetworkInterfaces(hal.getNetworkIFs())));
+            map.put("NetworkParameter", String.join("<br>", getNetworkParameters(os.getNetworkParams())));
+        } catch (Exception e) {
+            LOG.info("Failed to get hardware info", e);
+        }
         content.put("HardwareInfo", map);
+
     }
 
     private List<String> getOperatingSystem(OperatingSystem os) {
