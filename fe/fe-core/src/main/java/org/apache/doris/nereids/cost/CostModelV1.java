@@ -26,6 +26,7 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -196,6 +197,15 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalProject(PhysicalProject<? extends Plan> physicalProject, PlanContext context) {
+        boolean trival = true;
+        for (Expression expr : physicalProject.getProjects()) {
+            if (!(expr instanceof Alias && expr.child(0) instanceof SlotReference)) {
+                trival = false;
+            }
+        }
+        if (trival) {
+            return CostV1.zero();
+        }
         double exprCost = expressionTreeCost(physicalProject.getProjects());
         return CostV1.ofCpu(context.getSessionVariable(), exprCost + 1);
     }

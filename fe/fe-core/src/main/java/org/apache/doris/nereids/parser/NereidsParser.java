@@ -36,6 +36,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
@@ -273,26 +274,56 @@ public class NereidsParser {
                         Function<DorisParser, ParserRuleContext> parseFunction) {
         ParserRuleContext tree = toAst(sql, parseFunction);
         LogicalPlanBuilder realLogicalPlanBuilder = logicalPlanBuilder == null
-                    ? new LogicalPlanBuilder() : logicalPlanBuilder;
+                    ? new LogicalPlanBuilder(getHintMap(sql, DorisParser::selectHint)) : logicalPlanBuilder;
         return (T) realLogicalPlanBuilder.visit(tree);
     }
 
     public LogicalPlan parseForCreateView(String sql) {
         ParserRuleContext tree = toAst(sql, DorisParser::singleStatement);
-        LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForCreateView();
+        LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForCreateView(
+                getHintMap(sql, DorisParser::selectHint));
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
     }
 
     public Optional<String> parseForSyncMv(String sql) {
         ParserRuleContext tree = toAst(sql, DorisParser::singleStatement);
-        LogicalPlanBuilderForSyncMv logicalPlanBuilderForSyncMv = new LogicalPlanBuilderForSyncMv();
+        LogicalPlanBuilderForSyncMv logicalPlanBuilderForSyncMv = new LogicalPlanBuilderForSyncMv(
+                getHintMap(sql, DorisParser::selectHint));
         logicalPlanBuilderForSyncMv.visit(tree);
         return logicalPlanBuilderForSyncMv.getQuerySql();
+    }
+
+    /** get hint map */
+    public static Map<Integer, ParserRuleContext> getHintMap(String sql,
+                                                             Function<DorisParser, ParserRuleContext> parseFunction) {
+        // parse hint first round
+        DorisLexer hintLexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+        hintLexer.setChannel2(true);
+        CommonTokenStream hintTokenStream = new CommonTokenStream(hintLexer);
+
+        Map<Integer, ParserRuleContext> selectHintMap = Maps.newHashMap();
+
+        Token hintToken = hintTokenStream.getTokenSource().nextToken();
+        while (hintToken != null && hintToken.getType() != DorisLexer.EOF) {
+            int tokenType = hintToken.getType();
+            if (tokenType == DorisLexer.HINT_WITH_CHANNEL) {
+                String hintSql = sql.substring(hintToken.getStartIndex(), hintToken.getStopIndex() + 1);
+                DorisLexer newHintLexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(hintSql)));
+                newHintLexer.setChannel2(false);
+                CommonTokenStream newHintTokenStream = new CommonTokenStream(newHintLexer);
+                DorisParser hintParser = new DorisParser(newHintTokenStream);
+                ParserRuleContext hintContext = parseFunction.apply(hintParser);
+                selectHintMap.put(hintToken.getStartIndex(), hintContext);
+            }
+            hintToken = hintTokenStream.getTokenSource().nextToken();
+        }
+        return selectHintMap;
     }
 
     /** toAst */
     public static ParserRuleContext toAst(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
         DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+        lexer.setChannel2(true);
         CommonTokenStream tokenStream = new CommonTokenStream(lexer);
         DorisParser parser = new DorisParser(tokenStream);
 

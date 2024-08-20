@@ -251,7 +251,7 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
         _inflight_cnt++;
 
         RETURN_IF_ERROR(exec_env->fragment_mgr()->exec_plan_fragment(
-                plan, [this, plan](RuntimeState* state, Status* status) {
+                plan, QuerySource::ROUTINE_LOAD, [this, plan](RuntimeState* state, Status* status) {
                     DCHECK(state);
                     auto pair = _planned_tables.find(plan.table_name);
                     if (pair == _planned_tables.end()) {

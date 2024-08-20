@@ -94,6 +94,12 @@ struct PartitionedRowIdxs {
 
 using PartitionedBlock = std::pair<std::shared_ptr<BlockWrapper>, PartitionedRowIdxs>;
 
+struct RowRange {
+    uint32_t offset_start;
+    size_t length;
+};
+using BroadcastBlock = std::pair<std::shared_ptr<BlockWrapper>, RowRange>;
+
 template <typename BlockType>
 struct BlockQueue {
     std::atomic<bool> eos = false;
@@ -304,12 +310,11 @@ private:
     std::vector<std::atomic_int64_t> _queues_mem_usege;
 };
 
-class BroadcastExchanger final : public Exchanger<BlockWrapperSPtr> {
+class BroadcastExchanger final : public Exchanger<BroadcastBlock> {
 public:
     ENABLE_FACTORY_CREATOR(BroadcastExchanger);
     BroadcastExchanger(int running_sink_operators, int num_partitions, int free_block_limit)
-            : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions,
-                                          free_block_limit) {
+            : Exchanger<BroadcastBlock>(running_sink_operators, num_partitions, free_block_limit) {
         _data_queue.resize(num_partitions);
     }
     ~BroadcastExchanger() override = default;

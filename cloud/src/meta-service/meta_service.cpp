@@ -1010,6 +1010,12 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
               << " txn_id " << request->txn_id();
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
+        if (err == TxnErrorCode::TXN_VALUE_TOO_LARGE) {
+            LOG(WARNING) << "failed to prepare rowset, err=value too large"
+                         << ", txn_id=" << request->txn_id() << ", tablet_id=" << tablet_id
+                         << ", rowset_id=" << rowset_id
+                         << ", rowset_meta=" << rowset_meta.ShortDebugString();
+        }
         code = cast_as<ErrCategory::COMMIT>(err);
         msg = fmt::format("failed to save recycle rowset, err={}", err);
         return;
@@ -1139,6 +1145,12 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
               << request->txn_id();
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
+        if (err == TxnErrorCode::TXN_VALUE_TOO_LARGE) {
+            LOG(WARNING) << "failed to commit rowset, err=value too large"
+                         << ", txn_id=" << request->txn_id() << ", tablet_id=" << tablet_id
+                         << ", rowset_id=" << rowset_id
+                         << ", rowset_meta=" << rowset_meta.ShortDebugString();
+        }
         code = cast_as<ErrCategory::COMMIT>(err);
         ss << "failed to save rowset meta, err=" << err;
         msg = ss.str();

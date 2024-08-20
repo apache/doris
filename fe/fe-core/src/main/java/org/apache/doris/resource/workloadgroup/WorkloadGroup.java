@@ -479,7 +479,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                     row.add(val + "%");
                 }
             } else if (CPU_SHARE.equals(key) && !properties.containsKey(key)) {
-                row.add("1024");
+                row.add("-1");
             } else if (MEMORY_LIMIT.equals(key) && !properties.containsKey(key)) {
                 row.add("0%");
             } else if (ENABLE_MEMORY_OVERCOMMIT.equals(key) && !properties.containsKey(key)) {

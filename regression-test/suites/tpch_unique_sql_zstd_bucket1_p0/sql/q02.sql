@@ -1,6 +1,6 @@
 -- tables: part,supplier,partsupp,nation,region
 
-SELECT /*+ SET_VAR(enable_local_shuffle=false) */
+SELECT
   s_acctbal,
   s_name,
   n_name,

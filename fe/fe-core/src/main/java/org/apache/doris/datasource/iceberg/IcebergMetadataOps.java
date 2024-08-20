@@ -108,7 +108,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             }
         }
         nsCatalog.createNamespace(Namespace.of(dbName), properties);
-        dorisCatalog.onRefresh(true);
+        dorisCatalog.onRefreshCache(true);
     }
 
     @Override
@@ -124,7 +124,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
         SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
         nsCatalog.dropNamespace(Namespace.of(dbName));
-        dorisCatalog.onRefresh(true);
+        dorisCatalog.onRefreshCache(true);
     }
 
     @Override
