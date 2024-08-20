@@ -34,10 +34,10 @@
 
 namespace doris::vectorized {
 
-template <typename ParserImpl, bool parse_nested>
-bool JSONDataParser<ParserImpl, parse_nested>::extract_key(MutableColumns& columns, StringRef json,
-                                                           const std::vector<StringRef>& keys,
-                                                           const std::vector<ExtractType>& types) {
+template <typename ParserImpl>
+bool JSONDataParser<ParserImpl>::extract_key(MutableColumns& columns, StringRef json,
+                                             const std::vector<StringRef>& keys,
+                                             const std::vector<ExtractType>& types) {
     assert(types.size() == keys.size());
     assert(columns.size() >= keys.size());
     Element document;
@@ -70,9 +70,9 @@ bool JSONDataParser<ParserImpl, parse_nested>::extract_key(MutableColumns& colum
     return true;
 }
 
-template <typename ParserImpl, bool parse_nested>
-std::optional<ParseResult> JSONDataParser<ParserImpl, parse_nested>::parse(
-        const char* begin, size_t length, const ParseConfig& config) {
+template <typename ParserImpl>
+std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, size_t length,
+                                                             const ParseConfig& config) {
     std::string_view json {begin, length};
     Element document;
     if (!parser.parse(json, document)) {
@@ -90,15 +90,15 @@ std::optional<ParseResult> JSONDataParser<ParserImpl, parse_nested>::parse(
     return result;
 }
 
-template <typename ParserImpl, bool parse_nested>
-void JSONDataParser<ParserImpl, parse_nested>::traverse(const Element& element, ParseContext& ctx) {
+template <typename ParserImpl>
+void JSONDataParser<ParserImpl>::traverse(const Element& element, ParseContext& ctx) {
     // checkStackSize();
     if (element.isObject()) {
         traverseObject(element.getObject(), ctx);
     } else if (element.isArray()) {
         has_nested = false;
         checkHasNested(element);
-        if (has_nested && !parse_nested && !ctx.enable_flatten_nested) {
+        if (has_nested && !ctx.enable_flatten_nested) {
             // Parse nested arrays to JsonbField
             JsonbWriter writer;
             traverseArrayAsJsonb(element.getArray(), writer);
@@ -113,9 +113,8 @@ void JSONDataParser<ParserImpl, parse_nested>::traverse(const Element& element, 
         ctx.values.push_back(getValueAsField(element));
     }
 }
-template <typename ParserImpl, bool parse_nested>
-void JSONDataParser<ParserImpl, parse_nested>::traverseObject(const JSONObject& object,
-                                                              ParseContext& ctx) {
+template <typename ParserImpl>
+void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseContext& ctx) {
     ctx.paths.reserve(ctx.paths.size() + object.size());
     ctx.values.reserve(ctx.values.size() + object.size());
     for (auto it = object.begin(); it != object.end(); ++it) {
@@ -126,8 +125,8 @@ void JSONDataParser<ParserImpl, parse_nested>::traverseObject(const JSONObject& 
     }
 }
 
-template <typename ParserImpl, bool parse_nested>
-void JSONDataParser<ParserImpl, parse_nested>::checkHasNested(const Element& element) {
+template <typename ParserImpl>
+void JSONDataParser<ParserImpl>::checkHasNested(const Element& element) {
     if (element.isArray()) {
         const JSONArray& array = element.getArray();
         for (auto it = array.begin(); it != array.end(); ++it) {
@@ -139,9 +138,8 @@ void JSONDataParser<ParserImpl, parse_nested>::checkHasNested(const Element& ele
     }
 }
 
-template <typename ParserImpl, bool parse_nested>
-void JSONDataParser<ParserImpl, parse_nested>::traverseAsJsonb(const Element& element,
-                                                               JsonbWriter& writer) {
+template <typename ParserImpl>
+void JSONDataParser<ParserImpl>::traverseAsJsonb(const Element& element, JsonbWriter& writer) {
     if (element.isObject()) {
         traverseObjectAsJsonb(element.getObject(), writer);
     } else if (element.isArray()) {
@@ -151,9 +149,9 @@ void JSONDataParser<ParserImpl, parse_nested>::traverseAsJsonb(const Element& el
     }
 }
 
-template <typename ParserImpl, bool parse_nested>
-void JSONDataParser<ParserImpl, parse_nested>::traverseObjectAsJsonb(const JSONObject& object,
-                                                                     JsonbWriter& writer) {
+template <typename ParserImpl>
+void JSONDataParser<ParserImpl>::traverseObjectAsJsonb(const JSONObject& object,
+                                                       JsonbWriter& writer) {
     writer.writeStartObject();
     for (auto it = object.begin(); it != object.end(); ++it) {
         const auto& [key, value] = *it;
@@ -163,9 +161,8 @@ void JSONDataParser<ParserImpl, parse_nested>::traverseObjectAsJsonb(const JSONO
     writer.writeEndObject();
 }
 
-template <typename ParserImpl, bool parse_nested>
-void JSONDataParser<ParserImpl, parse_nested>::traverseArrayAsJsonb(const JSONArray& array,
-                                                                    JsonbWriter& writer) {
+template <typename ParserImpl>
+void JSONDataParser<ParserImpl>::traverseArrayAsJsonb(const JSONArray& array, JsonbWriter& writer) {
     writer.writeStartArray();
     for (auto it = array.begin(); it != array.end(); ++it) {
         traverseAsJsonb(*it, writer);
@@ -173,9 +170,8 @@ void JSONDataParser<ParserImpl, parse_nested>::traverseArrayAsJsonb(const JSONAr
     writer.writeEndArray();
 }
 
-template <typename ParserImpl, bool parse_nested>
-void JSONDataParser<ParserImpl, parse_nested>::traverseArray(const JSONArray& array,
-                                                             ParseContext& ctx) {
+template <typename ParserImpl>
+void JSONDataParser<ParserImpl>::traverseArray(const JSONArray& array, ParseContext& ctx) {
     /// Traverse elements of array and collect an array of fields by each path.
     ParseArrayContext array_ctx;
     array_ctx.total_size = array.size();
@@ -199,9 +195,9 @@ void JSONDataParser<ParserImpl, parse_nested>::traverseArray(const JSONArray& ar
         }
     }
 }
-template <typename ParserImpl, bool parse_nested>
-void JSONDataParser<ParserImpl, parse_nested>::traverseArrayElement(const Element& element,
-                                                                    ParseArrayContext& ctx) {
+template <typename ParserImpl>
+void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
+                                                      ParseArrayContext& ctx) {
     ParseContext element_ctx;
     traverse(element, element_ctx);
     auto& [_, paths, values, flatten_nested] = element_ctx;
@@ -272,8 +268,8 @@ void JSONDataParser<ParserImpl, parse_nested>::traverseArrayElement(const Elemen
     }
 }
 
-template <typename ParserImpl, bool parse_nested>
-void JSONDataParser<ParserImpl, parse_nested>::fillMissedValuesInArrays(ParseArrayContext& ctx) {
+template <typename ParserImpl>
+void JSONDataParser<ParserImpl>::fillMissedValuesInArrays(ParseArrayContext& ctx) {
     for (auto it = ctx.arrays_by_path.begin(); it != ctx.arrays_by_path.end(); ++it) {
         auto& [path, path_array] = it->second;
         assert(path_array.size() == ctx.current_size || path_array.size() == ctx.current_size + 1);
@@ -286,9 +282,10 @@ void JSONDataParser<ParserImpl, parse_nested>::fillMissedValuesInArrays(ParseArr
     }
 }
 
-template <typename ParserImpl, bool parse_nested>
-bool JSONDataParser<ParserImpl, parse_nested>::tryInsertDefaultFromNested(
-        ParseArrayContext& ctx, const PathInData::Parts& path, Array& array) {
+template <typename ParserImpl>
+bool JSONDataParser<ParserImpl>::tryInsertDefaultFromNested(ParseArrayContext& ctx,
+                                                            const PathInData::Parts& path,
+                                                            Array& array) {
     /// If there is a collected size of current Nested
     /// then insert array of this size as a default value.
     if (path.empty() || array.empty()) {
@@ -315,9 +312,9 @@ bool JSONDataParser<ParserImpl, parse_nested>::tryInsertDefaultFromNested(
     return true;
 }
 
-template <typename ParserImpl, bool parse_nested>
-StringRef JSONDataParser<ParserImpl, parse_nested>::getNameOfNested(const PathInData::Parts& path,
-                                                                    const Field& value) {
+template <typename ParserImpl>
+StringRef JSONDataParser<ParserImpl>::getNameOfNested(const PathInData::Parts& path,
+                                                      const Field& value) {
     if (value.get_type() != Field::Types::Array || path.empty()) {
         return {};
     }
@@ -335,6 +332,5 @@ StringRef JSONDataParser<ParserImpl, parse_nested>::getNameOfNested(const PathIn
     return {};
 }
 
-template class JSONDataParser<SimdJSONParser, true>;
-template class JSONDataParser<SimdJSONParser, false>;
+template class JSONDataParser<SimdJSONParser>;
 } // namespace doris::vectorized

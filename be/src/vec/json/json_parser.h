@@ -124,7 +124,7 @@ enum class ExtractType {
 struct ParseConfig {
     bool enable_flatten_nested = false;
 };
-template <typename ParserImpl, bool parse_nested = false>
+template <typename ParserImpl>
 class JSONDataParser {
 public:
     using Element = typename ParserImpl::Element;

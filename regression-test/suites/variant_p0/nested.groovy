@@ -75,6 +75,7 @@ suite("regression_test_variant_nested", "p0,nonConcurrent"){
             insert into var_nested values (27, '{"nested" : {"nested": [{"yyyxxxx" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}}');
             insert into var_nested values (28, '{"nested" : {"nested": [{"yyyxxxx" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}, "not nested" : 1024, "not nested2" : {"llll" : 123}}');
         """
+        sql """select * from var_nested limit 1"""
         sql """set describe_extend_variant_column = true"""
         qt_sql """DESC var_nested"""
         qt_sql """

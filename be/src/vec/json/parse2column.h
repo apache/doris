@@ -28,12 +28,12 @@ namespace doris::vectorized {
 
 class SimdJSONParser;
 enum class ExtractType;
-template <typename ParserImpl, bool>
+template <typename ParserImpl>
 class JSONDataParser;
 template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
-using JsonParser = JSONDataParser<SimdJSONParser, false>;
+using JsonParser = JSONDataParser<SimdJSONParser>;
 
 // parse a batch of json strings into column object, throws doris::Execption when failed
 void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column,
