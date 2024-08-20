@@ -256,7 +256,10 @@ Status DataTypeNumberSerDe<T>::_write_column_to_mysql(const IColumn& column,
     int buf_ret = 0;
     auto& data = assert_cast<const ColumnType&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
-    if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, UInt8>) {
+    if constexpr (std::is_same_v<T, UInt8>) {
+        DCHECK(data[col_index] == 0 || data[col_index] == 1);
+        buf_ret = result.push_tinyint(static_cast<bool>(data[col_index]));
+    } else if constexpr (std::is_same_v<T, Int8>) {
         buf_ret = result.push_tinyint(data[col_index]);
     } else if constexpr (std::is_same_v<T, Int16> || std::is_same_v<T, UInt16>) {
         buf_ret = result.push_smallint(data[col_index]);

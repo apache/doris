@@ -417,29 +417,33 @@ struct ConvertImpl {
                         }
                     }
                 }
+            } else if constexpr (IsDataTypeNumber<FromDataType> &&
+                                 std::is_same_v<ToDataType, DataTypeTimeV2>) {
+                // 300 -> 00:03:00  360 will be parse failed , so value maybe null
+                ColumnUInt8::MutablePtr col_null_map_to;
+                ColumnUInt8::Container* vec_null_map_to = nullptr;
+                col_null_map_to = ColumnUInt8::create(size);
+                vec_null_map_to = &col_null_map_to->get_data();
+                for (size_t i = 0; i < size; ++i) {
+                    (*vec_null_map_to)[i] = !TimeCast::try_parse_time(
+                            vec_from[i], vec_to[i], context->state()->timezone_obj());
+                    vec_to[i] *= (1000 * 1000);
+                }
+                block.get_by_position(result).column =
+                        ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
+                return Status::OK();
+            } else if constexpr (std::is_same_v<ToDataType, DataTypeUInt8>) {
+                for (size_t i = 0; i < size; ++i) {
+                    vec_to[i] = static_cast<bool>(vec_from[i]);
+                }
             } else {
-                if constexpr (IsDataTypeNumber<FromDataType> &&
-                              std::is_same_v<ToDataType, DataTypeTimeV2>) {
-                    // 300 -> 00:03:00  360 will be parse failed , so value maybe null
-                    ColumnUInt8::MutablePtr col_null_map_to;
-                    ColumnUInt8::Container* vec_null_map_to = nullptr;
-                    col_null_map_to = ColumnUInt8::create(size);
-                    vec_null_map_to = &col_null_map_to->get_data();
-                    for (size_t i = 0; i < size; ++i) {
-                        (*vec_null_map_to)[i] = !TimeCast::try_parse_time(
-                                vec_from[i], vec_to[i], context->state()->timezone_obj());
-                        vec_to[i] *= (1000 * 1000);
-                    }
-                    block.get_by_position(result).column =
-                            ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
-                    return Status::OK();
-                } else {
-                    for (size_t i = 0; i < size; ++i) {
-                        vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
-                    }
+                for (size_t i = 0; i < size; ++i) {
+                    vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
                 }
             }
+
             // TODO: support boolean cast more reasonable
+            // NOTE: Maybe not needed.
             if constexpr (std::is_same_v<uint8_t, ToFieldType>) {
                 for (int i = 0; i < size; ++i) {
                     vec_to[i] = static_cast<bool>(vec_to[i]);
@@ -2464,7 +2468,9 @@ private:
 
             return false;
         };
-
+        LOG_INFO("from_type: {}, to_type: {}", from_type->get_name(), to_type->get_name());
+        LOG_INFO("from_type_id : {}, to_type_id : {}", from_type->get_type_id(),
+                 to_type->get_type_id());
         if (call_on_index_and_data_type<void>(to_type->get_type_id(), make_default_wrapper)) {
             return ret;
         }

@@ -469,7 +469,12 @@ void convert_from_decimals(RealTo* dst, const RealFrom* src, UInt32 precicion_fr
                                                          OrigToDataType {}.get_name());
             }
         }
-        dst[i] = tmp;
+
+        if constexpr (std::is_same_v<OrigToDataType, DataTypeUInt8>) {
+            dst[i] = static_cast<bool>(tmp);
+        } else {
+            dst[i] = tmp;
+        }
     }
 }
 
@@ -495,6 +500,8 @@ void convert_decimal_cols(
 
     FromDataType from_data_type(precision_from, scale_from);
     ToDataType to_data_type(precision_to, scale_to);
+    LOG_INFO("ToDataType {}, precicion_to {}, scale_to {}", to_data_type.get_name(), precision_to,
+             scale_to);
     auto max_result = DataTypeDecimal<ToFieldType>::get_max_digits_number(precision_to);
     if (scale_to > scale_from) {
         const MaxNativeType multiplier =
@@ -525,6 +532,7 @@ void convert_decimal_cols(
                                 to_data_type.get_name());
                     }
                 }
+                LOG_INFO("res {}", res);
                 vec_to[i] = ToFieldType(res);
             }
         }
