@@ -190,11 +190,14 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
                     RangeMap<ColumnBound, UniqueId> filtered = singleColumnRangeMap.subRangeMap(filter);
 
                     filtered.asMapOfRanges().forEach((range, partID) -> {
-                        partitionCol2PartitionID.get(partitionCol.getName())
-                                .asMapOfRanges()
-                                .computeIfAbsent(range, k -> Lists.newArrayList())
-                                .add(partID.getPartitionId());
-
+                        RangeMap<ColumnBound, List<Long>> rangeMap =
+                                partitionCol2PartitionID.get(partitionCol.getName());
+                        List<Long> partitionIds = rangeMap.get(range.lowerEndpoint());
+                        if (partitionIds == null) {
+                            partitionIds = Lists.newArrayList();
+                            rangeMap.put(range, partitionIds);
+                        }
+                        partitionIds.add(partID.getPartitionId());
                         resultPartID.add(partID.getPartitionId());
                     });
                 });

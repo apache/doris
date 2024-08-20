@@ -737,6 +737,7 @@ public class OlapScanNode extends ScanNode {
         switch (distributionInfo.getType()) {
             case HASH: {
                 HashDistributionInfo info = (HashDistributionInfo) distributionInfo;
+                distributionKeys2TabletID.clear();
                 distributionPruner =
                         new HashDistributionPruner(table.getTabletIdsInOrder(),
                         info.getDistributionColumns(),

@@ -64,7 +64,6 @@ import org.apache.thrift.TException;
 // import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -89,8 +88,6 @@ public class PointQueryExecutor implements CoordInterface {
     private List<Long> snapshotVisibleVersions;
 
     private final ShortCircuitQueryContext shortCircuitQueryContext;
-
-    HashMap<Backend, InternalService.PTabletBatchKeyLookupRequest> beToReq;
 
     Map<Long, Set<Long>> backendId2TabletIds;
 
@@ -139,8 +136,6 @@ public class PointQueryExecutor implements CoordInterface {
         if (scanNode.getScanTabletIds().isEmpty()) {
             return;
         }
-        // Preconditions.checkState(scanNode.getScanTabletIds().size() == 1);
-        // this.tabletID = scanNode.getScanTabletIds().get(0);
         this.distributionKeys2TabletID = scanNode.getDistributionKeys2TabletID();
         this.partitionCol2PartitionID = scanNode.getPartitionCol2PartitionID();
         this.tabletIDs = scanNode.getScanTabletIds();
@@ -251,10 +246,6 @@ public class PointQueryExecutor implements CoordInterface {
         }
     }
 
-    /*
-     * a in (?,?,?,?) and b in (?,?,?)
-     * conjunctVals: [1, 2, 3, 4, 5, 6, 7]
-     */
     private static void updateScanNodeConjuncts(OlapScanNode scanNode, List<Expr> conjunctVals) {
         List<Expr> conjuncts = scanNode.getConjuncts();
         Map<Class<? extends Expr>, ConjunctHandler> handlers = Maps.newHashMap();
@@ -286,11 +277,11 @@ public class PointQueryExecutor implements CoordInterface {
     void getAllKeyTupleCombination(List<Expr> conjuncts, int index,
                         List<String> currentKeyTuple,   // current key tuple
                         List<List<String>> result,
-                        List<String> columnExpr) {
+                        List<String> columnExpr,
+                        List<Column> keyColumns) {
         if (index == conjuncts.size()) {
             List<String> orderedKeyTuple = new ArrayList<>(currentKeyTuple.size());
             OlapTable olapTable = shortCircuitQueryContext.scanNode.getOlapTable();
-            List<Column> keyColumns = olapTable.getBaseSchemaKeyColumns();
 
             // add key tuple in keys order
             for (Column column : keyColumns) {
@@ -302,12 +293,13 @@ public class PointQueryExecutor implements CoordInterface {
                     Lists.newArrayList(distributionKeyColumns.stream().map((idx) -> {
                         return orderedKeyTuple.get(idx);
                     }).collect(Collectors.toList()));
-
             result.add(Lists.newArrayList(orderedKeyTuple));
             Set<Long> tabletIDs = Sets.newHashSet();
             for (PartitionKey key : distributionKeys2TabletID.keySet()) {
-                List<String> distributionKeys =
-                        key.getKeys().stream().map(LiteralExpr::getStringValue).collect(Collectors.toList());
+                List<String> distributionKeys = Lists.newArrayList();
+                for (LiteralExpr expr : key.getKeys()) {
+                    distributionKeys.add(expr.getStringValue());
+                }
                 if (distributionKeys.equals(keyTupleForDistributionPrune)) {
                     tabletIDs.addAll(distributionKeys2TabletID.get(key));
                     break;
@@ -348,12 +340,12 @@ public class PointQueryExecutor implements CoordInterface {
             Expr right = predicate.getChild(1);
             SlotRef columnSlot = left.unwrapSlotRef();
             if (left instanceof SlotRef && ((SlotRef) left).getColumnName().equalsIgnoreCase(Column.DELETE_SIGN)) {
-                getAllKeyTupleCombination(conjuncts, index + 1, currentKeyTuple, result, columnExpr);
+                getAllKeyTupleCombination(conjuncts, index + 1, currentKeyTuple, result, columnExpr, keyColumns);
                 return;
             }
             columnExpr.add(columnSlot.getColumnName());
             currentKeyTuple.add(right.getStringValue());
-            getAllKeyTupleCombination(conjuncts, index + 1, currentKeyTuple, result, columnExpr);
+            getAllKeyTupleCombination(conjuncts, index + 1, currentKeyTuple, result, columnExpr, keyColumns);
             currentKeyTuple.remove(currentKeyTuple.size() - 1);
             columnExpr.remove(columnExpr.size() - 1);
         } else if (expr instanceof InPredicate) {
@@ -365,7 +357,7 @@ public class PointQueryExecutor implements CoordInterface {
             columnExpr.add(columnSlot.getColumnName());
             for (int i = 1; i < inPredicate.getChildren().size(); ++i) {
                 currentKeyTuple.add(inPredicate.getChild(i).getStringValue());
-                getAllKeyTupleCombination(conjuncts, index + 1, currentKeyTuple, result, columnExpr);
+                getAllKeyTupleCombination(conjuncts, index + 1, currentKeyTuple, result, columnExpr, keyColumns);
                 currentKeyTuple.remove(currentKeyTuple.size() - 1);
             }
             columnExpr.remove(columnExpr.size() - 1);
@@ -393,14 +385,13 @@ public class PointQueryExecutor implements CoordInterface {
         requestBuilder.addKeyTuples(kBuilder);
     }
 
-    List<List<String>> addAllKeyTuples() {
+    List<List<String>> addAllKeyTuples(List<Column> keyColumns) {
         List<Expr> conjuncts = shortCircuitQueryContext.scanNode.getConjuncts();
         List<List<String>> keyTuples = Lists.newArrayList();
         if (keyTupleID2TabletID == null) {
             keyTupleID2TabletID = Lists.newArrayList();
         }
-        List<String> columnExpr = Lists.newArrayList();
-        getAllKeyTupleCombination(conjuncts, 0, new ArrayList<>(), keyTuples, columnExpr);
+        getAllKeyTupleCombination(conjuncts, 0, new ArrayList<>(), keyTuples, Lists.newArrayList(), keyColumns);
         Preconditions.checkState(keyTuples.size() == keyTupleID2TabletID.size());
         return keyTuples;
     }
@@ -419,8 +410,9 @@ public class PointQueryExecutor implements CoordInterface {
             return new RowBatch();
         }
         OlapTable olapTable = shortCircuitQueryContext.scanNode.getOlapTable();
-        for (int i = 0; i < olapTable.getBaseSchemaKeyColumns().size(); ++i) {
-            Column column = olapTable.getBaseSchemaKeyColumns().get(i);
+        List<Column> keyColumns = olapTable.getBaseSchemaKeyColumns();
+        for (int i = 0; i < keyColumns.size(); ++i) {
+            Column column = keyColumns.get(i);
             if (olapTable.isDistributionColumn(column.getName())) {
                 distributionKeyColumns.add(i);
             } else if (olapTable.isPartitionColumn(column.getName())) {
@@ -432,7 +424,7 @@ public class PointQueryExecutor implements CoordInterface {
         int tryCount = 0;
         int maxTry = Math.min(Config.max_point_query_retry_time, candidateBackends.size());
         Status status = new Status();
-        this.allKeyTuples = addAllKeyTuples();
+        this.allKeyTuples = addAllKeyTuples(keyColumns);
         TResultBatch resultBatch = new TResultBatch();
         resultBatch.setRows(Lists.newArrayList());
         List<byte[]> batchSerialResult = Lists.newArrayList();
@@ -447,7 +439,8 @@ public class PointQueryExecutor implements CoordInterface {
                 break;
             }
         } while (backendIter.hasNext());
-
+        distributionKeys2TabletID.clear();
+        partitionCol2PartitionID.clear();
         // todo: maybe there is a better way
         if (!batchSerialResult.isEmpty()) {
             TDeserializer deserializer = new TDeserializer(
@@ -470,6 +463,7 @@ public class PointQueryExecutor implements CoordInterface {
             rowBatch.setBatch(resultBatch);
         }
         rowBatch.setEos(true);
+
         // handle status code
         if (!status.ok()) {
             if (Strings.isNullOrEmpty(status.getErrorMsg())) {
@@ -498,7 +492,6 @@ public class PointQueryExecutor implements CoordInterface {
     }
 
     private List<byte[]> batchGetNext(Status status, Backend backend) throws TException {
-        // RowBatch rowBatch = new RowBatch();
         TResultBatch resultBatch = new TResultBatch();
         List<byte[]> result = Lists.newArrayList();
         resultBatch.setRows(Lists.newArrayList());
@@ -558,7 +551,7 @@ public class PointQueryExecutor implements CoordInterface {
                 return null;
             }
             try {
-                // todo: 统一get
+                // todo: get the result asynchrously
                 pBatchResult = futureBatchResponse.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
             } catch (InterruptedException e) {
                 // continue to get result
@@ -598,11 +591,8 @@ public class PointQueryExecutor implements CoordInterface {
                 status.updateStatus(resultStatus.getErrorCode(), resultStatus.getErrorMsg());
                 return null;
             }
-            // byte[] serialResult = new byte[0];
             if (subResponse.hasEmptyBatch() && subResponse.getEmptyBatch()) {
                 LOG.debug("get empty rowbatch");
-                // status.updateStatus(TStatusCode.OK, "");
-                // ++resultCount;
                 continue;
             } else if (subResponse.hasRowBatch() && subResponse.getRowBatch().size() > 0) {
                 byte[] serialResult = subResponse.getRowBatch().toByteArray();

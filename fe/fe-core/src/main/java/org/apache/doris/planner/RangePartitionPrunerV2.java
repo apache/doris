@@ -66,6 +66,16 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
 
     public static <C extends Comparable<C>> Range<C> buildRange(C lowerBound, BoundType lowerBoundType,
                                                                 C upperBound, BoundType upperBoundType) {
+        if (lowerBound.compareTo(upperBound) > 0) {
+            // swap
+            C temp = lowerBound;
+            lowerBound = upperBound;
+            upperBound = temp;
+
+            BoundType tempBoundType = lowerBoundType;
+            lowerBoundType = upperBoundType;
+            upperBoundType = tempBoundType;
+        }
         if (lowerBoundType == BoundType.CLOSED && upperBoundType == BoundType.OPEN) {
             // [lowerBound, upperBound)
             return Range.closedOpen(lowerBound, upperBound);
