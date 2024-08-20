@@ -125,7 +125,6 @@ suite("smoke_test_create_index_1", "smoke"){
                 registDate datetime NULL,
                 studentInfo char(100),
                 tearchComment string,
-                INDEX age_idx_1(age) USING BITMAP COMMENT 'age index',
                 INDEX age_idx_2(age) USING INVERTED COMMENT 'age index'
             )
             DUPLICATE KEY(`name`)
@@ -135,13 +134,10 @@ suite("smoke_test_create_index_1", "smoke"){
 
     def show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
-    assertEquals(show_result.size(), 2)
-    assertEquals(show_result[0][2], "age_idx_1")
-    assertEquals(show_result[1][2], "age_idx_2")
+    assertEquals(show_result.size(), 1)
+    assertEquals(show_result[0][2], "age_idx_2")
     
     // drop index
-    sql "drop index age_idx_1 on ${indexTbName1}"
-    wait_for_latest_op_on_table_finish(indexTbName1, timeout)
     sql "drop index age_idx_2 on ${indexTbName1}"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
     show_result = sql "show index from ${indexTbName1}"
@@ -160,6 +156,7 @@ suite("smoke_test_create_index_1", "smoke"){
     } catch(Exception ex) {
         logger.info("create duplicate same index for one colume with same name, result: " + ex)
     }
+    assertEquals(create_dup_index_result, "fail")
 
     // case 2.2: create duplicate same index for one colume with different name
     try {
@@ -168,6 +165,7 @@ suite("smoke_test_create_index_1", "smoke"){
     } catch(Exception ex) {
         logger.info("create duplicate same index for one colume with different name, result: " + ex)
     }
+    assertEquals(create_dup_index_result, "fail")
 
     // case 2.3: create duplicate different index for one colume with same name
     try {
@@ -176,14 +174,10 @@ suite("smoke_test_create_index_1", "smoke"){
     } catch(Exception ex) {
         logger.info("create duplicate different index for one colume with same name, result: " + ex)
     }
-
-    // 2.4: create duplicate different index for one colume with different name
-    sql "create index age_idx_2 on ${indexTbName1}(`age`) using bitmap"
-    wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+    assertEquals(create_dup_index_result, "fail")
 
     show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
-    assertEquals(show_result.size(), 2)
+    assertEquals(show_result.size(), 1)
     assertEquals(show_result[0][2], "age_idx")
-    assertEquals(show_result[1][2], "age_idx_2")
 }

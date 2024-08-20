@@ -90,20 +90,20 @@ suite("smoke_test_add_drop_index", "smoke"){
         logger.info("create same duplicate with different name index,  result: " + ex)
     }
     assertEquals(create_dup_index_result, "fail")
+    // bitmap is inverted index since doris-3.0.1
     // case1.3 create duplicate different index for one colume with different name
-    sql "create index age_idx_diff on ${indexTbName1}(`age`) using bitmap"
-    wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-    show_result = sql "show index from ${indexTbName1}"
-    logger.info("show index from " + indexTbName1 + " result: " + show_result)
-    assertEquals(show_result[1][2], "age_idx_diff")
+    // sql "create index age_idx_diff on ${indexTbName1}(`age`) using bitmap"
+    // wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+    // show_result = sql "show index from ${indexTbName1}"
+    // logger.info("show index from " + indexTbName1 + " result: " + show_result)
+    // assertEquals(show_result[1][2], "age_idx_diff")
     
     // case1.4 drop index
     def drop_result = sql """
                           ALTER TABLE ${indexTbName1}
-                              drop index age_idx,
-                              drop index age_idx_diff;
+                              drop index age_idx;
                       """
-    logger.info("drop index age_idx and age_idx_diff on " + indexTbName1 + "; result: " + drop_result)
+    logger.info("drop index age_idx on " + indexTbName1 + "; result: " + drop_result)
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
     show_result = sql "show index from ${indexTbName1}"
     assertEquals(show_result.size(), 0)

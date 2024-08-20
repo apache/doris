@@ -9,7 +9,7 @@ k6	varchar(1)	Yes	false	\N	NONE
 k7	date	Yes	false	\N	NONE
 k8	datetime	Yes	false	\N	NONE
 k9	largeint	Yes	false	\N	NONE
-k10	decimal(38, 9)	Yes	false	\N	NONE
+k10	decimal(38,9)	Yes	false	\N	NONE
 k11	boolean	Yes	false	\N	NONE
 k12	date	Yes	false	\N	NONE
 k13	datetime	Yes	false	\N	NONE
@@ -29,7 +29,7 @@ k6	varchar(1)	Yes	true	\N
 k7	date	Yes	true	\N	
 k8	datetime	Yes	true	\N	
 k9	largeint	Yes	true	\N	
-k10	decimal(38, 9)	Yes	true	\N	
+k10	decimal(38,9)	Yes	true	\N	
 k11	boolean	Yes	true	\N	
 k12	date	Yes	true	\N	
 k13	datetime	Yes	true	\N	
@@ -50,7 +50,7 @@ k6	varchar(1)	Yes	true	\N
 k7	date	Yes	true	\N	
 k8	datetime	Yes	true	\N	
 k9	largeint	Yes	true	\N	
-k10	decimal(38, 9)	Yes	true	\N	
+k10	decimal(38,9)	Yes	true	\N	
 k11	boolean	Yes	true	\N	
 k12	date	Yes	false	\N	NONE
 k13	datetime	Yes	false	\N	NONE
