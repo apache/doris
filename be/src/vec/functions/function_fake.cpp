@@ -28,7 +28,6 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_map.h"
-#include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -54,7 +53,7 @@ struct FunctionFakeBaseImpl {
             }
             return {std::make_shared<ReturnType>()};
         } else {
-            return DataTypes();
+            return {};
         }
     }
     static std::string get_error_msg() { return "Fake function do not support execute"; }
