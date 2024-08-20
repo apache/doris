@@ -1030,7 +1030,7 @@ public class SessionVariable implements Serializable, Writable {
                 name = FORCE_TO_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
                 description = {"是否在pipelineX引擎上强制开启local shuffle优化",
                         "Whether to force to local shuffle on pipelineX engine."})
-    private boolean forceToLocalShuffle = true;
+    private boolean forceToLocalShuffle = false;
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_MERGE_SORT)
     private boolean enableLocalMergeSort = true;
