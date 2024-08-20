@@ -404,7 +404,7 @@ Status ParquetReader::set_fill_columns(
             return;
         } else if (VRuntimeFilterWrapper* runtime_filter =
                            typeid_cast<VRuntimeFilterWrapper*>(expr)) {
-            VExpr* filter_impl = const_cast<VExpr*>(runtime_filter->get_impl().get());
+            VExpr* filter_impl = runtime_filter->get_impl();
             if (VBloomPredicate* bloom_predicate = typeid_cast<VBloomPredicate*>(filter_impl)) {
                 for (auto& child : bloom_predicate->children()) {
                     visit_slot(child.get());

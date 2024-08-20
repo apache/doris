@@ -227,6 +227,8 @@ Status ScanLocalState<Derived>::_normalize_predicate(
     auto in_predicate_checker = [](const vectorized::VExprSPtrs& children,
                                    std::shared_ptr<vectorized::VSlotRef>& slot,
                                    vectorized::VExprSPtr& child_contains_slot) {
+        // Some expressions are like cast(colA as type) = some value, so the cast needs to be removed.
+        // The same applies below.
         if (children.empty() || vectorized::VExpr::expr_without_cast(children[0])->node_type() !=
                                         TExprNodeType::SLOT_REF) {
             // not a slot ref(column)
@@ -234,6 +236,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(
         }
         slot = std::dynamic_pointer_cast<vectorized::VSlotRef>(
                 vectorized::VExpr::expr_without_cast(children[0]));
+        CHECK(slot != nullptr);
         child_contains_slot = children[0];
         return true;
     };
@@ -257,9 +260,8 @@ Status ScanLocalState<Derived>::_normalize_predicate(
 
     if (conjunct_expr_root != nullptr) {
         if (is_leaf(conjunct_expr_root)) {
-            auto impl = conjunct_expr_root->get_impl();
-            // If impl is not null, which means this a conjuncts from runtime filter.
-            auto cur_expr = impl ? impl.get() : conjunct_expr_root.get();
+            // If this expr is a RuntimeFilterWrapper, this method will return an underlying rf expression
+            auto* cur_expr = conjunct_expr_root->get_impl();
             bool _is_runtime_filter_predicate = _rf_vexpr_set.contains(conjunct_expr_root);
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
@@ -530,23 +532,23 @@ bool ScanLocalState<Derived>::_ignore_cast(SlotDescriptor* slot, vectorized::VEx
     return false;
 }
 
+// Used to handle constant expressions, such as '1 = 1' _eval_const_conjuncts does not handle cases like 'colA = 1'.
+// When a null value or false value is computed, considering that the conjuncts are connected by AND, an empty set can be returned immediately.
 template <typename Derived>
 Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
                                                       vectorized::VExprContext* expr_ctx,
                                                       PushDownType* pdt) {
-    char* constant_val = nullptr;
     if (vexpr->is_constant()) {
         std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         RETURN_IF_ERROR(vexpr->get_const_col(expr_ctx, &const_col_wrapper));
-        if (const vectorized::ColumnConst* const_column =
+        if (const auto* const_column =
                     check_and_get_column<vectorized::ColumnConst>(const_col_wrapper->column_ptr)) {
-            constant_val = const_cast<char*>(const_column->get_data_at(0).data);
-            if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
+            if (const_column->is_null_at(0) || !const_column->get_bool(0)) {
                 *pdt = PushDownType::ACCEPTABLE;
                 _eos = true;
                 _scan_dependency->set_ready();
             }
-        } else if (const vectorized::ColumnVector<vectorized::UInt8>* bool_column =
+        } else if (const auto* bool_column =
                            check_and_get_column<vectorized::ColumnVector<vectorized::UInt8>>(
                                    const_col_wrapper->column_ptr)) {
             // TODO: If `vexpr->is_constant()` is true, a const column is expected here.
@@ -558,8 +560,7 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
                          << const_col_wrapper->column_ptr->get_name();
             DCHECK_EQ(bool_column->size(), 1);
             if (bool_column->size() == 1) {
-                constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
-                if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
+                if (const_column->is_null_at(0) || !const_column->get_bool(0)) {
                     *pdt = PushDownType::ACCEPTABLE;
                     _eos = true;
                     _scan_dependency->set_ready();

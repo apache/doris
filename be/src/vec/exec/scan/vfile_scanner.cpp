@@ -181,13 +181,10 @@ Status VFileScanner::_process_conjuncts_for_dict_filter() {
     _slot_id_to_filter_conjuncts.clear();
     _not_single_slot_filter_conjuncts.clear();
     for (auto& conjunct : _push_down_conjuncts) {
-        auto impl = conjunct->root()->get_impl();
-        // If impl is not null, which means this a conjuncts from runtime filter.
-        auto cur_expr = impl ? impl : conjunct->root();
-
+        auto* cur_expr = conjunct->root()->get_impl();
         std::vector<int> slot_ids;
-        _get_slot_ids(cur_expr.get(), &slot_ids);
-        if (slot_ids.size() == 0) {
+        _get_slot_ids(cur_expr, &slot_ids);
+        if (slot_ids.empty()) {
             _not_single_slot_filter_conjuncts.emplace_back(conjunct);
             return Status::OK();
         }

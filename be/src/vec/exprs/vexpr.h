@@ -225,7 +225,7 @@ public:
     }
 
     // If this expr is a RuntimeFilterWrapper, this method will return an underlying rf expression
-    virtual const VExprSPtr get_impl() const { return {}; }
+    virtual VExpr* get_impl() { return this; }
 
     // If this expr is a BloomPredicate, this method will return a BloomFilterFunc
     virtual std::shared_ptr<BloomFilterFuncBase> get_bloom_filter_func() const {

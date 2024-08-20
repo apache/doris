@@ -62,7 +62,7 @@ public:
     const std::string& expr_name() const override;
     const VExprSPtrs& children() const override { return _impl->children(); }
 
-    const VExprSPtr get_impl() const override { return _impl; }
+    VExpr* get_impl() override { return _impl.get(); }
 
     void attach_profile_counter(RuntimeProfile::Counter* expr_filtered_rows_counter,
                                 RuntimeProfile::Counter* expr_input_rows_counter,
