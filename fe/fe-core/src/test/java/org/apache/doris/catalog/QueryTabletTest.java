@@ -72,7 +72,7 @@ public class QueryTabletTest extends TestWithFeService {
 
     private Map<Long, Set<Long>> getAlivePathHashs() {
         Map<Long, Set<Long>> backendAlivePathHashs = Maps.newHashMap();
-        for (Backend backend : Env.getCurrentSystemInfo().getAllClusterBackendsNoException().values()) {
+        for (Backend backend : Env.getCurrentSystemInfo().getAllBackends()) {
             backendAlivePathHashs.put(backend.getId(), backend.getDisks().values().stream()
                     .filter(DiskInfo::isAlive).map(DiskInfo::getPathHash).collect(Collectors.toSet()));
         }
