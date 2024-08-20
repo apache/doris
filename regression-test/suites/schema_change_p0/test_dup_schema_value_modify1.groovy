@@ -56,7 +56,7 @@ suite("test_dup_schema_value_modify1", "p0") {
             "               (678901234, 'Frank', 1, 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
             "               (789012345, 'Grace', 0, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
 
-
+    def insertSql = ""
 
     /**
      *  Test the dup model by modify a value type from FLOAT to other type

@@ -17,7 +17,6 @@
 
 suite("test_dup_schema_value_modify4", "p0") {
     def tbName1 = "test_dup_model_value_change3"
-    def tbName2 = "test_dup_model_value_change_3"
 
     //Test the dup model by adding a value column
     sql """ DROP TABLE IF EXISTS ${tbName1} """
