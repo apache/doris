@@ -1128,7 +1128,7 @@ public class OlapScanNode extends ScanNode {
         Preconditions.checkState(scanBackendIds.size() == 0);
         Preconditions.checkState(scanTabletIds.size() == 0);
         Map<Long, Set<Long>> backendAlivePathHashs = Maps.newHashMap();
-        for (Backend backend : Env.getCurrentSystemInfo().getAllClusterBackendsNoException().values()) {
+        for (Backend backend : Env.getCurrentSystemInfo().getAllBackends()) {
             backendAlivePathHashs.put(backend.getId(), backend.getDisks().values().stream()
                     .filter(DiskInfo::isAlive).map(DiskInfo::getPathHash).collect(Collectors.toSet()));
         }
