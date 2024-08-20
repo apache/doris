@@ -44,7 +44,7 @@ struct UDTFImpl {
     static std::string get_error_msg() {
         return "UDTF function do not support this, it's should execute with lateral view.";
     }
-    static DataTypePtr get_variadic_argument_types() { return doris::vectorized::DataTypePtr(); }
+    static DataTypes get_variadic_argument_types() { return {}; }
 };
 
 // FunctionFake is use for some function call expr only work at prepare/open phase, do not support execute().
@@ -66,7 +66,7 @@ public:
     }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        return { Impl::get_variadic_argument_types() };
+        return Impl::get_variadic_argument_types();
     }
 
     bool use_default_implementation_for_nulls() const override {
