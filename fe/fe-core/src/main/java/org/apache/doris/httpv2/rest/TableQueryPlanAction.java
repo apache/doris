@@ -130,7 +130,7 @@ public class TableQueryPlanAction extends RestBaseController {
                         && ConnectContext.get().getSessionVariable() != null) {
                     // Disable some optimizations, since it's not fully supported
                     // TODO support it
-                    ConnectContext.get().getSessionVariable().disableTwoPhaseReadOpt();
+                    ConnectContext.get().getSessionVariable().setTwoPhaseReadLimitThreshold(0);
                 }
                 if (Config.isCloudMode()) { // Choose a cluster to for this query
                     ConnectContext.get().getCurrentCloudCluster();

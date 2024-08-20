@@ -2424,8 +2424,8 @@ public class SessionVariable implements Serializable, Writable {
         return analyzeTimeoutS;
     }
 
-    public void disableTwoPhaseReadOpt() {
-        twoPhaseReadLimitThreshold = 0;
+    public void setTwoPhaseReadLimitThreshold(long value) {
+        twoPhaseReadLimitThreshold = value;
     }
 
     public int getMaxExecutionTimeMS() {
