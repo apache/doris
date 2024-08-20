@@ -266,6 +266,16 @@ void PassthroughExchanger::close(LocalExchangeSourceLocalState& local_state) {
     }
 }
 
+void PassToOneExchanger::close(LocalExchangeSourceLocalState& local_state) {
+    vectorized::Block next_block;
+    BlockWrapperSPtr wrapper;
+    bool eos;
+    _data_queue[local_state._channel_id].set_eos();
+    while (_dequeue_data(local_state, wrapper, &eos, &next_block)) {
+        next_block = vectorized::Block();
+    }
+}
+
 Status PassthroughExchanger::get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                                        LocalExchangeSourceLocalState& local_state) {
     BlockWrapperSPtr next_block;
