@@ -953,7 +953,7 @@ public:
             if (max_len <= MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
                 output->assign_copy(reinterpret_cast<uint8_t*>(compressed_buf.data), out_buf.pos);
             }
-        } catch (std::exception e) {
+        } catch (std::exception& e) {
             return Status::InternalError("Fail to do ZSTD compress due to exception {}", e.what());
         } catch (...) {
             // Do not set compress_failed to release context
