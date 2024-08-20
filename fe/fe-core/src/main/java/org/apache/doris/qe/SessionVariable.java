@@ -150,6 +150,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_REWRITE_ELEMENT_AT_TO_SLOT = "enable_rewrite_element_at_to_slot";
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
+    public static final String ENABLE_QUERY_CACHE = "enable_query_cache";
+    public static final String QUERY_CACHE_FORCE_REFRESH = "query_cache_force_refresh";
+    public static final String QUERY_CACHE_ENTRY_MAX_BYTES = "query_cache_entry_max_bytes";
+    public static final String QUERY_CACHE_ENTRY_MAX_ROWS = "query_cache_entry_max_rows";
 
     public static final String ENABLE_COST_BASED_JOIN_REORDER = "enable_cost_based_join_reorder";
 
@@ -938,6 +942,18 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE)
     public boolean enableSqlCache = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_QUERY_CACHE)
+    public boolean enableQueryCache = false;
+
+    @VarAttr(name = QUERY_CACHE_FORCE_REFRESH)
+    private boolean queryCacheForceRefresh = false;
+
+    @VarAttr(name = QUERY_CACHE_ENTRY_MAX_BYTES)
+    private long queryCacheEntryMaxBytes = 5242880;
+
+    @VarAttr(name = QUERY_CACHE_ENTRY_MAX_ROWS)
+    private long queryCacheEntryMaxRows = 500000;
 
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
     public boolean forwardToMaster = true;
@@ -2796,6 +2812,38 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableSqlCache(boolean enableSqlCache) {
         this.enableSqlCache = enableSqlCache;
+    }
+
+    public boolean getEnableQueryCache() {
+        return enableQueryCache;
+    }
+
+    public void setEnableQueryCache(boolean enableQueryCache) {
+        this.enableQueryCache = enableQueryCache;
+    }
+
+    public boolean isQueryCacheForceRefresh() {
+        return queryCacheForceRefresh;
+    }
+
+    public void setQueryCacheForceRefresh(boolean queryCacheForceRefresh) {
+        this.queryCacheForceRefresh = queryCacheForceRefresh;
+    }
+
+    public long getQueryCacheEntryMaxBytes() {
+        return queryCacheEntryMaxBytes;
+    }
+
+    public void setQueryCacheEntryMaxBytes(long queryCacheEntryMaxBytes) {
+        this.queryCacheEntryMaxBytes = queryCacheEntryMaxBytes;
+    }
+
+    public long getQueryCacheEntryMaxRows() {
+        return queryCacheEntryMaxRows;
+    }
+
+    public void setQueryCacheEntryMaxRows(long queryCacheEntryMaxRows) {
+        this.queryCacheEntryMaxRows = queryCacheEntryMaxRows;
     }
 
     public int getPartitionedHashJoinRowsThreshold() {

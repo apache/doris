@@ -39,6 +39,7 @@ import com.google.common.collect.Range;
 import java.io.DataInput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -64,6 +65,21 @@ public class RangePartitionInfo extends PartitionInfo {
         if (exprs != null) {
             this.partitionExprs.addAll(exprs);
         }
+    }
+
+    public Map<Long, PartitionItem> getPartitionItems(Collection<Long> partitionIds) {
+        Map<Long, PartitionItem> columnRanges = Maps.newLinkedHashMapWithExpectedSize(partitionIds.size());
+        for (Long partitionId : partitionIds) {
+            PartitionItem partitionItem = idToItem.get(partitionId);
+            if (partitionItem == null) {
+                partitionItem = idToTempItem.get(partitionId);
+            }
+            if (partitionItem == null) {
+                throw new IllegalStateException("Can not found partition item: " + partitionId);
+            }
+            columnRanges.put(partitionId, partitionItem);
+        }
+        return columnRanges;
     }
 
     @Override

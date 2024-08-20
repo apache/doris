@@ -42,6 +42,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExprNode;
@@ -2404,6 +2405,17 @@ public class FunctionCallExpr extends Expr {
         }
         isAnalyticFnCall = in.readBoolean();
         isMergeAggFn = in.readBoolean();
+    }
+
+    @Override
+    protected void normalize(TExprNode msg, Normalizer normalizer) {
+        String functionName = fnName.getFunction().toUpperCase();
+        if (FunctionSet.nonDeterministicFunctions.contains(functionName)
+                || "NOW".equals(functionName)
+                || (FunctionSet.nonDeterministicTimeFunctions.contains(functionName) && children.isEmpty())) {
+            throw new IllegalStateException("Can not normalize non deterministic functions");
+        }
+        super.normalize(msg, normalizer);
     }
 
     public static FunctionCallExpr read(DataInput in) throws IOException {
