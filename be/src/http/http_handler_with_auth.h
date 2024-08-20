@@ -51,8 +51,10 @@ public:
         return true;
     }
 
-private:
+protected:
     ExecEnv* _exec_env;
+
+private:
     TPrivilegeHier::type _hier;
     TPrivilegeType::type _type;
 };

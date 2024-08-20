@@ -2102,6 +2102,11 @@ public class StmtExecutor {
         if (!(queryStmt instanceof SelectStmt)) {
             throw new TException("queryStmt is not SelectStmt, insert command error");
         }
+        if (((NativeInsertStmt) insertStmt).getTargetColumnNames() != null) {
+            throw new TException(
+                    "The legacy planner does not support specifying column names when using ·insert into values`."
+                            + " If you want to specify column names, please `set enable_nereids_planner=true`.");
+        }
         TransactionEntry txnEntry = context.getTxnEntry();
         SelectStmt selectStmt = (SelectStmt) queryStmt;
         int effectRows = 0;
@@ -3317,13 +3322,18 @@ public class StmtExecutor {
                     batch = coord.getNext();
                     Preconditions.checkNotNull(batch, "Batch is Null.");
                     if (batch.isEos()) {
+                        LOG.info("Result rows for query {} is {}", DebugUtil.printId(queryId), resultRows.size());
                         return resultRows;
                     } else {
                         // For null and not EOS batch, continue to get the next batch.
                         if (batch.getBatch() == null) {
                             continue;
                         }
+                        LOG.debug("Batch size for query {} is {}",
+                                DebugUtil.printId(queryId), batch.getBatch().rows.size());
                         resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
+                        LOG.debug("Result size for query {} is currently {}",
+                                DebugUtil.printId(queryId), batch.getBatch().rows.size());
                     }
                 }
             } catch (Exception e) {
