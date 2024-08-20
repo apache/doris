@@ -304,9 +304,11 @@ public class Tablet extends MetaObject {
     }
 
     // for query
-    public List<Replica> getQueryableReplicas(long visibleVersion, boolean allowFailedVersion) {
+    public List<Replica> getQueryableReplicas(long visibleVersion, Map<Long, Set<Long>> backendAlivePathHashs,
+            boolean allowFailedVersion) {
         List<Replica> allQueryableReplica = Lists.newArrayListWithCapacity(replicas.size());
         List<Replica> auxiliaryReplica = Lists.newArrayListWithCapacity(replicas.size());
+        List<Replica> deadPathReplica = Lists.newArrayList();
         for (Replica replica : replicas) {
             if (replica.isBad()) {
                 continue;
@@ -317,20 +319,30 @@ public class Tablet extends MetaObject {
                 continue;
             }
 
+            if (!replica.checkVersionCatchUp(visibleVersion, false)) {
+                continue;
+            }
+
+            Set<Long> thisBeAlivePaths = backendAlivePathHashs.get(replica.getBackendId());
             ReplicaState state = replica.getState();
-            if (state.canQuery()) {
-                if (replica.checkVersionCatchUp(visibleVersion, false)) {
-                    allQueryableReplica.add(replica);
-                }
+            // if thisBeAlivePaths contains pathHash = 0, it mean this be hadn't report disks state.
+            // should ignore this case.
+            if (replica.getPathHash() != -1 && thisBeAlivePaths != null
+                    && !thisBeAlivePaths.contains(replica.getPathHash())
+                    && !thisBeAlivePaths.contains(0L)) {
+                deadPathReplica.add(replica);
+            } else if (state.canQuery()) {
+                allQueryableReplica.add(replica);
             } else if (state == ReplicaState.DECOMMISSION) {
-                if (replica.checkVersionCatchUp(visibleVersion, false)) {
-                    auxiliaryReplica.add(replica);
-                }
+                auxiliaryReplica.add(replica);
             }
         }
 
         if (allQueryableReplica.isEmpty()) {
             allQueryableReplica = auxiliaryReplica;
+        }
+        if (allQueryableReplica.isEmpty()) {
+            allQueryableReplica = deadPathReplica;
         }
 
         if (Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {
