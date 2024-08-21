@@ -164,6 +164,8 @@ private:
     void change_cache_type(const Key& key, size_t offset, CacheType new_type,
                            std::lock_guard<std::mutex>& cache_lock) override;
 
+    std::map<std::string, double> get_stats() override;
+
     size_t get_available_cache_size(CacheType cache_type) const;
 
     Status load_cache_info_into_memory(std::lock_guard<std::mutex>& cache_lock);
@@ -206,13 +208,15 @@ private:
     std::thread _cache_background_thread;
     std::atomic_bool _lazy_open_done {true};
     std::thread _cache_background_load_thread;
-    size_t _num_read_segments = 0;
-    size_t _num_hit_segments = 0;
+    // size_t _num_read_segments = 0;
+    // size_t _num_hit_segments = 0;
     size_t _num_removed_segments = 0;
 
     std::shared_ptr<MetricEntity> _entity;
 
     DoubleGauge* file_cache_hits_ratio = nullptr;
+    DoubleGauge* file_cache_hits_ratio_5m = nullptr;
+    DoubleGauge* file_cache_hits_ratio_1h = nullptr;
     UIntGauge* file_cache_removed_elements = nullptr;
 
     UIntGauge* file_cache_index_queue_max_size = nullptr;
