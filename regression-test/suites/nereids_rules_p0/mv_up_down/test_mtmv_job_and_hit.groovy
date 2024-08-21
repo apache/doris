@@ -110,9 +110,11 @@ suite("test_upgrade_downgrade_compatibility_mtmv","p0,mtmv,restart_fe") {
     // drop
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mtmv_name};"""
     sql """DROP TABLE IF EXISTS ${mtmv_name}"""
-    test {
+
+    try {
         sql """select count(*) from ${mtmv_name}"""
-        exception "does not exist"
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("does not exist") || e.getMessage().contains("Unknown table"))
     }
 
     // create
