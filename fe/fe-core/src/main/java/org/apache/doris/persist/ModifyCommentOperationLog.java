@@ -94,4 +94,8 @@ public class ModifyCommentOperationLog implements Writable {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ModifyCommentOperationLog.class);
     }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
 }

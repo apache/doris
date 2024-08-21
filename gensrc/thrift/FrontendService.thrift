@@ -1173,6 +1173,7 @@ enum TBinlogType {
   REPLACE_PARTITIONS = 12,
   TRUNCATE_TABLE = 13,
   RENAME_TABLE = 14,
+  MODIFY_COMMENT = 16,
 }
 
 struct TBinlog {
