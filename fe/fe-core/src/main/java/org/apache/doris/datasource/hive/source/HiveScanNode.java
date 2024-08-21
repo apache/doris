@@ -488,5 +488,10 @@ public class HiveScanNode extends FileQueryScanNode {
         }
         return compressType;
     }
+
+    @Override
+    protected Map<String, String> debugParameters() {
+        return hmsTable.getCatalog().getCatalogProperty().getProperties();
+    }
 }
 

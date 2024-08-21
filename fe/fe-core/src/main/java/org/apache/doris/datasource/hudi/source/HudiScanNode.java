@@ -240,6 +240,11 @@ public class HudiScanNode extends HiveScanNode {
         }
     }
 
+    @Override
+    protected Map<String, String> debugParameters() {
+        return hmsTable.getCatalog().getCatalogProperty().getProperties();
+    }
+
     private void setHudiParams(TFileRangeDesc rangeDesc, HudiSplit hudiSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(hudiSplit.getTableFormatType().value());

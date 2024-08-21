@@ -141,6 +141,11 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         }
     }
 
+    @Override
+    protected Map<String, String> debugParameters() {
+        return tableProperties;
+    }
+
     public ExternalCatalog getCatalog() {
         return lakeSoulExternalTable.getCatalog();
     }

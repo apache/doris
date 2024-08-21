@@ -388,6 +388,11 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
+    protected Map<String, String> debugParameters() {
+        return source.getCatalog().getProperties();
+    }
+
+    @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         if (pushdownIcebergPredicates.isEmpty()) {
             return super.getNodeExplainString(prefix, detailLevel);

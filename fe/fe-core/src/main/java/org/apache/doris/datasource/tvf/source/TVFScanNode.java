@@ -151,4 +151,9 @@ public class TVFScanNode extends FileQueryScanNode {
     public int getNumInstances() {
         return scanRangeLocations.size();
     }
+
+    @Override
+    protected Map<String, String> debugParameters() {
+        return tableValuedFunction.getLocationProperties();
+    }
 }

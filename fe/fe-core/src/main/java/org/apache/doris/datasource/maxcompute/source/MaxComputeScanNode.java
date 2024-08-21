@@ -128,6 +128,11 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         return result;
     }
 
+    @Override
+    protected Map<String, String> debugParameters() {
+        return catalog.getCatalogProperty().getProperties();
+    }
+
     private static void addPartitionSplits(List<Split> result, Table odpsTable, String partitionSpec) {
         long modificationTime = odpsTable.getLastDataModifiedTime().getTime();
         // use '-1' to read whole partition, avoid expending too much time on calling table.getTotalRows()

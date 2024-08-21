@@ -300,6 +300,11 @@ public class PaimonScanNode extends FileQueryScanNode {
     }
 
     @Override
+    protected Map<String, String> debugParameters() {
+        return source.getCatalog().getCatalogProperty().getProperties();
+    }
+
+    @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder sb = new StringBuilder(super.getNodeExplainString(prefix, detailLevel));
         sb.append(String.format("%spaimonNativeReadSplits=%d/%d\n",

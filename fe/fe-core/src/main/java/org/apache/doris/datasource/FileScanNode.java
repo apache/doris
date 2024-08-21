@@ -45,6 +45,7 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import org.apache.hadoop.fs.BlockLocation;
 import org.apache.logging.log4j.LogManager;
@@ -55,6 +56,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.stream.Collectors;
 
 /**
@@ -109,6 +111,28 @@ public abstract class FileScanNode extends ExternalScanNode {
         //                    it is unclear whether optimization has been performed.
         // 2. Do not use `null` or `-`: This makes it easier for the program to parse the `explain` data.
         return -1;
+    }
+
+    protected Map<String, String> debugParameters() {
+        return Maps.newHashMap();
+    }
+
+    private String explainConfigParameter(String prefix) {
+        Map<String, String> parameters = debugParameters();
+        if (parameters.isEmpty()) {
+            return "";
+        }
+        StringBuilder output = new StringBuilder();
+        output.append(prefix).append("ConfigParameters:\n");
+        for (Entry parameter : parameters.entrySet()) {
+            output.append(prefix)
+                    .append("  ")
+                    .append(parameter.getKey())
+                    .append(" = ")
+                    .append(parameter.getValue())
+                    .append("\n");
+        }
+        return output.toString();
     }
 
     @Override
@@ -176,6 +200,8 @@ public abstract class FileScanNode extends ExternalScanNode {
                         .append("\n");
                 }
             }
+
+            output.append(explainConfigParameter(prefix));
         }
 
         output.append(prefix);
