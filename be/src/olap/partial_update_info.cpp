@@ -226,13 +226,12 @@ Status PartialUpdateReadPlan::fill_missing_columns(
 
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
-    auto mutable_default_value_columns = default_value_block.mutate_columns();
-
     if (has_default_or_nullable || delete_sign_column_data != nullptr) {
         RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
                 tablet_schema, missing_cids, rowset_ctx->partial_update_info->default_values,
                 old_value_block, default_value_block));
     }
+    auto mutable_default_value_columns = default_value_block.mutate_columns();
 
     // fill all missing value from mutable_old_columns, need to consider default value and null value
     for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {

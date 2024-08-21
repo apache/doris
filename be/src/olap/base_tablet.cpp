@@ -891,6 +891,7 @@ Status BaseTablet::generate_default_value_block(const TabletSchema& schema,
                     rb, mutable_default_value_columns[i].get()));
         }
     }
+    default_value_block.set_columns(std::move(mutable_default_value_columns));
     return Status::OK();
 }
 
@@ -945,12 +946,12 @@ Status BaseTablet::generate_new_block_for_partial_update(
 
     // build default value block
     auto default_value_block = old_block.clone_empty();
-    auto mutable_default_value_columns = default_value_block.mutate_columns();
     if (old_block_delete_signs != nullptr || new_block_delete_signs != nullptr) {
         RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
                 *rowset_schema, missing_cids, partial_update_info->default_values, old_block,
                 default_value_block));
     }
+    auto mutable_default_value_columns = default_value_block.mutate_columns();
 
     CHECK(update_rows >= old_rows);
 
