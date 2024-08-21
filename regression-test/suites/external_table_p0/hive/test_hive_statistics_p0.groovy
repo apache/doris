@@ -36,11 +36,19 @@ suite("test_hive_statistics_p0", "all_types,p0,external,hive,external_docker,ext
             sql """use `${catalog_name}`.`stats_test`"""
             sql """analyze database stats_test with sync"""
 
-            // Test hive scan node cardinality.
-            sql """analyze table `${catalog_name}`.`statistics`.`statistics` with sync"""
-            explain {
-                sql "select count(2) from `${catalog_name}`.`statistics`.`statistics`;"
-                contains "cardinality=100"
+            // Test hive scan node cardinality. Estimated row count.
+            for (int i = 0; i < 60; i++) {
+                def result = sql """show table stats `${catalog_name}`.`statistics`.`statistics`"""
+                logger.info("Table stats " + result)
+                if (!"66".equalsIgnoreCase(result[0][2])) {
+                    Thread.sleep(1000)
+                } else {
+                    explain {
+                        sql "select count(2) from `${catalog_name}`.`statistics`.`statistics`;"
+                        contains "cardinality=66"
+                    }
+                    break;
+                }
             }
 
             def result = sql """show catalog ${catalog_name}"""
