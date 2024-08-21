@@ -294,17 +294,20 @@ public class LoadAction extends RestBaseController {
                     return new RestBaseResult(e.getMessage());
                 }
             } else {
-                Optional<?> database = Env.getCurrentEnv().getCurrentCatalog().getDb(dbName);
-                if (!database.isPresent()) {
-                    return new RestBaseResult("Database not founded.");
-                }
+                long tableId = -1;
+                if (groupCommit) {
+                    Optional<?> database = Env.getCurrentEnv().getCurrentCatalog().getDb(dbName);
+                    if (!database.isPresent()) {
+                        return new RestBaseResult("Database not found.");
+                    }
 
-                Optional<?> olapTable = ((Database) database.get()).getTable(tableName);
-                if (!olapTable.isPresent()) {
-                    return new RestBaseResult("OlapTable not founded.");
-                }
+                    Optional<?> olapTable = ((Database) database.get()).getTable(tableName);
+                    if (!olapTable.isPresent()) {
+                        return new RestBaseResult("OlapTable not found.");
+                    }
 
-                long tableId = ((OlapTable) olapTable.get()).getId();
+                    tableId = ((OlapTable) olapTable.get()).getId();
+                }
                 redirectAddr = selectRedirectBackend(request, groupCommit, tableId);
             }
 
@@ -384,6 +387,9 @@ public class LoadAction extends RestBaseController {
             }
             return selectCloudRedirectBackend(cloudClusterName, request, groupCommit);
         } else {
+            if (groupCommit && tableId == -1) {
+                throw new LoadException("Group commit table id wrong.");
+            }
             return selectLocalRedirectBackend(groupCommit, request, tableId);
         }
     }
