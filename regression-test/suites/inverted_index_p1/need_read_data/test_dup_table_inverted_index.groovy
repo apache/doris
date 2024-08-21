@@ -821,7 +821,6 @@ suite("test_dup_table_inverted_index", "p1") {
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
             "compaction_policy" = "time_series",
-            "inverted_index_storage_format" = "v2",
             "compression" = "ZSTD",
             "disable_auto_compaction" = "true"
             );
