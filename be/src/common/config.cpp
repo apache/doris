@@ -1270,7 +1270,8 @@ DEFINE_mBool(enable_parquet_page_index, "false");
 
 DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
 
-DEFINE_mInt64(pipeline_task_leakage_detect_period_secs, "60");
+// TODO: Revert to 60s after bug fixed.
+DEFINE_mInt64(pipeline_task_leakage_detect_period_secs, "1");
 
 // clang-format off
 #ifdef BE_TEST
