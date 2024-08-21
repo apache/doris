@@ -115,7 +115,7 @@ suite("double_write_schema_change_with_variant", "nonConcurrent") {
     sql """select * from github_events order by k limit 10"""
     sql "set enable_two_phase_read_opt = true"    
     sql """select * from github_events order by k limit 10"""
-    order_qt_sql """select v['payload']['commits'] from github_events where v['payload']['commits'] is not null order by k limit 10"""
+    order_qt_sql """select k, v['payload']['commits'] from github_events where length(cast(v['payload']['commits'] as text)) > 100 and k > 1 order by k,  length(cast(v['payload']['commits'] as text)) limit 10"""
 
     // createMV("create materialized view xxx as select k, sum(k) from ${table_name} group by k order by k;")
     // qt_sql "select v['type'], v['id'], v['created_at'] from ${table_name} where cast(v['id'] as bigint) != 25061216922 order by k,  cast(v['id'] as bigint) limit 10"
