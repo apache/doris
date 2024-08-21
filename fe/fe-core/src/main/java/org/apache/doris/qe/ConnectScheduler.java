@@ -181,7 +181,7 @@ public class ConnectScheduler {
             // Check auth
             if (!ctx.getCurrentUserIdentity().equals(userIdentity.getQualifiedUser()) && !Env.getCurrentEnv()
                     .getAccessManager()
-                    .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+                    .checkGlobalPriv(userIdentity, PrivPredicate.GRANT)) {
                 continue;
             }
             list.add(ctx.toThreadInfo(isShowFullSql).toRow(-1, nowMs));
