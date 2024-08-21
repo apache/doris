@@ -264,8 +264,12 @@ Status LoadStreamWriter::close() {
     if (_is_canceled) {
         return Status::InternalError("flush segment failed");
     }
-    DBUG_EXECUTE_IF("LoadStreamWriter.close.inverted_writers_size_not_match",
-                    { _inverted_file_writers.emplace_back(nullptr); });
+    DBUG_EXECUTE_IF("LoadStreamWriter.close.inverted_writers_size_not_match", {
+        io::FileWriterPtr file_writer;
+        static_cast<void>(_rowset_writer->create_file_writer(
+                _inverted_file_writers.size(), file_writer, FileType::INVERTED_INDEX_FILE));
+        _inverted_file_writers.push_back(std::move(file_writer));
+    });
     if (_inverted_file_writers.size() > 0 &&
         _inverted_file_writers.size() != _segment_file_writers.size()) {
         return Status::Corruption(
