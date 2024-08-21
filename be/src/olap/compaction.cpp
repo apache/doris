@@ -932,8 +932,7 @@ Status CompactionMixin::modify_rowsets() {
     output_rowsets.push_back(_output_rowset);
 
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-        _tablet->enable_unique_key_merge_on_write() &&
-        _tablet->tablet_schema()->cluster_key_idxes().empty()) {
+        _tablet->enable_unique_key_merge_on_write()) {
         Version version = tablet()->max_version();
         DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
         std::unique_ptr<RowLocationSet> missed_rows;

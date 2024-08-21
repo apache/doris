@@ -18,9 +18,9 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 
-suite("test_compaction_uniq_keys_row_store", "nonConcurrent") {
+suite("test_compaction_uniq_keys_row_store_ck", "nonConcurrent") {
     def realDb = "regression_test_serving_p0"
-    def tableName = realDb + ".compaction_uniq_keys_row_store_regression_test"
+    def tableName = realDb + ".test_compaction_uniq_keys_row_store_ck"
     sql "CREATE DATABASE IF NOT EXISTS ${realDb}"
 
     def setPrepareStmtArgs = {stmt, user_id, date, datev2, datetimev2_1, datetimev2_2, city, age, sex ->
@@ -138,7 +138,9 @@ suite("test_compaction_uniq_keys_row_store", "nonConcurrent") {
                 `cost` BIGINT DEFAULT "0" COMMENT "用户总消费",
                 `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
-            UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
+            UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) 
+            CLUSTER BY(`last_visit_date`, `last_update_date`, `city`, `cost`)
+            DISTRIBUTED BY HASH(`user_id`)
             PROPERTIES ( "replication_num" = "1",
                     "enable_unique_key_merge_on_write" = "true",
                     "light_schema_change" = "true",

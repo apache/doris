@@ -17,8 +17,8 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_compaction_uniq_cluster_keys_with_delete") {
-    def tableName = "test_compaction_uniq_cluster_keys_with_delete"
+suite("test_compaction_uniq_keys_with_delete_ck") {
+    def tableName = "test_compaction_uniq_keys_with_delete_ck"
 
     try {
         String backend_id;
@@ -71,50 +71,61 @@ suite("test_compaction_uniq_cluster_keys_with_delete") {
             );
         """
 
+        // 2
         sql """ INSERT INTO ${tableName} VALUES
              (1, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-01', '2020-01-01', '2017-10-01 11:11:11.170000', '2017-10-01 11:11:11.110111', '2020-01-01', 1, 30, 20)
             """
 
+        // 3
         sql """ INSERT INTO ${tableName} VALUES
              (1, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2017-10-01 11:11:11.160000', '2017-10-01 11:11:11.100111', '2020-01-02', 1, 31, 19)
             """
 
+        // 4
         sql """
             DELETE FROM ${tableName} where user_id <= 5
             """
 
+        // 5
         sql """ INSERT INTO ${tableName} VALUES
              (2, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2017-10-01 11:11:11.150000', '2017-10-01 11:11:11.130111', '2020-01-02', 1, 31, 21)
             """
 
+        // 6
         sql """ INSERT INTO ${tableName} VALUES
              (2, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2017-10-01 11:11:11.140000', '2017-10-01 11:11:11.120111', '2020-01-03', 1, 32, 20)
             """
 
+        // 7
         sql """
             DELETE FROM ${tableName} where user_id <= 1
             """
 
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
+        // 8
         sql """ INSERT INTO ${tableName} VALUES
              (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2017-10-01 11:11:11.100000', '2017-10-01 11:11:11.140111', '2020-01-03', 1, 32, 22)
             """
 
+        // 9
         sql """ INSERT INTO ${tableName} VALUES
              (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-04', '2020-01-04', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.150111', '2020-01-04', 1, 33, 21)
             """
 
+        // 10
         sql """
             DELETE FROM ${tableName} where user_id <= 2
             """
 
+        // 11
         sql """ INSERT INTO ${tableName} VALUES
              (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, NULL, NULL, NULL, NULL, '2020-01-05', 1, 34, 20)
             """
 
         qt_select_default1 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
+        // 12
         sql """ INSERT INTO ${tableName} VALUES
              (4, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, NULL, NULL, NULL, NULL, '2020-01-05', 1, 34, 20)
             """
@@ -174,6 +185,6 @@ suite("test_compaction_uniq_cluster_keys_with_delete") {
         assert (rowCount < 8 * replicaNum)
         qt_select_default3 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${tableName}")
+        // try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }
