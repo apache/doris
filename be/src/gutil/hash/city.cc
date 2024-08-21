@@ -71,7 +71,7 @@ static uint64 ShiftMix(uint64 val) {
     return val ^ (val >> 47);
 }
 
-static uint64 HashLen16(uint64 u, uint64 v) {
+uint64 HashLen16(uint64 u, uint64 v) {
     return Hash128to64(uint128(u, v));
 }
 

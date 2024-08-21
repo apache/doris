@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "io/cache/fs_file_cache_storage.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/options.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
@@ -58,6 +59,7 @@ class WorkloadGroupMgr;
 struct WriteCooldownMetaExecutors;
 namespace io {
 class FileCacheFactory;
+class FDCache;
 } // namespace io
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
@@ -313,6 +315,7 @@ public:
     }
 
     segment_v2::TmpFileDirs* get_tmp_file_dirs() { return _tmp_file_dirs.get(); }
+    io::FDCache* file_cache_open_fd_cache() const { return _file_cache_open_fd_cache.get(); }
 
     orc::MemoryPool* orc_memory_pool() { return _orc_memory_pool; }
     arrow::MemoryPool* arrow_memory_pool() { return _arrow_memory_pool; }
@@ -430,6 +433,7 @@ private:
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
     std::shared_ptr<DummyLRUCache> _dummy_lru_cache = nullptr;
+    std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
 
     // used for query with group cpu hard limit
     std::shared_ptr<pipeline::BlockedTaskScheduler> _global_block_scheduler;

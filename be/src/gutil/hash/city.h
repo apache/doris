@@ -27,6 +27,8 @@
 
 namespace util_hash {
 
+uint64 HashLen16(uint64 u, uint64 v);
+
 // Hash function for a byte array.
 // The mapping may change from time to time.
 uint64 CityHash64(const char* buf, size_t len);

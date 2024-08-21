@@ -28,11 +28,10 @@
 
 #include <filesystem>
 #include <iomanip>
-#include <istream>
 #include <system_error>
 #include <utility>
 
-#include "common/exception.h"
+#include "common/sync_point.h"
 #include "gutil/macros.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
@@ -40,13 +39,10 @@
 #include "io/fs/local_file_reader.h"
 #include "io/fs/local_file_writer.h"
 #include "olap/data_dir.h"
-#include "runtime/thread_context.h"
 #include "util/async_io.h" // IWYU pragma: keep
 #include "util/debug_points.h"
-#include "util/defer_op.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 
 std::filesystem::perms LocalFileSystem::PERMS_OWNER_RW =
         std::filesystem::perms::owner_read | std::filesystem::perms::owner_write;
@@ -62,6 +58,8 @@ LocalFileSystem::~LocalFileSystem() = default;
 
 Status LocalFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
                                          const FileWriterOptions* opts) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileSystem::create_file_impl",
+                                      Status::IOError("inject io error"));
     int fd = ::open(file.c_str(), O_TRUNC | O_WRONLY | O_CREAT | O_CLOEXEC, 0666);
     DBUG_EXECUTE_IF("LocalFileSystem.create_file_impl.open_file_failed", {
         // spare '.testfile' to make bad disk checker happy
@@ -81,6 +79,8 @@ Status LocalFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer
 
 Status LocalFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader,
                                        const FileReaderOptions* opts) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileSystem::open_file_impl",
+                                      Status::IOError("inject io error"));
     int64_t fsize = opts ? opts->file_size : -1;
     if (fsize < 0) {
         RETURN_IF_ERROR(file_size_impl(file, &fsize));
@@ -161,7 +161,7 @@ Status LocalFileSystem::delete_directory_or_file_impl(const Path& path) {
 }
 
 Status LocalFileSystem::batch_delete_impl(const std::vector<Path>& files) {
-    for (auto& file : files) {
+    for (const auto& file : files) {
         RETURN_IF_ERROR(delete_file_impl(file));
     }
     return Status::OK();
@@ -238,6 +238,8 @@ Status LocalFileSystem::list_impl(const Path& dir, bool only_file, std::vector<F
 }
 
 Status LocalFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileSystem::rename",
+                                      Status::IOError("inject io error"));
     std::error_code ec;
     std::filesystem::rename(orig_name, new_name, ec);
     if (ec) {
@@ -307,8 +309,8 @@ Status LocalFileSystem::md5sum_impl(const Path& file, std::string* md5sum) {
     munmap(buf, file_len);
 
     std::stringstream ss;
-    for (int32_t i = 0; i < MD5_DIGEST_LENGTH; i++) {
-        ss << std::setfill('0') << std::setw(2) << std::hex << (int)result[i];
+    for (unsigned char i : result) {
+        ss << std::setfill('0') << std::setw(2) << std::hex << (int)i;
     }
     ss >> *md5sum;
 
@@ -440,14 +442,14 @@ Status LocalFileSystem::_glob(const std::string& pattern, std::vector<std::strin
     glob_t glob_result;
     memset(&glob_result, 0, sizeof(glob_result));
 
-    int rc = glob(pattern.c_str(), GLOB_TILDE, NULL, &glob_result);
+    int rc = glob(pattern.c_str(), GLOB_TILDE, nullptr, &glob_result);
     if (rc != 0) {
         globfree(&glob_result);
         return Status::InternalError("failed to glob {}: {}", pattern, glob_err_to_str(rc));
     }
 
     for (size_t i = 0; i < glob_result.gl_pathc; ++i) {
-        res->push_back(std::string(glob_result.gl_pathv[i]));
+        res->emplace_back(glob_result.gl_pathv[i]);
     }
 
     globfree(&glob_result);
@@ -468,5 +470,4 @@ Status LocalFileSystem::permission_impl(const Path& file, std::filesystem::perms
     return Status::OK();
 }
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

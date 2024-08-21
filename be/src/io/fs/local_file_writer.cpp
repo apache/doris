@@ -18,15 +18,14 @@
 #include "io/fs/local_file_writer.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
-#include <errno.h> // IWYU pragma: keep
 #include <fcntl.h>
 #include <glog/logging.h>
-#include <limits.h>
-#include <stdint.h>
 #include <sys/uio.h>
 #include <unistd.h>
 
 #include <algorithm>
+#include <cerrno> // IWYU pragma: keep
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <ostream>
@@ -42,10 +41,10 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "olap/data_dir.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 namespace {
 
 Status sync_dir(const io::Path& dirname) {
@@ -105,6 +104,8 @@ void LocalFileWriter::_abort() {
 }
 
 Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::appendv",
+                                      Status::IOError("inject io error"));
     if (_closed) [[unlikely]] {
         return Status::InternalError("append to closed file: ", _path.native());
     }
@@ -161,6 +162,8 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
 }
 
 Status LocalFileWriter::finalize() {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::finalize",
+                                      Status::IOError("inject io error"));
     if (_closed) [[unlikely]] {
         return Status::InternalError("finalize closed file: ", _path.native());
     }
@@ -180,7 +183,6 @@ Status LocalFileWriter::_close(bool sync) {
     if (_closed) {
         return Status::OK();
     }
-    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::close", Status::IOError("inject io error"));
     if (sync) {
         if (_dirty) {
 #ifdef __APPLE__
@@ -208,9 +210,8 @@ Status LocalFileWriter::_close(bool sync) {
             return Status::IOError("cannot close {}: {}", _path.native(), std::strerror(errno));
         }
     });
-
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::close", Status::IOError("inject io error"));
     return Status::OK();
 }
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io
