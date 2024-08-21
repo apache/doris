@@ -75,8 +75,8 @@ public:
         doris::EngineOptions options;
         options.store_paths = paths;
 
-        l_engine = new StorageEngine(options);
-        ExecEnv::GetInstance()->set_storage_engine(l_engine);
+        s_engine = new StorageEngine(options);
+        ExecEnv::GetInstance()->set_storage_engine(s_engine);
 
         Status s = s_engine->open();
         EXPECT_TRUE(s.ok()) << s.to_string();
@@ -94,10 +94,10 @@ public:
     void TearDown() {
         SAFE_DELETE(_data_dir);
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(lTestDir).ok());
-        if (l_engine != nullptr) {
-            l_engine->stop();
-            delete l_engine;
-            l_engine = nullptr;
+        if (s_engine != nullptr) {
+            s_engine->stop();
+            delete s_engine;
+            s_engine = nullptr;
             ExecEnv::GetInstance()->set_storage_engine(nullptr);
         }
         config::enable_segcompaction = false;
@@ -323,10 +323,9 @@ TEST_P(SegCompactionMoWTest, SegCompactionThenRead) {
                 std::make_shared<MowContext>(1, 1, rsids, rowset_ptrs, delete_bitmap);
         auto rowset_id = writer_context.rowset_id;
 
-        auto res = RowsetFactory::create_rowset_writer(*s_engine, writer_context, false);
-        EXPECT_TRUE(res.has_value()) << res.error();
-        auto rowset_writer = std::move(res).value();
-        EXPECT_EQ(Status::OK(), s);
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        auto res = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+        EXPECT_TRUE(s.ok());
         // for segment "i", row "rid"
         // k1 := rid*10 + i
         // k2 := k1 * 10
@@ -426,10 +425,9 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
                 std::make_shared<MowContext>(1, 1, rsids, rowset_ptrs, delete_bitmap);
         auto rowset_id = writer_context.rowset_id;
 
-        auto res = RowsetFactory::create_rowset_writer(*s_engine, writer_context, false);
-        EXPECT_TRUE(res.has_value()) << res.error();
-        auto rowset_writer = std::move(res).value();
-        EXPECT_EQ(Status::OK(), s);
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        auto res = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+        EXPECT_TRUE(s.ok());
 
         // for segment "i", row "rid"
         // k1 := rid*10 + i
@@ -657,10 +655,9 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
                 std::make_shared<MowContext>(1, 1, rsids, rowset_ptrs, delete_bitmap);
         auto rowset_id = writer_context.rowset_id;
 
-        auto res = RowsetFactory::create_rowset_writer(*s_engine, writer_context, false);
-        EXPECT_TRUE(res.has_value()) << res.error();
-        auto rowset_writer = std::move(res).value();
-        EXPECT_EQ(Status::OK(), s);
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        auto res = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+        EXPECT_TRUE(s.ok());
 
         // for segment "i", row "rid"
         // k1 := rid*10 + i
@@ -847,10 +844,10 @@ TEST_F(SegCompactionMoWTest, SegCompactionNotTrigger) {
                 std::make_shared<MowContext>(1, 1, rsids, rowset_ptrs, delete_bitmap);
         auto rowset_id = writer_context.rowset_id;
 
-        auto res = RowsetFactory::create_rowset_writer(*s_engine, writer_context, false);
-        EXPECT_TRUE(res.has_value()) << res.error();
-        auto rowset_writer = std::move(res).value();
-        EXPECT_EQ(Status::OK(), s);
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        auto res = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+        EXPECT_TRUE(s.ok());
+
         // for segment "i", row "rid"
         // k1 := rid*10 + i
         // k2 := k1 * 10
