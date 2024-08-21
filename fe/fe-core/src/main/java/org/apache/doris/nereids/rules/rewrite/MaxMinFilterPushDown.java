@@ -63,7 +63,7 @@ import java.util.Set;
 public class MaxMinFilterPushDown extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalFilter(logicalAggregate())
+        return logicalFilter(logicalAggregate().whenNot(agg -> agg.getGroupByExpressions().isEmpty()))
                 .then(this::pushDownMaxMinFilter)
                 .toRule(RuleType.MAX_MIN_FILTER_PUSH_DOWN);
     }
@@ -110,7 +110,7 @@ public class MaxMinFilterPushDown extends OneRewriteRuleFactory {
                 newPredicate = new LessThanEqual(func.child(0), originConjunct.child(1));
             }
         }
-        Preconditions.checkState(newPredicate != null);
+        Preconditions.checkState(newPredicate != null, "newPredicate is null");
         LogicalFilter<Plan> newPushDownFilter = new LogicalFilter<>(ImmutableSet.of(newPredicate), aggChild);
         LogicalAggregate<Plan> newAgg = agg.withChildren(ImmutableList.of(newPushDownFilter));
         return PlanUtils.filterOrSelf(newUpperConjuncts, newAgg);

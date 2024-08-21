@@ -51,36 +51,63 @@ public class MaxMinFilterPushDownTest extends TestWithFeService implements MemoP
     }
 
     @Test
-    public void testMaxNotRewrite0() {
+    public void testNotRewriteBecauseFuncIsMoreThanOne1() {
+        String sql = "select id, min(score), max(name) from max_t group by id having min(score)<10 and max(name)>'abc'";
+        PlanChecker.from(connectContext).analyze(sql).rewrite()
+                .nonMatch(logicalFilter(logicalOlapScan()));
+    }
+    @Test
+    public void testNotRewriteBecauseFuncIsMoreThanOne2() {
+        String sql = "select id, min(score), min(name) from max_t group by id having min(score)<10 and min(name)<'abc'";
+        PlanChecker.from(connectContext).analyze(sql).rewrite()
+                .nonMatch(logicalFilter(logicalOlapScan()));
+    }
+
+    @Test
+    public void testMaxNotRewriteBecauseLessThan() {
         String sql = "select id, max(score) from max_t group by id having max(score)<10";
         PlanChecker.from(connectContext).analyze(sql).rewrite()
                 .nonMatch(logicalFilter(logicalOlapScan()));
     }
 
     @Test
-    public void testMinNotRewrite1() {
+    public void testMinNotRewriteBecauseGreaterThan() {
         String sql = "select id, min(score) from max_t group by id having min(score)>10";
         PlanChecker.from(connectContext).analyze(sql).rewrite()
                 .nonMatch(logicalFilter(logicalOlapScan()));
     }
 
     @Test
-    public void testMinNotRewrite2() {
-        String sql = "select id, min(score), max(score) from max_t group by id having min(score)>10";
+    public void testMinNotRewriteBecauseHasMaxFunc() {
+        String sql = "select id, min(score), max(score) from max_t group by id having min(score)<10";
         PlanChecker.from(connectContext).analyze(sql).rewrite()
                 .nonMatch(logicalFilter(logicalOlapScan()));
     }
 
     @Test
-    public void testMinNotRewrite3() {
-        String sql = "select id, min(score), count(score) from max_t group by id having min(score)>10";
+    public void testMinNotRewriteBecauseHasCountFunc() {
+        String sql = "select id, min(score), count(score) from max_t group by id having min(score)<10";
         PlanChecker.from(connectContext).analyze(sql).rewrite()
                 .nonMatch(logicalFilter(logicalOlapScan()));
     }
 
     @Test
-    public void testMinNotRewrite4() {
+    public void testNotRewriteBecauseConjunctLeftNotSlot() {
         String sql = "select id, max(score) from max_t group by id having abs(max(score))>10";
+        PlanChecker.from(connectContext).analyze(sql).rewrite()
+                .nonMatch(logicalFilter(logicalOlapScan()));
+    }
+
+    @Test
+    public void testRewriteAggFuncHasExpr() {
+        String sql = "select id, max(score+1) from max_t group by id having max(score+1)>10";
+        PlanChecker.from(connectContext).analyze(sql).rewrite()
+                .matches(logicalFilter(logicalOlapScan()).when(filter -> filter.getConjuncts().size() == 1));
+    }
+
+    @Test
+    public void testNotRewriteScalarAgg() {
+        String sql = "select max(score+1) from max_t having max(score+1)>10";
         PlanChecker.from(connectContext).analyze(sql).rewrite()
                 .nonMatch(logicalFilter(logicalOlapScan()));
     }

@@ -32,7 +32,13 @@ suite("max_min_filter_push_down") {
     INSERT INTO max_min_filter_push_down1 (id, value1, value2) VALUES
     (1, 10, 'A'),(1, 11, 'A'),(2, 20, 'B'),(2, 73, 'B'),(2, 19, 'B'),(3, 30, 'C'),(3, 61, 'C'),(4, 40, 'D'),(4, 43, 'D'),(4, 45, 'D');
     """
+    sql "drop table if exists max_min_filter_push_down_empty"
+    sql "create table max_min_filter_push_down_empty like max_min_filter_push_down1"
 
+    qt_scalar_agg_empty_table """
+    explain shape plan
+    select min(value1) from max_min_filter_push_down_empty having min(value1) <40 and min(value1) <20;
+    """
     qt_min """
     explain shape plan
     select id,min(value1) from max_min_filter_push_down1 group by id having min(value1) <40 and min(value1) <20;
@@ -105,7 +111,9 @@ suite("max_min_filter_push_down") {
     select max(value1) from max_min_filter_push_down1 having max(value1) >=40;
     """
 
-
+    qt_scalar_agg_empty_table_res """
+    select min(value1) from max_min_filter_push_down_empty having min(value1) <40 and min(value1) <20;
+    """
     qt_min_res """
     select id,min(value1) from max_min_filter_push_down1 group by id having min(value1) <40 and min(value1) <20 order by 1,2;
     """
