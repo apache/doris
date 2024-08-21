@@ -183,10 +183,7 @@ static Status _do_fetch_running_queries_rpc(const FrontendInfo& fe_info,
 
     query_set = std::unordered_set<TUniqueId>(rpc_result.running_queries.begin(),
                                               rpc_result.running_queries.end());
-    if (query_set.empty()) {
-        LOG_INFO("No running queries from {}",
-                 PrintThriftNetworkAddress(fe_info.info.coordinator_address));
-    }
+
     return Status::OK();
 };
 
@@ -1386,18 +1383,6 @@ void FragmentMgr::cancel_worker() {
             cancel_instance(id, PPlanFragmentCancelReason::TIMEOUT);
             LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout instance "
                       << print_id(id);
-        }
-
-        if (!queries_pipeline_task_leak.empty()) {
-            // Print running_queries_on_all_fes
-            for (const auto& [fe_process_uuid, query_ids] : running_queries_on_all_fes) {
-                std::string msg;
-                msg += fmt::format("Frontend process uuid: {}, running_queries: ", fe_process_uuid);
-                for (const auto& qid : query_ids) {
-                    msg += fmt::format("{} ", print_id(qid));
-                }
-                LOG_INFO(msg);
-            }
         }
 
         for (const auto& qid : queries_pipeline_task_leak) {
