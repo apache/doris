@@ -68,7 +68,7 @@ suite("hive_config_test", "p0,external,hive,external_docker,external_docker_hive
         }
 
 
-        // 1. test hive.recursive-directories-table config
+        // 1. test hive.recursive_directories table config
         test_outfile("orc", "/user/doris/suites/default/hive_recursive_directories_table/exp_")
         test_outfile("orc", "/user/doris/suites/default/hive_recursive_directories_table/1/exp_")
         test_outfile("orc", "/user/doris/suites/default/hive_recursive_directories_table/2/exp_")
@@ -78,7 +78,7 @@ suite("hive_config_test", "p0,external,hive,external_docker,external_docker_hive
         sql """create catalog if not exists ${catalog_name} properties (
             "type"="hms",
             'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-            'hive.recursive-directories' = 'false'
+            'hive.recursive_directories' = 'false'
         );"""
         sql """use `${catalog_name}`.`default`"""
         order_qt_1 """ select * from hive_recursive_directories_table order by id;"""
@@ -88,31 +88,31 @@ suite("hive_config_test", "p0,external,hive,external_docker,external_docker_hive
         sql """create catalog if not exists ${catalog_name} properties (
             "type"="hms",
             'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-            'hive.recursive-directories' = 'true'
+            'hive.recursive_directories' = 'true'
         );"""
         sql """ use `${catalog_name}`.`default` """
         order_qt_2 """ select * from hive_recursive_directories_table order by id; """
 
-        // 2. test hive.ignore-absent-partitions-table
+        // 2. test hive.ignore_absent_partitions-table
         test_outfile("orc", "/user/doris/suites/default/hive_ignore_absent_partitions_table/country=USA/city=NewYork/exp_")
         
-        // test 'hive.ignore-absent-partitions' = 'true'
+        // test 'hive.ignore_absent_partitions' = 'true'
         sql """drop catalog if exists ${catalog_name}"""
         sql """create catalog if not exists ${catalog_name} properties (
             "type"="hms",
             'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-            'hive.ignore-absent-partitions' = 'true'
+            'hive.ignore_absent_partitions' = 'true'
         );"""
         sql """use `${catalog_name}`.`default`"""
         order_qt_3 """ select * from hive_ignore_absent_partitions_table order by id;"""
 
 
-        // 'hive.ignore-absent-partitions' = 'false'
+        // 'hive.ignore_absent_partitions' = 'false'
         sql """drop catalog if exists ${catalog_name}"""
         sql """create catalog if not exists ${catalog_name} properties (
             "type"="hms",
             'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-            'hive.ignore-absent-partitions' = 'false'
+            'hive.ignore_absent_partitions' = 'false'
         );"""
         sql """use `${catalog_name}`.`default`"""
         test {

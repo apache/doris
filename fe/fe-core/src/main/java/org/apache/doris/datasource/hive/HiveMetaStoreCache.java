@@ -365,7 +365,7 @@ public class HiveMetaStoreCache {
         // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
         List<RemoteFile> remoteFiles = new ArrayList<>();
         boolean isRecursiveDirectories = Boolean.valueOf(
-                catalog.getProperties().getOrDefault("hive.recursive-directories", "false"));
+                catalog.getProperties().getOrDefault("hive.recursive_directories", "false"));
         Status status = fs.listFiles(location, isRecursiveDirectories, remoteFiles);
         if (status.ok()) {
             for (RemoteFile remoteFile : remoteFiles) {
@@ -379,7 +379,7 @@ public class HiveMetaStoreCache {
             // Here is to support this case without throw an exception.
             LOG.warn(String.format("File %s not exist.", location));
             if (!Boolean.valueOf(catalog.getProperties()
-                    .getOrDefault("hive.ignore-absent-partitions", "true"))) {
+                    .getOrDefault("hive.ignore_absent_partitions", "true"))) {
                 throw new UserException("Partition location does not exist: " + location);
             }
         } else {
