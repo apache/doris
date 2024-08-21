@@ -147,7 +147,6 @@ Status LoadStreamWriter::close_writer(uint32_t segid, FileType file_type) {
             file_type == FileType::SEGMENT_FILE ? _segment_file_writers : _inverted_file_writers;
     {
         std::lock_guard lock_guard(_lock);
-        DBUG_EXECUTE_IF("LoadStreamWriter.close_writer.not_inited", { _is_init = false; });
         if (!_is_init) {
             return Status::Corruption("close_writer failed, LoadStreamWriter is not inited");
         }

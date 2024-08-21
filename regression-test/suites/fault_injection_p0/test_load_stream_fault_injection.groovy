@@ -145,7 +145,6 @@ suite("load_stream_fault_injection", "nonConcurrent") {
     load_with_injection("LoadStreamWriter.append_data.null_file_writer", "")
     load_with_injection("LoadStreamWriter.append_data.create_file_writer_failed", "")
     load_with_injection("LoadStreamWriter.append_data.wrong_offset", "")
-    load_with_injection("LoadStreamWriter.close_writer.not_inited", "")
     // LoadStreamWriter close_writer meet not bad segid error
     load_with_injection("LoadStreamWriter.close_writer.bad_segid", "")
     // LoadStreamWriter close_writer meet null file writer error
