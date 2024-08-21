@@ -33,7 +33,6 @@ import java.util.Map;
 public class PaimonSource {
     private final PaimonExternalTable paimonExtTable;
     private final Table originTable;
-
     private final TupleDescriptor desc;
 
     public PaimonSource(PaimonExternalTable table, TupleDescriptor desc,
