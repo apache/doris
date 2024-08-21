@@ -135,8 +135,148 @@ public:
         EXPECT_EQ(column_result2->size(), 1);
         EXPECT_TRUE(column_result2->get_offsets()[0] >= 1);
 
-        GTEST_LOG_(INFO) << column_result1->get_data_at(0).to_string();
-        GTEST_LOG_(INFO) << column_result2->get_data_at(0).to_string();
+        // GTEST_LOG_(INFO) << column_result1->get_data_at(0).to_string();
+        // GTEST_LOG_(INFO) << column_result2->get_data_at(0).to_string();
+
+        // test empty data
+        if (input_rows == 0) {
+            std::string expect_empty_result = "{\"num_buckets\":0,\"buckets\":[]}";
+            std::string empty_result1 = column_result1->get_data_at(0).to_string();
+            std::string empty_result2 = column_result2->get_data_at(0).to_string();
+            EXPECT_EQ(empty_result1, expect_empty_result);
+            EXPECT_EQ(empty_result2, expect_empty_result);
+        }
+
+        // test with data
+        if (input_rows == 100 && interval == 10 && offset == 0) {
+            std::string expect_result1 =
+                        "{\"num_buckets\":10,\"buckets\":["
+                        "{\"lower\":0.0,\"upper\":10.0,\"count\":20,\"acc_count\":20},"
+                        "{\"lower\":10.0,\"upper\":20.0,\"count\":20,\"acc_count\":40},"
+                        "{\"lower\":20.0,\"upper\":30.0,\"count\":20,\"acc_count\":60},"
+                        "{\"lower\":30.0,\"upper\":40.0,\"count\":20,\"acc_count\":80},"
+                        "{\"lower\":40.0,\"upper\":50.0,\"count\":20,\"acc_count\":100},"
+                        "{\"lower\":50.0,\"upper\":60.0,\"count\":20,\"acc_count\":120},"
+                        "{\"lower\":60.0,\"upper\":70.0,\"count\":20,\"acc_count\":140},"
+                        "{\"lower\":70.0,\"upper\":80.0,\"count\":20,\"acc_count\":160},"
+                        "{\"lower\":80.0,\"upper\":90.0,\"count\":20,\"acc_count\":180},"
+                        "{\"lower\":90.0,\"upper\":100.0,\"count\":20,\"acc_count\":200}"
+                        "]}";
+            std::string expect_result2 =
+                        "{\"num_buckets\":10,\"buckets\":["
+                        "{\"lower\":0.0,\"upper\":10.0,\"count\":10,\"acc_count\":10},"
+                        "{\"lower\":10.0,\"upper\":20.0,\"count\":10,\"acc_count\":20},"
+                        "{\"lower\":20.0,\"upper\":30.0,\"count\":10,\"acc_count\":30},"
+                        "{\"lower\":30.0,\"upper\":40.0,\"count\":10,\"acc_count\":40},"
+                        "{\"lower\":40.0,\"upper\":50.0,\"count\":10,\"acc_count\":50},"
+                        "{\"lower\":50.0,\"upper\":60.0,\"count\":10,\"acc_count\":60},"
+                        "{\"lower\":60.0,\"upper\":70.0,\"count\":10,\"acc_count\":70},"
+                        "{\"lower\":70.0,\"upper\":80.0,\"count\":10,\"acc_count\":80},"
+                        "{\"lower\":80.0,\"upper\":90.0,\"count\":10,\"acc_count\":90},"
+                        "{\"lower\":90.0,\"upper\":100.0,\"count\":10,\"acc_count\":100}"
+                        "]}";
+            std::string result1 = column_result1->get_data_at(0).to_string();
+            std::string result2 = column_result2->get_data_at(0).to_string();
+            EXPECT_EQ(result1, expect_result1);
+            EXPECT_EQ(result2, expect_result2);
+        }
+
+        if (input_rows == 100 && interval == 10 && offset == 5) {
+            std::string expect_result1 =
+                        "{\"num_buckets\":11,\"buckets\":["
+                        "{\"lower\":-5.0,\"upper\":5.0,\"count\":10,\"acc_count\":10},"
+                        "{\"lower\":5.0,\"upper\":15.0,\"count\":20,\"acc_count\":30},"
+                        "{\"lower\":15.0,\"upper\":25.0,\"count\":20,\"acc_count\":50},"
+                        "{\"lower\":25.0,\"upper\":35.0,\"count\":20,\"acc_count\":70},"
+                        "{\"lower\":35.0,\"upper\":45.0,\"count\":20,\"acc_count\":90},"
+                        "{\"lower\":45.0,\"upper\":55.0,\"count\":20,\"acc_count\":110},"
+                        "{\"lower\":55.0,\"upper\":65.0,\"count\":20,\"acc_count\":130},"
+                        "{\"lower\":65.0,\"upper\":75.0,\"count\":20,\"acc_count\":150},"
+                        "{\"lower\":75.0,\"upper\":85.0,\"count\":20,\"acc_count\":170},"
+                        "{\"lower\":85.0,\"upper\":95.0,\"count\":20,\"acc_count\":190},"
+                        "{\"lower\":95.0,\"upper\":105.0,\"count\":10,\"acc_count\":200}"
+                        "]}";
+            std::string expect_result2 =
+                        "{\"num_buckets\":11,\"buckets\":["
+                        "{\"lower\":-5.0,\"upper\":5.0,\"count\":5,\"acc_count\":5},"
+                        "{\"lower\":5.0,\"upper\":15.0,\"count\":10,\"acc_count\":15},"
+                        "{\"lower\":15.0,\"upper\":25.0,\"count\":10,\"acc_count\":25},"
+                        "{\"lower\":25.0,\"upper\":35.0,\"count\":10,\"acc_count\":35},"
+                        "{\"lower\":35.0,\"upper\":45.0,\"count\":10,\"acc_count\":45},"
+                        "{\"lower\":45.0,\"upper\":55.0,\"count\":10,\"acc_count\":55},"
+                        "{\"lower\":55.0,\"upper\":65.0,\"count\":10,\"acc_count\":65},"
+                        "{\"lower\":65.0,\"upper\":75.0,\"count\":10,\"acc_count\":75},"
+                        "{\"lower\":75.0,\"upper\":85.0,\"count\":10,\"acc_count\":85},"
+                        "{\"lower\":85.0,\"upper\":95.0,\"count\":10,\"acc_count\":95},"
+                        "{\"lower\":95.0,\"upper\":105.0,\"count\":5,\"acc_count\":100}"
+                        "]}";
+            std::string result1 = column_result1->get_data_at(0).to_string();
+            std::string result2 = column_result2->get_data_at(0).to_string();
+            EXPECT_EQ(result1, expect_result1);
+            EXPECT_EQ(result2, expect_result2);
+        }
+
+        if (input_rows == 5 && interval == 0.5 && offset == 0) {
+            std::string expect_result1 =
+                        "{\"num_buckets\":9,\"buckets\":["
+                        "{\"lower\":0.0,\"upper\":0.5,\"count\":2,\"acc_count\":2},"
+                        "{\"lower\":0.5,\"upper\":1.0,\"count\":0,\"acc_count\":2},"
+                        "{\"lower\":1.0,\"upper\":1.5,\"count\":2,\"acc_count\":4},"
+                        "{\"lower\":1.5,\"upper\":2.0,\"count\":0,\"acc_count\":4},"
+                        "{\"lower\":2.0,\"upper\":2.5,\"count\":2,\"acc_count\":6},"
+                        "{\"lower\":2.5,\"upper\":3.0,\"count\":0,\"acc_count\":6},"
+                        "{\"lower\":3.0,\"upper\":3.5,\"count\":2,\"acc_count\":8},"
+                        "{\"lower\":3.5,\"upper\":4.0,\"count\":0,\"acc_count\":8},"
+                        "{\"lower\":4.0,\"upper\":4.5,\"count\":2,\"acc_count\":10}"
+                        "]}";
+            std::string expect_result2 =
+                        "{\"num_buckets\":9,\"buckets\":["
+                        "{\"lower\":0.0,\"upper\":0.5,\"count\":1,\"acc_count\":1},"
+                        "{\"lower\":0.5,\"upper\":1.0,\"count\":0,\"acc_count\":1},"
+                        "{\"lower\":1.0,\"upper\":1.5,\"count\":1,\"acc_count\":2},"
+                        "{\"lower\":1.5,\"upper\":2.0,\"count\":0,\"acc_count\":2},"
+                        "{\"lower\":2.0,\"upper\":2.5,\"count\":1,\"acc_count\":3},"
+                        "{\"lower\":2.5,\"upper\":3.0,\"count\":0,\"acc_count\":3},"
+                        "{\"lower\":3.0,\"upper\":3.5,\"count\":1,\"acc_count\":4},"
+                        "{\"lower\":3.5,\"upper\":4.0,\"count\":0,\"acc_count\":4},"
+                        "{\"lower\":4.0,\"upper\":4.5,\"count\":1,\"acc_count\":5}"
+                        "]}";
+            std::string result1 = column_result1->get_data_at(0).to_string();
+            std::string result2 = column_result2->get_data_at(0).to_string();
+            EXPECT_EQ(result1, expect_result1);
+            EXPECT_EQ(result2, expect_result2);
+        }
+
+        if (input_rows == 5 && interval == 0.5 && offset == 0.25) {
+            std::string expect_result1 =
+                        "{\"num_buckets\":9,\"buckets\":["
+                        "{\"lower\":-0.25,\"upper\":0.25,\"count\":2,\"acc_count\":2},"
+                        "{\"lower\":0.25,\"upper\":0.75,\"count\":0,\"acc_count\":2},"
+                        "{\"lower\":0.75,\"upper\":1.25,\"count\":2,\"acc_count\":4},"
+                        "{\"lower\":1.25,\"upper\":1.75,\"count\":0,\"acc_count\":4},"
+                        "{\"lower\":1.75,\"upper\":2.25,\"count\":2,\"acc_count\":6},"
+                        "{\"lower\":2.25,\"upper\":2.75,\"count\":0,\"acc_count\":6},"
+                        "{\"lower\":2.75,\"upper\":3.25,\"count\":2,\"acc_count\":8},"
+                        "{\"lower\":3.25,\"upper\":3.75,\"count\":0,\"acc_count\":8},"
+                        "{\"lower\":3.75,\"upper\":4.25,\"count\":2,\"acc_count\":10}"
+                        "]}";
+            std::string expect_result2 =
+                        "{\"num_buckets\":9,\"buckets\":["
+                        "{\"lower\":-0.25,\"upper\":0.25,\"count\":1,\"acc_count\":1},"
+                        "{\"lower\":0.25,\"upper\":0.75,\"count\":0,\"acc_count\":1},"
+                        "{\"lower\":0.75,\"upper\":1.25,\"count\":1,\"acc_count\":2},"
+                        "{\"lower\":1.25,\"upper\":1.75,\"count\":0,\"acc_count\":2},"
+                        "{\"lower\":1.75,\"upper\":2.25,\"count\":1,\"acc_count\":3},"
+                        "{\"lower\":2.25,\"upper\":2.75,\"count\":0,\"acc_count\":3},"
+                        "{\"lower\":2.75,\"upper\":3.25,\"count\":1,\"acc_count\":4},"
+                        "{\"lower\":3.25,\"upper\":3.75,\"count\":0,\"acc_count\":4},"
+                        "{\"lower\":3.75,\"upper\":4.25,\"count\":1,\"acc_count\":5}"
+                        "]}";
+            std::string result1 = column_result1->get_data_at(0).to_string();
+            std::string result2 = column_result2->get_data_at(0).to_string();
+            EXPECT_EQ(result1, expect_result1);
+            EXPECT_EQ(result2, expect_result2);
+        }
     }
 
 private:
@@ -177,19 +317,19 @@ TEST_F(AggLinearHistogramTest, test_with_data) {
     test_agg_linear_histogram<DataTypeDecimal<Decimal256>>(5, 0.5, 0);
 
     GTEST_LOG_(INFO) << "has offset";
-    test_agg_linear_histogram<DataTypeInt8>(100, 10, 10);
-    test_agg_linear_histogram<DataTypeInt16>(100, 10, 10);
-    test_agg_linear_histogram<DataTypeInt32>(100, 10, 10);
-    test_agg_linear_histogram<DataTypeInt64>(100, 10, 10);
-    test_agg_linear_histogram<DataTypeInt128>(100, 10, 10);
-    test_agg_linear_histogram<DataTypeFloat32>(5, 0.5, 0.5);
-    test_agg_linear_histogram<DataTypeFloat64>(5, 0.5, 0.5);
+    test_agg_linear_histogram<DataTypeInt8>(100, 10, 5);
+    test_agg_linear_histogram<DataTypeInt16>(100, 10, 5);
+    test_agg_linear_histogram<DataTypeInt32>(100, 10, 5);
+    test_agg_linear_histogram<DataTypeInt64>(100, 10, 5);
+    test_agg_linear_histogram<DataTypeInt128>(100, 10, 5);
+    test_agg_linear_histogram<DataTypeFloat32>(5, 0.5, 0.25);
+    test_agg_linear_histogram<DataTypeFloat64>(5, 0.5, 0.25);
 
-    test_agg_linear_histogram<DataTypeDecimal<Decimal32>>(5, 0.5, 0.5);
-    test_agg_linear_histogram<DataTypeDecimal<Decimal64>>(5, 0.5, 0.5);
-    test_agg_linear_histogram<DataTypeDecimal<Decimal128V2>>(5, 0.5, 0.5);
-    test_agg_linear_histogram<DataTypeDecimal<Decimal128V3>>(5, 0.5, 0.5);
-    test_agg_linear_histogram<DataTypeDecimal<Decimal256>>(5, 0.5, 0.5);
+    test_agg_linear_histogram<DataTypeDecimal<Decimal32>>(5, 0.5, 0.25);
+    test_agg_linear_histogram<DataTypeDecimal<Decimal64>>(5, 0.5, 0.25);
+    test_agg_linear_histogram<DataTypeDecimal<Decimal128V2>>(5, 0.5, 0.25);
+    test_agg_linear_histogram<DataTypeDecimal<Decimal128V3>>(5, 0.5, 0.25);
+    test_agg_linear_histogram<DataTypeDecimal<Decimal256>>(5, 0.5, 0.25);
 }
 
 } // namespace doris::vectorized

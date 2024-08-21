@@ -27,11 +27,9 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/io/io_helper.h"
 
-// TODO: count=0输出优化
-// TODO: 完善单元测试
-// TODO: 端到端测试
-// TODO: offset优化 [0, interval)
-// TODO: 支持时间类型
+// TODO: optimize count=0 
+// TODO: e2e test
+// TODO: support datetime
 
 namespace doris::vectorized {
 
@@ -193,6 +191,11 @@ public:
         if constexpr (has_offset) {
             offset = assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[2])
                         .get_data()[row_num];
+            if (offset < 0 || offset >= interval) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "Invalid offset {}, row_num {}, offset should be in [0, interval)",
+                                       offset, row_num);
+            }
         }
 
         this->data(place).set_parameters(interval, offset);
