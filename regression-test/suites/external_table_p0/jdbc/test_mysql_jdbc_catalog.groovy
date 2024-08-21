@@ -612,6 +612,20 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
 
         order_qt_sql """select * from mysql_conjuncts.doris_test.text_push where pk <=7;"""
 
+        // test create table as select
+        sql """use internal.${internal_db_name}"""
+        sql """drop table if exists ctas_partition_text_1"""
+        sql """drop table if exists ctas_partition_text_2"""
+        sql """set enable_nereids_planner=true"""
+        sql """create table ctas_partition_text_1 distributed by hash(text) buckets 1 properties("replication_num" = "1") as select int_u, text, text as t2 from mysql_conjuncts.doris_test.all_types;"""
+        qt_sql """desc ctas_partition_text_1"""
+        // ctas logic is different between new and old planner.
+        // so need to test both.
+        // the old planner's test can be removed once the old planner is removed.
+        sql """set enable_nereids_planner=false"""
+        sql """create table ctas_partition_text_2 distributed by hash(text) buckets 1 properties("replication_num" = "1") as select int_u, text, text as t2 from mysql_conjuncts.doris_test.all_types;"""
+        qt_sql """desc ctas_partition_text_2"""
+
         sql """drop catalog if exists mysql_conjuncts;"""
     }
 }
