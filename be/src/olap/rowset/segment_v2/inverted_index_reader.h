@@ -163,9 +163,9 @@ public:
         }
     }
 
-    std::shared_ptr<roaring::Roaring> get_data_bitmap() const { return _data_bitmap; }
+    const std::shared_ptr<roaring::Roaring>& get_data_bitmap() const { return _data_bitmap; }
 
-    std::shared_ptr<roaring::Roaring> get_null_bitmap() const { return _null_bitmap; }
+    const std::shared_ptr<roaring::Roaring>& get_null_bitmap() const { return _null_bitmap; }
 
     // Check if both bitmaps are empty
     bool is_empty() const { return (_data_bitmap == nullptr && _null_bitmap == nullptr); }

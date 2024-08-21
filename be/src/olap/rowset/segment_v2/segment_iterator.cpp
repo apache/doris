@@ -524,13 +524,13 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                             (*it)->root().get());
             if (result != nullptr) {
                 _row_bitmap &= *result->get_data_bitmap();
-                it = _common_expr_ctxs_push_down.erase(it);
                 auto root = (*it)->root();
                 auto iter_find = std::find(_remaining_conjunct_roots.begin(),
                                            _remaining_conjunct_roots.end(), root);
                 if (iter_find != _remaining_conjunct_roots.end()) {
                     _remaining_conjunct_roots.erase(iter_find);
                 }
+                it = _common_expr_ctxs_push_down.erase(it);
             }
         } else {
             ++it;
@@ -2362,13 +2362,10 @@ void SegmentIterator::_output_index_result_column_for_expr(uint16_t* sel_rowid_i
         return;
     }
     for (auto& expr_ctx : _common_expr_ctxs_push_down) {
-        auto inverted_index_result_bitmap_for_exprs =
-                expr_ctx->get_inverted_index_context()->get_inverted_index_result_bitmap();
-        auto inverted_index_result_column_for_exprs =
-                expr_ctx->get_inverted_index_context()->get_inverted_index_result_column();
-        for (auto& inverted_index_result_bitmap_for_expr : inverted_index_result_bitmap_for_exprs) {
+        for (auto& inverted_index_result_bitmap_for_expr :
+             expr_ctx->get_inverted_index_context()->get_inverted_index_result_bitmap()) {
             const auto* expr = inverted_index_result_bitmap_for_expr.first;
-            auto index_result_bitmap =
+            const auto& index_result_bitmap =
                     inverted_index_result_bitmap_for_expr.second.get_data_bitmap();
             auto index_result_column = vectorized::ColumnUInt8::create();
             vectorized::ColumnUInt8::Container& vec_match_pred = index_result_column->get_data();
