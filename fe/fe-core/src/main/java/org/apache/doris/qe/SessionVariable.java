@@ -439,6 +439,8 @@ public class SessionVariable implements Serializable, Writable {
     // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
     public static final String USE_FIX_REPLICA = "use_fix_replica";
 
+    public static final String QUERY_BACKEND_BLACKLIST = "query_backend_blacklist";
+
     public static final String DRY_RUN_QUERY = "dry_run_query";
 
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
@@ -1550,6 +1552,13 @@ public class SessionVariable implements Serializable, Writable {
     // Default value is -1, which means not fix replica
     @VariableMgr.VarAttr(name = USE_FIX_REPLICA)
     public int useFixReplica = -1;
+
+    // This is a debug feature, when we find a backend is not stable(for example network reasons)
+    // we could use this variable to exclude it from query plan. It is only used for query. Not for
+    // load jobs.
+    // Use could set multiple backendids using , to split like "10111,10112"
+    @VariableMgr.VarAttr(name = QUERY_BACKEND_BLACKLIST, needForward = true)
+    public String queryBackendBlacklist = "";
 
     @VariableMgr.VarAttr(name = DUMP_NEREIDS_MEMO)
     public boolean dumpNereidsMemo = false;
@@ -4224,6 +4233,21 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setIgnoreStorageDataDistribution(boolean ignoreStorageDataDistribution) {
         this.ignoreStorageDataDistribution = ignoreStorageDataDistribution;
+    }
+
+    // If anything wrong during parsing, just throw exception to forbidden the query
+    // so there is not many exception handling logic here.
+    public Set<Long> getQueryBackendBlacklist() {
+        Set<Long> blacklist = Sets.newHashSet();
+        if (Strings.isNullOrEmpty(queryBackendBlacklist)) {
+            return blacklist;
+        }
+        String[] backendIds = this.queryBackendBlacklist.trim().split(",");
+        for (int i = 0; i < backendIds.length; ++i) {
+            long backendId = Long.parseLong(backendIds[i].trim());
+            blacklist.add(backendId);
+        }
+        return blacklist;
     }
 
     // CLOUD_VARIABLES_BEGIN
