@@ -212,6 +212,7 @@ suite("sql_cache") {
                 """
 
     def query_nondeterministics = {
+        sql "drop view if exists view_a"
         sql "CREATE VIEW view_a AS SELECT now() from $tableName"
 
         sql "set enable_sql_cache=true"
