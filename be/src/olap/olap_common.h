@@ -33,6 +33,7 @@
 #include <typeinfo>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 #include "io/io_common.h"
 #include "olap/olap_define.h"
@@ -508,27 +509,18 @@ class DeleteBitmap;
 // merge on write context
 struct MowContext {
     MowContext(int64_t version, int64_t txnid, const RowsetIdUnorderedSet& ids,
-               const std::vector<RowsetSharedPtr>& rowset_ptrs, std::shared_ptr<DeleteBitmap> db)
+               std::vector<RowsetSharedPtr> rowset_ptrs, std::shared_ptr<DeleteBitmap> db)
             : max_version(version),
               txn_id(txnid),
               rowset_ids(ids),
-              rowset_ptrs(rowset_ptrs),
-              delete_bitmap(db) {}
+              rowset_ptrs(std::move(rowset_ptrs)),
+              delete_bitmap(std::move(db)) {}
     int64_t max_version;
     int64_t txn_id;
     const RowsetIdUnorderedSet& rowset_ids;
     std::vector<RowsetSharedPtr> rowset_ptrs;
     std::shared_ptr<DeleteBitmap> delete_bitmap;
 };
-
-// used in mow partial update
-struct RidAndPos {
-    uint32_t rid;
-    // pos in block
-    size_t pos;
-};
-
-using PartialUpdateReadPlan = std::map<RowsetId, std::map<uint32_t, std::vector<RidAndPos>>>;
 
 // used for controll compaction
 struct VersionWithTime {
