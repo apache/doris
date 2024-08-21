@@ -138,7 +138,7 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                             // String type can not be used in partition/distributed column
                             // so we replace it to varchar
                             dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                                    StringType.class, VarcharType.MAX_VARCHAR_TYPE);
+                                    CharacterType.class, VarcharType.MAX_VARCHAR_TYPE);
                         } else {
                             dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
                                     CharacterType.class, StringType.INSTANCE);
