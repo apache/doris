@@ -290,7 +290,17 @@ void PassthroughExchanger::close(LocalExchangeSourceLocalState& local_state) {
     bool eos;
     _data_queue[local_state._channel_id].set_eos();
     while (_dequeue_data(local_state, wrapper, &eos, &next_block)) {
-        next_block = vectorized::Block();
+        // do nothing
+    }
+}
+
+void PassToOneExchanger::close(LocalExchangeSourceLocalState& local_state) {
+    vectorized::Block next_block;
+    BlockWrapperSPtr wrapper;
+    bool eos;
+    _data_queue[local_state._channel_id].set_eos();
+    while (_dequeue_data(local_state, wrapper, &eos, &next_block)) {
+        // do nothing
     }
 }
 
@@ -551,7 +561,7 @@ void AdaptivePassthroughExchanger::close(LocalExchangeSourceLocalState& local_st
     BlockWrapperSPtr wrapper;
     _data_queue[local_state._channel_id].set_eos();
     while (_dequeue_data(local_state, wrapper, &eos, &next_block)) {
-        next_block = vectorized::Block();
+        // do nothing
     }
 }
 

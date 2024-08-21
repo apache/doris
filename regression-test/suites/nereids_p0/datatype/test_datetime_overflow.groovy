@@ -15,12 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.event;
+suite("test_datetime_overflow") {
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
+    sql """drop table if exists datetime_overflow_t"""
+    sql """CREATE TABLE datetime_overflow_t (
+            `id` bigint NULL,
+            `c` datetime NULL,
+            `d` date NULL,
+            INDEX idx_c (`c`) USING INVERTED
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY RANDOM BUCKETS AUTO
+            PROPERTIES (
+            "replication_num" = "1"
+            );"""
 
-import org.apache.doris.common.AnalysisException;
-
-public class ReplacePartitionEvent extends TableEvent {
-    public ReplacePartitionEvent(long ctlId, long dbId, long tableId) throws AnalysisException {
-        super(EventType.REPLACE_PARTITION, ctlId, dbId, tableId);
-    }
+    sql """select * from datetime_overflow_t where d between "9999-12-31 00:00:01" and "9999-12-31 10:00:01";"""
+    sql """select * from datetime_overflow_t where d > "9999-12-31 00:00:01";"""
 }

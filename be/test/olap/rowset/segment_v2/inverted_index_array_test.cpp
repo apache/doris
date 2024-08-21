@@ -98,7 +98,6 @@ public:
         ASSERT_TRUE(st.ok()) << st;
         st = io::global_local_filesystem()->create_directory(kTestDir);
         ASSERT_TRUE(st.ok()) << st;
-        config::enable_write_index_searcher_cache = false;
         std::vector<StorePath> paths;
         paths.emplace_back(kTestDir, 1024);
         auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
