@@ -209,10 +209,7 @@ protected:
         static_cast<void>(tablet_meta->set_partition_id(10000));
         tablet_meta->_schema = tablet_schema;
         auto tablet = std::make_shared<Tablet>(tablet_meta, _data_dir, "test_str");
-        char* tmp_str = (char*)malloc(20);
-        strncpy(tmp_str, "test_tablet_name", 20);
-
-        tablet->_full_name = tmp_str;
+        tablet->init();
         // tablet->key
         rowset_writer_context->tablet = tablet;
     }
