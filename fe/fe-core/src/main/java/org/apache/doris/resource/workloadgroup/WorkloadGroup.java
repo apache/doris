@@ -18,8 +18,10 @@
 package org.apache.doris.resource.workloadgroup;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
@@ -29,7 +31,6 @@ import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TWorkloadGroupInfo;
 import org.apache.doris.thrift.TopicInfo;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
@@ -184,9 +185,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             throws DdlException {
         Map<String, String> newProperties = new HashMap<>(currentWorkloadGroup.getProperties());
         for (Map.Entry<String, String> kv : updateProperties.entrySet()) {
-            if (!Strings.isNullOrEmpty(kv.getValue())) {
-                newProperties.put(kv.getKey(), kv.getValue());
-            }
+            newProperties.put(kv.getKey(), kv.getValue());
         }
 
         checkProperties(newProperties);
@@ -382,6 +381,18 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                     + SPILL_THRESHOLD_LOW_WATERMARK + "(" + lowWaterMark + ")");
         }
 
+        String tagStr = properties.get(TAG);
+        if (!StringUtils.isEmpty(tagStr)) {
+            String[] tagArr = tagStr.split(",");
+            for (String tag : tagArr) {
+                try {
+                    FeNameFormat.checkCommonName("workload group tag name", tag);
+                } catch (AnalysisException e) {
+                    throw new DdlException("workload group tag name format is illegal, " + tagStr);
+                }
+            }
+        }
+
     }
 
     public long getId() {
@@ -551,6 +562,11 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         String spillHighWatermarkStr = properties.get(SPILL_THRESHOLD_HIGH_WATERMARK);
         if (spillHighWatermarkStr != null) {
             tWorkloadGroupInfo.setSpillThresholdHighWatermark(Integer.parseInt(spillHighWatermarkStr));
+        }
+
+        String tagStr = properties.get(TAG);
+        if (!StringUtils.isEmpty(tagStr)) {
+            tWorkloadGroupInfo.setTag(tagStr);
         }
 
         TopicInfo topicInfo = new TopicInfo();
