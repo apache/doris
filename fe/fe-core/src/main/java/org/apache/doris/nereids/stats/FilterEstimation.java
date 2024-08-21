@@ -345,7 +345,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 double val = statsForRight.maxValue;
                 if (val > statsForLeft.maxValue || val < statsForLeft.minValue) {
                     selectivity = 0.0;
-                } else if (ndv >= 1.0 ){
+                } else if (ndv >= 1.0 ) {
                     selectivity = StatsMathUtil.minNonNaN(1.0, 1.0 / ndv);
                 } else {
                     selectivity = DEFAULT_INEQUALITY_COEFFICIENT;
