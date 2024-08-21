@@ -540,8 +540,8 @@ class ChildOutputPropertyDeriverTest {
         List<Slot> rightOutput = new ArrayList<>();
         leftOutput.add(leftSlot);
         rightOutput.add(rightSlot);
-        LogicalProperties leftProperties = new LogicalProperties(() -> leftOutput, () -> DataTrait.EMPTY_TRAIT);
-        LogicalProperties rightProperties = new LogicalProperties(() -> rightOutput, () -> DataTrait.EMPTY_TRAIT);
+        LogicalProperties leftProperties = new LogicalProperties(() -> leftOutput, () -> FunctionalDependencies.EMPTY_FUNC_DEPS);
+        LogicalProperties rightProperties = new LogicalProperties(() -> rightOutput, () -> FunctionalDependencies.EMPTY_FUNC_DEPS);
 
         IdGenerator<GroupId> idGenerator = GroupId.createGenerator();
         GroupPlan leftGroupPlan = new GroupPlan(new Group(idGenerator.getNextId(), leftProperties));
