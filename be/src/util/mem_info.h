@@ -146,10 +146,29 @@ public:
         if (config::enable_je_purge_dirty_pages) {
             try {
                 // Purge all unused dirty pages for arena <i>, or for all arenas if <i> equals MALLCTL_ARENAS_ALL.
-                jemallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(), nullptr,
-                          nullptr, nullptr, 0);
+                int err = jemallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(),
+                                    nullptr, nullptr, nullptr, 0);
+                if (err) {
+                    LOG(WARNING) << "Jemalloc purge all unused dirty pages failed";
+                }
             } catch (...) {
                 LOG(WARNING) << "Purge all unused dirty pages for all arenas failed";
+            }
+        }
+#endif
+    }
+
+    // the limit of `tcache` is the number of pages, not the total number of page bytes.
+    // `tcache` has two cleaning opportunities: 1. the number of memory alloc and releases reaches a certain number,
+    // recycle pages that has not been used for a long time; 2. recycle all `tcache` when the thread exits.
+    // here add a total size limit.
+    static inline void je_thread_tcache_flush() {
+#ifdef USE_JEMALLOC
+        constexpr size_t TCACHE_LIMIT = (1ULL << 30); // 1G
+        if (allocator_cache_mem() - je_dirty_pages_mem() > TCACHE_LIMIT) {
+            int err = jemallctl("thread.tcache.flush", nullptr, nullptr, nullptr, 0);
+            if (err) {
+                LOG(WARNING) << "Jemalloc thread.tcache.flush failed";
             }
         }
 #endif
