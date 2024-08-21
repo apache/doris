@@ -81,7 +81,7 @@ public class PlanTranslatorContext {
 
     private final Map<Plan, Map<ExprId, SlotRef>> clonePlanToExprIdToSlotRefMap = Maps.newHashMap();
 
-    private Map<ExprId, SlotRef> cloneExprIdToSlot = Maps.newHashMap();
+    private Map<ExprId, SlotRef> cloneExprIdToSlot = null;
 
     /**
      * Inverted index from legacy slot to Nereids' slot.
