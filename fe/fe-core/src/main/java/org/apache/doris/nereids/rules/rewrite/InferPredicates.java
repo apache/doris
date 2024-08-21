@@ -19,17 +19,23 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -105,6 +111,41 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
             return new LogicalFilter<>(ImmutableSet.copyOf(filterPredicates), filter.child());
         }
         return filter;
+    }
+
+    @Override
+    public Plan visitLogicalExcept(LogicalExcept except, JobContext context) {
+        except = visitChildren(this, except, context);
+        Set<Expression> baseExpressions = pullUpPredicates(except);
+        ImmutableList.Builder<Plan> builder = ImmutableList.builder();
+        builder.add(except.child(0));
+        for (int i = 1; i < except.arity(); ++i) {
+            Plan child = except.child(i);
+            Map<Expression, Expression> replaceMap = new HashMap<>();
+            for (int j = 0; j < except.getOutputs().size(); ++j) {
+                NamedExpression output = except.getOutputs().get(j);
+                replaceMap.put(output, child.getOutput().get(j));
+            }
+            builder.add(inferNewPredicate(except.child(i), ExpressionUtils.replace(baseExpressions, replaceMap)));
+        }
+        return except.withChildren(builder.build());
+    }
+
+    @Override
+    public Plan visitLogicalIntersect(LogicalIntersect intersect, JobContext context) {
+        intersect = visitChildren(this, intersect, context);
+        Set<Expression> baseExpressions = pullUpPredicates(intersect);
+        ImmutableList.Builder<Plan> builder = ImmutableList.builder();
+        for (int i = 0; i < intersect.arity(); ++i) {
+            Plan child = intersect.child(i);
+            Map<Expression, Expression> replaceMap = new HashMap<>();
+            for (int j = 0; j < intersect.getOutputs().size(); ++j) {
+                NamedExpression output = intersect.getOutputs().get(j);
+                replaceMap.put(output, child.getOutput().get(j));
+            }
+            builder.add(inferNewPredicate(intersect.child(i), ExpressionUtils.replace(baseExpressions, replaceMap)));
+        }
+        return intersect.withChildren(builder.build());
     }
 
     private Set<Expression> getAllExpressions(Plan left, Plan right, Optional<Expression> condition) {

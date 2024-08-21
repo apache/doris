@@ -724,4 +724,26 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                                 && filter.getPredicate().toSql().contains("sid = 1"))
                 );
     }
+
+    @Test
+    void inferPredicateFromIntersect() {
+        String sql = "select age c1,id from student where id <10 intersect select age,id from student where id >1";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalIntersect(logicalProject(logicalFilter().when(filter -> filter.getConjuncts().size() == 2)),
+                        logicalProject(logicalFilter().when(filter -> filter.getConjuncts().size() == 2))));
+    }
+
+    @Test
+    void inferPredicateFromExcept() {
+        String sql = "select age c1,id from student where id <10 except select age,id from student where id >1";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalFilter(logicalOlapScan().when(scan -> scan.getTable().getName().equals("student")))
+                        .when(filter -> filter.getConjuncts().size() == 2));
+    }
 }
