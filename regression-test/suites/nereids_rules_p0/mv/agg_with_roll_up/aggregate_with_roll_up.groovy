@@ -1409,7 +1409,7 @@ suite("aggregate_with_roll_up") {
             o_orderdate;
     """
     order_qt_query32_1_before "${query32_1}"
-    async_mv_rewrite_success(db, mv32_1, query32_1, "mv32_1")
+    check_mv_rewrite_success(db, mv32_1, query32_1, "mv32_1")
     order_qt_query32_1_after "${query32_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv32_1"""
 
