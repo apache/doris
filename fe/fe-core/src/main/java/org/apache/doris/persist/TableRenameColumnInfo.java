@@ -81,6 +81,10 @@ public class TableRenameColumnInfo implements Writable {
         return GsonUtils.GSON.fromJson(Text.readString(in), TableRenameColumnInfo.class);
     }
 
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
+
     @Override
     public boolean equals(Object obj) {
         if (obj == this) {
