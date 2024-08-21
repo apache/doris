@@ -16,16 +16,24 @@
 // under the License.
 
 suite("test_dynamic_partition_mod_distribution_key") {
-    def tableName = "test_dynamic_partition_mod_distribution_key"
-    sql """ DROP TABLE IF EXISTS ${tableName} """
-    sql """
+    // FIXME: for historical bugs, this case will fail if adding k2 as dup key or unique key
+    // see in https://github.com/apache/doris/issues/39798
+    def keys = ["DUPLICATE KEY (k1)", "UNIQUE KEY (k1)", "AGGREGATE KEY (k1, k2)"]
+    def aggTypes = ["", "", "REPLACE"]
+    for (i in 0..<3) {
+        def key = keys.get(i)
+        def aggType = aggTypes.get(i)
+        def tableName = "test_dynamic_partition_mod_distribution_key"
+        sql """ DROP TABLE IF EXISTS ${tableName} """
+
+        sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
             k1 DATE NOT NULL,
             k2 VARCHAR(20) NOT NULL,
-            v INT NOT NULL
-        ) DUPLICATE KEY (k1)
+            v INT ${aggType}
+        ) ${key} 
         PARTITION BY RANGE(k1) ()
-        DISTRIBUTED BY HASH(k1, k2) BUCKETS 1
+        DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES (
             "dynamic_partition.enable"="true",
             "dynamic_partition.end"="3",
@@ -35,24 +43,25 @@ suite("test_dynamic_partition_mod_distribution_key") {
             "dynamic_partition.time_unit"="DAY",
             "dynamic_partition.create_history_partition"="true",
             "dynamic_partition.replication_allocation" = "tag.location.default: 1")
-    """
+        """
 
-    sql """ alter table ${tableName} modify column k1 comment 'new_comment_for_k1' """
-    sql """ alter table ${tableName} modify column k2 varchar(255) """
-    waitForSchemaChangeDone {
-        sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
-        time 600
-    }
-    sql """ ADMIN SET FRONTEND CONFIG ('dynamic_partition_check_interval_seconds' = '1') """
-    sql """ alter table ${tableName} set('dynamic_partition.end'='5') """
-    result = sql "show partitions from ${tableName}"
-    for (def retry = 0; retry < 10; retry++) { // at most wait 120s
-        if (result.size() == 9) {
-            break;
+        sql """ alter table ${tableName} modify column k1 comment 'new_comment_for_k1' """
+        sql """ alter table ${tableName} modify column k2 varchar(255) """
+        waitForSchemaChangeDone {
+            sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+            time 600
         }
-        logger.info("wait dynamic partition scheduler, sleep 1s")
-        sleep(1000)  // sleep 1s
+        sql """ ADMIN SET FRONTEND CONFIG ('dynamic_partition_check_interval_seconds' = '1') """
+        sql """ alter table ${tableName} set('dynamic_partition.end'='5') """
         result = sql "show partitions from ${tableName}"
+        for (def retry = 0; retry < 10; retry++) { // at most wait 120s
+            if (result.size() == 9) {
+                break;
+            }
+            logger.info("wait dynamic partition scheduler, sleep 1s")
+            sleep(1000)  // sleep 1s
+            result = sql "show partitions from ${tableName}"
+        }
+        assertEquals(9, result.size())
     }
-    assertEquals(9, result.size())
 }
