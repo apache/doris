@@ -228,12 +228,7 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     // remove them when query leave scan node to avoid other nodes use block->columns() to make a wrong decision
     Defer drop_block_temp_column {[&]() {
         std::unique_lock l(_block_lock);
-        auto all_column_names = block->get_names();
-        for (auto& name : all_column_names) {
-            if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
-                block->erase(name);
-            }
-        }
+        block->erase_tmp_columns();
     }};
 
     if (state->is_cancelled()) {
