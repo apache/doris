@@ -3138,9 +3138,12 @@ public class StmtExecutor {
                         LOG.info("Result rows for query {} is {}", DebugUtil.printId(queryId), resultRows.size());
                         return resultRows;
                     } else {
-                        if (LOG.isDebugEnabled() && batch.getBatch() != null && batch.getBatch().rows != null) {
-                            LOG.debug("Batch size for query {} is {}",
-                                    DebugUtil.printId(queryId), batch.getBatch().rows.size());
+                        if (batch.getBatch().getRows() != null) {
+                            context.updateReturnRows(batch.getBatch().getRows().size());
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("Batch size for query {} is {}",
+                                        DebugUtil.printId(queryId), batch.getBatch().rows.size());
+                            }
                         }
                         resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
                         if (LOG.isDebugEnabled()) {
