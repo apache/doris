@@ -186,7 +186,7 @@ ZoneMapIndexReader::~ZoneMapIndexReader() {
     // Maybe wrong due to load failures.
     if (_page_zone_maps.size() > 0) {
         g_zone_map_memory_bytes << -sizeof(*this) - sizeof(ZoneMapPB) * _page_zone_maps.size() -
-                                            sizeof(IndexedColumnMetaPB);
+                                           sizeof(IndexedColumnMetaPB);
     }
 }
 #define APPLY_FOR_PRIMITITYPE(M) \
