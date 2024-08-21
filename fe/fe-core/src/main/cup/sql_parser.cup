@@ -4604,14 +4604,19 @@ show_param ::=
         RESULT = new ShowSyncJobStmt(dbName);
     :}
     /* show table stats */
-    | KW_TABLE opt_cached:cached KW_STATS table_name:tbl opt_partition_names:partitionNames opt_col_list:cols
+    | KW_TABLE KW_STATS table_name:tbl opt_partition_names:partitionNames opt_col_list:cols
     {:
-        RESULT = new ShowTableStatsStmt(tbl, cols, partitionNames, cached, null);
+        RESULT = new ShowTableStatsStmt(tbl, cols, partitionNames, null);
+    :}
+    /* show table id stats */
+    | KW_TABLE KW_STATS INTEGER_LITERAL:tableId
+    {:
+        RESULT = new ShowTableStatsStmt(tableId);
     :}
     /* show index stats */
     | KW_INDEX KW_STATS table_name:tbl ident:id
     {:
-        RESULT = new ShowTableStatsStmt(tbl, null, null, false, id);
+        RESULT = new ShowTableStatsStmt(tbl, null, null, id);
     :}
     /* show column stats */
     | KW_COLUMN opt_cached:cached KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
