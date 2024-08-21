@@ -19,6 +19,7 @@
 
 #include <memory>
 
+#include "butil/macros.h"
 #include "common/status.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
