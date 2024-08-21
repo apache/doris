@@ -82,7 +82,7 @@ suite("txn_insert_with_specify_columns_schema_change_reorder_column", "nonConcur
                 statement.execute("commit")
             } catch (Throwable e) {
                 logger.error("txn insert failed", e)
-                errors.add("txn insert failed " + e.getMessage())
+                assertTrue(e.getMessage().contains("There are schema changes in one transaction, you can commit this transaction with formal data or rollback this whole transaction."))
                 statement.execute("rollback")
             }
         }

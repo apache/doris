@@ -81,7 +81,7 @@ suite("txn_insert_with_specify_columns_schema_change_add_key_column", "nonConcur
                 statement.execute("commit")
             } catch (Exception e) {
                 logger.info("txn insert failed", e)
-                assertTrue(e.getMessage().contains("too many filtered rows"))
+                assertTrue(e.getMessage().contains("There are schema changes in one transaction, you can commit this transaction with formal data or rollback this whole transaction."))
                 statement.execute("rollback")
             }
         }
