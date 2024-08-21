@@ -37,6 +37,7 @@ import org.jetbrains.annotations.NotNull;
 import java.math.BigInteger;
 import java.security.SecureRandom;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -49,9 +50,9 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
     private final int cacheSize;
     private final int cacheExpiration;
 
-    private LoadingCache<String, FlightTokenDetails> tokenCache;
+    private final LoadingCache<String, FlightTokenDetails> tokenCache;
     // <username, <token, 1>>
-    private ConcurrentHashMap<String, LoadingCache<String, Integer>> usersTokenLRU = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, LoadingCache<String, Integer>> usersTokenLRU = new ConcurrentHashMap<>();
 
     public FlightTokenManagerImpl(final int cacheSize, final int cacheExpiration) {
         this.cacheSize = cacheSize;
@@ -103,9 +104,7 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
                 flightAuthResult.getUserIdentity(), flightAuthResult.getRemoteIp());
 
         tokenCache.put(token, flightTokenDetails);
-        if (usersTokenLRU.containsKey(username)) {
-            usersTokenLRU.get(username).put(token, 1);
-        } else {
+        if (!usersTokenLRU.containsKey(username)) {
             // TODO Modify usersTokenLRU size when user property maxConn changes. but LoadingCache currently not
             // support modify.
             usersTokenLRU.put(username,
@@ -127,6 +126,7 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
                                 }
                             }));
         }
+        usersTokenLRU.get(username).put(token, 1);
         LOG.info("Created flight token for user: {}, token: {}", username, token);
         return flightTokenDetails;
     }
@@ -146,7 +146,11 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
                     + "currently in fe.conf, `arrow_flight_token_alive_time`=" + this.cacheExpiration);
         }
         if (usersTokenLRU.containsKey(value.getUsername())) {
-            usersTokenLRU.get(value.getUsername()).refresh(token);
+            try {
+                usersTokenLRU.get(value.getUsername()).get(token);
+            } catch (ExecutionException ignored) {
+                throw new IllegalArgumentException("usersTokenLRU not exist bearer token: " + token);
+            }
         } else {
             throw new IllegalArgumentException(
                     "bearer token not created: " + token + ", username:  " + value.getUsername());
