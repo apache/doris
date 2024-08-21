@@ -47,6 +47,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_insert," + // txn insert
     "test_delta_writer_v2_back_pressure_fault_injection," +
     "test_full_compaction_run_status," +
+    "test_topn_fault_injection," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
