@@ -320,7 +320,7 @@ struct TQueryOptions {
   125: optional bool enable_match_without_inverted_index = true;
   126: optional bool enable_fallback_on_missing_inverted_index = true;
 
-  126: optional i32 runtime_bloom_filter_max_size = 16777216;
+  127: optional i32 runtime_bloom_filter_max_size = 16777216;
 
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
