@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_auto_partition_behavior", "nonConcurrent") {
+suite("test_auto_partition_behavior") {
     sql "set experimental_enable_nereids_planner=true;"
     sql "set enable_fallback_to_original_planner=false;"
 
@@ -318,8 +318,7 @@ suite("test_auto_partition_behavior", "nonConcurrent") {
     part_result = sql " show partitions from auto_dynamic "
     assertEquals(part_result.size, 1)
     sql " insert into auto_dynamic values ('2024-01-01'), ('2900-01-01'), ('1900-01-01'), ('3000-01-01'); "
-    sleep(10000)
-    sql "sync"
+    sleep(3000)
     part_result = sql " show partitions from auto_dynamic "
     log.info("${part_result}".toString())
     assertEquals(part_result.size, 3)
@@ -403,7 +402,7 @@ suite("test_auto_partition_behavior", "nonConcurrent") {
 
     sql """ insert into test_change values ("20201212"); """
     part_result = sql " show tablets from test_change "
-    assertEquals(part_result.size, 2)
+    assertEquals(part_result.size, 2 * replicaNum)
     sql """ ALTER TABLE test_change MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k0) BUCKETS 50; """
     sql """ insert into test_change values ("20001212"); """
     part_result = sql " show tablets from test_change "
