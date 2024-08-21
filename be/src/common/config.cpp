@@ -40,6 +40,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "config.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "util/cpu_info.h"
@@ -1067,10 +1068,10 @@ DEFINE_mInt32(schema_cache_capacity, "1024");
 DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
 // max number of segment cache, default -1 for backward compatibility fd_number*2/5
-DEFINE_mInt32(segment_cache_capacity, "-1");
-DEFINE_mInt32(estimated_num_columns_per_segment, "200");
+DEFINE_Int32(segment_cache_capacity, "-1");
+DEFINE_Int32(segment_cache_fd_percentage, "40");
 DEFINE_mInt32(estimated_mem_per_column_reader, "1024");
-DEFINE_mInt32(segment_cache_memory_percentage, "2");
+DEFINE_Int32(segment_cache_memory_percentage, "2");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");

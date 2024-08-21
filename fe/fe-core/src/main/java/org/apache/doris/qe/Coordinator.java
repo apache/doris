@@ -283,8 +283,6 @@ public class Coordinator implements CoordInterface {
     public Map<RuntimeFilterId, Integer> ridToBuilderNum = Maps.newHashMap();
     private ConnectContext context;
 
-    private PointQueryExec pointExec = null;
-
     private StatsErrorEstimator statsErrorEstimator;
 
     // A countdown latch to mark the completion of each instance.
@@ -1336,10 +1334,6 @@ public class Coordinator implements CoordInterface {
     private void cancelInternal(Status cancelReason) {
         for (ResultReceiver receiver : receivers) {
             receiver.cancel(cancelReason);
-        }
-        if (null != pointExec) {
-            pointExec.cancel();
-            return;
         }
         cancelRemoteFragmentsAsync(cancelReason);
         cancelLatch();

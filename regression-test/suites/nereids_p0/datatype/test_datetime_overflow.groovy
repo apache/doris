@@ -15,25 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+suite("test_datetime_overflow") {
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
+    sql """drop table if exists datetime_overflow_t"""
+    sql """CREATE TABLE datetime_overflow_t (
+            `id` bigint NULL,
+            `c` datetime NULL,
+            `d` date NULL,
+            INDEX idx_c (`c`) USING INVERTED
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY RANDOM BUCKETS AUTO
+            PROPERTIES (
+            "replication_num" = "1"
+            );"""
 
-/**
- * DROP ANALYZE JOB [JOB_ID]
- */
-public class DropAnalyzeJobStmt extends DdlStmt implements NotFallbackInParser {
-
-    private final long jobId;
-
-    public DropAnalyzeJobStmt(long jobId) {
-        this.jobId = jobId;
-    }
-
-    public long getJobId() {
-        return jobId;
-    }
-
-    @Override
-    public StmtType stmtType() {
-        return StmtType.DROP;
-    }
+    sql """select * from datetime_overflow_t where d between "9999-12-31 00:00:01" and "9999-12-31 10:00:01";"""
+    sql """select * from datetime_overflow_t where d > "9999-12-31 00:00:01";"""
 }
