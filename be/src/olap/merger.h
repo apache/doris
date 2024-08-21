@@ -25,6 +25,7 @@
 #include "io/io_common.h"
 #include "olap/iterators.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/simple_rowid_conversion.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 
@@ -86,8 +87,9 @@ public:
                                              vectorized::RowSourcesBuffer* row_source_buf,
                                              vectorized::VerticalBlockReader& src_block_reader,
                                              segment_v2::SegmentWriter& dst_segment_writer,
-                                             int64_t max_rows_per_segment, Statistics* stats_output,
-                                             uint64_t* index_size, KeyBoundsPB& key_bounds);
+                                             Statistics* stats_output, uint64_t* index_size,
+                                             KeyBoundsPB& key_bounds,
+                                             SimpleRowIdConversion* rowid_conversion);
 
     // for mow with cluster key table, the key group also contains cluster key columns.
     // the `key_group_cluster_key_idxes` marks the positions of cluster key columns in key group.
