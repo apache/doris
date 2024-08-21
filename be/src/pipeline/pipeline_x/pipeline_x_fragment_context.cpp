@@ -147,6 +147,14 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         LOG(WARNING) << "PipelineXFragmentContext is cancelled due to timeout : " << debug_string();
     }
     _query_ctx->cancel(msg, Status::Cancelled(msg), _fragment_id);
+
+    if (reason == PPlanFragmentCancelReason::INTERNAL_ERROR && !msg.empty()) {
+        if (msg.find("Pipeline task leak.") != std::string::npos) {
+            LOG_WARNING("PipelineFragmentContext is cancelled due to illegal state : {}",
+                        this->debug_string());
+        }
+    }
+
     if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
         _is_report_on_cancel = false;
     } else {
