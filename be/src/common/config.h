@@ -256,8 +256,6 @@ DECLARE_Int32(release_snapshot_worker_count);
 DECLARE_mBool(report_random_wait);
 // the interval time(seconds) for agent report tasks signature to FE
 DECLARE_mInt32(report_task_interval_seconds);
-// the interval time(seconds) for refresh storage policy from FE
-DECLARE_mInt32(storage_refresh_storage_policy_task_interval_seconds);
 // the interval time(seconds) for agent report disk state to FE
 DECLARE_mInt32(report_disk_state_interval_seconds);
 // the interval time(seconds) for agent report olap table to FE
@@ -292,12 +290,7 @@ DECLARE_String(log_buffer_level);
 DECLARE_Int32(be_service_threads);
 
 // interval between profile reports; in seconds
-DECLARE_mInt32(status_report_interval);
 DECLARE_mInt32(pipeline_status_report_interval);
-// if true, each disk will have a separate thread pool for scanner
-DECLARE_Bool(doris_enable_scanner_thread_pool_per_disk);
-// the timeout of a work thread to wait the blocking priority queue to get a task
-DECLARE_mInt64(doris_blocking_priority_queue_wait_timeout_ms);
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DECLARE_mInt32(doris_scanner_thread_pool_thread_num);
@@ -317,26 +310,18 @@ DECLARE_mInt64(thrift_client_retry_interval_ms);
 // max message size of thrift request
 // default: 100 * 1024 * 1024
 DECLARE_mInt64(thrift_max_message_size);
-// max row count number for single scan range, used in segmentv1
-DECLARE_mInt32(doris_scan_range_row_count);
 // max bytes number for single scan range, used in segmentv2
 DECLARE_mInt32(doris_scan_range_max_mb);
-// max bytes number for single scan block, used in segmentv2
-DECLARE_mInt32(doris_scan_block_max_mb);
 // single read execute fragment row number
 DECLARE_mInt32(doris_scanner_row_num);
 // single read execute fragment row bytes
 DECLARE_mInt32(doris_scanner_row_bytes);
-DECLARE_mInt32(min_bytes_in_scanner_queue);
 // (Advanced) Maximum size of per-query receive-side buffer
 DECLARE_mInt32(exchg_node_buffer_size_bytes);
 DECLARE_mInt32(exchg_buffer_queue_capacity_factor);
 
-DECLARE_mInt64(column_dictionary_key_ratio_threshold);
-DECLARE_mInt64(column_dictionary_key_size_threshold);
 // memory_limitation_per_thread_for_schema_change_bytes unit bytes
 DECLARE_mInt64(memory_limitation_per_thread_for_schema_change_bytes);
-DECLARE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes);
 
 // all cache prune interval, used by GC and periodic thread.
 DECLARE_mInt32(cache_prune_interval_sec);
@@ -395,7 +380,6 @@ DECLARE_Bool(disable_storage_page_cache);
 DECLARE_mBool(disable_storage_row_cache);
 // whether to disable pk page cache feature in storage
 DECLARE_Bool(disable_pk_storage_page_cache);
-DECLARE_Bool(enable_non_pipeline);
 
 // Cache for mow primary key storage page size, it's seperated from
 // storage_page_cache_limit
@@ -611,8 +595,6 @@ DECLARE_Int32(fragment_mgr_asynic_work_pool_queue_size);
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DECLARE_Int32(num_disks);
-// The maximum number of the threads per disk is also the max queue depth per disk.
-DECLARE_Int32(num_threads_per_disk);
 // The read size is the size of the reads sent to os.
 // There is a trade off of latency and throughout, trying to keep disks busy but
 // not introduce seeks.  The literature seems to agree that with 8 MB reads, random
@@ -947,13 +929,9 @@ DECLARE_String(rpc_load_balancer);
 // so we set a soft limit, default is 1MB
 DECLARE_mInt32(string_type_length_soft_limit_bytes);
 
-DECLARE_mInt32(jsonb_type_length_soft_limit_bytes);
-
 // Threshold fo reading a small file into memory
 DECLARE_mInt32(in_memory_file_size);
 
-// ParquetReaderWrap prefetch buffer size
-DECLARE_Int32(parquet_reader_max_buffer_size);
 // Max size of parquet page header in bytes
 DECLARE_mInt32(parquet_header_max_size_mb);
 // Max buffer size for parquet row group
@@ -1074,8 +1052,6 @@ DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);
 DECLARE_mInt32(inverted_index_cache_stale_sweep_time_sec);
 // inverted index searcher cache size
 DECLARE_String(inverted_index_searcher_cache_limit);
-// set `true` to enable insert searcher into cache when write inverted index data
-DECLARE_Bool(enable_write_index_searcher_cache);
 DECLARE_Bool(enable_inverted_index_cache_check_timestamp);
 DECLARE_Int32(inverted_index_fd_number_limit_percent); // 50%
 DECLARE_Int32(inverted_index_query_cache_shards);
