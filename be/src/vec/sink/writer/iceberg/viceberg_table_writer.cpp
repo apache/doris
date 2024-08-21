@@ -163,6 +163,7 @@ Status VIcebergTableWriter::write(RuntimeState* state, vectorized::Block& block)
 
     {
         SCOPED_RAW_TIMER(&_partition_writers_dispatch_ns);
+        _transformed_block.clear();
         _transformed_block.reserve(_iceberg_partition_columns.size());
         for (auto& iceberg_partition_columns : _iceberg_partition_columns) {
             _transformed_block.insert(iceberg_partition_columns.partition_column_transform().apply(
