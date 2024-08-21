@@ -273,7 +273,7 @@ public:
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                      LocalExchangeSourceLocalState& local_state) override;
     ExchangeType get_type() const override { return ExchangeType::PASS_TO_ONE; }
-    void close(LocalExchangeSourceLocalState& local_state) override {}
+    void close(LocalExchangeSourceLocalState& local_state) override;
 };
 
 class LocalMergeSortExchanger final : public Exchanger<BlockWrapperSPtr> {
