@@ -714,6 +714,10 @@ public class StmtExecutor {
             if (logicalPlan instanceof Forward) {
                 redirectStatus = ((Forward) logicalPlan).toRedirectStatus();
                 if (isForwardToMaster()) {
+                    // before forward to master, we also need to set profileType in this node
+                    if (logicalPlan instanceof InsertIntoTableCommand) {
+                        profileType = ProfileType.LOAD;
+                    }
                     if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                         throw new UserException("Forward master command is not supported for prepare statement");
                     }
@@ -956,6 +960,13 @@ public class StmtExecutor {
                 analyze(context.getSessionVariable().toThrift());
 
                 if (isForwardToMaster()) {
+                    // before forward to master, we also need to set profileType in this node
+                    if (parsedStmt instanceof InsertStmt) {
+                        InsertStmt insertStmt = (InsertStmt) parsedStmt;
+                        if (!insertStmt.getQueryStmt().isExplain()) {
+                            profileType = ProfileType.LOAD;
+                        }
+                    }
                     if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                         throw new UserException("Forward master command is not supported for prepare statement");
                     }
