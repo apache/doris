@@ -56,6 +56,7 @@ public class MaxMinFilterPushDownTest extends TestWithFeService implements MemoP
         PlanChecker.from(connectContext).analyze(sql).rewrite()
                 .nonMatch(logicalFilter(logicalOlapScan()));
     }
+
     @Test
     public void testNotRewriteBecauseFuncIsMoreThanOne2() {
         String sql = "select id, min(score), min(name) from max_t group by id having min(score)<10 and min(name)<'abc'";
