@@ -75,7 +75,7 @@ suite("test_data_mask_policy", "query,p0") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${tableName}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${userName}""";
     }
 
     def defaultDbUrl = context.config.jdbcUrl.substring(0, context.config.jdbcUrl.lastIndexOf("/"))
