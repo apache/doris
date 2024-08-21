@@ -41,8 +41,8 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
                 "type"="hms",
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
                 "use_meta_cache" = "${useMetaCache}",
-                "enable_hms_events_incremental_sync" ="true",
-               "hms_events_batch_size_per_rpc" = "10000"
+                "hive.enable_hms_events_incremental_sync" ="true",
+               "hive.hms_events_batch_size_per_rpc" = "10000"
             );"""
 
             sql """drop catalog if exists ${catalog_name_2}"""
@@ -50,8 +50,8 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
                 "type"="hms",
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
                 "use_meta_cache" = "${useMetaCache}",
-                "enable_hms_events_incremental_sync" ="true",
-               "hms_events_batch_size_per_rpc" = "100000"
+                "hive.enable_hms_events_incremental_sync" ="true",
+               "hive.hms_events_batch_size_per_rpc" = "100000"
             );"""
             sleep(wait_time);
 

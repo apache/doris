@@ -39,15 +39,15 @@ suite("test_hms_event_notification", "p0,external,hive,external_docker,external_
                 "type"="hms",
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
                 "use_meta_cache" = "${useMetaCache}",
-                "enable_hms_events_incremental_sync" ="true",
-               "hms_events_batch_size_per_rpc" = "1000"
+                "hive.enable_hms_events_incremental_sync" ="true",
+               "hive.hms_events_batch_size_per_rpc" = "1000"
             );"""
 
             sql """create catalog if not exists ${catalog_name_2} properties (
                 "type"="hms",
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
                 "use_meta_cache" = "${useMetaCache}",
-                "enable_hms_events_incremental_sync" ="true"
+                "hive.enable_hms_events_incremental_sync" ="true"
             );"""
             
             sleep(wait_time);
