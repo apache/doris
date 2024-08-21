@@ -607,7 +607,8 @@ Status BetaRowsetWriter::_close_file_writers() {
             if (converted_delete_bitmap != nullptr) {
                 RowsetIdUnorderedSet rowsetids;
                 rowsetids.insert(rowset_id());
-                context().tablet->add_sentinel_mark_to_delete_bitmap(converted_delete_bitmap.get(),
+                auto tablet = static_cast<Tablet*>(_context.tablet.get());
+                tablet->add_sentinel_mark_to_delete_bitmap(converted_delete_bitmap.get(),
                                                                      rowsetids);
                 context().mow_context->delete_bitmap->remove({rowset_id(), 0, 0},
                                                              {rowset_id(), UINT32_MAX, INT64_MAX});
