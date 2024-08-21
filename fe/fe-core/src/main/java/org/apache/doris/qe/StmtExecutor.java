@@ -144,6 +144,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.DoNotFallbackException;
 import org.apache.doris.nereids.exceptions.MustFallbackException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -588,7 +589,10 @@ public class StmtExecutor {
         }
     }
 
-    public boolean notAllowFallback() {
+    public boolean notAllowFallback(NereidsException e) {
+        if (e.getException() instanceof DoNotFallbackException) {
+            return true;
+        }
         if (parsedStmt instanceof LogicalPlanAdapter) {
             LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
             return logicalPlan instanceof NotAllowFallback;
@@ -613,12 +617,12 @@ public class StmtExecutor {
                     }
                     // try to fall back to legacy planner
                     if (LOG.isDebugEnabled()) {
-                        LOG.debug("nereids cannot process statement\n" + originStmt.originStmt
-                                + "\n because of " + e.getMessage(), e);
+                        LOG.debug("nereids cannot process statement\n{}\n because of {}",
+                                originStmt.originStmt, e.getMessage(), e);
                     }
-                    if (notAllowFallback()) {
+                    if (e instanceof NereidsException && notAllowFallback((NereidsException) e)) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
-                        throw ((NereidsException) e).getException();
+                        throw new AnalysisException(e.getMessage());
                     }
                     if (e instanceof NereidsException
                             && !(((NereidsException) e).getException() instanceof MustFallbackException)
@@ -750,7 +754,7 @@ public class StmtExecutor {
             syncJournalIfNeeded();
             try {
                 ((Command) logicalPlan).run(context, this);
-            } catch (MustFallbackException e) {
+            } catch (MustFallbackException | DoNotFallbackException e) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
                 }
@@ -799,11 +803,11 @@ public class StmtExecutor {
             try {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                 checkBlockRules();
+            } catch (MustFallbackException | DoNotFallbackException e) {
+                LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
+                throw new NereidsException("Command(" + originStmt.originStmt + ") process failed.", e);
             } catch (Exception e) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Nereids plan query failed:\n{}", originStmt.originStmt);
-                }
-                LOG.info("NereidsException", e);
+                LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
             profile.getSummaryProfile().setQueryPlanFinishTime();
@@ -3584,10 +3588,10 @@ public class StmtExecutor {
                     }
                     // try to fall back to legacy planner
                     if (LOG.isDebugEnabled()) {
-                        LOG.debug("nereids cannot process statement\n" + originStmt.originStmt
-                                + "\n because of " + e.getMessage(), e);
+                        LOG.debug("nereids cannot process statement\n{}\n because of {}",
+                                originStmt.originStmt, e.getMessage(), e);
                     }
-                    if (notAllowFallback()) {
+                    if (e instanceof NereidsException && notAllowFallback((NereidsException) e)) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }
