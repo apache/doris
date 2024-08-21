@@ -75,14 +75,14 @@ public:
         doris::EngineOptions options;
         options.store_paths = paths;
 
-        auto engine = std::make_unique<StorageEngine>(options);
-        s_engine = engine.get();
-        ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
+        l_engine = new StorageEngine(options);
+        ExecEnv::GetInstance()->set_storage_engine(l_engine);
 
         Status s = s_engine->open();
         EXPECT_TRUE(s.ok()) << s.to_string();
 
-        _data_dir = std::make_unique<DataDir>(*s_engine, lTestDir);
+        _data_dir = new DataDir(lTestDir, 1000000000);
+        static_cast<void>(_data_dir->init());
         static_cast<void>(_data_dir->update_capacity());
 
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(lTestDir).ok());
@@ -91,7 +91,17 @@ public:
         EXPECT_TRUE(s.ok()) << s.to_string();
     }
 
-    void TearDown() { config::enable_segcompaction = false; }
+    void TearDown() {
+        SAFE_DELETE(_data_dir);
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(lTestDir).ok());
+        if (l_engine != nullptr) {
+            l_engine->stop();
+            delete l_engine;
+            l_engine = nullptr;
+            ExecEnv::GetInstance()->set_storage_engine(nullptr);
+        }
+        config::enable_segcompaction = false;
+    }
 
 protected:
     OlapReaderStatistics _stats;
@@ -203,7 +213,7 @@ protected:
         static_cast<void>(tablet_meta->set_partition_id(10000));
         tablet_meta->_schema = tablet_schema;
         tablet_meta->_enable_unique_key_merge_on_write = true;
-        auto tablet = std::make_shared<Tablet>(*s_engine, tablet_meta, _data_dir.get(), "test_str");
+        auto tablet = std::make_shared<Tablet>(*s_engine, tablet_meta, _data_dir, "test_str");
         // tablet->key
         rowset_writer_context->tablet = tablet;
     }
@@ -284,7 +294,7 @@ protected:
     }
 
 private:
-    std::unique_ptr<DataDir> _data_dir;
+    DataDir* _data_dir = nullptr;
 };
 
 TEST_P(SegCompactionMoWTest, SegCompactionThenRead) {
