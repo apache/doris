@@ -376,6 +376,46 @@ public class SystemInfoServiceTest {
     }
 
     @Test
+    public void testSkipLocationsSelect() throws Exception {
+        Tag taga = Tag.create(Tag.TYPE_LOCATION, "taga");
+
+        // add more backends
+        addBackend(10002, "192.168.1.2", 9050);
+        Backend be2 = infoService.getBackend(10002);
+        be2.setAlive(true);
+        addBackend(10003, "192.168.1.3", 9050);
+        Backend be3 = infoService.getBackend(10003);
+        be3.setAlive(true);
+        addBackend(10004, "192.168.1.4", 9050);
+        Backend be4 = infoService.getBackend(10004);
+        be4.setAlive(true);
+        addBackend(10005, "192.168.1.5", 9050);
+        Backend be5 = infoService.getBackend(10005);
+        be5.setAlive(true);
+
+        List<String> skipLocations = new ArrayList<>();
+        skipLocations.add("192.168.1.2");
+        BeSelectionPolicy policy1 = new BeSelectionPolicy.Builder().addSkipLocations(skipLocations).build();
+        Assert.assertEquals(3, infoService.selectBackendIdsByPolicy(policy1, -1).size());
+        skipLocations.add("192.168.1.3");
+        BeSelectionPolicy policy2 = new BeSelectionPolicy.Builder().addSkipLocations(skipLocations).build();
+
+        Assert.assertEquals(2, infoService.selectBackendIdsByPolicy(policy2, -1).size());
+
+        skipLocations.clear();
+        BeSelectionPolicy policy3 = new BeSelectionPolicy.Builder().addSkipLocations(skipLocations).build();
+        Assert.assertEquals(4, infoService.selectBackendIdsByPolicy(policy3, -1).size());
+
+        skipLocations.add("192.168.1.2");
+        skipLocations.add("192.168.1.3");
+        skipLocations.add("192.168.1.4");
+        skipLocations.add("192.168.1.5");
+        BeSelectionPolicy policy4 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .addSkipLocations(skipLocations).preferComputeNode(true).assignExpectBeNum(1).build();
+        Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy4, 1).size());
+    }
+
+    @Test
     public void testSelectBackendIdsForReplicaCreation() throws Exception {
         addBackend(10001, "192.168.1.1", 9050);
         Backend be1 = infoService.getBackend(10001);

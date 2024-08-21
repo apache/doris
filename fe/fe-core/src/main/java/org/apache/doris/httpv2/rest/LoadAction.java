@@ -60,6 +60,8 @@ import org.springframework.web.servlet.view.RedirectView;
 
 import java.net.InetAddress;
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Optional;
@@ -78,6 +80,7 @@ public class LoadAction extends RestBaseController {
 
     public static final String REDIRECT_POLICY_PUBLIC_PRIVATE = "public-private";
     public static final String REDIRECT_POLICY_RANDOM_BE = "random-be";
+    private static final String SKIP_LOCATIONS_KEY = "skip_locations";
 
     private ExecuteEnv execEnv = ExecuteEnv.getInstance();
 
@@ -388,6 +391,15 @@ public class LoadAction extends RestBaseController {
         }
     }
 
+    private List<String> getSkipLocations(HttpServletRequest request) {
+        String skipLocations = request.getHeader(SKIP_LOCATIONS_KEY);
+        if (Strings.isNullOrEmpty(skipLocations)) {
+            return new ArrayList<>();
+        }
+        List<String> result = Arrays.asList(skipLocations.split(","));
+        return result;
+    }
+
     private TNetworkAddress selectLocalRedirectBackend(boolean groupCommit, HttpServletRequest request, long tableId)
             throws LoadException {
         Backend backend = null;
@@ -397,7 +409,8 @@ public class LoadAction extends RestBaseController {
         policy = new BeSelectionPolicy.Builder()
                 .addTags(userTags)
                 .setEnableRoundRobin(true)
-                .needLoadAvailable().build();
+                .needLoadAvailable()
+                .addSkipLocations(getSkipLocations(request)).build();
         policy.nextRoundRobinIndex = getLastSelectedBackendIndexAndUpdate();
         List<Long> backendIds;
         if (groupCommit) {
