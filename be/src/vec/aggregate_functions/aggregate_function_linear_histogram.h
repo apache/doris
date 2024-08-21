@@ -17,17 +17,17 @@
 
 #pragma once
 
-#include <map>
-
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
+
+#include <map>
 
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/io/io_helper.h"
 
-// TODO: optimize count=0 
+// TODO: optimize count=0
 // TODO: e2e test
 // TODO: support datetime
 
@@ -38,7 +38,7 @@ struct AggregateFunctionLinearHistogramData {
     // bucket key limits
     const static int32_t MIN_BUCKET_KEY = std::numeric_limits<int32_t>::min();
     const static int32_t MAX_BUCKET_KEY = std::numeric_limits<int32_t>::max();
-    
+
 private:
     // influxdb use double
     double interval;
@@ -59,18 +59,17 @@ public:
         interval = input_interval;
         offset = input_offset;
     }
-    
+
     // add
     void add(const T& value) {
         auto key = std::floor((value - offset) / interval);
         if (key <= MIN_BUCKET_KEY || key >= MAX_BUCKET_KEY) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "{} exceeds the bucket range limit",
-                                       value);
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "{} exceeds the bucket range limit",
+                                   value);
         }
         buckets[static_cast<int32_t>(key)]++;
     }
-    
+
     // merge
     void merge(const AggregateFunctionLinearHistogramData& rhs) {
         if (rhs.interval == 0) {
@@ -127,7 +126,8 @@ public:
         doc.SetObject();
         rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
 
-        unsigned num_buckets = buckets.empty() ? 0 : buckets.rbegin()->first - buckets.begin()->first + 1;
+        unsigned num_buckets =
+                buckets.empty() ? 0 : buckets.rbegin()->first - buckets.begin()->first + 1;
         doc.AddMember("num_buckets", num_buckets, allocator);
 
         rapidjson::Value bucket_arr(rapidjson::kArrayType);
@@ -154,7 +154,7 @@ public:
         }
 
         doc.AddMember("buckets", bucket_arr, allocator);
-        
+
         rapidjson::StringBuffer buffer;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         doc.Accept(writer);
@@ -165,41 +165,45 @@ public:
 };
 
 template <typename T, typename Data, bool has_offset>
-class AggregateFunctionLinearHistogram final 
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionLinearHistogram<T, Data, has_offset>> {
+class AggregateFunctionLinearHistogram final
+        : public IAggregateFunctionDataHelper<
+                  Data, AggregateFunctionLinearHistogram<T, Data, has_offset>> {
 public:
     using ColVecType = ColumnVectorOrDecimal<T>;
 
     AggregateFunctionLinearHistogram(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionLinearHistogram<T, Data, has_offset>>(argument_types_) {}
-    
+            : IAggregateFunctionDataHelper<Data,
+                                           AggregateFunctionLinearHistogram<T, Data, has_offset>>(
+                      argument_types_) {}
+
     std::string get_name() const override { return "linear_histogram"; }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
-        double interval = assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1])
+        double interval =
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1])
                         .get_data()[row_num];
         if (interval <= 0) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "Invalid interval {}, row_num {}",
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Invalid interval {}, row_num {}",
                                    interval, row_num);
         }
 
         double offset = 0;
         if constexpr (has_offset) {
             offset = assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[2])
-                        .get_data()[row_num];
+                             .get_data()[row_num];
             if (offset < 0 || offset >= interval) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "Invalid offset {}, row_num {}, offset should be in [0, interval)",
-                                       offset, row_num);
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "Invalid offset {}, row_num {}, offset should be in [0, interval)", offset,
+                        row_num);
             }
         }
 
         this->data(place).set_parameters(interval, offset);
-        
+
         this->data(place).add(
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0])
                         .get_data()[row_num]);
