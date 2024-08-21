@@ -61,6 +61,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrAvgX;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrAvgY;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Retention;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
@@ -127,13 +130,15 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(Ndv.class, "approx_count_distinct", "ndv"),
             agg(OrthogonalBitmapIntersect.class, "orthogonal_bitmap_intersect"),
             agg(OrthogonalBitmapIntersectCount.class, "orthogonal_bitmap_intersect_count"),
-                    agg(OrthogonalBitmapUnionCount.class, "orthogonal_bitmap_union_count"),
-                    agg(Percentile.class, "percentile"),
-                    agg(PercentileApprox.class, "percentile_approx"),
-                    agg(PercentileApproxWeighted.class, "percentile_approx_weighted"),
-                    agg(PercentileArray.class, "percentile_array"),
-                    agg(QuantileUnion.class, "quantile_union"),
-                    agg(Retention.class, "retention"),
+            agg(OrthogonalBitmapUnionCount.class, "orthogonal_bitmap_union_count"),
+            agg(Percentile.class, "percentile"),
+            agg(PercentileApprox.class, "percentile_approx"),
+            agg(PercentileApproxWeighted.class, "percentile_approx_weighted"),
+            agg(PercentileArray.class, "percentile_array"),
+            agg(QuantileUnion.class, "quantile_union"),
+            agg(RegrAvgX.class, "regr_avgx"),
+            agg(RegrAvgY.class, "regr_avgy"),
+            agg(Retention.class, "retention"),
             agg(SequenceCount.class, "sequence_count"),
             agg(SequenceMatch.class, "sequence_match"),
             agg(Stddev.class, "stddev_pop", "stddev"),
@@ -155,5 +160,6 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
     public static final BuiltinAggregateFunctions INSTANCE = new BuiltinAggregateFunctions();
 
     // Note: Do not add any code here!
-    private BuiltinAggregateFunctions() {}
+    private BuiltinAggregateFunctions() {
+    }
 }

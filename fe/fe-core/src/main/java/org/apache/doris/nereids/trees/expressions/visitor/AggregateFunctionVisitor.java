@@ -63,6 +63,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrAvgX;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrAvgY;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Retention;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
@@ -81,7 +84,9 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeComb
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 
-/** AggregateFunctionVisitor. */
+/**
+ * AggregateFunctionVisitor.
+ */
 public interface AggregateFunctionVisitor<R, C> {
 
     R visitAggregateFunction(AggregateFunction function, C context);
@@ -264,6 +269,14 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitQuantileUnion(QuantileUnion quantileUnion, C context) {
         return visitAggregateFunction(quantileUnion, context);
+    }
+
+    default R visitRegrAvgX(RegrAvgX regrAvgX, C context) {
+        return visitNullableAggregateFunction(regrAvgX, context);
+    }
+
+    default R visitRegrAvgY(RegrAvgY regrAvgY, C context) {
+        return visitNullableAggregateFunction(regrAvgY, context);
     }
 
     default R visitRetention(Retention retention, C context) {
