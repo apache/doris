@@ -1502,6 +1502,30 @@ class Suite implements GroovyInterceptable {
         return result.values().toList()
     }
 
+    def create_async_mv = { db, mv_name, mv_sql ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+        sql "analyze table ${mv_name} with sync;"
+    }
+
+    def mv_not_part_in = { query_sql, mv_name ->
+        explain {
+            sql(" memo plan ${query_sql}")
+            notContains("${mv_name} chose")
+            notContains("${mv_name} not chose")
+            notContains("${mv_name} fail")
+        }
+    }
+
     def mv_rewrite_success = { query_sql, mv_name ->
         explain {
             sql(" memo plan ${query_sql}")
