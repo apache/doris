@@ -525,6 +525,12 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
             if (result != nullptr) {
                 _row_bitmap &= *result->get_data_bitmap();
                 it = _common_expr_ctxs_push_down.erase(it);
+                auto root = (*it)->root();
+                auto iter_find = std::find(_remaining_conjunct_roots.begin(),
+                                           _remaining_conjunct_roots.end(), root);
+                if (iter_find != _remaining_conjunct_roots.end()) {
+                    _remaining_conjunct_roots.erase(iter_find);
+                }
             }
         } else {
             ++it;
