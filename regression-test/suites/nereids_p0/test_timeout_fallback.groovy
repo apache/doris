@@ -15,12 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.event;
+suite("test_timeout_fallback") {
+    sql "set enable_nereids_planner=true"
+    sql "set enable_fallback_to_original_planner=true"
+    sql "set enable_nereids_timeout=true"
+    sql "set nereids_timeout_second=-1"
 
-import org.apache.doris.common.AnalysisException;
+    test {
+        sql "select 1"
+        exception "Nereids cost too much time"
+    }
 
-public class ReplacePartitionEvent extends TableEvent {
-    public ReplacePartitionEvent(long ctlId, long dbId, long tableId) throws AnalysisException {
-        super(EventType.REPLACE_PARTITION, ctlId, dbId, tableId);
+    test {
+        sql "explain select 1"
+        exception "Nereids cost too much time"
+    }
+
+    sql "drop table if exists test_timeout_fallback"
+
+    sql """
+        create table test_timeout_fallback (id int) distributed by hash(id) properties ('replication_num'='1')
+    """
+
+    test {
+        sql "insert into test_timeout_fallback values (1)"
+        exception "Nereids cost too much time"
     }
 }

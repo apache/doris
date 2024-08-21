@@ -16,6 +16,8 @@
 // under the License.
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
 
 suite ("test_dup_mv_schema_change") {
     def tableName = "schema_change_dup_mv_regression_test"
@@ -25,18 +27,13 @@ suite ("test_dup_mv_schema_change") {
     }
 
     def waitForJob =  (tbName, timeout) -> {
-        while (timeout--){
+       Awaitility.await().atMost(timeout, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
             String result = getJobState(tbName)
             if (result == "FINISHED") {
-                sleep(3000)
-                break
-            } else {
-                sleep(100)
-                if (timeout < 1){
-                    assertEquals(1,2)
-                }
+                return true;
             }
-        }
+            return false;
+        });
     }
     try {
         String backend_id;
@@ -164,9 +161,7 @@ suite ("test_dup_mv_schema_change") {
 
         // wait for all compactions done
         for (String[] tablet in tablets) {
-                boolean running = true
-                do {
-                    Thread.sleep(100)
+                Awaitility.await().untilAsserted(() -> {
                     String tablet_id = tablet[0]
                     backend_id = tablet[2]
                     (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
@@ -174,8 +169,8 @@ suite ("test_dup_mv_schema_change") {
                     assertEquals(code, 0)
                     def compactionStatus = parseJson(out.trim())
                     assertEquals("success", compactionStatus.status.toLowerCase())
-                    running = compactionStatus.run_status
-                } while (running)
+                    return compactionStatus.run_status;
+                });
         }
 
         qt_sc """ select count(*) from ${tableName} """

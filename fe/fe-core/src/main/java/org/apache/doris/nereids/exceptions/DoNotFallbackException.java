@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.event;
+package org.apache.doris.nereids.exceptions;
 
-import org.apache.doris.common.AnalysisException;
-
-public class ReplacePartitionEvent extends TableEvent {
-    public ReplacePartitionEvent(long ctlId, long dbId, long tableId) throws AnalysisException {
-        super(EventType.REPLACE_PARTITION, ctlId, dbId, tableId);
+/**
+ * Exception for can not fall back error in Nereids.
+ */
+public class DoNotFallbackException extends RuntimeException {
+    public DoNotFallbackException(String msg) {
+        super(msg);
     }
 }
