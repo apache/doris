@@ -2043,6 +2043,7 @@ public class StmtExecutor {
                 && !context.getTxnEntry().isTransactionBegan()
                 && (parsedStmt instanceof TransactionCommitStmt || parsedStmt instanceof TransactionRollbackStmt)) {
             context.setTxnEntry(null);
+            context.setFirstTxnInsert(false);
         } else if (parsedStmt instanceof TransactionBeginStmt) {
             if (context.isTxnModel()) {
                 LOG.info("A transaction has already begin");
@@ -2055,6 +2056,7 @@ public class StmtExecutor {
                     .setTxnConf(new TTxnParams().setNeedTxn(true).setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("")
                             .setTbl("").setMaxFilterRatio(context.getSessionVariable().getEnableInsertStrict() ? 0
                                     : context.getSessionVariable().getInsertMaxFilterRatio()));
+            context.setFirstTxnInsert(true);
             StringBuilder sb = new StringBuilder();
             sb.append("{'label':'").append(context.getTxnEntry().getLabel()).append("', 'status':'")
                     .append(TransactionStatus.PREPARE.name());
