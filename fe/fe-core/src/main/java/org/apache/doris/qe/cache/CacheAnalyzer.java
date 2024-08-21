@@ -344,7 +344,7 @@ public class CacheAnalyzer {
             }
             return CacheMode.NoNeed;
         }
-        if (context.getStatementContext().hasUnsupportedSqlCacheExpression) {
+        if (context != null && context.getStatementContext().hasUnsupportedSqlCacheExpression) {
             return CacheMode.None;
         }
         if (!(parsedStmt instanceof LogicalPlanAdapter) || scanNodes.size() == 0) {

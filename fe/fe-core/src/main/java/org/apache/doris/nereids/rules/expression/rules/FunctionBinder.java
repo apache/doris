@@ -115,7 +115,9 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         FunctionBuilder builder = functionRegistry.findFunctionBuilder(
                 unboundFunction.getDbName(), functionName, arguments);
         if (builder instanceof AliasUdfBuilder) {
-            context.cascadesContext.getStatementContext().hasUnsupportedSqlCacheExpression = true;
+            if (context != null) {
+                context.cascadesContext.getStatementContext().hasUnsupportedSqlCacheExpression = true;
+            }
             // we do type coercion in build function in alias function, so it's ok to return directly.
             return builder.build(functionName, arguments);
         } else {
@@ -133,7 +135,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                 // so wrap COUNT with Nvl to ensure it's result is 0 instead of null to get the correct result
                 boundFunction = new Nvl(boundFunction, new BigIntLiteral(0));
             }
-            if (boundFunction instanceof Nondeterministic) {
+            if (context != null && boundFunction instanceof Nondeterministic) {
                 context.cascadesContext.getStatementContext().hasUnsupportedSqlCacheExpression = true;
             }
             return boundFunction;

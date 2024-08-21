@@ -119,7 +119,9 @@ public class SlotBinder extends SubExprAnalyzer {
                 throw new AnalysisException(e.getMessage());
             }
         }
-        context.getStatementContext().hasUnsupportedSqlCacheExpression = true;
+        if (context != null) {
+            context.getStatementContext().hasUnsupportedSqlCacheExpression = true;
+        }
         return new Variable(unboundVariable.getName(), unboundVariable.getType(), literal);
     }
 
