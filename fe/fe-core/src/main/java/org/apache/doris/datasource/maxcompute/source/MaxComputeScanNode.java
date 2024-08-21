@@ -130,7 +130,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
     @Override
     protected Map<String, String> debugParameters() {
-        return catalog.getCatalogProperty().getProperties();
+        return table.getCatalog().getCatalogProperty().getProperties();
     }
 
     private static void addPartitionSplits(List<Split> result, Table odpsTable, String partitionSpec) {
