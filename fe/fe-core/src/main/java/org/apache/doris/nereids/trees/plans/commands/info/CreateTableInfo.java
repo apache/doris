@@ -393,10 +393,8 @@ public class CreateTableInfo {
             }
 
             validateKeyColumns();
-            if (!clusterKeysColumnNames.isEmpty() && !isEnableMergeOnWrite) {
-                throw new AnalysisException(
-                        "Cluster keys only support unique keys table which enabled "
-                                + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+            if (!clusterKeysColumnNames.isEmpty()) {
+                throw new AnalysisException("Cluster key is not supported");
             }
             for (int i = 0; i < keys.size(); ++i) {
                 columns.get(i).setIsKey(true);
@@ -690,44 +688,7 @@ public class CreateTableInfo {
         }
 
         if (!clusterKeysColumnNames.isEmpty()) {
-            if (keysType != KeysType.UNIQUE_KEYS) {
-                throw new AnalysisException("Cluster keys only support unique keys table.");
-            }
-            clusterKeysColumnIds = Lists.newArrayList();
-            for (int i = 0; i < clusterKeysColumnNames.size(); ++i) {
-                String name = clusterKeysColumnNames.get(i);
-                // check if key is duplicate
-                for (int j = 0; j < i; j++) {
-                    if (clusterKeysColumnNames.get(j).equalsIgnoreCase(name)) {
-                        throw new AnalysisException("Duplicate cluster key column[" + name + "].");
-                    }
-                }
-                // check if key exists and generate key column ids
-                for (int j = 0; j < columns.size(); j++) {
-                    if (columns.get(j).getName().equalsIgnoreCase(name)) {
-                        columns.get(j).setClusterKeyId(clusterKeysColumnIds.size());
-                        clusterKeysColumnIds.add(j);
-                        break;
-                    }
-                    if (j == columns.size() - 1) {
-                        throw new AnalysisException(
-                                "Key cluster column[" + name + "] doesn't exist.");
-                    }
-                }
-            }
-
-            int minKeySize = keys.size() < clusterKeysColumnNames.size() ? keys.size()
-                    : clusterKeysColumnNames.size();
-            boolean sameKey = true;
-            for (int i = 0; i < minKeySize; ++i) {
-                if (!keys.get(i).equalsIgnoreCase(clusterKeysColumnNames.get(i))) {
-                    sameKey = false;
-                    break;
-                }
-            }
-            if (sameKey) {
-                throw new AnalysisException("Unique keys and cluster keys should be different.");
-            }
+            throw new AnalysisException("Cluster key is not supported");
         }
 
         for (int i = 0; i < keys.size(); ++i) {

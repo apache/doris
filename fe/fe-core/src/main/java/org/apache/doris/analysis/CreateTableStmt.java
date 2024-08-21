@@ -412,9 +412,8 @@ public class CreateTableStmt extends DdlStmt {
             }
 
             keysDesc.analyze(columnDefs);
-            if (!CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames()) && !enableUniqueKeyMergeOnWrite) {
-                throw new AnalysisException("Cluster keys only support unique keys table which enabled "
-                        + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+            if (!CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames())) {
+                throw new AnalysisException("Cluster key is not supported");
             }
             for (int i = 0; i < keysDesc.keysColumnSize(); ++i) {
                 columnDefs.get(i).setIsKey(true);
