@@ -524,6 +524,14 @@ public class SchemaTable extends Table {
                                     .column("METRIC_NAME", ScalarType.createVarchar(256))
                                     .column("METRIC_VALUE", ScalarType.createType(PrimitiveType.DOUBLE))
                                     .build()))
+            .put("workload_group_privileges",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "workload_group_privileges", TableType.SCHEMA,
+                            builder().column("GRANTEE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("WORKLOAD_GROUP_NAME", ScalarType.createVarchar(256))
+                                    .column("PRIVILEGE_TYPE", ScalarType.createVarchar(PRIVILEGE_TYPE_LEN))
+                                    .column("IS_GRANTABLE", ScalarType.createVarchar(IS_GRANTABLE_LEN))
+                                    .build())
+            )
             .build();
 
     private boolean fetchAllFe = false;
