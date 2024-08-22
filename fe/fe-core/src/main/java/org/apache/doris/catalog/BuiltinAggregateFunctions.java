@@ -138,6 +138,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(QuantileUnion.class, "quantile_union"),
             agg(RegrAvgX.class, "regr_avgx"),
             agg(RegrAvgY.class, "regr_avgy"),
+            agg(RegrCount.class, "regr_count"),
             agg(Retention.class, "retention"),
             agg(SequenceCount.class, "sequence_count"),
             agg(SequenceMatch.class, "sequence_match"),

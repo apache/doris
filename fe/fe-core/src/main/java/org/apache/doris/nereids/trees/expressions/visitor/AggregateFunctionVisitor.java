@@ -279,6 +279,10 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitNullableAggregateFunction(regrAvgY, context);
     }
 
+    default R visitRegrCount(RegrCount regrCount, C context) {
+        return visitAggregateFunction(regrCount, context);
+    }
+
     default R visitRetention(Retention retention, C context) {
         return visitNullableAggregateFunction(retention, context);
     }

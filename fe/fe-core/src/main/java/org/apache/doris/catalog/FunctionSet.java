@@ -603,6 +603,8 @@ public class FunctionSet<T> {
     public static final String COUNT = "count";
     public static final String WINDOW_FUNNEL = "window_funnel";
 
+    public static final String REGR_COUNT = "regr_count";
+
     public static final String RETENTION = "retention";
 
     public static final String SEQUENCE_MATCH = "sequence_match";
@@ -658,6 +660,15 @@ public class FunctionSet<T> {
                     "",
                     null, false, true, true, true));
         }
+
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_COUNT,
+                new ArrayList<Type>(), Type.BIGINT, Type.BIGINT,
+                "",
+                "",
+                "",
+                null, null,
+                "",
+                null, false, true, true, true));
 
         // Vectorization does not need symbol any more, we should clean it in the future.
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.WINDOW_FUNNEL,
