@@ -716,7 +716,6 @@ suite("test_dup_table_inverted_index", "p1") {
     
     
     try {
-         sql """ set enable_match_without_inverted_index = true """
         sql """ set enable_common_expr_pushdown = true """
          def dupTableName = "dup_httplogs"
         sql """ drop table if exists ${dupTableName} """
@@ -738,7 +737,6 @@ suite("test_dup_table_inverted_index", "p1") {
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
             "compaction_policy" = "time_series",
-            "inverted_index_storage_format" = "v2",
             "compression" = "ZSTD",
             "disable_auto_compaction" = "true"
             );
