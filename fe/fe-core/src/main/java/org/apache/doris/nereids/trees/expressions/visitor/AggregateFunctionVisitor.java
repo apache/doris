@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Histogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.IntersectCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.LinearHistogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
@@ -196,6 +197,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitHistogram(Histogram histogram, C context) {
         return visitAggregateFunction(histogram, context);
+    }
+
+    default R visitLinearHistogram(LinearHistogram linearHistogram, C context) {
+        return visitAggregateFunction(linearHistogram, context);
     }
 
     default R visitHllUnion(HllUnion hllUnion, C context) {
