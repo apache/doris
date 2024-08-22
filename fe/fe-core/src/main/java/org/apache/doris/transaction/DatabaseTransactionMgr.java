@@ -680,7 +680,10 @@ public class DatabaseTransactionMgr {
         return writeDetail;
     }
 
-    private void checkTransactionStateBeforeCommit(Database db, List<Table> tableList, long transactionId,
+    /**
+     * @return true if the transaction need to commit, otherwise false
+     */
+    private boolean checkTransactionStateBeforeCommit(Database db, List<Table> tableList, long transactionId,
             boolean is2PC, TransactionState transactionState)
             throws TransactionCommitFailedException {
         if (transactionState == null) {
@@ -706,7 +709,7 @@ public class DatabaseTransactionMgr {
                 throw new TransactionCommitFailedException("transaction [" + transactionId
                         + "] is already visible, not pre-committed.");
             }
-            return;
+            return false;
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
             if (LOG.isDebugEnabled()) {
@@ -716,7 +719,7 @@ public class DatabaseTransactionMgr {
                 throw new TransactionCommitFailedException("transaction [" + transactionId
                         + "] is already committed, not pre-committed.");
             }
-            return;
+            return false;
         }
 
         if (is2PC && transactionState.getTransactionStatus() == TransactionStatus.PREPARE) {
@@ -755,6 +758,7 @@ public class DatabaseTransactionMgr {
                 }
             }
         }
+        return true;
     }
 
     /**
@@ -780,7 +784,9 @@ public class DatabaseTransactionMgr {
             readUnlock();
         }
 
-        checkTransactionStateBeforeCommit(db, tableList, transactionId, is2PC, transactionState);
+        if (!checkTransactionStateBeforeCommit(db, tableList, transactionId, is2PC, transactionState)) {
+            return;
+        }
 
         Set<Long> errorReplicaIds = Sets.newHashSet();
         Set<Long> totalInvolvedBackends = Sets.newHashSet();
@@ -836,7 +842,9 @@ public class DatabaseTransactionMgr {
                     "DebugPoint: DatabaseTransactionMgr.commitTransaction.failed");
         }
 
-        checkTransactionStateBeforeCommit(db, tableList, transactionId, false, transactionState);
+        if (!checkTransactionStateBeforeCommit(db, tableList, transactionId, false, transactionState)) {
+            return;
+        }
 
         // error replica may be duplicated for different sub transaction, but it's ok
         Set<Long> errorReplicaIds = Sets.newHashSet();
