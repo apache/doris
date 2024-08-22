@@ -190,8 +190,12 @@ public:
 
             const DataTypePtr& get_base() const { return base_type; }
 
+            // The least command type id
             const TypeIndex& get_type_id() const { return type_id; }
 
+            // The inner least common type if of array,
+            // example: Array(Nullable(Object))
+            // then the base type id is Object
             const TypeIndex& get_base_type_id() const { return base_type_id; }
 
             size_t get_dimensions() const { return num_dimensions; }

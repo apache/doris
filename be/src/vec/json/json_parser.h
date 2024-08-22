@@ -132,10 +132,6 @@ public:
     using JSONArray = typename ParserImpl::Array;
     std::optional<ParseResult> parse(const char* begin, size_t length, const ParseConfig& config);
 
-    // extract keys's element into columns
-    bool extract_key(MutableColumns& columns, StringRef json, const std::vector<StringRef>& keys,
-                     const std::vector<ExtractType>& types);
-
 private:
     struct ParseContext {
         PathInDataBuilder builder;
@@ -162,7 +158,7 @@ private:
     static StringRef getNameOfNested(const PathInData::Parts& path, const Field& value);
 
     bool has_nested = false;
-    void checkHasNested(const Element& element);
+    void check_has_nested_object(const Element& element);
     void traverseAsJsonb(const Element& element, JsonbWriter& writer);
     void traverseObjectAsJsonb(const JSONObject& object, JsonbWriter& writer);
     void traverseArrayAsJsonb(const JSONArray& array, JsonbWriter& writer);

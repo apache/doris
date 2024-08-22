@@ -1019,7 +1019,10 @@ void ColumnObject::add_nested_subcolumn(const PathInData& key, const FieldInfo& 
     bool inserted = false;
     /// We find node that represents the same Nested type as @key.
     const auto* nested_node = subcolumns.find_best_match(key);
-
+    // TODO a better way to handle following case:
+    // {"a" : {"b" : [{"x" : 10}]}}
+    // {"a" : {"b" : {"c": [{"y" : 10}]}}}
+    // maybe a.b.c.y should not follow from a.b's nested data
     // If we have a nested subcolumn and it contains nested node in it's path
     if (nested_node &&
         Subcolumns::find_parent(nested_node, [](const auto& node) { return node.is_nested(); })) {
@@ -1302,8 +1305,8 @@ rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInDat
 }
 
 // skip empty json:
-// 1. null value as empty json
-// 2. nested array with only nulls, eg. [null. null]
+// 1. null value as empty json, todo: think a better way to disinguish empty json and null json.
+// 2. nested array with only nulls, eg. [null. null],todo: think a better way to deal distinguish array null value and real null value.
 // 3. empty root jsonb value(not null)
 // 4. type is nothing
 bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type, int row,

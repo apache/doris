@@ -35,47 +35,10 @@
 namespace doris::vectorized {
 
 template <typename ParserImpl>
-bool JSONDataParser<ParserImpl>::extract_key(MutableColumns& columns, StringRef json,
-                                             const std::vector<StringRef>& keys,
-                                             const std::vector<ExtractType>& types) {
-    assert(types.size() == keys.size());
-    assert(columns.size() >= keys.size());
-    Element document;
-    if (!parser.parse(json.to_string_view(), document) || !document.isObject()) {
-        return false;
-    }
-    const auto& obj = document.getObject();
-    for (size_t x = 0; x < types.size(); ++x) {
-        Element element;
-        PathInData key_path(keys[x].to_string_view());
-        if (!obj.find(key_path, element) || element.isNull()) {
-            columns[x]->insert_default();
-            continue;
-        }
-        switch (types[x]) {
-        case ExtractType::ToString: {
-            if (element.isString()) {
-                auto str = element.getString();
-                columns[x]->insert_data(str.data(), str.size());
-                break;
-            }
-            auto str = castValueAsString(element);
-            columns[x]->insert_data(str.data(), str.size());
-            break;
-        }
-        default:
-            break;
-        }
-    }
-    return true;
-}
-
-template <typename ParserImpl>
 std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, size_t length,
                                                              const ParseConfig& config) {
-    std::string_view json {begin, length};
     Element document;
-    if (!parser.parse(json, document)) {
+    if (!parser.parse(begin, length, document)) {
         return {};
     }
     ParseContext context;
@@ -97,7 +60,7 @@ void JSONDataParser<ParserImpl>::traverse(const Element& element, ParseContext& 
         traverseObject(element.getObject(), ctx);
     } else if (element.isArray()) {
         has_nested = false;
-        checkHasNested(element);
+        check_has_nested_object(element);
         if (has_nested && !ctx.enable_flatten_nested) {
             // Parse nested arrays to JsonbField
             JsonbWriter writer;
@@ -126,11 +89,11 @@ void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseC
 }
 
 template <typename ParserImpl>
-void JSONDataParser<ParserImpl>::checkHasNested(const Element& element) {
+void JSONDataParser<ParserImpl>::check_has_nested_object(const Element& element) {
     if (element.isArray()) {
         const JSONArray& array = element.getArray();
         for (auto it = array.begin(); it != array.end(); ++it) {
-            checkHasNested(*it);
+            check_has_nested_object(*it);
         }
     }
     if (element.isObject()) {
