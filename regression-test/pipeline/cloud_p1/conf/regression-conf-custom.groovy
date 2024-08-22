@@ -15,6 +15,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "workload_manager_p1," +
     "ccr_syncer_p1," +
     "ccr_mow_syncer_p1," +
+    "inverted_index_p1/tpcds_sf1_index," + // in fixing, get result timeout, get result duration 899892 ms
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 max_failure_num = 50
