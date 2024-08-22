@@ -46,10 +46,8 @@ public:
         using FieldType = typename DataType::FieldType;
 
         std::shared_ptr<DataType> type;
-        if constexpr (std::is_same_v<DataType, DataTypeDecimal<Decimal32>>) {
-            type = std::make_shared<DataType>(9, 2);
-        } else if constexpr (std::is_same_v<DataType, DataTypeDecimal<Decimal64>>) {
-            type = std::make_shared<DataType>(18, 2);
+        if constexpr (IsDecimalNumber<FieldType>) {
+            type = std::make_shared<DataType>(9, 0);
         } else {
             type = std::make_shared<DataType>();
         }
@@ -85,11 +83,11 @@ public:
 
     template <typename DataType>
     void test_agg_linear_histogram(size_t input_rows, double interval, double offset) {
+        using FieldType = typename DataType::FieldType;
+
         std::shared_ptr<DataType> type;
-        if constexpr (std::is_same_v<DataType, DataTypeDecimal<Decimal32>>) {
-            type = std::make_shared<DataType>(9, 2);
-        } else if constexpr (std::is_same_v<DataType, DataTypeDecimal<Decimal64>>) {
-            type = std::make_shared<DataType>(18, 2);
+        if constexpr (IsDecimalNumber<FieldType>) {
+            type = std::make_shared<DataType>(9, 0);
         } else {
             type = std::make_shared<DataType>();
         }

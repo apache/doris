@@ -25,6 +25,8 @@
 
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/io/io_helper.h"
 
 // TODO: optimize count=0
@@ -61,8 +63,15 @@ public:
     }
 
     // add
-    void add(const T& value) {
-        auto key = std::floor((value - offset) / interval);
+    void add(const T& value, UInt32 scale) {
+        double val = 0;
+        if constexpr (IsDecimalNumber<T>) {
+            using NativeType = typename T::NativeType;
+            val = static_cast<double>(value.value) / decimal_scale_multiplier<NativeType>(scale);
+        } else {
+            val = static_cast<double>(value);
+        }
+        double key = std::floor((val - offset) / interval);
         if (key <= MIN_BUCKET_KEY || key >= MAX_BUCKET_KEY) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "{} exceeds the bucket range limit",
                                    value);
@@ -75,6 +84,9 @@ public:
         if (rhs.interval == 0) {
             return;
         }
+
+        interval = rhs.interval;
+        offset = rhs.offset;
 
         for (const auto& [key, count] : rhs.buckets) {
             buckets[key] += count;
@@ -112,15 +124,6 @@ public:
     }
 
     // insert_result_into
-    void insert_result_into_test(IColumn& to) const {
-        auto& column = assert_cast<ColumnString&>(to);
-        std::string res = "result: ";
-        for (const auto& [key, count] : buckets) {
-            res += std::to_string(key * interval + offset) + ":" + std::to_string(count) + ",";
-        }
-        column.insert_data(res.c_str(), res.length());
-    }
-
     void insert_result_into(IColumn& to) const {
         rapidjson::Document doc;
         doc.SetObject();
@@ -174,7 +177,8 @@ public:
     AggregateFunctionLinearHistogram(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data,
                                            AggregateFunctionLinearHistogram<T, Data, has_offset>>(
-                      argument_types_) {}
+                      argument_types_),
+              scale(get_decimal_scale(*argument_types_[0])) {}
 
     std::string get_name() const override { return "linear_histogram"; }
 
@@ -206,7 +210,8 @@ public:
 
         this->data(place).add(
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0])
-                        .get_data()[row_num]);
+                        .get_data()[row_num],
+                scale);
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
@@ -228,6 +233,9 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
     }
+
+private:
+    UInt32 scale;
 };
 
 } // namespace doris::vectorized
