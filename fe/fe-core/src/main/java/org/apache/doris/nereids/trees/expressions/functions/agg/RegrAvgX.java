@@ -113,11 +113,11 @@ public class RegrAvgX extends NullableAggregateFunction
                 }
             }
             decimalV3Type = DecimalV3Type.createDecimalV3Type(precision, scale);
-            DecimalV3Type ret = DecimalV3Type.createDecimalV3Type(
-                    enableDecimal256 ? DecimalV3Type.MAX_DECIMAL256_PRECISION : DecimalV3Type.MAX_DECIMAL128_PRECISION,
-                    decimalV3Type.getScale());
-
-            return signature.withArgumentType(1, decimalV3Type).withReturnType(ret);
+            return signature.withArgumentType(1, decimalV3Type)
+                    .withReturnType(DecimalV3Type.createDecimalV3Type(
+                            enableDecimal256 ? DecimalV3Type.MAX_DECIMAL256_PRECISION
+                                    : DecimalV3Type.MAX_DECIMAL128_PRECISION,
+                            decimalV3Type.getScale()));
         } else {
             return signature;
         }
