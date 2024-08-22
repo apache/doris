@@ -136,6 +136,10 @@ class ServerNode {
         assert false : 'Unknown node type'
     }
 
+    String getConfFilePath() {
+        assert false : 'Unknown node type'
+    }
+
 }
 
 class Frontend extends ServerNode {
@@ -157,6 +161,10 @@ class Frontend extends ServerNode {
 
     String getLogFilePath() {
         return path + '/log/fe.log'
+    }
+
+    String getConfFilePath() {
+        return path + '/conf/fe.conf'
     }
 
 }
@@ -182,6 +190,10 @@ class Backend extends ServerNode {
         return path + '/log/be.INFO'
     }
 
+    String getConfFilePath() {
+        return path + '/conf/be.conf'
+    }
+
 }
 
 class MetaService extends ServerNode {
@@ -200,6 +212,10 @@ class MetaService extends ServerNode {
         return path + '/log/meta_service.INFO'
     }
 
+    String getConfFilePath() {
+        return path + '/conf/doris_cloud.conf'
+    }
+
 }
 
 class Recycler extends ServerNode {
@@ -216,6 +232,10 @@ class Recycler extends ServerNode {
 
     String getLogFilePath() {
         return path + '/log/recycler.INFO'
+    }
+
+    String getConfFilePath() {
+        return path + '/conf/doris_cloud.conf'
     }
 
 }
