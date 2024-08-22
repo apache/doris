@@ -193,8 +193,8 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
                 // skip large segments at the front
                 auto dst_seg_id = _num_segcompacted.load();
                 RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
-                if (_segcompaction_worker->need_convert_delete_bitmap()) {
-                    _segcompaction_worker->convert_segment_delete_bitmap(
+                if (_segcompaction_worker.need_convert_delete_bitmap()) {
+                    _segcompaction_worker.convert_segment_delete_bitmap(
                             _context.mow_context->delete_bitmap, segid, dst_seg_id);
                 }
                 continue;
@@ -224,8 +224,8 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
         auto src_seg_id = _segcompacted_point.load();
         auto dst_seg_id = _num_segcompacted.load();
         RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
-        if (_segcompaction_worker->need_convert_delete_bitmap()) {
-            _segcompaction_worker->convert_segment_delete_bitmap(
+        if (_segcompaction_worker.need_convert_delete_bitmap()) {
+            _segcompaction_worker.convert_segment_delete_bitmap(
                     _context.mow_context->delete_bitmap, src_seg_id, dst_seg_id);
         }
         segments->clear();
@@ -395,8 +395,8 @@ Status BetaRowsetWriter::_segcompaction_rename_last_segments() {
     for (int32_t segid = _segcompacted_point; segid < _num_segment; segid++) {
         auto dst_segid = _num_segcompacted.load();
         RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
-        if (_segcompaction_worker->need_convert_delete_bitmap()) {
-            _segcompaction_worker->convert_segment_delete_bitmap(
+        if (_segcompaction_worker.need_convert_delete_bitmap()) {
+            _segcompaction_worker.convert_segment_delete_bitmap(
                     _context.mow_context->delete_bitmap, segid, dst_segid);
         }
     }
@@ -560,8 +560,8 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
                                            "close segment compaction worker failed");
         }
         // process delete bitmap for mow table
-        if (is_segcompacted() && _segcompaction_worker->need_convert_delete_bitmap()) {
-            auto converted_delete_bitmap = _segcompaction_worker->get_converted_delete_bitmap();
+        if (is_segcompacted() && _segcompaction_worker.need_convert_delete_bitmap()) {
+            auto converted_delete_bitmap = _segcompaction_worker.get_converted_delete_bitmap();
             // which means the segment compaction is triggerd
             if (converted_delete_bitmap != nullptr) {
                 RowsetIdUnorderedSet rowsetids;
@@ -569,9 +569,9 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
                 auto tablet = static_cast<Tablet*>(_context.tablet.get());
                 tablet->add_sentinel_mark_to_delete_bitmap(converted_delete_bitmap.get(),
                                                            rowsetids);
-                context().mow_context->delete_bitmap->remove({rowset_id(), 0, 0},
+                _context.mow_context->delete_bitmap->remove({rowset_id(), 0, 0},
                                                              {rowset_id(), UINT32_MAX, INT64_MAX});
-                context().mow_context->delete_bitmap->merge(*converted_delete_bitmap);
+                _context.mow_context->delete_bitmap->merge(*converted_delete_bitmap);
             }
         }
     }
@@ -643,7 +643,7 @@ void BetaRowsetWriter::_build_rowset_meta_with_spec_field(
 
 Status BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta,
                                             bool check_segment_num) {
-    int64_t num_seg = _is_segcompacted() ? _num_segcompacted : _num_segment;
+    int64_t num_seg = is_segcompacted() ? _num_segcompacted : _num_segment;
     int64_t num_rows_written = 0;
     int64_t total_data_size = 0;
     int64_t total_index_size = 0;

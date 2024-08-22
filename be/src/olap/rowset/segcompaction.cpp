@@ -351,7 +351,7 @@ bool SegcompactionWorker::need_convert_delete_bitmap() {
     if (_writer == nullptr) {
         return false;
     }
-    auto tablet = _writer->context().tablet;
+    auto tablet = _writer->_context.tablet;
     return tablet != nullptr && tablet->keys_type() == KeysType::UNIQUE_KEYS &&
            tablet->enable_unique_key_merge_on_write() &&
            tablet->tablet_schema()->has_sequence_col();
@@ -361,9 +361,9 @@ void SegcompactionWorker::convert_segment_delete_bitmap(DeleteBitmapPtr src_dele
                                                         uint32_t src_seg_id, uint32_t dest_seg_id) {
     // lazy init
     if (nullptr == _converted_delete_bitmap) {
-        _converted_delete_bitmap = std::make_shared<DeleteBitmap>(_writer->context().tablet_id);
+        _converted_delete_bitmap = std::make_shared<DeleteBitmap>(_writer->_context.tablet_id);
     }
-    auto rowset_id = _writer->context().rowset_id;
+    auto rowset_id = _writer->_context.rowset_id;
     const auto* seg_map =
             src_delete_bitmap->get({rowset_id, src_seg_id, DeleteBitmap::TEMP_VERSION_COMMON});
     if (seg_map != nullptr) {
@@ -377,9 +377,9 @@ void SegcompactionWorker::convert_segment_delete_bitmap(DeleteBitmapPtr src_dele
                                                         uint32_t dst_seg_id) {
     // lazy init
     if (nullptr == _converted_delete_bitmap) {
-        _converted_delete_bitmap = std::make_shared<DeleteBitmap>(_writer->context().tablet_id);
+        _converted_delete_bitmap = std::make_shared<DeleteBitmap>(_writer->_context.tablet_id);
     }
-    auto rowset_id = _writer->context().rowset_id;
+    auto rowset_id = _writer->_context.rowset_id;
     RowLocation src(rowset_id, 0, 0);
     for (uint32_t seg_id = src_begin; seg_id <= src_end; seg_id++) {
         const auto* seg_map =
@@ -398,12 +398,6 @@ void SegcompactionWorker::convert_segment_delete_bitmap(DeleteBitmapPtr src_dele
                     {rowset_id, dst_seg_id, DeleteBitmap::TEMP_VERSION_COMMON}, dst_row_id);
         }
     }
-}
-
-bool SegcompactionWorker::cancel() {
-    // return true if the task is canncellable (actual compaction is not started)
-    // return false when the task is not cancellable (it is in the middle of segcompaction)
-    return _is_compacting_state_mutable.exchange(false);
 }
 
 } // namespace doris
