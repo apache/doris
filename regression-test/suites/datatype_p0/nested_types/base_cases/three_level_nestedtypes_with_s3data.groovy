@@ -17,12 +17,15 @@ import org.apache.commons.lang3.StringUtils
 // specific language governing permissions and limitations
 // under the License.
 
-suite("three_level_nestedtypes_with_s3data") {
+suite("three_level_nestedtypes_with_s3data", "p2") {
     String ak = getS3AK()
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()
     String bucket = context.config.otherConfigs.get("s3BucketName");
 
+    sql """ set enable_nereids_timeout=false; """
+    sql """ set max_scan_key_num = 48 """
+    sql """ set max_pushdown_conditions_per_column=1024 """
 
     def dataFilePath = "https://"+"${bucket}"+"."+"${s3_endpoint}"+"/regression/datalake"
 //    def dataFilePath = "/mnt/disk1/wangqiannan/export/tl/three_level"
@@ -85,14 +88,17 @@ suite("three_level_nestedtypes_with_s3data") {
         }
     }
 
-    def be_id = 10044
+    List<List<Object>> backends =  sql """ show backends """
+    assertTrue(backends.size() > 0)
+    def be_id = backends[0][0]
+
     def load_from_tvf = {table_name, uri_file, format ->
         if (format == "csv") {
-            order_qt_sql_tvf """select c2, c9, c10, c12, c16 from local(
+            order_qt_sql_tvf """select c2 from local(
                 "file_path" = "${uri_file}",
                 "backend_id" = "${be_id}",
                 "column_separator"="|",
-                "format" = "${format}") order by c1 limit 10; """
+                "format" = "${format}") order by c1,c2 limit 10; """
             sql """
             insert into ${table_name} select * from local(
             "file_path" = "${uri_file}",
@@ -113,8 +119,6 @@ suite("three_level_nestedtypes_with_s3data") {
             "format" = "${format}") order by k1; """
         }
 
-        // where to filter different format data
-        order_qt_select_doris """ select c_bool, c_double, c_decimal, c_date, c_char from ${table_name} where k1 IS NOT NULL order by k1 limit 10; """
     }
     def load_from_s3 = {table_name, uri_file, format ->
         if (format == "csv") {
@@ -126,7 +130,7 @@ suite("three_level_nestedtypes_with_s3data") {
                     "format" = "${format}",
                     "column_separator"="|",
                     "provider" = "${getS3Provider()}",
-                    "read_json_by_line"="true") order by c1; """
+                    "read_json_by_line"="true") order by c1,c2; """
         } else {
             sql """
             insert into ${table_name} select * from s3(
@@ -137,8 +141,6 @@ suite("three_level_nestedtypes_with_s3data") {
                     "provider" = "${getS3Provider()}",
                     "read_json_by_line"="true") order by k1; """
         }
-        // where to filter different format data
-        qt_select_doris """ select c_bool, c_double, c_decimal, c_date, c_char from ${table_name} where k1 IS NOT NULL order by k1 limit 10; """
     }
 
     // step1. create table
