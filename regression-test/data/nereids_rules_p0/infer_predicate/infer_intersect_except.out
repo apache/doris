@@ -85,6 +85,54 @@ PhysicalResultSink
 ----filter((infer_intersect_except3.a = 1) and (infer_intersect_except3.b = 'abc'))
 ------PhysicalOlapScan[infer_intersect_except3]
 
+-- !function_intersect --
+PhysicalResultSink
+--PhysicalIntersect
+----filter((abs(a) < 3))
+------PhysicalOlapScan[infer_intersect_except1]
+----filter((abs(a) < 3))
+------PhysicalOlapScan[infer_intersect_except2]
+
+-- !function_except --
+PhysicalResultSink
+--PhysicalExcept
+----filter((abs(a) < 3))
+------PhysicalOlapScan[infer_intersect_except1]
+----filter((abs(a) < 3))
+------PhysicalOlapScan[infer_intersect_except2]
+
+-- !except_res --
+
+-- !except_to_empty_res --
+
+-- !except_not_infer_1_greater_than_0_res --
+1	d2
+
+-- !except_number_and_string_res --
+1	2
+
+-- !intersect_res --
+1	d2
+
+-- !intersect_empty_res --
+
+-- !intersect_expr_res --
+
+-- !except_and_intersect_res --
+1	d2
+
+-- !except_and_intersect_except_predicate_to_right_res --
+1	d2
+
+-- !intersect_and_except_res --
+
+-- !function_intersect_res --
+0
+1
+
+-- !function_except_res --
+2
+
 -- !different_type_date_string --
 PhysicalResultSink
 --PhysicalIntersect
@@ -100,4 +148,8 @@ PhysicalResultSink
 ------PhysicalOlapScan[infer_intersect_except4]
 ----filter((infer_intersect_except4.d_char100 < 'abc'))
 ------PhysicalOlapScan[infer_intersect_except4]
+
+-- !different_type_date_string_res --
+
+-- !different_type_int_string_res --
 

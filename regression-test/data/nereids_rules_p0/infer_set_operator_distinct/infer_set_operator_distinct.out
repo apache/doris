@@ -51,13 +51,10 @@ PhysicalResultSink
 -- !except_with_filter --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalExcept
-------PhysicalDistribute[DistributionSpecHash]
+----PhysicalProject
+------hashAgg[LOCAL]
 --------filter((t1.id > 100))
 ----------PhysicalOlapScan[t1]
-------PhysicalDistribute[DistributionSpecHash]
---------filter((t2.id < 50))
-----------PhysicalOlapScan[t2]
 
 -- !intersect_distinct --
 PhysicalResultSink
@@ -888,13 +885,10 @@ SyntaxError:
 -- !with_hint_no_except_with_filter --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalExcept
-------PhysicalDistribute[DistributionSpecHash]
+----PhysicalProject
+------hashAgg[LOCAL]
 --------filter((t1.id > 100))
 ----------PhysicalOlapScan[t1]
-------PhysicalDistribute[DistributionSpecHash]
---------filter((t2.id < 50))
-----------PhysicalOlapScan[t2]
 
 Hint log:
 Used:

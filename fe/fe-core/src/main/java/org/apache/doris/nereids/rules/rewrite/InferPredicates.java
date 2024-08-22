@@ -117,14 +117,16 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
     public Plan visitLogicalExcept(LogicalExcept except, JobContext context) {
         except = visitChildren(this, except, context);
         Set<Expression> baseExpressions = pullUpPredicates(except);
+        if (baseExpressions.isEmpty()) {
+            return except;
+        }
         ImmutableList.Builder<Plan> builder = ImmutableList.builder();
         builder.add(except.child(0));
         for (int i = 1; i < except.arity(); ++i) {
-            Plan child = except.child(i);
             Map<Expression, Expression> replaceMap = new HashMap<>();
-            for (int j = 0; j < except.getOutputs().size(); ++j) {
-                NamedExpression output = except.getOutputs().get(j);
-                replaceMap.put(output, child.getOutput().get(j));
+            for (int j = 0; j < except.getOutput().size(); ++j) {
+                NamedExpression output = except.getOutput().get(j);
+                replaceMap.put(output, except.getRegularChildOutput(i).get(j));
             }
             builder.add(inferNewPredicate(except.child(i), ExpressionUtils.replace(baseExpressions, replaceMap)));
         }
@@ -135,13 +137,15 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
     public Plan visitLogicalIntersect(LogicalIntersect intersect, JobContext context) {
         intersect = visitChildren(this, intersect, context);
         Set<Expression> baseExpressions = pullUpPredicates(intersect);
+        if (baseExpressions.isEmpty()) {
+            return intersect;
+        }
         ImmutableList.Builder<Plan> builder = ImmutableList.builder();
         for (int i = 0; i < intersect.arity(); ++i) {
-            Plan child = intersect.child(i);
             Map<Expression, Expression> replaceMap = new HashMap<>();
-            for (int j = 0; j < intersect.getOutputs().size(); ++j) {
-                NamedExpression output = intersect.getOutputs().get(j);
-                replaceMap.put(output, child.getOutput().get(j));
+            for (int j = 0; j < intersect.getOutput().size(); ++j) {
+                NamedExpression output = intersect.getOutput().get(j);
+                replaceMap.put(output, intersect.getRegularChildOutput(i).get(j));
             }
             builder.add(inferNewPredicate(intersect.child(i), ExpressionUtils.replace(baseExpressions, replaceMap)));
         }

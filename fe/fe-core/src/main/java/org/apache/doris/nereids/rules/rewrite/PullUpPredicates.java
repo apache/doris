@@ -84,13 +84,18 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
     public ImmutableSet<Expression> visitLogicalIntersect(LogicalIntersect intersect, Void context) {
         return cacheOrElse(intersect, () -> {
             ImmutableSet.Builder<Expression> builder = ImmutableSet.builder();
-            for (Plan child : intersect.children()) {
-                Map<Expression, Expression> replaceMap = new HashMap<>();
-                for (int i = 0; i < intersect.getOutputs().size(); ++i) {
-                    NamedExpression output = intersect.getOutputs().get(i);
-                    replaceMap.put(child.getOutput().get(i), output);
+            for (int i = 0; i < intersect.children().size(); ++i) {
+                Plan child = intersect.child(i);
+                Set<Expression> childFilters = child.accept(this, context);
+                if (childFilters.isEmpty()) {
+                    continue;
                 }
-                builder.addAll(ExpressionUtils.replace(child.accept(this, context), replaceMap));
+                Map<Expression, Expression> replaceMap = new HashMap<>();
+                for (int j = 0; j < intersect.getOutput().size(); ++j) {
+                    NamedExpression output = intersect.getOutput().get(j);
+                    replaceMap.put(intersect.getRegularChildOutput(i).get(j), output);
+                }
+                builder.addAll(ExpressionUtils.replace(childFilters, replaceMap));
             }
             return getAvailableExpressions(builder.build(), intersect);
         });
@@ -103,10 +108,13 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                 return ImmutableSet.of();
             }
             Set<Expression> firstChildFilters = except.child(0).accept(this, context);
+            if (firstChildFilters.isEmpty()) {
+                return ImmutableSet.of();
+            }
             Map<Expression, Expression> replaceMap = new HashMap<>();
-            for (int i = 0; i < except.getOutputs().size(); ++i) {
-                NamedExpression output = except.getOutputs().get(i);
-                replaceMap.put(except.child(0).getOutput().get(i), output);
+            for (int i = 0; i < except.getOutput().size(); ++i) {
+                NamedExpression output = except.getOutput().get(i);
+                replaceMap.put(except.getRegularChildOutput(0).get(i), output);
             }
             return ImmutableSet.copyOf(ExpressionUtils.replace(firstChildFilters, replaceMap));
         });
@@ -143,9 +151,9 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                 for (int i = 0; i < union.getArity(); ++i) {
                     Plan child = union.child(i);
                     Map<Expression, Expression> replaceMap = new HashMap<>();
-                    for (int j = 0; j < union.getOutputs().size(); ++j) {
-                        NamedExpression output = union.getOutputs().get(j);
-                        replaceMap.put(child.getOutput().get(j), output);
+                    for (int j = 0; j < union.getOutput().size(); ++j) {
+                        NamedExpression output = union.getOutput().get(j);
+                        replaceMap.put(union.getRegularChildOutput(i).get(j), output);
                     }
                     Set<Expression> childFilters = ExpressionUtils.replace(child.accept(this, context), replaceMap);
                     if (0 == i) {
@@ -242,6 +250,9 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
     }
 
     private ImmutableSet<Expression> getAvailableExpressions(Set<Expression> predicates, Plan plan) {
+        if (predicates.isEmpty()) {
+            return ImmutableSet.of();
+        }
         Set<Expression> inferPredicates = PredicatePropagation.infer(predicates);
         Builder<Expression> newPredicates = ImmutableSet.builderWithExpectedSize(predicates.size() + 10);
         Set<Slot> outputSet = plan.getOutputSet();
