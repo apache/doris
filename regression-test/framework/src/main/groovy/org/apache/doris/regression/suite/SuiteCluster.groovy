@@ -95,12 +95,14 @@ class ServerNode {
     String host
     int httpPort
     boolean alive
+    String path
 
     static void fromCompose(ServerNode node, ListHeader header, int index, List<Object> fields) {
         node.index = index
         node.host = (String) fields.get(header.indexOf('IP'))
         node.httpPort = (Integer) fields.get(header.indexOf('http_port'))
         node.alive = fields.get(header.indexOf('alive')) == 'true'
+        node.path = (String) fields.get(header.indexOf('path'))
     }
 
     static long toLongOrDefault(Object val, long defValue) {
@@ -130,6 +132,10 @@ class ServerNode {
         assert false : 'Unknown node type'
     }
 
+    String getLogFilePath() {
+        assert false : 'Unknown node type'
+    }
+
 }
 
 class Frontend extends ServerNode {
@@ -147,6 +153,10 @@ class Frontend extends ServerNode {
 
     NodeType getNodeType() {
         return NodeType.FE
+    }
+
+    String getLogFilePath() {
+        return path + '/log/fe.log'
     }
 
 }
@@ -168,6 +178,10 @@ class Backend extends ServerNode {
         return NodeType.BE
     }
 
+    String getLogFilePath() {
+        return path + '/log/be.INFO'
+    }
+
 }
 
 class MetaService extends ServerNode {
@@ -182,6 +196,10 @@ class MetaService extends ServerNode {
         return NodeType.MS
     }
 
+    String getLogFilePath() {
+        return path + '/log/meta_service.INFO'
+    }
+
 }
 
 class Recycler extends ServerNode {
@@ -194,6 +212,10 @@ class Recycler extends ServerNode {
 
     NodeType getNodeType() {
         return NodeType.RECYCLER
+    }
+
+    String getLogFilePath() {
+        return path + '/log/recycler.INFO'
     }
 
 }
@@ -362,14 +384,14 @@ class SuiteCluster {
             } else if (name.startsWith('fe-')) {
                 int index = name.substring('fe-'.length()) as int
                 frontends.add(Frontend.fromCompose(header, index, row))
-            } else if (name.startsWith('ms-')){
+            } else if (name.startsWith('ms-')) {
                 int index = name.substring('ms-'.length()) as int
                 metaservices.add(MetaService.fromCompose(header, index, row))
-            } else if (name.startsWith('recycle-')){
+            } else if (name.startsWith('recycle-')) {
                 int index = name.substring('recycle-'.length()) as int
                 recyclers.add(Recycler.fromCompose(header, index, row))
             } else if (name.startsWith('fdb-')) {
-                // current not used
+            // current not used
             } else {
                 assert false : 'Unknown node type with name: ' + name
             }
@@ -382,7 +404,7 @@ class SuiteCluster {
         return result.first
     }
 
-    List<Integer> addBackend(int num, String ClusterName="") throws Exception {
+    List<Integer> addBackend(int num, String ClusterName='') throws Exception {
         def result = add(0, num, ClusterName)
         return result.second
     }
