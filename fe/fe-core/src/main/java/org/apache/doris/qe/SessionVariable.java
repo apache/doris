@@ -2831,14 +2831,6 @@ public class SessionVariable implements Serializable, Writable {
         this.storageEngine = storageEngine;
     }
 
-    public int getMaxScanKeyNum() {
-        return maxScanKeyNum;
-    }
-
-    public void setMaxScanKeyNum(int maxScanKeyNum) {
-        this.maxScanKeyNum = maxScanKeyNum;
-    }
-
     public int getMaxPushdownConditionsPerColumn() {
         return maxPushdownConditionsPerColumn;
     }
@@ -3591,8 +3583,19 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
-        tResult.setMaxScanKeyNum(maxScanKeyNum);
-        tResult.setMaxPushdownConditionsPerColumn(maxPushdownConditionsPerColumn);
+
+        if (maxScanKeyNum > 0) {
+            tResult.setMaxScanKeyNum(maxScanKeyNum);
+        } else {
+            // for old version default value
+            tResult.setMaxScanKeyNum(48);
+        }
+        if (maxPushdownConditionsPerColumn > 0) {
+            tResult.setMaxPushdownConditionsPerColumn(maxPushdownConditionsPerColumn);
+        } else {
+            // for old version default value
+            tResult.setMaxPushdownConditionsPerColumn(1024);
+        }
 
         tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);
         tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
