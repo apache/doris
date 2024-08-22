@@ -62,6 +62,8 @@ unsupportedStatement
     | unsupportedKillStatement
     | unsupportedDescribeStatement
     | unsupportedCreateStatement
+    | unsupportedDropStatement
+    | unsupportedStatsStatement
     ;
 
 materailizedViewStatement
@@ -80,7 +82,8 @@ materailizedViewStatement
         | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
         | REPLACE WITH MATERIALIZED VIEW newName=identifier propertyClause?
         | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))                        #alterMTMV
-    | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier                            #dropMTMV
+    | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier
+        (ON tableName=multipartIdentifier)?                                                     #dropMTMV
     | PAUSE MATERIALIZED VIEW JOB ON mvName=multipartIdentifier                                 #pauseMTMV
     | RESUME MATERIALIZED VIEW JOB ON mvName=multipartIdentifier                                #resumeMTMV
     | CANCEL MATERIALIZED VIEW TASK taskId=INTEGER_VALUE ON mvName=multipartIdentifier          #cancelMTMVTask
@@ -162,6 +165,39 @@ supportedAlterStatement
 
 supportedDropStatement
     : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE #dropCatalogRecycleBin
+    ;
+
+unsupportedDropStatement
+    : DROP (DATABASE | SCHEMA) (IF EXISTS)? name=multipartIdentifier FORCE?     #dropDatabase
+    | DROP CATALOG (IF EXISTS)? name=identifier                                 #dropCatalog
+    | DROP (GLOBAL | SESSION | LOCAL)? FUNCTION (IF EXISTS)?
+        functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN            #dropFunction
+    | DROP TABLE (IF EXISTS)? name=multipartIdentifier FORCE?                   #dropTable
+    | DROP USER (IF EXISTS)? userIdentify                                       #dropUser
+    | DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
+    | DROP REPOSITORY name=identifier                                           #dropRepository
+    | DROP ROLE (IF EXISTS)? name=identifier                                    #dropRole
+    | DROP FILE name=STRING_LITERAL
+        ((FROM | IN) database=identifier)? properties=propertyClause            #dropFile
+    | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier  #dropIndex
+    | DROP RESOURCE (IF EXISTS)? name=identifierOrText                          #dropResource
+    | DROP WORKLOAD GROUP (IF EXISTS)? name=identifierOrText                    #dropWorkloadGroup
+    | DROP WORKLOAD POLICY (IF EXISTS)? name=identifierOrText                   #dropWorkloadPolicy
+    | DROP ENCRYPTKEY (IF EXISTS)? name=multipartIdentifier                     #dropEncryptkey
+    | DROP SQL_BLOCK_RULE (IF EXISTS)? identifierSeq                            #dropSqlBlockRule
+    | DROP ROW POLICY (IF EXISTS)? policyName=identifier
+        ON tableName=multipartIdentifier
+        (FOR (userIdentify | ROLE roleName=identifier))?                        #dropRowPolicy
+    | DROP STORAGE POLICY (IF EXISTS)? name=identifier                          #dropStoragePolicy
+    | DROP STAGE (IF EXISTS)? name=identifier                                   #dropStage
+    ;
+
+unsupportedStatsStatement
+    : DROP STATS tableName=multipartIdentifier
+        columns=identifierList? partitionSpec?                                  #dropStats
+    | DROP CACHED STATS tableName=multipartIdentifier                           #dropCachedStats
+    | DROP EXPIRED STATS                                                        #dropExpiredStats
+    | DROP ANALYZE JOB INTEGER_VALUE                                            #dropAanalyzeJob
     ;
 
 unsupportedCreateStatement
@@ -264,8 +300,6 @@ functionArgument
     : DOTDOTDOT
     | dataType
     ;
-
-
 
 unsupportedSetStatement
     : SET (optionWithType | optionWithoutType)
@@ -650,7 +684,7 @@ havingClause
     : HAVING booleanExpression
     ;
 
-selectHint: HINT_START hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
+selectHint: hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
 
 hintStatement
     : hintName=identifier (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?
@@ -1267,6 +1301,7 @@ nonReserved
     | COLOCATE
     | COLUMNS
     | COMMENT
+    | COMMENT_START
     | COMMIT
     | COMMITTED
     | COMPACT
@@ -1351,6 +1386,8 @@ nonReserved
     | HASH
     | HDFS
     | HELP
+    | HINT_END
+    | HINT_START
     | HISTOGRAM
     | HLL_UNION
     | HOSTNAME
