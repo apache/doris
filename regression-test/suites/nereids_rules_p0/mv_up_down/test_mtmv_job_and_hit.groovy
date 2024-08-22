@@ -38,6 +38,9 @@ suite("test_upgrade_downgrade_compatibility_mtmv","p0,mtmv,restart_fe") {
         }
     }
 
+    // Reject fallback
+    sql """set enable_fallback_to_original_planner = false;"""
+
     String mtmv_sql = """select l_Shipdate, o_Orderdate, l_partkey, l_suppkey 
         from ${lineitem_tb} 
         left join ${orders_tb} 
@@ -110,11 +113,9 @@ suite("test_upgrade_downgrade_compatibility_mtmv","p0,mtmv,restart_fe") {
     // drop
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mtmv_name};"""
     sql """DROP TABLE IF EXISTS ${mtmv_name}"""
-
-    try {
+    test {
         sql """select count(*) from ${mtmv_name}"""
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("does not exist") || e.getMessage().contains("Unknown table"))
+        exception "does not exist"
     }
 
     // create
