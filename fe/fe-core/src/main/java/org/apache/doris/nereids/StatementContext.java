@@ -55,6 +55,8 @@ import javax.annotation.concurrent.GuardedBy;
  */
 public class StatementContext {
 
+    public boolean hasUnsupportedSqlCacheExpression;
+
     private ConnectContext connectContext;
 
     private final Stopwatch stopwatch = Stopwatch.createUnstarted();
