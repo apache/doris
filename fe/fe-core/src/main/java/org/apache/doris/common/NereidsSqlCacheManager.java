@@ -396,8 +396,8 @@ public class NereidsSqlCacheManager {
             Variable currentVariable = currentVariables.get(i);
             Variable cachedVariable = cachedUsedVariables.get(i);
             if (!Objects.equals(currentVariable, cachedVariable)
-                    || cachedVariable.getRealExpression().anyMatch(expr -> !(expr instanceof ExpressionTrait)
-                    || !((ExpressionTrait) expr).isDeterministic())) {
+                    || cachedVariable.getRealExpression().anyMatch(expr -> expr instanceof ExpressionTrait
+                    && !((ExpressionTrait) expr).isDeterministic())) {
                 return true;
             }
         }
