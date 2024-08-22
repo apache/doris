@@ -92,18 +92,15 @@ public class NereidsParser {
                                                              Function<DorisParser, ParserRuleContext> parseFunction) {
         // parse hint first round
         DorisLexer hintLexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
-        hintLexer.setChannel2(true);
         CommonTokenStream hintTokenStream = new CommonTokenStream(hintLexer);
 
         Map<Integer, ParserRuleContext> selectHintMap = Maps.newHashMap();
 
         Token hintToken = hintTokenStream.getTokenSource().nextToken();
         while (hintToken != null && hintToken.getType() != DorisLexer.EOF) {
-            int tokenType = hintToken.getType();
-            if (tokenType == DorisLexer.HINT_WITH_CHANNEL) {
-                String hintSql = sql.substring(hintToken.getStartIndex(), hintToken.getStopIndex() + 1);
+            if (hintToken.getChannel() == 2 && sql.charAt(hintToken.getStartIndex() + 2) == '+') {
+                String hintSql = sql.substring(hintToken.getStartIndex() + 3, hintToken.getStopIndex() + 1);
                 DorisLexer newHintLexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(hintSql)));
-                newHintLexer.setChannel2(false);
                 CommonTokenStream newHintTokenStream = new CommonTokenStream(newHintLexer);
                 DorisParser hintParser = new DorisParser(newHintTokenStream);
                 ParserRuleContext hintContext = parseFunction.apply(hintParser);
@@ -117,7 +114,6 @@ public class NereidsParser {
     /** toAst */
     private ParserRuleContext toAst(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
         DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
-        lexer.setChannel2(true);
         CommonTokenStream tokenStream = new CommonTokenStream(lexer);
         DorisParser parser = new DorisParser(tokenStream);
 
