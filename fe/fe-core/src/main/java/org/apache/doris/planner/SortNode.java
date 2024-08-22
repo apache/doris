@@ -352,7 +352,7 @@ public class SortNode extends PlanNode {
                 algorithm = TSortAlgorithm.FULL_SORT;
             }
         } else {
-            if (limit == 0) {
+            if (limit <= 0) {
                 algorithm = TSortAlgorithm.FULL_SORT;
             } else if (hasRuntimePredicate || useTwoPhaseReadOpt) {
                 algorithm = TSortAlgorithm.HEAP_SORT;
