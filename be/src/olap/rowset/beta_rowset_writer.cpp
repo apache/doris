@@ -458,6 +458,7 @@ Status BetaRowsetWriter::add_rowset_for_linked_schema_change(RowsetSharedPtr row
 Status BetaRowsetWriter::flush() {
     if (_segment_writer != nullptr) {
         RETURN_IF_ERROR(_flush_segment_writer(&_segment_writer));
+        RETURN_IF_ERROR(_segcompaction_if_necessary());
     }
     return Status::OK();
 }
