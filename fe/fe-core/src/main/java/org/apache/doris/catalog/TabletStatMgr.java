@@ -94,6 +94,9 @@ public class TabletStatMgr extends MasterDaemon {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
+                long tableDataSize = 0L;
+                long tableTotalReplicaDataSize = 0L;
+                long tableReplicaCount = 0L;
                 if (!table.writeLockIfExist()) {
                     continue;
                 }
@@ -103,18 +106,29 @@ public class TabletStatMgr extends MasterDaemon {
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             long indexRowCount = 0L;
                             for (Tablet tablet : index.getTablets()) {
+                                long tabletDataSize = 0L;
                                 long tabletRowCount = 0L;
                                 for (Replica replica : tablet.getReplicas()) {
                                     if (replica.checkVersionCatchUp(version, false)
                                             && replica.getRowCount() > tabletRowCount) {
                                         tabletRowCount = replica.getRowCount();
                                     }
+
+                                    if (replica.getDataSize() > tabletDataSize) {
+                                        tabletDataSize = replica.getDataSize();
+                                    }
+                                    tableTotalReplicaDataSize += replica.getDataSize();
+                                    tableReplicaCount++;
                                 }
+                                tableDataSize += tabletDataSize;
                                 indexRowCount += tabletRowCount;
                             } // end for tablets
                             index.setRowCount(indexRowCount);
                         } // end for indices
                     } // end for partitions
+
+                    olapTable.setStatistics(new OlapTable.Statistics(db.getFullName(), table.getName(),
+                        tableDataSize, tableTotalReplicaDataSize, tableReplicaCount));
                     LOG.debug("finished to set row num for table: {} in database: {}",
                              table.getName(), db.getFullName());
                 } finally {

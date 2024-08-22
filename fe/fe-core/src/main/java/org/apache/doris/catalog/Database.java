@@ -231,48 +231,42 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public long getUsedDataQuotaWithLock() {
         long usedDataQuota = 0;
+        List<Table> tables = new ArrayList<>();
         readLock();
         try {
-            for (Table table : this.idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
-                    continue;
-                }
-
-                OlapTable olapTable = (OlapTable) table;
-                olapTable.readLock();
-                try {
-                    usedDataQuota = usedDataQuota + olapTable.getDataSize();
-                } finally {
-                    olapTable.readUnlock();
-                }
-            }
-            return usedDataQuota;
+            tables.addAll(this.idToTable.values());
         } finally {
             readUnlock();
         }
+        for (Table table : tables) {
+            if (table.getType() != TableType.OLAP) {
+                continue;
+            }
+
+            OlapTable olapTable = (OlapTable) table;
+            usedDataQuota = usedDataQuota + olapTable.getDataSize();
+        }
+        return usedDataQuota;
     }
 
     public long getReplicaCountWithLock() {
+        long usedReplicaCount = 0;
+        List<Table> tables = new ArrayList<>();
         readLock();
         try {
-            long usedReplicaCount = 0;
-            for (Table table : this.idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
-                    continue;
-                }
-
-                OlapTable olapTable = (OlapTable) table;
-                olapTable.readLock();
-                try {
-                    usedReplicaCount = usedReplicaCount + olapTable.getReplicaCount();
-                } finally {
-                    olapTable.readUnlock();
-                }
-            }
-            return usedReplicaCount;
+            tables.addAll(this.idToTable.values());
         } finally {
             readUnlock();
         }
+        for (Table table : tables) {
+            if (table.getType() != TableType.OLAP) {
+                continue;
+            }
+
+            OlapTable olapTable = (OlapTable) table;
+            usedReplicaCount = usedReplicaCount + olapTable.getReplicaCount();
+        }
+        return usedReplicaCount;
     }
 
     public long getReplicaQuotaLeftWithLock() {

@@ -86,6 +86,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import lombok.Getter;
+
 /**
  * Internal representation of tableFamilyGroup-related metadata. A OlaptableFamilyGroup contains several tableFamily.
  * Note: when you add a new olap table property, you should modify TableProperty class
@@ -147,6 +149,8 @@ public class OlapTable extends Table {
     private long baseIndexId = -1;
 
     private TableProperty tableProperty;
+
+    private volatile Statistics statistics = new Statistics();
 
     public OlapTable() {
         // for persist
@@ -1393,26 +1397,6 @@ public class OlapTable extends Table {
         return oldPartition;
     }
 
-    public long getDataSize(boolean singleReplica) {
-        long dataSize = 0;
-        for (Partition partition : getAllPartitions()) {
-            dataSize += partition.getDataSize(singleReplica);
-        }
-        return dataSize;
-    }
-
-    public long getDataSize() {
-        return getDataSize(false);
-    }
-
-    public long getReplicaCount() {
-        long replicaCount = 0;
-        for (Partition partition : getAllPartitions()) {
-            replicaCount += partition.getReplicaCount();
-        }
-        return replicaCount;
-    }
-
     public void checkStableAndNormal(String clusterName) throws DdlException {
         if (state != OlapTableState.NORMAL) {
             throw new DdlException("Table[" + name + "]'s state is not NORMAL. "
@@ -1994,5 +1978,60 @@ public class OlapTable extends Table {
         return getKeysType() == KeysType.DUP_KEYS
                 || (getKeysType() == KeysType.UNIQUE_KEYS
                 && getEnableUniqueKeyMergeOnWrite());
+    }
+
+    public void setStatistics(Statistics statistics) {
+        this.statistics = statistics;
+    }
+
+    public static class Statistics {
+        @Getter
+        private String dbName;
+        @Getter
+        private String tableName;
+
+        @Getter
+        private Long dataSize; // single replica data size
+        @Getter
+        private Long totalReplicaDataSize;
+
+        @Getter
+        private Long replicaCount;
+
+        public Statistics() {
+            this.dbName = null;
+            this.tableName = null;
+
+            this.dataSize = 0L;
+            this.totalReplicaDataSize = 0L;
+
+            this.replicaCount = 0L;
+        }
+
+        public Statistics(String dbName, String tableName,
+                          Long dataSize, Long totalReplicaDataSize, Long replicaCount) {
+            this.dbName = dbName;
+            this.tableName = tableName;
+
+            this.dataSize = dataSize;
+            this.totalReplicaDataSize = totalReplicaDataSize;
+
+            this.replicaCount = replicaCount;
+        }
+    }
+
+    public long getDataSize() {
+        return getDataSize(false);
+    }
+
+    public long getDataSize(boolean singleReplica) {
+        if (singleReplica) {
+            return statistics.getDataSize();
+        }
+        return statistics.getTotalReplicaDataSize();
+    }
+
+    public long getReplicaCount() {
+        return statistics.getReplicaCount();
     }
 }

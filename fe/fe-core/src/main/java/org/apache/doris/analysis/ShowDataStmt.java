@@ -151,13 +151,8 @@ public class ShowDataStmt extends ShowStmt {
                     OlapTable olapTable = (OlapTable) table;
                     long tableSize = 0;
                     long replicaCount = 0;
-                    olapTable.readLock();
-                    try {
-                        tableSize = olapTable.getDataSize();
-                        replicaCount = olapTable.getReplicaCount();
-                    } finally {
-                        olapTable.readUnlock();
-                    }
+                    tableSize = olapTable.getDataSize();
+                    replicaCount = olapTable.getReplicaCount();
                     //|TableName|Size|ReplicaCount|
                     List<Object> row = Arrays.asList(table.getName(), tableSize, replicaCount);
                     totalRowsObject.add(row);
