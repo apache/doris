@@ -246,7 +246,11 @@ public class ExecutionProfile {
                     pipelineIdx++;
                 }
                 RuntimeProfile profileNode = new RuntimeProfile(name);
-                taskProfile.add(profileNode);
+                // The taskprofile is used to save the profile of the pipeline, without
+                // considering the FragmentLevel.
+                if (!(pipelineProfile.isSetIsFragmentLevel() && pipelineProfile.is_fragment_level)) {
+                    taskProfile.add(profileNode);
+                }
                 if (!pipelineProfile.isSetProfile()) {
                     LOG.warn("Profile is not set, {}", DebugUtil.printId(profile.getQueryId()));
                     return new Status(TStatusCode.INVALID_ARGUMENT, "Profile is not set");
@@ -294,7 +298,11 @@ public class ExecutionProfile {
                 pipelineIdx++;
             }
             RuntimeProfile profile = new RuntimeProfile(name);
-            taskProfile.add(profile);
+            // The taskprofile is used to save the profile of the pipeline, without
+            // considering the FragmentLevel.
+            if (!(param.isSetIsFragmentLevel() && param.is_fragment_level)) {
+                taskProfile.add(profile);
+            }
             if (param.isSetProfile()) {
                 profile.update(param.profile);
             }
