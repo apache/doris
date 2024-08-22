@@ -92,23 +92,23 @@ suite("test_regr_avg") {
     qt_sql "select regr_avgx(y, non_nullable(x)) from test_regr_avg_double"
 
     // exception test
-	test{
-		sql """select regr_avgx('regr_avgx', 5);"""
-		exception "regr_avgx requires numeric for first parameter: regr_avgx('regr_avgx', 5)"
-	}
+    test{
+        sql """select regr_avgx('regr_avgx', 5);"""
+        exception "regr_avgx requires numeric for first parameter: regr_avgx('regr_avgx', 5)"
+    }
 
     test{
-		sql """select regr_avgx(5, 'regr_avgx');"""
-		exception "regr_avgx requires numeric for second parameter: regr_avgx(5, 'regr_avgx')"
-	}
-
-	test{
-		sql """select regr_avgy('regr_avgy', 5);"""
-		exception "regr_avgy requires numeric for first parameter: regr_avgy('regr_avgy', 5)"
-	}
+        sql """select regr_avgx(5, 'regr_avgx');"""
+        exception "regr_avgx requires numeric for second parameter: regr_avgx(5, 'regr_avgx')"
+    }
 
     test{
-		sql """select regr_avgy(5, 'regr_avgy');"""
-		exception "regr_avgy requires numeric for second parameter: regr_avgy(5, 'regr_avgy')"
-	}
+        sql """select regr_avgy('regr_avgy', 5);"""
+        exception "regr_avgy requires numeric for first parameter: regr_avgy('regr_avgy', 5)"
+    }
+
+    test{
+        sql """select regr_avgy(5, 'regr_avgy');"""
+        exception "regr_avgy requires numeric for second parameter: regr_avgy(5, 'regr_avgy')"
+    }
 }
