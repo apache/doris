@@ -134,7 +134,7 @@ public class JdbcExecutor {
             }
 
             if (conn != null && resultSet != null) {
-                abortReadConnection(conn, resultSet);
+                abortReadConnection(conn, resultSet, tableType);
             }
             closeResources(resultSet, stmt, conn);
         } finally {
