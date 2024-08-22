@@ -75,7 +75,7 @@ public class BaseTableInfo {
         this.dbId = dbId;
         this.ctlId = InternalCatalog.INTERNAL_CATALOG_ID;
         this.tableName = table.getName();
-        this.dbName = table.getDBName();
+        this.dbName = table.getQualifiedDbName();
         this.ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
     }
 
