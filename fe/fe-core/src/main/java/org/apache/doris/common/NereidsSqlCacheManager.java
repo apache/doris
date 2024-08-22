@@ -45,7 +45,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Variable;
-import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
@@ -396,7 +396,8 @@ public class NereidsSqlCacheManager {
             Variable currentVariable = currentVariables.get(i);
             Variable cachedVariable = cachedUsedVariables.get(i);
             if (!Objects.equals(currentVariable, cachedVariable)
-                    || cachedVariable.getRealExpression().anyMatch(Nondeterministic.class::isInstance)) {
+                    || cachedVariable.getRealExpression().anyMatch(expr -> !(expr instanceof ExpressionTrait)
+                    || !((ExpressionTrait) expr).isDeterministic())) {
                 return true;
             }
         }
