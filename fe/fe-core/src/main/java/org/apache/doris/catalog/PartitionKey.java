@@ -376,7 +376,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         for (int i = 0; i < count; i++) {
             PrimitiveType type = types.get(i);
             if (keys.get(i).isNullLiteral()) {
-                Text.writeString(out, Type.NULL.toString());
+                Text.writeString(out, PrimitiveType.NULL_TYPE.toString());
             } else {
                 Text.writeString(out, type.toString());
             }
@@ -396,11 +396,11 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     public void readFields(DataInput in) throws IOException {
         int count = in.readInt();
         for (int i = 0; i < count; i++) {
-            PrimitiveType type = PrimitiveType.valueOf(Text.readString(in).toUpperCase());
+            PrimitiveType type = PrimitiveType.valueOf(Text.readString(in));
             boolean isMax = in.readBoolean();
             if (type == PrimitiveType.NULL_TYPE) {
                 String realType = StringLiteral.read(in).getStringValue();
-                type = PrimitiveType.valueOf(realType.toUpperCase());
+                type = PrimitiveType.valueOf(realType);
                 types.add(type);
                 keys.add(NullLiteral.create(Type.fromPrimitiveType(type)));
                 continue;
