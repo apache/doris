@@ -534,6 +534,7 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
                                                       vectorized::VExprContext* expr_ctx,
                                                       PushDownType* pdt) {
+    // Used to handle constant expressions, such as '1 = 1' _eval_const_conjuncts does not handle cases like 'colA = 1'
     char* constant_val = nullptr;
     if (vexpr->is_constant()) {
         std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
@@ -675,6 +676,9 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
                         ColumnValueRange<T>::add_fixed_value_range, fn_name));
             }
             range.intersection(temp_range);
+        } else {
+            _eos = true;
+            _scan_dependency->set_ready();
         }
         *pdt = temp_pdt;
     }
@@ -691,7 +695,7 @@ Status ScanLocalState<Derived>::_should_push_down_binary_predicate(
         pdt = PushDownType::UNACCEPTABLE;
         return Status::OK();
     }
-
+    DCHECK(constant_val->data == nullptr) << "constant_val should not have a value";
     const auto& children = fn_call->children();
     DCHECK(children.size() == 2);
     for (size_t i = 0; i < children.size(); i++) {
@@ -826,6 +830,9 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
                             ColumnValueRange<T>::add_fixed_value_range, fn_name));
                 }
             }
+        } else {
+            _eos = true;
+            _scan_dependency->set_ready();
         }
     } else {
         return Status::OK();
@@ -969,6 +976,9 @@ Status ScanLocalState<Derived>::_normalize_noneq_binary_predicate(
                             ColumnValueRange<T>::add_value_range, fn_name, slot_ref_child));
                 }
                 *pdt = temp_pdt;
+            } else {
+                _eos = true;
+                _scan_dependency->set_ready();
             }
         }
     }
