@@ -57,7 +57,7 @@ suite("test_backup_restore_mv", "backup_restore") {
     """
 
     def alter_finished = false
-    while (!alter_finished) {
+    for (i = 0; i < 60 && !alter_finished; i++) {
         result = sql_return_maparray "SHOW ALTER TABLE MATERIALIZED VIEW FROM ${dbName}"
         logger.info("result: ${result}")
         for (int i = 0; i < result.size(); i++) {
@@ -68,7 +68,9 @@ suite("test_backup_restore_mv", "backup_restore") {
                 break
             }
         }
+        Thread.sleep(3000)
     }
+    assertTrue(alter_finished);
 
     sql """
         BACKUP SNAPSHOT ${dbName}.${snapshotName}
@@ -108,12 +110,12 @@ suite("test_backup_restore_mv", "backup_restore") {
     }
     assertTrue(mv_existed)
 
-    sql "ANALYZE ${dbName1}.${tableName} WITH SYNC"
+    sql "ANALYZE TABLE ${dbName1}.${tableName} WITH SYNC"
 
     def explain_result = sql """ EXPLAIN SELECT id, sum(item_id) FROM ${dbName1}.${tableName} GROUP BY id"""
     logger.info("explain result: ${explain_result}")
     // ATTN: RestoreJob will reset the src db name of OriginStatement of the MaterializedIndexMeta.
-    assertTrue(explain_result[0].contains("${dbName1}.${tableName}(${mvName})"))
+    assertTrue(explain_result.toString().contains("${dbName1}.${tableName}(${mvName})"))
 
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP TABLE ${dbName1}.${tableName} FORCE"
