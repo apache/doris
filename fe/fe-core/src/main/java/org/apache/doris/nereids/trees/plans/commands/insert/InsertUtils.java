@@ -397,7 +397,9 @@ public class InsertUtils {
     private static NamedExpression generateDefaultExpression(Column column) {
         try {
             if (column.getDefaultValue() == null) {
-                throw new AnalysisException("Column has no default value, column=" + column.getName());
+                if (!column.isAllowNull()) {
+                    throw new AnalysisException("Column has no default value, column=" + column.getName());
+                }
             }
             if (column.getDefaultValueExpr() != null) {
                 Expression defualtValueExpression = new NereidsParser().parseExpression(

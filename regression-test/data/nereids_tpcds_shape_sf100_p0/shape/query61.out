@@ -28,7 +28,7 @@ PhysicalResultSink
 ----------------------------------PhysicalProject
 ------------------------------------filter((((promotion.p_channel_dmail = 'Y') OR (promotion.p_channel_email = 'Y')) OR (promotion.p_channel_tv = 'Y')))
 --------------------------------------PhysicalOlapScan[promotion] apply RFs: RF7
-----------------------------------PhysicalDistribute[DistributionSpecHash]
+----------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF6 ss_sold_date_sk->[d_date_sk]
 --------------------------------------PhysicalProject
 ----------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 1999))

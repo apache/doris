@@ -138,6 +138,7 @@ import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
@@ -311,6 +312,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -3764,6 +3766,20 @@ public class Env {
             sb.append("\"table\" = \"").append(jdbcTable.getJdbcTable()).append("\",\n");
             sb.append("\"table_type\" = \"").append(jdbcTable.getJdbcTypeName()).append("\"");
             sb.append("\n)");
+        } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
+            addTableComment(table, sb);
+            org.apache.iceberg.Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
+            sb.append("\nLOCATION '").append(icebergTable.location()).append("'");
+            sb.append("\nPROPERTIES (");
+            Iterator<Entry<String, String>> iterator = icebergTable.properties().entrySet().iterator();
+            while (iterator.hasNext()) {
+                Entry<String, String> prop = iterator.next();
+                sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
+                if (iterator.hasNext()) {
+                    sb.append(",");
+                }
+            }
+            sb.append("\n)");
         }
 
         createTableStmt.add(sb + ";");
@@ -5128,6 +5144,9 @@ public class Env {
                         // storage policy re-use modify in memory
                         Optional.ofNullable(tableProperty.getStoragePolicy()).filter(p -> !p.isEmpty())
                                 .ifPresent(p -> olapTable.getPartitionInfo().setStoragePolicy(partition.getId(), p));
+                        Optional.ofNullable(tableProperty.getStoragePolicy()).filter(p -> !p.isEmpty())
+                                .ifPresent(p -> olapTable.getPartitionInfo().getDataProperty(partition.getId())
+                                .setStoragePolicy(p));
                     }
                     break;
                 case OperationType.OP_UPDATE_BINLOG_CONFIG:
@@ -6186,7 +6205,7 @@ public class Env {
         AgentTaskExecutor.submit(batchTask);
     }
 
-    private static void addTableComment(Table table, StringBuilder sb) {
+    private static void addTableComment(TableIf table, StringBuilder sb) {
         if (StringUtils.isNotBlank(table.getComment())) {
             sb.append("\nCOMMENT '").append(table.getComment(true)).append("'");
         }
