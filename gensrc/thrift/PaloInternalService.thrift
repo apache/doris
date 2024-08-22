@@ -333,7 +333,7 @@ struct TQueryOptions {
 
   126: optional i32 runtime_bloom_filter_max_size = 16777216;
   127: optional i32 partition_topn_max_partitions = 1024;
-  128: optional i32 partition_topn_pre_partition_rows = 10000;
+  128: optional i32 partition_topn_pre_partition_rows = 1000;
 
   127: optional i32 in_list_value_count_threshold = 10;
 

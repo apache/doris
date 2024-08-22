@@ -1256,7 +1256,7 @@ public class SessionVariable implements Serializable, Writable {
             + " the estimated total amount of data for all partitions, and to determine whether the next operator "
             + " can be passed transparently."
     })
-    private int partitionTopNPerPartitionRows = 10000;
+    private int partitionTopNPerPartitionRows = 1000;
 
     @VariableMgr.VarAttr(name = GLOBAL_PARTITION_TOPN_THRESHOLD)
     private double globalPartitionTopNThreshold = 100;
