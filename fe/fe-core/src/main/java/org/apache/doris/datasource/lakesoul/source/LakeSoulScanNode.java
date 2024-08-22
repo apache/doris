@@ -48,7 +48,6 @@ import com.dmetasoul.lakesoul.meta.entity.TableInfo;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import io.substrait.proto.Plan;
 import lombok.SneakyThrows;
 import org.apache.arrow.vector.types.pojo.Field;

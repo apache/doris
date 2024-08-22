@@ -50,7 +50,6 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CombinedScanTask;
 import org.apache.iceberg.DeleteFile;
