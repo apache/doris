@@ -54,7 +54,8 @@ suite("test_domain_connection_and_ak_sk_correction") {
             "AWS_ENDPOINT" = "${getS3Endpoint()}",
             "AWS_ACCESS_KEY" = "${getS3AK()}",
             "AWS_SECRET_KEY" = "${getS3SK()}",
-            "AWS_REGION" = "${getS3Region()}"
+            "AWS_REGION" = "${getS3Region()}",
+            "provider" = "${getS3Provider()}"
         );
     """
     logger.info("the first sql result is {}", result)
@@ -64,6 +65,9 @@ suite("test_domain_connection_and_ak_sk_correction") {
 
     label = UUID.randomUUID().toString().replace("-", "")
     
+
+    // do not check endpoint for azure, it uses the unified domain blob.core.windows.net
+    if (!getS3Provider().equalsIgnoreCase("azure")) {
     try {
         result = sql """
             LOAD LABEL ${label}
@@ -78,7 +82,8 @@ suite("test_domain_connection_and_ak_sk_correction") {
                 "AWS_ENDPOINT" = "${getS3Endpoint()}1",
                 "AWS_ACCESS_KEY" = "${getS3AK()}",
                 "AWS_SECRET_KEY" = "${getS3SK()}",
-                "AWS_REGION" = "${getS3Region()}"
+                "AWS_REGION" = "${getS3Region()}",
+                "provider" = "${getS3Provider()}"
             );
         """
         logger.info("the second sql result is {}", result)
@@ -86,6 +91,7 @@ suite("test_domain_connection_and_ak_sk_correction") {
     } catch (Exception e) {
         logger.info("the second sql exception result is {}", e.getMessage())
         assertTrue(e.getMessage().contains("Failed to access object storage"), e.getMessage())
+    }
     }
 
 // the following is not implemented, uncomment if implemented
@@ -162,7 +168,8 @@ suite("test_domain_connection_and_ak_sk_correction") {
                 "AWS_ENDPOINT" = "http://${getS3Endpoint()}",
                 "AWS_ACCESS_KEY" = "${getS3AK()}",
                 "AWS_SECRET_KEY" = "${getS3SK()}",
-                "AWS_REGION" = "${getS3Region()}"
+                "AWS_REGION" = "${getS3Region()}",
+                "provider" = "${getS3Provider()}"
             );
         """
     logger.info("the result of fifth of sql is {}", result)
