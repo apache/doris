@@ -279,7 +279,11 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
         for (SchemaTableName schemaTableName : schemaTableNames) {
             QualifiedObjectName objName = QualifiedObjectName.convertFromSchemaTableName(prefix.getCatalogName())
                     .apply(schemaTableName);
+            QualifiedObjectName objName2 = QualifiedObjectName.convertFromSchemaTableName(prefix.getCatalogName())
+                    .apply(SchemaTableName.schemaTableName(schemaTableName.getSchemaName(),
+                            schemaTableName.getTableName() + "$history"));
             tmpTables.add(objName);
+            tmpTables.add(objName2);
         }
         Objects.requireNonNull(tables);
         tmpTables.stream().filter(prefix::matches).forEach(tables::add);

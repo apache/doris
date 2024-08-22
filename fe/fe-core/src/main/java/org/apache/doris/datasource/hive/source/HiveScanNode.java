@@ -29,6 +29,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
@@ -490,8 +491,9 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected Map<String, String> debugParameters() {
-        return hmsTable.getCatalog().getCatalogProperty().getProperties();
+    protected PrintableMap<String, String> debugParameters() {
+        return new PrintableMap<>(hmsTable.getCatalog().getCatalogProperty().getProperties(),
+                "=", true, true, true, true);
     }
 }
 

@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
@@ -113,25 +114,19 @@ public abstract class FileScanNode extends ExternalScanNode {
         return -1;
     }
 
-    protected Map<String, String> debugParameters() {
-        return Maps.newHashMap();
+    protected PrintableMap<String, String> debugParameters() {
+        return new PrintableMap<>(Maps.newHashMap(), "=", true, true, true, true);
     }
 
     private String explainConfigParameter(String prefix) {
-        Map<String, String> parameters = debugParameters();
+        PrintableMap<String, String> parameters = debugParameters();
         if (parameters.isEmpty()) {
             return "";
         }
         StringBuilder output = new StringBuilder();
         output.append(prefix).append("ConfigParameters:\n");
-        for (Entry parameter : parameters.entrySet()) {
-            output.append(prefix)
-                    .append("  ")
-                    .append(parameter.getKey())
-                    .append(" = ")
-                    .append(parameter.getValue())
-                    .append("\n");
-        }
+        output.append(parameters.printWithPrefix(prefix + "  "));
+        output.append("\n");
         return output.toString();
     }
 

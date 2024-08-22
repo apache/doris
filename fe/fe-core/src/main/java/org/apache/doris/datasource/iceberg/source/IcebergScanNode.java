@@ -26,6 +26,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
@@ -49,6 +50,7 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CombinedScanTask;
 import org.apache.iceberg.DeleteFile;
@@ -388,8 +390,8 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected Map<String, String> debugParameters() {
-        return source.getCatalog().getProperties();
+    protected PrintableMap<String, String> debugParameters() {
+        return new PrintableMap<>(source.getCatalog().getProperties(), "=", true, true, true, true);
     }
 
     @Override

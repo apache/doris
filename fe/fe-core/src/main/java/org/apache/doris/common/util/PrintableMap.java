@@ -98,6 +98,26 @@ public class PrintableMap<K, V> {
         this.hidePassword = hidePassword;
     }
 
+    public boolean isEmpty() {
+        return map.isEmpty();
+    }
+
+    public String printWithPrefix(String prefix) {
+        if (map == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        Iterator<Map.Entry<K, V>> iter = showEntries().iterator();
+        while (iter.hasNext()) {
+            sb.append(prefix);
+            appendEntry(sb, iter.next());
+            if (iter.hasNext()) {
+                appendDelimiter(sb);
+            }
+        }
+        return sb.toString();
+    }
+
     @Override
     public String toString() {
         if (map == null) {

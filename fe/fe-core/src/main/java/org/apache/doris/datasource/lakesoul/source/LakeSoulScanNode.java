@@ -20,6 +20,7 @@ package org.apache.doris.datasource.lakesoul.source;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
@@ -47,6 +48,7 @@ import com.dmetasoul.lakesoul.meta.entity.TableInfo;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import io.substrait.proto.Plan;
 import lombok.SneakyThrows;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -142,8 +144,8 @@ public class LakeSoulScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected Map<String, String> debugParameters() {
-        return tableProperties;
+    protected PrintableMap<String, String> debugParameters() {
+        return new PrintableMap<>(tableProperties, "=", true, true, true, true);
     }
 
     public ExternalCatalog getCatalog() {

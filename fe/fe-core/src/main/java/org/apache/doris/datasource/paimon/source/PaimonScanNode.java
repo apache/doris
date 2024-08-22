@@ -23,6 +23,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
@@ -38,6 +39,7 @@ import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -300,8 +302,9 @@ public class PaimonScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected Map<String, String> debugParameters() {
-        return source.getCatalog().getCatalogProperty().getProperties();
+    protected PrintableMap<String, String> debugParameters() {
+        return new PrintableMap<>(source.getCatalog().getCatalogProperty().getProperties(),
+                "=", true, true, true, true);
     }
 
     @Override

@@ -26,8 +26,6 @@ import io.trino.spi.block.MapBlock;
 import io.trino.spi.block.RowBlock;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.type.ArrayType;
-import io.trino.spi.type.DecimalType;
-import io.trino.spi.type.Decimals;
 import io.trino.spi.type.DoubleType;
 import io.trino.spi.type.MapType;
 import io.trino.spi.type.RealType;
@@ -41,6 +39,7 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.MathContext;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -127,7 +126,9 @@ public class TrinoConnectorColumnValue implements ColumnValue {
     // block is LongArrayBlock type
     @Override
     public BigDecimal getDecimal() {
-        return Decimals.readBigDecimal((DecimalType) trinoType, block, position);
+        return new BigDecimal(BigInteger.valueOf(block.getLong(position, 0)),
+                dorisType.getScale(), new MathContext(dorisType.getPrecision()));
+        // return Decimals.readBigDecimal((DecimalType) trinoType, block, position);
     }
 
     // block is VariableWidthBlock
@@ -164,6 +165,8 @@ public class TrinoConnectorColumnValue implements ColumnValue {
             return ((SqlTimestampWithTimeZone) o).toZonedDateTime().toLocalDateTime();
         } else if (o instanceof SqlTimestamp) {
             return ((SqlTimestamp) o).toLocalDateTime();
+            // Instant instant = ((SqlTimestamp) o).toLocalDateTime().toInstant(ZoneOffset.UTC);
+            // return ZonedDateTime.ofInstant(instant, ZoneId.systemDefault()).toLocalDateTime();
         }
         return null;
     }

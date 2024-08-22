@@ -25,6 +25,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
@@ -153,7 +154,8 @@ public class TVFScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected Map<String, String> debugParameters() {
-        return tableValuedFunction.getLocationProperties();
+    protected PrintableMap<String, String> debugParameters() {
+        return new PrintableMap<>(tableValuedFunction.getLocationProperties(),
+                "=", true, true, true, true);
     }
 }
