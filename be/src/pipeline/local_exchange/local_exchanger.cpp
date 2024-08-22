@@ -113,6 +113,9 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState& local_st
 
 Status ShuffleExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                               LocalExchangeSinkLocalState& local_state) {
+    if (in_block->empty()) {
+        return Status::OK();
+    }
     {
         SCOPED_TIMER(local_state._compute_hash_value_timer);
         RETURN_IF_ERROR(local_state._partitioner->do_partitioning(state, in_block,
@@ -122,7 +125,7 @@ Status ShuffleExchanger::sink(RuntimeState* state, vectorized::Block* in_block, 
         SCOPED_TIMER(local_state._distribute_timer);
         RETURN_IF_ERROR(_split_rows(state,
                                     local_state._partitioner->get_channel_ids().get<uint32_t>(),
-                                    in_block, eos, local_state));
+                                    in_block, local_state));
     }
 
     return Status::OK();
@@ -166,7 +169,7 @@ Status ShuffleExchanger::get_block(RuntimeState* state, vectorized::Block* block
 }
 
 Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
-                                     vectorized::Block* block, bool eos,
+                                     vectorized::Block* block,
                                      LocalExchangeSinkLocalState& local_state) {
     const auto rows = block->rows();
     auto row_idx = std::make_shared<vectorized::PODArray<uint32_t>>(rows);
@@ -275,6 +278,9 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
 
 Status PassthroughExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                                   LocalExchangeSinkLocalState& local_state) {
+    if (in_block->empty()) {
+        return Status::OK();
+    }
     vectorized::Block new_block;
     BlockWrapperSPtr wrapper;
     if (!_free_blocks.try_dequeue(new_block)) {
@@ -317,6 +323,9 @@ Status PassthroughExchanger::get_block(RuntimeState* state, vectorized::Block* b
 
 Status PassToOneExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                                 LocalExchangeSinkLocalState& local_state) {
+    if (in_block->empty()) {
+        return Status::OK();
+    }
     vectorized::Block new_block;
     if (!_free_blocks.try_dequeue(new_block)) {
         new_block = {in_block->clone_empty()};
@@ -342,15 +351,17 @@ Status PassToOneExchanger::get_block(RuntimeState* state, vectorized::Block* blo
 
 Status LocalMergeSortExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                                      LocalExchangeSinkLocalState& local_state) {
-    vectorized::Block new_block;
-    if (!_free_blocks.try_dequeue(new_block)) {
-        new_block = {in_block->clone_empty()};
-    }
-    DCHECK_LE(local_state._channel_id, _data_queue.size());
+    if (!in_block->empty()) {
+        vectorized::Block new_block;
+        if (!_free_blocks.try_dequeue(new_block)) {
+            new_block = {in_block->clone_empty()};
+        }
+        DCHECK_LE(local_state._channel_id, _data_queue.size());
 
-    new_block.swap(*in_block);
-    _enqueue_data_and_set_ready(local_state._channel_id, local_state,
-                                BlockWrapper::create_shared(std::move(new_block)));
+        new_block.swap(*in_block);
+        _enqueue_data_and_set_ready(local_state._channel_id, local_state,
+                                    BlockWrapper::create_shared(std::move(new_block)));
+    }
     if (eos) {
         local_state._shared_state->source_deps[local_state._channel_id]->set_always_ready();
     }
@@ -471,7 +482,7 @@ Status BroadcastExchanger::get_block(RuntimeState* state, vectorized::Block* blo
 }
 
 Status AdaptivePassthroughExchanger::_passthrough_sink(RuntimeState* state,
-                                                       vectorized::Block* in_block, bool eos,
+                                                       vectorized::Block* in_block,
                                                        LocalExchangeSinkLocalState& local_state) {
     vectorized::Block new_block;
     if (!_free_blocks.try_dequeue(new_block)) {
@@ -486,7 +497,6 @@ Status AdaptivePassthroughExchanger::_passthrough_sink(RuntimeState* state,
 }
 
 Status AdaptivePassthroughExchanger::_shuffle_sink(RuntimeState* state, vectorized::Block* block,
-                                                   bool eos,
                                                    LocalExchangeSinkLocalState& local_state) {
     std::vector<uint32_t> channel_ids;
     const auto num_rows = block->rows();
@@ -502,12 +512,12 @@ Status AdaptivePassthroughExchanger::_shuffle_sink(RuntimeState* state, vectoriz
             std::iota(channel_ids.begin() + i, channel_ids.end(), 0);
         }
     }
-    return _split_rows(state, channel_ids.data(), block, eos, local_state);
+    return _split_rows(state, channel_ids.data(), block, local_state);
 }
 
 Status AdaptivePassthroughExchanger::_split_rows(RuntimeState* state,
                                                  const uint32_t* __restrict channel_ids,
-                                                 vectorized::Block* block, bool eos,
+                                                 vectorized::Block* block,
                                                  LocalExchangeSinkLocalState& local_state) {
     const auto rows = block->rows();
     auto row_idx = std::make_shared<std::vector<uint32_t>>(rows);
@@ -544,13 +554,16 @@ Status AdaptivePassthroughExchanger::_split_rows(RuntimeState* state,
 
 Status AdaptivePassthroughExchanger::sink(RuntimeState* state, vectorized::Block* in_block,
                                           bool eos, LocalExchangeSinkLocalState& local_state) {
+    if (in_block->empty()) {
+        return Status::OK();
+    }
     if (_is_pass_through) {
-        return _passthrough_sink(state, in_block, eos, local_state);
+        return _passthrough_sink(state, in_block, local_state);
     } else {
         if (_total_block++ > _num_partitions) {
             _is_pass_through = true;
         }
-        return _shuffle_sink(state, in_block, eos, local_state);
+        return _shuffle_sink(state, in_block, local_state);
     }
 }
 

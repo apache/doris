@@ -223,8 +223,7 @@ protected:
         _data_queue.resize(num_partitions);
     }
     Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
-                       vectorized::Block* block, bool eos,
-                       LocalExchangeSinkLocalState& local_state);
+                       vectorized::Block* block, LocalExchangeSinkLocalState& local_state);
 
     const bool _ignore_source_data_distribution = false;
 };
@@ -341,13 +340,12 @@ public:
     void close(LocalExchangeSourceLocalState& local_state) override;
 
 private:
-    Status _passthrough_sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
+    Status _passthrough_sink(RuntimeState* state, vectorized::Block* in_block,
                              LocalExchangeSinkLocalState& local_state);
-    Status _shuffle_sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
+    Status _shuffle_sink(RuntimeState* state, vectorized::Block* in_block,
                          LocalExchangeSinkLocalState& local_state);
     Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
-                       vectorized::Block* block, bool eos,
-                       LocalExchangeSinkLocalState& local_state);
+                       vectorized::Block* block, LocalExchangeSinkLocalState& local_state);
 
     std::atomic_bool _is_pass_through = false;
     std::atomic_int32_t _total_block = 0;
