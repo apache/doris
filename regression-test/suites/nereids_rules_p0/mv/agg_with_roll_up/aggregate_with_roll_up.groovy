@@ -114,10 +114,20 @@ suite("aggregate_with_roll_up") {
     insert into orders values
     (1, 1, 'o', 9.5, '2023-12-08', 'a', 'b', 1, 'yy'),
     (1, 1, 'o', 10.5, '2023-12-08', 'a', 'b', 1, 'yy'),
+    (1, 1, 'o', 10.5, '2023-12-08', 'a', 'b', 1, 'yy'),
+    (1, 1, 'o', 10.5, '2023-12-08', 'a', 'b', 1, 'yy'),
     (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy'),
+    (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy'),
+    (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy'),
+    (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy'),
+    (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy'),
     (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy'),
     (3, 1, 'o', 33.5, '2023-12-10', 'a', 'b', 1, 'yy'),
     (4, 2, 'o', 43.2, '2023-12-11', 'c','d',2, 'mm'),
+    (4, 2, 'o', 43.2, '2023-12-11', 'c','d',2, 'mm'),
+    (4, 2, 'o', 43.2, '2023-12-11', 'c','d',2, 'mm'),
+    (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
+    (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
     (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
     (5, 2, 'o', 1.2, '2023-12-12', 'c','d',2, 'mi');  
     """
@@ -127,6 +137,10 @@ suite("aggregate_with_roll_up") {
     (2, 3, 9, 10.01, 'supply1'),
     (2, 3, 10, 11.01, 'supply2');
     """
+
+    sql """analyze table partsupp with sync"""
+    sql """analyze table lineitem with sync"""
+    sql """analyze table orders with sync"""
 
     def check_rewrite_with_mv_partition = { mv_sql, query_sql, mv_name, partition_column ->
 
@@ -1356,7 +1370,7 @@ suite("aggregate_with_roll_up") {
     order_qt_query31_0_after "${query31_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv31_0"""
 
-    // should rewrite fail, because the part of query is join but mv is aggregate
+    // should rewrite fail, because the group by dimension query used is not in mv group by dimension
     def mv32_0 = """
             select
               o_orderdate,
@@ -1380,6 +1394,41 @@ suite("aggregate_with_roll_up") {
     check_mv_rewrite_fail(db, mv32_0, query32_0, "mv32_0")
     order_qt_query32_0_after "${query32_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv32_0"""
+
+    // should rewrite fail, because the group by dimension query used is not in mv group by dimension
+    def mv32_1 = """
+            select o_orderdate
+            from orders
+            group by o_orderdate;
+    """
+    def query32_1 = """
+            select
+            1
+            from  orders 
+            group by
+            o_orderdate;
+    """
+    order_qt_query32_1_before "${query32_1}"
+    check_mv_rewrite_success(db, mv32_1, query32_1, "mv32_1")
+    order_qt_query32_1_after "${query32_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv32_1"""
+
+    def mv32_2 = """
+            select o_orderdate, o_orderkey
+            from orders
+            group by o_orderdate, o_orderkey;
+    """
+    def query32_2 = """
+            select
+            1
+            from orders 
+            group by
+            o_orderdate;
+    """
+    order_qt_query32_2_before "${query32_2}"
+    check_mv_rewrite_success(db, mv32_2, query32_2, "mv32_2")
+    order_qt_query32_2_after "${query32_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv32_2"""
 
     // test combinator aggregate function rewrite
     sql """set enable_agg_state=true"""
