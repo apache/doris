@@ -8596,6 +8596,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_CONVERT_LSC:id
     {: RESULT = id; :}
+    | KW_MASK:id
+    {: RESULT = id; :}
     ;
 
 // Identifier that contain keyword

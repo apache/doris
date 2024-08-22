@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.MustFallbackException;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.policy.DropPolicyLog;
@@ -68,7 +68,7 @@ public class DropPolicyCommand extends Command implements ForwardWithSync {
             return;
         }
         ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-        throw new AnalysisException("Not support drop policy command in Nereids now");
+        throw new MustFallbackException("Not support drop policy command in Nereids now");
     }
 
     @Override

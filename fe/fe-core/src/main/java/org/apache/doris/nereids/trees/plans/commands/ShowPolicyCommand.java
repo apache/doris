@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.MustFallbackException;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.policy.PolicyTypeEnum;
@@ -68,6 +68,6 @@ public class ShowPolicyCommand extends Command implements NoForward {
             return;
         }
         ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-        throw new AnalysisException("Not support show policy command in Nereids now");
+        throw new MustFallbackException("Not support show policy command in Nereids now");
     }
 }
