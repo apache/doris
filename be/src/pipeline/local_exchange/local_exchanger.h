@@ -178,6 +178,7 @@ struct BlockWrapper {
     void ref(int delta) { ref_count += delta; }
     void unref(LocalExchangeSharedState* shared_state, size_t allocated_bytes) {
         if (ref_count.fetch_sub(1) == 1) {
+            DCHECK_GT(allocated_bytes, 0);
             shared_state->sub_total_mem_usage(allocated_bytes);
             if (shared_state->exchanger->_free_block_limit == 0 ||
                 shared_state->exchanger->_free_blocks.size_approx() <
@@ -189,17 +190,9 @@ struct BlockWrapper {
         }
     }
     void unref(LocalExchangeSharedState* shared_state) {
-        if (ref_count.fetch_sub(1) == 1) {
-            shared_state->sub_total_mem_usage(data_block.allocated_bytes());
-            if (shared_state->exchanger->_free_block_limit == 0 ||
-                shared_state->exchanger->_free_blocks.size_approx() <
-                        shared_state->exchanger->_free_block_limit *
-                                shared_state->exchanger->_num_sources) {
-                data_block.clear_column_data();
-                shared_state->exchanger->_free_blocks.enqueue(std::move(data_block));
-            }
-        }
+        unref(shared_state, data_block.allocated_bytes());
     }
+    int ref_value() const { return ref_count.load(); }
     std::atomic<int> ref_count = 0;
     vectorized::Block data_block;
 };

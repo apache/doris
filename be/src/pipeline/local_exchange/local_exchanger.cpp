@@ -44,7 +44,8 @@ void Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
     }
     std::unique_lock l(_m);
     local_state._shared_state->add_mem_usage(channel_id, allocated_bytes,
-                                             !std::is_same_v<PartitionedBlock, BlockType>);
+                                             !std::is_same_v<PartitionedBlock, BlockType> &&
+                                                     !std::is_same_v<BroadcastBlock, BlockType>);
     if (_data_queue[channel_id].enqueue(std::move(block))) {
         local_state._shared_state->set_ready_to_read(channel_id);
     } else {
@@ -56,6 +57,7 @@ void Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
             block.first->unref(local_state._shared_state, allocated_bytes);
         } else {
             block->unref(local_state._shared_state, allocated_bytes);
+            DCHECK_EQ(block->ref_value(), 0);
         }
     }
 }
@@ -82,6 +84,7 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState& local_st
                                                      block->data_block.allocated_bytes());
             data_block->swap(block->data_block);
             block->unref(local_state._shared_state, data_block->allocated_bytes());
+            DCHECK_EQ(block->ref_value(), 0);
         }
         return true;
     } else if (all_finished) {
@@ -98,6 +101,7 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState& local_st
                                                          block->data_block.allocated_bytes());
                 data_block->swap(block->data_block);
                 block->unref(local_state._shared_state, data_block->allocated_bytes());
+                DCHECK_EQ(block->ref_value(), 0);
             }
             return true;
         }
@@ -313,7 +317,10 @@ Status PassthroughExchanger::get_block(RuntimeState* state, vectorized::Block* b
 
 Status PassToOneExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                                 LocalExchangeSinkLocalState& local_state) {
-    vectorized::Block new_block(in_block->clone_empty());
+    vectorized::Block new_block;
+    if (!_free_blocks.try_dequeue(new_block)) {
+        new_block = {in_block->clone_empty()};
+    }
     new_block.swap(*in_block);
 
     BlockWrapperSPtr wrapper = BlockWrapper::create_shared(std::move(new_block));
