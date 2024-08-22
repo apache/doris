@@ -19,7 +19,9 @@
 
 #include <chrono>
 #include <cstdint>
+#include <limits>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
 #include "meta-service/doris_txn.h"
@@ -1262,18 +1264,34 @@ void commit_txn_immediately(
         if ((err == TxnErrorCode::TXN_VALUE_TOO_LARGE ||
              err == TxnErrorCode::TXN_BYTES_TOO_LARGE) &&
             !tmp_rowsets_meta.empty()) {
-            size_t max_size = 0, max_idx = 0;
+            size_t max_size = 0, max_idx = 0, max_num_segments = 0,
+                   min_num_segments = std::numeric_limits<size_t>::max(), avg_num_segments = 0;
             for (size_t i = 0; i < tmp_rowsets_meta.size(); i++) {
                 auto& [k, v] = tmp_rowsets_meta[i];
                 if (v.ByteSizeLong() > max_size) {
                     max_size = v.ByteSizeLong();
                     max_idx = i;
                 }
+                if (v.num_segments() > max_num_segments) {
+                    max_num_segments = v.num_segments();
+                }
+                if (v.num_segments() < min_num_segments) {
+                    min_num_segments = v.num_segments();
+                }
+                avg_num_segments += v.num_segments();
+            }
+            if (!tmp_rowsets_meta.empty()) {
+                avg_num_segments /= tmp_rowsets_meta.size();
             }
             LOG(WARNING) << "failed to commit kv txn"
-                         << ", txn_id=" << txn_id << ", rowset_size=" << max_size << ", err=" << err
-                         << ", rowset_key=" << hex(tmp_rowsets_meta[max_idx].first)
-                         << ", rowset_value="
+                         << ", err=" << err << ", txn_id=" << txn_id
+                         << ", total_rowsets=" << tmp_rowsets_meta.size()
+                         << ", avg_num_segments=" << avg_num_segments
+                         << ", min_num_segments=" << min_num_segments
+                         << ", max_num_segments=" << max_num_segments
+                         << ", largest_rowset_size=" << max_size
+                         << ", largest_rowset_key=" << hex(tmp_rowsets_meta[max_idx].first)
+                         << ", largest_rowset_value="
                          << tmp_rowsets_meta[max_idx].second.ShortDebugString();
         }
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -1826,7 +1844,8 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         if (err == TxnErrorCode::TXN_VALUE_TOO_LARGE || err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
-            size_t max_size = 0;
+            size_t max_size = 0, max_num_segments = 0,
+                   min_num_segments = std::numeric_limits<size_t>::max(), avg_num_segments = 0;
             std::pair<std::string, RowsetMetaCloudPB>* max_rowset_meta = nullptr;
             for (auto& sub_txn : sub_txn_infos) {
                 auto it = sub_txn_to_tmp_rowsets_meta.find(sub_txn.sub_txn_id());
@@ -1838,13 +1857,29 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
                         max_size = rowset_meta.second.ByteSizeLong();
                         max_rowset_meta = &rowset_meta;
                     }
+                    if (rowset_meta.second.num_segments() > max_num_segments) {
+                        max_num_segments = rowset_meta.second.num_segments();
+                    }
+                    if (rowset_meta.second.num_segments() < min_num_segments) {
+                        min_num_segments = rowset_meta.second.num_segments();
+                    }
+                    avg_num_segments += rowset_meta.second.num_segments();
+                }
+                if (!it->second.empty()) {
+                    avg_num_segments /= it->second.size();
                 }
             }
             if (max_rowset_meta) {
                 LOG(WARNING) << "failed to commit kv txn with sub txn"
-                             << ", txn_id=" << txn_id << ", rowset_size=" << max_size
-                             << ", err=" << err << ", rowset_key=" << hex(max_rowset_meta->first)
-                             << ", rowset_value=" << max_rowset_meta->second.ShortDebugString();
+                             << ", err=" << err << ", txn_id=" << txn_id
+                             << ", total_rowsets=" << rowsets.size()
+                             << ", avg_num_segments=" << avg_num_segments
+                             << ", min_num_segments=" << min_num_segments
+                             << ", max_num_segments=" << max_num_segments
+                             << ", largest_rowset_size=" << max_size
+                             << ", largest_rowset_key=" << hex(max_rowset_meta->first)
+                             << ", largest_rowset_value="
+                             << max_rowset_meta->second.ShortDebugString();
             }
         }
         code = cast_as<ErrCategory::COMMIT>(err);
