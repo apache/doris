@@ -57,7 +57,7 @@ public:
     // Get function name.
     String get_name() const override { return name; }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
+    bool use_default_implementation_for_nulls() const override { return false; }
 
     size_t get_number_of_arguments() const override { return 2; }
 
@@ -77,10 +77,27 @@ public:
         return make_nullable(std::make_shared<DataTypeObject>());
     }
 
+    // wrap variant column with nullable
+    // 1. if variant is null root(empty or nothing as root), then nullable map is all null
+    // 2. if variant is scalar variant, then use the root's nullable map
+    // 3. if variant is hierarchical variant, then create a nullable map with all none null
+    ColumnPtr wrap_variant_nullable(ColumnPtr col) const {
+        const auto& var = assert_cast<const ColumnObject&>(*col);
+        if (var.is_null_root()) {
+            return make_nullable(col, true);
+        }
+        if (var.is_scalar_variant() && var.get_root()->is_nullable()) {
+            const auto* nullable = assert_cast<const ColumnNullable*>(var.get_root().get());
+            return ColumnNullable::create(
+                    col, nullable->get_null_map_column_ptr()->clone_resized(col->size()));
+        }
+        return make_nullable(col);
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         const auto* variant_col = check_and_get_column<ColumnObject>(
-                block.get_by_position(arguments[0]).column.get());
+                remove_nullable(block.get_by_position(arguments[0]).column).get());
         if (!variant_col) {
             return Status::RuntimeError(
                     fmt::format("unsupported types for function {}({}, {})", get_name(),
@@ -95,6 +112,9 @@ public:
         auto index_column = block.get_by_position(arguments[1]).column;
         ColumnPtr result_column;
         RETURN_IF_ERROR(get_element_column(*variant_col, index_column, &result_column));
+        if (block.get_by_position(result).type->is_nullable()) {
+            result_column = wrap_variant_nullable(result_column);
+        }
         block.replace_by_position(result, result_column);
         return Status::OK();
     }
