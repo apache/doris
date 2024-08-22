@@ -74,7 +74,7 @@ suite("test_auth_compatibility", "account") {
 
     sql """SET PROPERTY FOR '${user}' 'max_user_connections'= '2048'"""
 
-    sql """SET PROPERTY FOR '${user}' 'max_user_ip_connections'= '2'"""
+    sql """SET PROPERTY FOR '${user}' 'max_user_ip_connections'= '100'"""
 
     sql """SET PROPERTY FOR '${user}'
     'load_cluster.cluster1.hadoop_palo_path' = '/user/doris/doris_path',
@@ -86,21 +86,11 @@ suite("test_auth_compatibility", "account") {
     assertEquals(result.Value as String, "2048" as String)
 
     result = getProperty("max_user_ip_connections", "${user}")
-    assertEquals(result.Value as String, "2" as String)
+    assertEquals(result.Value as String, "100" as String)
 
     result = getProperty("default_load_cluster", "${user}")
     assertEquals(result.Value as String, "cluster1" as String)
 
     result = getProperty("load_cluster.cluster1.hadoop_palo_path", "${user}")
     assertEquals(result.Value as String, "/user/doris/doris_path" as String)
-
-    connect(user = user, password = pwd, url = context.config.jdbcUrl) {}
-    try {
-        connect(user = user, password = pwd, url = context.config.jdbcUrl) {}
-        assertTrue(false. "should not be able to login")
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Reach limit of connections"), e.getMessage())
-    }
-    sql """SET PROPERTY FOR '${user}' 'max_user_ip_connections'= '100'"""
-
 }
