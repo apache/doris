@@ -82,6 +82,7 @@ suite("test_index_match_regexp", "nonConcurrent"){
         sql """ set enable_common_expr_pushdown = true; """
         GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
 
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp ''; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp '^h'; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp '^team'; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp 's\$'; """
