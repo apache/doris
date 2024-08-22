@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/merger.h"
+#include "olap/simple_rowid_conversion.h"
 #include "olap/tablet.h"
 #include "segment_v2/segment.h"
 
@@ -52,6 +53,14 @@ public:
 
     void compact_segments(SegCompactionCandidatesSharedPtr segments);
 
+    bool need_convert_delete_bitmap();
+
+    void convert_segment_delete_bitmap(DeleteBitmapPtr src_delete_bitmap, uint32_t src_seg_id,
+                                       uint32_t dest_seg_id);
+    void convert_segment_delete_bitmap(DeleteBitmapPtr src_delete_bitmap, uint32_t src_begin,
+                                       uint32_t src_end, uint32_t dest_seg_id);
+    DeleteBitmapPtr get_converted_delete_bitmap() { return _converted_delete_bitmap; }
+
     io::FileWriterPtr& get_file_writer() { return _file_writer; }
 
     // set the cancel flag, tasks already started will not be cancelled.
@@ -78,5 +87,9 @@ private:
     BetaRowsetWriter* _writer;
     io::FileWriterPtr _file_writer;
     std::atomic<bool> _cancelled = false;
+
+    // for unique key mow table
+    std::unique_ptr<SimpleRowIdConversion> _rowid_conversion;
+    DeleteBitmapPtr _converted_delete_bitmap;
 };
 } // namespace doris
