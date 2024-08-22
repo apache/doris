@@ -214,7 +214,8 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private void initTable() {
-        PaimonTableCacheKey key = new PaimonTableCacheKey(ctlId, dbId, tblId, paimonOptionParams, dbName, tblName);
+        PaimonTableCacheKey key = new PaimonTableCacheKey(ctlId, dbId, tblId,
+                paimonOptionParams, hadoopOptionParams, dbName, tblName);
         TableExt tableExt = PaimonTableCache.getTable(key);
         if (tableExt.getCreateTime() < lastUpdateTime) {
             LOG.warn("invalidate cache table:{}, localTime:{}, remoteTime:{}", key, tableExt.getCreateTime(),
@@ -230,3 +231,4 @@ public class PaimonJniScanner extends JniScanner {
     }
 
 }
+
