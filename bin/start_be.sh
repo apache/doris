@@ -190,7 +190,11 @@ fi
 
 MAX_FILE_COUNT="$(ulimit -n)"
 if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
-    echo "Set max number of open file descriptors to a value greater than 60000, example: 'ulimit -n 60000'"
+    echo "Set max number of open file descriptors to a value greater than 60000."
+    echo "Ask your system manager to modify /etc/security/limits.conf and append content like"
+    echo "  * soft nofile 655350"
+    echo "  * hard nofile 655350"
+    echo "and then run 'ulimit -n 655350' to take effect on current session."
     exit 1
 fi
 

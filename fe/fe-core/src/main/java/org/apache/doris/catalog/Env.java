@@ -190,6 +190,7 @@ import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.AuthenticatorManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -1716,6 +1717,14 @@ public class Env {
 
         auth.rectifyPrivs();
         catalogMgr.registerCatalogRefreshListener(this);
+        // MTMV needs to be compatible with old metadata, and during the compatibility process,
+        // it needs to wait for all catalog data to be ready, so it cannot be processed through gsonPostProcess()
+        // We catch all possible exceptions to avoid FE startup failure
+        try {
+            MTMVUtil.compatibleMTMV(catalogMgr);
+        } catch (Throwable t) {
+            LOG.warn("compatibleMTMV failed", t);
+        }
         return true;
     }
 
@@ -5319,6 +5328,9 @@ public class Env {
                         // storage policy re-use modify in memory
                         Optional.ofNullable(tableProperty.getStoragePolicy()).filter(p -> !p.isEmpty())
                                 .ifPresent(p -> olapTable.getPartitionInfo().setStoragePolicy(partition.getId(), p));
+                        Optional.ofNullable(tableProperty.getStoragePolicy()).filter(p -> !p.isEmpty())
+                                .ifPresent(p -> olapTable.getPartitionInfo().getDataProperty(partition.getId())
+                                .setStoragePolicy(p));
                     }
                     break;
                 case OperationType.OP_UPDATE_BINLOG_CONFIG:

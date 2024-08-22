@@ -1199,7 +1199,7 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    private void produceEvent(TransactionState transactionState, Database db) {
+    private void produceEvent(TransactionState transactionState, Database db) throws AnalysisException {
         Collection<TableCommitInfo> tableCommitInfos;
         if (!transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
             tableCommitInfos = transactionState.getSubTxnTableCommitInfos();
