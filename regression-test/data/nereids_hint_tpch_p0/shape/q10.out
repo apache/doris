@@ -19,8 +19,9 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[customer]
 --------------------------PhysicalProject
-----------------------------filter((orders.o_orderdate < '1994-01-01') and (orders.o_orderdate >= '1993-10-01'))
-------------------------------PhysicalOlapScan[orders]
+----------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------filter((orders.o_orderdate < '1994-01-01') and (orders.o_orderdate >= '1993-10-01'))
+--------------------------------PhysicalOlapScan[orders]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[nation]
 

@@ -22,9 +22,10 @@ PhysicalResultSink
 ----------------------------filter(n_name IN ('FRANCE', 'GERMANY'))
 ------------------------------PhysicalOlapScan[nation]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=()
+--------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=()
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[orders]
+------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------PhysicalOlapScan[orders]
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_nationkey = n2.n_nationkey)) otherCondition=()
 --------------------------PhysicalProject

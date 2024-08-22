@@ -22,7 +22,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=(( not (c_birth_country = upper(ca_country)))) build RFs:RF0 ca_address_sk->[c_current_addr_sk]
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[customer] apply RFs: RF0
+------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------PhysicalOlapScan[customer] apply RFs: RF0
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[customer_address]
 --------------------PhysicalProject
