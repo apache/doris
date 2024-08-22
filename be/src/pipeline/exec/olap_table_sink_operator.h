@@ -32,11 +32,7 @@ public:
     ENABLE_FACTORY_CREATOR(OlapTableSinkLocalState);
     OlapTableSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {};
-    Status close(RuntimeState* state, Status exec_status) override;
     friend class OlapTableSinkOperatorX;
-
-private:
-    Status _close_status = Status::OK();
 };
 class OlapTableSinkOperatorX final : public DataSinkOperatorX<OlapTableSinkLocalState> {
 public:

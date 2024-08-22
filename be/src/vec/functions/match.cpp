@@ -406,15 +406,6 @@ Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::s
     VLOG_DEBUG << "begin to run FunctionMatchRegexp::execute_match, parser_type: "
                << inverted_index_parser_type_to_string(inverted_index_ctx->parser_type);
 
-    if (match_query_str.empty()) {
-        VLOG_DEBUG << fmt::format(
-                "token parser result is empty for query, "
-                "please check your query: '{}' and index parser: '{}'",
-                match_query_str,
-                inverted_index_parser_type_to_string(inverted_index_ctx->parser_type));
-        return Status::OK();
-    }
-
     const std::string& pattern = match_query_str;
 
     hs_database_t* database = nullptr;
