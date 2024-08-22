@@ -595,7 +595,7 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    exec_env->storage_engine().notify_listeners();
+    exec_env->get_storage_engine()->notify_listeners();
 
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)
