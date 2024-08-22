@@ -97,8 +97,8 @@ public class DecommissionBackendTest extends TestWithFeService {
             }
         }
 
-        Assertions.assertTrue(srcBackend != null);
-        String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
+        Assertions.assertNotNull(srcBackend);
+        String decommissionStmtStr = "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
         AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
 
@@ -163,7 +163,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         dropTable("db2.tbl1", false);
 
         // 6. execute decommission
-        String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
+        String decommissionStmtStr = "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
         AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
         Assertions.assertEquals(true, srcBackend.isDecommissioned());
@@ -240,8 +240,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         // 4. query tablet num
         int tabletNum = Env.getCurrentInvertedIndex().getTabletMetaMap().size();
 
-        String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:"
-                + srcBackend.getHeartbeatPort() + "\"";
+        String decommissionStmtStr = "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
         AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
 

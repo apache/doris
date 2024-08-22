@@ -761,7 +761,7 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
             report_version = _s_report_version;
             StorageEngine::instance()->tablet_manager()->build_all_report_tablets_info(
                     &request.tablets);
-            if (report_version == s_report_version) {
+            if (report_version == _s_report_version) {
                 break;
             }
         }
