@@ -74,13 +74,11 @@ public:
 
         doris::EngineOptions options;
         options.store_paths = paths;
-
-        s_engine = new StorageEngine(options);
-        ExecEnv::GetInstance()->set_storage_engine(s_engine);
-
-        Status s = s_engine->open();
+        Status s = doris::StorageEngine::open(options, &s_engine);
         EXPECT_TRUE(s.ok()) << s.to_string();
 
+        ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+        exec_env->set_storage_engine(s_engine);
         _data_dir = new DataDir(lTestDir, 1000000000);
         static_cast<void>(_data_dir->init());
         static_cast<void>(_data_dir->update_capacity());
@@ -213,7 +211,8 @@ protected:
         static_cast<void>(tablet_meta->set_partition_id(10000));
         tablet_meta->_schema = tablet_schema;
         tablet_meta->_enable_unique_key_merge_on_write = true;
-        auto tablet = std::make_shared<Tablet>(*s_engine, tablet_meta, _data_dir, "test_str");
+        auto tablet = std::make_shared<Tablet>(tablet_meta, _data_dir, "test_str");
+        tablet->init();
         // tablet->key
         rowset_writer_context->tablet = tablet;
     }
