@@ -327,9 +327,23 @@ Status VMergeIteratorContext::_load_next_block() {
 }
 
 Status VMergeIterator::init(const StorageReadOptions& opts) {
+    if (_inited) {
+        return Status::OK();
+    }
+    _inited = true;
+
     if (_origin_iters.empty()) {
         return Status::OK();
     }
+
+    if (opts.virtual_proj_col_iters_initializer) {
+        // Copy RowwiseIterator pointers to easily and safely traverse all iterators.
+        _origin_iters_for_collecting_index_stats.reserve(_origin_iters.size());
+        for (auto& iter : _origin_iters) {
+            _origin_iters_for_collecting_index_stats.emplace_back(iter.get());
+        }
+    }
+
     _schema = &(_origin_iters[0]->schema());
     _record_rowids = opts.record_rowids;
 
@@ -348,6 +362,19 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
 
     _block_row_max = opts.block_row_max;
 
+    return Status::OK();
+}
+
+Status VMergeIterator::collect_index_stats(
+        std::shared_ptr<index_stats::TabletIndexStatsCollectors>& tablet_index_stats_collectors,
+        doris::StorageReadOptions& read_options) {
+    RETURN_IF_ERROR(init(read_options));
+    for (const auto& iter : _origin_iters_for_collecting_index_stats) {
+        if (!iter) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "RowwiseIterator is null");
+        }
+        RETURN_IF_ERROR(iter->collect_index_stats(tablet_index_stats_collectors, read_options));
+    }
     return Status::OK();
 }
 
@@ -376,16 +403,34 @@ public:
         return false;
     }
 
+    Status collect_index_stats(
+            std::shared_ptr<index_stats::TabletIndexStatsCollectors>& tablet_index_stats_collectors,
+            doris::StorageReadOptions& read_options) override;
 private:
     const Schema* _schema = nullptr;
     RowwiseIteratorUPtr _cur_iter = nullptr;
     StorageReadOptions _read_options;
     std::vector<RowwiseIteratorUPtr> _origin_iters;
+    std::vector<RowwiseIterator*> _origin_iters_for_collecting_index_stats;
+    bool _inited = false;
 };
 
 Status VUnionIterator::init(const StorageReadOptions& opts) {
+    if (_inited) {
+        return Status::OK();
+    }
+    _inited = true;
+
     if (_origin_iters.empty()) {
         return Status::OK();
+    }
+
+    if (opts.virtual_proj_col_iters_initializer) {
+        // Copy RowwiseIterator pointers to easily and safely traverse all iterators.
+        _origin_iters_for_collecting_index_stats.reserve(_origin_iters.size());
+        for (auto& iter : _origin_iters) {
+            _origin_iters_for_collecting_index_stats.emplace_back(iter.get());
+        }
     }
 
     // we use back() and pop_back() of std::vector to handle each iterator,
@@ -424,6 +469,19 @@ Status VUnionIterator::current_block_row_locations(std::vector<RowLocation>* loc
         return Status::EndOfFile("End of VUnionIterator");
     }
     return _cur_iter->current_block_row_locations(locations);
+}
+
+Status VUnionIterator::collect_index_stats(
+        std::shared_ptr<index_stats::TabletIndexStatsCollectors>& tablet_index_stats_collectors,
+        doris::StorageReadOptions& read_options) {
+    RETURN_IF_ERROR(init(read_options));
+    for (const auto& iter : _origin_iters_for_collecting_index_stats) {
+        if (!iter) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "RowwiseIterator is null");
+        }
+        RETURN_IF_ERROR(iter->collect_index_stats(tablet_index_stats_collectors, read_options));
+    }
+    return Status::OK();
 }
 
 RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,

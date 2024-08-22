@@ -917,7 +917,8 @@ Status SnapshotLoader::_replace_tablet_id(const std::string& file_name, int64_t 
         ss << tablet_id << ".hdr";
         *new_file_name = ss.str();
         return Status::OK();
-    } else if (_end_with(file_name, ".idx") || _end_with(file_name, ".dat")) {
+    } else if (_end_with(file_name, ".idx") || _end_with(file_name, ".vi")
+            || _end_with(file_name, ".dat")) {
         *new_file_name = file_name;
         return Status::OK();
     } else {

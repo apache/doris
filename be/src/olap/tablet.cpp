@@ -1484,6 +1484,37 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
     return candidate_rowsets;
 }
 
+std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_vector_index(
+        const std::set<int64_t>& alter_index_uids, bool is_drop_op) {
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+    {
+        std::shared_lock rlock(_meta_lock);
+        auto has_alter_vector_index = [&](RowsetSharedPtr rowset) -> bool {
+            for (const auto& index_id : alter_index_uids) {
+                if (rowset->tablet_schema()->has_vector_index_with_index_id(index_id, "")) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        for (const auto& [version, rs] : _rs_version_map) {
+            if (!has_alter_vector_index(rs) && is_drop_op) {
+                continue;
+            }
+            if (has_alter_vector_index(rs) && !is_drop_op) {
+                continue;
+            }
+
+            if (rs->is_local()) {
+                candidate_rowsets.push_back(rs);
+            }
+        }
+    }
+    std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
+    return candidate_rowsets;
+}
+
 std::string Tablet::_get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag) {
     const Version& ver = rowset->version();
     std::string disk_size = PrettyPrinter::print(

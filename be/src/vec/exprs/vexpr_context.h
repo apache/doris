@@ -29,6 +29,7 @@
 #include "udf/udf.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_fwd.h"
+#include "vexpr.h"
 
 namespace doris {
 class RowDescriptor;
@@ -147,6 +148,13 @@ public:
         return *this;
     }
 
+    template<typename DerivedVExpr>
+    void visitIfMatch(
+                  const std::function<bool(const VExprSPtr&)>& predicate,
+                  const std::function<void(const std::shared_ptr<DerivedVExpr>&)>& consumer)
+    requires std::is_base_of_v<VExpr, DerivedVExpr> {
+        _visitIfMatch<DerivedVExpr>(this->_root, predicate, consumer);
+    }
 private:
     // Close method is called in vexpr context dector, not need call expicility
     void close();
@@ -175,5 +183,20 @@ private:
     // This flag only works on VSlotRef.
     // Force to materialize even if the slot need_materialize is false, we just ignore need_materialize flag
     bool _force_materialize_slot = false;
+
+    template<typename DerivedVExpr>
+    void _visitIfMatch(const VExprSPtr& expr_sptr,
+                  const std::function<bool(const VExprSPtr&)>& predicate,
+                  const std::function<void(const std::shared_ptr<DerivedVExpr>&)>& consumer)
+    requires std::is_base_of_v<VExpr, DerivedVExpr> {
+        if (predicate(expr_sptr)) {
+            if (auto casted = std::dynamic_pointer_cast<DerivedVExpr>(expr_sptr)) {
+                consumer(casted);
+            }
+        }
+        for (const auto& c : expr_sptr->children()) {
+            _visitIfMatch<DerivedVExpr>(c, predicate, consumer);
+        }
+    }
 };
 } // namespace doris::vectorized

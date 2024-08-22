@@ -508,8 +508,43 @@ BASE64_NAME="v0.5.2.tar.gz"
 BASE64_SOURCE="base64-0.5.2"
 BASE64_MD5SUM="49e5a6c98bd0192aedd16c16eec39974"
 
+# mindann
+MINDANN_DOWNLOAD="https://voffline.doris_fake_domain.org/download/tos/schedule/iOSPackageBackUp/65635668/mindann-v0.4.2.tar.gz"
+MINDANN_NAME="mindann-v0.4.2.tar.gz"
+MINDANN_SOURCE="mindann-v0.4.2"
+MINDANN_MD5SUM="25af8aa1e4c87a33bc4d047324afa3c6"
+
+if [[ "$(uname -m)" == "arm64" && "$(uname)" == "Darwin" ]]; then
+  MINDANN_DOWNLOAD="https://voffline.doris_fake_domain.org/download/tos/schedule/iOSPackageBackUp/65600774/mindann-v0.4.2-mac-arm64.tar.gz"
+  MINDANN_NAME="mindann-v0.4.2-mac-arm64.tar.gz"
+  MINDANN_SOURCE="mindann-v0.4.2"
+  MINDANN_MD5SUM="6ea0cc30ee56d2781192c49c1cdd547b"
+fi
+
+# openmp
+OPENMP_DOWNLOAD="https://github.com/llvm/llvm-project/releases/download/llvmorg-7.1.0/openmp-7.1.0.src.tar.xz"
+OPENMP_NAME=openmp-7.1.0.src.tar.xz
+OPENMP_SOURCE=openmp-7.1.0.src
+OPENMP_MD5SUM="b4b53b64c388868afe11c2ef47655d05"
+
+if [[ "$(uname -m)" == "arm64" && "$(uname)" == "Darwin" ]]; then
+  OPENMP_DOWNLOAD="https://github.com/llvm/llvm-project/releases/download/llvmorg-14.0.6/openmp-14.0.6.src.tar.xz"
+  OPENMP_NAME=openmp-14.0.6.src.tar.xz
+  OPENMP_SOURCE=openmp-14.0.6.src
+  OPENMP_MD5SUM="b94978b13a7d411f6a448322dcc4954e"
+fi
+
+# opencc
+OPENCC_DOWNLOAD="https://github.com/BYVoid/OpenCC/archive/refs/tags/ver.1.1.9.tar.gz"
+OPENCC_NAME=OpenCC-ver.1.1.9.tar.gz
+OPENCC_SOURCE=OpenCC-ver.1.1.9
+OPENCC_MD5SUM="925baef9aac4bcf609f09d09c92f19e6"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
+    'OPENMP'
+    'OPENCC'
+    'MINDANN'
     'LIBEVENT'
     'OPENSSL'
     'THRIFT'

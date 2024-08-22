@@ -135,7 +135,9 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisIllegalParamException;
 import org.apache.doris.nereids.exceptions.MustFallbackException;
+import org.apache.doris.nereids.exceptions.NotAllowedFallbackException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
@@ -532,6 +534,17 @@ public class StmtExecutor {
         return false;
     }
 
+    private boolean isNotAllowedFallbackException(Throwable t) {
+        if (t == null) {
+            return false;
+        }
+        if (t instanceof NotAllowedFallbackException || t instanceof AnalysisIllegalParamException) {
+            return true;
+        }
+        Throwable cause = t instanceof NereidsException ? ((NereidsException) t).getException() : t.getCause();
+        return isNotAllowedFallbackException(cause);
+    }
+
     public void execute(TUniqueId queryId) throws Exception {
         SessionVariable sessionVariable = context.getSessionVariable();
         if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
@@ -552,7 +565,7 @@ public class StmtExecutor {
                         LOG.debug("nereids cannot process statement\n" + originStmt.originStmt
                                 + "\n because of " + e.getMessage(), e);
                     }
-                    if (notAllowFallback()) {
+                    if (notAllowFallback() || isNotAllowedFallbackException(e)) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }
@@ -3292,7 +3305,7 @@ public class StmtExecutor {
                         LOG.debug("nereids cannot process statement\n" + originStmt.originStmt
                                 + "\n because of " + e.getMessage(), e);
                     }
-                    if (notAllowFallback()) {
+                    if (isNotAllowedFallbackException(e)) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }

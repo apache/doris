@@ -112,6 +112,11 @@ public:
                                        const StorageReadOptions& read_options,
                                        std::unique_ptr<InvertedIndexIterator>* iter);
 
+    Status new_vector_index_iterator(const TabletColumn& tablet_column,
+                                   const TabletIndex* index_meta,
+                                   const StorageReadOptions& read_options,
+                                   std::unique_ptr<VectorIndexIterator>* iter);
+
     const ShortKeyIndexDecoder* get_short_key_index() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
         return _sk_index_decoder.get();
@@ -205,6 +210,7 @@ private:
 
     Status _load_index_impl();
     Status _open_inverted_index();
+    Status _open_vector_index();
 
     Status _create_column_readers_once();
 
@@ -264,6 +270,9 @@ private:
     // inverted index file reader
     std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
     DorisCallOnce<Status> _inverted_index_file_reader_open;
+    // vector index file reader
+    std::shared_ptr<VectorIndexFileReader> _vector_index_file_reader;
+    DorisCallOnce<Status> _vector_index_file_reader_open;
 };
 
 } // namespace segment_v2

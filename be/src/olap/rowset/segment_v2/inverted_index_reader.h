@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "inverted_index/query/query.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "olap/inverted_index_parser.h"
@@ -32,6 +33,7 @@
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
+#include "olap/tablet_index_stats_collector.h"
 #include "olap/tablet_schema.h"
 #include "util/once.h"
 
@@ -65,13 +67,16 @@ class KeyCoder;
 class TypeInfo;
 struct OlapReaderStatistics;
 class RuntimeState;
+class ColumnPredicate;
 
 namespace segment_v2 {
 
 class InvertedIndexIterator;
 class InvertedIndexQueryCacheHandle;
 class InvertedIndexFileReader;
+class InvertedIndexIteratorQueryContext;
 struct InvertedIndexQueryInfo;
+
 
 class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader> {
 public:
@@ -88,7 +93,9 @@ public:
     virtual Status query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                          const std::string& column_name, const void* query_value,
                          InvertedIndexQueryType query_type,
-                         std::shared_ptr<roaring::Roaring>& bit_map) = 0;
+                         std::shared_ptr<roaring::Roaring>& bit_map,
+                         InvertedIndexIteratorQueryContext* iter_query_ctx = nullptr,
+                         const ColumnPredicate* col_predicate = nullptr) = 0;
     virtual Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
                              const void* query_value, InvertedIndexQueryType query_type,
                              uint32_t* count) = 0;
@@ -140,6 +147,19 @@ public:
                                         MemTracker* mem_tracker,
                                         InvertedIndexReaderType reader_type);
 
+    /**
+     *  Before fetching row IDs from the inverted index, it may be necessary to collect
+     *  specific statistics for certain scenarios. This method queries the index without
+     *  retrieving any data. It's akin to opening the index to obtain statistics for the
+     *  query while delaying the data fetching phase.
+     */
+    virtual Status pre_query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
+                             const std::string& column_name, const void* query_value,
+                             InvertedIndexQueryType query_type,
+                             InvertedIndexIteratorQueryContext* iter_query_ctx,
+                             const ColumnPredicate* col_predicate) {
+        return Status::NotSupported("to be implemented");
+    }
 protected:
     friend class InvertedIndexIterator;
     std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
@@ -162,7 +182,9 @@ public:
     Status query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                  const std::string& column_name, const void* query_value,
                  InvertedIndexQueryType query_type,
-                 std::shared_ptr<roaring::Roaring>& bit_map) override;
+                 std::shared_ptr<roaring::Roaring>& bit_map,
+                 InvertedIndexIteratorQueryContext* iter_query_ctx = nullptr,
+                 const ColumnPredicate* col_predicate = nullptr) override;
     Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
                      uint32_t* count) override {
@@ -170,19 +192,33 @@ public:
                 "FullTextIndexReader not support try_query");
     }
 
+    Status pre_query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
+                     const std::string& column_name, const void* query_value,
+                     InvertedIndexQueryType query_type,
+                     InvertedIndexIteratorQueryContext* iter_query_ctx,
+                     const ColumnPredicate* col_predicate) override;
+
     InvertedIndexReaderType type() override;
 
     static void setup_analyzer_lowercase(std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
                                          const std::map<string, string>& properties);
     static void setup_analyzer_use_stopwords(std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
                                              const std::map<string, string>& properties);
-
 private:
     Status match_index_search(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                               InvertedIndexQueryType query_type,
                               const InvertedIndexQueryInfo& query_info,
                               const FulltextIndexSearcherPtr& index_searcher,
-                              const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
+                              const std::shared_ptr<roaring::Roaring>& term_match_bitmap,
+                              InvertedIndexIteratorQueryContext* iter_query_ctx,
+                              const ColumnPredicate* col_predicate);
+
+    Status pre_match_index_search(OlapReaderStatistics* stats, RuntimeState* runtime_state,
+                                  InvertedIndexQueryType query_type,
+                                  const InvertedIndexQueryInfo& query_info,
+                                  const FulltextIndexSearcherPtr& index_searcher,
+                                  InvertedIndexIteratorQueryContext* iter_query_ctx,
+                                  const ColumnPredicate* col_predicate);
 };
 
 class StringTypeInvertedIndexReader : public InvertedIndexReader {
@@ -200,7 +236,9 @@ public:
     Status query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                  const std::string& column_name, const void* query_value,
                  InvertedIndexQueryType query_type,
-                 std::shared_ptr<roaring::Roaring>& bit_map) override;
+                 std::shared_ptr<roaring::Roaring>& bit_map,
+                 InvertedIndexIteratorQueryContext* iter_query_ctx = nullptr,
+                 const ColumnPredicate* col_predicate = nullptr) override;
     Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
                      uint32_t* count) override {
@@ -260,7 +298,9 @@ public:
     Status query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                  const std::string& column_name, const void* query_value,
                  InvertedIndexQueryType query_type,
-                 std::shared_ptr<roaring::Roaring>& bit_map) override;
+                 std::shared_ptr<roaring::Roaring>& bit_map,
+                 InvertedIndexIteratorQueryContext* iter_query_ctx = nullptr,
+                 const ColumnPredicate* col_predicate = nullptr) override;
     Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
                      uint32_t* count) override;
@@ -293,7 +333,8 @@ public:
     Status read_from_inverted_index(const std::string& column_name, const void* query_value,
                                     InvertedIndexQueryType query_type, uint32_t segment_num_rows,
                                     std::shared_ptr<roaring::Roaring>& bit_map,
-                                    bool skip_try = false);
+                                    bool skip_try = false,
+                                    const ColumnPredicate* col_predicate = nullptr);
     Status try_read_from_inverted_index(const std::string& column_name, const void* query_value,
                                         InvertedIndexQueryType query_type, uint32_t* count);
 
@@ -302,6 +343,19 @@ public:
         return _reader->read_null_bitmap(cache_handle, dir);
     }
 
+    Status pre_read_from_inverted_index(
+            const std::string& column_name, const void* query_value,
+            InvertedIndexQueryType query_type,
+            const ColumnPredicate* col_predicate);
+
+    void set_bm25_proj_iterators(
+            std::shared_ptr<std::vector<std::shared_ptr<v_proj::BM25VirtualProjColumnIterator>>>&
+                    iters);
+
+    void set_tablet_index_stats_collectors(index_stats::FullSegmentId& full_segment_id,
+                                           std::shared_ptr<index_stats::TabletIndexStatsCollectors>&
+                                                   tablet_index_stats_collectors);
+
     [[nodiscard]] InvertedIndexReaderType get_inverted_index_reader_type() const;
     [[nodiscard]] const std::map<string, string>& get_index_properties() const;
     [[nodiscard]] bool has_null() { return _reader->has_null(); };
@@ -309,7 +363,25 @@ public:
 private:
     OlapReaderStatistics* _stats = nullptr;
     RuntimeState* _runtime_state = nullptr;
+    std::unique_ptr<InvertedIndexIteratorQueryContext> _iter_query_ctx = nullptr;
     std::shared_ptr<InvertedIndexReader> _reader;
+};
+
+class InvertedIndexIteratorQueryContext {
+public:
+    void add_pre_query_to_cache(const ColumnPredicate* col_predicate,
+                                std::unique_ptr<Query>& query) {
+        _pre_query_cache.emplace(col_predicate, std::move(query));
+    }
+
+    std::unique_ptr<Query> get_and_remove_pre_query(const ColumnPredicate* col_predicate);
+
+    std::shared_ptr<std::vector<std::shared_ptr<v_proj::BM25VirtualProjColumnIterator>>>
+            bm25_v_proj_col_iters;
+    std::shared_ptr<index_stats::TabletIndexStatsCollectors> tablet_index_stats_collectors;
+    std::unique_ptr<index_stats::FullSegmentId> full_segment_id;
+private:
+    map<const ColumnPredicate*, std::unique_ptr<Query>> _pre_query_cache;
 };
 
 } // namespace segment_v2

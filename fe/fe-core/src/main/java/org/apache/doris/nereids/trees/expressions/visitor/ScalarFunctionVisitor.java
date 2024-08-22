@@ -28,6 +28,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailingCharIfAbsent;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ApproxCosineDistance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ApproxCosineSimilarity;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ApproxInnerProduct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ApproxL2Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayApply;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayAvg;
@@ -81,6 +85,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AutoPartitionName;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BM25;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Bin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitLength;
@@ -1442,6 +1447,22 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(l2Distance, context);
     }
 
+    default R visitApproxL2Distance(ApproxL2Distance approxL2Distance, C context) {
+        return visitScalarFunction(approxL2Distance, context);
+    }
+
+    default R visitApproxCosineSimilarity(ApproxCosineSimilarity approxCosineSimilarity, C context) {
+        return visitScalarFunction(approxCosineSimilarity, context);
+    }
+
+    default R visitApproxCosineDistance(ApproxCosineDistance approxCosineDistance, C context) {
+        return visitScalarFunction(approxCosineDistance, context);
+    }
+
+    default R visitApproxInnerProduct(ApproxInnerProduct approxInnerProduct, C context) {
+        return visitScalarFunction(approxInnerProduct, context);
+    }
+
     default R visitLastDay(LastDay lastDay, C context) {
         return visitScalarFunction(lastDay, context);
     }
@@ -2156,5 +2177,9 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStructElement(StructElement structElement, C context) {
         return visitScalarFunction(structElement, context);
+    }
+
+    default R visitBM25(BM25 bm25, C context) {
+        return visitScalarFunction(bm25, context);
     }
 }

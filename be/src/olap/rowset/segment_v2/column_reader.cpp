@@ -43,6 +43,8 @@
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "olap/rowset/segment_v2/vector_index_file_reader.h"
+#include "olap/rowset/segment_v2/vector_index_reader.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
 #include "olap/rowset/segment_v2/page_io.h"
@@ -277,6 +279,22 @@ Status ColumnReader::new_inverted_index_iterator(
         if (_inverted_index) {
             RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.stats,
                                                           read_options.runtime_state, iterator));
+        }
+    }
+    return Status::OK();
+}
+
+Status ColumnReader::new_vector_index_iterator(
+        std::shared_ptr<VectorIndexFileReader> index_file_reader, const TabletIndex* index_meta,
+        const StorageReadOptions& read_options, std::unique_ptr<VectorIndexIterator>* iterator) {
+    RETURN_IF_ERROR(_ensure_vector_index_loaded(index_file_reader, index_meta));
+
+    {
+        std::shared_lock<std::shared_mutex> rlock(_load_index_lock);
+        if (_vector_index) {
+            RETURN_IF_ERROR(_vector_index->new_iterator(read_options.stats,
+                                                        read_options.runtime_state,
+                                                        iterator));
         }
     }
     return Status::OK();
@@ -596,6 +614,27 @@ Status ColumnReader::_load_inverted_index_index(
     //bool has_null = true;
     //RETURN_IF_ERROR(index_file_reader->has_null(index_meta, &has_null));
     //_inverted_index->set_has_null(has_null);
+    return Status::OK();
+}
+
+Status ColumnReader::_load_vector_index_index(
+        std::shared_ptr<VectorIndexFileReader> index_file_reader, const TabletIndex* index_meta) {
+    std::unique_lock<std::shared_mutex> wlock(_load_index_lock);
+
+    if (_vector_index && index_meta &&
+        _vector_index->get_index_id() == index_meta->index_id()) {
+        return Status::OK();
+    }
+
+    try {
+        _vector_index = VectorIndexReader::create_shared(index_meta, index_file_reader);
+        RETURN_IF_ERROR(_vector_index->init());
+
+    } catch (const CLuceneError& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                "create VectorIndexReader error: {}", e.what());
+    }
+
     return Status::OK();
 }
 

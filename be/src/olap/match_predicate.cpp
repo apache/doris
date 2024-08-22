@@ -67,7 +67,7 @@ Status MatchPredicate::evaluate(const vectorized::IndexFieldNameAndTypePair& nam
         char* buffer = const_cast<char*>(_value.c_str());
         match_value.replace(buffer, length); //is it safe?
         RETURN_IF_ERROR(iterator->read_from_inverted_index(
-                name, &match_value, inverted_index_query_type, num_rows, roaring));
+                name, &match_value, inverted_index_query_type, num_rows, roaring, false, this));
     } else if (column_desc.type == TYPE_ARRAY &&
                is_numeric_type(
                        TabletColumn::get_field_type_by_type(column_desc.children[0].type))) {
@@ -76,7 +76,7 @@ Status MatchPredicate::evaluate(const vectorized::IndexFieldNameAndTypePair& nam
                 TabletColumn::get_field_type_by_type(column_desc.children[0].type));
         RETURN_IF_ERROR(type_info->from_string(buf, _value));
         RETURN_IF_ERROR(iterator->read_from_inverted_index(name, buf, inverted_index_query_type,
-                                                           num_rows, roaring, true));
+                                                           num_rows, roaring, true, this));
     }
 
     // mask out null_bitmap, since NULL cmp VALUE will produce NULL
@@ -92,6 +92,37 @@ Status MatchPredicate::evaluate(const vectorized::IndexFieldNameAndTypePair& nam
     }
 
     *bitmap &= *roaring;
+    return Status::OK();
+}
+
+Status MatchPredicate::pre_evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
+                                    InvertedIndexIterator* iterator) const {
+    if (iterator == nullptr) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+                "InvertedIndexIterator is null");
+    }
+    if (_skip_evaluate(iterator)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                "match predicate evaluate skipped.");
+    }
+    auto type = name_with_type.second;
+    const std::string& name = name_with_type.first;
+    std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
+    auto inverted_index_query_type = _to_inverted_index_query_type(_match_type);
+    TypeDescriptor column_desc = type->get_type_as_type_descriptor();
+
+    if (is_string_type(column_desc.type)) {
+        StringRef match_value;
+        int32_t length = _value.length();
+        char* buffer = const_cast<char*>(_value.c_str());
+        match_value.replace(buffer, length);
+        RETURN_IF_ERROR(iterator->pre_read_from_inverted_index(
+                name, &match_value, inverted_index_query_type, this));
+    } else {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+            "Not supported type {} for pre_evaluate", column_desc.type);
+    }
+
     return Status::OK();
 }
 

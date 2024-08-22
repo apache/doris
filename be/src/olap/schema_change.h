@@ -53,7 +53,7 @@
 namespace doris {
 class DeleteHandler;
 class Field;
-class TAlterInvertedIndexReq;
+class TAlterIndexReq;
 class TAlterTabletReqV2;
 class TExpr;
 enum AlterTabletType : int;

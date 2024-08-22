@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.SlotRef;
@@ -25,6 +26,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -38,6 +40,7 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.AnalysisIllegalParamException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -143,6 +146,18 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     scan.getDatabase().getFullName() + ": " + scan.getTable().getName());
             throw new AnalysisException(message);
+        }
+
+        // check if table has both duplicate key and vector index
+        if (scan.getTable().getKeysType() == KeysType.DUP_KEYS) {
+            for (Index idx : scan.getTable().getIndexes()) {
+                if (idx.getIndexType() == IndexDef.IndexType.VECTOR
+                        && !ctx.getSessionVariable().isEnableDeleteForDuplicateTableWithVectorIndex()
+                        && !Config.enable_delete_for_duplicate_table_with_vector_index) {
+                    throw new AnalysisIllegalParamException("can not do delete op on duplicate table which "
+                        + "has vector index.");
+                }
+            }
         }
 
         // predicate check

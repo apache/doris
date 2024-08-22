@@ -26,6 +26,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailingCharIfAbsent;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ApproxCosineDistance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ApproxCosineSimilarity;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ApproxInnerProduct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ApproxL2Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayApply;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayAvg;
@@ -74,6 +78,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AutoPartitionName;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BM25;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Bin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitLength;
@@ -465,6 +470,10 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(AesEncrypt.class, "aes_encrypt"),
             scalar(AesEncryptV2.class, "aes_encrypt_v2"),
             scalar(AppendTrailingCharIfAbsent.class, "append_trailing_char_if_absent"),
+            scalar(ApproxCosineDistance.class, "approx_cosine_distance"),
+            scalar(ApproxL2Distance.class, "approx_l2_distance"),
+            scalar(ApproxCosineSimilarity.class, "approx_cosine_similarity"),
+            scalar(ApproxInnerProduct.class, "approx_inner_product"),
             scalar(Array.class, "array"),
             scalar(ArrayApply.class, "array_apply"),
             scalar(ArrayAvg.class, "array_avg"),
@@ -906,7 +915,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(YearWeek.class, "yearweek"),
             scalar(YearsAdd.class, "years_add"),
             scalar(YearsDiff.class, "years_diff"),
-            scalar(YearsSub.class, "years_sub")
+            scalar(YearsSub.class, "years_sub"),
+            scalar(BM25.class, "bm25")
     );
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();

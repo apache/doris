@@ -101,6 +101,7 @@ void register_function_regexp_extract(SimpleFunctionFactory& factory);
 void register_function_hex_variadic(SimpleFunctionFactory& factory);
 void register_function_match(SimpleFunctionFactory& factory);
 void register_function_tokenize(SimpleFunctionFactory& factory);
+void register_function_bm25(SimpleFunctionFactory& factory);
 
 void register_function_url(SimpleFunctionFactory& factory);
 void register_function_ip(SimpleFunctionFactory& factory);
@@ -284,6 +285,7 @@ public:
             register_function_match(instance);
             register_function_ip(instance);
             register_function_tokenize(instance);
+            register_function_bm25(instance);
             register_function_ignore(instance);
             register_function_variant_element(instance);
         });

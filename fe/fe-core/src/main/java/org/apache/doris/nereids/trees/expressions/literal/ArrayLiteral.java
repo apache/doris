@@ -19,16 +19,20 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.AnalysisIllegalParamException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.NullType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.util.CollectionUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -39,6 +43,32 @@ import java.util.stream.Collectors;
 public class ArrayLiteral extends Literal {
 
     private final List<Literal> items;
+
+    /**
+     * construct array literal
+     */
+    public ArrayLiteral(String items) throws AnalysisIllegalParamException {
+        super(ArrayType.of(FloatType.INSTANCE));
+
+        char first = items.charAt(0);
+        char last = items.charAt(items.length() - 1);
+        if (first != '[' || last != ']') {
+            throw new AnalysisIllegalParamException("Invalid string cast array literal: " + items);
+        }
+
+        String[] strItems = StringUtils.substring(items, 1, items.length() - 1).replaceAll(" ", "").split(",");
+        List<Literal> floatItems = new ArrayList<>(strItems.length);
+
+        try {
+            for (String strItem : strItems) {
+                floatItems.add(Literal.of(Double.valueOf(strItem).floatValue()));
+            }
+        } catch (Throwable t) {
+            throw new AnalysisIllegalParamException("Invalid string cast array literal: " + items);
+        }
+
+        this.items = floatItems;
+    }
 
     /**
      * construct array literal

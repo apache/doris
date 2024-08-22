@@ -88,9 +88,14 @@ public:
 
     void set_topn_limit(size_t topn_limit) override { _topn_limit = topn_limit; }
 
+    Status collect_rowset_index_stats(std::shared_ptr<index_stats::TabletIndexStatsCollectors>&
+                                              tablet_index_stats_collectors) override;
+
 private:
     [[nodiscard]] Status _init_iterator_once();
     [[nodiscard]] Status _init_iterator();
+    [[nodiscard]] Status _init_v_proj_col_iters_params();
+
     bool _should_push_down_value_predicates() const;
     bool _is_merge_iterator() const {
         return _read_context->need_ordered_result &&

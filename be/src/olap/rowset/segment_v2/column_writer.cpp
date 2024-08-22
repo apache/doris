@@ -38,6 +38,7 @@
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
+#include "olap/rowset/segment_v2/vector_index_desc.h"
 #include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
@@ -678,6 +679,13 @@ Status ScalarColumnWriter::write_inverted_index() {
     return Status::OK();
 }
 
+Status ScalarColumnWriter::write_vector_index() {
+    if (_opts.need_vector_index) {
+        return _vector_index_builder->finish();
+    }
+    return Status::OK();
+}
+
 size_t ScalarColumnWriter::get_inverted_index_size() {
     if (_opts.need_inverted_index) {
         auto size = _inverted_index_builder->file_size();
@@ -841,6 +849,15 @@ Status StructColumnWriter::write_inverted_index() {
     return Status::OK();
 }
 
+Status StructColumnWriter::write_vector_index() {
+    if (_opts.need_vector_index) {
+        for (auto& column_writer : _sub_column_writers) {
+            RETURN_IF_ERROR(column_writer->write_vector_index());
+        }
+    }
+    return Status::OK();
+}
+
 size_t StructColumnWriter::get_inverted_index_size() {
     size_t total_size = 0;
     if (_opts.need_inverted_index) {
@@ -956,6 +973,26 @@ Status ArrayColumnWriter::init() {
                                                               _opts.inverted_index));
         }
     }
+
+    if (_opts.need_vector_index) {
+        auto writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
+        if (writer != nullptr && _opts.vector_index_file_writer != nullptr) {
+
+            std::string segment_path = _opts.vector_index_file_writer->get_index_file_dir() /
+                    _opts.vector_index_file_writer->get_segment_file_name();
+
+            std::string index_path = VectorIndexDescriptor::get_index_file_name(segment_path,
+                _opts.vector_index->index_id(), _opts.vector_index->get_index_suffix());
+
+            // src_is_nullable: if true, support nullable column, vector index support custom row_id.
+            _vector_index_builder = std::make_unique<VectorIndexWriter>(
+                    _opts.vector_index_file_writer->get_fs(),
+                    index_path,
+                    _opts.meta->is_nullable());
+
+            RETURN_IF_ERROR(_vector_index_builder->init(_opts.vector_index));
+        }
+    }
     return Status::OK();
 }
 
@@ -972,6 +1009,13 @@ size_t ArrayColumnWriter::get_inverted_index_size() {
         return size == -1 ? 0 : size;
     }
     return 0;
+}
+
+Status ArrayColumnWriter::write_vector_index() {
+    if (_opts.vector_index) {
+        return _vector_index_builder->finish();
+    }
+    return Status::OK();
 }
 
 // batch append data for array
@@ -997,6 +1041,17 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
             RETURN_IF_ERROR(_inverted_index_builder->add_array_values(
                     _item_writer->get_field()->size(), reinterpret_cast<const void*>(data),
                     reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
+        }
+    }
+    if (_opts.need_vector_index) {
+        auto writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
+        // now only support nested type is scala
+        if (writer != nullptr) {
+            //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
+            RETURN_IF_ERROR(_vector_index_builder->add_array_float_values(
+                    reinterpret_cast<const uint8_t*>(data),
+                    num_rows,
+                    offsets_ptr));
         }
     }
 
@@ -1100,6 +1155,29 @@ Status MapColumnWriter::init() {
     for (auto& sub_writer : _kv_writers) {
         RETURN_IF_ERROR(sub_writer->init());
     }
+
+    if (_opts.need_vector_index) {
+        bool scala_writers = true;
+        for (auto& sub_writer : _kv_writers) {
+            scala_writers &= dynamic_cast<ScalarColumnWriter*>(sub_writer.get()) != nullptr;
+        }
+
+        if (scala_writers && _opts.vector_index_file_writer != nullptr) {
+            std::string segment_path = _opts.vector_index_file_writer->get_index_file_dir() /
+                    _opts.vector_index_file_writer->get_segment_file_name();
+
+            std::string index_path = VectorIndexDescriptor::get_index_file_name(segment_path,
+                _opts.vector_index->index_id(), _opts.vector_index->get_index_suffix());
+
+            // src_is_nullable: if true, support nullable column, vector index support custom row_id.
+            _vector_index_builder = std::make_unique<VectorIndexWriter>(
+                    _opts.vector_index_file_writer->get_fs(),
+                    index_path,
+                    _opts.meta->is_nullable());
+
+            RETURN_IF_ERROR(_vector_index_builder->init(_opts.vector_index));
+        }
+    }
     return Status::OK();
 }
 
@@ -1156,6 +1234,25 @@ Status MapColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
                                            reinterpret_cast<const void*>(data), element_cnt));
         }
     }
+
+    if (_opts.need_vector_index) {
+        bool scala_writers = true;
+        for (auto& sub_writer : _kv_writers) {
+            scala_writers &= dynamic_cast<ScalarColumnWriter*>(sub_writer.get()) != nullptr;
+        }
+        // now only support nested type is scala
+        if (scala_writers) {
+            auto key_data = *(data_ptr + 2);
+            auto value_data = *(data_ptr + 3);
+
+            RETURN_IF_ERROR(_vector_index_builder->add_map_int_to_float_values(
+                    reinterpret_cast<const uint8_t*>(key_data),
+                    reinterpret_cast<const uint8_t*>(value_data),
+                    num_rows,
+                    offsets_ptr));
+        }
+    }
+
     // make sure the order : offset writer flush next_array_item_ordinal after kv_writers append_data
     // because we use _kv_writers[0]->get_next_rowid() to set next_array_item_ordinal in offset page footer
     RETURN_IF_ERROR(_offsets_writer->append_data(&offsets_ptr, num_rows));
@@ -1210,6 +1307,13 @@ Status MapColumnWriter::finish_current_page() {
 Status MapColumnWriter::write_inverted_index() {
     if (_opts.need_inverted_index) {
         return _inverted_index_builder->finish();
+    }
+    return Status::OK();
+}
+
+Status MapColumnWriter::write_vector_index() {
+    if (_opts.need_vector_index) {
+        return _vector_index_builder->finish();
     }
     return Status::OK();
 }

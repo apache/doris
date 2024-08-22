@@ -43,6 +43,7 @@
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "segment_v2/vector_index_desc.h"
 #include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
@@ -121,6 +122,28 @@ Status BetaRowset::get_inverted_index_size(size_t* index_size) {
             std::string inverted_index_file_path =
                     InvertedIndexDescriptor::get_index_file_name(seg_path);
             RETURN_IF_ERROR(fs->file_size(inverted_index_file_path, &file_size));
+            *index_size += file_size;
+        }
+    }
+    return Status::OK();
+}
+
+Status BetaRowset::get_vector_index_size(size_t* index_size) {
+    auto fs = _rowset_meta->fs();
+    if (!fs || _schema == nullptr) {
+        return Status::Error<INIT_FAILED>("get fs failed");
+    }
+    auto indexes = _schema->indexes();
+    for (auto& index : indexes) {
+        if (index.index_type() != IndexType::VECTOR) {
+            continue;
+        }
+        for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+            auto seg_path = segment_file_path(seg_id);
+            int64_t file_size = 0;
+            std::string vector_index_file_path =
+                    VectorIndexDescriptor::get_index_file_name(seg_path, index.index_id(), index.get_index_suffix());
+            RETURN_IF_ERROR(fs->file_size(vector_index_file_path, &file_size));
             *index_size += file_size;
         }
     }
@@ -250,6 +273,22 @@ Status BetaRowset::remove() {
                 }
             }
         }
+
+        //vector_index
+        for (auto& column : _schema->columns()) {
+            int32_t col_unique_id = column->is_extracted_column() ? column->parent_unique_id() : column->unique_id();
+
+            const TabletIndex* index_meta = _schema->get_vector_index(col_unique_id);
+            if (index_meta) {
+                std::string vector_index_file = VectorIndexDescriptor::get_index_file_name(
+                        seg_path, index_meta->index_id(), index_meta->get_index_suffix());
+                st = fs->delete_file(vector_index_file);
+                if (!st.ok()) {
+                    LOG(WARNING) << "Deletion of vector index failed with: " << st.to_string();
+                    success = false;
+                }
+            }
+        }
     }
     if (!success) {
         return Status::Error<ROWSET_DELETE_FILE_FAILED>("failed to remove files in rowset {}",
@@ -312,8 +351,21 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
             return status;
         });
         if (_schema->get_inverted_index_storage_format() != InvertedIndexStorageFormatPB::V1) {
+            // [has inverted index] && [without_index_uid has no inverted index]
+            // means we should link inverted index here otherwise we'll lose inverted index file
+            bool noInvertedIndexInWithoutIndexUids = true;
+            for (const auto& index : _schema->indexes()) {
+                if (index.index_type() != IndexType::INVERTED) {
+                    continue;
+                }
+                auto index_id = index.index_id();
+                if (without_index_uids != nullptr && without_index_uids->count(index_id)) {
+                    noInvertedIndexInWithoutIndexUids = false;
+                    break;
+                }
+            }
             if (_schema->has_inverted_index() &&
-                (without_index_uids == nullptr || without_index_uids->empty())) {
+                (without_index_uids == nullptr || without_index_uids->empty() || noInvertedIndexInWithoutIndexUids)) {
                 std::string inverted_index_file_src =
                         InvertedIndexDescriptor::get_index_file_name(src_path);
                 std::string inverted_index_file_dst =
@@ -380,6 +432,51 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                 }
             }
         }
+
+        //vector index
+        for (const auto& index : _schema->indexes()) {
+            if (index.index_type() != IndexType::VECTOR) {
+                continue;
+            }
+
+            auto index_id = index.index_id();
+            if (without_index_uids != nullptr && without_index_uids->count(index_id)) {
+                continue;
+            }
+            std::string vector_index_src_file_path =
+                    VectorIndexDescriptor::get_index_file_name(src_path, index_id,
+                                                                 index.get_index_suffix());
+            std::string vector_index_dst_file_path =
+                    VectorIndexDescriptor::get_index_file_name(dst_path, index_id,
+                                                                 index.get_index_suffix());
+            bool index_file_exists = true;
+            RETURN_IF_ERROR(local_fs->exists(vector_index_src_file_path, &index_file_exists));
+            if (index_file_exists) {
+                DBUG_EXECUTE_IF(
+                        "fault_inject::BetaRowset::link_files_to::_link_vector_index_file", {
+                            status = Status::Error<OS_ERROR>(
+                                    "fault_inject link_file error from={}, to={}",
+                                    vector_index_src_file_path, vector_index_dst_file_path);
+                            return status;
+                        });
+                if (!local_fs->link_file(vector_index_src_file_path,
+                                         vector_index_dst_file_path)
+                             .ok()) {
+                    status = Status::Error<OS_ERROR>(
+                            "fail to create hard link. from={}, to={}, errno={}",
+                            vector_index_src_file_path, vector_index_dst_file_path,
+                            Errno::no());
+                    return status;
+                }
+                linked_success_files.push_back(vector_index_dst_file_path);
+                LOG(INFO) << "success to create hard link. from="
+                          << vector_index_src_file_path << ", "
+                          << "to=" << vector_index_dst_file_path;
+            } else {
+                LOG(WARNING) << "skip create hard link to not existed index file="
+                             << vector_index_src_file_path;
+            }
+        }
     }
     return Status::OK();
 }
@@ -425,6 +522,27 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
                               << ", "
                               << "to=" << inverted_index_dst_file_path;
                 }
+            }
+        }
+
+        //vector index
+        for (auto& column : _schema->columns()) {
+            int32_t col_unique_id = column->is_extracted_column() ? column->parent_unique_id() : column->unique_id();
+            const TabletIndex* index_meta = _schema->get_vector_index(col_unique_id);
+            if (index_meta) {
+                std::string vector_index_src_file_path =
+                        VectorIndexDescriptor::get_index_file_name(
+                                src_path, index_meta->index_id(),
+                                index_meta->get_index_suffix());
+                std::string vector_index_dst_file_path =
+                        VectorIndexDescriptor::get_index_file_name(
+                                dst_path, index_meta->index_id(),
+                                index_meta->get_index_suffix());
+                RETURN_IF_ERROR(io::global_local_filesystem()->copy_path(
+                        vector_index_src_file_path, vector_index_dst_file_path));
+                LOG(INFO) << "success to copy file. from=" << vector_index_src_file_path
+                          << ", "
+                          << "to=" << vector_index_dst_file_path;
             }
         }
     }

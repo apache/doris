@@ -85,6 +85,8 @@ DEFINE_ENGINE_COUNTER_METRIC(publish_task_request_total, publish, total);
 DEFINE_ENGINE_COUNTER_METRIC(publish_task_failed_total, publish, failed);
 DEFINE_ENGINE_COUNTER_METRIC(alter_inverted_index_requests_total, alter_inverted_index, total);
 DEFINE_ENGINE_COUNTER_METRIC(alter_inverted_index_requests_failed, alter_inverted_index, failed);
+DEFINE_ENGINE_COUNTER_METRIC(alter_vector_index_requests_total, alter_vector_index, total);
+DEFINE_ENGINE_COUNTER_METRIC(alter_vector_index_requests_failed, alter_vector_index, failed);
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(base_compaction_deltas_total, MetricUnit::ROWSETS, "",
                                      compaction_deltas_total, Labels({{"type", "base"}}));
@@ -225,6 +227,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, publish_task_failed_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, alter_inverted_index_requests_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, alter_inverted_index_requests_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, alter_vector_index_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, alter_vector_index_requests_failed);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, base_compaction_deltas_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, base_compaction_bytes_total);

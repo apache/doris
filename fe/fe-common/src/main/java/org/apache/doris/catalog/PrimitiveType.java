@@ -840,6 +840,9 @@ public enum PrimitiveType {
         return this == FLOAT || this == DOUBLE;
     }
 
+    public boolean isFloatType() {
+        return this == FLOAT;
+    }
 
     public boolean isDecimalV2Type() {
         return this == DECIMALV2;
@@ -912,6 +915,10 @@ public enum PrimitiveType {
     public boolean isIntegerType() {
         return (this == TINYINT || this == SMALLINT
                 || this == INT || this == BIGINT);
+    }
+
+    public boolean isInt32Type() {
+        return this == INT;
     }
 
     public boolean isIPType() {

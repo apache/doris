@@ -89,8 +89,8 @@ void AgentServer::start_workers(ExecEnv* exec_env) {
     // TODO(plat1ko): CloudStorageEngine
     auto& engine = *StorageEngine::instance();
     // clang-format off
-    _alter_inverted_index_workers = std::make_unique<TaskWorkerPool>(
-            "ALTER_INVERTED_INDEX", config::alter_index_worker_count, [&engine](auto&& task) { return alter_inverted_index_callback(engine, task); });
+    _alter_index_workers = std::make_unique<TaskWorkerPool>(
+            "ALTER_INDEX", config::alter_index_worker_count, [&engine](auto&& task) { return alter_index_callback(engine, task); });
 
     _check_consistency_workers = std::make_unique<TaskWorkerPool>(
             "CHECK_CONSISTENCY", config::check_consistency_worker_count, [&engine](auto&& task) { return check_consistency_callback(engine, task); });
@@ -248,9 +248,9 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
                         signature);
             }
             break;
-        case TTaskType::ALTER_INVERTED_INDEX:
-            if (task.__isset.alter_inverted_index_req) {
-                _alter_inverted_index_workers->submit_task(task);
+        case TTaskType::ALTER_INDEX:
+            if (task.__isset.alter_index_req) {
+                _alter_index_workers->submit_task(task);
             } else {
                 ret_st = Status::InvalidArgument(strings::Substitute(
                         "task(signature=$0) has wrong request member = alter_inverted_index_req",

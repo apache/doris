@@ -208,7 +208,7 @@ struct TAlterTabletReqV2 {
     11: optional i32 be_exec_version = 0
 }
 
-struct TAlterInvertedIndexReq {
+struct TAlterIndexReq {
     1: required Types.TTabletId tablet_id
     2: required Types.TSchemaHash schema_hash
     3: optional Types.TVersion alter_version // Deprecated
@@ -219,6 +219,7 @@ struct TAlterInvertedIndexReq {
     8: optional list<Descriptors.TColumn> columns
     9: optional i64 job_id
     10: optional i64 expiration
+    11: optional list<Descriptors.TOlapTableIndex> alter_vector_indexes
 }
 
 struct TTabletGcBinlogInfo {
@@ -497,7 +498,7 @@ struct TAgentTaskRequest {
     // DEPRECATED 29: optional TGetStoragePolicy update_policy
     30: optional TPushCooldownConfReq push_cooldown_conf
     31: optional TPushStoragePolicyReq push_storage_policy_req
-    32: optional TAlterInvertedIndexReq alter_inverted_index_req
+    32: optional TAlterIndexReq alter_index_req
     33: optional TGcBinlogReq gc_binlog_req
     34: optional TCleanTrashReq clean_trash_req
     35: optional TVisibleVersionReq visible_version_req

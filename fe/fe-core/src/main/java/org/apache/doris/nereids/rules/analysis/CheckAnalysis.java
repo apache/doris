@@ -18,13 +18,16 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.AnalysisIllegalParamException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ApproxVectorDistanceFunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -107,6 +110,14 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     checkAggregate(agg);
                     return agg;
                 })
+            ),
+            RuleType.CHECK_VECTOR_FUNCTION.build(
+                logicalFilter().then(
+                    filter -> {
+                        checkVectorFunctionInFilter(filter);
+                        return filter;
+                    }
+                )
             )
         );
     }
@@ -173,6 +184,25 @@ public class CheckAnalysis implements AnalysisRuleFactory {
             if (expr.anyMatch(AggregateFunction.class::isInstance)) {
                 throw new AnalysisException(
                         "GROUP BY expression must not contain aggregate functions: " + expr.toSql());
+            }
+        }
+    }
+
+    private void checkVectorFunctionInFilter(LogicalFilter<? extends Plan> filter) {
+        for (Expression expr : filter.getConjuncts()) {
+            for (Expression child : expr.children()) {
+                if (child instanceof ApproxVectorDistanceFunc) {
+                    if (child.child(0) instanceof SlotReference && child.child(1) instanceof SlotReference) {
+                        // all are column names
+                        throw new AnalysisIllegalParamException("setVectorIndexOptions: invalid expr: " + expr);
+                    }
+                }
+            }
+            // check vector range
+            if ((expr.children().size() == 2) && expr.children().get(0) instanceof ApproxVectorDistanceFunc) {
+                ((ApproxVectorDistanceFunc) expr.children().get(0)).checkVectorRange(expr);
+            } else if ((expr.children().size() == 2) && expr.children().get(1) instanceof ApproxVectorDistanceFunc) {
+                ((ApproxVectorDistanceFunc) expr.children().get(1)).checkVectorRange(expr);
             }
         }
     }

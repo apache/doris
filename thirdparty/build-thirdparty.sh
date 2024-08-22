@@ -1778,8 +1778,62 @@ build_base64() {
     "${BUILD_SYSTEM}" install
 }
 
+# openmp
+build_openmp() {
+    check_if_source_exist $OPENMP_SOURCE
+    cd $TP_SOURCE_DIR/$OPENMP_SOURCE
+
+    mkdir -p $BUILD_DIR
+    cd $BUILD_DIR
+    rm -rf CMakeCache.txt CMakeFiles/
+    $CMAKE_CMD -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=${TP_INSTALL_DIR} \
+        -DCMAKE_INSTALL_DATAROOTDIR=${TP_INSTALL_DIR}/lib/cmake \
+        -DCMAKE_INSTALL_LIBDIR=lib \
+        -DCMAKE_CXX_COMPILER=clang++ \
+        -DCMAKE_C_COMPILER=clang \
+        -DLIBOMP_ENABLE_SHARED=OFF \
+        ..
+
+    make -j$PARALLEL
+    make install
+}
+
+# opencc
+build_opencc() {
+    check_if_source_exist $OPENCC_SOURCE
+    cd $TP_SOURCE_DIR/$OPENCC_SOURCE
+
+    mkdir -p $BUILD_DIR
+    cd $BUILD_DIR
+    rm -rf CMakeCache.txt CMakeFiles/
+    $CMAKE_CMD -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=${TP_INSTALL_DIR} \
+        -DCMAKE_INSTALL_DATAROOTDIR=${TP_INSTALL_DIR}/lib/cmake \
+        -DCMAKE_INSTALL_LIBDIR=lib \
+        -DCMAKE_CXX_COMPILER=clang++ \
+        -DCMAKE_C_COMPILER=clang \
+        -DBUILD_SHARED_LIBS=OFF \
+        ..
+
+    make -j$PARALLEL
+    make install
+}
+# mindann
+build_mindann() {
+    check_if_source_exist "${MINDANN_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${MINDANN_SOURCE}"
+    mkdir -p "${TP_INSTALL_DIR}/include"
+    mkdir -p "${TP_INSTALL_DIR}/lib64"
+    cp -r include/* "${TP_INSTALL_DIR}/include"
+    cp -r lib/* "${TP_INSTALL_DIR}/lib64"
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
+        openmp #must before mindann
+        mindann
+        opencc
         libunixodbc
         openssl
         libevent

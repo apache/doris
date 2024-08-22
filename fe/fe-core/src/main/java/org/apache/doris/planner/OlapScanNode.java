@@ -26,6 +26,7 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.PartitionNames;
@@ -37,6 +38,7 @@ import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.analysis.VectorIndexUtil;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Column;
@@ -65,6 +67,19 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ApproxCosineSimilarity;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ApproxInnerProduct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ApproxL2Distance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ApproxVectorDistanceFunc;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
@@ -104,6 +119,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -215,6 +231,27 @@ public class OlapScanNode extends ScanNode {
     private final PartitionPruneV2ForShortCircuitPlan cachedPartitionPruner =
                         new PartitionPruneV2ForShortCircuitPlan();
     PrepareStmt preparedStatment = null;
+
+    // index push down
+    private boolean topnIndexPushDown = false;
+    private long topnIndexPushDownLimit = -1;
+    private int topnIndexPushDownProjSlotOffset = -1;
+    private boolean topnIndexPushDownIsAsc = false;
+
+    // extra options for vector index query when topN node pushed down to scan
+    private boolean useVectorIndex;
+    private int k;
+    private List<String> queryVector;
+    private List<String> queryVectorId;
+    private String vectorDistanceColumnName;
+    private int vectorColumnId;
+    private int vectorSlotId;
+    private Map<String, String> queryParams;
+    private double vectorRange;
+    private int resultOrder;
+    private double pqRefineFactor; //1.0
+    private double kFactor; //1.0
+    private boolean useVectorRange;
 
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
@@ -750,17 +787,26 @@ public class OlapScanNode extends ScanNode {
         int useFixReplica = -1;
         boolean needCheckTags = false;
         boolean skipMissingVersion = false;
+        boolean useFixLoadBalanceReplica = false;
+        HashMap<Long, Long> tabletToLoadBalanceBe = new HashMap<>();
         if (ConnectContext.get() != null) {
             allowedTags = ConnectContext.get().getResourceTags();
             needCheckTags = ConnectContext.get().isResourceTagsSet();
             useFixReplica = ConnectContext.get().getSessionVariable().useFixReplica;
-            // if use_fix_replica is set to true, set skip_missing_version to false
-            skipMissingVersion = useFixReplica == -1 && ConnectContext.get().getSessionVariable().skipMissingVersion;
+            useFixLoadBalanceReplica = ConnectContext.get().getSessionVariable().useFixLoadBalanceReplica;
+            // if use_fix_replica or use_fix_load_balance_replica is set to true, set skip_missing_version to false
+            skipMissingVersion = (!useFixLoadBalanceReplica && useFixReplica == -1)
+                            && ConnectContext.get().getSessionVariable().skipMissingVersion;
             if (LOG.isDebugEnabled()) {
                 LOG.debug("query id: {}, partition id:{} visibleVersion: {}",
                         DebugUtil.printId(ConnectContext.get().queryId()), partition.getId(), visibleVersion);
             }
         }
+
+        if (useFixLoadBalanceReplica) {
+            selectLoadBalanceBeForTablets(tablets, partition, skipMissingVersion, tabletToLoadBalanceBe);
+        }
+
         for (Tablet tablet : tablets) {
             long tabletId = tablet.getId();
             if (skipMissingVersion) {
@@ -803,14 +849,14 @@ public class OlapScanNode extends ScanNode {
                 throw new UserException(sb.toString());
             }
 
-            if (useFixReplica <= -1) {
+            if (!useFixLoadBalanceReplica && useFixReplica <= -1) {
                 if (skipMissingVersion) {
                     // sort by replica's last success version, higher success version in the front.
                     replicas.sort(Replica.LAST_SUCCESS_VERSION_COMPARATOR);
                 } else {
                     Collections.shuffle(replicas);
                 }
-            } else {
+            } else if (useFixReplica >= 0) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("use fix replica, value: {}, replica count: {}", useFixReplica, replicas.size());
                 }
@@ -834,6 +880,22 @@ public class OlapScanNode extends ScanNode {
                     replicas.clear();
                     replicas.add(replica);
                 }
+            } else {
+                long selectedBeId = tabletToLoadBalanceBe.getOrDefault(tabletId, (long) -1);
+                if (selectedBeId != -1) {
+                    for (Replica replica : replicas) {
+                        if (replica.getBackendId() == selectedBeId) {
+                            Backend backend = Env.getCurrentSystemInfo().getBackend(selectedBeId);
+                            if (backend != null && backend.isAlive()) {
+                                // use adaptive replica
+                                replicas.clear();
+                                replicas.add(replica);
+                            }
+                            break;
+                        }
+                    }
+                }
+                // if not use adaptive backend, then use the sorted replicas
             }
 
             if (Config.enable_cooldown_replica_affinity) {
@@ -1522,6 +1584,39 @@ public class OlapScanNode extends ScanNode {
         if (shouldColoScan || SessionVariable.enablePipelineEngineX()) {
             msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
         }
+
+        // add extra options for vector index query
+        if (this.useVectorIndex) {
+            msg.olap_scan_node.setUseVectorIndex(true);
+            msg.olap_scan_node.setK(this.k);
+            msg.olap_scan_node.setQueryVector(this.queryVector);
+            msg.olap_scan_node.setVectorDistanceColumnName((this.vectorDistanceColumnName));
+            msg.olap_scan_node.setVectorColumnId(this.vectorColumnId);
+            msg.olap_scan_node.setVectorSlotId(this.vectorSlotId);
+            msg.olap_scan_node.setQueryParams((this.queryParams));
+            msg.olap_scan_node.setVectorRange(this.vectorRange);
+            msg.olap_scan_node.setResultOrder(this.resultOrder);
+            msg.olap_scan_node.setPqRefineFactor((this.pqRefineFactor));
+            msg.olap_scan_node.setKFactor(this.kFactor);
+            msg.olap_scan_node.setUseVectorRange(this.useVectorRange);
+            msg.olap_scan_node.setQueryVectorId(this.queryVectorId);
+        }
+        //TODO: this way will go to next_batch
+        // but may be in the future we can use sortinfo to go to topn_next in be to get better performance
+        if (topnIndexPushDown) {
+            msg.olap_scan_node.setTopnIndexPushDown(true);
+            msg.olap_scan_node.setTopnIndexPushDownIsAsc(topnIndexPushDownIsAsc);
+
+            if (topnIndexPushDownLimit != -1) {
+                msg.olap_scan_node.setTopnIndexPushDownLimit(topnIndexPushDownLimit);
+            }
+            if (topnIndexPushDownProjSlotOffset != -1) {
+                msg.olap_scan_node.setTopnIndexPushDownProjSlotOffset(topnIndexPushDownProjSlotOffset);
+            }
+
+            LOG.debug("topn index push down to olap scan node");
+        }
+
     }
 
     public void collectColumns(Analyzer analyzer, Set<String> equivalenceColumns, Set<String> unequivalenceColumns) {
@@ -1794,5 +1889,380 @@ public class OlapScanNode extends ScanNode {
     @Override
     public int numScanBackends() {
         return scanBackendIds.size();
+    }
+
+    private int getResultOrderByVectorIndex(Index idx) {
+        String metricType = idx.getProperties().get(VectorIndexUtil.VECTOR_INDEX_METRIC_TYPE_KEY);
+        if (metricType.equals(VectorIndexUtil.VECTOR_INDEX_METRIC_TYPE_COSINE_SIMILARITY)
+                || metricType.equals(VectorIndexUtil.VECTOR_INDEX_METRIC_TYPE_INNER_PRODUCT)) {
+            return 1;
+        }
+        return 0;
+    }
+
+    // topn scene
+    public void setVectorIndexOptions(SortNode sortNode) {
+        int resultOrder = 0;
+        for (Index idx : olapTable.getIndexes()) {
+            if (idx.getColumns().contains(sortNode.getVectorDistanceColumnName())
+                    && idx.getIndexType() == IndexDef.IndexType.VECTOR && !idx.isVectorIndexOnBuilding()) {
+                resultOrder = getResultOrderByVectorIndex(idx);
+            }
+        }
+        this.useVectorIndex = true;
+        this.k = sortNode.getLimit() <= 0 ? 0 : (int) sortNode.getLimit();
+        this.queryVector = sortNode.getVectorString();
+        this.queryVectorId = sortNode.getVectorIdString();
+        this.vectorDistanceColumnName = sortNode.getVectorDistanceColumnName();
+        this.vectorColumnId = sortNode.getVectorDistanceColumnID();
+        this.vectorSlotId = 0;
+        this.queryParams = new HashMap<>();
+        this.vectorRange = 0;  // topn node: 0
+        this.useVectorRange = false;
+        this.resultOrder = resultOrder;
+        this.pqRefineFactor = Config.vector_index_pq_refine_factor;
+        this.kFactor = Config.vector_index_k_factor;
+        LOG.debug("set USE_VECTOR_INDEX to true");
+    }
+
+    // filter scene
+    public void setVectorIndexOptions(Set<Expression> conjuncts) {
+        boolean useVectorIndex = false;
+        String columnName = "";
+        int columnID = 0;
+        int resultOrder = 0;
+        double vectorRange = 0.0;
+        List<String> queryVector = new ArrayList<>();
+        List<String> queryVectorId = new ArrayList<>();
+        for (Expression expr : conjuncts) {
+            if (useVectorIndex) {
+                break;
+            }
+            for (Expression child : expr.children()) {
+                if (child instanceof ApproxVectorDistanceFunc) {
+                    // push down approx_l2_distance when symbol is "<" or "<=";
+                    // push down approx_cosine_similarity/approx_inner_product when symbol is ">" or ">=";
+                    if (child instanceof ApproxL2Distance
+                            && !(expr instanceof LessThan) && !(expr instanceof LessThanEqual)) {
+                        break;
+                    } else if ((child instanceof ApproxCosineSimilarity || child instanceof ApproxInnerProduct)
+                            && !(expr instanceof GreaterThan) && !(expr instanceof GreaterThanEqual)) {
+                        break;
+                    }
+
+                    if (child.child(0) instanceof SlotReference && child.child(1) instanceof ArrayLiteral) {
+                        SlotReference childLeft = (SlotReference) child.child(0);
+                        ArrayLiteral childRight = (ArrayLiteral) child.child(1);
+                        columnName = childLeft.getColumn().get().getName();
+                        columnID = childLeft.getColumn().get().getUniqueId();
+                        // check if column hit vector index && vector index is established
+                        boolean isHit = false;
+                        for (Index idx : olapTable.getIndexes()) {
+                            if (idx.getColumns().contains(columnName)
+                                    && idx.getIndexType() == IndexDef.IndexType.VECTOR
+                                    && !idx.isVectorIndexOnBuilding()) {
+                                // set resultOrder
+                                resultOrder = getResultOrderByVectorIndex(idx);
+                                isHit = true;
+                                break;
+                            }
+                        }
+                        if (!isHit) {
+                            break;
+                        }
+                        for (Literal value : childRight.getValue()) {
+                            queryVector.add(value.getStringValue());
+                        }
+                        useVectorIndex = true;
+                    } else if (child.child(1) instanceof SlotReference && child.child(0) instanceof ArrayLiteral) {
+                        SlotReference childRight = (SlotReference) child.child(1);
+                        ArrayLiteral childLeft = (ArrayLiteral) child.child(0);
+                        columnName = childRight.getColumn().get().getName();
+                        columnID = childRight.getColumn().get().getUniqueId();
+                        // check if column hit vector index && vector index is established
+                        boolean isHit = false;
+                        for (Index idx : olapTable.getIndexes()) {
+                            if (idx.getColumns().contains(columnName)
+                                    && idx.getIndexType() == IndexDef.IndexType.VECTOR
+                                    && !idx.isVectorIndexOnBuilding()) {
+                                // set resultOrder
+                                resultOrder = getResultOrderByVectorIndex(idx);
+                                isHit = true;
+                                break;
+                            }
+                        }
+                        if (!isHit) {
+                            break;
+                        }
+                        for (Literal value : childLeft.getValue()) {
+                            queryVector.add(value.getStringValue());
+                        }
+                        useVectorIndex = true;
+                    } else if (child.child(0) instanceof SlotReference && child.child(1) instanceof MapLiteral) {
+                        SlotReference childLeft = (SlotReference) child.child(0);
+                        MapLiteral childRight = (MapLiteral) child.child(1);
+                        columnName = childLeft.getColumn().get().getName();
+                        columnID = childLeft.getColumn().get().getUniqueId();
+                        // check if column hit vector index && vector index is established
+                        boolean isHit = false;
+                        for (Index idx : olapTable.getIndexes()) {
+                            if (idx.getColumns().contains(columnName)
+                                    && idx.getIndexType() == IndexDef.IndexType.VECTOR
+                                    && !idx.isVectorIndexOnBuilding()) {
+                                // set resultOrder
+                                resultOrder = getResultOrderByVectorIndex(idx);
+                                isHit = true;
+                                break;
+                            }
+                        }
+                        if (!isHit) {
+                            break;
+                        }
+                        List<List<Literal>> mapVal = childRight.getValue();
+                        List<Literal> keys = mapVal.get(0);
+                        List<Literal> values = mapVal.get(1);
+                        for (int k = 0; k < keys.size(); k++) {
+                            queryVectorId.add(keys.get(k).getStringValue());
+                            queryVector.add(values.get(k).getStringValue());
+                        }
+                        useVectorIndex = true;
+                    } else if (child.child(1) instanceof SlotReference && child.child(0) instanceof MapLiteral) {
+                        SlotReference childRight = (SlotReference) child.child(1);
+                        MapLiteral childLeft = (MapLiteral) child.child(0);
+                        columnName = childRight.getColumn().get().getName();
+                        columnID = childRight.getColumn().get().getUniqueId();
+                        // check if column hit vector index && vector index is established
+                        boolean isHit = false;
+                        for (Index idx : olapTable.getIndexes()) {
+                            if (idx.getColumns().contains(columnName)
+                                    && idx.getIndexType() == IndexDef.IndexType.VECTOR
+                                    && !idx.isVectorIndexOnBuilding()) {
+                                // set resultOrder
+                                resultOrder = getResultOrderByVectorIndex(idx);
+                                isHit = true;
+                                break;
+                            }
+                        }
+                        if (!isHit) {
+                            break;
+                        }
+                        List<List<Literal>> mapVal = childLeft.getValue();
+                        List<Literal> keys = mapVal.get(0);
+                        List<Literal> values = mapVal.get(1);
+                        for (int k = 0; k < keys.size(); k++) {
+                            queryVectorId.add(keys.get(k).getStringValue());
+                            queryVector.add(values.get(k).getStringValue());
+                        }
+                        useVectorIndex = true;
+                    }
+                } else {
+                    continue;
+                }
+
+                if (useVectorIndex && (expr instanceof LessThan || expr instanceof LessThanEqual)) {
+                    if (expr.child(0) instanceof ApproxL2Distance) {
+                        Literal v = (Literal) expr.child(1);
+                        vectorRange = v.getDouble();
+                    } else {
+                        Literal v = (Literal) expr.child(0);
+                        vectorRange = v.getDouble();
+                    }
+                }
+                if (useVectorIndex && (expr instanceof GreaterThan || expr instanceof GreaterThanEqual)) {
+                    if (expr.child(0) instanceof ApproxCosineSimilarity
+                            || expr.child(0) instanceof ApproxInnerProduct) {
+                        Literal v = (Literal) expr.child(1);
+                        vectorRange = v.getDouble();
+                    }
+                }
+            }
+        }
+
+        if (useVectorIndex) {
+            this.useVectorIndex = useVectorIndex;
+            this.k = Config.vector_index_k;
+            this.queryVector = queryVector;
+            this.queryVectorId = queryVectorId;
+            this.vectorDistanceColumnName = columnName;
+            this.vectorColumnId = columnID;
+            this.vectorSlotId = 0;
+            this.queryParams = new HashMap<>();
+            this.vectorRange = vectorRange;
+            this.useVectorRange = true;
+            this.resultOrder = resultOrder;
+            this.pqRefineFactor = Config.vector_index_pq_refine_factor;
+            this.kFactor = Config.vector_index_k_factor;
+            LOG.debug("set USE_VECTOR_INDEX to true; set USE_VECTOR_RANGE to true");
+        }
+
+    }
+
+    public boolean getTopnIndexPushDown() {
+        return topnIndexPushDown;
+    }
+
+    public void setTopnIndexPushDown(boolean topnIndexPushDown) {
+        this.topnIndexPushDown = topnIndexPushDown;
+    }
+
+    public void setTopnIndexPushDownIsAsc(boolean topnIndexPushDownIsAsc) {
+        this.topnIndexPushDownIsAsc = topnIndexPushDownIsAsc;
+    }
+
+    public void setTopnIndexPushDownProjSlotOffset(int slotOffset) {
+        this.topnIndexPushDownProjSlotOffset = slotOffset;
+    }
+
+    public void setTopnIndexPushDownLimit(long topnIndexPushDownLimit) {
+        this.topnIndexPushDownLimit = topnIndexPushDownLimit;
+    }
+
+    /**
+     * try to distribute tablet to fix backend load balanced
+     * <p>
+     *     <ui>Step 1 : collect tablets, bes info</ui>
+     *          <li> a. map backend to tablets which be contains: beToTablets </li>
+     *          <li> b. map tablet to backends which tablet has replica in: tabletToBackends </li>
+     *          <li> c. collect th list of backend which contains tablet need to be applied : beIdList </li>
+     *          <li> d. init tabletToLoadBalanceBe: it will map tablet to backend which tablet will be applied </li>
+     * </p>
+     * <p>
+     *     <ui>Step 2 : loop backend list</ui>
+     *          <li> a. sort backend list by the num of tablets each backend contains </li>
+     *          <li> b. select backend whose tablets num is smallest</li>
+     *          <li> c. sort the tablets this backend contains by tablet id</li>
+     *          <li> d. select the smallest tablet id and add (tablet id, be id) to tabletToLoadBalanceBe</li>
+     *          <li> e. remove the tablet selected from each backend which has the replica of this tablet </li>
+     *          <li> f. sort the rest backends and do Step 2.a ~ Step 2.e until each backend apply 1 tablet</li>
+     * </p>
+     * <p>
+     *     <ui>Step 3 : repeat the loop
+     *          <li> a. remove backends which has no rest tablets to be applyed</li>
+     *          <li> b. repeat Step 2 until all backends have no rest tablets => beIdList is empty</li>
+     * </p>
+     * */
+    public static void selectLoadBalanceBeForTablets(List<Tablet> tablets,
+                                                     Partition partition,
+                                                     boolean skipMissingVersion,
+                                                     HashMap<Long, Long> tabletToLoadBalanceBe) {
+        long visibleVersion = partition.getVisibleVersion();
+
+        // key : backend id  value: tablet ids that can be applyed to key
+        final HashMap<Long, List<Long>> beToTablets = new HashMap<>();
+        // key : tablet id  value: backend ids that key can apply to
+        HashMap<Long, List<Long>> tabletToBackends = new HashMap<>();
+        // backend id list
+        final List<Long> beIdList = new ArrayList<>();
+
+        for (Tablet tablet : tablets) {
+            long tabletId = tablet.getId();
+            if (skipMissingVersion) {
+                long tabletVersion = -1L;
+                for (Replica replica : tablet.getReplicas()) {
+                    if (replica.getVersion() > tabletVersion) {
+                        tabletVersion = replica.getVersion();
+                    }
+                }
+                if (tabletVersion != visibleVersion) {
+                    LOG.warn("tablet {} version {} is not equal to partition {} version {}",
+                            tabletId, tabletVersion, partition.getId(), visibleVersion);
+                    visibleVersion = tabletVersion;
+                }
+            }
+            // random shuffle List && only collect one copy
+            List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion, skipMissingVersion);
+            // init
+            replicas.forEach(replica -> {
+                long backendId = replica.getBackendId();
+                Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
+                if (backend != null && backend.isAlive()) {
+                    if (!beIdList.contains(backendId)) {
+                        beIdList.add(backendId);
+                    }
+
+                    List<Long> beTabletIds = beToTablets.getOrDefault(backendId, new ArrayList<>());
+                    if (!beTabletIds.contains(tabletId)) {
+                        beTabletIds.add(tabletId);
+                        beToTablets.put(backendId, beTabletIds);
+                    }
+
+                    List<Long> tabletBackendIds = tabletToBackends.getOrDefault(tabletId, new ArrayList<>());
+                    if (!tabletBackendIds.contains(backendId)) {
+                        tabletBackendIds.add(backendId);
+                        tabletToBackends.put(tabletId, tabletBackendIds);
+                    }
+                }
+            });
+        }
+        // apply tablet to be
+        while (!beIdList.isEmpty()) {
+            int i = 0;
+            int size = beIdList.size();
+            List<Long> beWithZeroTablet = new ArrayList<>();
+            //be id loop
+            while (i < size) {
+                List<Long> tmpBeIdList = beIdList.subList(i, size);
+                i++;
+                // sort be by the number of tablets that can be applyed in be
+                tmpBeIdList.sort(new Comparator<Long>() {
+                    @Override
+                    public int compare(Long a, Long b) {
+                        List<Long> listA = beToTablets.getOrDefault(a, new ArrayList<>());
+                        List<Long> listB = beToTablets.getOrDefault(b, new ArrayList<>());
+                        if (listA.size() == listB.size()) {
+                            // when num of tablets are same, sort by be id
+                            if (a < b) {
+                                return -1;
+                            } else if (a.equals(b)) {
+                                return 0;
+                            } else {
+                                return 1;
+                            }
+                        }
+                        return listA.size() - listB.size();
+                    }
+                });
+                // get be which has smallest account of tablets
+                long backendId = tmpBeIdList.get(0);
+                List<Long> beTabletIds = beToTablets.getOrDefault(backendId, new ArrayList<>());
+                if (beTabletIds.isEmpty()) {
+                    // if be has no tablet that need to be applyed, continue
+                    beWithZeroTablet.add(backendId);
+                    continue;
+                }
+                // sort tablet ids in this be
+                beTabletIds.sort(new Comparator<Long>() {
+                    @Override
+                    public int compare(Long a, Long b) {
+                        if (a < b) {
+                            return -1;
+                        } else if (a.equals(b)) {
+                            return 0;
+                        } else {
+                            return 1;
+                        }
+                    }
+                });
+                // be will choose the smallest tabletId
+                long tabletId = beTabletIds.get(0);
+                // put this tablet in this be
+                tabletToLoadBalanceBe.put(tabletId, backendId);
+
+                // remove this tabletId from bes which has it
+                List<Long> tabletBes = tabletToBackends.getOrDefault(tabletId, new ArrayList<>());
+                for (long tabletBe : tabletBes) {
+                    List<Long> beTablets = beToTablets.getOrDefault(tabletBe, new ArrayList<>());
+                    if (beTablets.contains(tabletId)) {
+                        beTablets.remove(tabletId);
+                        beToTablets.put(tabletBe, beTablets);
+                    }
+                }
+            }
+
+            // remove be from list
+            for (long backendId : beWithZeroTablet) {
+                beIdList.remove(backendId);
+            }
+        }
     }
 }

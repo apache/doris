@@ -76,6 +76,8 @@ public:
     IntCounter* clone_requests_failed = nullptr;
     IntCounter* alter_inverted_index_requests_total = nullptr;
     IntCounter* alter_inverted_index_requests_failed = nullptr;
+    IntCounter* alter_vector_index_requests_total = nullptr;
+    IntCounter* alter_vector_index_requests_failed = nullptr;
 
     IntCounter* finish_task_requests_total = nullptr;
     IntCounter* finish_task_requests_failed = nullptr;

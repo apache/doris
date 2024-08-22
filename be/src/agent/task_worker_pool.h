@@ -122,7 +122,7 @@ private:
     bool _signal {false};
 };
 
-void alter_inverted_index_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+void alter_index_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void check_consistency_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 

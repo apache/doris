@@ -279,6 +279,9 @@ namespace ErrorCode {
     E(INVERTED_INDEX_NOT_IMPLEMENTED, -6009, false);         \
     E(INVERTED_INDEX_COMPACTION_ERROR, -6010, false);        \
     E(INVERTED_INDEX_ANALYZER_ERROR, -6011, false);          \
+    E(VECTOR_INDEX_FILE_NOT_FOUND, -6012, false)             \
+    E(VECTOR_INDEX_MANN_ERROR, -6013, false)                 \
+    E(VECTOR_INDEX_INVALID_COLUMN_TYPE, -6014, false)        \
     E(KEY_NOT_FOUND, -7000, false);                          \
     E(KEY_ALREADY_EXISTS, -7001, false);                     \
     E(ENTRY_NOT_FOUND, -7002, false);

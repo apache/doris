@@ -147,6 +147,7 @@ private:
     Status _write_zone_map();
     Status _write_bitmap_index();
     Status _write_inverted_index();
+    Status _write_vector_index();
     Status _write_bloom_filter_index();
     Status _write_short_key_index();
     Status _write_primary_key_index();
@@ -192,6 +193,7 @@ private:
     // Not owned. owned by RowsetWriter
     io::FileWriter* _file_writer = nullptr;
     std::unique_ptr<InvertedIndexFileWriter> _inverted_index_file_writer;
+    std::unique_ptr<VectorIndexFileWriter> _vector_index_file_writer;
 
     SegmentFooterPB _footer;
     size_t _num_key_columns;

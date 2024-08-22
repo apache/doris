@@ -34,6 +34,7 @@
 #endif
 
 #include "olap/rowset/rowset_reader.h"
+#include "olap/tablet_index_stats_collector.h"
 #include "olap/tablet_reader.h"
 #include "vec/core/block.h"
 
@@ -49,6 +50,9 @@ class RuntimeProfile;
 namespace vectorized {
 
 class VCollectIterator {
+
+class LevelIterator;
+
 public:
     // Hold reader point to get reader params
     ~VCollectIterator();
@@ -90,6 +94,10 @@ public:
 private:
     // next for topn query
     Status _topn_next(Block* block);
+
+    bool _should_collect_tablet_index_stats() const;
+
+    Status _collect_tablet_index_stats_if_needed(LevelIterator* top_level_iterator);
 
     class BlockRowPosComparator {
     public:
@@ -150,6 +158,9 @@ private:
 
         virtual bool update_profile(RuntimeProfile* profile) = 0;
 
+        virtual Status collect_index_stats(
+                std::shared_ptr<index_stats::TabletIndexStatsCollectors>&
+                        tablet_index_stats_collectors) = 0;
     protected:
         const TabletSchema& _schema;
         IteratorRowRef _ref;
@@ -218,6 +229,8 @@ private:
 
         Status refresh_current_row();
 
+        Status collect_index_stats(std::shared_ptr<index_stats::TabletIndexStatsCollectors>&
+                                           tablet_index_stats_collectors) override;
     private:
         Status _next_by_ref(IteratorRowRef* ref);
 
@@ -298,6 +311,8 @@ private:
 
         void init_level0_iterators_for_union();
 
+        Status collect_index_stats(std::shared_ptr<index_stats::TabletIndexStatsCollectors>&
+                                                  tablet_index_stats_collectors) override;
     private:
         Status _merge_next(IteratorRowRef* ref);
 
@@ -349,6 +364,9 @@ private:
     TabletReader* _reader = nullptr;
 
     bool _skip_same;
+
+    std::shared_ptr<index_stats::TabletIndexStatsCollectors> _tablet_index_stats_collectors;
+    bool _tablet_index_stats_collected = false;
 };
 
 } // namespace vectorized

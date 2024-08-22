@@ -92,6 +92,8 @@ struct RowsetWriterContext {
     bool enable_unique_key_merge_on_write = false;
     // store column_unique_id to skip write inverted index
     std::set<int32_t> skip_inverted_index;
+    // store column_unique_id to skip write vector index
+    std::set<int32_t> skip_vector_index;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
     BaseTabletSPtr tablet = nullptr;
 

@@ -39,6 +39,7 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
+#include "olap/virtual_proj_col.h"
 #include "runtime/task_execution_context.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
@@ -646,7 +647,6 @@ public:
     vectorized::ColumnInt64* partial_update_auto_inc_column() {
         return _partial_update_auto_inc_column;
     };
-
 private:
     Status create_error_log_file();
 

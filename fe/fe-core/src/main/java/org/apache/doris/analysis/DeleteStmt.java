@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
@@ -225,6 +226,20 @@ public class DeleteStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(), tableName.getDb() + ": " + tableName.getTbl());
+        }
+        // check if table has both duplicate key and vector index
+        if (targetTableRef.getTable() instanceof OlapTable) {
+            OlapTable table = (OlapTable) targetTableRef.getTable();
+            if (table.getKeysType() == KeysType.DUP_KEYS) {
+                for (Index idx : table.getIndexes()) {
+                    if (idx.getIndexType() == IndexDef.IndexType.VECTOR
+                            && !analyzer.getContext().getSessionVariable()
+                            .isEnableDeleteForDuplicateTableWithVectorIndex()
+                            && !Config.enable_delete_for_duplicate_table_with_vector_index) {
+                        throw new AnalysisException("can not do delete op on duplicate table which has vector index.");
+                    }
+                }
+            }
         }
 
         // step2: resolve table name with catalog, only unique olap table could be updated with using

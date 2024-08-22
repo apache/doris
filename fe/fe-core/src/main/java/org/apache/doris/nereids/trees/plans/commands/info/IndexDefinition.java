@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.InvertedIndexUtil;
+import org.apache.doris.analysis.VectorIndexUtil;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
@@ -27,12 +29,15 @@ import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -74,6 +79,10 @@ public class IndexDefinition {
                     this.indexType = IndexType.NGRAM_BF;
                     break;
                 }
+                case "VECTOR": {
+                    this.indexType = IndexType.VECTOR;
+                    break;
+                }
                 default:
                     throw new AnalysisException("unknown index type " + indexTypeName);
             }
@@ -97,7 +106,8 @@ public class IndexDefinition {
     public void checkColumn(ColumnDefinition column, KeysType keysType,
             boolean enableUniqueKeyMergeOnWrite) throws AnalysisException {
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED
-                || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF) {
+                || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF
+                || indexType == IndexType.VECTOR) {
             String indexColName = column.getName();
             caseSensitivityCols.add(indexColName);
             DataType colType = column.getType();
@@ -106,7 +116,8 @@ public class IndexDefinition {
             }
             if (!(colType.isDateLikeType() || colType.isDecimalLikeType()
                     || colType.isIntegralType() || colType.isStringLikeType()
-                    || colType.isBooleanType() || colType.isVariantType() || colType.isIPType())) {
+                    || colType.isBooleanType() || colType.isVariantType()
+                    || colType.isIPType() || colType.isArrayType() || colType.isMapType())) {
                 // TODO add colType.isAggState()
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
                         + " index. " + "invalid index: " + name);
@@ -132,6 +143,33 @@ public class IndexDefinition {
                             colType.toCatalogDataType().getPrimitiveType(), properties);
                 } catch (Exception ex) {
                     throw new AnalysisException("invalid INVERTED index:" + ex.getMessage(), ex);
+                }
+            } else if (indexType == IndexType.VECTOR) {
+                if (!colType.isArrayType() && !colType.isMapType()) {
+                    throw new AnalysisException("vector index only support array and type column. "
+                                                    + "invalid column: " + indexColName);
+                }
+                int expectIndexFamily = 0;
+                if (colType instanceof ArrayType) {
+                    colType = ((ArrayType) colType).getItemType();
+                    if (!colType.isFloatType()) {
+                        throw new AnalysisException("vector index only support float type item in array type column. "
+                            + "invalid column: " + indexColName);
+                    }
+                    expectIndexFamily = VectorIndexUtil.INDEX_FAMILY_FAISS;
+                } else {
+                    DataType keyColType = ((MapType) colType).getKeyType();
+                    DataType valueColType = ((MapType) colType).getValueType();
+                    if (!keyColType.isIntegerType() || !valueColType.isFloatType()) {
+                        throw new AnalysisException("vector index only support <int, float> type item in"
+                            + "map type column. invalid column: " + indexColName);
+                    }
+                    expectIndexFamily = VectorIndexUtil.INDEX_FAMILY_SPARSE;
+                }
+                try {
+                    VectorIndexUtil.checkIndexProperties(properties, expectIndexFamily);
+                } catch (Exception ex) {
+                    throw new AnalysisException("invalid VECTOR index:" + ex.getMessage(), ex);
                 }
             } else if (indexType == IndexType.NGRAM_BF) {
                 if (!colType.isStringLikeType()) {
@@ -216,5 +254,11 @@ public class IndexDefinition {
     public Index translateToCatalogStyle() {
         return new Index(Env.getCurrentEnv().getNextId(), name, cols, indexType, properties,
                 comment);
+    }
+
+    public static IndexDefinition newDeleteSignIndex() {
+        return new IndexDefinition(Index.DELETE_SIGN_INDEX,
+                new ArrayList<>(Collections.singletonList(Column.DELETE_SIGN)), "BITMAP", null,
+            "delete sign index");
     }
 }

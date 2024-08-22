@@ -57,6 +57,10 @@ public:
         return false;
     }
 
+    Status collect_index_stats(
+            std::shared_ptr<index_stats::TabletIndexStatsCollectors>& tablet_index_stats_collectors,
+            doris::StorageReadOptions& read_options) override;
+
 private:
     bool _need_lazy_init {true};
     SchemaSPtr _schema = nullptr;

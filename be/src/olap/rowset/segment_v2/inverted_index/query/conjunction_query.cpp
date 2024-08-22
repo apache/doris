@@ -43,14 +43,21 @@ void ConjunctionQuery::add(const std::wstring& field_name, const std::vector<std
         _CLTHROWA(CL_ERR_IllegalArgument, "ConjunctionQuery::add: terms empty");
     }
 
-    std::vector<TermIterator> iterators;
-    for (const auto& term : terms) {
+    std::vector<DocTermIterator> iterators;
+    bool pre_searched = !_term_docs.empty();
+    _field_name = field_name;
+
+    for (size_t i = 0; i < terms.size(); i++) {
+        const auto& term = terms[i];
         std::wstring ws_term = StringUtil::string_to_wstring(term);
         Term* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
         _terms.push_back(t);
-        TermDocs* term_doc = _searcher->getReader()->termDocs(t);
-        _term_docs.push_back(term_doc);
-        iterators.emplace_back(term_doc);
+        TermDocs* term_doc =
+                pre_searched ? _term_docs[i] : _searcher->getReader()->termDocs(t);
+        if (!pre_searched) {
+            _term_docs.push_back(term_doc);
+        }
+        iterators.emplace_back(term_doc, term);
     }
 
     std::sort(iterators.begin(), iterators.end(), [](const TermIterator& a, const TermIterator& b) {
@@ -81,24 +88,87 @@ void ConjunctionQuery::search(roaring::Roaring& roaring) {
         return;
     }
 
+    index_stats::FullTextSimilarityCollector* full_text_similarity_collector = nullptr;
+
+    if (_tablet_index_stats_collectors) {
+        full_text_similarity_collector = dynamic_cast<index_stats::FullTextSimilarityCollector*>(
+                _tablet_index_stats_collectors
+                        ->get_tablet_index_stats_collector_by_name(
+                                index_stats::FULL_TEXT_SIMILARITY_STATS_COLLECTOR)
+                        .get());
+        if (UNLIKELY(!full_text_similarity_collector)) {
+            _CLTHROWA(CL_ERR_IllegalArgument,
+                      "DisjunctionQuery::search: FullTextSimilarityCollector is null");
+        }
+    }
+
     if (!_use_skip) {
-        search_by_bitmap(roaring);
+        search_by_bitmap(roaring, full_text_similarity_collector);
         return;
     }
 
-    search_by_skiplist(roaring);
+    search_by_skiplist(roaring, full_text_similarity_collector);
 }
 
-void ConjunctionQuery::search_by_bitmap(roaring::Roaring& roaring) {
+void ConjunctionQuery::search_by_bitmap(roaring::Roaring& roaring,
+    index_stats::FullTextSimilarityCollector* full_text_similarity_collector) {
     // can get a term of all docid
-    auto func = [&roaring](const TermIterator& term_docs, bool first) {
+    auto func = [this, &roaring, &full_text_similarity_collector](
+                        const DocTermIterator& term_docs, bool first) {
         roaring::Roaring result;
         DocRange doc_range;
+        const float idf =
+                _bm25_v_proj_col_iters
+                        ? full_text_similarity_collector->get_or_calculate_idf(_field_name, term_docs.term())
+                        : 0;
+        const float avg_dl =
+                _bm25_v_proj_col_iters
+                        ? full_text_similarity_collector->get_or_calculate_avg_dl(_field_name)
+                        : 0;
+
         while (term_docs.readRange(&doc_range)) {
             if (doc_range.type_ == DocRangeType::kMany) {
                 result.addMany(doc_range.doc_many_size_, doc_range.doc_many->data());
+                if (_bm25_v_proj_col_iters) {
+                    CHECK_EQ(doc_range.doc_many_size_, doc_range.freq_many_size_);
+                    for (size_t i = 0; i < doc_range.doc_many_size_; i++) {
+                        segment_v2::rowid_t row_id = (*doc_range.doc_many)[i];
+                        if (first || roaring.contains(row_id)) {
+                            std::for_each(
+                                    _bm25_v_proj_col_iters->begin(), _bm25_v_proj_col_iters->end(),
+                                    [&](auto& iter) {
+                                        iter->cal_and_add_bm25_score(
+                                                row_id,
+                                                (*doc_range.freq_many)[i],
+                                                (*doc_range.norm_many)[i],
+                                                idf,
+                                                avg_dl);
+                                    });
+                        }
+                    }
+                }
             } else {
                 result.addRange(doc_range.doc_range.first, doc_range.doc_range.second);
+                if (_bm25_v_proj_col_iters) {
+                    const uint32_t docs_size =
+                            doc_range.doc_range.second - doc_range.doc_range.first;
+                    CHECK_EQ(docs_size, doc_range.freq_many_size_);
+                    for (uint32_t i = 0; i < docs_size; i++) {
+                        segment_v2::rowid_t row_id = doc_range.doc_range.first + i;
+                        if (first || roaring.contains(row_id)) {
+                            std::for_each(
+                                    _bm25_v_proj_col_iters->begin(), _bm25_v_proj_col_iters->end(),
+                                    [&](auto& iter) {
+                                        iter->cal_and_add_bm25_score(
+                                                row_id,
+                                                (*doc_range.freq_many)[i],
+                                                (*doc_range.norm_many)[i],
+                                                idf,
+                                                avg_dl);
+                                    });
+                        }
+                    }
+                }
             }
         }
         if (first) {
@@ -122,10 +192,57 @@ void ConjunctionQuery::search_by_bitmap(roaring::Roaring& roaring) {
     }
 }
 
-void ConjunctionQuery::search_by_skiplist(roaring::Roaring& roaring) {
+void ConjunctionQuery::search_by_skiplist(roaring::Roaring& roaring,
+    index_stats::FullTextSimilarityCollector* full_text_similarity_collector) {
     int32_t doc = 0;
+    const float avg_dl =
+            _bm25_v_proj_col_iters
+                    ? full_text_similarity_collector->get_or_calculate_avg_dl(_field_name)
+                    : 0;
     while ((doc = do_next(_lead1.nextDoc())) != INT32_MAX) {
         roaring.add(doc);
+        // All TermIterators now refer to the same rowId, proceed to calculate BM25.
+        if (_bm25_v_proj_col_iters) {
+            std::for_each(_bm25_v_proj_col_iters->begin(), _bm25_v_proj_col_iters->end(),
+                          [&](auto& iter) {
+                              iter->cal_and_add_bm25_score(
+                                      doc,
+                                      _lead1.freq(),
+                                      _lead1.norm(),
+                                      full_text_similarity_collector->get_or_calculate_idf(
+                                              _field_name, _lead1.term()),
+                                      avg_dl);
+                          });
+
+            if (!_lead2.isEmpty()) {
+                std::for_each(_bm25_v_proj_col_iters->begin(), _bm25_v_proj_col_iters->end(),
+                              [&](auto& iter) {
+                                  iter->cal_and_add_bm25_score(
+                                          doc,
+                                          _lead2.freq(),
+                                          _lead2.norm(),
+                                          full_text_similarity_collector->get_or_calculate_idf(
+                                                  _field_name, _lead2.term()),
+                                          avg_dl);
+                              });
+            }
+
+            for (auto& other : _others) {
+                if (other.isEmpty()) {
+                    continue;
+                }
+                std::for_each(_bm25_v_proj_col_iters->begin(), _bm25_v_proj_col_iters->end(),
+                              [&](auto& iter) {
+                                  iter->cal_and_add_bm25_score(
+                                          doc,
+                                          other.freq(),
+                                          other.norm(),
+                                          full_text_similarity_collector->get_or_calculate_idf(
+                                                  _field_name, other.term()),
+                                          avg_dl);
+                              });
+            }
+        }
     }
 }
 
@@ -164,6 +281,32 @@ int32_t ConjunctionQuery::do_next(int32_t doc) {
 
         return doc;
     }
+}
+
+void ConjunctionQuery::pre_search(
+        const InvertedIndexQueryInfo& query_info) {
+    if (!query_info.tablet_index_stats_collectors) {
+        throw doris::Exception(ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS,
+            "tablet_index_stats_collectors is null");
+    }
+
+    index_stats::SegmentColIndexStats stats;
+    stats.full_segment_id = query_info.full_segment_id;
+    stats.lucene_col_name = &query_info.field_name;
+    _term_docs.reserve(query_info.terms.size());
+
+    stats.total_term_cnt += _searcher->sumTotalTermFreq(query_info.field_name.c_str()).value_or(0);
+
+    for (const auto& term : query_info.terms) {
+        std::wstring ws_term = StringUtil::string_to_wstring(term);
+        auto term_ptr =
+                CLuceneUniquePtr<Term>(_CLNEW Term(query_info.field_name.c_str(), ws_term.c_str()));
+        TermDocs* term_docs = _searcher->getReader()->termDocs(term_ptr.get(), true);
+        _term_docs.emplace_back(term_docs);
+        stats.term_doc_freqs[term] += term_docs->docFreq();
+    }
+
+    query_info.tablet_index_stats_collectors->collect(stats);
 }
 
 } // namespace doris::segment_v2

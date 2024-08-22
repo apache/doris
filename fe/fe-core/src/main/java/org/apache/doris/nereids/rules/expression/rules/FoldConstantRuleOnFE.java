@@ -21,6 +21,7 @@ import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.AnalysisIllegalParamException;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionListenerMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionMatchingContext;
@@ -432,6 +433,9 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 castResult = rewrite(castResult, context);
             }
             return castResult;
+        } catch (AnalysisIllegalParamException e) {
+            // illegal param exception need to be throw out
+            throw e;
         } catch (Throwable t) {
             return cast;
         }

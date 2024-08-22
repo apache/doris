@@ -1073,6 +1073,17 @@ DECLARE_String(inverted_index_query_cache_limit);
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
 DECLARE_mInt32(inverted_index_max_buffered_docs);
+
+// vector index
+// Enable caching index blocks for IVF-family vector indexes
+DECLARE_mBool(enable_vector_index_block_cache);
+// concurrency of building index
+DECLARE_mInt32(config_vector_index_build_concurrency);
+// Used by vector query cache, 500MB in default
+DECLARE_Int64(vector_index_query_cache_capacity);
+// Determine whether the vector index should execute or not by remaining row nums.
+DECLARE_mInt64(vector_index_short_circuit_count);
+
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);

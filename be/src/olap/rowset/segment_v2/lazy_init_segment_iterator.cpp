@@ -35,4 +35,11 @@ Status LazyInitSegmentIterator::init(const StorageReadOptions& /*opts*/) {
     return _inner_iterator->init(_read_options);
 }
 
+Status LazyInitSegmentIterator::collect_index_stats(
+        std::shared_ptr<index_stats::TabletIndexStatsCollectors>& tablet_index_stats_collectors,
+        doris::StorageReadOptions& read_options) {
+    RETURN_IF_ERROR(init(read_options));
+    return _inner_iterator->collect_index_stats(tablet_index_stats_collectors, read_options);
+}
+
 } // namespace doris::segment_v2

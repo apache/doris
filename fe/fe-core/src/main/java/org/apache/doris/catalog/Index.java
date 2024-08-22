@@ -51,6 +51,7 @@ import java.util.Set;
  */
 public class Index implements Writable {
     public static final int INDEX_ID_INIT_VALUE = -1;
+    public static final String DELETE_SIGN_INDEX = "__DORIS_DELETE_SIGN_INDEX__";
 
     @SerializedName(value = "indexId")
     private long indexId = -1; // -1 for compatibale
@@ -64,6 +65,10 @@ public class Index implements Writable {
     private Map<String, String> properties;
     @SerializedName(value = "comment")
     private String comment;
+    // This field being false means that the vector index has not been fully established
+    // and the query will not be pushed down.
+    @SerializedName(value = "vectorIndexOnBuilding")
+    private boolean vectorIndexOnBuilding;
 
     public Index(long indexId, String indexName, List<String> columns,
             IndexDef.IndexType indexType, Map<String, String> properties, String comment) {
@@ -136,6 +141,14 @@ public class Index implements Writable {
 
     public void setProperties(Map<String, String> properties) {
         this.properties = properties;
+    }
+
+    public boolean isVectorIndexOnBuilding() {
+        return vectorIndexOnBuilding;
+    }
+
+    public void setVectorIndexOnBuilding(boolean vectorIndexOnBuilding) {
+        this.vectorIndexOnBuilding = vectorIndexOnBuilding;
     }
 
     public String getPropertiesString() {

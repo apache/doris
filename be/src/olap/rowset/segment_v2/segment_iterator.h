@@ -68,6 +68,7 @@ namespace segment_v2 {
 class BitmapIndexIterator;
 class ColumnIterator;
 class InvertedIndexIterator;
+class VectorIndexIterator;
 class RowRanges;
 
 struct ColumnPredicateInfo {
@@ -142,6 +143,14 @@ public:
         return updated;
     }
 
+    Status _unfold_vector_distance_column(std::vector<uint8_t>* result_distances,
+                                          vectorized::ColumnPtr& vector_column_iterator);
+    Status _init_vector_index_reader();
+
+    Status collect_index_stats(
+            std::shared_ptr<index_stats::TabletIndexStatsCollectors>& tablet_index_stats_collectors,
+            doris::StorageReadOptions& read_options) override;
+
 private:
     Status _next_batch_internal(vectorized::Block* block);
 
@@ -164,6 +173,8 @@ private:
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_bitmap_index_iterators();
     [[nodiscard]] Status _init_inverted_index_iterators();
+    [[nodiscard]] Status _init_vector_index_iterators();
+    [[nodiscard]] Status _init_v_proj_cols_iterators();
 
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
@@ -182,6 +193,10 @@ private:
     // calculate row ranges that satisfy requested column conditions using various column index
     [[nodiscard]] Status _get_row_ranges_by_column_conditions();
     [[nodiscard]] Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
+    [[nodiscard]] Status _remove_target_expr_match_vector_range_search();
+    [[nodiscard]] Status _get_row_ranges_by_vector_index();
+    [[nodiscard]] Status _maybe_get_row_ranges_by_topn_bm25();
+    [[nodiscard]] Status _get_row_ranges_by_row_ids(std::vector<int64_t>* result_ids, RowRanges* r);
     [[nodiscard]] Status _apply_bitmap_index();
     [[nodiscard]] Status _apply_inverted_index();
     [[nodiscard]] Status _apply_inverted_index_on_column_predicate(
@@ -251,7 +266,7 @@ private:
             //      `select b from table;`
             // a column only effective in segment iterator, the block from query engine only contain the b column.
             // so the `block_cid >= data.size()` is true
-            if (block_cid >= block->columns()) {
+            if (block_cid >= _normal_columns_size) {
                 continue;
             }
             vectorized::DataTypePtr storage_type = _segment->get_data_type_of(
@@ -299,6 +314,19 @@ private:
                                     const roaring::Roaring& index_result);
     void _output_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
                                      vectorized::Block* block);
+
+    Status _output_all_v_proj_cols(vectorized::Block* block);
+
+    Status _read_v_proj_cols_in_predicate(const std::vector<rowid_t>& row_ids, const size_t nrows_read);
+
+    Status _output_v_proj_cols_in_predicate(vectorized::Block* block, uint16_t* sel_rowid_idx,
+                                            uint16_t select_size);
+    Status _read_v_proj_cols_in_project(const std::vector<rowid_t>& row_ids,
+                                        const uint16_t* sel_rowid_idx,
+                                        const uint16_t select_size);
+    Status _output_v_proj_cols_in_project(vectorized::Block* block);
+    Status _output_v_proj_col(vectorized::Block* block, const size_t v_col_id,
+                              const size_t v_col_idx);
 
     bool _need_read_data(ColumnId cid);
     bool _prune_column(ColumnId cid, vectorized::MutableColumnPtr& column, bool fill_defaults,
@@ -387,6 +415,8 @@ private:
 
     bool _can_opt_topn_reads() const;
 
+    bool _is_match_predicate_on_fulltext_index(ColumnPredicate* predicate);
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -399,6 +429,7 @@ private:
     std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
     std::vector<std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;
     std::vector<std::unique_ptr<InvertedIndexIterator>> _inverted_index_iterators;
+    std::vector<std::unique_ptr<VectorIndexIterator>> _vector_index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
     // "column_name+operator+value-> <in_compound_query, rowid_result>
@@ -493,6 +524,41 @@ private:
     std::set<int32_t> _output_columns;
 
     std::unique_ptr<HierarchicalDataReader> _path_reader;
+
+    // vector index params
+    int64_t _k;
+    bool _use_vector_index;
+    std::string _vector_distance_column_name;
+    int _vector_column_id;  //column_unique_id
+    SlotId _vector_slot_id;
+    std::unordered_map<rowid_t, float> _id2distance_map;
+//    std::vector<rowid_t> _first_rowids;
+    std::map<std::string, std::string> _query_params;
+    double _vector_range;
+    int _result_order;
+    bool _use_vector_range;
+    int _vector_cid = -1; //cid
+
+    std::vector<int32_t> _int_query_vector_id;
+    std::vector<float> _float_query_vector;
+//    std::vector<uint8_t> _filter_selection;
+//    std::vector<uint8_t> _filter_by_expr_selection;
+
+    // For projection pushdown optimization.
+    size_t _virtual_proj_cols_size = 0;
+    bool _has_non_predicate_v_proj_cols = false;
+    v_proj::PushdownFuncDescs _pd_func_descs;
+    vectorized::MutableColumns _return_virtual_proj_cols;
+    // some calculate need use normal columns size without virutal_pro_cols;
+    // for example:
+    // function _output_column_by_sel_idx use block_cid compare with block normal column size
+    size_t _normal_columns_size;
+
+    // topn index push down
+    std::shared_ptr<vectorized::TopnIndexPushDownParams> _topn_index_push_down_params;
+
+    Status _init_reader_from_file(const std::string& index_path,
+                                  const std::shared_ptr<TabletIndex>& tablet_index_meta);
 };
 
 } // namespace segment_v2

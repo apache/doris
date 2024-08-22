@@ -26,6 +26,7 @@ import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Generic tree structure. Only concrete subclasses of this can be instantiated.
@@ -235,6 +236,16 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
             }
         }
         return null;
+    }
+
+    public <D extends NodeType> void visitIfMatch(
+            Predicate<NodeType> predicate, Consumer<D> consumer) {
+        if (predicate.apply((NodeType) this)) {
+            consumer.accept((D) this);
+        }
+        for (NodeType child : children) {
+            child.visitIfMatch(predicate, consumer);
+        }
     }
 
 }

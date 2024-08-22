@@ -78,6 +78,13 @@ public class SortNode extends PlanNode {
 
     private ArrayList<Boolean> nullabilityChangedFlags = Lists.newArrayList();
 
+    // only for topN push down to scan opt
+    private boolean useVectorIndex = false;
+    private String vectorDistanceColumnName;
+    private int vectorDistanceColumnID;
+    private List<String> vectorString;
+    private List<String> vectorIdString;
+
     /**
      * Constructor.
      */
@@ -347,5 +354,45 @@ public class SortNode extends PlanNode {
 
     public void setColocate(boolean colocate) {
         isColocate = colocate;
+    }
+
+    public boolean isUseVectorIndex() {
+        return useVectorIndex;
+    }
+
+    public void setUseVectorIndex(boolean useVectorIndex) {
+        this.useVectorIndex = useVectorIndex;
+    }
+
+    public String getVectorDistanceColumnName() {
+        return vectorDistanceColumnName;
+    }
+
+    public void setVectorDistanceColumnName(String vectorDistanceColumnName) {
+        this.vectorDistanceColumnName = vectorDistanceColumnName;
+    }
+
+    public int getVectorDistanceColumnID() {
+        return vectorDistanceColumnID;
+    }
+
+    public void setVectorDistanceColumnID(int vectorDistanceColumnID) {
+        this.vectorDistanceColumnID = vectorDistanceColumnID;
+    }
+
+    public List<String> getVectorString() {
+        return vectorString;
+    }
+
+    public void setVectorString(List<String> vectorString) {
+        this.vectorString = vectorString;
+    }
+
+    public List<String> getVectorIdString() {
+        return vectorIdString;
+    }
+
+    public void setVectorIdString(List<String> vectorIdString) {
+        this.vectorIdString = vectorIdString;
     }
 }

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.qe.SessionVariable;
 
@@ -50,6 +51,9 @@ public interface ImplicitlyCastableSignature extends ComputeSignature {
             return true;
         }
         if (realType instanceof NullType) {
+            return true;
+        }
+        if ((signatureType instanceof ArrayType) && (realType instanceof CharacterType)) {
             return true;
         }
         if (signatureType instanceof ComplexDataType && !(realType instanceof ComplexDataType)) {

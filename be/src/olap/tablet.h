@@ -219,6 +219,8 @@ public:
 
     std::mutex& get_build_inverted_index_lock() { return _build_inverted_index_lock; }
 
+    std::mutex& get_build_vector_index_lock() { return _build_vector_index_lock; }
+
     // operation for compaction
     bool can_do_compaction(size_t path_hash, CompactionType compaction_type);
     uint32_t calc_compaction_score(
@@ -290,6 +292,8 @@ public:
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_build_inverted_index(
+            const std::set<int64_t>& alter_index_uids, bool is_drop_op);
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_build_vector_index(
             const std::set<int64_t>& alter_index_uids, bool is_drop_op);
 
     // used for single compaction to get the local versions
@@ -679,6 +683,7 @@ private:
     std::mutex _schema_change_lock;
     std::shared_timed_mutex _migration_lock;
     std::mutex _build_inverted_index_lock;
+    std::mutex _build_vector_index_lock;
 
     // In unique key table with MoW, we should guarantee that only one
     // writer can update rowset and delete bitmap at the same time.

@@ -17,6 +17,7 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.common.io.Text;
@@ -31,11 +32,12 @@ import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * PersistInfo for Table properties
  */
-public class TableAddOrDropInvertedIndicesInfo implements Writable {
+public class TableAddOrDropIndexIndicesInfo implements Writable {
     @SerializedName(value = "dbId")
     private long dbId;
     @SerializedName(value = "tableId")
@@ -46,6 +48,8 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
     private List<Index> indexes;
     @SerializedName(value = "alterInvertedIndexes")
     private List<Index> alterInvertedIndexes;
+    @SerializedName(value = "alterVectorIndexes")
+    private List<Index> alterVectorIndexes;
     @SerializedName(value = "isDropInvertedIndex")
     private boolean isDropInvertedIndex;
     @SerializedName(value = "jobId")
@@ -53,17 +57,20 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
     @SerializedName(value = "rawSql")
     private String rawSql;
 
-    public TableAddOrDropInvertedIndicesInfo(String rawSql, long dbId, long tableId,
-            Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes,
-            List<Index> alterInvertedIndexes, boolean isDropInvertedIndex,
-            long jobId) {
+    public TableAddOrDropIndexIndicesInfo(String rawSql, long dbId, long tableId,
+                                          Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes,
+                                          List<Index> alterIndexes, boolean isDropIndex,
+                                          long jobId) {
         this.rawSql = rawSql;
         this.dbId = dbId;
         this.tableId = tableId;
         this.indexSchemaMap = indexSchemaMap;
         this.indexes = indexes;
-        this.alterInvertedIndexes = alterInvertedIndexes;
-        this.isDropInvertedIndex = isDropInvertedIndex;
+        this.alterInvertedIndexes = alterIndexes.stream().filter(idx ->
+            idx.getIndexType() == IndexDef.IndexType.INVERTED).collect(Collectors.toList());
+        this.alterVectorIndexes = alterIndexes.stream().filter(idx ->
+            idx.getIndexType() == IndexDef.IndexType.VECTOR).collect(Collectors.toList());
+        this.isDropInvertedIndex = isDropIndex;
         this.jobId = jobId;
     }
 
@@ -87,6 +94,10 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
         return alterInvertedIndexes;
     }
 
+    public List<Index> getAlterVectorIndexes() {
+        return alterVectorIndexes;
+    }
+
     public boolean getIsDropInvertedIndex() {
         return isDropInvertedIndex;
     }
@@ -100,8 +111,8 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public static TableAddOrDropInvertedIndicesInfo read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), TableAddOrDropInvertedIndicesInfo.class);
+    public static TableAddOrDropIndexIndicesInfo read(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), TableAddOrDropIndexIndicesInfo.class);
     }
 
     @Override
@@ -110,11 +121,11 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
             return true;
         }
 
-        if (!(obj instanceof TableAddOrDropInvertedIndicesInfo)) {
+        if (!(obj instanceof TableAddOrDropIndexIndicesInfo)) {
             return false;
         }
 
-        TableAddOrDropInvertedIndicesInfo info = (TableAddOrDropInvertedIndicesInfo) obj;
+        TableAddOrDropIndexIndicesInfo info = (TableAddOrDropIndexIndicesInfo) obj;
 
         return (dbId == info.dbId && tableId == tableId
                 && indexSchemaMap.equals(info.indexSchemaMap)
@@ -132,6 +143,7 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
         sb.append(" indexSchemaMap: ").append(indexSchemaMap);
         sb.append(" indexes: ").append(indexes);
         sb.append(" alterInvertedIndexes: ").append(alterInvertedIndexes);
+        sb.append(" alterVectorIndexes: ").append(alterVectorIndexes);
         sb.append(" isDropInvertedIndex: ").append(isDropInvertedIndex);
         sb.append(" jobId: ").append(jobId);
         return sb.toString();

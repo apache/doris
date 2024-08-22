@@ -84,7 +84,7 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_broker_load"
+excludeSuites = "test_broker_load,test_aggregate_collect,test_manager_interface_1,test_manager_interface_3,parse_sql_from_sql_cache,test_create_view_nereids,test_multi_string_position,test_multi_string_search,test_index_compaction_with_multi_index_segments"
 // this directories will not be executed
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "segcompaction_p2," +

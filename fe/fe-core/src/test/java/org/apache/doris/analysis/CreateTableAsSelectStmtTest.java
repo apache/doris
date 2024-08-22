@@ -561,7 +561,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         Assertions.assertEquals(
                 "CREATE TABLE `test_use_key_type` (\n"
                         + "  `userId` VARCHAR(255) NOT NULL,\n"
-                        + "  `username` VARCHAR(255) NOT NULL\n"
+                        + "  `username` VARCHAR(255) NOT NULL,\n"
+                        + "  INDEX __DORIS_DELETE_SIGN_INDEX__ (`__DORIS_DELETE_SIGN__`) USING BITMAP COMMENT 'delete sign index'\n"
                         + ") ENGINE=OLAP\n"
                         + "UNIQUE KEY(`userId`)\n"
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"

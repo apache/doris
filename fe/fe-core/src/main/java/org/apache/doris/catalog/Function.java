@@ -179,6 +179,10 @@ public class Function implements Writable {
     }
 
     public Function(Function other) {
+        this(other, null);
+    }
+
+    public Function(Function other, List<Type> newArgTypes) {
         if (other == null) {
             return;
         }
@@ -191,11 +195,14 @@ public class Function implements Writable {
         this.vectorized = other.vectorized;
         this.binaryType = other.binaryType;
         this.location = other.location;
-        if (other.argTypes != null) {
+        this.checksum = other.checksum;
+
+        if (newArgTypes != null) {
+            this.argTypes = newArgTypes.toArray(new Type[newArgTypes.size()]);
+        } else {
             this.argTypes = new Type[other.argTypes.length];
             System.arraycopy(other.argTypes, 0, this.argTypes, 0, other.argTypes.length);
         }
-        this.checksum = other.checksum;
     }
 
     public void setNestedFunction(Function nestedFunction) {
@@ -208,6 +215,10 @@ public class Function implements Writable {
 
     public Function clone() {
         return new Function(this);
+    }
+
+    public Function clone(List<Type> newArgTypes) {
+        return new Function(this, newArgTypes);
     }
 
     public FunctionName getFunctionName() {

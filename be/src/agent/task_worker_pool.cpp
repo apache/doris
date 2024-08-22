@@ -339,7 +339,7 @@ void _submit_task(const TAgentTaskRequest& task,
 
 bvar::LatencyRecorder g_publish_version_latency("doris_pk", "publish_version");
 
-bvar::Adder<uint64_t> ALTER_INVERTED_INDEX_count("task", "ALTER_INVERTED_INDEX");
+bvar::Adder<uint64_t> ALTER_INDEX_count("task", "ALTER_INDEX");
 bvar::Adder<uint64_t> CHECK_CONSISTENCY_count("task", "CHECK_CONSISTENCY");
 bvar::Adder<uint64_t> UPLOAD_count("task", "UPLOAD");
 bvar::Adder<uint64_t> DOWNLOAD_count("task", "DOWNLOAD");
@@ -369,7 +369,7 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
     case TTaskType::type:        \
         type##_count << n;       \
         return;
-    ADD_TASK_COUNT(ALTER_INVERTED_INDEX)
+    ADD_TASK_COUNT(ALTER_INDEX)
     ADD_TASK_COUNT(CHECK_CONSISTENCY)
     ADD_TASK_COUNT(UPLOAD)
     ADD_TASK_COUNT(DOWNLOAD)
@@ -631,20 +631,20 @@ void ReportWorker::stop() {
     }
 }
 
-void alter_inverted_index_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
-    const auto& alter_inverted_index_rq = req.alter_inverted_index_req;
+void alter_index_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
+    const auto& alter_index_rq = req.alter_index_req;
     LOG(INFO) << "get alter inverted index task. signature=" << req.signature
-              << ", tablet_id=" << alter_inverted_index_rq.tablet_id
-              << ", job_id=" << alter_inverted_index_rq.job_id;
+              << ", tablet_id=" << alter_index_rq.tablet_id
+              << ", job_id=" << alter_index_rq.job_id;
 
     Status status = Status::OK();
-    auto tablet_ptr = engine.tablet_manager()->get_tablet(alter_inverted_index_rq.tablet_id);
+    auto tablet_ptr = engine.tablet_manager()->get_tablet(alter_index_rq.tablet_id);
     if (tablet_ptr != nullptr) {
-        EngineIndexChangeTask engine_task(alter_inverted_index_rq);
+        EngineIndexChangeTask engine_task(alter_index_rq);
         SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
     } else {
-        status = Status::NotFound("could not find tablet {}", alter_inverted_index_rq.tablet_id);
+        status = Status::NotFound("could not find tablet {}", alter_index_rq.tablet_id);
     }
 
     // Return result to fe
@@ -654,16 +654,15 @@ void alter_inverted_index_callback(StorageEngine& engine, const TAgentTaskReques
     finish_task_request.__set_signature(req.signature);
     std::vector<TTabletInfo> finish_tablet_infos;
     if (!status.ok()) {
-        LOG(WARNING) << "failed to alter inverted index task, signature=" << req.signature
-                     << ", tablet_id=" << alter_inverted_index_rq.tablet_id
-                     << ", job_id=" << alter_inverted_index_rq.job_id << ", error=" << status;
+        LOG(WARNING) << "failed to alter index task, signature=" << req.signature
+                     << ", tablet_id=" << alter_index_rq.tablet_id
+                     << ", job_id=" << alter_index_rq.job_id << ", error=" << status;
     } else {
-        LOG(INFO) << "successfully alter inverted index task, signature=" << req.signature
-                  << ", tablet_id=" << alter_inverted_index_rq.tablet_id
-                  << ", job_id=" << alter_inverted_index_rq.job_id;
+        LOG(INFO) << "successfully alter index task, signature=" << req.signature
+                  << ", tablet_id=" << alter_index_rq.tablet_id
+                  << ", job_id=" << alter_index_rq.job_id;
         TTabletInfo tablet_info;
-        status = get_tablet_info(engine, alter_inverted_index_rq.tablet_id,
-                                 alter_inverted_index_rq.schema_hash, &tablet_info);
+        status = get_tablet_info(engine, alter_index_rq.tablet_id, alter_index_rq.schema_hash, &tablet_info);
         if (status.ok()) {
             finish_tablet_infos.push_back(tablet_info);
         }

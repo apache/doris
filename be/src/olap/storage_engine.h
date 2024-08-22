@@ -205,7 +205,7 @@ public:
     bool stopped() { return _stopped; }
     ThreadPool* get_bg_multiget_threadpool() { return _bg_multi_get_thread_pool.get(); }
 
-    Status process_index_change_task(const TAlterInvertedIndexReq& reqest);
+    Status process_index_change_task(const TAlterIndexReq& reqest);
 
     void gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_tablet_infos);
 

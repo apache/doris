@@ -16,6 +16,7 @@
 // under the License.
 
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "olap/column_predicate.h"
 
 #include <CLucene/analysis/AnalysisHeader.h>
 #include <CLucene/analysis/Analyzers.h>
@@ -251,7 +252,9 @@ Status FullTextIndexReader::new_iterator(OlapReaderStatistics* stats, RuntimeSta
 Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                                   const std::string& column_name, const void* query_value,
                                   InvertedIndexQueryType query_type,
-                                  std::shared_ptr<roaring::Roaring>& bit_map) {
+                                  std::shared_ptr<roaring::Roaring>& bit_map,
+                                  InvertedIndexIteratorQueryContext* iter_query_ctx,
+                                  const ColumnPredicate* col_predicate) {
     SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
 
     std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
@@ -262,6 +265,12 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
         InvertedIndexQueryInfo query_info;
         InvertedIndexQueryCache::CacheKey cache_key;
         auto index_file_key = _inverted_index_file_reader->get_index_file_key(&_index_meta);
+
+        if (iter_query_ctx) {
+            query_info._bm25_v_proj_col_iters = iter_query_ctx->bm25_v_proj_col_iters.get();
+            query_info.tablet_index_stats_collectors =
+                    iter_query_ctx->tablet_index_stats_collectors.get();
+        }
 
         if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY) {
             cache_key = {index_file_key, column_name, query_type, search_str};
@@ -318,7 +327,12 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
 
         std::shared_ptr<roaring::Roaring> term_match_bitmap = nullptr;
         auto cache_status = handle_query_cache(cache, cache_key, &cache_handler, stats, bit_map);
-        if (cache_status.ok()) {
+        if (cache_status.ok() &&
+            // If the query involves BM25 projection pushdown, we still need to search the index.
+            // This is because BM25 calculations require gathering statistics for each record from
+            // the index. We choose this approach instead of caching statistics due to the high
+            // resource cost of cached statistics.
+            !query_info._bm25_v_proj_col_iters) {
             return Status::OK();
         }
         FulltextIndexSearcherPtr* searcher_ptr = nullptr;
@@ -330,7 +344,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
         if (searcher_ptr != nullptr) {
             term_match_bitmap = std::make_shared<roaring::Roaring>();
             RETURN_IF_ERROR(match_index_search(stats, runtime_state, query_type, query_info,
-                                               *searcher_ptr, term_match_bitmap));
+                                               *searcher_ptr, term_match_bitmap, iter_query_ctx,
+                                               col_predicate));
             term_match_bitmap->runOptimize();
             cache->insert(cache_key, term_match_bitmap, &cache_handler);
             bit_map = term_match_bitmap;
@@ -342,10 +357,117 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
     }
 }
 
+Status FullTextIndexReader::pre_query(
+        OlapReaderStatistics* stats, RuntimeState* runtime_state, const std::string& column_name,
+        const void* query_value, InvertedIndexQueryType query_type,
+        InvertedIndexIteratorQueryContext* iter_query_ctx,
+        const ColumnPredicate* col_predicate) {
+    std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
+    VLOG_DEBUG << column_name << " begin to search the fulltext index from clucene, query_str ["
+               << search_str << "]";
+
+    try {
+        InvertedIndexQueryInfo query_info;
+        query_info.full_segment_id = iter_query_ctx->full_segment_id.get();
+        query_info.tablet_index_stats_collectors =
+                iter_query_ctx->tablet_index_stats_collectors.get();
+
+        auto index_file_key = _inverted_index_file_reader->get_index_file_key(&_index_meta);
+
+        if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY) {
+            query_info.terms.emplace_back(search_str);
+        } else {
+            if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
+                PhraseQuery::parser_slop(search_str, query_info);
+            }
+
+            InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>(
+                    get_inverted_index_parser_type_from_string(
+                            get_parser_string_from_properties(_index_meta.properties())),
+                    get_parser_mode_string_from_properties(_index_meta.properties()),
+                    get_parser_char_filter_map_from_properties(_index_meta.properties()));
+            auto analyzer = create_analyzer(inverted_index_ctx.get());
+            setup_analyzer_lowercase(analyzer, _index_meta.properties());
+            setup_analyzer_use_stopwords(analyzer, _index_meta.properties());
+            inverted_index_ctx->analyzer = analyzer.get();
+            auto reader = create_reader(inverted_index_ctx.get(), search_str);
+            get_analyse_result(query_info.terms, reader.get(), analyzer.get(), column_name,
+                               query_type);
+        }
+        if (query_info.terms.empty()) {
+            auto msg = fmt::format(
+                    "token parser result is empty for query, "
+                    "please check your query: '{}' and index parser: '{}'",
+                    search_str, get_parser_string_from_properties(_index_meta.properties()));
+            if (is_match_query(query_type)) {
+                LOG(WARNING) << msg;
+                return Status::OK();
+            } else {
+                return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(msg);
+            }
+        }
+
+        std::unique_ptr<lucene::search::Query> query;
+        query_info.field_name = StringUtil::string_to_wstring(column_name);
+        InvertedIndexQueryCacheHandle cache_handler;
+        FulltextIndexSearcherPtr* searcher_ptr = nullptr;
+
+        InvertedIndexCacheHandle inverted_index_cache_handle;
+        RETURN_IF_ERROR(handle_searcher_cache(&inverted_index_cache_handle, stats));
+        auto searcher_variant = inverted_index_cache_handle.get_index_searcher();
+        searcher_ptr = std::get_if<FulltextIndexSearcherPtr>(&searcher_variant);
+        if (searcher_ptr != nullptr) {
+            RETURN_IF_ERROR(pre_match_index_search(stats, runtime_state, query_type, query_info,
+                                               *searcher_ptr, iter_query_ctx, col_predicate));
+        } else {
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("searcher_ptr is null");
+        }
+
+        return Status::OK();
+    } catch (const CLuceneError& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                "CLuceneError occured, error msg: {}", e.what());
+    }
+}
+
 Status FullTextIndexReader::match_index_search(
         OlapReaderStatistics* stats, RuntimeState* runtime_state, InvertedIndexQueryType query_type,
         const InvertedIndexQueryInfo& query_info, const FulltextIndexSearcherPtr& index_searcher,
-        const std::shared_ptr<roaring::Roaring>& term_match_bitmap) {
+        const std::shared_ptr<roaring::Roaring>& term_match_bitmap,
+        InvertedIndexIteratorQueryContext* iter_query_ctx,
+        const ColumnPredicate* col_predicate) {
+    TQueryOptions queryOptions = runtime_state->query_options();
+    try {
+        SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
+        std::unique_ptr<Query> query;
+
+        if (col_predicate && col_predicate->type() == PredicateType::MATCH && iter_query_ctx &&
+            iter_query_ctx->bm25_v_proj_col_iters) {
+            // We need to calculate BM25 for this predicate, so the query must be pre-executed
+            // and cached in iter_query_ctx.
+            query = iter_query_ctx->get_and_remove_pre_query(col_predicate);
+        } else {
+            query = QueryFactory::create(query_type, index_searcher, queryOptions);
+        }
+
+        if (!query) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+                    "query type " + query_type_to_string(query_type) + ", query is nullptr");
+        }
+        query->add(query_info);
+        query->search(*term_match_bitmap);
+    } catch (const CLuceneError& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occured: {}",
+                                                                      e.what());
+    }
+    return Status::OK();
+}
+
+Status FullTextIndexReader::pre_match_index_search(
+        OlapReaderStatistics* stats, RuntimeState* runtime_state, InvertedIndexQueryType query_type,
+        const InvertedIndexQueryInfo& query_info, const FulltextIndexSearcherPtr& index_searcher,
+        InvertedIndexIteratorQueryContext* iter_query_ctx,
+        const ColumnPredicate* col_predicate) {
     TQueryOptions queryOptions = runtime_state->query_options();
     try {
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
@@ -354,8 +476,8 @@ Status FullTextIndexReader::match_index_search(
             return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
                     "query type " + query_type_to_string(query_type) + ", query is nullptr");
         }
-        query->add(query_info);
-        query->search(*term_match_bitmap);
+        query->pre_search(query_info);
+        iter_query_ctx->add_pre_query_to_cache(col_predicate, query);
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occured: {}",
                                                                       e.what());
@@ -400,7 +522,9 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
                                             RuntimeState* runtime_state,
                                             const std::string& column_name, const void* query_value,
                                             InvertedIndexQueryType query_type,
-                                            std::shared_ptr<roaring::Roaring>& bit_map) {
+                                            std::shared_ptr<roaring::Roaring>& bit_map,
+                                            InvertedIndexIteratorQueryContext* iter_query_ctx,
+                                            const ColumnPredicate* col_predicate) {
     SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
 
     const auto* search_query = reinterpret_cast<const StringRef*>(query_value);
@@ -702,7 +826,9 @@ Status BkdIndexReader::try_query(OlapReaderStatistics* stats, const std::string&
 Status BkdIndexReader::query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                              const std::string& column_name, const void* query_value,
                              InvertedIndexQueryType query_type,
-                             std::shared_ptr<roaring::Roaring>& bit_map) {
+                             std::shared_ptr<roaring::Roaring>& bit_map,
+                             InvertedIndexIteratorQueryContext* iter_query_ctx,
+                             const ColumnPredicate* col_predicate) {
     SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
 
     try {
@@ -1153,7 +1279,8 @@ lucene::util::bkd::relation InvertedIndexVisitor<QT>::compare(std::vector<uint8_
 
 Status InvertedIndexIterator::read_from_inverted_index(
         const std::string& column_name, const void* query_value, InvertedIndexQueryType query_type,
-        uint32_t segment_num_rows, std::shared_ptr<roaring::Roaring>& bit_map, bool skip_try) {
+        uint32_t segment_num_rows, std::shared_ptr<roaring::Roaring>& bit_map, bool skip_try,
+        const ColumnPredicate* col_predicate) {
     if (UNLIKELY(_reader == nullptr)) {
         throw CLuceneError(CL_ERR_NullPointer, "bkd index reader is null", false);
     }
@@ -1174,8 +1301,8 @@ Status InvertedIndexIterator::read_from_inverted_index(
         }
     }
 
-    RETURN_IF_ERROR(
-            _reader->query(_stats, _runtime_state, column_name, query_value, query_type, bit_map));
+    RETURN_IF_ERROR(_reader->query(_stats, _runtime_state, column_name, query_value, query_type,
+                                   bit_map, _iter_query_ctx.get(), col_predicate));
     return Status::OK();
 }
 
@@ -1194,12 +1321,59 @@ Status InvertedIndexIterator::try_read_from_inverted_index(const std::string& co
     return Status::OK();
 }
 
+Status InvertedIndexIterator::pre_read_from_inverted_index(const std::string& column_name,
+                                                           const void* query_value,
+                                                           InvertedIndexQueryType query_type,
+                                                           const ColumnPredicate* col_predicate) {
+    if (UNLIKELY(_reader == nullptr)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>("_reader is null.");
+    }
+
+    RETURN_IF_ERROR(_reader->pre_query(_stats, _runtime_state, column_name, query_value, query_type,
+                                       _iter_query_ctx.get(), col_predicate));
+    return Status::OK();
+}
+
 InvertedIndexReaderType InvertedIndexIterator::get_inverted_index_reader_type() const {
     return _reader->type();
 }
 
 const std::map<string, string>& InvertedIndexIterator::get_index_properties() const {
     return _reader->get_index_properties();
+}
+
+void InvertedIndexIterator::set_bm25_proj_iterators(
+        std::shared_ptr<std::vector<std::shared_ptr<v_proj::BM25VirtualProjColumnIterator>>>&
+                iters) {
+    if (!_iter_query_ctx) {
+        _iter_query_ctx = std::make_unique<InvertedIndexIteratorQueryContext>();
+    }
+    _iter_query_ctx->bm25_v_proj_col_iters = iters;
+}
+
+void InvertedIndexIterator::set_tablet_index_stats_collectors(
+        index_stats::FullSegmentId& full_segment_id,
+        std::shared_ptr<index_stats::TabletIndexStatsCollectors>& tablet_index_stats_collectors) {
+    if (!_iter_query_ctx) {
+        _iter_query_ctx = std::make_unique<InvertedIndexIteratorQueryContext>();
+    }
+    _iter_query_ctx->tablet_index_stats_collectors = tablet_index_stats_collectors;
+    _iter_query_ctx->full_segment_id =
+            std::make_unique<index_stats::FullSegmentId>(full_segment_id);
+}
+
+std::unique_ptr<Query> InvertedIndexIteratorQueryContext::get_and_remove_pre_query(
+        const ColumnPredicate* col_predicate) {
+    auto query_iter = _pre_query_cache.find(col_predicate);
+    if (query_iter != _pre_query_cache.end()) {
+        std::unique_ptr<Query> query = std::move(query_iter->second);
+        _pre_query_cache.erase(query_iter);
+        return query;
+    }
+
+    throw doris::Exception(ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS,
+                           "No such query in _pre_query_cache: {}",
+                           col_predicate->debug_string());
 }
 
 template class InvertedIndexVisitor<InvertedIndexQueryType::LESS_THAN_QUERY>;

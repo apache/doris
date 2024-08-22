@@ -25,6 +25,8 @@
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
+#include "olap/rowset/segment_v2/vector_index_file_writer.h"
+#include "olap/rowset/segment_v2/vector_index_writer.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
@@ -35,10 +37,12 @@ namespace doris {
 
 IndexBuilder::IndexBuilder(const TabletSharedPtr& tablet, const std::vector<TColumn>& columns,
                            const std::vector<doris::TOlapTableIndex>& alter_inverted_indexes,
+                           const std::vector<doris::TOlapTableIndex>& alter_vector_indexes,
                            bool is_drop_op)
         : _tablet(tablet),
           _columns(columns),
           _alter_inverted_indexes(alter_inverted_indexes),
+          _alter_vector_indexes(alter_vector_indexes),
           _is_drop_op(is_drop_op) {
     _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
 }
@@ -50,7 +54,10 @@ IndexBuilder::~IndexBuilder() {
 
 Status IndexBuilder::init() {
     for (auto inverted_index : _alter_inverted_indexes) {
-        _alter_index_ids.insert(inverted_index.index_id);
+        _alter_inverted_index_ids.insert(inverted_index.index_id);
+    }
+    for (auto vector_index : _alter_vector_indexes) {
+        _alter_vector_index_ids.insert(vector_index.index_id);
     }
     return Status::OK();
 }
@@ -178,16 +185,17 @@ Status IndexBuilder::update_inverted_index_info() {
         auto output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
         _pending_rs_guards.push_back(StorageEngine::instance()->add_pending_rowset(context));
 
-        // if without_index_uids is not empty, copy _alter_index_ids to it
-        // else just use _alter_index_ids to avoid copy
+        // if without_index_uids is not empty, copy _alter_inverted_index_ids to it
+        // else just use _alter_inverted_index_ids to avoid copy
         if (!without_index_uids.empty()) {
-            without_index_uids.insert(_alter_index_ids.begin(), _alter_index_ids.end());
+            without_index_uids.insert(_alter_inverted_index_ids.begin(),
+                                      _alter_inverted_index_ids.end());
         }
 
         // build output rowset
         RETURN_IF_ERROR(input_rowset->link_files_to(
                 _tablet->tablet_path(), output_rs_writer->rowset_id(), 0,
-                without_index_uids.empty() ? &_alter_index_ids : &without_index_uids));
+                without_index_uids.empty() ? &_alter_inverted_index_ids : &without_index_uids));
 
         auto input_rowset_meta = input_rowset->rowset_meta();
         RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
@@ -251,7 +259,160 @@ Status IndexBuilder::update_inverted_index_info() {
     return Status::OK();
 }
 
-Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta,
+Status IndexBuilder::update_vector_index_info() {
+    // just do link files
+    LOG(INFO) << "begin to update_vector_index_info, tablet=" << _tablet->tablet_id()
+              << ", is_drop_op=" << _is_drop_op;
+    // index ids that will not be linked
+    std::set<int64_t> without_index_uids;
+    _output_rowsets.reserve(_input_rowsets.size());
+    _pending_rs_guards.reserve(_input_rowsets.size());
+    for (auto&& input_rowset : _input_rowsets) {
+        TabletSchemaSPtr output_rs_tablet_schema = std::make_shared<TabletSchema>();
+        const auto& input_rs_tablet_schema = input_rowset->tablet_schema();
+        output_rs_tablet_schema->copy_from(*input_rs_tablet_schema);
+        size_t total_index_size = 0;
+        auto* beta_rowset = reinterpret_cast<BetaRowset*>(input_rowset.get());
+        auto size_st = beta_rowset->get_vector_index_size(&total_index_size);
+        if (!size_st.ok() && !size_st.is<ErrorCode::VECTOR_INDEX_FILE_NOT_FOUND>() &&
+            !size_st.is<ErrorCode::NOT_FOUND>()) {
+            return size_st;
+        }
+        auto num_segments = input_rowset->num_segments();
+
+        if (_is_drop_op) {
+            for (const auto& t_vector_index : _alter_vector_indexes) {
+                DCHECK_EQ(t_vector_index.columns.size(), 1);
+                auto column_name = t_vector_index.columns[0];
+                auto column_idx = output_rs_tablet_schema->field_index(column_name);
+                if (column_idx < 0) {
+                    LOG(WARNING) << "referenced column was missing. "
+                                 << "[column=" << column_name << " referenced_column=" << column_idx
+                                 << "]";
+                    continue;
+                }
+                auto column = output_rs_tablet_schema->column(column_idx);
+                const auto* index_meta = output_rs_tablet_schema->get_vector_index(column);
+                if (index_meta == nullptr) {
+                    LOG(ERROR) << "failed to find column: " << column_name
+                               << " index_id: " << t_vector_index.index_id;
+                    continue;
+                }
+                _dropped_vector_indexes.push_back(*index_meta);
+                // ATTN: DO NOT REMOVE INDEX AFTER OUTPUT_ROWSET_WRITER CREATED.
+                // remove dropped index_meta from output rowset tablet schema
+                output_rs_tablet_schema->remove_index(index_meta->index_id());
+            }
+            DBUG_EXECUTE_IF("index_builder.update_vector_index_info.drop_index", {
+                auto indexes_count = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                        "index_builder.update_vector_index_info.drop_index", "indexes_count", 0);
+                if (indexes_count < 0) {
+                    return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                            "indexes count cannot be negative");
+                }
+                int32_t indexes_size = 0;
+                for (auto index : output_rs_tablet_schema->indexes()) {
+                    if (index.index_type() == IndexType::VECTOR) {
+                        indexes_size++;
+                    }
+                }
+                if (indexes_count != indexes_size) {
+                    return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                            "indexes count not equal to expected");
+                }
+            })
+        } else {
+            // base on input rowset's tablet_schema to build
+            // output rowset's tablet_schema which only add
+            // the indexes specified in this build index request
+            for (auto t_vector_index : _alter_vector_indexes) {
+                TabletIndex index;
+                index.init_from_thrift(t_vector_index, *input_rs_tablet_schema);
+                auto column_uid = index.col_unique_ids()[0];
+                if (column_uid < 0) {
+                    LOG(WARNING) << "referenced column was missing. "
+                                 << "[column=" << t_vector_index.columns[0]
+                                 << " referenced_column=" << column_uid << "]";
+                    output_rs_tablet_schema->append_index(index);
+                    continue;
+                }
+                const TabletColumn& col = output_rs_tablet_schema->column_by_uid(column_uid);
+                const TabletIndex* exist_index = output_rs_tablet_schema->get_vector_index(col);
+                if (exist_index && exist_index->index_id() != index.index_id()) {
+                    LOG(WARNING) << fmt::format(
+                            "column: {} has a exist vector index, but the index id not equal "
+                            "request's index id, , exist index id: {}, request's index id: {}, "
+                            "remove exist index in new output_rs_tablet_schema",
+                            column_uid, exist_index->index_id(), index.index_id());
+                    without_index_uids.insert(exist_index->index_id());
+                    output_rs_tablet_schema->remove_index(exist_index->index_id());
+                }
+                output_rs_tablet_schema->append_index(index);
+            }
+        }
+        // construct input rowset reader
+        RowsetReaderSharedPtr input_rs_reader;
+        RETURN_IF_ERROR(input_rowset->create_reader(&input_rs_reader));
+        // construct output rowset writer
+        RowsetWriterContext context;
+        context.version = input_rs_reader->version();
+        context.rowset_state = VISIBLE;
+        context.segments_overlap = input_rs_reader->rowset()->rowset_meta()->segments_overlap();
+        context.tablet_schema = output_rs_tablet_schema;
+        context.newest_write_timestamp = input_rs_reader->newest_write_timestamp();
+        context.fs = input_rs_reader->rowset()->rowset_meta()->fs();
+        auto output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
+        _pending_rs_guards.push_back(StorageEngine::instance()->add_pending_rowset(context));
+
+        // if without_index_uids is not empty, copy _alter_vector_index_ids to it
+        // else just use _alter_vector_index_ids to avoid copy
+        if (!without_index_uids.empty()) {
+            without_index_uids.insert(_alter_vector_index_ids.begin(),
+                                      _alter_vector_index_ids.end());
+        }
+
+        // build output rowset
+        RETURN_IF_ERROR(input_rowset->link_files_to(
+                _tablet->tablet_path(), output_rs_writer->rowset_id(), 0,
+                without_index_uids.empty() ? &_alter_vector_index_ids : &without_index_uids));
+
+        auto input_rowset_meta = input_rowset->rowset_meta();
+        RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
+        rowset_meta->set_num_rows(input_rowset_meta->num_rows());
+
+        for (int seg_id = 0; seg_id < num_segments; seg_id++) {
+            auto segment_full_path = io::Path(
+                    static_cast<BetaRowset*>(input_rowset.get())->segment_file_path(seg_id));
+            std::string segment_filename = segment_full_path.filename().native();
+            auto segment_dir = segment_full_path.parent_path();
+            auto idx_file_reader = std::make_unique<VectorIndexFileReader>(
+                    context.fs, segment_dir, segment_filename);
+        }
+
+        rowset_meta->set_total_disk_size(input_rowset_meta->total_disk_size() -
+                                         total_index_size);
+        rowset_meta->set_data_disk_size(input_rowset_meta->data_disk_size() - total_index_size);
+        rowset_meta->set_index_disk_size(input_rowset_meta->index_disk_size() -
+                                         total_index_size);
+        rowset_meta->set_empty(input_rowset_meta->empty());
+        rowset_meta->set_num_segments(input_rowset_meta->num_segments());
+        rowset_meta->set_segments_overlap(input_rowset_meta->segments_overlap());
+        rowset_meta->set_rowset_state(input_rowset_meta->rowset_state());
+        std::vector<KeyBoundsPB> key_bounds;
+        RETURN_IF_ERROR(input_rowset->get_segments_key_bounds(&key_bounds));
+        rowset_meta->set_segments_key_bounds(key_bounds);
+        auto output_rowset = output_rs_writer->manual_build(rowset_meta);
+        if (input_rowset_meta->has_delete_predicate()) {
+            output_rowset->rowset_meta()->set_delete_predicate(
+                    input_rowset_meta->delete_predicate());
+        }
+        _output_rowsets.push_back(output_rowset);
+    }
+
+    return Status::OK();
+}
+
+Status IndexBuilder::handle_single_rowset_for_inverted_index(RowsetMetaSharedPtr output_rowset_meta,
                                           std::vector<segment_v2::SegmentSharedPtr>& segments) {
     if (_is_drop_op) {
         auto output_rs_tablet_schema = output_rowset_meta->tablet_schema();
@@ -405,7 +566,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     output_rowset_schema->create_block(return_columns));
             while (true) {
                 auto status = iter->next_batch(block.get());
-                DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset", {
+                DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset_for_inverted_index", {
                     status = Status::Error<ErrorCode::SCHEMA_CHANGE_INFO_INVALID>(
                             "next_batch fault injection");
                 });
@@ -504,6 +665,37 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
     return Status::OK();
 }
 
+Status IndexBuilder::_write_vector_index_data(TabletSchemaSPtr tablet_schema, int32_t segment_idx,
+                                                vectorized::Block* block) {
+    VLOG_DEBUG << "begin to write vector index";
+    // converter block data
+    _olap_data_convertor->set_source_content(block, 0, block->rows());
+    for (auto i = 0; i < _alter_vector_indexes.size(); ++i) {
+        auto vector_index = _alter_vector_indexes[i];
+        auto index_id = vector_index.index_id;
+        auto column_name = vector_index.columns[0];
+        auto column_idx = tablet_schema->field_index(column_name);
+        if (column_idx < 0) {
+            LOG(WARNING) << "referenced column was missing. "
+                         << "[column=" << column_name << " referenced_column=" << column_idx << "]";
+            continue;
+        }
+        auto column = tablet_schema->column(column_idx);
+        auto writer_sign = std::make_pair(segment_idx, index_id);
+        std::unique_ptr<Field> field(FieldFactory::create(column));
+        auto converted_result = _olap_data_convertor->convert_column_data(i);
+        if (converted_result.first != Status::OK()) {
+            LOG(WARNING) << "failed to convert block, errcode: " << converted_result.first;
+            return converted_result.first;
+        }
+        const auto* ptr = (const uint8_t*)converted_result.second->get_data();
+        RETURN_IF_ERROR(_add_data_to_vector(column_name, writer_sign, field.get(), &ptr, block->rows()));
+    }
+    _olap_data_convertor->clear_source_content();
+
+    return Status::OK();
+}
+
 Status IndexBuilder::_add_nullable(const std::string& column_name,
                                    const std::pair<int64_t, int64_t>& index_writer_sign,
                                    Field* field, const uint8_t* null_map, const uint8_t** ptr,
@@ -595,6 +787,46 @@ Status IndexBuilder::_add_data(const std::string& column_name,
     return Status::OK();
 }
 
+Status IndexBuilder::_add_data_to_vector(const std::string& column_name,
+                               const std::pair<int64_t, int64_t>& index_writer_sign, Field* field,
+                               const uint8_t** ptr, size_t num_rows) {
+    try {
+        if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+            DCHECK(field->get_sub_field_count() == 1);
+            // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
+            const auto* data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
+            // total number length
+            auto offset_data = *(data_ptr + 1);
+            const uint8_t* offsets_ptr = (const uint8_t*)offset_data;
+            auto data = *(data_ptr + 2);
+            RETURN_IF_ERROR(_vector_index_builders[index_writer_sign]->add_array_float_values(reinterpret_cast<const uint8_t*>(data),
+                                                                                              num_rows, offsets_ptr));
+        } else if (field->type() == FieldType::OLAP_FIELD_TYPE_MAP) {
+            auto data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
+            // total number length
+            auto offset_data = *(data_ptr + 1);
+            const uint8_t* offsets_ptr = (const uint8_t*)offset_data;
+
+            auto key_data = *(data_ptr + 2);
+            auto value_data = *(data_ptr + 3);
+
+            RETURN_IF_ERROR(_vector_index_builders[index_writer_sign]->add_map_int_to_float_values(
+                    reinterpret_cast<const uint8_t*>(key_data),
+                    reinterpret_cast<const uint8_t*>(value_data),
+                    num_rows,
+                    offsets_ptr));
+
+        } else {
+            return Status::Error<ErrorCode::VECTOR_INDEX_INVALID_COLUMN_TYPE>("MindAnnError occurred: invalid field type");
+        }
+    } catch (const std::exception& e) {
+        return Status::Error<ErrorCode::VECTOR_INDEX_MANN_ERROR>("MindAnnError occurred: {}",
+                                                                      e.what());
+    }
+
+    return Status::OK();
+}
+
 Status IndexBuilder::handle_inverted_index_data() {
     LOG(INFO) << "begin to handle_inverted_index_data";
     DCHECK(_input_rowsets.size() == _output_rowsets.size());
@@ -604,7 +836,7 @@ Status IndexBuilder::handle_inverted_index_data() {
                 std::static_pointer_cast<BetaRowset>(_output_rowsets[i]), &segment_cache_handle));
         auto output_rowset_meta = _output_rowsets[i]->rowset_meta();
         auto& segments = segment_cache_handle.get_segments();
-        RETURN_IF_ERROR(handle_single_rowset(output_rowset_meta, segments));
+        RETURN_IF_ERROR(handle_single_rowset_for_inverted_index(output_rowset_meta, segments));
     }
     return Status::OK();
 }
@@ -653,7 +885,8 @@ Status IndexBuilder::do_build_inverted_index() {
     }
 
     _input_rowsets =
-            _tablet->pick_candidate_rowsets_to_build_inverted_index(_alter_index_ids, _is_drop_op);
+            _tablet->pick_candidate_rowsets_to_build_inverted_index(
+            _alter_inverted_index_ids, _is_drop_op);
     if (_input_rowsets.empty()) {
         LOG(INFO) << "_input_rowsets is empty";
         return Status::OK();
@@ -684,6 +917,254 @@ Status IndexBuilder::do_build_inverted_index() {
         gc_output_rowset();
         return st;
     }
+    return Status::OK();
+}
+
+Status IndexBuilder::handle_vector_index_data() {
+    LOG(INFO) << "begin to handle_vector_index_data";
+    DCHECK(_input_rowsets.size() == _output_rowsets.size());
+    for (auto i = 0; i < _output_rowsets.size(); ++i) {
+        SegmentCacheHandle segment_cache_handle;
+        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+                std::static_pointer_cast<BetaRowset>(_output_rowsets[i]), &segment_cache_handle));
+        auto output_rowset_meta = _output_rowsets[i]->rowset_meta();
+        auto& segments = segment_cache_handle.get_segments();
+        RETURN_IF_ERROR(handle_single_rowset_for_vector_index(output_rowset_meta, segments));
+    }
+    return Status::OK();
+}
+
+Status IndexBuilder::do_build_vector_index() {
+    LOG(INFO) << "begin to do_build_vector_index, tablet=" << _tablet->tablet_id()
+              << ", is_drop_op=" << _is_drop_op;
+    if (_alter_vector_indexes.empty()) {
+        return Status::OK();
+    }
+
+    std::unique_lock<std::mutex> schema_change_lock(_tablet->get_schema_change_lock(),
+                                                    std::try_to_lock);
+    if (!schema_change_lock.owns_lock()) {
+        return Status::Error<ErrorCode::TRY_LOCK_FAILED>("try schema_change_lock failed");
+    }
+    // Check executing serially with compaction task.
+    std::unique_lock<std::mutex> base_compaction_lock(_tablet->get_base_compaction_lock(),
+                                                      std::try_to_lock);
+    if (!base_compaction_lock.owns_lock()) {
+        return Status::Error<ErrorCode::TRY_LOCK_FAILED>("try base_compaction_lock failed");
+    }
+    std::unique_lock<std::mutex> cumu_compaction_lock(_tablet->get_cumulative_compaction_lock(),
+                                                      std::try_to_lock);
+    if (!cumu_compaction_lock.owns_lock()) {
+        return Status::Error<ErrorCode::TRY_LOCK_FAILED>("try cumu_compaction_lock failed");
+    }
+
+    std::unique_lock<std::mutex> cold_compaction_lock(_tablet->get_cold_compaction_lock(),
+                                                      std::try_to_lock);
+    if (!cold_compaction_lock.owns_lock()) {
+        return Status::Error<ErrorCode::TRY_LOCK_FAILED>("try cold_compaction_lock failed");
+    }
+
+    std::unique_lock<std::mutex> build_vector_index_lock(_tablet->get_build_vector_index_lock(),
+                                                           std::try_to_lock);
+    if (!build_vector_index_lock.owns_lock()) {
+        return Status::Error<ErrorCode::TRY_LOCK_FAILED>(
+                "failed to obtain build vector index lock. tablet={}", _tablet->tablet_id());
+    }
+
+    std::shared_lock migration_rlock(_tablet->get_migration_lock(), std::try_to_lock);
+    if (!migration_rlock.owns_lock()) {
+        return Status::Error<ErrorCode::TRY_LOCK_FAILED>("got migration_rlock failed. tablet={}",
+                                                         _tablet->tablet_id());
+    }
+
+    _input_rowsets =
+            _tablet->pick_candidate_rowsets_to_build_vector_index(
+            _alter_vector_index_ids, _is_drop_op);
+    if (_input_rowsets.empty()) {
+        LOG(INFO) << "_input_rowsets is empty";
+        return Status::OK();
+    }
+
+    auto st = update_vector_index_info();
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to update_vector_index_info. "
+                     << "tablet=" << _tablet->tablet_id() << ", error=" << st;
+        gc_output_rowset();
+        return st;
+    }
+
+    // create vector index file for output rowset
+    st = handle_vector_index_data();
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to handle_vector_index_data. "
+                     << "tablet=" << _tablet->tablet_id() << ", error=" << st;
+        gc_output_rowset();
+        return st;
+    }
+
+    // modify rowsets in memory
+    st = modify_rowsets();
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to modify rowsets in memory. "
+                     << "tablet=" << _tablet->tablet_id() << ", error=" << st;
+        gc_output_rowset();
+        return st;
+    }
+    return Status::OK();
+}
+
+Status IndexBuilder::handle_single_rowset_for_vector_index(RowsetMetaSharedPtr output_rowset_meta,
+                                                             std::vector<segment_v2::SegmentSharedPtr>& segments) {
+    if (_is_drop_op) {
+        LOG(INFO) << "all row nums. source_rows=" << output_rowset_meta->num_rows();
+        return Status::OK();
+    } else {
+        // create vector index writer
+        std::string segment_dir = _tablet->tablet_path();
+        auto fs = output_rowset_meta->fs();
+        auto output_rowset_schema = output_rowset_meta->tablet_schema();
+        size_t vector_index_size = 0;
+        for (auto& seg_ptr : segments) {
+            std::string segment_filename = fmt::format(
+                    "{}_{}.dat", output_rowset_meta->rowset_id().to_string(), seg_ptr->id());
+            std::vector<ColumnId> return_columns;
+            std::vector<std::pair<int64_t, int64_t>> vector_index_writer_signs;
+            _olap_data_convertor->reserve(_alter_vector_indexes.size());
+
+            std::unique_ptr<VectorIndexFileWriter> vector_index_file_writer =
+                    std::make_unique<VectorIndexFileWriter>(fs,segment_dir,segment_filename);
+
+
+            // create vector index writer
+            for (auto i = 0; i < _alter_vector_indexes.size(); ++i) {
+                auto vector_index = _alter_vector_indexes[i];
+                DCHECK_EQ(vector_index.columns.size(), 1);
+                auto index_id = vector_index.index_id;
+                auto column_name = vector_index.columns[0];
+                auto column_idx = output_rowset_schema->field_index(column_name);
+                if (column_idx < 0) {
+                    LOG(WARNING) << "referenced column was missing. "
+                                 << "[column=" << column_name << " referenced_column=" << column_idx
+                                 << "]";
+                    continue;
+                }
+                auto column = output_rowset_schema->column(column_idx);
+                DCHECK(output_rowset_schema->has_vector_index_with_index_id(index_id, ""));
+                _olap_data_convertor->add_column_data_convertor(column);
+                return_columns.emplace_back(column_idx);
+                std::unique_ptr<Field> field(FieldFactory::create(column));
+                const auto* index_meta = output_rowset_schema->get_vector_index(column);
+                vector_index_file_writer->add_index(index_meta->index_id(), index_meta->get_index_suffix());
+                std::string segment_path = vector_index_file_writer->get_index_file_dir()/vector_index_file_writer->get_segment_file_name();
+                std::string index_path = segment_v2::VectorIndexDescriptor::get_index_file_name(segment_path,index_meta->index_id(),index_meta->get_index_suffix());
+                std::unique_ptr<segment_v2::VectorIndexWriter> vector_index_builder =
+                        std::make_unique<segment_v2::VectorIndexWriter>(
+                                vector_index_file_writer->get_fs(),
+                                index_path,
+                                field->is_nullable()
+                        );
+
+                try {
+                    RETURN_IF_ERROR(vector_index_builder->init(index_meta));
+                } catch (const std::exception& e) {
+                    return Status::Error<ErrorCode::VECTOR_INDEX_MANN_ERROR>(
+                            "MindAnnError occured: {}", e.what());
+                }
+                if (vector_index_builder) {
+                    auto writer_sign = std::make_pair(seg_ptr->id(), index_id);
+                    _vector_index_builders.insert(
+                            std::make_pair(writer_sign, std::move(vector_index_builder)));
+                    vector_index_writer_signs.push_back(writer_sign);
+                }
+            }
+
+            if (return_columns.empty()) {
+                // no columns to read
+                break;
+            }
+
+            _vector_index_file_writers.emplace(seg_ptr->id(),
+                                                 std::move(vector_index_file_writer));
+
+            // create iterator for each segment
+            StorageReadOptions read_options;
+            OlapReaderStatistics stats;
+            read_options.stats = &stats;
+            read_options.tablet_schema = output_rowset_schema;
+            std::shared_ptr<Schema> schema =
+                    std::make_shared<Schema>(output_rowset_schema->columns(), return_columns);
+            std::unique_ptr<RowwiseIterator> iter;
+            auto res = seg_ptr->new_iterator(schema, read_options, &iter);
+            if (!res.ok()) {
+                LOG(WARNING) << "failed to create iterator[" << seg_ptr->id()
+                             << "]: " << res.to_string();
+                return Status::Error<ErrorCode::ROWSET_READER_INIT>(res.to_string());
+            }
+
+            auto block = vectorized::Block::create_unique(
+                    output_rowset_schema->create_block(return_columns));
+            while (true) {
+                auto status = iter->next_batch(block.get());
+                DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset_for_vector_index", {
+                    status = Status::Error<ErrorCode::SCHEMA_CHANGE_INFO_INVALID>(
+                            "next_batch fault injection");
+                });
+                if (!status.ok()) {
+                    if (status.is<ErrorCode::END_OF_FILE>()) {
+                        break;
+                    }
+                    LOG(WARNING)
+                            << "failed to read next block when schema change for vector index."
+                            << ", err=" << status.to_string();
+                    return status;
+                }
+
+                // write vector index data
+                status = _write_vector_index_data(output_rowset_schema, iter->data_id(),
+                                               block.get());
+                if (!status.ok()) {
+                    LOG(WARNING)
+                            << "failed to write vector index data. err:" << status.to_string();
+                    return Status::Error<ErrorCode::SCHEMA_CHANGE_INFO_INVALID>(
+                            "failed to write vector index data. ");
+                }
+                block->clear_column_data();
+            }
+
+            // finish write vector index, flush data to compound file
+            for (auto& writer_sign : vector_index_writer_signs) {
+                try {
+                    if (_vector_index_builders[writer_sign]) {
+                        RETURN_IF_ERROR(_vector_index_builders[writer_sign]->finish());
+                    }
+                } catch (const std::exception& e) {
+                    return Status::Error<ErrorCode::VECTOR_INDEX_MANN_ERROR>(
+                            "MannError occured: {}", e.what());
+                }
+            }
+
+            _olap_data_convertor->reset();
+        }
+        for (auto& kv : _vector_index_file_writers) {
+            auto* vector_index_file_writer = kv.second.get();
+            auto index_paths = vector_index_file_writer->get_index_paths();
+            for (std::string path : index_paths) {
+                int64_t file_size = 0;
+                RETURN_IF_ERROR(vector_index_file_writer->get_fs()->file_size(path, &file_size));
+                vector_index_size += file_size;
+            }
+        }
+        _vector_index_builders.clear();
+        _vector_index_file_writers.clear();
+        output_rowset_meta->set_data_disk_size(output_rowset_meta->data_disk_size() +
+                                               vector_index_size);
+        output_rowset_meta->set_total_disk_size(output_rowset_meta->total_disk_size() +
+                                                vector_index_size);
+        output_rowset_meta->set_index_disk_size(output_rowset_meta->index_disk_size() +
+                                                vector_index_size);
+        LOG(INFO) << "all row nums. source_rows=" << output_rowset_meta->num_rows();
+    }
+
     return Status::OK();
 }
 
