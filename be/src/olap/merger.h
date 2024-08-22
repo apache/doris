@@ -85,7 +85,9 @@ public:
                                              vectorized::RowSourcesBuffer* row_source_buf,
                                              vectorized::VerticalBlockReader& src_block_reader,
                                              segment_v2::SegmentWriter& dst_segment_writer,
-                                             Statistics* stats_output, uint64_t* index_size, KeyBoundsPB& key_bounds, SimpleRowIdConversion* rowid_conversion);
+                                             Statistics* stats_output, uint64_t* index_size,
+                                             KeyBoundsPB& key_bounds,
+                                             SimpleRowIdConversion* rowid_conversion);
 };
 
 } // namespace doris
