@@ -272,7 +272,8 @@ public class BindExpression implements AnalysisRuleFactory {
                 for (int idx = 0; idx < fields.size(); ++idx) {
                     expandAlias.add(new Alias(new StructElement(
                             boundSlot, new StringLiteral(fields.get(idx).getName())),
-                            generate.getExpandColumnAlias().get(i).get(idx)));
+                            generate.getExpandColumnAlias().get(i).get(idx),
+                            slot.getQualifier()));
                 }
             }
         }
