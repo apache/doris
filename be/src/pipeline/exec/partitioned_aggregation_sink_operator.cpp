@@ -263,7 +263,8 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
     status = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
             [this, &parent, state, query_id, mem_tracker, shared_state_holder, execution_context,
              submit_timer] {
-                SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
+                QueryThreadContext query_thread_context {query_id, mem_tracker};
+                SCOPED_ATTACH_TASK(query_thread_context);
                 std::shared_ptr<TaskExecutionContext> execution_context_lock;
                 auto shared_state_sptr = shared_state_holder.lock();
                 if (shared_state_sptr) {
