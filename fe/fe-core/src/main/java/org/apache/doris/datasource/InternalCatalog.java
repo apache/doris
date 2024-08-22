@@ -334,6 +334,18 @@ public class InternalCatalog implements CatalogIf<Database> {
         return null;
     }
 
+    public Tablet getTabletByTabletId(Long tabletId) {
+        for (Database db : fullNameToDb.values()) {
+            for (Table table : db.getTables()) {
+                Tablet tablet = ((OlapTable) table).getBaseIndex().getTablet(tabletId);
+                if (tablet != null) {
+                    return tablet;
+                }
+            }
+        }
+        return null;
+    }
+
     // Use tryLock to avoid potential dead lock
     private boolean tryLock(boolean mustLock) {
         while (true) {

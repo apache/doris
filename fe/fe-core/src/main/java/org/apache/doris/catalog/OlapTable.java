@@ -2809,7 +2809,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return false;
     }
 
-    public List<Tablet> getAllTablets() throws AnalysisException {
+    public List<Tablet> getAllTablets() {
         List<Tablet> tablets = Lists.newArrayList();
         for (Partition partition : getPartitions()) {
             tablets.addAll(partition.getBaseIndex().getTablets());
