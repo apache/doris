@@ -242,6 +242,19 @@ struct TPublishTopicResult {
     1: required Status.TStatus status
 }
 
+
+struct TGetBeResourceRequest {
+}
+
+struct TGlobalResourceUsage {
+    1: optional i64 mem_limit
+    2: optional i64 mem_usage
+}
+
+struct TGetBeResourceResult {
+    1: optional TGlobalResourceUsage global_resource_usage
+}
+
 service BackendService {
     // Called by coord to start asynchronous execution of plan fragment in backend.
     // Returns as soon as all incoming data streams have been set up.
@@ -298,4 +311,6 @@ service BackendService {
     TQueryIngestBinlogResult query_ingest_binlog(1: TQueryIngestBinlogRequest query_ingest_binlog_request);
 
     TPublishTopicResult publish_topic_info(1:TPublishTopicRequest topic_request);
+
+    TGetBeResourceResult get_be_resource(1: TGetBeResourceRequest request);
 }
