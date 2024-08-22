@@ -915,15 +915,18 @@ void commit_txn_immediately(
     }
 
     if (txn_info.status() == TxnStatusPB::TXN_STATUS_VISIBLE) {
-        code = MetaServiceCode::TXN_ALREADY_VISIBLE;
         if (request->has_is_2pc() && request->is_2pc()) {
+            code = MetaServiceCode::TXN_ALREADY_VISIBLE;
             ss << "transaction [" << txn_id << "] is already visible, not pre-committed.";
             msg = ss.str();
+            LOG(INFO) << msg;
             response->mutable_txn_info()->CopyFrom(txn_info);
             return;
         }
+        code = MetaServiceCode::OK;
         ss << "transaction is already visible: db_id=" << db_id << " txn_id=" << txn_id;
         msg = ss.str();
+        LOG(INFO) << msg;
         response->mutable_txn_info()->CopyFrom(txn_info);
         return;
     }
@@ -1500,9 +1503,10 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
     }
 
     if (txn_info.status() == TxnStatusPB::TXN_STATUS_VISIBLE) {
-        code = MetaServiceCode::TXN_ALREADY_VISIBLE;
+        code = MetaServiceCode::OK;
         ss << "transaction is already visible: db_id=" << db_id << " txn_id=" << txn_id;
         msg = ss.str();
+        LOG(INFO) << msg;
         response->mutable_txn_info()->CopyFrom(txn_info);
         return;
     }
