@@ -53,6 +53,7 @@ import java.util.List;
 public class MaxComputeColumnValue implements ColumnValue {
     private static final Logger LOG = Logger.getLogger(MaxComputeColumnValue.class);
     private int idx;
+    private int offset = 0; // for complex type
     private ValueVector column;
 
     public MaxComputeColumnValue() {
@@ -67,6 +68,7 @@ public class MaxComputeColumnValue implements ColumnValue {
     public void reset(ValueVector column) {
         this.column = column;
         this.idx = 0;
+        this.offset = 0;
     }
 
     @Override
@@ -233,26 +235,30 @@ public class MaxComputeColumnValue implements ColumnValue {
     public void unpackArray(List<ColumnValue> values) {
         skippedIfNull();
         ListVector listCol = (ListVector) column;
-        for (int i = 0; i < listCol.getDataVector().getValueCount(); i++) {
-            MaxComputeColumnValue val = new MaxComputeColumnValue(listCol.getDataVector(), i);
+        int elemSize = listCol.getObject(idx).size();
+        for (int i = 0; i < elemSize; i++) {
+            MaxComputeColumnValue val = new MaxComputeColumnValue(listCol.getDataVector(), offset);
             values.add(val);
+            offset++;
         }
+        idx++;
     }
 
     @Override
     public void unpackMap(List<ColumnValue> keys, List<ColumnValue> values) {
         skippedIfNull();
         MapVector mapCol = (MapVector) column;
+        int elemSize = mapCol.getObject(idx).size();
         FieldVector keyList = mapCol.getDataVector().getChildrenFromFields().get(0);
-        for (int i = 0; i < keyList.getValueCount(); i++) {
-            MaxComputeColumnValue val = new MaxComputeColumnValue(keyList, i);
-            keys.add(val);
-        }
         FieldVector valList = mapCol.getDataVector().getChildrenFromFields().get(1);
-        for (int i = 0; i < valList.getValueCount(); i++) {
-            MaxComputeColumnValue val = new MaxComputeColumnValue(valList, i);
+        for (int i = 0; i < elemSize; i++) {
+            MaxComputeColumnValue key = new MaxComputeColumnValue(keyList, offset);
+            keys.add(key);
+            MaxComputeColumnValue val = new MaxComputeColumnValue(valList, offset);
             values.add(val);
+            offset++;
         }
+        idx++;
     }
 
     @Override
