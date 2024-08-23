@@ -559,7 +559,7 @@ struct TLoadTxnBeginRequest {
     10: optional i64 timeout
     11: optional Types.TUniqueId request_id
     12: optional string token
-    13: optional i64 backend_id
+    15: optional i64 backend_id
 }
 
 struct TLoadTxnBeginResult {
