@@ -200,13 +200,17 @@ public class HMSTransaction implements Transaction {
                     setFileNames(Collections.emptyList());
                     if (fileType == TFileType.FILE_S3) {
                         setS3MpuPendingUploads(Lists.newArrayList(new TS3MPUPendingUpload()));
+                        setLocation(new THiveLocationParams() {{
+                                setWritePath(table.getSd().getLocation());
+                            }
+                        });
                     } else {
                         fs.makeDir(declaredIntentionsToWrite);
+                        setLocation(new THiveLocationParams() {{
+                                setWritePath(declaredIntentionsToWrite);
+                            }
+                        });
                     }
-                    setLocation(new THiveLocationParams() {{
-                            setWritePath(declaredIntentionsToWrite);
-                        }
-                    });
                 }
             };
             hivePartitionUpdates = Lists.newArrayList(emptyUpdate);
