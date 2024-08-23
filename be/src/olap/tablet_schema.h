@@ -211,8 +211,8 @@ private:
     int32_t _precision = -1;
     int32_t _frac = -1;
 
-    int32_t _length = -1;
-    int32_t _index_length = -1;
+    int64_t _length = -1;
+    int64_t _index_length = -1;
 
     bool _is_bf_column = false;
 

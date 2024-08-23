@@ -32,6 +32,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
 #include "util/timezone_utils.h"
@@ -299,13 +300,13 @@ public:
         uint64_t time = datetime % 1000000;
 
         auto [year, month, day, hour, minute, second] = std::tuple {0, 0, 0, 0, 0, 0};
-        year = date / 10000;
+        year = cast_set<int>(date / 10000);
         date %= 10000;
-        month = date / 100;
+        month = cast_set<int>(date / 100);
         day = date % 100;
-        hour = time / 10000;
+        hour = cast_set<int>(time / 10000);
         time %= 10000;
-        minute = time / 100;
+        minute = cast_set<int>(time / 100);
         second = time % 100;
 
         return check_range_and_set_time(year, month, day, hour, minute, second, _type);
@@ -327,7 +328,7 @@ public:
         date >>= 5;
         month = date & 0x0f;
         date >>= 4;
-        year = date;
+        year = cast_set<int>(date);
 
         return check_range_and_set_time(year, month, day, hour, minute, second, _type);
     }
@@ -355,8 +356,8 @@ public:
         return val;
     }
 
-    bool from_date_format_str(const char* format, int format_len, const char* value,
-                              int value_len) {
+    bool from_date_format_str(const char* format, size_t format_len, const char* value,
+                              size_t value_len) {
         memset(this, 0, sizeof(*this));
         return from_date_format_str(format, format_len, value, value_len, nullptr);
     }
@@ -371,8 +372,8 @@ public:
     // 'YYMMDD', 'YYYYMMDD', 'YYMMDDHHMMSS', 'YYYYMMDDHHMMSS'
     // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
     // 'YYYYMMDDTHHMMSS'
-    bool from_date_str(const char* str, int len);
-    bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone);
+    bool from_date_str(const char* str, int64_t len);
+    bool from_date_str(const char* str, int64_t len, const cctz::time_zone& local_time_zone);
 
     // Construct Date/Datetime type value from int64_t value.
     // Return true if convert success. Otherwise return false.
@@ -397,7 +398,7 @@ public:
     // for performance of checking, may return false when just APPROACH BUT NOT REACH max_valid_length.
     // so need a little big buffer and its length as max_valid_length to make sure store valid data.
     // to make sure of this. make the buffer size = <data_need_length> + SAFE_FORMAT_STRING_MARGIN. and pass this size as max_valid_length
-    bool to_format_string_conservative(const char* format, int len, char* to,
+    bool to_format_string_conservative(const char* format, size_t len, char* to,
                                        int max_valid_length) const;
 
     // compute the length of data format pattern
@@ -623,7 +624,7 @@ public:
 
     uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
 
-    int day_of_year() const { return daynr() - calc_daynr(_year, 1, 1) + 1; }
+    int day_of_year() const { return cast_set<int>(daynr() - calc_daynr(_year, 1, 1) + 1); }
 
     // TODO(zhaochun): local time ???
     static VecDateTimeValue local_time();
@@ -719,7 +720,8 @@ private:
     char* to_date_buffer(char* to) const;
     char* to_time_buffer(char* to) const;
 
-    bool from_date_str_base(const char* date_str, int len, const cctz::time_zone* local_time_zone);
+    bool from_date_str_base(const char* date_str, size_t len,
+                            const cctz::time_zone* local_time_zone);
 
     int64_t to_date_int64() const;
     int64_t to_time_int64() const;
@@ -731,8 +733,8 @@ private:
     void set_zero(int type);
     void set_max_time(bool neg);
 
-    bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
-                              const char** sub_val_end);
+    bool from_date_format_str(const char* format, size_t format_len, const char* value,
+                              size_t value_len, const char** sub_val_end);
 
     // 1 bits for neg. 3 bits for type. 12bit for second
     uint16_t _neg : 1;  // Used for time value.
@@ -828,11 +830,11 @@ public:
     // for performance of checking, may return false when just APPROACH BUT NOT REACH max_valid_length.
     // so need a little big buffer and its length as max_valid_length to make sure store valid data.
     // to make sure of this. make the buffer size = <data_need_length> + SAFE_FORMAT_STRING_MARGIN. and pass this size as max_valid_length
-    bool to_format_string_conservative(const char* format, int len, char* to,
+    bool to_format_string_conservative(const char* format, size_t len, char* to,
                                        int max_valid_length) const;
 
-    bool from_date_format_str(const char* format, int format_len, const char* value,
-                              int value_len) {
+    bool from_date_format_str(const char* format, size_t format_len, const char* value,
+                              size_t value_len) {
         return from_date_format_str(format, format_len, value, value_len, nullptr);
     }
 
@@ -1287,8 +1289,8 @@ public:
         }
     }
 
-    bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
-                              const char** sub_val_end);
+    bool from_date_format_str(const char* format, size_t format_len, const char* value,
+                              size_t value_len, const char** sub_val_end);
     static constexpr int MAX_DATE_PARTS = 7;
     static constexpr uint32_t MAX_TIME_PART_VALUE[3] = {23, 59, 59};
 
@@ -1369,7 +1371,7 @@ int64_t datetime_diff(const VecDateTimeValue& ts_value1, const VecDateTimeValue&
         return month;
     }
     case WEEK: {
-        int day = ts_value2.daynr() - ts_value1.daynr();
+        auto day = ts_value2.daynr() - ts_value1.daynr();
         if (day > 0) {
             day -= ts_value2.time_part_diff(ts_value1) < 0;
         } else if (day < 0) {
@@ -1378,7 +1380,7 @@ int64_t datetime_diff(const VecDateTimeValue& ts_value1, const VecDateTimeValue&
         return day / 7;
     }
     case DAY: {
-        int day = ts_value2.daynr() - ts_value1.daynr();
+        auto day = ts_value2.daynr() - ts_value1.daynr();
         if (day > 0) {
             day -= ts_value2.time_part_diff(ts_value1) < 0;
         } else if (day < 0) {

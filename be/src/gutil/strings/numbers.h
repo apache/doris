@@ -6,8 +6,9 @@
 #pragma once
 
 #include <stddef.h>
-#include <time.h>
 #include <stdint.h>
+#include <time.h>
+
 #include <functional>
 
 using std::less;
@@ -321,11 +322,11 @@ inline bool ParseLeadingBoolValue(const string& str, bool deflt) {
 //    strict mode, but "01" == "1" otherwise.
 // ----------------------------------------------------------------------
 
-int AutoDigitStrCmp(const char* a, int alen, const char* b, int blen, bool strict);
+int AutoDigitStrCmp(const char* a, size_t alen, const char* b, size_t blen, bool strict);
 
-bool AutoDigitLessThan(const char* a, int alen, const char* b, int blen);
+bool AutoDigitLessThan(const char* a, size_t alen, const char* b, size_t blen);
 
-bool StrictAutoDigitLessThan(const char* a, int alen, const char* b, int blen);
+bool StrictAutoDigitLessThan(const char* a, size_t alen, const char* b, size_t blen);
 
 struct autodigit_less {
     bool operator()(const string& a, const string& b) const {

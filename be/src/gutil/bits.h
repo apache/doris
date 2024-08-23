@@ -5,6 +5,7 @@
 #pragma once
 
 
+#include "common/cast_set.h"
 #include "gutil/integral_types.h"
 // IWYU pragma: no_include <butil/macros.h>
 #include "gutil/macros.h" // IWYU pragma: keep
@@ -38,7 +39,7 @@ public:
 #if defined(__x86_64__) && defined __GNUC__
         int64 count = 0;
         asm("popcnt %1,%0" : "=r"(count) : "rm"(n) : "cc");
-        return count;
+        return doris::cast_set<int>(count);
 #else
         return CountOnes64(n);
 #endif
@@ -50,7 +51,7 @@ public:
     static uint64 ReverseBits64(uint64 n);
 
     // Return the number of one bits in the byte sequence.
-    static int Count(const void* m, int num_bytes);
+    static int Count(const void* m, int64_t num_bytes);
 
     // Return the number of different bits in the given byte sequences.
     // (i.e., the Hamming distance)

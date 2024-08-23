@@ -47,7 +47,7 @@ public:
 #if defined(__SSE2__) || defined(__aarch64__)
 protected:
     static constexpr auto n = sizeof(__m128i);
-    const int page_size = sysconf(_SC_PAGESIZE); //::getPageSize();
+    const long page_size = sysconf(_SC_PAGESIZE); //::getPageSize();
 
     bool page_safe(const void* const ptr) const {
         return ((page_size - 1) & reinterpret_cast<std::uintptr_t>(ptr)) <= page_size - n;

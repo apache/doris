@@ -281,7 +281,7 @@ struct MergeSortBlockCursor {
     MergeSortCursorImpl* operator->() const { return impl.get(); }
 
     /// The specified row of this cursor is greater than the specified row of another cursor.
-    int8_t less_at(const MergeSortBlockCursor& rhs, int rows) const {
+    int8_t less_at(const MergeSortBlockCursor& rhs, int64_t rows) const {
         for (size_t i = 0; i < impl->sort_columns_size; ++i) {
             int direction = impl->desc[i].direction;
             int nulls_direction = impl->desc[i].nulls_direction;

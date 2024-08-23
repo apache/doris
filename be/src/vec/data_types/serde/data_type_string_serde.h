@@ -72,7 +72,7 @@ public:
                                       FormatOptions& options) const override {
         auto result = check_column_const_set_readability(column, row_num);
         ColumnPtr ptr = result.first;
-        row_num = result.second;
+        cast_set(row_num, result.second);
         const auto& value = assert_cast<const ColumnType&>(*ptr).get_data_at(row_num);
 
         if (_nesting_level > 1) {
@@ -210,7 +210,8 @@ public:
         result.writeKey(col_id);
         const auto& data_ref = column.get_data_at(row_num);
         result.writeStartBinary();
-        result.writeBinary(reinterpret_cast<const char*>(data_ref.data), data_ref.size);
+        result.writeBinary(reinterpret_cast<const char*>(data_ref.data),
+                           cast_set<uint32_t>(data_ref.size));
         result.writeEndBinary();
     }
 
@@ -232,8 +233,8 @@ public:
                 continue;
             }
             auto string_ref = string_column.get_data_at(string_i);
-            checkArrowStatus(builder.Append(string_ref.data, string_ref.size), column.get_name(),
-                             array_builder->type()->name());
+            checkArrowStatus(builder.Append(string_ref.data, cast_set<int>(string_ref.size)),
+                             column.get_name(), array_builder->type()->name());
         }
     }
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
@@ -300,7 +301,7 @@ public:
                                   int row_num) const override {
         const auto& col = assert_cast<const ColumnType&>(column);
         const auto& data_ref = col.get_data_at(row_num);
-        result.SetString(data_ref.data, data_ref.size);
+        result.SetString(data_ref.data, cast_set<uint32_t>(data_ref.size));
         return Status::OK();
     }
     Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override {

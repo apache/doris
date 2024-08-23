@@ -19,7 +19,10 @@
 // and modified by Doris
 
 #pragma once
-
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshorten-64-to-32"
+#endif
 #include <common/compiler_util.h>
 #include <stdint.h>
 #include <string.h>
@@ -687,3 +690,6 @@ void swap(PODArray<T, initial_bytes, TAllocator, pad_right_, pad_left_>& lhs,
 }
 
 } // namespace doris::vectorized
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

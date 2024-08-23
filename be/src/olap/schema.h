@@ -87,7 +87,7 @@ public:
     Schema(const std::vector<TabletColumnPtr>& columns, const std::vector<ColumnId>& col_ids) {
         size_t num_key_columns = 0;
         _unique_ids.resize(columns.size());
-        for (size_t i = 0; i < columns.size(); ++i) {
+        for (int i = 0; i < columns.size(); ++i) {
             if (columns[i]->is_key()) {
                 ++num_key_columns;
             }

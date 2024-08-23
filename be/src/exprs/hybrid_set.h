@@ -215,7 +215,7 @@ public:
         _contains_null |= set->_contains_null;
     }
 
-    virtual int size() = 0;
+    virtual size_t size() = 0;
     virtual bool find(const void* data) const = 0;
     // use in vectorize execute engine
     virtual bool find(const void* data, size_t) const = 0;
@@ -330,7 +330,7 @@ public:
         }
     }
 
-    int size() override { return _set.size(); }
+    size_t size() override { return _set.size(); }
 
     bool find(const void* data) const override {
         if (data == nullptr) {
@@ -484,7 +484,7 @@ public:
         }
     }
 
-    int size() override { return _set.size(); }
+    size_t size() override { return _set.size(); }
 
     bool find(const void* data) const override {
         if (data == nullptr) {
@@ -651,7 +651,7 @@ public:
         }
     }
 
-    int size() override { return _set.size(); }
+    size_t size() override { return _set.size(); }
 
     bool find(const void* data) const override {
         if (data == nullptr) {

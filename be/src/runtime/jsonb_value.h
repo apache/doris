@@ -47,7 +47,7 @@ struct JsonBinaryValue {
         static_cast<void>(from_json_string(const_cast<const char*>(ptr), len));
     }
     JsonBinaryValue(const std::string& s) {
-        static_cast<void>(from_json_string(s.c_str(), s.length()));
+        static_cast<void>(from_json_string(s.c_str(), cast_set<int>(s.length())));
     }
     JsonBinaryValue(const char* ptr, int len) { static_cast<void>(from_json_string(ptr, len)); }
 
@@ -121,14 +121,14 @@ struct JsonBinaryValue {
 
     struct HashOfJsonBinaryValue {
         size_t operator()(const JsonBinaryValue& v) const {
-            return HashUtil::hash(v.ptr, v.len, 0);
+            return HashUtil::hash(v.ptr, cast_set<int32_t>(v.len), 0);
         }
     };
 };
 
 // This function must be called 'hash_value' to be picked up by boost.
 inline std::size_t hash_value(const JsonBinaryValue& v) {
-    return HashUtil::hash(v.ptr, v.len, 0);
+    return HashUtil::hash(v.ptr, cast_set<int32_t>(v.len), 0);
 }
 
 std::ostream& operator<<(std::ostream& os, const JsonBinaryValue& json_value);

@@ -353,7 +353,7 @@ DecimalV2Value DecimalV2Value::sqrt(const DecimalV2Value& v) {
     return DecimalV2Value(ret);
 }
 
-int DecimalV2Value::parse_from_str(const char* decimal_str, int32_t length) {
+int DecimalV2Value::parse_from_str(const char* decimal_str, int64_t length) {
     int32_t error = E_DEC_OK;
     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 

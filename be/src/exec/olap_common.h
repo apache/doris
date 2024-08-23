@@ -1191,9 +1191,9 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
         } // 3.1.2 produces the Cartesian product of ScanKey and fixed_value
         else {
             auto fixed_value_set = range.get_fixed_value_set();
-            int original_key_range_size = _begin_scan_keys.size();
+            int64_t original_key_range_size = _begin_scan_keys.size();
 
-            for (int i = 0; i < original_key_range_size; ++i) {
+            for (int64_t i = 0; i < original_key_range_size; ++i) {
                 OlapTuple start_base_key_range = _begin_scan_keys[i];
                 OlapTuple end_base_key_range = _end_scan_keys[i];
 

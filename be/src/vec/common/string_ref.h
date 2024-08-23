@@ -147,8 +147,8 @@ inline bool memequalSSE2Wide(const char* p1, const char* p2, size_t size) {
 //   - s1/n1: ptr/len for the first string
 //   - s2/n2: ptr/len for the second string
 //   - len: min(n1, n2) - this can be more cheaply passed in by the caller
-PURE inline int string_compare(const char* s1, int64_t n1, const char* s2, int64_t n2,
-                               int64_t len) {
+PURE inline int64_t string_compare(const char* s1, int64_t n1, const char* s2, int64_t n2,
+                                   int64_t len) {
     DCHECK_EQ(len, std::min(n1, n2));
 #if defined(__SSE4_2__) || defined(__aarch64__)
     while (len >= sse_util::CHARS_PER_128_BIT_REGISTER) {
@@ -206,11 +206,11 @@ struct StringRef {
     explicit operator std::string() const { return to_string(); }
     operator std::string_view() const { return std::string_view {data, size}; }
 
-    StringRef substring(int start_pos, int new_len) const {
+    StringRef substring(size_t start_pos, int64_t new_len) const {
         return {data + start_pos, (new_len < 0) ? (size - start_pos) : new_len};
     }
 
-    StringRef substring(int start_pos) const { return substring(start_pos, size - start_pos); }
+    StringRef substring(size_t start_pos) const { return substring(start_pos, size - start_pos); }
 
     const char* begin() const { return data; }
     const char* end() const { return data + size; }
@@ -239,8 +239,8 @@ struct StringRef {
     // this < other: -1
     // this == other: 0
     // this > other: 1
-    int compare(const StringRef& other) const {
-        int l = std::min(size, other.size);
+    int64_t compare(const StringRef& other) const {
+        auto l = std::min(size, other.size);
 
         if (l == 0) {
             if (size == other.size) {
@@ -254,7 +254,7 @@ struct StringRef {
         }
 
         // string_compare doesn't have sign result
-        int cmp_result = string_compare(this->data, this->size, other.data, other.size, l);
+        auto cmp_result = string_compare(this->data, this->size, other.data, other.size, l);
         return (cmp_result > 0) - (cmp_result < 0);
     }
 
@@ -300,7 +300,7 @@ struct StringRef {
 
 // This function must be called 'hash_value' to be picked up by boost.
 inline std::size_t hash_value(const StringRef& v) {
-    return HashUtil::hash(v.data, v.size, 0);
+    return HashUtil::hash(v.data, cast_set<int32_t>(v.size), 0);
 }
 
 using StringRefs = std::vector<StringRef>;
@@ -336,7 +336,7 @@ inline size_t hash_less_than8(const char* data, size_t size) {
         uint8_t b = data[size >> 1];
         uint8_t c = data[size - 1];
         uint32_t y = static_cast<uint32_t>(a) + (static_cast<uint32_t>(b) << 8);
-        uint32_t z = size + (static_cast<uint32_t>(c) << 2);
+        uint32_t z = cast_set<uint32_t>(size + (static_cast<uint32_t>(c) << 2));
         return shift_mix(y * k2 ^ z * k3) * k2;
     }
 
@@ -347,7 +347,7 @@ inline size_t hash_less_than16(const char* data, size_t size) {
     if (size > 8) {
         auto a = unaligned_load<doris::vectorized::UInt64>(data);
         auto b = unaligned_load<doris::vectorized::UInt64>(data + size - 8);
-        return hash_len16(a, rotate_by_at_least1(b + size, size)) ^ b;
+        return hash_len16(a, rotate_by_at_least1(b + size, cast_set<int>(size))) ^ b;
     }
 
     return hash_less_than8(data, size);

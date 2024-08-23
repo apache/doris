@@ -167,7 +167,7 @@ public:
         return _is_shutdown && _query_ctxs.empty();
     }
 
-    int query_num() {
+    int64_t query_num() {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         return _query_ctxs.size();
     }

@@ -280,7 +280,7 @@ public:
     }
 
     // Returns the rounded up to 64 multiple. Used for conversions of bits to i64.
-    static inline uint32_t round_up_numi_64(uint32_t bits) { return (bits + 63) >> 6; }
+    static inline uint64_t round_up_numi_64(uint64_t bits) { return (bits + 63) >> 6; }
 
     constexpr static inline int64_t Ceil(int64_t value, int64_t divisor) {
         return value / divisor + (value % divisor != 0);
@@ -295,7 +295,7 @@ public:
     /// Specialized round up and down functions for frequently used factors,
     /// like 8 (bits->bytes), 32 (bits->i32), and 64 (bits->i64)
     /// Returns the rounded up number of bytes that fit the number of bits.
-    constexpr static inline uint32_t RoundUpNumBytes(uint32_t bits) { return (bits + 7) >> 3; }
+    constexpr static inline uint64_t RoundUpNumBytes(uint64_t bits) { return (bits + 7) >> 3; }
 
     /// Non hw accelerated pop count.
     /// TODO: we don't use this in any perf sensitive code paths currently.  There

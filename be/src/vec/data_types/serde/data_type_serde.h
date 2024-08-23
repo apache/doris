@@ -48,7 +48,7 @@ struct ColumnVectorBatch;
 } // namespace orc
 
 #define SERIALIZE_COLUMN_TO_JSON()                                            \
-    for (size_t i = start_idx; i < end_idx; ++i) {                            \
+    for (int i = start_idx; i < end_idx; ++i) {                               \
         if (i != start_idx) {                                                 \
             bw.write(options.field_delim.data(), options.field_delim.size()); \
         }                                                                     \

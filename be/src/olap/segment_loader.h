@@ -80,7 +80,7 @@ public:
         segment_v2::SegmentSharedPtr segment;
     };
 
-    SegmentCache(size_t memory_bytes_limit, size_t segment_num_limit)
+    SegmentCache(size_t memory_bytes_limit, uint32_t segment_num_limit)
             : LRUCachePolicyTrackingManual(CachePolicy::CacheType::SEGMENT_CACHE,
                                            memory_bytes_limit, LRUCacheType::SIZE,
                                            config::tablet_rowset_stale_sweep_time_sec,

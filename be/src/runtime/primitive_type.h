@@ -23,6 +23,7 @@
 
 #include <cstdint>
 #include <string>
+#include <type_traits>
 
 #include "olap/decimal12.h"
 #include "runtime/define_primitive_type.h"
@@ -326,9 +327,9 @@ template <>
 struct PrimitiveTypeConvertor<TYPE_DATE> {
     using CppType = typename PrimitiveTypeTraits<TYPE_DATE>::CppType;
     using StorageFieldType = typename PrimitiveTypeTraits<TYPE_DATE>::StorageFieldType;
-
+    static_assert(std::is_same_v<uint24_t, StorageFieldType>);
     static inline StorageFieldType to_storage_field_type(const CppType& value) {
-        return value.to_olap_date();
+        return uint24_t {cast_set<uint32_t>(value.to_olap_date())};
     }
 };
 

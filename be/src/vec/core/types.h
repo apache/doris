@@ -388,7 +388,7 @@ std::string decimal_to_string(const T& value, UInt32 scale) {
     std::string str = std::string(max_result_length, '0');
 
     T abs_value = value;
-    int pos = 0;
+    size_t pos = 0;
 
     if (is_nagetive) {
         abs_value = -value;
@@ -445,7 +445,7 @@ size_t decimal_to_string(const T& value, char* dst, UInt32 scale, const T& scale
 
     bool is_negative = value < 0;
     T abs_value = value;
-    int pos = 0;
+    size_t pos = 0;
 
     if (is_negative) {
         abs_value = -value;

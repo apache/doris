@@ -240,7 +240,7 @@ public:
     bool GetZigZagInteger(INT_T* v);
 
     /// Returns the number of bytes left in the stream.
-    int bytes_left() { return buffer_end_ - buffer_pos_; }
+    int64_t bytes_left() { return buffer_end_ - buffer_pos_; }
 
     /// Maximum byte length of a vlq encoded integer of type T.
     template <typename T>

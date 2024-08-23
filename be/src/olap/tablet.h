@@ -673,7 +673,7 @@ inline size_t Tablet::num_rows() {
 
 inline int Tablet::version_count() const {
     std::shared_lock rdlock(_meta_lock);
-    return _tablet_meta->version_count();
+    return cast_set<int>(_tablet_meta->version_count());
 }
 
 inline Version Tablet::max_version() const {
