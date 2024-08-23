@@ -17,7 +17,6 @@
 
 #include "runtime/fragment_mgr.h"
 
-#include <bits/types/struct_timespec.h>
 #include <bvar/latency_recorder.h>
 #include <exprs/runtime_filter.h>
 #include <fmt/format.h>
@@ -35,10 +34,12 @@
 #include <gen_cpp/types.pb.h>
 #include <pthread.h>
 #include <stddef.h>
+#include <sys/time.h>
 #include <thrift/TApplicationException.h>
 #include <thrift/Thrift.h>
 #include <thrift/protocol/TDebugProtocol.h>
 #include <thrift/transport/TTransportException.h>
+#include <time.h>
 
 #include <algorithm>
 #include <atomic>
