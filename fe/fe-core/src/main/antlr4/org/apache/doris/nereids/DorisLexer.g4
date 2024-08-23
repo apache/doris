@@ -48,22 +48,6 @@ lexer grammar DorisLexer;
   }
 
   /**
-   * This method will be called when we see '/*' and try to match it as a bracketed comment.
-   * If the next character is '+', it should be parsed as hint later, and we cannot match
-   * it as a bracketed comment.
-   *
-   * Returns true if the next character is '+'.
-   */
-  public boolean isHint() {
-    int nextChar = _input.LA(1);
-    if (nextChar == '+') {
-      return true;
-    } else {
-      return false;
-    }
-  }
-
-  /**
    * This method will be called when the character stream ends and try to find out the
    * unclosed bracketed comment.
    * If the method be called, it means the end of the entire character stream match,
@@ -71,19 +55,6 @@ lexer grammar DorisLexer;
    */
   public void markUnclosedComment() {
     has_unclosed_bracketed_comment = true;
-  }
-
-  // This variable will hold the external state
-  private boolean channel2;
-
-  // Method to set the external state
-  public void setChannel2(boolean value) {
-      this.channel2 = value;
-  }
-
-  // Method to decide the channel based on external state
-  private boolean isChannel2() {
-      return this.channel2;
   }
 }
 
@@ -624,6 +595,7 @@ COLON: ':';
 ARROW: '->';
 HINT_START: '/*+';
 HINT_END: '*/';
+COMMENT_START: '/*';
 ATSIGN: '@';
 DOUBLEATSIGN: '@@';
 
@@ -703,11 +675,7 @@ SIMPLE_COMMENT
     ;
 
 BRACKETED_COMMENT
-    : '/*' {!isHint()}? ( BRACKETED_COMMENT | . )*? ('*/' | {markUnclosedComment();} EOF) -> channel(HIDDEN)
-    ;
-
-HINT_WITH_CHANNEL
-    : {isChannel2()}? HINT_START .*? HINT_END -> channel(2)
+    : COMMENT_START ( BRACKETED_COMMENT | . )*? ('*/' | {markUnclosedComment();} EOF) -> channel(2)
     ;
 
 

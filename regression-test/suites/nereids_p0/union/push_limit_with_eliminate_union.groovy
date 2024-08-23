@@ -15,23 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap_table_sink_v2_operator.h"
-
-#include "common/status.h"
-
-namespace doris::pipeline {
-
-Status OlapTableSinkV2LocalState::close(RuntimeState* state, Status exec_status) {
-    if (Base::_closed) {
-        return Status::OK();
-    }
-    SCOPED_TIMER(_close_timer);
-    SCOPED_TIMER(exec_time_counter());
-    if (_closed) {
-        return _close_status;
-    }
-    _close_status = Base::close(state, exec_status);
-    return _close_status;
+suite("push_limit_with_eliminate_union") {
+    // this should not failed for [INTERNAL_ERROR]VSlotRef  have invalid slot id
+    sql """(select 1 limit 0 union all select count() + 1) limit 1;"""
 }
-
-} // namespace doris::pipeline

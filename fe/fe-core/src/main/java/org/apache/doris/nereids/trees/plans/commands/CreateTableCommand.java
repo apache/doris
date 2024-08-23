@@ -98,11 +98,8 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                 LOG.debug("Nereids start to execute the create table command, query id: {}, tableName: {}",
                         ctx.queryId(), createTableInfo.getTableName());
             }
-            try {
-                Env.getCurrentEnv().createTable(createTableStmt);
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage(), e.getCause());
-            }
+
+            Env.getCurrentEnv().createTable(createTableStmt);
             return;
         }
         LogicalPlan query = ctasQuery.get();
@@ -139,7 +136,7 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                             // String type can not be used in partition/distributed column
                             // so we replace it to varchar
                             dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                                    StringType.class, VarcharType.MAX_VARCHAR_TYPE);
+                                    CharacterType.class, VarcharType.MAX_VARCHAR_TYPE);
                         } else {
                             dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
                                     CharacterType.class, StringType.INSTANCE);

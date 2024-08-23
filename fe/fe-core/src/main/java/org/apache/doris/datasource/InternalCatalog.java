@@ -46,7 +46,9 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.MultiPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionKeyDesc.PartitionKeyValueType;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
@@ -992,9 +994,6 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
                 db.getId(), table.getId());
-
-        Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
-
         DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, -1L, forceDrop, recycleTime);
         Env.getCurrentEnv().getEditLog().logDropTable(info);
         Env.getCurrentEnv().getMtmvService().dropTable(table);
@@ -1024,7 +1023,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (table.getType() == TableType.MATERIALIZED_VIEW) {
             Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) table);
         }
-
+        Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         db.unregisterTable(table.getName());
         StopWatch watch = StopWatch.createStarted();
         Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, isForceDrop, recycleTime);
@@ -1042,7 +1041,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), tableId);
-            Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         } finally {
             table.writeUnlock();
             db.writeUnlock();
@@ -2251,6 +2249,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         db.checkQuota();
     }
 
+    // below are private functions used by createOlapTable
+
     private Type getChildTypeByName(String name, CreateTableStmt stmt)
             throws AnalysisException {
         List<Column> columns = stmt.getColumns();
@@ -2260,6 +2260,98 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
         throw new AnalysisException("Cannot find column `" + name + "` in table's columns");
+    }
+
+    private boolean findAllowNullforSlotRef(List<Column> baseSchema, SlotRef slot) throws AnalysisException {
+        for (Column col : baseSchema) {
+            if (col.nameEquals(slot.getColumnName(), true)) {
+                return col.isAllowNull();
+            }
+        }
+        throw new AnalysisException("Unknown partition column name:" + slot.getColumnName());
+    }
+
+    private void checkNullityEqual(ArrayList<Boolean> partitionSlotNullables, List<PartitionValue> item)
+            throws AnalysisException {
+        // for MAX_VALUE or somethings
+        if (item == null) {
+            return;
+        }
+        for (int i = 0; i < item.size(); i++) {
+            try {
+                if (!partitionSlotNullables.get(i) && item.get(i).isNullPartition()) {
+                    throw new AnalysisException("Can't have null partition is for NOT NULL partition "
+                            + "column in partition expr's index " + i);
+                }
+            } catch (IndexOutOfBoundsException e) {
+                throw new AnalysisException("partition item's size out of partition columns: " + e.getMessage());
+            }
+        }
+    }
+
+    private void checkPartitionNullity(List<Column> baseSchema, PartitionDesc partitionDesc,
+            SinglePartitionDesc partition)
+            throws AnalysisException {
+        // in creating OlapTable, expr.desc is null. so we should find the column ourself.
+        ArrayList<Expr> partitionExprs = partitionDesc.getPartitionExprs();
+        ArrayList<Boolean> partitionSlotNullables = new ArrayList<Boolean>();
+        for (Expr expr : partitionExprs) {
+            if (expr instanceof SlotRef) {
+                partitionSlotNullables.add(findAllowNullforSlotRef(baseSchema, (SlotRef) expr));
+            } else if (expr instanceof FunctionCallExpr) {
+                partitionSlotNullables.add(Expr.isNullable(((FunctionCallExpr) expr).getFn(), expr.getChildren()));
+            } else {
+                throw new AnalysisException("Unknown partition expr type:" + expr.getExprName());
+            }
+        }
+
+        if (partition.getPartitionKeyDesc().getPartitionType() == PartitionKeyValueType.IN) {
+            List<List<PartitionValue>> inValues = partition.getPartitionKeyDesc().getInValues();
+            for (List<PartitionValue> item : inValues) {
+                checkNullityEqual(partitionSlotNullables, item);
+            }
+        } else if (partition.getPartitionKeyDesc().getPartitionType() == PartitionKeyValueType.LESS_THAN) {
+            // only upper
+            List<PartitionValue> upperValues = partition.getPartitionKeyDesc().getUpperValues();
+            checkNullityEqual(partitionSlotNullables, upperValues);
+        } else {
+            // fixed. upper and lower
+            List<PartitionValue> lowerValues = partition.getPartitionKeyDesc().getLowerValues();
+            List<PartitionValue> upperValues = partition.getPartitionKeyDesc().getUpperValues();
+            checkNullityEqual(partitionSlotNullables, lowerValues);
+            checkNullityEqual(partitionSlotNullables, upperValues);
+        }
+    }
+
+    private void checkLegalityofPartitionExprs(CreateTableStmt stmt, PartitionDesc partitionDesc)
+            throws AnalysisException {
+        for (Expr expr : partitionDesc.getPartitionExprs()) {
+            if (expr != null && expr instanceof FunctionCallExpr) { // test them
+                FunctionCallExpr func = (FunctionCallExpr) expr;
+                ArrayList<Expr> children = func.getChildren();
+                Type[] childTypes = new Type[children.size()];
+                for (int i = 0; i < children.size(); i++) {
+                    if (children.get(i) instanceof LiteralExpr) {
+                        childTypes[i] = children.get(i).getType();
+                    } else if (children.get(i) instanceof SlotRef) {
+                        childTypes[i] = getChildTypeByName(children.get(i).getExprName(), stmt);
+                    } else {
+                        throw new AnalysisException(String.format(
+                                "partition expr %s has unrecognized parameter in slot %d", func.getExprName(), i));
+                    }
+                }
+                Function fn = null;
+                try {
+                    fn = func.getBuiltinFunction(func.getFnName().getFunction(), childTypes,
+                            Function.CompareMode.IS_INDISTINGUISHABLE); // only for test
+                } catch (Exception e) {
+                    throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
+                }
+                if (fn == null) {
+                    throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
+                }
+            }
+        }
     }
 
     // Create olap table and related base index synchronously.
@@ -2307,43 +2399,21 @@ public class InternalCatalog implements CatalogIf<Database> {
         // create partition info
         PartitionDesc partitionDesc = stmt.getPartitionDesc();
 
-        // check legality of partiton exprs
         ConnectContext ctx = ConnectContext.get();
         Env env = Env.getCurrentEnv();
+
+        // check legality of partiton exprs.
         if (ctx != null && env != null && partitionDesc != null && partitionDesc.getPartitionExprs() != null) {
-            for (Expr expr : partitionDesc.getPartitionExprs()) {
-                if (expr != null && expr instanceof FunctionCallExpr) { // test them
-                    FunctionCallExpr func = (FunctionCallExpr) expr;
-                    ArrayList<Expr> children = func.getChildren();
-                    Type[] childTypes = new Type[children.size()];
-                    for (int i = 0; i < children.size(); i++) {
-                        if (children.get(i) instanceof LiteralExpr) {
-                            childTypes[i] = children.get(i).getType();
-                        } else if (children.get(i) instanceof SlotRef) {
-                            childTypes[i] = getChildTypeByName(children.get(i).getExprName(), stmt);
-                        } else {
-                            throw new AnalysisException(String.format(
-                                    "partition expr %s has unrecognized parameter in slot %d", func.getExprName(), i));
-                        }
-                    }
-                    Function fn = null;
-                    try {
-                        fn = func.getBuiltinFunction(func.getFnName().getFunction(), childTypes,
-                                Function.CompareMode.IS_INDISTINGUISHABLE); // only for test
-                    } catch (Exception e) {
-                        throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
-                    }
-                    if (fn == null) {
-                        throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
-                    }
-                }
-            }
+            checkLegalityofPartitionExprs(stmt, partitionDesc);
         }
 
         PartitionInfo partitionInfo = null;
         Map<String, Long> partitionNameToId = Maps.newHashMap();
         if (partitionDesc != null) {
             for (SinglePartitionDesc desc : partitionDesc.getSinglePartitionDescs()) {
+                // check legality of nullity of partition items.
+                checkPartitionNullity(baseSchema, partitionDesc, desc);
+
                 long partitionId = idGeneratorBuffer.getNextId();
                 partitionNameToId.put(desc.getPartitionName(), partitionId);
             }
