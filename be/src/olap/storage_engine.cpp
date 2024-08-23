@@ -178,6 +178,14 @@ int64_t StorageEngine::memory_limitation_bytes_per_thread_for_schema_change() co
                     config::memory_limitation_per_thread_for_schema_change_bytes);
 }
 
+int64_t StorageEngine::memory_limitation_bytes_per_thread_for_schema_change_internal_sorting()
+        const {
+    return std::min(
+            static_cast<int64_t>(memory_limitation_bytes_per_thread_for_schema_change() *
+                                 config::schema_change_internal_sorting_mem_limit_frac_per_thread),
+            config::memory_limitation_per_thread_for_schema_change_internal_sorting_bytes);
+}
+
 Status StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     std::vector<std::thread> threads;
     std::vector<Status> results(data_dirs.size());
