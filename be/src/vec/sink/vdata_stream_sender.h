@@ -558,7 +558,7 @@ public:
 
     void register_exchange_buffer(pipeline::ExchangeSinkBuffer<Parent>* buffer) {
         _buffer = buffer;
-        _buffer->register_sink(Channel<Parent>::_fragment_instance_id);
+        _buffer->register_sink(Channel<Parent>::_fragment_instance_id, this);
     }
 
     std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> get_send_callback(
