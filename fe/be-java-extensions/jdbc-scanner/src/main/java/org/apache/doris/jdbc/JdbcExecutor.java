@@ -116,6 +116,7 @@ public class JdbcExecutor {
                 .setConnectionPoolMaxLifeTime(request.connection_pool_max_life_time)
                 .setConnectionPoolKeepAlive(request.connection_pool_keep_alive);
         JdbcDataSource.getDataSource().setCleanupInterval(request.connection_pool_cache_clear_time);
+        System.setProperty("com.zaxxer.hikari.useWeakReferences", "true");
         init(config, request.statement);
     }
 
