@@ -96,109 +96,66 @@ public class MaxComputeColumnValue implements ColumnValue {
     @Override
     public boolean getBoolean() {
         skippedIfNull();
-        BitVector bitCol = (BitVector) column;
-        return bitCol.get(idx++) != 0;
+        return ((BitVector) column).getObject(idx++);
     }
 
     @Override
     public byte getByte() {
         skippedIfNull();
-        TinyIntVector tinyIntCol = (TinyIntVector) column;
-        return tinyIntCol.get(idx++);
+        return ((TinyIntVector) column).getObject(idx++);
     }
 
     @Override
     public short getShort() {
         skippedIfNull();
-        SmallIntVector smallIntCol = (SmallIntVector) column;
-        return smallIntCol.get(idx++);
+        return ((SmallIntVector) column).getObject(idx++);
     }
 
     @Override
     public int getInt() {
         skippedIfNull();
-        IntVector intCol = (IntVector) column;
-        return intCol.get(idx++);
+        return ((IntVector) column).getObject(idx++);
     }
 
     @Override
     public float getFloat() {
         skippedIfNull();
-        Float4Vector floatCol = (Float4Vector) column;
-        return floatCol.get(idx++);
+        return ((Float4Vector) column).getObject(idx++);
     }
 
     @Override
     public long getLong() {
         skippedIfNull();
-        BigIntVector longCol = (BigIntVector) column;
-        return longCol.get(idx++);
+        return ((BigIntVector) column).getObject(idx++);
     }
 
     @Override
     public double getDouble() {
         skippedIfNull();
-        Float8Vector doubleCol = (Float8Vector) column;
-        return doubleCol.get(idx++);
+        return ((Float8Vector) column).getObject(idx++);
     }
 
     @Override
     public BigInteger getBigInteger() {
         skippedIfNull();
-        BigIntVector longCol = (BigIntVector) column;
-        return BigInteger.valueOf(longCol.get(idx++));
+        return BigInteger.valueOf(((BigIntVector) column).getObject(idx++));
     }
 
     @Override
     public BigDecimal getDecimal() {
         skippedIfNull();
-        DecimalVector decimalCol = (DecimalVector) column;
-        return getBigDecimalFromArrowBuf(column.getDataBuffer(), idx++,
-                    decimalCol.getScale(), DecimalVector.TYPE_WIDTH);
-    }
-
-    /**
-     * copy from arrow vector DecimalUtility.getBigDecimalFromArrowBuf
-     * @param byteBuf byteBuf
-     * @param index index
-     * @param scale scale
-     * @param byteWidth DecimalVector TYPE_WIDTH
-     * @return java BigDecimal
-     */
-    public static BigDecimal getBigDecimalFromArrowBuf(ArrowBuf byteBuf, int index, int scale, int byteWidth) {
-        byte[] value = new byte[byteWidth];
-        byte temp;
-        final long startIndex = (long) index * byteWidth;
-
-        byteBuf.getBytes(startIndex, value, 0, byteWidth);
-        if (ByteOrder.nativeOrder() == ByteOrder.LITTLE_ENDIAN) {
-            // Decimal stored as native endian, need to swap bytes to make BigDecimal if native endian is LE
-            int stop = byteWidth / 2;
-            for (int i = 0, j; i < stop; i++) {
-                temp = value[i];
-                j = (byteWidth - 1) - i;
-                value[i] = value[j];
-                value[j] = temp;
-            }
-        }
-        BigInteger unscaledValue = new BigInteger(value);
-        return new BigDecimal(unscaledValue, scale);
+        return ((DecimalVector) column).getObject(idx++);
     }
 
     @Override
     public String getString() {
         skippedIfNull();
-        VarCharVector varcharCol = (VarCharVector) column;
-        String v = varcharCol.getObject(idx++).toString();
-        return v == null ? new String(new byte[0]) : v;
+        return ((VarCharVector) column).getObject(idx++).toString();
     }
 
     @Override
     public byte[] getStringAsBytes() {
-        skippedIfNull();
-        VarCharVector varcharCol = (VarCharVector) column;
-        byte[] v = varcharCol.getObject(idx++).getBytes();
-        return v == null ? new byte[0] : v;
+        return getString().getBytes();
     }
 
     @Override
