@@ -47,7 +47,6 @@ suite("test_clear_block") {
     sql """
         CREATE TABLE IF NOT EXISTS dup_httplogs
         (   
-            `id`          bigint NOT NULL AUTO_INCREMENT(100),
             `@timestamp` int(11) NULL,
             `clientip`   varchar(20) NULL,
             `request`    text NULL,
@@ -57,12 +56,11 @@ suite("test_clear_block") {
             INDEX        request_idx (`request`) USING INVERTED PROPERTIES("parser" = "unicode", "support_phrase" = "true") COMMENT '',
             INDEX        status_idx (`status`) USING INVERTED COMMENT '',
             INDEX        size_idx (`size`) USING INVERTED COMMENT ''
-        ) DUPLICATE KEY(`id`)
-        DISTRIBUTED BY HASH (`id`) BUCKETS 32
+        ) DUPLICATE KEY(`@timestamp`)
+        DISTRIBUTED BY HASH (`@timestamp`) BUCKETS 32
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
         "compaction_policy" = "time_series",
-        "inverted_index_storage_format" = "v2",
         "compression" = "ZSTD",
         "disable_auto_compaction" = "true"
         );
@@ -81,10 +79,10 @@ suite("test_clear_block") {
     sql """ set enable_match_without_inverted_index = false """
     sql """ sync """
 
-    qt_sql """ SELECT clientip from ${dupTableName} WHERE clientip NOT IN (NULL, '') or clientip IN ('17.0.0.0') ORDER BY id LIMIT 2 """
+    qt_sql """ SELECT clientip from ${dupTableName} WHERE clientip NOT IN (NULL, '') or clientip IN ('17.0.0.0') ORDER BY `@timestamp` LIMIT 2 """
         
-    def result1 = sql """ SELECT clientip from ${dupTableName} WHERE clientip NOT IN (NULL, '') or clientip IN ('17.0.0.0') ORDER BY id LIMIT 5000 """
-    def result2 = sql """ SELECT clientip from ${dupTableName} WHERE clientip NOT IN (NULL, '') or clientip IN ('17.0.0.0') ORDER BY id LIMIT 5000 """
+    def result1 = sql """ SELECT clientip from ${dupTableName} WHERE clientip NOT IN (NULL, '') or clientip IN ('17.0.0.0') ORDER BY `@timestamp` LIMIT 5000 """
+    def result2 = sql """ SELECT clientip from ${dupTableName} WHERE clientip NOT IN (NULL, '') or clientip IN ('17.0.0.0') ORDER BY `@timestamp` LIMIT 5000 """
     if (result1 != result2) {
         logger.info("result1 is: {}", result1)
         logger.info("result2 is: {}", result2)
