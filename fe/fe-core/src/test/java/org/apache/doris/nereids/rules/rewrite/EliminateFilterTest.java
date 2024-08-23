@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -38,6 +39,17 @@ class EliminateFilterTest implements MemoPatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), filterFalse)
+                .applyTopDown(new EliminateFilter())
+                .matches(logicalEmptyRelation());
+    }
+
+    @Test
+    void testEliminateFilterNull() {
+        LogicalPlan filterNull = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
+                .filter(NullLiteral.INSTANCE)
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), filterNull)
                 .applyTopDown(new EliminateFilter())
                 .matches(logicalEmptyRelation());
     }

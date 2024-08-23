@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "io/io_common.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/simple_rowid_conversion.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 
@@ -84,8 +85,9 @@ public:
                                              vectorized::RowSourcesBuffer* row_source_buf,
                                              vectorized::VerticalBlockReader& src_block_reader,
                                              segment_v2::SegmentWriter& dst_segment_writer,
-                                             int64_t max_rows_per_segment, Statistics* stats_output,
-                                             uint64_t* index_size, KeyBoundsPB& key_bounds);
+                                             Statistics* stats_output, uint64_t* index_size,
+                                             KeyBoundsPB& key_bounds,
+                                             SimpleRowIdConversion* rowid_conversion);
 };
 
 } // namespace doris

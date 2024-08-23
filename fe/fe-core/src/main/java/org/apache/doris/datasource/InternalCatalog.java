@@ -898,33 +898,60 @@ public class InternalCatalog implements CatalogIf<Database> {
                                     + " please use \"DROP table FORCE\".");
                 }
             }
-            table.writeLock();
-            long recycleTime = 0;
-            try {
-                if (table instanceof OlapTable && !stmt.isForceDrop()) {
-                    OlapTable olapTable = (OlapTable) table;
-                    if ((olapTable.getState() != OlapTableState.NORMAL)) {
-                        throw new DdlException("The table [" + tableName + "]'s state is " + olapTable.getState()
-                                + ", cannot be dropped." + " please cancel the operation on olap table firstly."
-                                + " If you want to forcibly drop(cannot be recovered),"
-                                + " please use \"DROP table FORCE\".");
-                    }
+
+            if (table instanceof OlapTable && !stmt.isForceDrop()) {
+                OlapTable olapTable = (OlapTable) table;
+                if ((olapTable.getState() != OlapTableState.NORMAL)) {
+                    throw new DdlException("The table [" + tableName + "]'s state is " + olapTable.getState()
+                            + ", cannot be dropped." + " please cancel the operation on olap table firstly."
+                            + " If you want to forcibly drop(cannot be recovered),"
+                            + " please use \"DROP table FORCE\".");
                 }
-                unprotectDropTable(db, table, stmt.isForceDrop(), false, 0);
-                if (!stmt.isForceDrop()) {
-                    recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(table.getId());
-                }
-            } finally {
-                table.writeUnlock();
             }
-            DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, -1L, stmt.isForceDrop(), recycleTime);
-            Env.getCurrentEnv().getEditLog().logDropTable(info);
-            Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
-                    db.getId(), table.getId());
+
+            dropTableInternal(db, table, stmt.isForceDrop());
+        } catch (UserException e) {
+            throw new DdlException(e.getMessage(), e.getMysqlErrorCode());
         } finally {
             db.writeUnlock();
         }
         LOG.info("finished dropping table: {} from db: {}, is force: {}", tableName, dbName, stmt.isForceDrop());
+    }
+
+    // drop table without any check.
+    public void dropTableWithoutCheck(Database db, Table table, boolean forceDrop) throws DdlException {
+        if (!db.writeLockIfExist()) {
+            return;
+        }
+        try {
+            LOG.info("drop table {} without check, force: {}", table.getQualifiedName(), forceDrop);
+            dropTableInternal(db, table, forceDrop);
+        } catch (Exception e) {
+            LOG.warn("drop table without check", e);
+            throw e;
+        } finally {
+            db.writeUnlock();
+        }
+    }
+
+    // Drop a table, the db lock must hold.
+    private void dropTableInternal(Database db, Table table, boolean forceDrop) throws DdlException {
+        table.writeLock();
+        String tableName = table.getName();
+        long recycleTime = 0;
+        try {
+            unprotectDropTable(db, table, forceDrop, false, 0);
+            if (!forceDrop) {
+                recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(table.getId());
+            }
+        } finally {
+            table.writeUnlock();
+        }
+
+        DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, -1L, forceDrop, recycleTime);
+        Env.getCurrentEnv().getEditLog().logDropTable(info);
+        Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
+                db.getId(), table.getId());
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
@@ -1755,6 +1782,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         String partitionName = clause.getPartitionName();
         boolean isTempPartition = clause.isTempPartition();
+        boolean isForceDrop = clause.isForceDrop();
 
         olapTable.checkNormalStateForAlter();
         if (!olapTable.checkPartitionNameExist(partitionName, isTempPartition)) {
@@ -1771,27 +1799,31 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException("Alter table [" + olapTable.getName() + "] failed. Not a partitioned table");
         }
 
-        // drop
+        if (!isTempPartition && !isForceDrop) {
+            Partition partition = olapTable.getPartition(partitionName);
+            if (partition != null && Env.getCurrentGlobalTransactionMgr()
+                        .existCommittedTxns(db.getId(), olapTable.getId(), partition.getId())) {
+                throw new DdlException(
+                        "There are still some transactions in the COMMITTED state waiting to be completed."
+                                + " The partition [" + partitionName
+                                + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
+                                + " please use \"DROP partition FORCE\".");
+            }
+        }
+
+        dropPartitionWithoutCheck(db, olapTable, partitionName, isTempPartition, isForceDrop);
+    }
+
+    // drop partition without any check, the caller should hold the table write lock.
+    public void dropPartitionWithoutCheck(Database db, OlapTable olapTable, String partitionName,
+            boolean isTempPartition, boolean isForceDrop) throws DdlException {
         Partition partition = null;
-        long recycleTime = 0;
+        long recycleTime = -1;
         if (isTempPartition) {
             olapTable.dropTempPartition(partitionName, true);
         } else {
-            if (!clause.isForceDrop()) {
-                partition = olapTable.getPartition(partitionName);
-                if (partition != null) {
-                    if (Env.getCurrentEnv().getGlobalTransactionMgr()
-                            .existCommittedTxns(db.getId(), olapTable.getId(), partition.getId())) {
-                        throw new DdlException(
-                                "There are still some transactions in the COMMITTED state waiting to be completed."
-                                        + " The partition [" + partitionName
-                                        + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
-                                        + " please use \"DROP partition FORCE\".");
-                    }
-                }
-            }
-            olapTable.dropPartition(db.getId(), partitionName, clause.isForceDrop());
-            if (!clause.isForceDrop() && partition != null) {
+            partition = olapTable.dropPartition(db.getId(), partitionName, isForceDrop);
+            if (!isForceDrop && partition != null) {
                 recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(partition.getId());
             }
         }
@@ -1799,11 +1831,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         // log
         long partitionId = partition == null ? -1L : partition.getId();
         DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionId, partitionName,
-                isTempPartition, clause.isForceDrop(), recycleTime);
+                isTempPartition, isForceDrop, recycleTime);
         Env.getCurrentEnv().getEditLog().logDropPartition(info);
 
         LOG.info("succeed in dropping partition[{}], table : [{}-{}], is temp : {}, is force : {}",
-                partitionName, olapTable.getId(), olapTable.getName(), isTempPartition, clause.isForceDrop());
+                partitionName, olapTable.getId(), olapTable.getName(), isTempPartition, isForceDrop);
     }
 
     public void replayDropPartition(DropPartitionInfo info) throws MetaNotFoundException {

@@ -21,6 +21,7 @@ package org.apache.doris.master;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
@@ -723,6 +724,15 @@ public class ReportHandler extends Daemon {
         AgentBatchTask createReplicaBatchTask = new AgentBatchTask();
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         Map<Object, Object> objectPool = new HashMap<Object, Object>();
+        Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+        Set<Long> backendHealthPathHashs;
+        if (backend == null) {
+            backendHealthPathHashs = Sets.newHashSet();
+        } else {
+            backendHealthPathHashs = backend.getDisks().values().stream()
+                    .filter(DiskInfo::isAlive)
+                    .map(DiskInfo::getPathHash).collect(Collectors.toSet());
+        }
         for (Long dbId : tabletDeleteFromMeta.keySet()) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
@@ -782,7 +792,24 @@ public class ReportHandler extends Daemon {
                     long currentBackendReportVersion = Env.getCurrentSystemInfo()
                             .getBackendReportVersion(backendId);
                     if (backendReportVersion < currentBackendReportVersion) {
-                        continue;
+
+                        // if backendHealthPathHashs contains health path hash 0,
+                        // it means this backend hadn't reported disks state,
+                        // should ignore this case.
+                        boolean thisReplicaOnBadDisk = replica.getPathHash() != -1L
+                                && !backendHealthPathHashs.contains(replica.getPathHash())
+                                && !backendHealthPathHashs.contains(0L);
+
+                        boolean existsOtherHealthReplica = tablet.getReplicas().stream()
+                                .anyMatch(r -> r.getBackendId() != replica.getBackendId()
+                                        && r.getVersion() >= replica.getVersion()
+                                        && r.getLastFailedVersion() == -1L
+                                        && !r.isBad());
+
+                        // if replica is on bad disks and there are other health replicas, still delete it.
+                        if (!(thisReplicaOnBadDisk && existsOtherHealthReplica)) {
+                            continue;
+                        }
                     }
 
                     if (state == ReplicaState.NORMAL || state == ReplicaState.SCHEMA_CHANGE) {

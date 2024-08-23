@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -57,7 +56,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * because some rule could change output's nullable.
@@ -145,8 +143,10 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         ImmutableList.Builder<List<SlotReference>> newChildrenOutputs = ImmutableList.builder();
         List<Boolean> inputNullable = null;
         if (!setOperation.children().isEmpty()) {
-            inputNullable = setOperation.getRegularChildOutput(0).stream()
-                    .map(ExpressionTrait::nullable).collect(Collectors.toList());
+            inputNullable = Lists.newArrayListWithCapacity(setOperation.getOutputs().size());
+            for (int i = 0; i < setOperation.getOutputs().size(); i++) {
+                inputNullable.add(false);
+            }
             for (int i = 0; i < setOperation.arity(); i++) {
                 List<Slot> childOutput = setOperation.child(i).getOutput();
                 List<SlotReference> setChildOutput = setOperation.getRegularChildOutput(i);
@@ -260,13 +260,6 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
 
     private <T extends Expression> Set<T> updateExpressions(Set<T> inputs, Map<ExprId, Slot> replaceMap) {
         return inputs.stream().map(i -> updateExpression(i, replaceMap)).collect(ImmutableSet.toImmutableSet());
-    }
-
-    private Map<ExprId, Slot> collectChildrenOutputMap(LogicalPlan plan) {
-        return plan.children().stream()
-                .map(Plan::getOutputSet)
-                .flatMap(Set::stream)
-                .collect(Collectors.toMap(NamedExpression::getExprId, s -> s));
     }
 
     private static class SlotReferenceReplacer extends DefaultExpressionRewriter<Map<ExprId, Slot>> {

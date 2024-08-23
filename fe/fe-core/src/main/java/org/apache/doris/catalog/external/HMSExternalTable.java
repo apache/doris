@@ -24,7 +24,6 @@ import org.apache.doris.catalog.HudiUtils;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
@@ -563,19 +562,13 @@ public class HMSExternalTable extends ExternalTable {
                 continue;
             }
             ColumnStatisticsData data = tableStat.getStatsData();
-            try {
-                setStatData(column, data, columnStatisticBuilder, count);
-            } catch (AnalysisException e) {
-                LOG.debug(e);
-                return Optional.empty();
-            }
+            setStatData(column, data, columnStatisticBuilder, count);
         }
 
         return Optional.of(columnStatisticBuilder.build());
     }
 
-    private void setStatData(Column col, ColumnStatisticsData data, ColumnStatisticBuilder builder, long count)
-            throws AnalysisException {
+    private void setStatData(Column col, ColumnStatisticsData data, ColumnStatisticBuilder builder, long count) {
         long ndv = 0;
         long nulls = 0;
         double colSize = 0;

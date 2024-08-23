@@ -78,16 +78,17 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         }
         checkNecessaryS3Properties(otherProps);
         CloudCredentialWithEndpoint credential = new CloudCredentialWithEndpoint(endpoint,
-                otherProps.get(S3Properties.REGION),
-                otherProps.get(S3Properties.ACCESS_KEY),
-                otherProps.get(S3Properties.SECRET_KEY));
+                getOrDefaultAndRemove(otherProps, S3Properties.REGION, ""),
+                getOrDefaultAndRemove(otherProps, S3Properties.ACCESS_KEY, ""),
+                getOrDefaultAndRemove(otherProps, S3Properties.SECRET_KEY, ""));
         if (otherProps.containsKey(S3Properties.SESSION_TOKEN)) {
-            credential.setSessionToken(otherProps.get(S3Properties.SESSION_TOKEN));
+            credential.setSessionToken(getOrDefaultAndRemove(otherProps, S3Properties.SESSION_TOKEN, ""));
         }
 
         locationProperties = S3Properties.credentialToMap(credential);
         locationProperties.put(PropertyConverter.USE_PATH_STYLE, usePathStyle);
         locationProperties.putAll(S3ClientBEProperties.getBeFSProperties(locationProperties));
+        locationProperties.putAll(otherProps);
 
         if (forceVirtualHosted) {
             filePath = NAME + S3URI.SCHEME_DELIM + virtualBucket + S3URI.PATH_DELIM

@@ -82,7 +82,7 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
         StatementScopeIdGenerator.clear();
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        PhysicalPlan plan = planner.plan(
+        PhysicalPlan plan = planner.planWithLock(
                 parser.parseSingle(sql),
                 PhysicalProperties.ANY
         );

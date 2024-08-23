@@ -148,8 +148,8 @@ public class Partition extends MetaObject implements Writable {
     public void updateVersionForRestore(long visibleVersion) {
         this.setVisibleVersion(visibleVersion);
         this.nextVersion = this.visibleVersion + 1;
-        LOG.info("update partition {} version for restore: visible: {}, next: {}",
-                name, visibleVersion, nextVersion);
+        LOG.info("update partition {}({}) version for restore: visible: {}, next: {}",
+                name, id, visibleVersion, nextVersion);
     }
 
     public void updateVisibleVersion(long visibleVersion) {

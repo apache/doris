@@ -259,11 +259,12 @@ public class GsonUtils {
             .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())
             .registerTypeAdapter(Range.class, new RangeUtils.RangeSerializer());
 
-    private static final GsonBuilder GSON_BUILDER_PRETTY_PRINTING = GSON_BUILDER.setPrettyPrinting();
 
     // this instance is thread-safe.
     public static final Gson GSON = GSON_BUILDER.create();
 
+    // ATTN: the order between creating GSON and GSON_PRETTY_PRINTING is very important.
+    private static final GsonBuilder GSON_BUILDER_PRETTY_PRINTING = GSON_BUILDER.setPrettyPrinting();
     public static final Gson GSON_PRETTY_PRINTING = GSON_BUILDER_PRETTY_PRINTING.create();
 
     /*

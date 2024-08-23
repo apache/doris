@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/merger.h"
+#include "olap/simple_rowid_conversion.h"
 #include "olap/tablet.h"
 #include "segment_v2/segment.h"
 
@@ -48,9 +49,17 @@ class SegcompactionWorker {
     friend class BetaRowsetWriter;
 
 public:
-    SegcompactionWorker(BetaRowsetWriter* writer) { _writer = writer; }
+    SegcompactionWorker(BetaRowsetWriter* writer);
 
     void compact_segments(SegCompactionCandidatesSharedPtr segments);
+
+    bool need_convert_delete_bitmap();
+
+    void convert_segment_delete_bitmap(DeleteBitmapPtr src_delete_bitmap, uint32_t src_seg_id,
+                                       uint32_t dest_seg_id);
+    void convert_segment_delete_bitmap(DeleteBitmapPtr src_delete_bitmap, uint32_t src_begin,
+                                       uint32_t src_end, uint32_t dest_seg_id);
+    DeleteBitmapPtr get_converted_delete_bitmap() { return _converted_delete_bitmap; }
 
     io::FileWriterPtr& get_file_writer() { return _file_writer; }
 
@@ -59,7 +68,7 @@ public:
 
 private:
     Status _create_segment_writer_for_segcompaction(
-            std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t begin, uint64_t end);
+            std::unique_ptr<segment_v2::SegmentWriter>* writer, uint32_t begin, uint32_t end);
     Status _get_segcompaction_reader(SegCompactionCandidatesSharedPtr segments,
                                      TabletSharedPtr tablet, std::shared_ptr<Schema> schema,
                                      OlapReaderStatistics* stat,
@@ -70,7 +79,7 @@ private:
                                                                             uint64_t end);
     Status _delete_original_segments(uint32_t begin, uint32_t end);
     Status _check_correctness(OlapReaderStatistics& reader_stat, Merger::Statistics& merger_stat,
-                              uint64_t begin, uint64_t end);
+                              uint32_t begin, uint32_t end);
     Status _do_compact_segments(SegCompactionCandidatesSharedPtr segments);
 
 private:
@@ -78,5 +87,9 @@ private:
     BetaRowsetWriter* _writer;
     io::FileWriterPtr _file_writer;
     std::atomic<bool> _cancelled = false;
+
+    // for unique key mow table
+    std::unique_ptr<SimpleRowIdConversion> _rowid_conversion;
+    DeleteBitmapPtr _converted_delete_bitmap;
 };
 } // namespace doris

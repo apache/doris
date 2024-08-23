@@ -126,6 +126,7 @@ import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.DoNotFallbackException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
@@ -160,6 +161,7 @@ import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.InternalQueryBuffer;
@@ -489,8 +491,13 @@ public class StmtExecutor {
                         MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
                     }
                     // try to fall back to legacy planner
-                    LOG.debug("nereids cannot process statement\n" + originStmt.originStmt
-                            + "\n because of " + e.getMessage(), e);
+                    LOG.debug("nereids cannot process statement\n{}\n because of {}",
+                            originStmt.originStmt, e.getMessage(), e);
+                    if (e instanceof NereidsException
+                            && ((NereidsException) e).getException() instanceof DoNotFallbackException) {
+                        LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+                        throw new AnalysisException(e.getMessage());
+                    }
                     if (e instanceof NereidsException
                             && !context.getSessionVariable().enableFallbackToOriginalPlanner) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
@@ -598,6 +605,11 @@ public class StmtExecutor {
             syncJournalIfNeeded();
             try {
                 ((Command) logicalPlan).run(context, this);
+            } catch (DoNotFallbackException e) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
+                }
+                throw new NereidsException("Command(" + originStmt.originStmt + ") process failed.", e);
             } catch (QueryStateException e) {
                 LOG.debug("DDL statement(" + originStmt.originStmt + ") process failed.", e);
                 context.setState(e.getQueryState());
@@ -630,6 +642,9 @@ public class StmtExecutor {
             try {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                 checkBlockRules();
+            } catch (DoNotFallbackException e) {
+                LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
+                throw new NereidsException("Command(" + originStmt.originStmt + ") process failed.", e);
             } catch (Exception e) {
                 LOG.debug("Nereids plan query failed:\n{}", originStmt.originStmt);
                 throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
@@ -1908,9 +1923,10 @@ public class StmtExecutor {
         String label = txnEntry.getLabel();
         if (Env.getCurrentEnv().isMaster()) {
             long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                    txnConf.getDbId(), Lists.newArrayList(tblObj.getId()),
-                    label, new TransactionState.TxnCoordinator(
-                            TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                    txnConf.getDbId(), Lists.newArrayList(tblObj.getId()), label,
+                    new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, 0,
+                            FrontendOptions.getLocalHostAddress(),
+                            ExecuteEnv.getInstance().getStartupTime()),
                     sourceType, timeoutSecond);
             txnConf.setTxnId(txnId);
             String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
@@ -2780,9 +2796,21 @@ public class StmtExecutor {
                 while (true) {
                     batch = coord.getNext();
                     if (batch == null || batch.isEos()) {
+                        LOG.info("Result rows for query {} is {}", DebugUtil.printId(queryId), resultRows.size());
                         return resultRows;
                     } else {
+                        if (batch.getBatch().getRows() != null) {
+                            context.updateReturnRows(batch.getBatch().getRows().size());
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("Batch size for query {} is {}",
+                                        DebugUtil.printId(queryId), batch.getBatch().rows.size());
+                            }
+                        }
                         resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Result size for query {} is currently {}",
+                                    DebugUtil.printId(queryId), resultRows.size());
+                        }
                     }
                 }
             } catch (Exception e) {

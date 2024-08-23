@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -86,12 +87,21 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     /**
      * This method will update the stats according to the selectivity.
      */
-    public Statistics estimate(Expression expression, Statistics statistics) {
+    public Statistics estimate(Expression expression, Statistics inputStats) {
         // For a comparison predicate, only when it's left side is a slot and right side is a literal, we would
         // consider is a valid predicate.
-        Statistics stats = expression.accept(this, new EstimationContext(statistics));
-        stats.enforceValid();
-        return stats;
+        Statistics outputStats = expression.accept(this, new EstimationContext(inputStats));
+        if (outputStats.getRowCount() == 0 && inputStats.getDeltaRowCount() > 0) {
+            StatisticsBuilder deltaStats = new StatisticsBuilder();
+            deltaStats.setDeltaRowCount(0);
+            deltaStats.setRowCount(inputStats.getDeltaRowCount());
+            for (Expression expr : inputStats.columnStatistics().keySet()) {
+                deltaStats.putColumnStatistics(expr, ColumnStatistic.UNKNOWN);
+            }
+            outputStats = expression.accept(this, new EstimationContext(deltaStats.build()));
+        }
+        outputStats.enforceValid();
+        return outputStats;
     }
 
     @Override
@@ -480,7 +490,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                         child instanceof EqualPredicate
                                 || child instanceof InPredicate
                                 || child instanceof IsNull
-                                || child instanceof Like,
+                                || child instanceof Like
+                                || child instanceof Match,
                         "Not-predicate meet unexpected child: %s", child.toSql());
                 if (child instanceof Like) {
                     rowCount = context.statistics.getRowCount() - childStats.getRowCount();
@@ -503,6 +514,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                             .setMinExpr(originColStats.minExpr)
                             .setMaxValue(originColStats.maxValue)
                             .setMaxExpr(originColStats.maxExpr);
+                } else if (child instanceof Match) {
+                    rowCount = context.statistics.getRowCount() - childStats.getRowCount();
+                    colBuilder.setNdv(Math.max(1.0, originColStats.ndv - childColStats.ndv));
                 }
                 if (not.child().getInputSlots().size() == 1 && !(child instanceof IsNull)) {
                     // only consider the single column numNull, otherwise, ignore

@@ -66,6 +66,8 @@ public class AlterRoutineLoadStmt extends DdlStmt {
             .add(CreateRoutineLoadStmt.PARTIAL_COLUMNS)
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
+            .add(LoadStmt.KEY_ENCLOSE)
+            .add(LoadStmt.KEY_ESCAPE)
             .build();
 
     private final LabelName labelName;
@@ -241,6 +243,12 @@ public class AlterRoutineLoadStmt extends DdlStmt {
         if (jobProperties.containsKey(CreateRoutineLoadStmt.PARTIAL_COLUMNS)) {
             analyzedJobProperties.put(CreateRoutineLoadStmt.PARTIAL_COLUMNS,
                     String.valueOf(isPartialUpdate));
+        }
+        if (jobProperties.containsKey(LoadStmt.KEY_ENCLOSE)) {
+            analyzedJobProperties.put(LoadStmt.KEY_ENCLOSE, jobProperties.get(LoadStmt.KEY_ENCLOSE));
+        }
+        if (jobProperties.containsKey(LoadStmt.KEY_ESCAPE)) {
+            analyzedJobProperties.put(LoadStmt.KEY_ESCAPE, jobProperties.get(LoadStmt.KEY_ESCAPE));
         }
     }
 

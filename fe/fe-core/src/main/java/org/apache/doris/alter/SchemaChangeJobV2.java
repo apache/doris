@@ -522,7 +522,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 if (task.getFailedTimes() > 0) {
                     task.setFinished(true);
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
-                    LOG.warn("schema change task failed: " + task.getErrorMsg());
+                    LOG.warn("schema change task failed: {}", task.getErrorMsg());
                     List<Long> failedBackends = failedTabletBackends.get(task.getTabletId());
                     if (failedBackends == null) {
                         failedBackends = Lists.newArrayList();
@@ -533,8 +533,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             .getReplicaAllocation(task.getPartitionId()).getTotalReplicaNum();
                     int failedTaskCount = failedBackends.size();
                     if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
-                        throw new AlterCancelException("schema change tasks failed on same tablet reach threshold "
-                                + failedTaskCount);
+                        throw new AlterCancelException(
+                                String.format("schema change tasks failed, error reason: %s", task.getErrorMsg()));
                     }
                 }
             }
@@ -603,6 +603,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
+        // Drop table column stats after schema change finished.
+        try {
+            Env.getCurrentEnv().getAnalysisManager().dropStats(tbl);
+        } catch (Exception e) {
+            LOG.info("Failed to drop stats after schema change finished. Reason: {}", e.getMessage());
+        }
     }
 
     private void onFinished(OlapTable tbl) {

@@ -34,6 +34,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TQueryType;
@@ -80,7 +81,9 @@ public class Transaction {
         this.coordinator = new Coordinator(ctx, null, planner, ctx.getStatsErrorEstimator());
         this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                 database.getId(), ImmutableList.of(table.getId()), labelName,
-                new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                new TxnCoordinator(TxnSourceType.FE, 0,
+                        FrontendOptions.getLocalHostAddress(),
+                        ExecuteEnv.getInstance().getStartupTime()),
                 LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
         this.createAt = System.currentTimeMillis();
     }

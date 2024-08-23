@@ -127,7 +127,7 @@ public class ExplainInsertCommandTest extends TestWithFeService {
         StatementScopeIdGenerator.clear();
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        PhysicalPlan plan = planner.plan(
+        PhysicalPlan plan = planner.planWithLock(
                 ((ExplainCommand) parser.parseSingle(sql)).getLogicalPlan(),
                 PhysicalProperties.ANY
         );
