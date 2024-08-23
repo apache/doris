@@ -312,6 +312,9 @@ suite("test_external_catalog_maxcompute", "p0,external,doris,external_docker,ext
         def q02 = {
             order_qt_q2 """ select * from web_site where web_site_id>='WS0003' order by web_site_id; """ // test char,date,varchar,double,decimal
             order_qt_q3 """ select * from int_types limit 10 """ // test bool,tinyint,int,bigint
+            // TODO:  need fix the bug: bool table use 'order by'
+            // order_qt_q3_1 """ select * from int_types order by mc_boolean limit 10 """
+            // order_qt_q3_2 """ select * from int_types order by mc_int limit 10 """
         }
         // test partition table filter
         def q03 = {

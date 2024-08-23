@@ -8,16 +8,16 @@
 5	WS0005	2023-05-01	2023-08-31	Example Web Site 5	20230501	20230831	Travel	Sophia Blue	105	Travel	Travel and booking services	Daniel Red	205	Travel Inc	3344	Tourist Street	Unit	Unit 5	Metropolis	County	WA	45678	USA	-7.0	8.00
 
 -- !q3 --
-false	-1	-1	-1
-false	0	0	0
-false	10	1000	10000
 false	127	32767	9223372036854775807
 false	2	200	2000
 false	4	400	4000
 false	6	600	6000
 false	8	800	8000
-true	1	1	1
+true	1	100	1000
 true	3	300	3000
+true	5	500	5000
+true	7	700	7000
+true	9	900	9000
 
 -- !q4 --
 1003	Sample data 3	2023-08-03
