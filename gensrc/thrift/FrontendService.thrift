@@ -518,9 +518,9 @@ struct TTxnLoadInfo {
 struct TGroupCommitInfo{
     1: optional bool getGroupCommitLoadBeId
     2: optional i64 groupCommitLoadTableId
-    3: optional bool updateLoadData
-    4: optional i64 tableId 
-    5: optional i64 receiveData
+    5: optional bool updateLoadData
+    6: optional i64 tableId 
+    7: optional i64 receiveData
 }
 
 struct TMasterOpRequest {
