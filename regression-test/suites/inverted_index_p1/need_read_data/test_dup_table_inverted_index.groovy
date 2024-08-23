@@ -716,8 +716,9 @@ suite("test_dup_table_inverted_index", "p1") {
     
     
     try {
+        sql """ set enable_insert_strict = false"""
         sql """ set enable_common_expr_pushdown = true """
-         def dupTableName = "dup_httplogs"
+        def dupTableName = "dup_httplogs"
         sql """ drop table if exists ${dupTableName} """
         // create table
         sql """
