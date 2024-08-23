@@ -217,6 +217,12 @@ public class BindSink implements AnalysisRuleFactory {
                                             // should not contain these unmentioned columns, so we just skip them.
                                             continue;
                                         } else if (column.getDefaultValue() == null) {
+                                            // throw exception if explicitly use Default value null when not nullable
+                                            // insert into table t values(DEFAULT)
+                                            if (!column.isAllowNull()) {
+                                                throw new AnalysisException("Column has no default value,"
+                                                    + " column=" + column.getName());
+                                            }
                                             // Otherwise, the unmentioned columns should be filled with default values
                                             // or null values
                                             columnToOutput.put(column.getName(), new Alias(
