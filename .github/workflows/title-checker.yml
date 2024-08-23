@@ -36,5 +36,5 @@ jobs:
         uses: ./.github/actions/action-pr-title
         with:
           regex: '\[([a-zA-Z0-9 \-_])+\]\(([a-zA-Z0-9 \-_])+\)(.*)'
-          allowed_prefixes: '[feature],[fix],[feat],[improve],[improvement],[chore],[hotfix],[enhancement]' # title should start with the given prefix
+          allowed_prefixes: '[fix],[feat],[improve],[chore],[enhancement]' # title should start with the given prefix
           github_token: ${{ github.token }}
