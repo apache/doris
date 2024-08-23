@@ -75,6 +75,7 @@ public class ShowTableStatsStmt extends ShowStmt {
             .add("table_name")
             .add("index_name")
             .add("row_count")
+            .add("update_time")
             .build();
 
     private static final ImmutableList<String> COLUMN_PARTITION_TITLE_NAMES =
@@ -266,10 +267,12 @@ public class ShowTableStatsStmt extends ShowStmt {
         if (rowCount == -1) {
             return new ShowResultSet(getMetaData(), result);
         }
+        long updateTime = tableStatistic.getRowCountUpdateTime(olapTable.getIndexIdByName(indexName));
         List<String> row = Lists.newArrayList();
         row.add(table.getName());
         row.add(indexName);
         row.add(String.valueOf(rowCount));
+        row.add(String.valueOf(updateTime));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
     }
