@@ -26,7 +26,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.TableFormatType;
