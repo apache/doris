@@ -57,6 +57,10 @@ public class DorisFlightSqlService {
         DorisFlightSqlProducer producer = new DorisFlightSqlProducer(location, flightSessionsManager);
         flightServer = FlightServer.builder(allocator, location, producer)
                 .headerAuthenticator(new FlightBearerTokenAuthenticator(flightTokenManager)).build();
+        LOG.info("Arrow Flight SQL service is created, port: {}, token_cache_size: {}"
+                        + ", qe_max_connection: {}, token_alive_time: {}",
+                port, Config.arrow_flight_token_cache_size, Config.qe_max_connection,
+                Config.arrow_flight_token_alive_time);
     }
 
     // start Arrow Flight SQL service, return true if success, otherwise false
