@@ -168,7 +168,6 @@ Status RowsetBuilder::check_tablet_version_count() {
                 "tablet: {}",
                 version_count, config::max_tablet_version_num, _tablet->tablet_id());
     }
-
     return Status::OK();
 }
 
@@ -196,7 +195,7 @@ Status RowsetBuilder::init() {
         RETURN_IF_ERROR(check_tablet_version_count());
     }
 
-    int version_count = tablet()->version_count();
+    int version_count = tablet()->version_count() + tablet()->stale_version_count();
     if (tablet()->avg_rs_meta_serialize_size() * version_count >
         config::tablet_meta_serialize_size_limit) {
         return Status::Error<TOO_MANY_VERSION>(

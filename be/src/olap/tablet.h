@@ -141,6 +141,7 @@ public:
 
     size_t num_rows();
     int version_count() const;
+    int stale_version_count() const;
     bool exceed_version_limit(int32_t limit) override;
     uint64_t segment_count() const;
     Version max_version() const;
@@ -668,6 +669,11 @@ inline size_t Tablet::num_rows() {
 inline int Tablet::version_count() const {
     std::shared_lock rdlock(_meta_lock);
     return _tablet_meta->version_count();
+}
+
+inline int Tablet::stale_version_count() const {
+    std::shared_lock rdlock(_meta_lock);
+    return _tablet_meta->stale_version_count();
 }
 
 inline Version Tablet::max_version() const {

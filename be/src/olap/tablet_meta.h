@@ -165,6 +165,7 @@ public:
     // Remote disk space occupied by tablet.
     size_t tablet_remote_size() const;
     size_t version_count() const;
+    size_t stale_version_count() const;
     size_t version_count_cross_with_range(const Version& range) const;
     Version max_version() const;
 
@@ -646,6 +647,10 @@ inline size_t TabletMeta::tablet_remote_size() const {
 }
 
 inline size_t TabletMeta::version_count() const {
+    return _rs_metas.size();
+}
+
+inline size_t TabletMeta::stale_version_count() const {
     return _rs_metas.size();
 }
 

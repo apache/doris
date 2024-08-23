@@ -167,7 +167,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
                 tablet->version_count(), config::max_tablet_version_num, tablet->tablet_id());
     }
 
-    int version_count = tablet->version_count();
+    int version_count = tablet->version_count() + tablet->stale_version_count();
     if (tablet->avg_rs_meta_serialize_size() * version_count >
         config::tablet_meta_serialize_size_limit) {
         return Status::Error<TOO_MANY_VERSION>(
