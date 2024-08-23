@@ -711,6 +711,8 @@ class ListNode(object):
         if detail:
             query_port = ""
             http_port = ""
+            node_path = CLUSTER.get_node_path(self.cluster_name,
+                                              self.node_type, self.id)
             if self.node_type == CLUSTER.Node.TYPE_FE:
                 query_port = CLUSTER.FE_QUERY_PORT
                 http_port = CLUSTER.FE_HTTP_PORT
@@ -723,6 +725,7 @@ class ListNode(object):
             result += [
                 query_port,
                 http_port,
+                node_path,
             ]
         return result
 
@@ -976,6 +979,7 @@ class ListCommand(Command):
             header += [
                 "query_port",
                 "http_port",
+                "path",
             ]
 
         rows = []
