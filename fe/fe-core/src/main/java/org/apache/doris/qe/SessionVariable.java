@@ -178,6 +178,8 @@ public class SessionVariable implements Serializable, Writable {
     // when true, the partition column must be set to NOT NULL.
     public static final String ALLOW_PARTITION_COLUMN_NULLABLE = "allow_partition_column_nullable";
 
+    public static final String FORCE_SORT_ALGORITHM = "force_sort_algorithm";
+
     // runtime filter run mode
     public static final String RUNTIME_FILTER_MODE = "runtime_filter_mode";
     // Size in bytes of Bloom Filters used for runtime filters. Actual size of filter will
@@ -397,6 +399,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
     public static final String TOPN_OPT_LIMIT_THRESHOLD = "topn_opt_limit_threshold";
+    public static final String TOPN_FILTER_LIMIT_THRESHOLD = "topn_filter_limit_threshold";
     public static final String ENABLE_SNAPSHOT_POINT_QUERY = "enable_snapshot_point_query";
 
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
@@ -733,7 +736,7 @@ public class SessionVariable implements Serializable, Writable {
     // When enable_profile is true, profile of queries that costs more than autoProfileThresholdMs
     // will be stored to disk.
     @VariableMgr.VarAttr(name = AUTO_PROFILE_THRESHOLD_MS, needForward = true)
-    public int autoProfileThresholdMs = 500;
+    public int autoProfileThresholdMs = -1;
 
     @VariableMgr.VarAttr(name = "runtime_filter_prune_for_external")
     public boolean runtimeFilterPruneForExternal = true;
@@ -951,11 +954,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DEFAULT_TMP_STORAGE_ENGINE)
     public String defaultTmpStorageEngine = "olap";
 
-    // -1 means unset, BE will use its config value
     @VariableMgr.VarAttr(name = MAX_SCAN_KEY_NUM)
-    public int maxScanKeyNum = -1;
+    public int maxScanKeyNum = 48;
     @VariableMgr.VarAttr(name = MAX_PUSHDOWN_CONDITIONS_PER_COLUMN)
-    public int maxPushdownConditionsPerColumn = -1;
+    public int maxPushdownConditionsPerColumn = 1024;
     @VariableMgr.VarAttr(name = SHOW_HIDDEN_COLUMNS, flag = VariableMgr.SESSION_ONLY)
     public boolean showHiddenColumns = false;
 
@@ -1066,6 +1068,11 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_REWRITE_ELEMENT_AT_TO_SLOT, fuzzy = true)
     private boolean enableRewriteElementAtToSlot = true;
+
+    @VariableMgr.VarAttr(name = FORCE_SORT_ALGORITHM, needForward = true, description = { "强制指定SortNode的排序算法",
+            "Force the sort algorithm of SortNode to be specified" })
+    public String forceSortAlgorithm = "";
+
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE, needForward = true)
     private String runtimeFilterMode = "GLOBAL";
 
@@ -1460,6 +1467,8 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableTwoPhaseReadOpt = true;
     @VariableMgr.VarAttr(name = TOPN_OPT_LIMIT_THRESHOLD)
     public long topnOptLimitThreshold = 1024;
+    @VariableMgr.VarAttr(name = TOPN_FILTER_LIMIT_THRESHOLD)
+    public long topnFilterLimitThreshold = 10240000;
     @VariableMgr.VarAttr(name = ENABLE_SNAPSHOT_POINT_QUERY)
     public boolean enableSnapshotPointQuery = true;
 
@@ -2063,7 +2072,7 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkExternalAggPartitionBits", fuzzy = true)
     public int externalAggPartitionBits = 5; // means that the hash table will be partitioned into 32 blocks.
 
-    @VariableMgr.VarAttr(name = USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS, description = {
+    @VariableMgr.VarAttr(name = USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS, needForward = true, description = {
             "在CTAS中，如果 CHAR / VARCHAR 列不来自于源表，是否是将这一列的长度设置为 MAX，即65533。默认为 true。",
             "In CTAS (Create Table As Select), if CHAR/VARCHAR columns do not originate from the source table,"
                     + " whether to set the length of such a column to MAX, which is 65533. The default is true."
@@ -2825,14 +2834,6 @@ public class SessionVariable implements Serializable, Writable {
         this.storageEngine = storageEngine;
     }
 
-    public int getMaxScanKeyNum() {
-        return maxScanKeyNum;
-    }
-
-    public void setMaxScanKeyNum(int maxScanKeyNum) {
-        this.maxScanKeyNum = maxScanKeyNum;
-    }
-
     public int getMaxPushdownConditionsPerColumn() {
         return maxPushdownConditionsPerColumn;
     }
@@ -3586,11 +3587,17 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
 
-        if (maxScanKeyNum > -1) {
+        if (maxScanKeyNum > 0) {
             tResult.setMaxScanKeyNum(maxScanKeyNum);
+        } else {
+            // for old version default value
+            tResult.setMaxScanKeyNum(48);
         }
-        if (maxPushdownConditionsPerColumn > -1) {
+        if (maxPushdownConditionsPerColumn > 0) {
             tResult.setMaxPushdownConditionsPerColumn(maxPushdownConditionsPerColumn);
+        } else {
+            // for old version default value
+            tResult.setMaxPushdownConditionsPerColumn(1024);
         }
 
         tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);

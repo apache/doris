@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.clone.PartitionRebalancer.TabletMove;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -475,7 +476,10 @@ public class TabletInvertedIndex {
                 table.readUnlock();
             }
         } catch (RuntimeException e) {
-            LOG.warn("failed to get tablet. tabletId={}", beTabletInfo.tablet_id);
+            if (!Env.getCurrentRecycleBin().isRecyclePartition(tabletMeta.getDbId(),
+                    tabletMeta.getTableId(), tabletMeta.getPartitionId())) {
+                LOG.warn("failed to get tablet. tabletId={}", beTabletInfo.tablet_id);
+            }
             return;
         }
         Pair<Long, Long> cooldownConf = tablet.getCooldownConf();
@@ -806,7 +810,7 @@ public class TabletInvertedIndex {
 
     // Only build from available bes, exclude colocate tables
     public Map<TStorageMedium, TreeMultimap<Long, PartitionBalanceInfo>> buildPartitionInfoBySkew(
-            List<Long> availableBeIds) {
+            List<Long> availableBeIds, Map<Long, Pair<TabletMove, Long>> movesInProgress) {
         Set<Long> dbIds = Sets.newHashSet();
         Set<Long> tableIds = Sets.newHashSet();
         Set<Long> partitionIds = Sets.newHashSet();
@@ -830,6 +834,26 @@ public class TabletInvertedIndex {
             for (Table.Cell<Long, Long, Replica> cell : cells) {
                 Long tabletId = cell.getRowKey();
                 Long beId = cell.getColumnKey();
+                Pair<TabletMove, Long> movePair = movesInProgress.get(tabletId);
+                TabletMove move = movePair != null ? movePair.first : null;
+                // there exists move from fromBe to toBe
+                if (move != null && beId == move.fromBe
+                        && availableBeIds.contains(move.toBe)) {
+
+                    // if movePair.second == -1, it means toBe hadn't added this tablet but it will add later;
+                    // otherwise it means toBe had added this tablet
+                    boolean toBeHadReplica = movePair.second != -1L;
+                    if (toBeHadReplica) {
+                        // toBe had add this tablet, fromBe just ignore this tablet
+                        continue;
+                    }
+
+                    // later fromBe will delete this replica
+                    // and toBe will add a replica
+                    // so this replica should belong to toBe
+                    beId = move.toBe;
+                }
+
                 try {
                     Preconditions.checkState(availableBeIds.contains(beId), "dead be " + beId);
                     TabletMeta tabletMeta = tabletMetaMap.get(tabletId);
@@ -910,6 +934,11 @@ public class TabletInvertedIndex {
             this.partitionId = info.partitionId;
             this.indexId = info.indexId;
             this.beByReplicaCount = TreeMultimap.create(info.beByReplicaCount);
+        }
+
+        @Override
+        public String toString() {
+            return "[partition=" + partitionId + ", index=" + indexId + ", replicaNum2BeId=" + beByReplicaCount + "]";
         }
     }
 

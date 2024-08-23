@@ -26,11 +26,11 @@ options { tokenVocab = DorisLexer; }
 }
 
 multiStatements
-    : SEMICOLON* statement (SEMICOLON+ statement)* SEMICOLON* EOF
+    : SEMICOLON* statement? (SEMICOLON+ statement)* SEMICOLON* EOF
     ;
 
 singleStatement
-    : SEMICOLON* statement SEMICOLON* EOF
+    : SEMICOLON* statement? SEMICOLON* EOF
     ;
 
 statement
@@ -40,6 +40,7 @@ statement
     | DROP (PROCEDURE | PROC) (IF EXISTS)? name=multipartIdentifier #dropProcedure
     | SHOW PROCEDURE STATUS (LIKE pattern=valueExpression | whereClause)? #showProcedureStatus
     | SHOW CREATE PROCEDURE name=multipartIdentifier #showCreateProcedure
+    | ADMIN? SHOW type=(FRONTEND | BACKEND) CONFIG (LIKE pattern=valueExpression)? (FROM backendId=INTEGER_VALUE)? #showConfig
     ;
 
 statementBase
@@ -60,6 +61,10 @@ unsupportedStatement
     | unsupportedDmlStatement
     | unsupportedKillStatement
     | unsupportedDescribeStatement
+    | unsupportedCreateStatement
+    | unsupportedDropStatement
+    | unsupportedStatsStatement
+    | unsupportedAlterStatement
     ;
 
 materailizedViewStatement
@@ -78,7 +83,8 @@ materailizedViewStatement
         | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
         | REPLACE WITH MATERIALIZED VIEW newName=identifier propertyClause?
         | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))                        #alterMTMV
-    | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier                            #dropMTMV
+    | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier
+        (ON tableName=multipartIdentifier)?                                                     #dropMTMV
     | PAUSE MATERIALIZED VIEW JOB ON mvName=multipartIdentifier                                 #pauseMTMV
     | RESUME MATERIALIZED VIEW JOB ON mvName=multipartIdentifier                                #resumeMTMV
     | CANCEL MATERIALIZED VIEW TASK taskId=INTEGER_VALUE ON mvName=multipartIdentifier          #cancelMTMVTask
@@ -160,6 +166,264 @@ supportedAlterStatement
 
 supportedDropStatement
     : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE #dropCatalogRecycleBin
+    ;
+
+unsupportedAlterStatement
+    : ALTER TABLE tableName=multipartIdentifier
+        alterTableClause (COMMA alterTableClause)*                                  #alterTable
+    | ALTER TABLE tableName=multipartIdentifier ADD ROLLUP
+        addRollupClause (COMMA addRollupClause)*                                    #alterTableAddRollup
+    | ALTER TABLE tableName=multipartIdentifier DROP ROLLUP
+        dropRollupClause (COMMA dropRollupClause)*                                  #alterTableDropRollup
+    | ALTER SYSTEM alterSystemClause                                                #alterSystem
+    | ALTER DATABASE name=identifier SET (DATA |REPLICA | TRANSACTION)
+        QUOTA INTEGER_VALUE identifier?                                             #alterDatabaseSetQuota
+    | ALTER DATABASE name=identifier RENAME newName=identifier                      #alterDatabaseRename
+    | ALTER DATABASE name=identifier SET PROPERTIES
+        LEFT_PAREN propertyItemList RIGHT_PAREN                                     #alterDatabaseProperties
+    | ALTER CATALOG name=identifier RENAME newName=identifier                       #alterCatalogRename
+    | ALTER CATALOG name=identifier SET PROPERTIES
+        LEFT_PAREN propertyItemList RIGHT_PAREN                                     #alterCatalogProperties
+    | ALTER CATALOG name=identifier MODIFY COMMENT comment=STRING_LITERAL           #alterCatalogComment
+    | ALTER RESOURCE name=identifierOrText properties=propertyClause?               #alterResource
+    | ALTER COLOCATE GROUP name=multipartIdentifier
+        SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #alterColocateGroup
+    | ALTER WORKLOAD GROUP name=identifierOrText properties=propertyClause?         #alterWorkloadGroup
+    | ALTER WORKLOAD POLICY name=identifierOrText properties=propertyClause?        #alterWorkloadPolicy
+    | ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
+            (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?         #alterRoutineLoad
+    | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?               #alterSqlBlockRule
+    | ALTER TABLE name=multipartIdentifier
+        SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #alterTableProperties
+    | ALTER STORAGE POLICY name=identifierOrText properties=propertyClause          #alterStoragePlicy
+    | ALTER USER (IF EXISTS)? grantUserIdentify
+        passwordOption (COMMENT STRING_LITERAL)?                                    #alterUser
+    | ALTER REPOSITORY name=identifier properties=propertyClause?                   #alterRepository
+    ;
+
+alterSystemClause
+    : ADD BACKEND hostPorts+=STRING_LITERAL (COMMA hostPorts+=STRING_LITERAL)*
+        properties=propertyClause?                                                  #addBackendClause
+    | (DROP | DROPP) BACKEND hostPorts+=STRING_LITERAL
+        (COMMA hostPorts+=STRING_LITERAL)*                                          #dropBackendClause
+    | DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
+        (COMMA hostPorts+=STRING_LITERAL)*                                          #decommissionBackendClause
+    | ADD OBSERVER hostPort=STRING_LITERAL                                          #addObserverClause
+    | DROP OBSERVER hostPort=STRING_LITERAL                                         #dropObserverClause
+    | ADD FOLLOWER hostPort=STRING_LITERAL                                          #addFollowerClause
+    | DROP FOLLOWER hostPort=STRING_LITERAL                                         #dropFollowerClause
+    | ADD BROKER name=identifierOrText hostPorts+=STRING_LITERAL
+        (COMMA hostPorts+=STRING_LITERAL)*                                          #addBrokerClause
+    | DROP BROKER name=identifierOrText hostPorts+=STRING_LITERAL
+        (COMMA hostPorts+=STRING_LITERAL)*                                          #dropBrokerClause
+    | DROP ALL BROKER name=identifierOrText                                         #dropAllBrokerClause
+    | SET LOAD ERRORS HUB properties=propertyClause?                                #alterLoadErrorUrlClause
+    | MODIFY BACKEND hostPorts+=STRING_LITERAL
+        (COMMA hostPorts+=STRING_LITERAL)*
+        SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #modifyBackendClause
+    | MODIFY (FRONTEND | BACKEND) hostPort=STRING_LITERAL
+        HOSTNAME hostName=STRING_LITERAL                                            #modifyFrontendOrBackendHostNameClause
+    ;
+
+dropRollupClause
+    : rollupName=identifier properties=propertyClause?
+    ;
+
+addRollupClause
+    : rollupName=identifier columns=identifierList
+        (DUPLICATE KEY dupKeys=identifierList)? fromRollup?
+        properties=propertyClause?
+    ;
+
+alterTableClause
+    : ADD COLUMN columnDef columnPosition? toRollup? properties=propertyClause?     #addColumnClause
+    | ADD COLUMN LEFT_PAREN columnDef (COMMA columnDef) RIGHT_PAREN
+        toRollup? properties=propertyClause?                                        #addColumnsClause
+    | DROP COLUMN name=identifier fromRollup? properties=propertyClause?            #dropColumnClause
+    | MODIFY COLUMN columnDef columnPosition? fromRollup?
+    properties=propertyClause?                                                      #modifyColumnClause
+    | ORDER BY identifierList fromRollup? properties=propertyClause?                #reorderColumnsClause
+    | ADD TEMPORARY? (lessThanPartitionDef | fixedPartitionDef | inPartitionDef)
+        (LEFT_PAREN partitionProperties=propertyItemList RIGHT_PAREN)?
+        (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM)
+            (BUCKETS (INTEGER_VALUE | autoBucket=AUTO))?)?
+        properties=propertyClause?                                                  #addPartitionClause
+    | DROP TEMPORARY? PARTITION (IF EXISTS)? partitionName=identifier FORCE?
+        (FROM INDEX indexName=identifier)?                                          #dropPartitionClause
+    | MODIFY TEMPORARY? PARTITION (IF EXISTS)?
+        (partitionName=identifier | partitionNames=identifierList
+            | LEFT_PAREN ASTERISK RIGHT_PAREN)
+        SET LEFT_PAREN partitionProperties=propertyItemList RIGHT_PAREN             #modifyPartitionClause
+    | REPLACE partitions=partitionSpec? WITH tempPartitions=partitionSpec?
+        FORCE? properties=propertyClause?                                           #replacePartitionClause
+    | REPLACE WITH TABLE name=identifier properties=propertyClause?                 #replaceTableClause
+    | RENAME newName=identifier                                                     #renameClause
+    | RENAME ROLLUP name=identifier newName=identifier                              #renameRollupClause
+    | RENAME PARTITION name=identifier newName=identifier                           #renamePartitionClause
+    | RENAME COLUMN name=identifier newName=identifier                              #renameColumnClause
+    | ADD indexDef                                                                  #addIndexClause
+    | DROP INDEX (IF EXISTS)? name=identifier                                       #dropIndexClause
+    | ENABLE FEATURE name=STRING_LITERAL (WITH properties=propertyClause)?          #enableFeatureClause
+    | MODIFY DISTRIBUTION (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM)
+        (BUCKETS (INTEGER_VALUE | autoBucket=AUTO))?)?                              #modifyDistributionClause
+    | MODIFY COMMENT comment=STRING_LITERAL                                         #modifyTableCommentClause
+    | MODIFY COLUMN name=identifier COMMENT comment=STRING_LITERAL                  #modifyColumnCommentClause
+    | MODIFY ENGINE TO name=identifier properties=propertyClause?                   #modifyEngineClause
+    | ADD TEMPORARY? PARTITIONS
+        FROM from=partitionValueList TO to=partitionValueList
+        INTERVAL INTEGER_VALUE unit=identifier? properties=propertyClause?          #alterMultiPartitionClause
+    ;
+
+columnPosition
+    : FIRST
+    | AFTER position=identifier
+    ;
+
+toRollup
+    : (TO | IN) rollup=identifier
+    ;
+
+fromRollup
+    : FROM rollup=identifier
+    ;
+
+unsupportedDropStatement
+    : DROP (DATABASE | SCHEMA) (IF EXISTS)? name=multipartIdentifier FORCE?     #dropDatabase
+    | DROP CATALOG (IF EXISTS)? name=identifier                                 #dropCatalog
+    | DROP (GLOBAL | SESSION | LOCAL)? FUNCTION (IF EXISTS)?
+        functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN            #dropFunction
+    | DROP TABLE (IF EXISTS)? name=multipartIdentifier FORCE?                   #dropTable
+    | DROP USER (IF EXISTS)? userIdentify                                       #dropUser
+    | DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
+    | DROP REPOSITORY name=identifier                                           #dropRepository
+    | DROP ROLE (IF EXISTS)? name=identifier                                    #dropRole
+    | DROP FILE name=STRING_LITERAL
+        ((FROM | IN) database=identifier)? properties=propertyClause            #dropFile
+    | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier  #dropIndex
+    | DROP RESOURCE (IF EXISTS)? name=identifierOrText                          #dropResource
+    | DROP WORKLOAD GROUP (IF EXISTS)? name=identifierOrText                    #dropWorkloadGroup
+    | DROP WORKLOAD POLICY (IF EXISTS)? name=identifierOrText                   #dropWorkloadPolicy
+    | DROP ENCRYPTKEY (IF EXISTS)? name=multipartIdentifier                     #dropEncryptkey
+    | DROP SQL_BLOCK_RULE (IF EXISTS)? identifierSeq                            #dropSqlBlockRule
+    | DROP ROW POLICY (IF EXISTS)? policyName=identifier
+        ON tableName=multipartIdentifier
+        (FOR (userIdentify | ROLE roleName=identifier))?                        #dropRowPolicy
+    | DROP STORAGE POLICY (IF EXISTS)? name=identifier                          #dropStoragePolicy
+    | DROP STAGE (IF EXISTS)? name=identifier                                   #dropStage
+    ;
+
+unsupportedStatsStatement
+    : ALTER TABLE name=multipartIdentifier SET STATS
+        LEFT_PAREN propertyItemList RIGHT_PAREN partitionSpec?                  #alterTableStats
+    | ALTER TABLE name=multipartIdentifier (INDEX indexName=identifier)?
+        MODIFY COLUMN columnName=identifier
+        SET STATS LEFT_PAREN propertyItemList RIGHT_PAREN partitionSpec?        #alterColumnStats
+    | DROP STATS tableName=multipartIdentifier
+        columns=identifierList? partitionSpec?                                  #dropStats
+    | DROP CACHED STATS tableName=multipartIdentifier                           #dropCachedStats
+    | DROP EXPIRED STATS                                                        #dropExpiredStats
+    | DROP ANALYZE JOB INTEGER_VALUE                                            #dropAanalyzeJob
+    ;
+
+unsupportedCreateStatement
+    : CREATE (DATABASE | SCHEMA) (IF NOT EXISTS)? name=multipartIdentifier
+        properties=propertyClause?                                              #createDatabase
+    | CREATE CATALOG (IF NOT EXISTS)? catalogName=identifier
+        (WITH RESOURCE resourceName=identifier)?
+        (COMMENT STRING_LITERAL)? properties=propertyClause?                    #createCatalog
+    | CREATE (GLOBAL | SESSION | LOCAL)?
+        (TABLES | AGGREGATE)? FUNCTION (IF NOT EXISTS)?
+        functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
+        RETURNS returnType=dataType (INTERMEDIATE intermediateType=dataType)?
+        properties=propertyClause?                                              #createUserDefineFunction
+    | CREATE (GLOBAL | SESSION | LOCAL)? ALIAS FUNCTION (IF NOT EXISTS)?
+        functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
+        WITH PARAMETER LEFT_PAREN parameters=identifierSeq? RIGHT_PAREN
+        AS expression                                                           #createAliasFunction
+    | CREATE USER (IF NOT EXISTS)? grantUserIdentify
+        (SUPERUSER | DEFAULT ROLE role=STRING_LITERAL)?
+        passwordOption (COMMENT STRING_LITERAL)?                                #createUser
+    | CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend        #createRepository
+    | CREATE ROLE (IF NOT EXISTS)? name=identifier (COMMENT STRING_LITERAL)?    #createRole
+    | CREATE FILE name=STRING_LITERAL
+        ((FROM | IN) database=identifier)? properties=propertyClause            #createFile
+    | CREATE INDEX (IF NOT EXISTS)? name=identifier
+        ON tableName=multipartIdentifier identifierList
+        (USING (BITMAP | NGRAM_BF | INVERTED))?
+        properties=propertyClause? (COMMENT STRING_LITERAL)?                    #createIndex
+    | CREATE EXTERNAL? RESOURCE (IF NOT EXISTS)?
+        name=identifierOrText properties=propertyClause?                        #createResource
+    | CREATE STORAGE VAULT (IF NOT EXISTS)?
+        name=identifierOrText properties=propertyClause?                        #createStorageVault
+    | CREATE WORKLOAD GROUP (IF NOT EXISTS)?
+        name=identifierOrText properties=propertyClause?                        #createWorkloadGroup
+    | CREATE WORKLOAD POLICY (IF NOT EXISTS)? name=identifierOrText
+        (CONDITIONS LEFT_PAREN workloadPolicyConditions RIGHT_PAREN)?
+        (ACTIONS LEFT_PAREN workloadPolicyActions RIGHT_PAREN)?
+        properties=propertyClause?                                              #createWorkloadPolicy
+    | CREATE ENCRYPTKEY (IF NOT EXISTS)? multipartIdentifier AS STRING_LITERAL  #createEncryptkey
+    | CREATE SYNC dbName=identifier DOT jobName=identifierOrText
+        LEFT_PAREN channelDescriptions RIGHT_PAREN
+        FROM BINLOG LEFT_PAREN propertyItemList RIGHT_PAREN
+        properties=propertyClause?                                              #createDataSyncJob
+    | CREATE SQL_BLOCK_RULE (IF NOT EXISTS)?
+        name=identifier properties=propertyClause?                              #createSqlBlockRule
+    | CREATE STORAGE POLICY (IF NOT EXISTS)?
+        name=identifier properties=propertyClause?                              #createStoragePolicy
+    | BUILD INDEX name=identifier ON tableName=multipartIdentifier
+        partitionSpec?                                                          #buildIndex
+    | CREATE STAGE (IF NOT EXISTS)? name=identifier properties=propertyClause?  #createStage
+    ;
+
+channelDescriptions
+    : channelDescription (COMMA channelDescription)*
+    ;
+
+channelDescription
+    : FROM source=multipartIdentifier INTO destination=multipartIdentifier
+        partitionSpec? columnList=identifierList?
+    ;
+
+workloadPolicyActions
+    : workloadPolicyAction (COMMA workloadPolicyAction)*
+    ;
+
+workloadPolicyAction
+    : SET_SESSION_VARIABLE STRING_LITERAL
+    | identifier (STRING_LITERAL)?
+    ;
+
+workloadPolicyConditions
+    : workloadPolicyCondition (COMMA workloadPolicyCondition)*
+    ;
+
+workloadPolicyCondition
+    : metricName=identifier comparisonOperator (number | STRING_LITERAL)
+    ;
+
+storageBackend
+    : (BROKER | S3 | HDFS | LOCAL) brokerName=identifier?
+        ON LOCATION STRING_LITERAL properties=propertyClause?
+    ;
+
+passwordOption
+    : (PASSWORD_HISTORY (historyDefault=DEFAULT | historyValue=INTEGER_VALUE))?
+        (PASSWORD_EXPIRE (expireDefault=DEFAULT | expireNever=NEVER
+            | INTERVAL expireValue=INTEGER_VALUE expireTimeUnit=(DAY | HOUR | SECOND)))?
+        (PASSWORD_REUSE INTERVAL (reuseDefault=DEFAULT | reuseValue=INTEGER_VALUE DAY))?
+        (FAILED_LOGIN_ATTEMPTS attemptsValue=INTEGER_VALUE)?
+        (PASSWORD_LOCK_TIME (lockUnbounded=UNBOUNDED
+            | lockValue=INTEGER_VALUE lockTimeUint=(DAY | HOUR | SECOND)))?
+        (ACCOUNT_LOCK | ACCOUNT_UNLOCK)?
+    ;
+
+functionArguments
+    : functionArgument (COMMA functionArgument)*
+    ;
+
+functionArgument
+    : DOTDOTDOT
+    | dataType
     ;
 
 unsupportedSetStatement
@@ -322,6 +586,10 @@ userIdentify
     : user=identifierOrText (ATSIGN (host=identifierOrText | LEFT_PAREN host=identifierOrText RIGHT_PAREN))?
     ;
 
+grantUserIdentify
+    : userIdentify (IDENTIFIED BY PASSWORD? STRING_LITERAL)?
+    ;
+
 explain
     : explainCommand planType?
           level=(VERBOSE | TREE | GRAPH | PLAN)?
@@ -471,7 +739,11 @@ selectClause
 
 selectColumnClause
     : namedExpressionSeq
-    | ASTERISK EXCEPT LEFT_PAREN namedExpressionSeq RIGHT_PAREN
+    | ASTERISK exceptOrReplace+
+    ;
+
+exceptOrReplace
+    : (EXCEPT | REPLACE) LEFT_PAREN namedExpressionSeq RIGHT_PAREN
     ;
 
 whereClause
@@ -537,7 +809,7 @@ havingClause
     : HAVING booleanExpression
     ;
 
-selectHint: HINT_START hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
+selectHint: hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
 
 hintStatement
     : hintName=identifier (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?
@@ -681,7 +953,7 @@ indexDefs
     ;
     
 indexDef
-    : INDEX indexName=identifier cols=identifierList (USING indexType=(BITMAP | INVERTED | NGRAM_BF))? (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)? (COMMENT comment=STRING_LITERAL)?
+    : INDEX (IF NOT EXISTS)? indexName=identifier cols=identifierList (USING indexType=(BITMAP | INVERTED | NGRAM_BF))? (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)? (COMMENT comment=STRING_LITERAL)?
     ;
     
 partitionsDef
@@ -693,23 +965,23 @@ partitionDef
     ;
     
 lessThanPartitionDef
-    : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES LESS THAN (MAXVALUE | constantSeq)
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES LESS THAN (MAXVALUE | partitionValueList)
     ;
     
 fixedPartitionDef
-    : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES LEFT_BRACKET lower=constantSeq COMMA upper=constantSeq RIGHT_PAREN
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES LEFT_BRACKET lower=partitionValueList COMMA upper=partitionValueList RIGHT_PAREN
     ;
 
 stepPartitionDef
-    : FROM from=constantSeq TO to=constantSeq INTERVAL unitsAmount=INTEGER_VALUE unit=datetimeUnit?
+    : FROM from=partitionValueList TO to=partitionValueList INTERVAL unitsAmount=INTEGER_VALUE unit=datetimeUnit?
     ;
 
 inPartitionDef
-    : PARTITION (IF NOT EXISTS)? partitionName=identifier (VALUES IN ((LEFT_PAREN constantSeqs+=constantSeq
-        (COMMA constantSeqs+=constantSeq)* RIGHT_PAREN) | constants=constantSeq))?
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier (VALUES IN ((LEFT_PAREN partitionValueLists+=partitionValueList
+        (COMMA partitionValueLists+=partitionValueList)* RIGHT_PAREN) | constants=partitionValueList))?
     ;
     
-constantSeq
+partitionValueList
     : LEFT_PAREN values+=partitionValueDef (COMMA values+=partitionValueDef)* RIGHT_PAREN
     ;
     
@@ -1007,8 +1279,8 @@ dataType
       (COMMA INTEGER_VALUE)* RIGHT_PAREN)?                          #primitiveDataType
     ;
 
-primitiveColType:
-    | type=TINYINT
+primitiveColType
+    : type=TINYINT
     | type=SMALLINT
     | type=(INT | INTEGER)
     | type=BIGINT
@@ -1107,7 +1379,8 @@ number
 // TODO: need to stay consistent with the legacy
 nonReserved
 //--DEFAULT-NON-RESERVED-START
-    : ADDDATE
+    : ACTIONS
+    | ADDDATE
     | AFTER
     | AGG_STATE
     | AGGREGATE
@@ -1153,11 +1426,13 @@ nonReserved
     | COLOCATE
     | COLUMNS
     | COMMENT
+    | COMMENT_START
     | COMMIT
     | COMMITTED
     | COMPACT
     | COMPLETE
     | COMPRESS_TYPE
+    | CONDITIONS
     | CONFIG
     | CONNECTION
     | CONNECTION_ID
@@ -1236,6 +1511,8 @@ nonReserved
     | HASH
     | HDFS
     | HELP
+    | HINT_END
+    | HINT_START
     | HISTOGRAM
     | HLL_UNION
     | HOSTNAME
@@ -1365,6 +1642,7 @@ nonReserved
     | SCHEMA
     | SECOND
     | SERIALIZABLE
+    | SET_SESSION_VARIABLE
     | SEQUENCE
     | SESSION
     | SHAPE
@@ -1373,6 +1651,7 @@ nonReserved
     | SONAME
     | SPLIT
     | SQL
+    | STAGE
     | STAGES
     | START
     | STARTS

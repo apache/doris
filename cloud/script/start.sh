@@ -34,12 +34,14 @@ fi
 
 RUN_DAEMON=0
 RUN_VERSION=0
+RUN_CONSOLE=0
 for arg; do
     shift
     [[ "${arg}" = "--daemonized" ]] && RUN_DAEMON=1 && continue
     [[ "${arg}" = "-daemonized" ]] && RUN_DAEMON=1 && continue
     [[ "${arg}" = "--daemon" ]] && RUN_DAEMON=1 && continue
     [[ "${arg}" = "--version" ]] && RUN_VERSION=1 && continue
+    [[ "${arg}" = "--console" ]] && RUN_CONSOLE=1 && continue
     set -- "$@" "${arg}"
 done
 # echo "$@" "daemonized=${daemonized}"}
@@ -120,7 +122,7 @@ fi
 
 echo "LIBHDFS3_CONF=${LIBHDFS3_CONF}"
 
-export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:15000,dirty_decay_ms:15000,oversize_threshold:0,prof:true,prof_prefix:jeprof.out"
+export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:5000,dirty_decay_ms:5000,oversize_threshold:0,prof:false,lg_prof_interval:-1"
 
 if [[ "${RUN_VERSION}" -eq 1 ]]; then
     "${bin}" --version
@@ -137,6 +139,10 @@ if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     tail -n10 "${DORIS_HOME}/log/${process}.out" | grep 'working directory' -B1 -A10
     echo "please check process log for more details"
     echo ""
+elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
+    export DORIS_LOG_TO_STDERR=1
+    date
+    "${bin}" "$@" 2>&1
 else
     "${bin}" "$@"
 fi

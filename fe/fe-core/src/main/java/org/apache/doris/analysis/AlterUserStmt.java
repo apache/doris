@@ -38,7 +38,7 @@ import java.util.Set;
 //      ACCOUNT_LOCK[ACCOUNT_UNLOCK]
 //      FAILED_LOGIN_ATTEMPTS
 //      PASSWORD_LOCK_TIME
-public class AlterUserStmt extends DdlStmt {
+public class AlterUserStmt extends DdlStmt implements NotFallbackInParser {
     private boolean ifExist;
     private UserDesc userDesc;
     private String role;
