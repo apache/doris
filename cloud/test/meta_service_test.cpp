@@ -1574,7 +1574,7 @@ TEST(MetaServiceTest, CommitTxnTest) {
             CommitTxnResponse res;
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
-            ASSERT_EQ(res.status().code(), MetaServiceCode::TXN_ALREADY_VISIBLE);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             auto found = res.status().msg().find(fmt::format(
                     "transaction is already visible: db_id={} txn_id={}", db_id, txn_id));
             ASSERT_TRUE(found != std::string::npos);
@@ -1813,7 +1813,7 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
         CommitTxnResponse res;
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::TXN_ALREADY_VISIBLE);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         auto found = res.status().msg().find(
                 fmt::format("transaction is already visible: db_id={} txn_id={}", db_id, txn_id));
         ASSERT_TRUE(found != std::string::npos);

@@ -160,10 +160,6 @@ private:
     void _serialize_block_to_row_column(vectorized::Block& block);
     Status _append_block_with_partial_content(RowsInBlock& data, vectorized::Block& full_block);
     Status _append_block_with_variant_subcolumns(RowsInBlock& data);
-    Status _fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
-                                 const std::vector<bool>& use_default_or_null_flag,
-                                 bool has_default_or_nullable, const size_t& segment_start_pos,
-                                 const vectorized::Block* block);
     Status _generate_key_index(
             RowsInBlock& data, std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
             vectorized::IOlapColumnDataAccessor* seq_column,
@@ -230,7 +226,6 @@ private:
 
     std::shared_ptr<MowContext> _mow_context;
     // group every rowset-segment row id to speed up reader
-    PartialUpdateReadPlan _rssid_to_rid;
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
 
     std::vector<RowsInBlock> _batched_blocks;
