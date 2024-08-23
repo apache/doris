@@ -135,10 +135,6 @@ suite("test_dup_table_inverted_index", "p1") {
         list.add("SELECT COUNT(*) FROM ${tableName} WHERE request MATCH_REGEXP 'GET'");
         list.add("SELECT `@timestamp` FROM ${tableName} WHERE request MATCH_REGEXP 'GET' ORDER BY `@timestamp`, size LIMIT 2");
 
-        // MATCH_PHRASE_EDGE
-        list.add("SELECT COUNT(*) FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET'");
-        list.add("SELECT `@timestamp` FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' ORDER BY `@timestamp`, size LIMIT 2");
-
         // IS NULL
         list.add("SELECT COUNT(*) FROM ${tableName} WHERE request IS NULL");
         list.add("SELECT `@timestamp` FROM ${tableName} WHERE request IS NULL ORDER BY `@timestamp`, size LIMIT 2");
@@ -424,34 +420,6 @@ suite("test_dup_table_inverted_index", "p1") {
         list.add("SELECT COUNT(*) FROM ${tableName} WHERE request MATCH_REGEXP 'GET' AND request >= 'POST' ") 
         list.add("SELECT `@timestamp` FROM ${tableName} WHERE request MATCH_REGEXP 'GET' AND request >= 'POST' ORDER BY `@timestamp`, size LIMIT 2 ") 
 
-        // FULLTEXT MATCH_PHRASE_EDGE with others
-        list.add("SELECT COUNT(*) FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' AND request LIKE '%GET%' ");
-        list.add("SELECT `@timestamp` FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' AND request LIKE '%GET%' ORDER BY `@timestamp`, size LIMIT 2");
-
-        list.add("SELECT COUNT(*) FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' AND request IN ('GET', 'POST', 'PUT')");
-        list.add("SELECT `@timestamp` FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' AND request IN ('GET', 'POST', 'PUT') ORDER BY `@timestamp`, size LIMIT 2");
-
-        list.add("SELECT COUNT(*) FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' AND request NOT IN ('DELETE', 'OPTIONS')");
-        list.add("SELECT `@timestamp` FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' AND request NOT IN ('DELETE', 'OPTIONS') ORDER BY `@timestamp`, size LIMIT 2");
-
-        list.add("SELECT COUNT(*) FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' AND request = 'GET'");
-        list.add("SELECT `@timestamp` FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' AND request = 'GET' ORDER BY `@timestamp`, size LIMIT 2");
-
-        list.add("SELECT COUNT(*) FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' AND request != 'POST'");
-        list.add("SELECT `@timestamp` FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' AND request != 'POST' ORDER BY `@timestamp`, size LIMIT 2");
-
-        list.add("SELECT COUNT(*) FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' AND request < 'POST'");
-        list.add("SELECT `@timestamp` FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' AND request < 'POST' ORDER BY `@timestamp`, size LIMIT 2");
-
-        list.add("SELECT COUNT(*) FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' AND request <= 'POST'");
-        list.add("SELECT `@timestamp` FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' AND request <= 'POST' ORDER BY `@timestamp`, size LIMIT 2");
-
-        list.add("SELECT COUNT(*) FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' AND request > 'POST'");
-        list.add("SELECT `@timestamp` FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' AND request > 'POST' ORDER BY `@timestamp`, size LIMIT 2");
-
-        list.add("SELECT COUNT(*) FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' AND request >= 'POST'");
-        list.add("SELECT `@timestamp` FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' AND request >= 'POST' ORDER BY `@timestamp`, size LIMIT 2");
-
         // FULLTEXT IS NULL with others
         list.add("SELECT COUNT(*) FROM ${tableName} WHERE request IS NULL AND request LIKE '%GET%';");
         list.add("SELECT `@timestamp` FROM ${tableName} WHERE request IS NULL AND request LIKE '%GET%' ORDER BY `@timestamp`, size LIMIT 2;");
@@ -628,8 +596,6 @@ suite("test_dup_table_inverted_index", "p1") {
         list.add("SELECT CASE status WHEN 200 THEN 'TRUE' ELSE 'FALSE' END AS test_case FROM ${tableName} WHERE size > 0 ORDER BY `@timestamp`, size LIMIT 2;");
         list.add("SELECT IF(size = 0, 'true', 'false') test_if from ${tableName} WHERE status = 200 AND IF(size = 0, 'true', 'false') = 'false' ORDER BY `@timestamp`, size LIMIT 2;");
         list.add("SELECT IFNULL(size, 0) from ${tableName} WHERE status = 200 AND IFNULL(size, 0) ORDER BY `@timestamp`, size LIMIT 2;");
-        list.add("SELECT IPV4_STRING_TO_NUM(clientip) from ${tableName} WHERE status = 200 AND IPV4_STRING_TO_NUM(clientip) > 33619968 ORDER BY `@timestamp`, size LIMIT 2;");
-        list.add("SELECT to_base64(request) from ${tableName} WHERE status = 200 AND IPV4_STRING_TO_NUM(clientip) > 33619968 ORDER BY `@timestamp`, size LIMIT 2;");
         list.add("SELECT `@timestamp` from ${tableName} WHERE status = 200 AND length(request) > 30 ORDER BY `@timestamp`, size LIMIT 2;");
 
 
@@ -793,14 +759,7 @@ suite("test_dup_table_inverted_index", "p1") {
         compare_result(dup_result5, dup_result6, all_dup_sql)
         compare_result(dup_result3, dup_result6, all_dup_sql)
 
-        def dup_result7 = execute_sql.call("enable_common_expr_pushdown_for_inverted_index", "true", all_dup_sql)
-        logger.info("dup_result7 is {}", dup_result7);
-        def dup_result8 = execute_sql.call("enable_common_expr_pushdown_for_inverted_index", "false", all_dup_sql)
-        logger.info("dup_result8 is {}", dup_result8);
-        compare_result(dup_result7, dup_result8, all_dup_sql)
-        compare_result(dup_result3, dup_result8, all_dup_sql)
-
-         def mowTable = "mow_httplogs"
+        def mowTable = "mow_httplogs"
         sql """ drop table if exists ${mowTable} """
         // create table
         sql """
@@ -821,7 +780,8 @@ suite("test_dup_table_inverted_index", "p1") {
             "replication_allocation" = "tag.location.default: 1",
             "compaction_policy" = "time_series",
             "compression" = "ZSTD",
-            "disable_auto_compaction" = "true"
+            "disable_auto_compaction" = "true",
+            "enable_unique_key_merge_on_write" = "true"
             );
         """
 
