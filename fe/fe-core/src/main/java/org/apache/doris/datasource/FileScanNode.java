@@ -127,7 +127,7 @@ public abstract class FileScanNode extends ExternalScanNode {
         // frontend config parameters
         PrintableMap<String, String> frontendParameters = explainFrontendParameters();
         if (frontendParameters.isEmpty()) {
-            return "";
+            return output.toString();
         }
         output.append(prefix).append("FrontendConfigParameters:\n");
         output.append(frontendParameters.printWithPrefix(prefix + "  "));
@@ -136,7 +136,7 @@ public abstract class FileScanNode extends ExternalScanNode {
         // backend config parameters
         PrintableMap<String, String> backParameters = explainBackendParameters();
         if (backParameters.isEmpty()) {
-            return "";
+            return output.toString();
         }
         output.append(prefix).append("BackendConfigParameters:\n");
         output.append(backParameters.printWithPrefix(prefix + "  "));
