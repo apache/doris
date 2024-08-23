@@ -203,7 +203,7 @@ public:
     ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, int be_number,
                        RuntimeState* state, ExchangeSinkLocalState* parent = nullptr);
     ~ExchangeSinkBuffer() = default;
-    void register_sink(TUniqueId, vectorized::PipChannel<Parent>* channel);
+    void register_sink(TUniqueId);
 
     Status add_block(TransmitInfo<Parent>&& request);
     Status add_block(BroadcastTransmitInfo<Parent>&& request);

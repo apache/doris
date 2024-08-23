@@ -749,7 +749,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableVerboseProfile = true;
 
     @VariableMgr.VarAttr(name = RPC_VERBOSE_PROFILE_MAX_INSTANCE_COUNT, needForward = true)
-    public int rpcVerboseProfileMaxInstanceCount = 50;
+    public int rpcVerboseProfileMaxInstanceCount = 5;
 
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = AUTO_PROFILE_THRESHOLD_MS, needForward = true)
