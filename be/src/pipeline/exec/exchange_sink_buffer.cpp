@@ -155,8 +155,7 @@ bool ExchangeSinkBuffer<Parent>::is_pending_finish() {
 }
 
 template <typename Parent>
-void ExchangeSinkBuffer<Parent>::register_sink(TUniqueId fragment_instance_id,
-                                               vectorized::PipChannel<Parent>* channel) {
+void ExchangeSinkBuffer<Parent>::register_sink(TUniqueId fragment_instance_id) {
     if (_is_finishing) {
         return;
     }
@@ -243,9 +242,6 @@ Status ExchangeSinkBuffer<Parent>::add_block(BroadcastTransmitInfo<Parent>&& req
 
 template <typename Parent>
 Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
-    if (_parent) {
-        SCOPED_TIMER(_parent->brpc_send_timer());
-    }
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
 
     DCHECK(_rpc_channel_is_idle[id] == false);
@@ -563,25 +559,26 @@ void ExchangeSinkBuffer<Parent>::update_profile(RuntimeProfile* profile) {
                     [](const auto& a, const auto& b) { return a->max_time > b->max_time; });
             auto count = std::min((size_t)max_count, _instance_to_rpc_stats_vec.size());
             int i = 0;
-            std::string stats_str;
+            auto* detail_profile = profile->create_child("RpcInstanceDetails", true, true);
             for (const auto& stats : _instance_to_rpc_stats_vec) {
+                if (0 == stats->rpc_count) {
+                    continue;
+                }
                 std::stringstream out;
-                out << std::hex << stats->inst_lo_id;
-                stats_str += fmt::format(
-                        "\nInstance: {}, Count: {}, MinTime: {}, MaxTime: {}, AvgTime: {}, "
-                        "SumTime: {}",
-                        out.str(), stats->rpc_count,
+                out << "Instance " << std::hex << stats->inst_lo_id;
+                auto stats_str = fmt::format(
+                        "Count: {}, MaxTime: {}, MinTime: {}, AvgTime: {}, SumTime: {}",
+                        stats->rpc_count, PrettyPrinter::print(stats->max_time, TUnit::TIME_NS),
                         PrettyPrinter::print(stats->min_time, TUnit::TIME_NS),
-                        PrettyPrinter::print(stats->max_time, TUnit::TIME_NS),
                         PrettyPrinter::print(stats->sum_time / std::max(static_cast<int64_t>(1),
                                                                         stats->rpc_count),
                                              TUnit::TIME_NS),
                         PrettyPrinter::print(stats->sum_time, TUnit::TIME_NS));
+                detail_profile->add_info_string(out.str(), stats_str);
                 if (++i == count) {
                     break;
                 }
             }
-            profile->add_info_string("RpcInstanceDetails", stats_str);
         }
     }
 }
