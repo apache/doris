@@ -268,12 +268,7 @@ public final class QueryBuilders {
         column = fieldsContext.getOrDefault(column, column);
         if (expr instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
-            Expr value;
-            if (binaryPredicate.slotIsLeft()) {
-                value = binaryPredicate.getChild(1);
-            } else {
-                value = binaryPredicate.getChild(0);
-            }
+            Expr value = binaryPredicate.getChild(1);
             // only push down literal expr to ES
             if (value instanceof LiteralExpr) {
                 LiteralExpr literalExpr = (LiteralExpr) value;
