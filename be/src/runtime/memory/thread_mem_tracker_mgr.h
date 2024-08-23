@@ -95,7 +95,9 @@ public:
     void consume(int64_t size, int skip_large_memory_check = 0);
     void flush_untracked_mem();
 
-    bool try_reserve(int64_t size);
+    bool try_reserve(int64_t size, std::string& err_msg);
+    bool try_reserve(int64_t size, bool print_err_msg = false);
+
     void release_reserved();
 
     bool is_attach_query() { return _query_id != TUniqueId(); }
@@ -295,7 +297,7 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     _stop_consume = false;
 }
 
-inline bool ThreadMemTrackerMgr::try_reserve(int64_t size) {
+inline bool ThreadMemTrackerMgr::try_reserve(int64_t size, std::string& err_msg) {
     DCHECK(_limiter_tracker_raw);
     DCHECK(size >= 0);
     CHECK(init());
@@ -303,18 +305,28 @@ inline bool ThreadMemTrackerMgr::try_reserve(int64_t size) {
     // _untracked_mem store bytes that not synchronized to process reserved memory.
     flush_untracked_mem();
     if (!_limiter_tracker_raw->try_consume(size)) {
+        err_msg = fmt::format(
+                "reserve memory failed, size: {}, because memory tracker consumption: {}, limit: "
+                "{}",
+                size, _limiter_tracker_raw->consumption(), _limiter_tracker_raw->limit());
         return false;
     }
     auto wg_ptr = _wg_wptr.lock();
     if (wg_ptr) {
         if (!wg_ptr->add_wg_refresh_interval_memory_growth(size)) {
+            err_msg = fmt::format("reserve memory failed, size: {}, because {}", size,
+                                  wg_ptr->memory_debug_string());
             _limiter_tracker_raw->release(size); // rollback
             return false;
         }
     }
     if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
-        _limiter_tracker_raw->release(size);                 // rollback
-        wg_ptr->sub_wg_refresh_interval_memory_growth(size); // rollback
+        err_msg = fmt::format("reserve memory failed, size: {}, because {}", size,
+                              GlobalMemoryArbitrator::process_mem_log_str());
+        _limiter_tracker_raw->release(size); // rollback
+        if (wg_ptr) {
+            wg_ptr->sub_wg_refresh_interval_memory_growth(size); // rollback
+        }
         return false;
     }
     if (_count_scope_mem) {
@@ -327,13 +339,22 @@ inline bool ThreadMemTrackerMgr::try_reserve(int64_t size) {
     return true;
 }
 
+inline bool ThreadMemTrackerMgr::try_reserve(int64_t size, bool print_err_msg) {
+    std::string err_msg;
+    auto rt = try_reserve(size, err_msg);
+    if (print_err_msg) {
+        LOG(INFO) << err_msg;
+    }
+    return rt;
+}
+
 inline void ThreadMemTrackerMgr::release_reserved() {
     if (_reserved_mem != 0) {
         doris::GlobalMemoryArbitrator::release_process_reserved_memory(_reserved_mem +
                                                                        _untracked_mem);
         _limiter_tracker_raw->release(_reserved_mem);
         auto wg_ptr = _wg_wptr.lock();
-        if (!wg_ptr) {
+        if (wg_ptr) {
             wg_ptr->sub_wg_refresh_interval_memory_growth(_reserved_mem);
         }
         if (_count_scope_mem) {
