@@ -65,6 +65,7 @@ import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -190,14 +191,17 @@ public class HMSTransaction implements Transaction {
 
     public void finishInsertTable(SimpleTableInfo tableInfo) {
         Table table = getTable(tableInfo);
-        if (hivePartitionUpdates.isEmpty() && isOverwrite) {
+        if (hivePartitionUpdates.isEmpty() && isOverwrite && table.getPartitionKeysSize() == 0) {
             // use an empty hivePartitionUpdate to clean source table
             THivePartitionUpdate emptyUpdate = new THivePartitionUpdate() {{
                     setUpdateMode(TUpdateMode.OVERWRITE);
                     setFileSize(0);
                     setRowCount(0);
-                    if (fileType != TFileType.FILE_S3) {
+                    setFileNames(Collections.emptyList());
+                    if (fileType == TFileType.FILE_S3) {
                         setS3MpuPendingUploads(Lists.newArrayList(new TS3MPUPendingUpload()));
+                    } else {
+                        fs.makeDir(declaredIntentionsToWrite);
                     }
                     setLocation(new THiveLocationParams() {{
                             setWritePath(declaredIntentionsToWrite);
