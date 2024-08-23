@@ -32,7 +32,7 @@ import com.google.common.collect.Maps;
 import java.util.HashMap;
 import java.util.Map;
 
-public class AlterRepositoryStmt extends DdlStmt {
+public class AlterRepositoryStmt extends DdlStmt implements NotFallbackInParser {
     private String name;
     private Map<String, String> properties;
 

@@ -136,10 +136,6 @@ public:
     TabletSchemaSPtr flush_schema() const { return _flush_schema; };
 
     void set_mow_context(std::shared_ptr<MowContext> mow_context);
-    Status fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
-                                const std::vector<bool>& use_default_or_null_flag,
-                                bool has_default_or_nullable, const size_t& segment_start_pos,
-                                const vectorized::Block* block);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
@@ -241,7 +237,6 @@ private:
 
     std::shared_ptr<MowContext> _mow_context;
     // group every rowset-segment row id to speed up reader
-    PartialUpdateReadPlan _rssid_to_rid;
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
     // contains auto generated columns, should be nullptr if no variants's subcolumns
     TabletSchemaSPtr _flush_schema = nullptr;

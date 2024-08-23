@@ -1003,8 +1003,10 @@ void FragmentMgr::cancel_worker() {
                             itr != running_queries_on_all_fes.end()) {
                             // Query not found on this frontend, and the query arrives before the last check
                             if (itr->second.find(it.first) == itr->second.end() &&
-                                q_ctx->get_query_arrival_timestamp().tv_nsec <
-                                        check_invalid_query_last_timestamp.tv_nsec &&
+                                // tv_nsec represents the number of nanoseconds that have elapsed since the time point stored in tv_sec.
+                                // tv_sec is enough, we do not need to check tv_nsec.
+                                q_ctx->get_query_arrival_timestamp().tv_sec <
+                                        check_invalid_query_last_timestamp.tv_sec &&
                                 q_ctx->get_query_source() == QuerySource::INTERNAL_FRONTEND) {
                                 queries_pipeline_task_leak.push_back(q_ctx->query_id());
                                 LOG_INFO(
