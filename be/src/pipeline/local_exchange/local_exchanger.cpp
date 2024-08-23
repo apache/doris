@@ -54,9 +54,9 @@ void Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
         // just unref the block.
         if constexpr (std::is_same_v<PartitionedBlock, BlockType> ||
                       std::is_same_v<BroadcastBlock, BlockType>) {
-            block.first->unref(local_state._shared_state, allocated_bytes);
+            block.first->unref(local_state._shared_state, allocated_bytes, channel_id);
         } else {
-            block->unref(local_state._shared_state, allocated_bytes);
+            block->unref(local_state._shared_state, allocated_bytes, channel_id);
             DCHECK_EQ(block->ref_value(), 0);
         }
     }
@@ -83,7 +83,7 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState& local_st
             local_state._shared_state->sub_mem_usage(channel_id,
                                                      block->data_block.allocated_bytes());
             data_block->swap(block->data_block);
-            block->unref(local_state._shared_state, data_block->allocated_bytes());
+            block->unref(local_state._shared_state, data_block->allocated_bytes(), channel_id);
             DCHECK_EQ(block->ref_value(), 0);
         }
         return true;
@@ -100,7 +100,7 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState& local_st
                 local_state._shared_state->sub_mem_usage(channel_id,
                                                          block->data_block.allocated_bytes());
                 data_block->swap(block->data_block);
-                block->unref(local_state._shared_state, data_block->allocated_bytes());
+                block->unref(local_state._shared_state, data_block->allocated_bytes(), channel_id);
                 DCHECK_EQ(block->ref_value(), 0);
             }
             return true;
