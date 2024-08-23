@@ -1497,6 +1497,43 @@ private:
     const char* name;
 };
 
+template <typename FromDataType, typename Name>
+struct ConvertToIPv6 {
+    template <typename Additions = void*>
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t input_rows_count,
+                          Additions additions [[maybe_unused]] = Additions()) {
+        using ColVecTo = ColumnIPv6;
+        const IColumn* col_from = block.get_by_position(arguments[0]).column.get();
+        if (const auto* col_from_ipv4 = check_and_get_column<ColumnIPv4>(col_from)) {
+            size_t row = input_rows_count;
+            typename ColVecTo::MutablePtr col_to = ColVecTo::create(row);
+            typename ColVecTo::Container& vec_to = col_to->get_data();
+            const auto& ipv4_column_data = col_from_ipv4->get_data();
+
+            ColumnUInt8::MutablePtr col_null_map_to;
+            ColumnUInt8::Container* vec_null_map_to [[maybe_unused]] = nullptr;
+            col_null_map_to = ColumnUInt8::create(row, 0);
+            vec_null_map_to = &col_null_map_to->get_data();
+            for (size_t i = 0; i < row; ++i) {
+                map_ipv4_to_ipv6(ipv4_column_data[i], reinterpret_cast<UInt8*>(&vec_to[i]));
+            }
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
+        } else {
+            return Status::RuntimeError("Illegal column {} of first argument of function {}",
+                                        col_from->get_name(), Name::name);
+        }
+        return Status::OK();
+    }
+
+private:
+    static void map_ipv4_to_ipv6(IPv4 ipv4, UInt8* buf) {
+        unaligned_store<UInt64>(buf, 0x0000FFFF00000000ULL | static_cast<UInt64>(ipv4));
+        unaligned_store<UInt64>(buf + 8, 0);
+    }
+};
+
 // always from DataTypeString
 template <typename ToDataType, typename Name>
 struct StringParsing {
@@ -1598,6 +1635,8 @@ template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeIPv4, Name> : StringParsing<DataTypeIPv4, Name> {};
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeIPv6, Name> : StringParsing<DataTypeIPv6, Name> {};
+template <typename Name>
+struct ConvertImpl<DataTypeIPv4, DataTypeIPv6, Name> : ConvertToIPv6<DataTypeIPv4, Name> {};
 
 struct NameCast {
     static constexpr auto name = "CAST";

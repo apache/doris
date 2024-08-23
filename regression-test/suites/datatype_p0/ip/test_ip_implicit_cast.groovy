@@ -43,4 +43,13 @@ suite("test_ip_implicit_cast") {
     qt_sql1 "select id, ip_v4 from ${tableName} order by id"
 
     sql "DROP TABLE ${tableName}"
+
+    sql """ drop table if exists t5;"""
+    sql """ create table t5 (id int, a ipv4, b ipv6) properties ("replication_num"="1");"""
+    sql """ insert into t5 values (1, to_ipv4('172.20.48.119'), to_ipv6('::ffff:172.20.48.119'));"""
+    sql """ insert into t5 values (2, to_ipv4('172.20.48.111'), to_ipv6('::ffff:172.20.48.119'));"""
+    qt_sql2 """ select ipv4_to_ipv6(a) = b from t5 order by id;"""
+    qt_sql3 """ select a = b from t5 order by id;"""
+    qt_sql3 """ select a, cast(a as ipv6) from t5 order by id;"""
+
 }
