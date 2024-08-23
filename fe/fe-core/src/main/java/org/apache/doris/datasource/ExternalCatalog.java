@@ -101,7 +101,7 @@ public abstract class ExternalCatalog
     public static final String DORIS_VERSION = "doris.version";
     public static final String DORIS_VERSION_VALUE = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
     public static final String USE_META_CACHE = "use_meta_cache";
-    public static final boolean DEFAULT_USE_META_CACHE = true;
+    public static final boolean DEFAULT_USE_META_CACHE = false;
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -289,11 +289,6 @@ public abstract class ExternalCatalog
             } catch (NumberFormatException e) {
                 throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
             }
-        }
-
-        if (properties.getOrDefault(ExternalCatalog.USE_META_CACHE, "true").equals("false")) {
-            LOG.warn("force to set use_meta_cache to true for catalog: {} when creating", name);
-            getCatalogProperty().addProperty(ExternalCatalog.USE_META_CACHE, "true");
         }
     }
 
