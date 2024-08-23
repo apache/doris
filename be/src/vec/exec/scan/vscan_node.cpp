@@ -342,14 +342,14 @@ Status VScanNode::_normalize_conjuncts() {
     // The conjuncts is always on output tuple, so use _output_tuple_desc;
     std::vector<SlotDescriptor*> slots = _output_tuple_desc->slots();
 
-    auto init_value_range = [&](SlotDescriptor* slot, PrimitiveType type) {
-        switch (type) {
-#define M(NAME)                                                                          \
-    case TYPE_##NAME: {                                                                  \
-        ColumnValueRange<TYPE_##NAME> range(slot->col_name(), slot->is_nullable(),       \
-                                            slot->type().precision, slot->type().scale); \
-        _slot_id_to_value_range[slot->id()] = std::pair {slot, range};                   \
-        break;                                                                           \
+    auto init_value_range = [&](SlotDescriptor* slot, TypeDescriptor type) {
+        switch (type.type) {
+#define M(NAME)                                                                                    \
+    case TYPE_##NAME: {                                                                            \
+        ColumnValueRange<TYPE_##NAME> range(slot->col_name(), slot->is_nullable(), type.precision, \
+                                            type.scale);                                           \
+        _slot_id_to_value_range[slot->id()] = std::pair {slot, range};                             \
+        break;                                                                                     \
     }
 #define APPLY_FOR_PRIMITIVE_TYPE(M) \
     M(TINYINT)                      \

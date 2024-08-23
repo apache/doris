@@ -423,7 +423,7 @@ std::string NewOlapScanNode::get_name() {
 
 void NewOlapScanNode::_filter_and_collect_cast_type_for_variant(
         const VExpr* expr,
-        phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types) {
+        phmap::flat_hash_map<std::string, std::vector<TypeDescriptor>>& colname_to_cast_types) {
     auto* cast_expr = dynamic_cast<const VCastExpr*>(expr);
     if (cast_expr != nullptr) {
         auto* src_slot = cast_expr->get_child(0)->node_type() == TExprNodeType::SLOT_REF
@@ -446,7 +446,7 @@ void NewOlapScanNode::_filter_and_collect_cast_type_for_variant(
 }
 
 void NewOlapScanNode::get_cast_types_for_variants() {
-    phmap::flat_hash_map<std::string, std::vector<PrimitiveType>> colname_to_cast_types;
+    phmap::flat_hash_map<std::string, std::vector<TypeDescriptor>> colname_to_cast_types;
     for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
         auto& conjunct = *it;
         if (conjunct->root()) {

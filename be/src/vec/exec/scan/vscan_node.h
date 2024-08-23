@@ -41,6 +41,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/runtime_filter_consumer.h"
 #include "vec/exec/scan/scanner_context.h"
@@ -308,7 +309,7 @@ protected:
     std::vector<FunctionFilter> _push_down_functions;
 
     // colname -> cast dst type
-    std::map<std::string, PrimitiveType> _cast_types_for_variants;
+    std::map<std::string, TypeDescriptor> _cast_types_for_variants;
 
     // slot id -> ColumnValueRange
     // Parsed from conjuncts
