@@ -229,6 +229,7 @@ under the License.
         <revision>1.2-SNAPSHOT</revision>
         <obs.dependency.scope>test</obs.dependency.scope>
         <cos.dependency.scope>test</cos.dependency.scope>
+        <gcs.dependency.scope>test</gcs.dependency.scope>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <doris.hive.catalog.shade.version>2.1.1</doris.hive.catalog.shade.version>
         <maven.compiler.source>1.8</maven.compiler.source>
