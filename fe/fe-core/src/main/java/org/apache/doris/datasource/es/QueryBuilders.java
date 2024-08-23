@@ -128,6 +128,21 @@ public final class QueryBuilders {
                         .build());
     }
 
+    private static TExprOpcode flipOpCode(TExprOpcode opCode) {
+        switch (opCode) {
+            case GE:
+                return TExprOpcode.LE;
+            case GT:
+                return TExprOpcode.LT;
+            case LE:
+                return TExprOpcode.GE;
+            case LT:
+                return TExprOpcode.GT;
+            default:
+                return opCode;
+        }
+    }
+
     private static QueryBuilder parseBinaryPredicate(LiteralExpr expr, TExprOpcode opCode, String column,
             boolean needDateCompat) {
         Object value = toDorisLiteral(expr);
@@ -224,6 +239,20 @@ public final class QueryBuilders {
         return new QueryBuilders.EsQueryBuilder(stringValue);
     }
 
+    private static String getColumnFromExpr(Expr expr) {
+        // Type transformed cast can not pushdown
+        if (expr instanceof CastExpr) {
+            Expr withoutCastExpr = exprWithoutCast(expr);
+            if (withoutCastExpr.getType().equals(expr.getType())
+                    || (withoutCastExpr.getType().isFloatingPointType() && expr.getType().isFloatingPointType())) {
+                return ((SlotRef) withoutCastExpr).getColumnName();
+            }
+        } else if (expr instanceof SlotRef) {
+            return ((SlotRef) expr).getColumnName();
+        }
+        return null;
+    }
+
     /**
      * Doris expr to es dsl.
      **/
@@ -242,25 +271,22 @@ public final class QueryBuilders {
             return toCompoundEsDsl(expr, notPushDownList, fieldsContext, builderOptions);
         }
         TExprOpcode opCode = expr.getOpcode();
-        String column;
+        boolean isFlip = false;
         Expr leftExpr = expr.getChild(0);
-        // Type transformed cast can not pushdown
-        if (leftExpr instanceof CastExpr) {
-            Expr withoutCastExpr = exprWithoutCast(leftExpr);
-            // pushdown col(float) >= 3
-            if (withoutCastExpr.getType().equals(leftExpr.getType()) || (withoutCastExpr.getType().isFloatingPointType()
-                    && leftExpr.getType().isFloatingPointType())) {
-                column = ((SlotRef) withoutCastExpr).getColumnName();
-            } else {
-                notPushDownList.add(expr);
-                return null;
-            }
-        } else if (leftExpr instanceof SlotRef) {
-            column = ((SlotRef) leftExpr).getColumnName();
-        } else {
+        String column = getColumnFromExpr(leftExpr);
+
+        if (StringUtils.isEmpty(column)) {
+            Expr rightExpr = expr.getChild(1);
+            column = getColumnFromExpr(rightExpr);
+            opCode = flipOpCode(opCode);
+            isFlip = true;
+        }
+
+        if (StringUtils.isEmpty(column)) {
             notPushDownList.add(expr);
             return null;
         }
+
         // Check whether the date type need compat, it must before keyword replace.
         List<String> needCompatDateFields = builderOptions.getNeedCompatDateFields();
         boolean needDateCompat = needCompatDateFields != null && needCompatDateFields.contains(column);
@@ -268,7 +294,12 @@ public final class QueryBuilders {
         column = fieldsContext.getOrDefault(column, column);
         if (expr instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
-            Expr value = binaryPredicate.getChild(1);
+            Expr value;
+            if (isFlip) {
+                value = binaryPredicate.getChild(0);
+            } else {
+                value = binaryPredicate.getChild(1);
+            }
             // only push down literal expr to ES
             if (value instanceof LiteralExpr) {
                 LiteralExpr literalExpr = (LiteralExpr) value;
