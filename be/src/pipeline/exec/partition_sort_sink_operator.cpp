@@ -16,6 +16,7 @@
 // under the License.
 
 #include "partition_sort_sink_operator.h"
+
 #include <cstdint>
 
 #include "common/status.h"

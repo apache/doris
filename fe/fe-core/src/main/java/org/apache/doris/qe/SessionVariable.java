@@ -3694,8 +3694,9 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
-        tResult.setMaxPushdownConditionsPerColumn(maxPushdownConditionsPerColumn);
-        tResult.setPartitionTopnPartitionThreshold(partitionTopNPartitionThreshold);
+        tResult.setPartitionTopnMaxPartitions(partitionTopNMaxPartitions);
+        tResult.setPartitionTopnPrePartitionRows(partitionTopNPerPartitionRows);
+
         if (maxScanKeyNum > 0) {
             tResult.setMaxScanKeyNum(maxScanKeyNum);
         } else {
