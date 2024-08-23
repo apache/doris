@@ -189,8 +189,9 @@ struct BlockWrapper {
             }
         }
     }
-    void unref(LocalExchangeSharedState* shared_state) {
-        unref(shared_state, data_block.allocated_bytes());
+
+    void unref(LocalExchangeSharedState* shared_state, int channel_id) {
+        unref(shared_state, data_block.allocated_bytes(), channel_id);
     }
     int ref_value() const { return ref_count.load(); }
     std::atomic<int> ref_count = 0;
