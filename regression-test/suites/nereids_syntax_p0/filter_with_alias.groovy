@@ -37,7 +37,7 @@ suite("filter_with_alias") {
     """
     test {
         sql " select * from internal.filter_alias_test.test b where internal.filter_alias_test.test.id = 1;"
-        exception "Unknown column 'id' in 'internal.filter_alias_test.test' in FILTER clause"
+        exception "Unknown column 'id' in 'internal.filter_alias_test.test'"
     }
 
     // Test using alias in WHERE clause directly
@@ -53,7 +53,7 @@ suite("filter_with_alias") {
 
     test {
         sql " select * from filter_alias_test.test b where filter_alias_test.test.id = 1;"
-        exception "Unknown column 'id' in 'filter_alias_test.test' in FILTER clause"
+        exception "Unknown column 'id' in 'filter_alias_test.test'"
     }
 
     qt_filter_select3 """
