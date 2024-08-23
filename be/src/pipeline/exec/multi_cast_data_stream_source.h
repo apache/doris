@@ -78,8 +78,6 @@ public:
 
     bool can_read() override;
 
-    Status close(doris::RuntimeState* state) override;
-
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override;
 
 private:
