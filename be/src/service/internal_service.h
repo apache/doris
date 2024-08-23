@@ -269,6 +269,10 @@ private:
                                        PFetchColIdsResponse* response,
                                        google::protobuf::Closure* done);
 
+    void get_be_resource(google::protobuf::RpcController* controller,
+                         const PGetBeResourceRequest* request, PGetBeResourceResponse* response,
+                         google::protobuf::Closure* done) override;
+
 private:
     ExecEnv* _exec_env = nullptr;
 

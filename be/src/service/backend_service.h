@@ -140,9 +140,6 @@ public:
     void query_ingest_binlog(TQueryIngestBinlogResult& result,
                              const TQueryIngestBinlogRequest& request) override;
 
-    void get_be_resource(TGetBeResourceResult& result,
-                         const TGetBeResourceRequest& request) override;
-
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
     ExecEnv* _exec_env = nullptr;

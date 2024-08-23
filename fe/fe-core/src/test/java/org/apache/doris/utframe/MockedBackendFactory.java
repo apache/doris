@@ -48,8 +48,6 @@ import org.apache.doris.thrift.TExportState;
 import org.apache.doris.thrift.TExportStatusResult;
 import org.apache.doris.thrift.TExportTaskRequest;
 import org.apache.doris.thrift.TFinishTaskRequest;
-import org.apache.doris.thrift.TGetBeResourceRequest;
-import org.apache.doris.thrift.TGetBeResourceResult;
 import org.apache.doris.thrift.THeartbeatResult;
 import org.apache.doris.thrift.TIngestBinlogRequest;
 import org.apache.doris.thrift.TIngestBinlogResult;
@@ -387,10 +385,6 @@ public class MockedBackendFactory {
             return new TPublishTopicResult(new TStatus(TStatusCode.OK));
         }
 
-        @Override
-        public TGetBeResourceResult getBeResource(TGetBeResourceRequest request) throws TException {
-            return null;
-        }
 
         @Override
         public TStatus submitExportTask(TExportTaskRequest request) throws TException {

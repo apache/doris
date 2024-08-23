@@ -899,6 +899,19 @@ message PFetchRemoteSchemaResponse {
     optional TabletSchemaPB merged_schema = 2;
 }
 
+message PGetBeResourceRequest {
+}
+
+message PGlobalResourceUsage {
+    optional int64 mem_limit = 1;
+    optional int64 mem_usage = 2;
+}
+
+message PGetBeResourceResponse {
+    optional PStatus status = 1;
+    optional PGlobalResourceUsage global_be_resource_usage = 2;
+}
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -947,5 +960,6 @@ service PBackendService {
     rpc fetch_arrow_flight_schema(PFetchArrowFlightSchemaRequest) returns (PFetchArrowFlightSchemaResult);
     rpc fetch_remote_tablet_schema(PFetchRemoteSchemaRequest) returns (PFetchRemoteSchemaResponse);
     rpc test_jdbc_connection(PJdbcTestConnectionRequest) returns (PJdbcTestConnectionResult);
+    rpc get_be_resource(PGetBeResourceRequest) returns (PGetBeResourceResponse);
 };
 
