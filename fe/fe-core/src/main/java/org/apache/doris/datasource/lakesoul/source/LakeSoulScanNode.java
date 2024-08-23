@@ -143,7 +143,7 @@ public class LakeSoulScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected PrintableMap<String, String> debugParameters() {
+    protected PrintableMap<String, String> explainFrontendParameters() {
         return new PrintableMap<>(tableProperties, "=", true, true, true, true);
     }
 

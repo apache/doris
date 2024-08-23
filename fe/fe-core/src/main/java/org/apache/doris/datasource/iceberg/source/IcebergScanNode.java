@@ -389,7 +389,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected PrintableMap<String, String> debugParameters() {
+    protected PrintableMap<String, String> explainFrontendParameters() {
         return new PrintableMap<>(source.getCatalog().getProperties(), "=", true, true, true, true);
     }
 

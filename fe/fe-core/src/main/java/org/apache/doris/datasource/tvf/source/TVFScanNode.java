@@ -154,7 +154,7 @@ public class TVFScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected PrintableMap<String, String> debugParameters() {
+    protected PrintableMap<String, String> explainFrontendParameters() {
         return new PrintableMap<>(tableValuedFunction.getLocationProperties(),
                 "=", true, true, true, true);
     }

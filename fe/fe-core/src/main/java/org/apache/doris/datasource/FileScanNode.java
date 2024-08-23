@@ -113,18 +113,33 @@ public abstract class FileScanNode extends ExternalScanNode {
         return -1;
     }
 
-    protected PrintableMap<String, String> debugParameters() {
+    protected PrintableMap<String, String> explainFrontendParameters() {
+        return new PrintableMap<>(Maps.newHashMap(), "=", true, true, true, true);
+    }
+
+    protected PrintableMap<String, String> explainBackendParameters() {
         return new PrintableMap<>(Maps.newHashMap(), "=", true, true, true, true);
     }
 
     private String explainConfigParameter(String prefix) {
-        PrintableMap<String, String> parameters = debugParameters();
-        if (parameters.isEmpty()) {
+        StringBuilder output = new StringBuilder();
+
+        // frontend config parameters
+        PrintableMap<String, String> frontendParameters = explainFrontendParameters();
+        if (frontendParameters.isEmpty()) {
             return "";
         }
-        StringBuilder output = new StringBuilder();
-        output.append(prefix).append("ConfigParameters:\n");
-        output.append(parameters.printWithPrefix(prefix + "  "));
+        output.append(prefix).append("FrontendConfigParameters:\n");
+        output.append(frontendParameters.printWithPrefix(prefix + "  "));
+        output.append("\n");
+
+        // backend config parameters
+        PrintableMap<String, String> backParameters = explainBackendParameters();
+        if (backParameters.isEmpty()) {
+            return "";
+        }
+        output.append(prefix).append("BackendConfigParameters:\n");
+        output.append(backParameters.printWithPrefix(prefix + "  "));
         output.append("\n");
         return output.toString();
     }

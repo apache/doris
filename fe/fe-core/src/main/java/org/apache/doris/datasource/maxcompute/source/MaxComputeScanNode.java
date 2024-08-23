@@ -130,7 +130,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected PrintableMap<String, String> debugParameters() {
+    protected PrintableMap<String, String> explainFrontendParameters() {
         return new PrintableMap<>(table.getCatalog().getCatalogProperty().getProperties(),
                 "=", true, true, true, true);
     }

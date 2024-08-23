@@ -39,6 +39,7 @@ import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -301,8 +302,14 @@ public class PaimonScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected PrintableMap<String, String> debugParameters() {
+    protected PrintableMap<String, String> explainFrontendParameters() {
         return new PrintableMap<>(source.getCatalog().getCatalogProperty().getProperties(),
+                "=", true, true, true, true);
+    }
+
+    @Override
+    protected PrintableMap<String, String> explainBackendParameters() {
+        return new PrintableMap<>(((PaimonExternalCatalog) source.getCatalog()).getPaimonOptionsMap(),
                 "=", true, true, true, true);
     }
 
