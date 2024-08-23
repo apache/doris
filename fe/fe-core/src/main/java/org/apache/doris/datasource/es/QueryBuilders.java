@@ -31,6 +31,7 @@ import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.LikePredicate.Operator;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.thrift.TExprOpcode;
@@ -127,9 +128,9 @@ public final class QueryBuilders {
                         .build());
     }
 
-    private static QueryBuilder parseBinaryPredicate(Expr expr, TExprOpcode opCode, String column,
+    private static QueryBuilder parseBinaryPredicate(LiteralExpr expr, TExprOpcode opCode, String column,
             boolean needDateCompat) {
-        Object value = toDorisLiteral(expr.getChild(1));
+        Object value = toDorisLiteral(expr);
         if (needDateCompat) {
             value = compatDefaultDate(value);
         }
@@ -266,7 +267,21 @@ public final class QueryBuilders {
         // Replace col with col.keyword if mapping exist.
         column = fieldsContext.getOrDefault(column, column);
         if (expr instanceof BinaryPredicate) {
-            return parseBinaryPredicate(expr, opCode, column, needDateCompat);
+            BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
+            Expr value;
+            if (binaryPredicate.slotIsLeft()) {
+                value = binaryPredicate.getChild(1);
+            } else {
+                value = binaryPredicate.getChild(0);
+            }
+            // only push down literal expr to ES
+            if (value instanceof LiteralExpr) {
+                LiteralExpr literalExpr = (LiteralExpr) value;
+                return parseBinaryPredicate(literalExpr, opCode, column, needDateCompat);
+            } else {
+                notPushDownList.add(expr);
+                return null;
+            }
         }
         if (expr instanceof IsNullPredicate) {
             return parseIsNullPredicate(expr, column);
