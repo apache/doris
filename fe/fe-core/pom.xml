@@ -410,6 +410,7 @@ under the License.
             <groupId>com.huaweicloud</groupId>
             <artifactId>hadoop-huaweicloud</artifactId>
             <version>${huaweiobs.version}</version>
+            <scope>${obs.dependency.scope}</scope>
             <exclusions>
                 <exclusion>
                     <artifactId>jackson-databind</artifactId>
@@ -425,6 +426,7 @@ under the License.
             <groupId>com.qcloud.cos</groupId>
             <artifactId>hadoop-cos</artifactId>
             <version>${tencentcos.version}</version>
+            <scope>${cos.dependency.scope}</scope>
             <exclusions>
                 <exclusion>
                     <groupId>org.json</groupId>
