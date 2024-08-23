@@ -118,6 +118,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughUnion;
+import org.apache.doris.nereids.rules.rewrite.PushDownProjectThroughLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
@@ -422,7 +423,17 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("eliminate",
                         // SORT_PRUNING should be applied after mergeLimit
                         custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
-                        bottomUp(new EliminateEmptyRelation())
+                        bottomUp(
+                                new EliminateEmptyRelation(),
+                                // after eliminate empty relation under union, we could get
+                                // limit
+                                // +-- project
+                                //     +-- limit
+                                //         + project
+                                // so, we need push project through limit to satisfy translator's assumptions
+                                new PushDownFilterThroughProject(),
+                                new PushDownProjectThroughLimit(),
+                                new MergeProjects())
                 ),
                 topic("agg rewrite",
                     // these rules should be put after mv optimization to avoid mv matching fail

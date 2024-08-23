@@ -76,7 +76,6 @@ import org.apache.doris.nereids.DorisParser.ComplexColTypeContext;
 import org.apache.doris.nereids.DorisParser.ComplexColTypeListContext;
 import org.apache.doris.nereids.DorisParser.ComplexDataTypeContext;
 import org.apache.doris.nereids.DorisParser.ConstantContext;
-import org.apache.doris.nereids.DorisParser.ConstantSeqContext;
 import org.apache.doris.nereids.DorisParser.CreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.CreateProcedureContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
@@ -139,6 +138,7 @@ import org.apache.doris.nereids.DorisParser.OutFileClauseContext;
 import org.apache.doris.nereids.DorisParser.ParenthesizedExpressionContext;
 import org.apache.doris.nereids.DorisParser.PartitionSpecContext;
 import org.apache.doris.nereids.DorisParser.PartitionValueDefContext;
+import org.apache.doris.nereids.DorisParser.PartitionValueListContext;
 import org.apache.doris.nereids.DorisParser.PartitionsDefContext;
 import org.apache.doris.nereids.DorisParser.PauseMTMVContext;
 import org.apache.doris.nereids.DorisParser.PlanTypeContext;
@@ -813,7 +813,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public DropMTMVCommand visitDropMTMV(DropMTMVContext ctx) {
+    public Command visitDropMTMV(DropMTMVContext ctx) {
+        if (ctx.tableName != null) {
+            // TODO support drop sync mv
+            return new UnsupportedCommand();
+        }
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
         return new DropMTMVCommand(new DropMTMVInfo(new TableNameInfo(nameParts), ctx.EXISTS() != null));
     }
@@ -2830,7 +2834,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public PartitionDefinition visitLessThanPartitionDef(LessThanPartitionDefContext ctx) {
         String partitionName = ctx.partitionName.getText();
         if (ctx.MAXVALUE() == null) {
-            List<Expression> lessThanValues = visitConstantSeq(ctx.constantSeq());
+            List<Expression> lessThanValues = visitPartitionValueList(ctx.partitionValueList());
             return new LessThanPartition(ctx.EXISTS() != null, partitionName, lessThanValues);
         } else {
             return new LessThanPartition(ctx.EXISTS() != null, partitionName,
@@ -2841,15 +2845,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public PartitionDefinition visitFixedPartitionDef(FixedPartitionDefContext ctx) {
         String partitionName = ctx.partitionName.getText();
-        List<Expression> lowerBounds = visitConstantSeq(ctx.lower);
-        List<Expression> upperBounds = visitConstantSeq(ctx.upper);
+        List<Expression> lowerBounds = visitPartitionValueList(ctx.lower);
+        List<Expression> upperBounds = visitPartitionValueList(ctx.upper);
         return new FixedRangePartition(ctx.EXISTS() != null, partitionName, lowerBounds, upperBounds);
     }
 
     @Override
     public PartitionDefinition visitStepPartitionDef(StepPartitionDefContext ctx) {
-        List<Expression> fromExpression = visitConstantSeq(ctx.from);
-        List<Expression> toExpression = visitConstantSeq(ctx.to);
+        List<Expression> fromExpression = visitPartitionValueList(ctx.from);
+        List<Expression> toExpression = visitPartitionValueList(ctx.to);
         return new StepPartition(false, null, fromExpression, toExpression,
                 Long.parseLong(ctx.unitsAmount.getText()), ctx.unit != null ? ctx.unit.getText() : null);
     }
@@ -2858,17 +2862,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public PartitionDefinition visitInPartitionDef(InPartitionDefContext ctx) {
         List<List<Expression>> values;
         if (ctx.constants == null) {
-            values = ctx.constantSeqs.stream().map(this::visitConstantSeq)
+            values = ctx.partitionValueLists.stream().map(this::visitPartitionValueList)
                     .collect(Collectors.toList());
         } else {
-            values = visitConstantSeq(ctx.constants).stream().map(ImmutableList::of)
+            values = visitPartitionValueList(ctx.constants).stream().map(ImmutableList::of)
                     .collect(Collectors.toList());
         }
         return new InPartition(ctx.EXISTS() != null, ctx.partitionName.getText(), values);
     }
 
     @Override
-    public List<Expression> visitConstantSeq(ConstantSeqContext ctx) {
+    public List<Expression> visitPartitionValueList(PartitionValueListContext ctx) {
         return ctx.values.stream()
                 .map(this::visitPartitionValueDef)
                 .collect(Collectors.toList());

@@ -99,7 +99,7 @@ public class TopNScanOpt extends PlanPostProcessor {
 
     private long getTopNOptLimitThreshold() {
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
-            return ConnectContext.get().getSessionVariable().topnOptLimitThreshold;
+            return ConnectContext.get().getSessionVariable().topnFilterLimitThreshold;
         }
         return -1;
     }

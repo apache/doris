@@ -767,8 +767,6 @@ nonterminal BackupStmt backup_stmt;
 nonterminal AbstractBackupTableRefClause opt_backup_table_ref_list;
 nonterminal Boolean backup_exclude_or_not;
 nonterminal RestoreStmt restore_stmt;
-nonterminal PrepareStmt prepare_stmt;
-nonterminal ExecuteStmt execute_stmt;
 
 nonterminal SelectList select_clause, select_list, select_sublist;
 
@@ -1275,10 +1273,6 @@ stmt ::=
     | analyze_stmt:stmt
     {: RESULT = stmt; :}
     | show_mtmv_stmt : stmt
-    {: RESULT = stmt; :}
-    | prepare_stmt:stmt
-    {: RESULT = stmt; :}
-    | execute_stmt:stmt
     {: RESULT = stmt; :}
     | warm_up_stmt:stmt
     {: RESULT = stmt; :}
@@ -4185,7 +4179,7 @@ show_stmt ::=
     {:
         RESULT = new ShowStoragePolicyUsingStmt(null);
     :}
-    | KW_SHOW KW_STORAGE KW_POLICY KW_USING KW_FOR ident:policy
+    | KW_SHOW KW_STORAGE KW_POLICY KW_USING KW_FOR ident_or_text:policy
     {:
         RESULT = new ShowStoragePolicyUsingStmt(policy);
     :}
@@ -5875,22 +5869,6 @@ expr_or_default ::=
     | KW_DEFAULT
     {:
         RESULT = new DefaultValueExpr();
-    :}
-    ;
-
-prepare_stmt ::=
-    KW_PREPARE variable_name:name KW_FROM select_stmt:s
-    {:
-        RESULT = new PrepareStmt(s, name);
-        s.setPlaceHolders(parser.placeholder_expr_list);
-        parser.placeholder_expr_list.clear();
-    :}
-    ;
-
-execute_stmt ::=
-    KW_EXECUTE variable_name:name args_list:s
-    {:
-        RESULT = new ExecuteStmt(name, s);
     :}
     ;
 
