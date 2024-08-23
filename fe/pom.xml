@@ -343,6 +343,7 @@ under the License.
         <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
         <spring.version>2.7.18</spring.version>
+        <spring-framework.version>5.3.39</spring-framework.version>
         <orc.version>1.8.4</orc.version>
         <zookeeper.version>3.9.2</zookeeper.version>
         <velocity-engine-core.version>2.3</velocity-engine-core.version>
@@ -484,6 +485,13 @@ under the License.
                 <groupId>org.apache.orc</groupId>
                 <artifactId>orc-core</artifactId>
                 <version>${orc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-framework-bom</artifactId>
+                <version>${spring-framework.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
