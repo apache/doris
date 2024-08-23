@@ -38,7 +38,7 @@ import java.util.List;
 import java.util.Map;
 
 // Alter table statement.
-public class AlterTableStmt extends DdlStmt {
+public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
     private TableName tbl;
     private List<AlterClause> ops;
 
