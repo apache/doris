@@ -15,28 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/fs/file_reader.h"
+#pragma once
 
-#include <bthread/bthread.h>
-#include <glog/logging.h>
+#include <vector>
 
-#include "io/fs/file_system.h"
-#include "util/async_io.h"
+#include "common/status.h"
+#include "exec/schema_scanner.h"
 
 namespace doris {
-namespace io {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
-const std::string FileReader::VIRTUAL_REMOTE_DATA_DIR = "virtual_remote_data_dir";
+class SchemaBackendWorkloadGroupResourceUsage : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaBackendWorkloadGroupResourceUsage);
 
-Status FileReader::read_at(size_t offset, Slice result, size_t* bytes_read,
-                           const IOContext* io_ctx) {
-    DCHECK(bthread_self() == 0);
-    Status st = read_at_impl(offset, result, bytes_read, io_ctx);
-    if (!st) {
-        LOG(WARNING) << st;
-    }
-    return st;
-}
+public:
+    SchemaBackendWorkloadGroupResourceUsage();
+    ~SchemaBackendWorkloadGroupResourceUsage() override;
 
-} // namespace io
-} // namespace doris
+    Status start(RuntimeState* state) override;
+    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
+
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
+
+private:
+    int _block_rows_limit = 4096;
+    int _row_idx = 0;
+    int _total_rows = 0;
+    std::unique_ptr<vectorized::Block> _block = nullptr;
+};
+}; // namespace doris

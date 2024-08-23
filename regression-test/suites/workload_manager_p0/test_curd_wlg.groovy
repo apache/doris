@@ -85,6 +85,8 @@ suite("test_crud_wlg") {
     sql "alter workload group normal properties ( 'queue_timeout'='0' );"
     sql "alter workload group normal properties ( 'cpu_hard_limit'='1%' );"
     sql "alter workload group normal properties ( 'scan_thread_num'='-1' );"
+    sql "alter workload group normal properties ( 'scan_thread_num'='-1' );"
+    sql "alter workload group normal properties ( 'remote_read_bytes_per_second'='-1' );"
 
     sql "set workload_group=normal;"
 
@@ -119,7 +121,7 @@ suite("test_crud_wlg") {
             ");"
     sql "set workload_group=test_group;"
 
-    qt_show_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+    qt_show_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     // test drop workload group
     sql "create workload group if not exists test_drop_wg properties ('cpu_share'='10')"
@@ -189,9 +191,31 @@ suite("test_crud_wlg") {
         exception "requires a positive integer"
     }
 
+    test {
+        sql "alter workload group test_group properties('read_bytes_per_second'='0')"
+        exception "an integer value bigger than"
+    }
+
+    test {
+        sql "alter workload group test_group properties('read_bytes_per_second'='-2')"
+        exception "an integer value bigger than"
+    }
+
+    test {
+        sql "alter workload group test_group properties('remote_read_bytes_per_second'='0')"
+        exception "an integer value bigger than"
+    }
+
+    test {
+        sql "alter workload group test_group properties('remote_read_bytes_per_second'='-2')"
+        exception "an integer value bigger than"
+    }
+
     sql "alter workload group test_group properties ( 'max_concurrency'='100' );"
+    sql "alter workload group test_group properties('remote_read_bytes_per_second'='104857600')"
+    sql "alter workload group test_group properties('read_bytes_per_second'='104857600')"
     qt_queue_1 """ select count(1) from ${table_name} """
-    qt_show_queue "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+    qt_show_queue "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     // test create group failed
     // failed for cpu_share
