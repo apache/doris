@@ -537,7 +537,8 @@ void TabletMeta::serialize(string* meta_binary) {
     if (!_rs_metas.empty() || !_stale_rs_metas.empty()) {
         _avg_rs_meta_serialize_size =
                 meta_binary->length() / (_rs_metas.size() + _stale_rs_metas.size());
-        if (meta_binary->length() > config::tablet_meta_serialize_size_limit || !serialize_success) {
+        if (meta_binary->length() > config::tablet_meta_serialize_size_limit ||
+            !serialize_success) {
             int64_t origin_meta_size = meta_binary->length();
             int64_t stale_rowsets_num = tablet_meta_pb.stale_rs_metas().size();
             tablet_meta_pb.clear_stale_rs_metas();
