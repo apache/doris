@@ -343,7 +343,8 @@ std::vector<std::string> VIcebergTableWriter::_partition_values(
 }
 
 std::shared_ptr<VIcebergPartitionWriter> VIcebergTableWriter::_create_partition_writer(
-        vectorized::Block* transformed_block, int position, const std::string* file_name, int file_name_index) {
+        vectorized::Block* transformed_block, int position, const std::string* file_name,
+        int file_name_index) {
     auto& iceberg_table_sink = _t_sink.iceberg_table_sink;
     std::vector<std::string> partition_values;
     const std::string& output_path = iceberg_table_sink.output_path;
@@ -356,7 +357,7 @@ std::shared_ptr<VIcebergPartitionWriter> VIcebergTableWriter::_create_partition_
         std::string partition_path = _partition_to_path(partition_data);
         partition_values = _partition_values(partition_data);
         original_write_path =
-            fmt::format("{}/{}", iceberg_table_sink.original_output_path, partition_path);
+                fmt::format("{}/{}", iceberg_table_sink.original_output_path, partition_path);
         target_path = fmt::format("{}/{}", output_path, partition_path);
         write_path = fmt::format("{}/{}", output_path, partition_path);
     } else {
@@ -364,7 +365,6 @@ std::shared_ptr<VIcebergPartitionWriter> VIcebergTableWriter::_create_partition_
         target_path = output_path;
         write_path = output_path;
     }
-
 
     VIcebergPartitionWriter::WriteInfo write_info = {
             std::move(write_path), std::move(original_write_path), std::move(target_path),
@@ -386,7 +386,8 @@ std::shared_ptr<VIcebergPartitionWriter> VIcebergTableWriter::_create_partition_
             iceberg_table_sink.hadoop_config);
 }
 
-PartitionData VIcebergTableWriter::_get_partition_data(vectorized::Block* transformed_block, int position) {
+PartitionData VIcebergTableWriter::_get_partition_data(vectorized::Block* transformed_block,
+                                                       int position) {
     DCHECK(!_iceberg_partition_columns.empty());
     std::vector<std::any> values;
     values.reserve(_iceberg_partition_columns.size());

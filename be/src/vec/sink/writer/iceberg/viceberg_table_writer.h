@@ -99,8 +99,8 @@ private:
     std::vector<std::string> _partition_values(const doris::iceberg::StructLike& data);
 
     std::shared_ptr<VIcebergPartitionWriter> _create_partition_writer(
-            vectorized::Block* transformed_block, int position, const std::string* file_name = nullptr,
-            int file_name_index = 0);
+            vectorized::Block* transformed_block, int position,
+            const std::string* file_name = nullptr, int file_name_index = 0);
 
     PartitionData _get_partition_data(vectorized::Block* block, int position);
 
