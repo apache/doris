@@ -88,6 +88,8 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                                                            TUnit ::TIME_NS, timer_name, 1);
     }
 
+    _runtime_profile->add_info_string("InstanceID", print_id(state->fragment_instance_id()));
+
     return Status::OK();
 }
 
