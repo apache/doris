@@ -410,6 +410,7 @@ suite("test_auto_partition_behavior") {
     }
 
     sql "set experimental_enable_nereids_planner=true;"
+
     sql " drop table if exists test_change "
     sql """
         create table test_change(
@@ -421,11 +422,14 @@ suite("test_auto_partition_behavior") {
         DISTRIBUTED BY HASH(`k0`) BUCKETS 2
         properties("replication_num" = "1");
     """
+    def replicaNum = get_table_replica_num("test_change")
+    logger.info("get table replica num: " + replicaNum)
+
     sql """ insert into test_change values ("20201212"); """
     def part_result = sql " show tablets from test_change "
-    assertEquals(part_result.size, 2)
+    assertEquals(part_result.size, 2 * replicaNum)
     sql """ ALTER TABLE test_change MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k0) BUCKETS 50; """
     sql """ insert into test_change values ("20001212"); """
     part_result = sql " show tablets from test_change "
-    assertEquals(part_result.size, 52)
+    assertEquals(part_result.size, 52 * replicaNum)
 }

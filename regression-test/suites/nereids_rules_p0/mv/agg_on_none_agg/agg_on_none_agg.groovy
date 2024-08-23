@@ -133,28 +133,6 @@ suite("agg_on_none_agg") {
     sql """analyze table lineitem with sync;"""
     sql """analyze table partsupp with sync;"""
 
-    def check_rewrite_but_not_chose = { mv_sql, query_sql, mv_name ->
-
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS ${mv_sql}
-        """
-
-        def job_name = getJobName(db, mv_name);
-        waitingMTMVTaskFinished(job_name)
-        explain {
-            sql("${query_sql}")
-            check {result ->
-                def splitResult = result.split("MaterializedViewRewriteFail")
-                splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
-            }
-        }
-    }
-
     // query used expression is in mv
     def mv1_0 = """
              select case when o_shippriority > 1 and o_orderkey IN (4, 5) then o_custkey else o_shippriority end,
