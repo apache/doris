@@ -17,12 +17,29 @@
 
 import org.junit.Assert;
 
-suite("test_grant_auth","p0,auth") {
-    String user = 'test_grant_auth_user'
+suite("test_grant_nonexist_table","p0,auth") {
+    String suiteName = "test_grant_nonexist_table"
+    String dbName = context.config.getDbNameByFile(context.file)
+    String user = "${suiteName}_user"
     String pwd = 'C123_567p'
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
-    sql """grant select_priv on `__internal_schema`.* to ${user}"""
+
+    test {
+            sql """grant select_priv on non_exist_catalog.*.* to ${user}"""
+            exception "catalog"
+        }
+
+    test {
+            sql """grant select_priv on internal.non_exist_db.* to ${user}"""
+            exception "database"
+        }
+
+    test {
+            sql """grant select_priv on internal.${dbName}.non_exist_table to ${user}"""
+            exception "table"
+        }
+
 
     try_sql("DROP USER ${user}")
 }
