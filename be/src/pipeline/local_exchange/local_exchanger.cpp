@@ -257,7 +257,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
                 _enqueue_data_and_set_ready(it.second, local_state,
                                             {new_block_wrapper, {row_idx, start, size}});
             } else {
-                new_block_wrapper->unref(local_state._shared_state);
+                new_block_wrapper->unref(local_state._shared_state, local_state._channel_id);
             }
         }
     } else {
