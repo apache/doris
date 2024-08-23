@@ -88,6 +88,6 @@ public interface ExpressionTrait extends TreeNode<Expression> {
      * Identify the expression is containing deterministic expr or not
      */
     default boolean containsNondeterministic() {
-        return anyMatch(expr -> expr instanceof ExpressionTrait && !((ExpressionTrait) expr).isDeterministic());
+        return anyMatch(expr -> !((ExpressionTrait) expr).isDeterministic());
     }
 }
