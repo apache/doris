@@ -35,7 +35,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.TimeUnit;
 
 /*
  * TabletStatMgr is for collecting tablet(replica) statistics from backends.
@@ -121,13 +120,7 @@ public class TabletStatMgr extends MasterDaemon {
 
                 Long tableRowCount = 0L;
 
-                // Use try write lock to avoid such cases
-                //    Time1: Thread1 hold read lock for 5min
-                //    Time2: Thread2 want to add write lock, then it will be the first element in lock queue
-                //    Time3: Thread3 want to add read lock, but it will not, because thread 2 want to add write lock
-                // In this case, thread 3 has to wait more than 5min, because it has to wait thread 2 to add
-                // write lock and release write lock and thread 2 has to wait thread 1 to release read lock
-                if (!table.tryWriteLockIfExist(3000, TimeUnit.MILLISECONDS)) {
+                if (!table.readLockIfExist()) {
                     continue;
                 }
                 try {
@@ -169,6 +162,7 @@ public class TabletStatMgr extends MasterDaemon {
                         } // end for indices
                     } // end for partitions
 
+                    // this is only one thread to update table statistics, readLock is enough
                     olapTable.setStatistics(new OlapTable.Statistics(db.getName(), table.getName(),
                             tableDataSize, tableTotalReplicaDataSize,
                             tableRemoteDataSize, tableReplicaCount, tableRowCount, 0L, 0L));
@@ -178,7 +172,7 @@ public class TabletStatMgr extends MasterDaemon {
                                  table.getName(), db.getFullName());
                     }
                 } finally {
-                    table.writeUnlock();
+                    table.readUnlock();
                 }
             }
         }
