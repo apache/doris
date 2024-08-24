@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_auto_range_partition") {
+    sql "set enable_fallback_to_original_planner=false"
+
     sql "drop table if exists range_table1"
     sql """
         CREATE TABLE `range_table1` (

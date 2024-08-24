@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_null_partition") {
+    sql "set enable_fallback_to_original_planner=false"
     sql "set allow_partition_column_nullable = true;"
 
     sql " drop table if exists test_null "
