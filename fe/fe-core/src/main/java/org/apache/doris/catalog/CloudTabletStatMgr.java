@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /*
  * CloudTabletStatMgr is for collecting tablet(replica) statistics from backends.
@@ -156,9 +157,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                 Long tableRowsetCount = 0L;
                 Long tableSegmentCount = 0L;
 
-                if (!table.writeLockIfExist()) {
-                    continue;
-                }
+                table.readLock();
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -202,7 +201,14 @@ public class CloudTabletStatMgr extends MasterDaemon {
                             index.setRowCount(indexRowCount);
                         } // end for indices
                     } // end for partitions
+                } finally {
+                    table.readUnlock();
+                }
 
+                if (!table.tryWriteLockIfExist(3000, TimeUnit.MILLISECONDS)) {
+                    continue;
+                }
+                try {
                     olapTable.setStatistics(new OlapTable.Statistics(db.getName(),
                             table.getName(), tableDataSize, tableTotalReplicaDataSize, 0L,
                             tableReplicaCount, tableRowCount, tableRowsetCount, tableSegmentCount));
