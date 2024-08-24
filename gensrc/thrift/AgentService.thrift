@@ -163,8 +163,8 @@ struct TCreateTabletReq {
     24: optional i64 time_series_compaction_file_count_threshold = 2000
     25: optional i64 time_series_compaction_time_threshold_seconds = 3600
     26: optional i64 time_series_compaction_empty_rowsets_threshold = 5
-    27: optional TInvertedIndexStorageFormat inverted_index_storage_format = TInvertedIndexStorageFormat.V1
-    28: optional i64 time_series_compaction_level_threshold = 1
+    27: optional i64 time_series_compaction_level_threshold = 1
+    28: optional TInvertedIndexStorageFormat inverted_index_storage_format = TInvertedIndexStorageFormat.V1
 }
 
 struct TDropTabletReq {
