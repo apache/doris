@@ -54,6 +54,8 @@ public:
 
     Status close(RuntimeState* state, Status exec_status) override;
 
+    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state);
+
 protected:
     void _hash_table_init(RuntimeState* state);
     void _set_build_ignore_flag(vectorized::Block& block, const std::vector<int>& res_col_ids);
@@ -76,6 +78,8 @@ protected:
     bool _should_build_hash_table = true;
     int64_t _build_side_mem_used = 0;
     int64_t _build_side_last_mem_used = 0;
+
+    size_t _evaluate_mem_usage = 0;
 
     size_t _build_side_rows = 0;
 
@@ -121,6 +125,8 @@ public:
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+
+    size_t get_reserve_mem_size(RuntimeState* state) override;
 
     bool should_dry_run(RuntimeState* state) override {
         return _is_broadcast_join && !state->get_sink_local_state()

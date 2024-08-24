@@ -45,6 +45,7 @@ public:
     Status close(RuntimeState* state, Status exec_status) override;
     Status revoke_memory(RuntimeState* state);
     size_t revocable_mem_size(RuntimeState* state) const;
+    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state);
 
 protected:
     PartitionedHashJoinSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -76,6 +77,7 @@ protected:
     RuntimeProfile::Counter* _partition_timer = nullptr;
     RuntimeProfile::Counter* _partition_shuffle_timer = nullptr;
     RuntimeProfile::Counter* _spill_build_timer = nullptr;
+    RuntimeProfile::Counter* _in_mem_rows_counter = nullptr;
 };
 
 class PartitionedHashJoinSinkOperatorX
@@ -101,6 +103,8 @@ public:
     size_t revocable_mem_size(RuntimeState* state) const override;
 
     Status revoke_memory(RuntimeState* state) override;
+
+    size_t get_reserve_mem_size(RuntimeState* state) override;
 
     DataDistribution required_data_distribution() const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {

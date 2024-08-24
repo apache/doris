@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/primitive_type.h"
+#include "runtime/thread_context.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 
@@ -176,6 +177,8 @@ Status AggSinkLocalState::_create_agg_status(vectorized::AggregateDataPtr data) 
 Status AggSinkLocalState::_execute_without_key(vectorized::Block* block) {
     DCHECK(_agg_data->without_key != nullptr);
     SCOPED_TIMER(_build_timer);
+    _memory_usage_last_executing = 0;
+    ScopedMemTracker mem_tracker(_memory_usage_last_executing);
     for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
         RETURN_IF_ERROR(Base::_shared_state->aggregate_evaluators[i]->execute_single_add(
                 block,
@@ -187,6 +190,8 @@ Status AggSinkLocalState::_execute_without_key(vectorized::Block* block) {
 }
 
 Status AggSinkLocalState::_merge_with_serialized_key(vectorized::Block* block) {
+    _memory_usage_last_executing = 0;
+    ScopedMemTracker mem_tracker(_memory_usage_last_executing);
     if (_shared_state->reach_limit) {
         return _merge_with_serialized_key_helper<true, false>(block);
     } else {
@@ -394,6 +399,9 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
 Status AggSinkLocalState::_merge_without_key(vectorized::Block* block) {
     SCOPED_TIMER(_merge_timer);
     DCHECK(_agg_data->without_key != nullptr);
+
+    _memory_usage_last_executing = 0;
+    ScopedMemTracker mem_tracker(_memory_usage_last_executing);
     for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
         if (Base::_shared_state->aggregate_evaluators[i]->is_merge()) {
             int col_id = AggSharedState::get_slot_column_id(
@@ -431,6 +439,8 @@ void AggSinkLocalState::_update_memusage_without_key() {
 }
 
 Status AggSinkLocalState::_execute_with_serialized_key(vectorized::Block* block) {
+    _memory_usage_last_executing = 0;
+    ScopedMemTracker mem_tracker(_memory_usage_last_executing);
     if (_shared_state->reach_limit) {
         return _execute_with_serialized_key_helper<true>(block);
     } else {
@@ -708,6 +718,10 @@ Status AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs&
     return Status::OK();
 }
 
+size_t AggSinkLocalState::get_reserve_mem_size(RuntimeState* state) const {
+    return _memory_usage();
+}
+
 AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
                                    const DescriptorTbl& descs, bool require_bucket_distribution)
         : DataSinkOperatorX<AggSinkLocalState>(operator_id, tnode.node_id),
@@ -862,6 +876,11 @@ Status AggSinkOperatorX::reset_hash_table(RuntimeState* state) {
     RETURN_IF_ERROR(ss.reset_hash_table());
     local_state._agg_arena_pool = ss.agg_arena_pool.get();
     return Status::OK();
+}
+
+size_t AggSinkOperatorX::get_reserve_mem_size(RuntimeState* state) {
+    auto& local_state = get_local_state(state);
+    return local_state.get_reserve_mem_size(state);
 }
 
 Status AggSinkLocalState::close(RuntimeState* state, Status exec_status) {

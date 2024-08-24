@@ -171,6 +171,7 @@ Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block
     auto& _expr_ctxs = local_state._expr_ctxs;
     DCHECK(!_intermediate_block || _intermediate_block->rows() == 0);
     if (input_block->rows() > 0) {
+        ScopedMemTracker scoped_mem_tracker(local_state._estimate_memory_usage);
         _intermediate_block = vectorized::Block::create_unique();
 
         for (auto& expr : _expr_ctxs) {
@@ -196,6 +197,9 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
     auto& _child_eos = local_state._child_eos;
     auto& _intermediate_block = local_state._intermediate_block;
     RETURN_IF_CANCELLED(state);
+
+    ScopedMemTracker scoped_mem_tracker(local_state._estimate_memory_usage);
+
     DCHECK(_repeat_id_idx >= 0);
     for (const std::vector<int64_t>& v : _grouping_list) {
         DCHECK(_repeat_id_idx <= (int)v.size());
@@ -227,8 +231,9 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
         }
         _child_block.clear_column_data(_child->row_desc().num_materialized_slots());
     }
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,
-                                                           output_block->columns()));
+
+    RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, output_block,
+                                             output_block->columns()));
     *eos = _child_eos && _child_block.rows() == 0;
     local_state.reached_limit(output_block, eos);
     COUNTER_SET(local_state._rows_returned_counter, local_state._num_rows_returned);
