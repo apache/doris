@@ -1014,6 +1014,7 @@ enum TSchemaTableName {
   WORKLOAD_GROUP_PRIVILEGES = 7,
   TABLE_PROPERTIES = 8,
   CATALOG_META_CACHE_STATS = 9,
+  PARTITIONS = 10,
 }
 
 struct TMetadataTableRequestParams {
