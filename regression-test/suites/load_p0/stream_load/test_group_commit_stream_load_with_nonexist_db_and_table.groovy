@@ -17,8 +17,7 @@
 
 suite("test_group_commit_stream_load_with_nonexist_db_and_table") {
     def tableName = "test_group_commit_stream_load_with_nonexist_db_and_table"
-    sql "drop database ${tableName}"
-    sql "create database ${tableName}"
+    sql "create database if not exists ${tableName}"
 
     try {
         def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}" +
