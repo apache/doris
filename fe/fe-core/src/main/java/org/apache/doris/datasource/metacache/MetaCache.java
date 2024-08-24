@@ -49,7 +49,7 @@ public class MetaCache<T> {
         this.name = name;
 
         // ATTN:
-        // The refreshAfterWriteSec is only used for metaObjCache, not for namesCache.
+        // The refreshAfterWriteSec is only used for namesCache, not for metaObjCache.
         // Because namesCache need to be refreshed at interval so that user can get the latest meta list.
         // But metaObjCache does not need to be refreshed at interval, because the object is actually not
         // from remote datasource, it is just a local generated object to represent the meta info.
