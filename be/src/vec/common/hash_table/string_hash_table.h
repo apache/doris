@@ -679,4 +679,30 @@ public:
                m3.add_elem_size_overflow(add_size) || m4.add_elem_size_overflow(add_size) ||
                ms.add_elem_size_overflow(add_size);
     }
+
+    size_t estimate_memory(size_t num_elem) const {
+        size_t estimate_size = 0;
+
+        if (m1.add_elem_size_overflow(num_elem)) {
+            estimate_size = m1.estimate_memory(num_elem);
+        }
+
+        if (m2.add_elem_size_overflow(num_elem)) {
+            estimate_size = std::max(estimate_size, m2.estimate_memory(num_elem));
+        }
+
+        if (m3.add_elem_size_overflow(num_elem)) {
+            estimate_size = std::max(estimate_size, m3.estimate_memory(num_elem));
+        }
+
+        if (m4.add_elem_size_overflow(num_elem)) {
+            estimate_size = std::max(estimate_size, m4.estimate_memory(num_elem));
+        }
+
+        if (ms.add_elem_size_overflow(num_elem)) {
+            estimate_size = std::max(estimate_size, ms.estimate_memory(num_elem));
+        }
+
+        return estimate_size;
+    }
 };

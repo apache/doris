@@ -77,7 +77,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
                            bool is_pipeline, bool is_nereids, TNetworkAddress current_connect_fe,
                            QuerySource query_source)
         : _timeout_second(-1),
-          _query_id(query_id),
+          _query_id(std::move(query_id)),
           _exec_env(exec_env),
           _is_pipeline(is_pipeline),
           _is_nereids(is_nereids),
@@ -88,6 +88,9 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     _query_watcher.start();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _execution_dependency = pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency");
+    _memory_sufficient_dependency =
+            pipeline::Dependency::create_unique(-1, -1, "MemorySufficientDependency", true);
+
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
             TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker);
 
@@ -191,6 +194,7 @@ QueryContext::~QueryContext() {
     }
     _runtime_filter_mgr.reset();
     _execution_dependency.reset();
+    _memory_sufficient_dependency.reset();
     _shared_hash_table_controller.reset();
     _runtime_predicates.clear();
     file_scan_range_params_map.clear();
@@ -216,6 +220,14 @@ void QueryContext::set_ready_to_execute_only() {
 
 void QueryContext::set_execution_dependency_ready() {
     _execution_dependency->set_ready();
+}
+
+void QueryContext::set_memory_sufficient(bool sufficient) {
+    if (sufficient) {
+        _memory_sufficient_dependency->set_ready();
+    } else {
+        _memory_sufficient_dependency->block();
+    }
 }
 
 void QueryContext::cancel(Status new_status, int fragment_id) {
@@ -386,11 +398,63 @@ void QueryContext::_report_query_profile() {
     ExecEnv::GetInstance()->runtime_query_statistics_mgr()->trigger_report_profile();
 }
 
+void QueryContext::get_revocable_info(size_t& revocable_size, size_t& memory_usage,
+                                      bool& has_running_task) const {
+    revocable_size = 0;
+    for (auto&& [fragment_id, fragment_wptr] : _fragment_id_to_pipeline_ctx) {
+        auto fragment_ctx = fragment_wptr.lock();
+        if (!fragment_ctx) {
+            continue;
+        }
+
+        revocable_size += fragment_ctx->get_revocable_size(has_running_task);
+
+        // Should wait for all tasks are not running before revoking memory.
+        if (has_running_task) {
+            break;
+        }
+    }
+
+    memory_usage = query_mem_tracker->consumption();
+}
+
+size_t QueryContext::get_revocable_size() const {
+    size_t revocable_size = 0;
+    for (auto&& [fragment_id, fragment_wptr] : _fragment_id_to_pipeline_ctx) {
+        auto fragment_ctx = fragment_wptr.lock();
+        if (!fragment_ctx) {
+            continue;
+        }
+
+        bool has_running_task = false;
+        revocable_size += fragment_ctx->get_revocable_size(has_running_task);
+
+        // Should wait for all tasks are not running before revoking memory.
+        if (has_running_task) {
+            return 0;
+        }
+    }
+    return revocable_size;
+}
+
+std::vector<pipeline::PipelineTask*> QueryContext::get_revocable_tasks() const {
+    std::vector<pipeline::PipelineTask*> tasks;
+    for (auto&& [fragment_id, fragment_wptr] : _fragment_id_to_pipeline_ctx) {
+        auto fragment_ctx = fragment_wptr.lock();
+        if (!fragment_ctx) {
+            continue;
+        }
+        auto tasks_of_fragment = fragment_ctx->get_revocable_tasks();
+        tasks.insert(tasks.end(), tasks_of_fragment.cbegin(), tasks_of_fragment.cend());
+    }
+    return tasks;
+}
+
 std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
 QueryContext::_collect_realtime_query_profile() const {
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> res;
 
-    for (auto& [fragment_id, fragment_ctx_wptr] : _fragment_id_to_pipeline_ctx) {
+    for (const auto& [fragment_id, fragment_ctx_wptr] : _fragment_id_to_pipeline_ctx) {
         if (auto fragment_ctx = fragment_ctx_wptr.lock()) {
             if (fragment_ctx == nullptr) {
                 std::string msg =

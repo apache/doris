@@ -17,6 +17,8 @@
 
 #include "partitioned_hash_join_probe_operator.h"
 
+#include <glog/logging.h>
+
 #include "pipeline/pipeline_task.h"
 #include "runtime/fragment_mgr.h"
 #include "util/mem_info.h"
@@ -142,6 +144,8 @@ void PartitionedHashJoinProbeLocalState::update_probe_profile(RuntimeProfile* ch
 
 Status PartitionedHashJoinProbeLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(PipelineXSpillLocalState::open(state));
+    _spill_dependency = state->get_spill_dependency();
+    DCHECK(_spill_dependency != nullptr);
     return _parent->cast<PartitionedHashJoinProbeOperatorX>()._partitioner->clone(state,
                                                                                   _partitioner);
 }
@@ -221,10 +225,10 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
             _spill_status_ok = false;
             _spill_status = std::move(status);
         }
-        _dependency->set_ready();
+        _spill_dependency->set_ready();
     };
 
-    _dependency->block();
+    _spill_dependency->block();
     DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_probe::spill_probe_blocks_submit_func", {
         return Status::Error<INTERNAL_ERROR>(
                 "fault_inject partitioned_hash_join_probe spill_probe_blocks submit_func failed");
@@ -361,12 +365,12 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
             _spill_status_ok = false;
             _spill_status = std::move(status);
         }
-        _dependency->set_ready();
+        _spill_dependency->set_ready();
     };
 
     auto* spill_io_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
     has_data = true;
-    _dependency->block();
+    _spill_dependency->block();
     {
         auto* pipeline_task = state->get_task();
         if (pipeline_task) {
@@ -477,12 +481,12 @@ Status PartitionedHashJoinProbeLocalState::recovery_probe_blocks_from_disk(Runti
             _spill_status_ok = false;
             _spill_status = std::move(status);
         }
-        _dependency->set_ready();
+        _spill_dependency->set_ready();
     };
 
     auto* spill_io_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
     DCHECK(spill_io_pool != nullptr);
-    _dependency->block();
+    _spill_dependency->block();
     has_data = true;
     DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_probe::recovery_probe_blocks_submit_func",
                     {
@@ -664,6 +668,7 @@ Status PartitionedHashJoinProbeOperatorX::_setup_internal_operators(
         return Status::Error<INTERNAL_ERROR>(
                 "fault_inject partitioned_hash_join_probe sink failed");
     });
+
     RETURN_IF_ERROR(_inner_sink_operator->sink(local_state._runtime_state.get(), &block, true));
     VLOG_DEBUG << "query: " << print_id(state->query_id())
                << ", internal build operator finished, node id: " << node_id()
@@ -786,11 +791,8 @@ Status PartitionedHashJoinProbeOperatorX::_revoke_memory(RuntimeState* state) {
 
 bool PartitionedHashJoinProbeOperatorX::_should_revoke_memory(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
-    const auto revocable_size = revocable_mem_size(state);
-    if (PipelineTask::should_revoke_memory(state, revocable_size)) {
-        return true;
-    }
     if (local_state._shared_state->need_to_spill) {
+        const auto revocable_size = revocable_mem_size(state);
         const auto min_revocable_size = state->min_revocable_mem();
         return revocable_size > min_revocable_size;
     }
