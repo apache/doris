@@ -17,21 +17,24 @@
 
 suite("test_group_commit_stream_load_with_nonexist_db_and_table") {
     def tableName = "test_group_commit_stream_load_with_nonexist_db_and_table"
+    sql "drop database ${tableName}"
+    sql "create database ${tableName}"
 
     try {
-        streamLoad {
-            table "${tableName}"
+        def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}" +
+                " -H group_commit:sync_mode" +
+                " -H column_separator:," +
+                " -T ${context.config.dataPath}/load_p0/stream_load/test_stream_load1.csv" +
+                " http://${context.config.feHttpAddress}/api/${tableName}/${tableName}/_stream_load"
+        log.info("stream load command: ${command}")
 
-            set 'column_separator', ','
-            set 'group_commit', 'async_mode'
-            set 'columns', 'id, name'
-            file "test_stream_load1.csv"
-            unset 'label'
-
-            time 10000
-        }
+        def process = command.execute()
+        code = process.waitFor()
+        out = process.text
+        log.info("stream load result: ${out}".toString())
     } catch (Exception e) {
         logger.info("failed: " + e.getMessage())
+        assertTrue(e.getMessage().contains(table not found))
     } finally {
 
     }
