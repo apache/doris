@@ -92,6 +92,11 @@ public class HiveScanNode extends FileQueryScanNode {
     public static final String PROP_MAP_KV_DELIMITER = "mapkey.delim";
     public static final String DEFAULT_MAP_KV_DELIMITER = "\003";
 
+    public static final String PROP_ESCAPE_DELIMITER = "escape.delim";
+    public static final String DEFAULT_ESCAPE_DELIMIER = "\\";
+    public static final String PROP_NULL_FORMAT = "serialization.null.format";
+    public static final String DEFAULT_NULL_FORMAT = "\\N";
+
     protected final HMSExternalTable hmsTable;
     private HiveTransaction hiveTransaction = null;
 
