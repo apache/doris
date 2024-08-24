@@ -270,6 +270,7 @@ struct TWorkloadGroupInfo {
   14: optional i64 read_bytes_per_second
   15: optional i64 remote_read_bytes_per_second
   16: optional string tag
+  17: optional i32 total_query_slot_count
 }
 
 enum TWorkloadMetricType {

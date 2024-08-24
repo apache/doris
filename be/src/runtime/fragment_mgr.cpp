@@ -710,8 +710,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         // temp query ctx now. For example, the query id maybe removed from workload group's queryset.
         _query_ctx_map.insert(std::make_pair(query_ctx->query_id(), query_ctx));
         LOG(INFO) << "Register query/load memory tracker, query/load id: "
-                  << print_id(query_ctx->query_id())
-                  << " limit: " << PrettyPrinter::print(query_ctx->mem_limit(), TUnit::BYTES);
+                  << print_id(query_ctx->query_id());
     }
     return Status::OK();
 }

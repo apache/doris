@@ -186,6 +186,12 @@ public:
     static std::condition_variable cache_adjust_capacity_cv;
     static std::atomic<bool> cache_adjust_capacity_notify;
     static std::atomic<double> last_cache_capacity_adjust_weighted;
+    // This capacity is set by workload group spill disk thread
+    static std::atomic<double> last_wg_trigger_cache_capacity_adjust_weighted;
+    // The value that take affect
+    static std::atomic<double> last_affected_cache_capacity_adjust_weighted;
+    static std::atomic<bool> any_workload_group_exceed_limit;
+
     static void notify_cache_adjust_capacity() {
         cache_adjust_capacity_notify.store(true, std::memory_order_relaxed);
         cache_adjust_capacity_cv.notify_all();

@@ -68,9 +68,9 @@ Status DataGenSourceOperatorX::get_block(RuntimeState* state, vectorized::Block*
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
+    SCOPED_PEAK_MEM(&local_state.estimate_memory_usage());
     Status res = local_state._table_func->get_next(state, block, eos);
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
-                                                           block->columns()));
+    RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block, block->columns()));
     local_state.reached_limit(block, eos);
     return res;
 }

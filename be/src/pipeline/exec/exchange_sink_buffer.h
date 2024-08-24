@@ -22,7 +22,6 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <parallel_hashmap/phmap.h>
-#include <stdint.h>
 
 #include <atomic>
 #include <list>
@@ -84,14 +83,23 @@ class BroadcastPBlockHolderMemLimiter
 public:
     BroadcastPBlockHolderMemLimiter() = delete;
 
-    BroadcastPBlockHolderMemLimiter(std::shared_ptr<pipeline::Dependency>& broadcast_dependency) {
+    BroadcastPBlockHolderMemLimiter(std::shared_ptr<pipeline::Dependency>& broadcast_dependency)
+            : _total_queue_buffer_size_limit(config::exchg_node_buffer_size_bytes),
+              _total_queue_blocks_count_limit(config::num_broadcast_buffer) {
         _broadcast_dependency = broadcast_dependency;
+    }
+
+    void set_low_memory_mode() {
+        _total_queue_buffer_size_limit = 1024 * 1024;
+        _total_queue_blocks_count_limit = 1;
     }
 
     void acquire(BroadcastPBlockHolder& holder);
     void release(const BroadcastPBlockHolder& holder);
 
 private:
+    std::atomic_int64_t _total_queue_buffer_size_limit {0};
+    std::atomic_int64_t _total_queue_blocks_count_limit {0};
     std::atomic_int64_t _total_queue_buffer_size {0};
     std::atomic_int64_t _total_queue_blocks_count {0};
     std::shared_ptr<pipeline::Dependency> _broadcast_dependency;
@@ -177,8 +185,8 @@ struct ExchangeRpcContext {
 // Each ExchangeSinkOperator have one ExchangeSinkBuffer
 class ExchangeSinkBuffer final : public HasTaskExecutionCtx {
 public:
-    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, int be_number,
-                       RuntimeState* state, ExchangeSinkLocalState* parent);
+    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, PlanNodeId node_id,
+                       int be_number, RuntimeState* state, ExchangeSinkLocalState* parent);
     ~ExchangeSinkBuffer() override = default;
     void register_sink(TUniqueId);
 
@@ -194,14 +202,12 @@ public:
         _finish_dependency = finish_dependency;
     }
 
-    void set_broadcast_dependency(std::shared_ptr<Dependency> broadcast_dependency) {
-        _broadcast_dependency = broadcast_dependency;
-    }
-
     void set_should_stop() {
         _should_stop = true;
         _set_ready_to_finish(_busy_channels == 0);
     }
+
+    void set_low_memory_mode() { _queue_capacity = 1; }
 
 private:
     friend class ExchangeSinkLocalState;
@@ -212,7 +218,7 @@ private:
     // store data in non-broadcast shuffle
     phmap::flat_hash_map<InstanceLoId, std::queue<TransmitInfo, std::list<TransmitInfo>>>
             _instance_to_package_queue;
-    size_t _queue_capacity;
+    std::atomic<size_t> _queue_capacity;
     // store data in broadcast shuffle
     phmap::flat_hash_map<InstanceLoId,
                          std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>
@@ -235,6 +241,7 @@ private:
     PlanNodeId _dest_node_id;
     // Sender instance id, unique within a fragment. StreamSender save the variable
     int _sender_id;
+    PlanNodeId _node_id;
     int _be_number;
     std::atomic<int64_t> _rpc_count = 0;
     RuntimeState* _state = nullptr;
@@ -254,7 +261,6 @@ private:
     std::atomic<int> _total_queue_size = 0;
     std::shared_ptr<Dependency> _queue_dependency = nullptr;
     std::shared_ptr<Dependency> _finish_dependency = nullptr;
-    std::shared_ptr<Dependency> _broadcast_dependency = nullptr;
     std::atomic<bool> _should_stop = false;
     ExchangeSinkLocalState* _parent = nullptr;
 };

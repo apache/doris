@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "operator.h"
 #include "sort_sink_operator.h"
 
@@ -38,7 +40,7 @@ public:
     Dependency* finishdependency() override { return _finish_dependency.get(); }
 
     Status setup_in_memory_sort_op(RuntimeState* state);
-    Status revoke_memory(RuntimeState* state);
+    Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
 
 private:
     void _init_counters();
@@ -85,7 +87,8 @@ public:
 
     size_t revocable_mem_size(RuntimeState* state) const override;
 
-    Status revoke_memory(RuntimeState* state) override;
+    Status revoke_memory(RuntimeState* state,
+                         const std::shared_ptr<SpillContext>& spill_context) override;
 
     using DataSinkOperatorX<LocalStateType>::node_id;
     using DataSinkOperatorX<LocalStateType>::operator_id;
