@@ -684,16 +684,64 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
     std::string rl_progress_val;
     RLJobProgressKeyInfo rl_progress_key_info {instance_id, db_id, job_id};
     rl_job_progress_key_info(rl_progress_key_info, &rl_progress_key);
-    txn->remove(rl_progress_key);
+
+    if (request->partition_to_offset().size() == 0) {
+        txn->remove(rl_progress_key);
+    }
+
+    if (request->partition_to_offset().size() > 0) {
+        bool prev_progress_existed = true;
+        RoutineLoadProgressPB prev_progress_info;
+        TxnErrorCode err = txn->get(rl_progress_key, &rl_progress_val);
+        if (err != TxnErrorCode::TXN_OK) {
+            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                prev_progress_existed = false;
+            } else {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to get routine load progress, db_id=" << db_id << "job_id=" << job_id
+                   << " err=" << err;
+                msg = ss.str();
+                return;
+            }
+        }
+        if (prev_progress_existed) {
+            if (!prev_progress_info.ParseFromString(rl_progress_val)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                ss << "failed to parse routine load progress, db_id=" << db_id
+                   << "job_id=" << job_id;
+                msg = ss.str();
+                return;
+            }
+        }
+
+        std::string new_progress_val;
+        RoutineLoadProgressPB new_progress_info;
+        for (auto const& elem : request->partition_to_offset()) {
+            new_progress_info.mutable_partition_to_offset()->insert(elem);
+        }
+        if (request->partition_to_offset().size() > 0) {
+            for (auto const& elem : prev_progress_info.partition_to_offset()) {
+                auto it = new_progress_info.partition_to_offset().find(elem.first);
+                if (it == new_progress_info.partition_to_offset().end()) {
+                    new_progress_info.mutable_partition_to_offset()->insert(elem);
+                }
+            }
+        }
+
+        if (!new_progress_info.SerializeToString(&new_progress_val)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            ss << "failed to serialize new progress val"
+               << "db_id=" << db_id << "job_id=" << job_id;
+            msg = ss.str();
+            return;
+        }
+        txn->put(rl_progress_key, new_progress_val);
+    }
+
     err = txn->commit();
-    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        code = MetaServiceCode::ROUTINE_LOAD_PROGRESS_NOT_FOUND;
-        ss << "progress info not found, db_id=" << db_id << " job_id=" << job_id << " err=" << err;
-        msg = ss.str();
-        return;
-    } else if (err != TxnErrorCode::TXN_OK) {
+    if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
-        ss << "failed to remove progress info, db_id=" << db_id << " job_id=" << job_id
+        ss << "failed to commit progress info, db_id=" << db_id << " job_id=" << job_id
            << " err=" << err;
         msg = ss.str();
         return;
