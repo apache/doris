@@ -34,6 +34,7 @@ import com.google.common.base.Strings;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jetty.server.Request;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.servlet.view.RedirectView;
 
@@ -72,10 +73,10 @@ public class RestBaseController extends BaseController {
         return authInfo;
     }
 
-    public RedirectView redirectTo(HttpServletRequest request, TNetworkAddress addr) {
+    public RedirectView redirectTo(HttpServletRequest request, TNetworkAddress addr, boolean useOriginalUrl) {
         URI urlObj = null;
         URI resultUriObj = null;
-        String urlStr = request.getRequestURI();
+        String urlStr = useOriginalUrl ? ((Request) request).getOriginalURI() : request.getRequestURI();
         String userInfo = null;
         if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
@@ -115,7 +116,7 @@ public class RestBaseController extends BaseController {
             return null;
         }
         env.checkReadyOrThrow();
-        return redirectTo(request, new TNetworkAddress(env.getMasterHost(), env.getMasterHttpPort()));
+        return redirectTo(request, new TNetworkAddress(env.getMasterHost(), env.getMasterHttpPort()), false);
     }
 
     public Object redirectToMaster(HttpServletRequest request, HttpServletResponse response) {

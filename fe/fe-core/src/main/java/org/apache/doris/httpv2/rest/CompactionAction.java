@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Env;
@@ -11,7 +28,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 
-import jdk.internal.joptsimple.internal.Strings;
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -29,24 +46,24 @@ import javax.servlet.http.HttpServletResponse;
  * fe_host:http_port/api/compaction/run?table_id={int}&compact_type={enum}
  */
 @RestController
-public class FullCompactionAction extends RestBaseController {
+public class CompactionAction extends RestBaseController {
     public static final String COMPACT_TYPE = "compact_type";
     public static final String TABLET_ID = "tablet_id";
     public static final String TABLE_ID = "table_id";
     private static final Logger LOG = LogManager.getLogger(SetConfigAction.class);
 
-    @RequestMapping(path = "/api/compaction/run", method = RequestMethod.PUT)
-    protected Object set_config(HttpServletRequest request, HttpServletResponse response) {
-        LOG.info("full compaction action, path info: {}", request.getPathInfo());
+    @RequestMapping(path = "/api/compaction/run", method = RequestMethod.POST)
+    protected Object compaction(HttpServletRequest request, HttpServletResponse response) {
+        LOG.info("Compaction action, path info: {}", request.getPathInfo());
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         String tableId = request.getParameter(TABLE_ID);
         String tabletId = request.getParameter(TABLET_ID);
-        String compact_type = request.getParameter(COMPACT_TYPE);
-        if (Strings.isNullOrEmpty(compact_type)) {
+        String compactType = request.getParameter(COMPACT_TYPE);
+        if (Strings.isNullOrEmpty(compactType)) {
             return ResponseEntityBuilder.badRequest("compact_type need to be set.");
-        } else if (!compact_type.equals("base") && !compact_type.equals("cumulative") && !compact_type.equals("full")) {
+        } else if (!compactType.equals("base") && !compactType.equals("cumulative") && !compactType.equals("full")) {
             return ResponseEntityBuilder.badRequest("tablet id and table id can not be empty at the same time!");
         }
 
@@ -65,7 +82,7 @@ public class FullCompactionAction extends RestBaseController {
                     List<Replica> replicaList = tablet.getReplicas();
                     for (Replica replica : replicaList) {
                         Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
-                        redirectTo(request, new TNetworkAddress(backend.getHost(), backend.getHttpPort()));
+                        redirectTo(request, new TNetworkAddress(backend.getHost(), backend.getHttpPort()), true);
                     }
                 }
             }
@@ -81,7 +98,7 @@ public class FullCompactionAction extends RestBaseController {
                 List<Replica> replicaList = tablet.getReplicas();
                 for (Replica replica : replicaList) {
                     Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
-                    redirectTo(request, new TNetworkAddress(backend.getHost(), backend.getHttpPort()));
+                    redirectTo(request, new TNetworkAddress(backend.getHost(), backend.getHttpPort()), true);
                 }
             }
         }

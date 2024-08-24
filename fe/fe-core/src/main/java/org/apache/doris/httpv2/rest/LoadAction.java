@@ -196,7 +196,7 @@ public class LoadAction extends RestBaseController {
             LOG.info("redirect load action to destination={}, label: {}",
                     redirectAddr.toString(), label);
 
-            RedirectView redirectView = redirectTo(request, redirectAddr);
+            RedirectView redirectView = redirectTo(request, redirectAddr, false);
             return redirectView;
         } catch (Exception e) {
             return new RestBaseResult(e.getMessage());
@@ -333,7 +333,7 @@ public class LoadAction extends RestBaseController {
             LOG.info("redirect load action to destination={}, stream: {}, db: {}, tbl: {}, label: {}",
                     redirectAddr.toString(), isStreamLoad, dbName, tableName, label);
 
-            RedirectView redirectView = redirectTo(request, redirectAddr);
+            RedirectView redirectView = redirectTo(request, redirectAddr, false);
             return redirectView;
         } catch (Exception e) {
             LOG.warn("load failed, stream: {}, db: {}, tbl: {}, label: {}, err: {}",
@@ -364,7 +364,7 @@ public class LoadAction extends RestBaseController {
             LOG.info("redirect stream load 2PC action to destination={}, db: {}, txn: {}, operation: {}",
                     redirectAddr.toString(), dbName, request.getHeader(TXN_ID_KEY), txnOperation);
 
-            RedirectView redirectView = redirectTo(request, redirectAddr);
+            RedirectView redirectView = redirectTo(request, redirectAddr, false);
             return redirectView;
 
         } catch (Exception e) {

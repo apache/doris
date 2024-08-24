@@ -337,9 +337,11 @@ public class InternalCatalog implements CatalogIf<Database> {
     public Tablet getTabletByTabletId(Long tabletId) {
         for (Database db : fullNameToDb.values()) {
             for (Table table : db.getTables()) {
-                Tablet tablet = ((OlapTable) table).getBaseIndex().getTablet(tabletId);
-                if (tablet != null) {
-                    return tablet;
+                if (table instanceof OlapTable) {
+                    Tablet tablet = ((OlapTable) table).getBaseIndex().getTablet(tabletId);
+                    if (tablet != null) {
+                        return tablet;
+                    }
                 }
             }
         }
