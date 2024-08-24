@@ -721,7 +721,7 @@ public class RestoreJob extends AbstractJob {
                     }
 
                     // reset all ids in this table
-                    String srcDbName = backupMeta.getDbName();
+                    String srcDbName = jobInfo.dbName;
                     Status st = remoteOlapTbl.resetIdsForRestore(env, db, replicaAlloc, reserveReplica, srcDbName);
                     if (!st.ok()) {
                         status = st;
@@ -756,7 +756,7 @@ public class RestoreJob extends AbstractJob {
                         return;
                     }
                 } else {
-                    String srcDbName = backupMeta.getDbName();
+                    String srcDbName = jobInfo.dbName;
                     remoteView.resetIdsForRestore(env, srcDbName, db.getFullName());
                     restoredTbls.add(remoteView);
                 }
