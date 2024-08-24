@@ -17,10 +17,10 @@
 
 #pragma once
 
-#include <stddef.h>
-
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
+#include <cstddef>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -30,8 +30,10 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "pipeline_task.h"
+#include "runtime/query_context.h"
 #include "runtime/workload_group/workload_group.h"
 #include "util/thread.h"
+#include "util/uid_util.h"
 
 namespace doris {
 class ExecEnv;
@@ -46,7 +48,6 @@ public:
     TaskScheduler(std::shared_ptr<TaskQueue> task_queue, std::string name,
                   CgroupCpuCtl* cgroup_cpu_ctl)
             : _task_queue(std::move(task_queue)),
-              _shutdown(false),
               _name(std::move(name)),
               _cgroup_cpu_ctl(cgroup_cpu_ctl) {}
 
@@ -63,8 +64,8 @@ public:
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;
     std::shared_ptr<TaskQueue> _task_queue;
-    std::vector<bool> _markers;
-    bool _shutdown;
+    bool _need_to_stop = false;
+    bool _shutdown = false;
     std::string _name;
     CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
 

@@ -43,20 +43,25 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    Status revoke_memory(RuntimeState* state);
+    Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
     size_t revocable_mem_size(RuntimeState* state) const;
+    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state);
 
 protected:
     PartitionedHashJoinSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSpillSinkLocalState<PartitionedHashJoinSharedState>(parent, state) {}
 
     void _spill_to_disk(uint32_t partition_index,
-                        const vectorized::SpillStreamSPtr& spilling_stream);
+                        const vectorized::SpillStreamSPtr& spilling_stream,
+                        const std::shared_ptr<SpillContext>& spill_context);
 
     Status _partition_block(RuntimeState* state, vectorized::Block* in_block, size_t begin,
                             size_t end);
 
-    Status _revoke_unpartitioned_block(RuntimeState* state);
+    Status _revoke_unpartitioned_block(RuntimeState* state,
+                                       const std::shared_ptr<SpillContext>& spill_context);
+
+    Status _finish_spilling();
 
     friend class PartitionedHashJoinSinkOperatorX;
 
@@ -76,6 +81,8 @@ protected:
     RuntimeProfile::Counter* _partition_timer = nullptr;
     RuntimeProfile::Counter* _partition_shuffle_timer = nullptr;
     RuntimeProfile::Counter* _spill_build_timer = nullptr;
+    RuntimeProfile::Counter* _in_mem_rows_counter = nullptr;
+    RuntimeProfile::Counter* _memory_usage_reserved = nullptr;
 };
 
 class PartitionedHashJoinSinkOperatorX
@@ -100,7 +107,10 @@ public:
 
     size_t revocable_mem_size(RuntimeState* state) const override;
 
-    Status revoke_memory(RuntimeState* state) override;
+    Status revoke_memory(RuntimeState* state,
+                         const std::shared_ptr<SpillContext>& spill_context) override;
+
+    size_t get_reserve_mem_size(RuntimeState* state) override;
 
     DataDistribution required_data_distribution() const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {

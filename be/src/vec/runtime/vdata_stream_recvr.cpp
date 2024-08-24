@@ -412,6 +412,9 @@ Status VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_n
 }
 
 void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
+    if (_parent->state()->get_query_ctx()->low_memory_mode()) {
+        set_low_memory_mode();
+    }
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->add_block(block, use_move);
 }

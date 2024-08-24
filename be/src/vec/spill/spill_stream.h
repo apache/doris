@@ -36,7 +36,8 @@ class SpillDataDir;
 class SpillStream {
 public:
     // to avoid too many small file writes
-    static constexpr int MIN_SPILL_WRITE_BATCH_MEM = 32 * 1024;
+    static constexpr size_t MIN_SPILL_WRITE_BATCH_MEM = 32 * 1024;
+    static constexpr size_t MAX_SPILL_WRITE_BATCH_MEM = 32 * 1024 * 1024;
     SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* data_dir,
                 std::string spill_dir, size_t batch_rows, size_t batch_bytes,
                 RuntimeProfile* profile);
@@ -68,9 +69,10 @@ public:
                             RuntimeProfile::Counter* write_block_counter,
                             RuntimeProfile::Counter* write_bytes_counter,
                             RuntimeProfile::Counter* write_timer,
-                            RuntimeProfile::Counter* wait_io_timer) {
+                            RuntimeProfile::Counter* wait_io_timer,
+                            RuntimeProfile::Counter* memory_used_counter) {
         writer_->set_counters(serialize_timer, write_block_counter, write_bytes_counter,
-                              write_timer);
+                              write_timer, memory_used_counter);
         write_wait_io_timer_ = wait_io_timer;
     }
 

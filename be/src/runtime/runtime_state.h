@@ -61,6 +61,7 @@ class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
 class PipelineFragmentContext;
 class PipelineTask;
+class Dependency;
 } // namespace pipeline
 
 class DescriptorTbl;
@@ -586,6 +587,15 @@ public:
             return std::max(_query_options.min_revocable_mem, (int64_t)1);
         }
         return 1;
+    }
+
+    size_t minimum_operator_memory_required_bytes() const {
+        if (_query_options.__isset.minimum_operator_memory_required_kb) {
+            return _query_options.minimum_operator_memory_required_kb * 1024;
+        } else {
+            // refer other database
+            return 100 * 1024;
+        }
     }
 
     void set_max_operator_id(int max_operator_id) { _max_operator_id = max_operator_id; }

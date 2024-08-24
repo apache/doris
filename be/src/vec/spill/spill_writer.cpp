@@ -85,6 +85,9 @@ Status SpillWriter::write(RuntimeState* state, const Block& block, size_t& writt
                 }
             });
 
+            auto tmp_blcok_mem = tmp_block.allocated_bytes();
+            memory_used_counter_->update(tmp_blcok_mem);
+            Defer defer {[&]() { memory_used_counter_->update(-tmp_blcok_mem); }};
             RETURN_IF_ERROR(_write_internal(tmp_block, written_bytes));
 
             row_idx += block_rows;
@@ -108,10 +111,14 @@ Status SpillWriter::_write_internal(const Block& block, size_t& written_bytes) {
                     &compressed_bytes,
                     segment_v2::CompressionTypePB::ZSTD); // ZSTD for better compression ratio
             RETURN_IF_ERROR(status);
+            auto pblock_mem = pblock.ByteSizeLong();
+            memory_used_counter_->update(pblock_mem);
+            Defer defer {[&]() { memory_used_counter_->update(-pblock_mem); }};
             if (!pblock.SerializeToString(&buff)) {
                 return Status::Error<ErrorCode::SERIALIZE_PROTOBUF_ERROR>(
                         "serialize spill data error. [path={}]", file_path_);
             }
+            memory_used_counter_->update(buff.size());
         }
         if (data_dir_->reach_capacity_limit(buff.size())) {
             return Status::Error<ErrorCode::DISK_REACH_CAPACITY_LIMIT>(
@@ -125,6 +132,7 @@ Status SpillWriter::_write_internal(const Block& block, size_t& written_bytes) {
         {
             auto buff_size = buff.size();
             Defer defer {[&]() {
+                memory_used_counter_->update(-buff_size);
                 if (status.ok()) {
                     data_dir_->update_spill_data_usage(buff_size);
 

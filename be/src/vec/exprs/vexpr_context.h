@@ -19,6 +19,8 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
+#include <cstddef>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -271,9 +273,20 @@ public:
         return *this;
     }
 
+    [[nodiscard]] static size_t get_memory_usage(const VExprContextSPtrs& contexts) {
+        size_t usage = 0;
+        std::for_each(contexts.cbegin(), contexts.cend(),
+                      [&usage](auto&& context) { usage += context->_memory_usage; });
+        return usage;
+    }
+
+    [[nodiscard]] size_t get_memory_usage() const { return _memory_usage; }
+
 private:
     // Close method is called in vexpr context dector, not need call expicility
     void close();
+
+    static void _reset_memory_usage(const VExprContextSPtrs& contexts);
 
     friend class VExpr;
 
@@ -301,5 +314,6 @@ private:
     bool _force_materialize_slot = false;
 
     std::shared_ptr<InvertedIndexContext> _inverted_index_context;
+    size_t _memory_usage = 0;
 };
 } // namespace doris::vectorized

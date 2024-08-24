@@ -17,6 +17,13 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+
+#include <atomic>
+#include <functional>
+#include <utility>
+
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
@@ -27,6 +34,47 @@
 
 namespace doris::pipeline {
 using SpillPartitionerType = vectorized::Crc32HashPartitioner<vectorized::SpillPartitionChannelIds>;
+
+struct SpillContext {
+    std::atomic_int running_tasks_count;
+    TUniqueId query_id;
+    std::function<void(SpillContext*)> all_tasks_finished_callback;
+
+    SpillContext(int running_tasks_count_, TUniqueId query_id_,
+                 std::function<void(SpillContext*)> all_tasks_finished_callback_)
+            : running_tasks_count(running_tasks_count_),
+              query_id(std::move(query_id_)),
+              all_tasks_finished_callback(std::move(all_tasks_finished_callback_)) {}
+
+    ~SpillContext() {
+        LOG_IF(WARNING, running_tasks_count.load() != 0)
+                << "query: " << print_id(query_id)
+                << " not all spill tasks finished, remaining tasks: " << running_tasks_count.load();
+
+        LOG_IF(WARNING, _running_non_sink_tasks_count.load() != 0)
+                << "query: " << print_id(query_id)
+                << " not all spill tasks(non sink tasks) finished, remaining tasks: "
+                << _running_non_sink_tasks_count.load();
+    }
+
+    void on_task_finished() {
+        auto count = running_tasks_count.fetch_sub(1);
+        if (count == 1 && _running_non_sink_tasks_count.load() == 0) {
+            all_tasks_finished_callback(this);
+        }
+    }
+
+    void on_non_sink_task_started() { _running_non_sink_tasks_count.fetch_add(1); }
+    void on_non_sink_task_finished() {
+        const auto count = _running_non_sink_tasks_count.fetch_sub(1);
+        if (count == 1 && running_tasks_count.load() == 0) {
+            all_tasks_finished_callback(this);
+        }
+    }
+
+private:
+    std::atomic_int _running_non_sink_tasks_count {0};
+};
 
 class SpillRunnable : public Runnable {
 public:

@@ -76,9 +76,9 @@ public:
     int64_t memory_limit() const {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         return _memory_limit;
-    };
+    }
 
-    int64_t weighted_memory_limit() const { return _weighted_memory_limit; };
+    int64_t total_mem_used() const { return _total_mem_used; }
 
     void set_weighted_memory_limit(int64_t weighted_memory_limit) {
         _weighted_memory_limit = weighted_memory_limit;
@@ -95,23 +95,17 @@ public:
     int spill_threshold_low_water_mark() const {
         return _spill_low_watermark.load(std::memory_order_relaxed);
     }
-    int spill_threashold_high_water_mark() const {
+
+    int spill_threshold_high_water_mark() const {
         return _spill_high_watermark.load(std::memory_order_relaxed);
     }
 
-    void set_weighted_memory_ratio(double ratio);
-    bool add_wg_refresh_interval_memory_growth(int64_t size) {
-        auto realtime_total_mem_used =
-                _total_mem_used + _wg_refresh_interval_memory_growth.load() + size;
-        if ((realtime_total_mem_used >
-             ((double)_weighted_memory_limit *
-              _spill_high_watermark.load(std::memory_order_relaxed) / 100))) {
-            return false;
-        } else {
-            _wg_refresh_interval_memory_growth.fetch_add(size);
-            return true;
-        }
+    int total_query_slot_count() const {
+        return _total_query_slot_count.load(std::memory_order_relaxed);
     }
+
+    bool add_wg_refresh_interval_memory_growth(int64_t size);
+
     void sub_wg_refresh_interval_memory_growth(int64_t size) {
         _wg_refresh_interval_memory_growth.fetch_sub(size);
     }
@@ -119,11 +113,25 @@ public:
     void check_mem_used(bool* is_low_wartermark, bool* is_high_wartermark) const {
         auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
         *is_low_wartermark = (realtime_total_mem_used >
-                              ((double)_weighted_memory_limit *
+                              ((double)_memory_limit *
                                _spill_low_watermark.load(std::memory_order_relaxed) / 100));
         *is_high_wartermark = (realtime_total_mem_used >
-                               ((double)_weighted_memory_limit *
+                               ((double)_memory_limit *
                                 _spill_high_watermark.load(std::memory_order_relaxed) / 100));
+    }
+
+    void update_load_mem_usage(int64_t active_bytes, int64_t queue_bytes, int64_t flush_bytes) {
+        std::unique_lock<std::shared_mutex> wlock(_mutex);
+        _active_mem_usage = active_bytes;
+        _queue_mem_usage = queue_bytes;
+        _flush_mem_usage = flush_bytes;
+    }
+
+    void get_load_mem_usage(int64_t* active_bytes, int64_t* queue_bytes, int64_t* flush_bytes) {
+        std::shared_lock<std::shared_mutex> r_lock(_mutex);
+        *active_bytes += _active_mem_usage;
+        *queue_bytes += _queue_mem_usage;
+        *flush_bytes += _flush_mem_usage;
     }
 
     std::string debug_string() const;
@@ -138,6 +146,11 @@ public:
     bool is_mem_limit_valid() {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         return _memory_limit > 0;
+    }
+
+    bool exceed_limit() {
+        std::shared_lock<std::shared_mutex> r_lock(_mutex);
+        return _memory_limit > 0 ? _total_mem_used > _memory_limit : false;
     }
 
     Status add_query(TUniqueId query_id, std::shared_ptr<QueryContext> query_ctx) {
@@ -209,12 +222,29 @@ public:
         return _memtable_flush_pool.get();
     }
 
+    int64_t load_buffer_limit() { return _load_buffer_limit; }
+
+    bool has_changed_to_hard_limit() const { return _has_changed_hard_limit; }
+
+    void change_to_hard_limit(bool to_hard_limit) { _has_changed_hard_limit = to_hard_limit; }
+
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
     std::string _name;
     int64_t _version;
     int64_t _memory_limit; // bytes
+    // For example, load memtable, write to parquet.
+    // If the wg's memory reached high water mark, then the load buffer
+    // will be restricted to this limit.
+    int64_t _load_buffer_limit;
+    std::atomic<bool> _has_changed_hard_limit = false;
+
+    // memory used by load memtable
+    int64_t _active_mem_usage = 0;
+    int64_t _queue_mem_usage = 0;
+    int64_t _flush_mem_usage = 0;
+
     // `weighted_memory_limit` less than or equal to _memory_limit, calculate after exclude public memory.
     // more detailed description in `refresh_wg_weighted_memory_limit`.
     std::atomic<int64_t> _weighted_memory_limit {0}; //
@@ -232,6 +262,7 @@ private:
     std::atomic<int> _spill_high_watermark;
     std::atomic<int64_t> _scan_bytes_per_second {-1};
     std::atomic<int64_t> _remote_scan_bytes_per_second {-1};
+    std::atomic<int> _total_query_slot_count = 0;
 
     // means workload group is mark dropped
     // new query can not submit
@@ -275,6 +306,7 @@ struct WorkloadGroupInfo {
     const int spill_high_watermark = 0;
     const int read_bytes_per_second = -1;
     const int remote_read_bytes_per_second = -1;
+    const int total_query_slot_count = 0;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;

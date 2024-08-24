@@ -107,6 +107,14 @@ public:
 
     uint64_t flush_running_count() const;
 
+    uint64_t workload_group_id() const {
+        auto wg = _query_thread_context.wg_wptr.lock();
+        if (wg != nullptr) {
+            return wg->id();
+        }
+        return 0;
+    }
+
 private:
     // push a full memtable to flush executor
     Status _flush_memtable_async();

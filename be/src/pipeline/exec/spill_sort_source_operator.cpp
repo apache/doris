@@ -17,8 +17,11 @@
 
 #include "spill_sort_source_operator.h"
 
+#include <glog/logging.h>
+
 #include "common/status.h"
 #include "pipeline/exec/spill_utils.h"
+#include "pipeline/pipeline_task.h"
 #include "runtime/fragment_mgr.h"
 #include "sort_source_operator.h"
 #include "util/runtime_profile.h"
@@ -35,20 +38,21 @@ Status SpillSortLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
+
+    _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                  "SortSourceSpillDependency", true);
+    state->get_task()->add_spill_dependency(_spill_dependency.get());
+
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
-    _spill_timer = ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillMergeSortTime", "Spill", 1);
-    _spill_merge_sort_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillMergeSortTime", "Spill", 1);
+    _spill_merge_sort_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillMergeSortTime", 1);
     _spill_serialize_block_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillSerializeBlockTime", "Spill", 1);
-    _spill_write_disk_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteDiskTime", "Spill", 1);
-    _spill_data_size = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteDataSize",
-                                                    TUnit::BYTES, "Spill", 1);
-    _spill_block_count = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockCount",
-                                                      TUnit::UNIT, "Spill", 1);
-    _spill_wait_in_queue_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(profile(), "SpillWaitInQueueTime", "Spill", 1);
+            ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillSerializeBlockTime", 1);
+    _spill_write_disk_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteDiskTime", 1);
+    _spill_data_size =
+            ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteDataSize", TUnit::BYTES, 1);
+    _spill_block_count =
+            ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockCount", TUnit::UNIT, 1);
+    _spill_wait_in_queue_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillWaitInQueueTime", 1);
     return Status::OK();
 }
 
@@ -58,6 +62,7 @@ Status SpillSortLocalState::open(RuntimeState* state) {
     if (_opened) {
         return Status::OK();
     }
+
     RETURN_IF_ERROR(setup_in_memory_sort_op(state));
     return Base::open(state);
 }
@@ -77,7 +82,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
     auto& parent = Base::_parent->template cast<Parent>();
     VLOG_DEBUG << "query " << print_id(state->query_id()) << " sort node " << _parent->node_id()
                << " merge spill data";
-    _dependency->Dependency::block();
+    _spill_dependency->Dependency::block();
 
     auto query_id = state->query_id();
 
@@ -102,7 +107,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
                 VLOG_DEBUG << "query " << print_id(query_id) << " sort node " << _parent->node_id()
                            << " merge spill data finish";
             }
-            _dependency->Dependency::set_ready();
+            _spill_dependency->Dependency::set_ready();
         }};
         vectorized::Block merge_sorted_block;
         vectorized::SpillStreamSPtr tmp_stream;
@@ -139,7 +144,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
                 bool eos = false;
                 tmp_stream->set_write_counters(_spill_serialize_block_timer, _spill_block_count,
                                                _spill_data_size, _spill_write_disk_timer,
-                                               _spill_write_wait_io_timer);
+                                               _spill_write_wait_io_timer, memory_used_counter());
                 while (!eos && !state->is_cancelled()) {
                     merge_sorted_block.clear_column_data();
                     {

@@ -109,6 +109,40 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
+size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state) {
+    if (!_should_build_hash_table) {
+        return 0;
+    }
+
+    if (_shared_state->build_block) {
+        return 0;
+    }
+
+    size_t size_to_reserve = 0;
+
+    if (!_build_side_mutable_block.empty()) {
+        const auto bytes = _build_side_mutable_block.bytes();
+        const auto allocated_bytes = _build_side_mutable_block.allocated_bytes();
+        if (allocated_bytes != 0 && ((bytes * 100) / allocated_bytes) >= 85) {
+            size_to_reserve += bytes;
+        }
+    }
+
+    const size_t rows = _build_side_mutable_block.rows() + state->batch_size();
+    size_t bucket_size = JoinHashTable<StringRef>::calc_bucket_size(rows);
+
+    size_to_reserve += bucket_size * sizeof(uint32_t); // JoinHashTable::first
+    size_to_reserve += rows * sizeof(uint32_t);        // JoinHashTable::next
+
+    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
+    if (p._join_op == TJoinOp::FULL_OUTER_JOIN || p._join_op == TJoinOp::RIGHT_OUTER_JOIN ||
+        p._join_op == TJoinOp::RIGHT_ANTI_JOIN || p._join_op == TJoinOp::RIGHT_SEMI_JOIN) {
+        size_to_reserve += rows * sizeof(uint8_t); // JoinHashTable::visited
+    }
+    size_to_reserve += _evaluate_mem_usage;
+    return size_to_reserve;
+}
+
 Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
@@ -191,6 +225,7 @@ Status HashJoinBuildSinkLocalState::_do_evaluate(vectorized::Block& block,
                                                  vectorized::VExprContextSPtrs& exprs,
                                                  RuntimeProfile::Counter& expr_call_timer,
                                                  std::vector<int>& res_col_ids) {
+    auto origin_size = block.allocated_bytes();
     for (size_t i = 0; i < exprs.size(); ++i) {
         int result_col_id = -1;
         // execute build column
@@ -204,6 +239,8 @@ Status HashJoinBuildSinkLocalState::_do_evaluate(vectorized::Block& block,
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
         res_col_ids[i] = result_col_id;
     }
+
+    _evaluate_mem_usage = block.allocated_bytes() - origin_size;
     return Status::OK();
 }
 
@@ -254,6 +291,10 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     if (UNLIKELY(rows == 0)) {
         return Status::OK();
     }
+
+    LOG(INFO) << "build block rows: " << block.rows() << ", columns count: " << block.columns()
+              << ", bytes/allocated_bytes: " << block.bytes() << "/" << block.allocated_bytes();
+
     block.replace_if_overflow();
 
     vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
@@ -278,9 +319,9 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     }
 
     // Get the key column that needs to be built
-    Status st = _extract_join_column(block, null_map_val, raw_ptrs, _build_col_ids);
+    RETURN_IF_ERROR(_extract_join_column(block, null_map_val, raw_ptrs, _build_col_ids));
 
-    st = std::visit(
+    Status st = std::visit(
             vectorized::Overload {
                     [&](std::monostate& arg, auto join_op,
                         auto short_circuit_for_null_in_build_side,
@@ -310,7 +351,6 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
             _shared_state->hash_table_variants->method_variant, _shared_state->join_op_variants,
             vectorized::make_bool_variant(p._short_circuit_for_null_in_build_side),
             vectorized::make_bool_variant((p._have_other_join_conjunct)));
-
     return st;
 }
 
@@ -571,6 +611,16 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     }
 
     return Status::OK();
+}
+
+size_t HashJoinBuildSinkOperatorX::get_reserve_mem_size(RuntimeState* state) {
+    auto& local_state = get_local_state(state);
+    return local_state.get_reserve_mem_size(state);
+}
+
+size_t HashJoinBuildSinkOperatorX::get_memory_usage(RuntimeState* state) const {
+    auto& local_state = get_local_state(state);
+    return local_state._memory_used_counter->value();
 }
 
 } // namespace doris::pipeline

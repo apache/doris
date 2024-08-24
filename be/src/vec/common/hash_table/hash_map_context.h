@@ -55,10 +55,10 @@ struct MethodBaseInner {
     bool inited_iterator = false;
     Key* keys = nullptr;
     Arena arena;
-    std::vector<size_t> hash_values;
+    DorisVector<size_t> hash_values;
 
     // use in join case
-    std::vector<uint32_t> bucket_nums;
+    DorisVector<uint32_t> bucket_nums;
 
     MethodBaseInner() { hash_table.reset(new HashMap()); }
     virtual ~MethodBaseInner() = default;
@@ -197,10 +197,10 @@ struct MethodSerialized : public MethodBase<TData> {
     using State = ColumnsHashing::HashMethodSerialized<typename Base::Value, typename Base::Mapped>;
     using Base::try_presis_key;
     // need keep until the hash probe end.
-    std::vector<StringRef> build_stored_keys;
+    DorisVector<StringRef> build_stored_keys;
     Arena build_arena;
     // refresh each time probe
-    std::vector<StringRef> stored_keys;
+    DorisVector<StringRef> stored_keys;
 
     StringRef serialize_keys_to_pool_contiguous(size_t i, size_t keys_size,
                                                 const ColumnRawPtrs& key_columns, Arena& pool) {
@@ -215,7 +215,7 @@ struct MethodSerialized : public MethodBase<TData> {
     }
 
     void init_serialized_keys_impl(const ColumnRawPtrs& key_columns, size_t num_rows,
-                                   std::vector<StringRef>& input_keys, Arena& input_arena) {
+                                   DorisVector<StringRef>& input_keys, Arena& input_arena) {
         input_arena.clear();
         input_keys.resize(num_rows);
 
@@ -242,14 +242,18 @@ struct MethodSerialized : public MethodBase<TData> {
             }
 
             for (const auto& column : key_columns) {
-                column->serialize_vec(input_keys, num_rows, max_one_row_byte_size);
+                column->serialize_vec(input_keys.data(), num_rows, max_one_row_byte_size);
             }
         }
         Base::keys = input_keys.data();
     }
 
     size_t serialized_keys_size(bool is_build) const override {
-        return is_build ? build_arena.size() : Base::arena.size();
+        if (is_build) {
+            return build_stored_keys.size() * sizeof(StringRef) + build_arena.size();
+        } else {
+            return stored_keys.size() * sizeof(StringRef) + Base::arena.size();
+        }
     }
 
     void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
@@ -285,9 +289,9 @@ struct MethodStringNoCache : public MethodBase<TData> {
             ColumnsHashing::HashMethodString<typename Base::Value, typename Base::Mapped, true>;
 
     // need keep until the hash probe end.
-    std::vector<StringRef> _build_stored_keys;
+    DorisVector<StringRef> _build_stored_keys;
     // refresh each time probe
-    std::vector<StringRef> _stored_keys;
+    DorisVector<StringRef> _stored_keys;
 
     size_t serialized_keys_size(bool is_build) const override {
         return is_build ? (_build_stored_keys.size() * sizeof(StringRef))
@@ -295,13 +299,13 @@ struct MethodStringNoCache : public MethodBase<TData> {
     }
 
     void init_serialized_keys_impl(const ColumnRawPtrs& key_columns, size_t num_rows,
-                                   std::vector<StringRef>& stored_keys) {
+                                   DorisVector<StringRef>& stored_keys) {
         const IColumn& column = *key_columns[0];
         const auto& nested_column =
                 column.is_nullable()
                         ? assert_cast<const ColumnNullable&>(column).get_nested_column()
                         : column;
-        auto serialized_str = [](const auto& column_string, std::vector<StringRef>& stored_keys) {
+        auto serialized_str = [](const auto& column_string, DorisVector<StringRef>& stored_keys) {
             const auto& offsets = column_string.get_offsets();
             const auto* chars = column_string.get_chars().data();
             stored_keys.resize(column_string.size());
@@ -386,16 +390,16 @@ struct MethodKeysFixed : public MethodBase<TData> {
     using State = ColumnsHashing::HashMethodKeysFixed<typename Base::Value, Key, Mapped>;
 
     // need keep until the hash probe end. use only in join
-    std::vector<Key> build_stored_keys;
+    DorisVector<Key> build_stored_keys;
     // refresh each time probe hash table
-    std::vector<Key> stored_keys;
+    DorisVector<Key> stored_keys;
     Sizes key_sizes;
 
     MethodKeysFixed(Sizes key_sizes_) : key_sizes(std::move(key_sizes_)) {}
 
     template <typename T>
     void pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
-                     const ColumnRawPtrs& nullmap_columns, std::vector<T>& result) {
+                     const ColumnRawPtrs& nullmap_columns, DorisVector<T>& result) {
         size_t bitmap_size = get_bitmap_size(nullmap_columns.size());
         // set size to 0 at first, then use resize to call default constructor on index included from [0, row_numbers) to reset all memory
         result.clear();

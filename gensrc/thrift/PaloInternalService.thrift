@@ -333,9 +333,7 @@ struct TQueryOptions {
   125: optional bool enable_segment_cache = true;
 
   126: optional i32 runtime_bloom_filter_max_size = 16777216;
-
   127: optional i32 in_list_value_count_threshold = 10;
-
   // We need this two fields to make sure thrift id on master is compatible with other branch.
   128: optional bool enable_verbose_profile = false;
   129: optional i32 rpc_verbose_profile_max_instance_count = 0;
@@ -350,8 +348,14 @@ struct TQueryOptions {
   135: optional bool enable_parallel_outfile = false;
 
   136: optional bool enable_phrase_query_sequential_opt = true;
+  
+  // The minimum memory that an operator required to run.
+  137: optional i32 minimum_operator_memory_required_kb = 1024;
 
-  137: optional bool enable_auto_create_when_overwrite = false;
+  138: optional bool enable_query_slot_hard_limit = false;
+  139: optional i32 query_slot_count = 0;
+
+  140: optional bool enable_auto_create_when_overwrite = false;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

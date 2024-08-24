@@ -63,6 +63,8 @@ private:
     RuntimeProfile::Counter* _compute_order_by_timer = nullptr;
 
     std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
+
+    int64_t _reserve_mem_size = 0;
 };
 
 class AnalyticSinkOperatorX final : public DataSinkOperatorX<AnalyticSinkLocalState> {
@@ -90,6 +92,8 @@ public:
     }
 
     bool require_data_distribution() const override { return true; }
+
+    size_t get_reserve_mem_size(RuntimeState* state) override;
 
 private:
     Status _insert_range_column(vectorized::Block* block, const vectorized::VExprContextSPtr& expr,

@@ -52,11 +52,13 @@ public:
     void set_counters(RuntimeProfile::Counter* serialize_timer,
                       RuntimeProfile::Counter* write_block_counter,
                       RuntimeProfile::Counter* write_bytes_counter,
-                      RuntimeProfile::Counter* write_timer) {
+                      RuntimeProfile::Counter* write_timer,
+                      RuntimeProfile::Counter* memory_used_counter) {
         serialize_timer_ = serialize_timer;
         write_block_counter_ = write_block_counter;
         write_bytes_counter_ = write_bytes_counter;
         write_timer_ = write_timer;
+        memory_used_counter_ = memory_used_counter;
     }
 
 private:
@@ -79,10 +81,11 @@ private:
     int64_t total_written_bytes_ = 0;
     std::string meta_;
 
-    RuntimeProfile::Counter* write_bytes_counter_;
-    RuntimeProfile::Counter* serialize_timer_;
-    RuntimeProfile::Counter* write_timer_;
-    RuntimeProfile::Counter* write_block_counter_;
+    RuntimeProfile::Counter* write_bytes_counter_ = nullptr;
+    RuntimeProfile::Counter* serialize_timer_ = nullptr;
+    RuntimeProfile::Counter* write_timer_ = nullptr;
+    RuntimeProfile::Counter* write_block_counter_ = nullptr;
+    RuntimeProfile::Counter* memory_used_counter_ = nullptr;
 };
 using SpillWriterUPtr = std::unique_ptr<SpillWriter>;
 } // namespace vectorized

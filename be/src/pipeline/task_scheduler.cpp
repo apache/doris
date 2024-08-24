@@ -24,19 +24,25 @@
 #include <sched.h>
 
 // IWYU pragma: no_include <bits/chrono.h>
+#include <algorithm>
 #include <chrono> // IWYU pragma: keep
+#include <cstddef>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <ostream>
 #include <string>
 #include <thread>
 #include <utility>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "pipeline/pipeline_task.h"
 #include "pipeline/task_queue.h"
 #include "pipeline_fragment_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
+#include "runtime/thread_context.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/time.h"
@@ -52,6 +58,8 @@ TaskScheduler::~TaskScheduler() {
 
 Status TaskScheduler::start() {
     int cores = _task_queue->cores();
+    // Init the thread pool with cores thread
+    // some for pipeline task running
     RETURN_IF_ERROR(ThreadPoolBuilder(_name)
                             .set_min_threads(cores)
                             .set_max_threads(cores)
@@ -59,8 +67,7 @@ Status TaskScheduler::start() {
                             .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
                             .build(&_fix_thread_pool));
     LOG_INFO("TaskScheduler set cores").tag("size", cores);
-    _markers.resize(cores, true);
-    for (int i = 0; i < cores; ++i) {
+    for (int32_t i = 0; i < cores; ++i) {
         RETURN_IF_ERROR(_fix_thread_pool->submit_func([this, i] { _do_work(i); }));
     }
     return Status::OK();
@@ -98,17 +105,19 @@ void _close_task(PipelineTask* task, Status exec_status) {
 }
 
 void TaskScheduler::_do_work(int index) {
-    while (_markers[index]) {
+    while (!_need_to_stop) {
         auto* task = _task_queue->take(index);
         if (!task) {
             continue;
         }
+
         if (task->is_running()) {
             static_cast<void>(_task_queue->push_back(task, index));
             continue;
         }
-        task->log_detail_if_need();
         task->set_running(true);
+
+        task->log_detail_if_need();
         task->set_task_queue(_task_queue.get());
         auto* fragment_ctx = task->fragment_context();
         bool canceled = fragment_ctx->is_canceled();
@@ -193,9 +202,7 @@ void TaskScheduler::stop() {
             _task_queue->close();
         }
         if (_fix_thread_pool) {
-            for (size_t i = 0; i < _markers.size(); ++i) {
-                _markers[i] = false;
-            }
+            _need_to_stop = true;
             _fix_thread_pool->shutdown();
             _fix_thread_pool->wait();
         }
