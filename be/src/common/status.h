@@ -306,8 +306,8 @@ extern ErrorCodeState error_states[MAX_ERROR_CODE_DEFINE_NUM];
 class ErrorCodeInitializer {
 public:
     ErrorCodeInitializer(int temp) : signal_value(temp) {
-        for (int i = 0; i < MAX_ERROR_CODE_DEFINE_NUM; ++i) {
-            error_states[i].error_code = 0;
+        for (auto& error_state : error_states) {
+            error_state.error_code = 0;
         }
 #define M(NAME, ENABLESTACKTRACE)                                  \
     error_states[TStatusCode::NAME].stacktrace = ENABLESTACKTRACE; \
@@ -330,7 +330,7 @@ public:
 #undef M
     }
 
-    void check_init() {
+    void check_init() const {
         //the signal value is 0, it means the global error states not inited, it's logical error
         // DO NOT use dcheck here, because dcheck depend on glog, and glog maybe not inited at this time.
         if (signal_value == 0) {
@@ -435,10 +435,18 @@ public:
         return status;
     }
 
-    static Status OK() { return Status(); }
+    static Status OK() { return {}; }
 
+// default have stacktrace. could disable manually.
 #define ERROR_CTOR(name, code)                                                       \
     template <bool stacktrace = true, typename... Args>                              \
+    static Status name(std::string_view msg, Args&&... args) {                       \
+        return Error<ErrorCode::code, stacktrace>(msg, std::forward<Args>(args)...); \
+    }
+
+// default have no stacktrace. could enable manually.
+#define ERROR_CTOR_NOSTACK(name, code)                                               \
+    template <bool stacktrace = false, typename... Args>                             \
     static Status name(std::string_view msg, Args&&... args) {                       \
         return Error<ErrorCode::code, stacktrace>(msg, std::forward<Args>(args)...); \
     }
@@ -446,30 +454,30 @@ public:
     ERROR_CTOR(PublishTimeout, PUBLISH_TIMEOUT)
     ERROR_CTOR(MemoryAllocFailed, MEM_ALLOC_FAILED)
     ERROR_CTOR(BufferAllocFailed, BUFFER_ALLOCATION_FAILED)
-    ERROR_CTOR(InvalidArgument, INVALID_ARGUMENT)
-    ERROR_CTOR(InvalidJsonPath, INVALID_JSON_PATH)
+    ERROR_CTOR_NOSTACK(InvalidArgument, INVALID_ARGUMENT)
+    ERROR_CTOR_NOSTACK(InvalidJsonPath, INVALID_JSON_PATH)
     ERROR_CTOR(MinimumReservationUnavailable, MINIMUM_RESERVATION_UNAVAILABLE)
     ERROR_CTOR(Corruption, CORRUPTION)
     ERROR_CTOR(IOError, IO_ERROR)
     ERROR_CTOR(NotFound, NOT_FOUND)
-    ERROR_CTOR(AlreadyExist, ALREADY_EXIST)
+    ERROR_CTOR_NOSTACK(AlreadyExist, ALREADY_EXIST)
     ERROR_CTOR(NotSupported, NOT_IMPLEMENTED_ERROR)
-    ERROR_CTOR(EndOfFile, END_OF_FILE)
+    ERROR_CTOR_NOSTACK(EndOfFile, END_OF_FILE)
     ERROR_CTOR(InternalError, INTERNAL_ERROR)
-    ERROR_CTOR(WaitForRf, PIP_WAIT_FOR_RF)
-    ERROR_CTOR(WaitForScannerContext, PIP_WAIT_FOR_SC)
+    ERROR_CTOR_NOSTACK(WaitForRf, PIP_WAIT_FOR_RF)
+    ERROR_CTOR_NOSTACK(WaitForScannerContext, PIP_WAIT_FOR_SC)
     ERROR_CTOR(RuntimeError, RUNTIME_ERROR)
-    ERROR_CTOR(Cancelled, CANCELLED)
+    ERROR_CTOR_NOSTACK(Cancelled, CANCELLED)
     ERROR_CTOR(MemoryLimitExceeded, MEM_LIMIT_EXCEEDED)
     ERROR_CTOR(RpcError, THRIFT_RPC_ERROR)
     ERROR_CTOR(TimedOut, TIMEOUT)
-    ERROR_CTOR(TooManyTasks, TOO_MANY_TASKS)
+    ERROR_CTOR_NOSTACK(TooManyTasks, TOO_MANY_TASKS)
     ERROR_CTOR(Uninitialized, UNINITIALIZED)
     ERROR_CTOR(Aborted, ABORTED)
-    ERROR_CTOR(DataQualityError, DATA_QUALITY_ERROR)
-    ERROR_CTOR(NotAuthorized, NOT_AUTHORIZED)
+    ERROR_CTOR_NOSTACK(DataQualityError, DATA_QUALITY_ERROR)
+    ERROR_CTOR_NOSTACK(NotAuthorized, NOT_AUTHORIZED)
     ERROR_CTOR(HttpError, HTTP_ERROR)
-    ERROR_CTOR(NeedSendAgain, NEED_SEND_AGAIN)
+    ERROR_CTOR_NOSTACK(NeedSendAgain, NEED_SEND_AGAIN)
     ERROR_CTOR(CgroupError, CGROUP_ERROR)
 #undef ERROR_CTOR
 
@@ -577,13 +585,13 @@ public:
         return error_st_;
     }
 
+    AtomicStatus(const AtomicStatus&) = delete;
+    void operator=(const AtomicStatus&) = delete;
+
 private:
     std::atomic_int16_t error_code_ = 0;
     Status error_st_;
     mutable std::mutex mutex_;
-
-    AtomicStatus(const AtomicStatus&) = delete;
-    void operator=(const AtomicStatus&) = delete;
 };
 
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {

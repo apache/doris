@@ -65,10 +65,17 @@ public class Random extends ScalarFunction
      */
     public Random(Expression lchild, Expression rchild) {
         super("random", lchild, rchild);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
         // align with original planner behavior, refer to:
         // org/apache/doris/analysis/Expr.getBuiltinFunction()
-        Preconditions.checkState(lchild instanceof Literal && rchild instanceof Literal,
-                "The param of rand function must be literal");
+        for (Expression child : children()) {
+            if (!child.isLiteral()) {
+                throw new AnalysisException("The param of rand function must be literal ");
+            }
+        }
     }
 
     /**
