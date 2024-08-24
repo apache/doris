@@ -96,7 +96,7 @@ DEFINE_String(mem_limit, "90%");
 DEFINE_Double(soft_mem_limit_frac, "0.9");
 
 // Cache capacity reduce mem limit as a fraction of soft mem limit.
-DEFINE_mDouble(cache_capacity_reduce_mem_limit_frac, "0.6");
+DEFINE_mDouble(cache_capacity_reduce_mem_limit_frac, "0.7");
 
 // Schema change memory limit as a fraction of soft memory limit.
 DEFINE_Double(schema_change_mem_limit_frac, "0.6");
@@ -151,7 +151,7 @@ DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
 DEFINE_mInt64(crash_in_alloc_large_memory_bytes, "-1");
 
 // If memory tracker value is inaccurate, BE will crash. usually used in test environments, default value is false.
-DEFINE_mBool(crash_in_memory_tracker_inaccurate, "false");
+DEFINE_mBool(crash_in_memory_tracker_inaccurate, "true");
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
 // !! not modify the default value of this conf!! otherwise memory errors cannot be detected in time.

@@ -46,6 +46,7 @@ public:
     Status close(RuntimeState* state) override;
     Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
     void make_nullable_output_key(vectorized::Block* block);
+    void set_low_memory_mode();
 
 private:
     friend class StreamingAggOperatorX;

@@ -22,6 +22,7 @@
 #include "common/config.h"
 #include "olap/memtable.h"
 #include "olap/memtable_writer.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
@@ -139,7 +140,7 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
                       << ", active: " << PrettyPrinter::print_bytes(_active_mem_usage)
                       << ", queue: " << PrettyPrinter::print_bytes(_queue_mem_usage)
                       << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage);
-            _flush_active_memtables(need_flush);
+            _flush_active_memtables(0, need_flush);
         }
     } while (_hard_limit_reached());
     g_memtable_memory_limit_waiting_threads << -1;
@@ -149,7 +150,13 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
     LOG(INFO) << "waited " << time_ms << " ms for memtable memory limit";
 }
 
-void MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
+void MemTableMemoryLimiter::flush_workload_group_memtables(uint64_t wg_id,
+                                                           int64_t need_flush_bytes) {
+    std::unique_lock<std::mutex> l(_lock);
+    _flush_active_memtables(wg_id, need_flush_bytes);
+}
+
+void MemTableMemoryLimiter::_flush_active_memtables(uint64_t wg_id, int64_t need_flush) {
     if (need_flush <= 0) {
         return;
     }
@@ -179,6 +186,10 @@ void MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
         heap.pop();
         auto w = writer.lock();
         if (w == nullptr) {
+            continue;
+        }
+        // If wg id is specified, but wg id not match, then not need flush
+        if (wg_id != 0 && w->workload_group_id() != wg_id) {
             continue;
         }
         int64_t mem = w->active_memtable_mem_consumption();
@@ -234,17 +245,30 @@ void MemTableMemoryLimiter::_refresh_mem_tracker() {
     _flush_mem_usage = 0;
     _queue_mem_usage = 0;
     _active_mem_usage = 0;
+    std::map<uint64_t, doris::MemtableUsage> wg_mem_usages;
     _active_writers.clear();
     for (auto it = _writers.begin(); it != _writers.end();) {
         if (auto writer = it->lock()) {
+            if (wg_mem_usages.find(writer->workload_group_id()) == wg_mem_usages.end()) {
+                wg_mem_usages.insert({writer->workload_group_id(), {0, 0, 0}});
+            }
+            auto& wg_mem_usage = wg_mem_usages.find(writer->workload_group_id())->second;
+
             // The memtable is currently used by writer to insert blocks.
             auto active_usage = writer->active_memtable_mem_consumption();
+            wg_mem_usage.active_mem_usage += active_usage;
             _active_mem_usage += active_usage;
             if (active_usage > 0) {
                 _active_writers.push_back(writer);
             }
-            _flush_mem_usage += writer->mem_consumption(MemType::FLUSH);
-            _queue_mem_usage += writer->mem_consumption(MemType::WRITE_FINISHED);
+
+            auto flush_usage = writer->mem_consumption(MemType::FLUSH);
+            wg_mem_usage.flush_mem_usage += flush_usage;
+            _flush_mem_usage += flush_usage;
+
+            auto write_usage = writer->mem_consumption(MemType::WRITE_FINISHED);
+            wg_mem_usage.queue_mem_usage += write_usage;
+            _queue_mem_usage += write_usage;
             ++it;
         } else {
             *it = std::move(_writers.back());

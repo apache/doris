@@ -74,6 +74,8 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectoriz
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
+
     _create_mutable_cols(local_state, block);
     auto st = std::visit(
             [&](auto&& arg) -> Status {
@@ -88,8 +90,7 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectoriz
             },
             *local_state._shared_state->hash_table_variants);
     RETURN_IF_ERROR(st);
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
-                                                           block->columns()));
+    RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block, block->columns()));
     local_state.reached_limit(block, eos);
     return Status::OK();
 }

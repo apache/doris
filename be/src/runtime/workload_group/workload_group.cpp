@@ -49,6 +49,8 @@ const static bool ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE = true;
 const static int CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
 const static int SPILL_LOW_WATERMARK_DEFAULT_VALUE = 50;
 const static int SPILL_HIGH_WATERMARK_DEFAULT_VALUE = 80;
+// This is a invalid value, and should ignore this value during usage
+const static int TOTAL_QUERY_SLOT_COUNT_DEFAULT_VALUE = 0;
 
 WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info)
         : _id(tg_info.id),
@@ -65,7 +67,8 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info)
           _spill_low_watermark(tg_info.spill_low_watermark),
           _spill_high_watermark(tg_info.spill_high_watermark),
           _scan_bytes_per_second(tg_info.read_bytes_per_second),
-          _remote_scan_bytes_per_second(tg_info.remote_read_bytes_per_second) {
+          _remote_scan_bytes_per_second(tg_info.remote_read_bytes_per_second),
+          _total_query_slot_count(tg_info.total_query_slot_count) {
     std::vector<DataDirInfo>& data_dir_list = io::BeConfDataDirReader::be_config_data_dir_list;
     for (const auto& data_dir : data_dir_list) {
         _scan_io_throttle_map[data_dir.path] =
@@ -80,35 +83,74 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info)
             std::make_unique<bvar::Adder<size_t>>(_name, "total_local_read_bytes");
     _total_local_scan_io_per_second = std::make_unique<bvar::PerSecond<bvar::Adder<size_t>>>(
             _name, "total_local_read_bytes_per_second", _total_local_scan_io_adder.get(), 1);
+    _load_buffer_limit = (int64_t)(_memory_limit * 0.2);
+    // Its initial value should equal to memory limit, or it will be 0 and all reserve memory request will failed.
+    _weighted_memory_limit = _memory_limit;
 }
 
 std::string WorkloadGroup::debug_string() const {
     std::shared_lock<std::shared_mutex> rl {_mutex};
+    auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
+    auto mem_used_ratio = realtime_total_mem_used / ((double)_weighted_memory_limit + 1);
     return fmt::format(
-            "TG[id = {}, name = {}, cpu_share = {}, memory_limit = {}, enable_memory_overcommit = "
-            "{}, version = {}, cpu_hard_limit = {}, scan_thread_num = "
+            "WorkloadGroup[id = {}, name = {}, version = {}, cpu_share = {}, "
+            "total_query_slot_count={}, "
+            "memory_limit = {}, "
+            "enable_memory_overcommit = {},  weighted_memory_limit = {}, total_mem_used = {},"
+            "wg_refresh_interval_memory_growth = {},  mem_used_ratio = {}, spill_low_watermark = "
+            "{}, spill_high_watermark = {},cpu_hard_limit = {}, scan_thread_num = "
             "{}, max_remote_scan_thread_num = {}, min_remote_scan_thread_num = {}, "
-            "spill_low_watermark={}, spill_high_watermark={}, is_shutdown={}, query_num={}, "
+            "is_shutdown={}, query_num={}, "
             "read_bytes_per_second={}, remote_read_bytes_per_second={}]",
-            _id, _name, cpu_share(), PrettyPrinter::print(_memory_limit, TUnit::BYTES),
-            _enable_memory_overcommit ? "true" : "false", _version, cpu_hard_limit(),
+            _id, _name, _version, cpu_share(), _total_query_slot_count,
+            PrettyPrinter::print(_memory_limit, TUnit::BYTES),
+            _enable_memory_overcommit ? "true" : "false",
+            PrettyPrinter::print(_weighted_memory_limit.load(), TUnit::BYTES),
+            PrettyPrinter::print(_total_mem_used.load(), TUnit::BYTES),
+            PrettyPrinter::print(_wg_refresh_interval_memory_growth.load(), TUnit::BYTES),
+            mem_used_ratio, _spill_low_watermark, _spill_high_watermark, cpu_hard_limit(),
             _scan_thread_num, _max_remote_scan_thread_num, _min_remote_scan_thread_num,
-            _spill_low_watermark, _spill_high_watermark, _is_shutdown, _query_ctxs.size(),
-            _scan_bytes_per_second, _remote_scan_bytes_per_second);
+            _is_shutdown, _query_ctxs.size(), _scan_bytes_per_second,
+            _remote_scan_bytes_per_second);
+}
+
+bool WorkloadGroup::add_wg_refresh_interval_memory_growth(int64_t size) {
+    // If a group is enable memory overcommit, then not need check the limit
+    // It is always true, and it will only fail when process memory is not
+    // enough.
+    if (_enable_memory_overcommit) {
+        if (doris::GlobalMemoryArbitrator::is_exceed_soft_mem_limit(size)) {
+            return false;
+        } else {
+            return true;
+        }
+    }
+    auto realtime_total_mem_used =
+            _total_mem_used + _wg_refresh_interval_memory_growth.load() + size;
+    if ((realtime_total_mem_used >
+         ((double)_memory_limit * _spill_high_watermark.load(std::memory_order_relaxed) / 100))) {
+        return false;
+    } else {
+        _wg_refresh_interval_memory_growth.fetch_add(size);
+        return true;
+    }
 }
 
 std::string WorkloadGroup::memory_debug_string() const {
+    auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
+    auto mem_used_ratio = realtime_total_mem_used / ((double)_weighted_memory_limit + 1);
     return fmt::format(
-            "TG[id = {}, name = {}, memory_limit = {}, enable_memory_overcommit = "
-            "{}, weighted_memory_limit = {}, total_mem_used = {}, "
-            "wg_refresh_interval_memory_growth = {}, spill_low_watermark = {}, "
+            "WorkloadGroup[id = {}, name = {}, memory_limit = {}, enable_memory_overcommit = "
+            "{}, weighted_memory_limit = {}, total_mem_used = {},"
+            "wg_refresh_interval_memory_growth = {},  mem_used_ratio = {}, spill_low_watermark = "
+            "{}, "
             "spill_high_watermark = {}, version = {}, is_shutdown = {}, query_num = {}]",
             _id, _name, PrettyPrinter::print(_memory_limit, TUnit::BYTES),
             _enable_memory_overcommit ? "true" : "false",
-            PrettyPrinter::print(_weighted_memory_limit, TUnit::BYTES),
-            PrettyPrinter::print(_total_mem_used, TUnit::BYTES),
-            PrettyPrinter::print(_wg_refresh_interval_memory_growth, TUnit::BYTES),
-            _spill_low_watermark, _spill_high_watermark, _version, _is_shutdown,
+            PrettyPrinter::print(_weighted_memory_limit.load(), TUnit::BYTES),
+            PrettyPrinter::print(_total_mem_used.load(), TUnit::BYTES),
+            PrettyPrinter::print(_wg_refresh_interval_memory_growth.load(), TUnit::BYTES),
+            mem_used_ratio, _spill_low_watermark, _spill_high_watermark, _version, _is_shutdown,
             _query_ctxs.size());
 }
 
@@ -138,6 +180,7 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
             _spill_high_watermark = tg_info.spill_high_watermark;
             _scan_bytes_per_second = tg_info.read_bytes_per_second;
             _remote_scan_bytes_per_second = tg_info.remote_read_bytes_per_second;
+            _total_query_slot_count = tg_info.total_query_slot_count;
         } else {
             return;
         }
@@ -417,6 +460,12 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
         remote_read_bytes_per_second = tworkload_group_info.remote_read_bytes_per_second;
     }
 
+    // 16 total slots
+    int total_query_slot_count = TOTAL_QUERY_SLOT_COUNT_DEFAULT_VALUE;
+    if (tworkload_group_info.__isset.total_query_slot_count) {
+        total_query_slot_count = tworkload_group_info.total_query_slot_count;
+    }
+
     return {.id = tg_id,
             .name = name,
             .cpu_share = cpu_share,
@@ -431,7 +480,8 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
             .spill_low_watermark = spill_low_watermark,
             .spill_high_watermark = spill_high_watermark,
             .read_bytes_per_second = read_bytes_per_second,
-            .remote_read_bytes_per_second = remote_read_bytes_per_second};
+            .remote_read_bytes_per_second = remote_read_bytes_per_second,
+            .total_query_slot_count = total_query_slot_count};
 }
 
 void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* exec_env) {

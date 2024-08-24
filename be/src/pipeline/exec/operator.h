@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -31,9 +32,12 @@
 #include "common/status.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/spill_utils.h"
 #include "pipeline/local_exchange/local_exchanger.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/runtime/vdata_stream_recvr.h"
@@ -105,7 +109,16 @@ public:
 
     virtual size_t revocable_mem_size(RuntimeState* state) const { return 0; }
 
-    virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); }
+    // If this method is not overwrite by child, its default value is 1MB
+    [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state) {
+        return state->minimum_operator_memory_required_bytes();
+    }
+
+    virtual Status revoke_memory(RuntimeState* state,
+                                 const std::shared_ptr<SpillContext>& spill_context) {
+        return Status::OK();
+    }
+
     [[nodiscard]] virtual bool require_data_distribution() const { return false; }
     OperatorPtr child() { return _child; }
     [[nodiscard]] bool followed_by_shuffled_operator() const {
@@ -180,6 +193,15 @@ public:
 
     std::shared_ptr<QueryStatistics> get_query_statistics_ptr() { return _query_statistics; }
 
+    Status filter_block(const vectorized::VExprContextSPtrs& expr_contexts,
+                        vectorized::Block* block, size_t column_to_keep);
+
+    int64_t& estimate_memory_usage() { return _estimate_memory_usage; }
+
+    void reset_estimate_memory_usage() { _estimate_memory_usage = 0; }
+
+    bool low_memory_mode() { return _state->get_query_ctx()->low_memory_mode(); }
+
 protected:
     friend class OperatorXBase;
     template <typename LocalStateType>
@@ -187,6 +209,7 @@ protected:
 
     ObjectPool* _pool = nullptr;
     int64_t _num_rows_returned {0};
+    int64_t _estimate_memory_usage {0};
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
 
@@ -269,25 +292,21 @@ public:
 
     Status init(RuntimeState* state, LocalStateInfo& info) override {
         RETURN_IF_ERROR(PipelineXLocalState<SharedStateArg>::init(state, info));
-        _spill_counters = ADD_LABEL_COUNTER_WITH_LEVEL(Base::profile(), "Spill", 1);
-        _spill_recover_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillRecoverTime", "Spill", 1);
-        _spill_read_data_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadDataTime", "Spill", 1);
-        _spill_deserialize_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillDeserializeTime", "Spill", 1);
-        _spill_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadDataSize",
-                                                         TUnit::BYTES, "Spill", 1);
+        _spill_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillTime", 1);
+        _spill_recover_time = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillRecoverTime", 1);
+        _spill_read_data_time = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadDataTime", 1);
+        _spill_deserialize_time = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillDeserializeTime", 1);
+        _spill_read_bytes =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadDataSize", TUnit::BYTES, 1);
         _spill_wait_in_queue_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWaitInQueueTime", "Spill", 1);
+                ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWaitInQueueTime", 1);
         _spill_write_wait_io_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteWaitIOTime", "Spill", 1);
-        _spill_read_wait_io_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadWaitIOTime", "Spill", 1);
+                ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteWaitIOTime", 1);
+        _spill_read_wait_io_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadWaitIOTime", 1);
         return Status::OK();
     }
 
-    RuntimeProfile::Counter* _spill_counters = nullptr;
+    RuntimeProfile::Counter* _spill_timer = nullptr;
     RuntimeProfile::Counter* _spill_recover_time;
     RuntimeProfile::Counter* _spill_read_data_time;
     RuntimeProfile::Counter* _spill_deserialize_time;
@@ -342,6 +361,7 @@ public:
     RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
     RuntimeProfile::Counter* memory_used_counter() { return _memory_used_counter; }
     RuntimeProfile::Counter* peak_memory_usage_counter() { return _peak_memory_usage_counter; }
+
     virtual std::vector<Dependency*> dependencies() const { return {nullptr}; }
 
     // override in exchange sink , AsyncWriterSink
@@ -415,6 +435,7 @@ public:
 
 protected:
     Dependency* _dependency = nullptr;
+    std::shared_ptr<Dependency> _spill_dependency;
     SharedStateType* _shared_state = nullptr;
 
 private:
@@ -425,13 +446,13 @@ private:
 class DataSinkOperatorXBase : public OperatorBase {
 public:
     DataSinkOperatorXBase(const int operator_id, const int node_id)
-            : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id({1}) {}
+            : _operator_id(operator_id), _node_id(node_id), _dests_id({1}) {}
 
     DataSinkOperatorXBase(const int operator_id, const int node_id, const int dest_id)
-            : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id({dest_id}) {}
+            : _operator_id(operator_id), _node_id(node_id), _dests_id({dest_id}) {}
 
     DataSinkOperatorXBase(const int operator_id, const int node_id, std::vector<int>& sources)
-            : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id(sources) {}
+            : _operator_id(operator_id), _node_id(node_id), _dests_id(sources) {}
 
     ~DataSinkOperatorXBase() override = default;
 
@@ -510,6 +531,11 @@ public:
 
     [[nodiscard]] std::string get_name() const override { return _name; }
 
+    [[nodiscard]] virtual bool try_reserve_memory(RuntimeState* state, vectorized::Block* block,
+                                                  bool eos) {
+        return true;
+    }
+
     virtual bool should_dry_run(RuntimeState* state) { return false; }
 
 protected:
@@ -562,26 +588,50 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
         RETURN_IF_ERROR(Base::init(state, info));
 
-        _spill_counters = ADD_LABEL_COUNTER_WITH_LEVEL(Base::profile(), "Spill", 1);
-        _spill_timer = ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillTime", "Spill", 1);
+        _spill_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillTime", 1);
         _spill_serialize_block_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillSerializeBlockTime", "Spill", 1);
-        _spill_write_disk_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteDiskTime", "Spill", 1);
-        _spill_data_size = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteDataSize",
-                                                        TUnit::BYTES, "Spill", 1);
-        _spill_block_count = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockCount",
-                                                          TUnit::UNIT, "Spill", 1);
+                ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillSerializeBlockTime", 1);
+        _spill_write_disk_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteDiskTime", 1);
+        _spill_data_size =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteDataSize", TUnit::BYTES, 1);
+        _spill_block_count =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockCount", TUnit::UNIT, 1);
         _spill_wait_in_queue_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWaitInQueueTime", "Spill", 1);
+                ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWaitInQueueTime", 1);
         _spill_write_wait_io_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteWaitIOTime", "Spill", 1);
-        _spill_read_wait_io_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadWaitIOTime", "Spill", 1);
+                ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteWaitIOTime", 1);
+        _spill_read_wait_io_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadWaitIOTime", 1);
+        _spill_max_rows_of_partition =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillMaxRowsOfPartition", TUnit::UNIT, 1);
+        _spill_min_rows_of_partition =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillMinRowsOfPartition", TUnit::UNIT, 1);
         return Status::OK();
     }
 
-    RuntimeProfile::Counter* _spill_counters = nullptr;
+    std::vector<Dependency*> dependencies() const override {
+        auto dependencies = Base::dependencies();
+        return dependencies;
+    }
+
+    void update_max_min_rows_counter() {
+        int64_t max_rows = 0;
+        int64_t min_rows = std::numeric_limits<int64_t>::max();
+
+        for (auto rows : _rows_in_partitions) {
+            if (rows > max_rows) {
+                max_rows = rows;
+            }
+            if (rows < min_rows) {
+                min_rows = rows;
+            }
+        }
+
+        COUNTER_SET(_spill_max_rows_of_partition, max_rows);
+        COUNTER_SET(_spill_min_rows_of_partition, min_rows);
+    }
+
+    std::vector<int64_t> _rows_in_partitions;
+
     RuntimeProfile::Counter* _spill_timer = nullptr;
     RuntimeProfile::Counter* _spill_serialize_block_timer = nullptr;
     RuntimeProfile::Counter* _spill_write_disk_timer = nullptr;
@@ -590,6 +640,8 @@ public:
     RuntimeProfile::Counter* _spill_wait_in_queue_timer = nullptr;
     RuntimeProfile::Counter* _spill_write_wait_io_timer = nullptr;
     RuntimeProfile::Counter* _spill_read_wait_io_timer = nullptr;
+    RuntimeProfile::Counter* _spill_max_rows_of_partition = nullptr;
+    RuntimeProfile::Counter* _spill_min_rows_of_partition = nullptr;
 };
 
 class OperatorXBase : public OperatorBase {
@@ -683,6 +735,18 @@ public:
         }
     }
 
+    size_t revocable_mem_size(RuntimeState* state) const override {
+        return (_child and !is_source()) ? _child->revocable_mem_size(state) : 0;
+    }
+
+    Status revoke_memory(RuntimeState* state,
+                         const std::shared_ptr<SpillContext>& spill_context) override {
+        if (_child and !is_source()) {
+            return _child->revoke_memory(state, spill_context);
+        }
+        return Status::OK();
+    }
+
     virtual std::string debug_string(int indentation_level = 0) const;
 
     virtual std::string debug_string(RuntimeState* state, int indentation_level = 0) const;
@@ -736,6 +800,8 @@ public:
     void set_parallel_tasks(int parallel_tasks) { _parallel_tasks = parallel_tasks; }
     int parallel_tasks() const { return _parallel_tasks; }
 
+    virtual void reset_reserve_mem_size(RuntimeState* state) {}
+
 protected:
     template <typename Dependency>
     friend class PipelineXLocalState;
@@ -767,6 +833,7 @@ protected:
     int64_t _limit; // -1: no limit
 
     uint32_t _debug_point_count = 0;
+    std::atomic_uint32_t _bytes_per_row = 0;
 
     std::string _op_name;
     bool _ignore_data_distribution = false;
@@ -791,6 +858,29 @@ public:
     using LocalState = LocalStateType;
     [[nodiscard]] LocalState& get_local_state(RuntimeState* state) const {
         return state->get_local_state(operator_id())->template cast<LocalState>();
+    }
+
+    size_t get_reserve_mem_size(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+        auto estimated_size = local_state.estimate_memory_usage();
+        if (estimated_size < state->minimum_operator_memory_required_bytes()) {
+            estimated_size = state->minimum_operator_memory_required_bytes();
+        }
+        if (!is_source() && _child) {
+            auto child_reserve_size = _child->get_reserve_mem_size(state);
+            estimated_size +=
+                    std::max(state->minimum_operator_memory_required_bytes(), child_reserve_size);
+        }
+        return estimated_size;
+    }
+
+    void reset_reserve_mem_size(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+        local_state.reset_estimate_memory_usage();
+
+        if (!is_source() && _child) {
+            _child->reset_reserve_mem_size(state);
+        }
     }
 };
 
