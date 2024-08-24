@@ -151,8 +151,6 @@ public class ConnectContext {
     protected volatile long currentDbId = -1;
     // Transaction
     protected volatile TransactionEntry txnEntry = null;
-    protected volatile boolean isFirstTxnInsert = false;
-    protected volatile int txnSchemaVersion = -1;
     // used for ShowSqlAction which don't allow a user account
     protected volatile boolean noAuth = false;
     // username@host of current login user
@@ -278,22 +276,6 @@ public class ConnectContext {
 
     public void setTotalColumnStatisticMap(Map<String, ColumnStatistic> totalColumnStatisticMap) {
         this.totalColumnStatisticMap = totalColumnStatisticMap;
-    }
-
-    public boolean isFirstTxnInsert() {
-        return isFirstTxnInsert;
-    }
-
-    public void setFirstTxnInsert(boolean firstTxnInsert) {
-        isFirstTxnInsert = firstTxnInsert;
-    }
-
-    public int getTxnSchemaVersion() {
-        return txnSchemaVersion;
-    }
-
-    public void setTxnSchemaVersion(int txnSchemaVersion) {
-        this.txnSchemaVersion = txnSchemaVersion;
     }
 
     private Map<String, Histogram> totalHistogramMap = new HashMap<>();

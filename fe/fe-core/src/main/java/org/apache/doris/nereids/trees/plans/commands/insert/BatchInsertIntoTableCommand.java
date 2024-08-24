@@ -121,11 +121,11 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
             Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
             sink = ((PhysicalOlapTableSink<?>) plan.get());
             Table targetTable = sink.getTargetTable();
-            if (ctx.isFirstTxnInsert()) {
-                ctx.setTxnSchemaVersion(((OlapTable) targetTable).getBaseSchemaVersion());
-                ctx.setFirstTxnInsert(false);
+            if (ctx.getTxnEntry().isFirstTxnInsert()) {
+                ctx.getTxnEntry().setTxnSchemaVersion(((OlapTable) targetTable).getBaseSchemaVersion());
+                ctx.getTxnEntry().setFirstTxnInsert(false);
             } else {
-                if (((OlapTable) targetTable).getBaseSchemaVersion() != ctx.getTxnSchemaVersion()) {
+                if (((OlapTable) targetTable).getBaseSchemaVersion() != ctx.getTxnEntry().getTxnSchemaVersion()) {
                     throw new AnalysisException("There are schema changes in one transaction, "
                             + "you can commit this transaction with formal data or rollback "
                             + "this whole transaction.");
