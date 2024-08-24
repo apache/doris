@@ -486,7 +486,7 @@ struct TReportExecStatusParams {
 
   26: optional list<DataSinks.THivePartitionUpdate> hive_partition_updates
 
-  27: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
+  28: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
 }
 
 struct TFeResult {
