@@ -1274,14 +1274,14 @@ Status StreamingAggLocalState::close(RuntimeState* state) {
 
 Status StreamingAggOperatorX::pull(RuntimeState* state, vectorized::Block* block, bool* eos) const {
     auto& local_state = get_local_state(state);
+    ScopedMemTracker scoped_mem_tracker(local_state._estimate_memory_usage);
     if (!local_state._pre_aggregated_block->empty()) {
         local_state._pre_aggregated_block->swap(*block);
     } else {
         RETURN_IF_ERROR(local_state._executor->get_result(&local_state, state, block, eos));
         local_state.make_nullable_output_key(block);
         // dispose the having clause, should not be execute in prestreaming agg
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
-                                                               block->columns()));
+        RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block, block->columns()));
     }
     local_state.reached_limit(block, eos);
 
@@ -1291,6 +1291,8 @@ Status StreamingAggOperatorX::pull(RuntimeState* state, vectorized::Block* block
 Status StreamingAggOperatorX::push(RuntimeState* state, vectorized::Block* in_block,
                                    bool eos) const {
     auto& local_state = get_local_state(state);
+    ScopedMemTracker scoped_mem_tracker(local_state._estimate_memory_usage);
+
     local_state._input_num_rows += in_block->rows();
     if (in_block->rows() > 0) {
         RETURN_IF_ERROR(local_state.do_pre_agg(in_block, local_state._pre_aggregated_block.get()));

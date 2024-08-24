@@ -20,17 +20,19 @@
 #include <fmt/format.h>
 #include <gen_cpp/Metrics_types.h>
 #include <glog/logging.h>
-#include <stddef.h>
 
+#include <cstddef>
 #include <ostream>
 #include <vector>
 
 #include "common/status.h"
+#include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/task_queue.h"
+#include "pipeline/task_scheduler.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
 #include "runtime/thread_context.h"
@@ -38,6 +40,7 @@
 #include "util/defer_op.h"
 #include "util/mem_info.h"
 #include "util/runtime_profile.h"
+#include "util/uid_util.h"
 
 namespace doris {
 class RuntimeState;
@@ -64,9 +67,14 @@ PipelineTask::PipelineTask(
           _sink(pipeline->sink_shared_pointer()),
           _le_state_map(std::move(le_state_map)),
           _task_idx(task_idx),
-          _execution_dep(state->get_query_ctx()->get_execution_dependency()) {
+          _execution_dep(state->get_query_ctx()->get_execution_dependency()),
+          _memory_sufficient_dependency(
+                  state->get_query_ctx()->get_memory_sufficient_dependency()) {
     _pipeline_task_watcher.start();
 
+    _spill_dependency = Dependency::create_shared(-1, -1, "PipelineTaskSpillDependency", true);
+
+    _state->set_spill_dependency(_spill_dependency.get());
     auto shared_state = _sink->create_shared_state();
     if (shared_state) {
         _sink_shared_state = shared_state;
@@ -265,12 +273,24 @@ bool PipelineTask::_is_blocked() {
         }
     }
 
+    _blocked_dep = _spill_dependency->is_blocked_by(this);
+    if (_blocked_dep != nullptr) {
+        _blocked_dep->start_watcher();
+        return true;
+    }
+
     for (auto* op_dep : _write_dependencies) {
         _blocked_dep = op_dep->is_blocked_by(this);
         if (_blocked_dep != nullptr) {
             _blocked_dep->start_watcher();
             return true;
         }
+    }
+
+    _blocked_dep = _memory_sufficient_dependency->is_blocked_by(this);
+    if (_blocked_dep != nullptr) {
+        _blocked_dep->start_watcher();
+        return true;
     }
     return false;
 }
@@ -312,6 +332,8 @@ Status PipelineTask::execute(bool* eos) {
         RETURN_IF_ERROR(_open());
     }
 
+    const auto query_id = _state->query_id();
+
     while (!_fragment_context->is_canceled()) {
         if (_is_blocked()) {
             return Status::OK();
@@ -332,24 +354,50 @@ Status PipelineTask::execute(bool* eos) {
         auto* block = _block.get();
 
         auto sink_revocable_mem_size = _sink->revocable_mem_size(_state);
-        if (should_revoke_memory(_state, sink_revocable_mem_size)) {
+
+        bool is_wg_mem_low_water_mark = false;
+        bool is_wg_mem_high_water_mark = false;
+        if (should_revoke_memory(_state, sink_revocable_mem_size, is_wg_mem_low_water_mark,
+                                 is_wg_mem_high_water_mark)) {
             RETURN_IF_ERROR(_sink->revoke_memory(_state));
             continue;
         }
+
         *eos = _eos;
         DBUG_EXECUTE_IF("fault_inject::PipelineXTask::executing", {
             Status status =
                     Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task executing failed");
             return status;
         });
+
+        DEFER_RELEASE_RESERVED();
+
         // `_dry_run` means sink operator need no more data
         // `_sink->is_finished(_state)` means sink operator should be finished
+        size_t reserve_size = 0;
+        bool has_enough_memory = true;
         if (_dry_run || _sink->is_finished(_state)) {
             *eos = true;
             _eos = true;
         } else {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
+            size_t sink_reserve_size = _sink->get_reserve_mem_size(_state);
+            reserve_size = _root->get_reserve_mem_size(_state) + sink_reserve_size;
+            _root->reset_reserve_mem_size(_state);
+            DCHECK_EQ(_root->get_reserve_mem_size(_state), 0);
+
+            if (reserve_size > 0) {
+                auto st = thread_context()->try_reserve_memory(reserve_size);
+                if (!st.ok()) {
+                    LOG(INFO) << "query: " << print_id(query_id)
+                              << ", try to reserve: " << reserve_size
+                              << " failed: " << st.to_string()
+                              << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
+                    has_enough_memory = false;
+                }
+            }
+
             RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
         }
 
@@ -373,13 +421,25 @@ Status PipelineTask::execute(bool* eos) {
                 return Status::OK();
             }
         }
+
+        if (!has_enough_memory) {
+            COUNTER_UPDATE(_yield_counts, 1);
+
+            LOG(INFO) << "query: " << print_id(query_id) << ", task: " << (void*)this
+                      << ", insufficient memory. reserve_size: " << reserve_size;
+            _memory_sufficient_dependency->block();
+            _state->get_query_ctx()->get_pipe_exec_scheduler()->add_paused_task(this);
+            break;
+        }
     }
 
     static_cast<void>(get_task_queue()->push_back(this));
     return Status::OK();
 }
 
-bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes) {
+bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes,
+                                        bool& is_wg_mem_low_water_mark,
+                                        bool& is_wg_mem_high_water_mark) {
     auto* query_ctx = state->get_query_ctx();
     auto wg = query_ctx->workload_group();
     if (!wg) {
@@ -395,8 +455,6 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
         }
     }
 
-    bool is_wg_mem_low_water_mark = false;
-    bool is_wg_mem_high_water_mark = false;
     wg->check_mem_used(&is_wg_mem_low_water_mark, &is_wg_mem_high_water_mark);
     if (is_wg_mem_high_water_mark) {
         if (revocable_mem_bytes > min_revocable_mem_bytes) {
@@ -507,6 +565,9 @@ std::string PipelineTask::debug_string() {
         }
     }
 
+    fmt::format_to(debug_string_buffer, "{}. {}\n", i,
+                   _memory_sufficient_dependency->debug_string(i++));
+
     fmt::format_to(debug_string_buffer, "Write Dependency Information: \n");
     for (size_t j = 0; j < _write_dependencies.size(); j++, i++) {
         fmt::format_to(debug_string_buffer, "{}. {}\n", i,
@@ -525,6 +586,14 @@ std::string PipelineTask::debug_string() {
                        _finish_dependencies[j]->debug_string(j + 1));
     }
     return fmt::to_string(debug_string_buffer);
+}
+
+size_t PipelineTask::get_revocable_size() const {
+    return (_running || _eos) ? 0 : _sink->revocable_mem_size(_state);
+}
+
+Status PipelineTask::revoke_memory() {
+    return _sink->revoke_memory(_state);
 }
 
 void PipelineTask::wake_up() {

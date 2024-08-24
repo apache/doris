@@ -148,8 +148,7 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
         return Status::OK();
     }
     auto status = local_state.stream_recvr->get_next(block, eos);
-    RETURN_IF_ERROR(doris::vectorized::VExprContext::filter_block(local_state.conjuncts(), block,
-                                                                  block->columns()));
+    RETURN_IF_ERROR(local_state.filter_block(local_state.conjuncts(), block, block->columns()));
     // In vsortrunmerger, it will set eos=true, and block not empty
     // so that eos==true, could not make sure that block not have valid data
     if (!*eos || block->rows() > 0) {

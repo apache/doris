@@ -90,8 +90,8 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
                                                                               output_block, eos));
 
     if (!local_state._conjuncts.empty()) {
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,
-                                                               output_block->columns()));
+        RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, output_block,
+                                                 output_block->columns()));
     }
 
     if (!local_state._output_expr_contexts.empty() && output_block->rows() > 0) {

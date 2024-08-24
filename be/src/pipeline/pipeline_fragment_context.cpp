@@ -22,6 +22,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <pthread.h>
 
+#include <algorithm>
 #include <cstdlib>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <fmt/format.h>
@@ -1816,6 +1817,41 @@ Status PipelineFragmentContext::send_report(bool done) {
 
     return _report_status_cb(
             req, std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
+}
+
+size_t PipelineFragmentContext::get_revocable_size(bool& has_running_task) const {
+    size_t revocable_size = 0;
+    for (const auto& task_instances : _tasks) {
+        for (const auto& task : task_instances) {
+            if (task->is_running() || task->is_revoking()) {
+                LOG_EVERY_N(INFO, 50) << "query: " << print_id(_query_id)
+                                      << " is running, task: " << (void*)task.get()
+                                      << ", task->is_revoking(): " << task->is_revoking() << ", "
+                                      << task->is_running();
+                has_running_task = true;
+                return 0;
+            }
+
+            size_t revocable_size_ = task->get_revocable_size();
+            if (revocable_size_ > _runtime_state->min_revocable_mem()) {
+                revocable_size += task->get_revocable_size();
+            }
+        }
+    }
+    return revocable_size;
+}
+
+std::vector<PipelineTask*> PipelineFragmentContext::get_revocable_tasks() const {
+    std::vector<PipelineTask*> revocable_tasks;
+    for (const auto& task_instances : _tasks) {
+        for (const auto& task : task_instances) {
+            size_t revocable_size_ = task->get_revocable_size();
+            if (revocable_size_ > _runtime_state->min_revocable_mem()) {
+                revocable_tasks.emplace_back(task.get());
+            }
+        }
+    }
+    return revocable_tasks;
 }
 
 std::string PipelineFragmentContext::debug_string() {

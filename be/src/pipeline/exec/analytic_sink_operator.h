@@ -61,6 +61,8 @@ private:
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
 
     std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
+
+    size_t _reserve_mem_size = 0;
 };
 
 class AnalyticSinkOperatorX final : public DataSinkOperatorX<AnalyticSinkLocalState> {
@@ -92,6 +94,8 @@ public:
     bool require_shuffled_data_distribution() const override {
         return !_partition_by_eq_expr_ctxs.empty() && _order_by_eq_expr_ctxs.empty();
     }
+
+    size_t get_reserve_mem_size(RuntimeState* state) override;
 
 private:
     Status _insert_range_column(vectorized::Block* block, const vectorized::VExprContextSPtr& expr,
