@@ -590,7 +590,7 @@ public class GsonUtils {
             .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
             .addSerializationExclusionStrategy(
                     new HiddenAnnotationExclusionStrategy()).serializeSpecialFloatingPointValues()
-        .enableComplexMapKeySerialization()
+            .enableComplexMapKeySerialization()
             .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
             // .registerTypeHierarchyAdapter(Expr.class, new ExprAdapter())

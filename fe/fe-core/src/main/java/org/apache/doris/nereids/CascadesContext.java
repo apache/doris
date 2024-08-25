@@ -67,9 +67,7 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import org.apache.logging.log4j.LogManager;
@@ -403,7 +401,7 @@ public class CascadesContext implements ScheduleContext {
      */
     public void extractTables(LogicalPlan logicalPlan) {
         Set<List<String>> tableNames = getTables(logicalPlan);
-        tables = Maps.newTreeMap();
+        tables = Maps.newHashMap();
         for (List<String> tableName : tableNames) {
             try {
                 TableIf table = getTable(tableName);
@@ -415,11 +413,11 @@ public class CascadesContext implements ScheduleContext {
 
     }
 
-    public List<TableIf> getTables() {
+    public Map<List<String>, TableIf> getTables() {
         if (tables == null) {
             return null;
         } else {
-            return Lists.newArrayList(tables.values());
+            return tables;
         }
     }
 
