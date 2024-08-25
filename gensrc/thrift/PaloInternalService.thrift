@@ -82,8 +82,8 @@ struct TResourceLimit {
 }
 
 enum TSerdeDialect {
-  DORIS,
-  PRESTO
+  DORIS = 0,
+  PRESTO = 1
 }
 
 // Query options that correspond to PaloService.PaloQueryOptions,
