@@ -326,9 +326,6 @@ endif()
 # simd for architectures
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     add_compile_options(-msse4.2)
-    if (USE_AVX2)
-        add_compile_options(-mavx2)
-    endif()
 endif()
 
 if (ARCH_ARM)
