@@ -30,8 +30,8 @@
 #include "vec/io/io_helper.h"
 
 // TODO: optimize count=0
-// TODO: e2e test
 // TODO: support datetime
+// TODO: support foreach
 
 namespace doris::vectorized {
 

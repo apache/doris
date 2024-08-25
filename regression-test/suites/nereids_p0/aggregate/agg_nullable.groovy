@@ -482,6 +482,24 @@ suite("agg_nullable") {
         contains "colUniqueId=null, type=varchar(65533), nullable=true"
     }
 
+    qt_select_linear_histogram """select linear_histogram(kint, 10) from agg_nullable_test;"""
+    explain {
+        sql("verbose select linear_histogram(kint, 10) from agg_nullable_test;")
+        contains "colUniqueId=null, type=varchar(65533), nullable=false"
+    }
+
+    qt_select_linear_histogram2 """select linear_histogram(kint, 10) from agg_nullable_test group by id;"""
+    explain {
+        sql("verbose select linear_histogram(kint, 10) from agg_nullable_test group by id;")
+        contains "colUniqueId=null, type=varchar(65533), nullable=false"
+    }
+
+    qt_select_linear_histogram_n """select linear_histogram(knint, 10) from agg_nullable_test;"""
+    explain {
+        sql("verbose select linear_histogram(knint, 10) from agg_nullable_test;")
+        contains "colUniqueId=null, type=varchar(65533), nullable=false"
+    }	
+
     qt_select_multi_distinct_group_concat """select multi_distinct_group_concat(kvchrs1) from agg_nullable_test;"""
     explain {
         sql("verbose select multi_distinct_group_concat(kvchrs1) from agg_nullable_test;")
