@@ -22,6 +22,7 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -44,6 +45,7 @@ public class ExplainCommand extends Command implements NoForward {
         VERBOSE(false),
         TREE(false),
         GRAPH(false),
+        DUMP(false),
         PARSED_PLAN(true),
         ANALYZED_PLAN(true),
         REWRITTEN_PLAN(true),
@@ -82,6 +84,9 @@ public class ExplainCommand extends Command implements NoForward {
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(explainPlan, ctx.getStatementContext());
         ExplainOptions explainOptions = new ExplainOptions(level, showPlanProcess);
         logicalPlanAdapter.setIsExplain(explainOptions);
+        if (explainOptions.isDump()) {
+            MinidumpUtils.openDump();
+        }
         executor.setParsedStmt(logicalPlanAdapter);
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         if (ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {

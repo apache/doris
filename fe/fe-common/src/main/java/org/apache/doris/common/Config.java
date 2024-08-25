@@ -2760,6 +2760,9 @@ public class Config extends ConfigBase {
     @ConfField
     public static String spilled_profile_storage_path = System.getenv("LOG_DIR") + File.separator + "profile";
 
+    @ConfField
+    public static String spilled_minidump_storage_path = System.getenv("LOG_DIR") + File.separator + "minidump";
+
     // The max number of profiles that can be stored to storage.
     @ConfField
     public static int max_spilled_profile_num = 500;

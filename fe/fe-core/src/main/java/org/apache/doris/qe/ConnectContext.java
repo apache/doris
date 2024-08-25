@@ -55,6 +55,7 @@ import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.plsql.Exec;
@@ -443,7 +444,7 @@ public class ConnectContext {
     /** get table by table name, try to get from information from dumpfile first */
     public TableIf getTableInMinidumpCache(List<String> tableQualifier) {
         if (getSessionVariable().isPlayNereidsDump()
-                || !getSessionVariable().isEnableMinidump()) {
+                || !MinidumpUtils.isDump()) {
             return null;
         }
         Preconditions.checkState(tables != null, "tables should not be null");

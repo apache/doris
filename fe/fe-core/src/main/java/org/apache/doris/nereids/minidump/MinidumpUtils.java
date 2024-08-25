@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -69,15 +70,32 @@ public class MinidumpUtils {
 
     private static final Logger LOG = LogManager.getLogger(MinidumpUtils.class);
 
-    private static String DUMP_PATH = null;
+    private static String DUMP_PATH = Config.spilled_minidump_storage_path;
+
+    private static String DUMP_FILE_FULL_PATH = null;
+
+    private static boolean dump = false;
+
+    public static void openDump() {
+        dump = true;
+    }
+
+    public static boolean isDump() {
+        return dump;
+    }
+
+    public static String getDumpFileFullPath() {
+        return DUMP_FILE_FULL_PATH;
+    }
 
     /**
      * Saving of minidump file to fe log path
      */
     public static void saveMinidumpString(JSONObject minidump, String dumpName) {
         String dumpPath = MinidumpUtils.DUMP_PATH + "/" + dumpName;
+        MinidumpUtils.DUMP_FILE_FULL_PATH = dumpPath + ".json";
         String jsonMinidump = minidump.toString(4);
-        try (FileWriter file = new FileWriter(dumpPath + ".json")) {
+        try (FileWriter file = new FileWriter(MinidumpUtils.DUMP_FILE_FULL_PATH)) {
             file.write(jsonMinidump);
         } catch (IOException e) {
             LOG.info("failed to save minidump file", e);
@@ -189,7 +207,6 @@ public class MinidumpUtils {
         connectContext.setSessionVariable(minidump.getSessionVariable());
         connectContext.setTables(minidump.getTables());
         connectContext.setDatabase(minidump.getDbName());
-        connectContext.getSessionVariable().setEnableMinidump(false);
         connectContext.getSessionVariable().setPlanNereidsDump(true);
         connectContext.getSessionVariable().enableNereidsTimeout = false;
     }
@@ -313,11 +330,11 @@ public class MinidumpUtils {
     public static void serializeOutputToDumpFile(Plan resultPlan) {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext.getSessionVariable().isPlayNereidsDump()
-                || !connectContext.getSessionVariable().isEnableMinidump()) {
+                || !MinidumpUtils.isDump()) {
             return;
         }
         connectContext.getMinidump().put("ResultPlan", ((AbstractPlan) resultPlan).toJson());
-        if (connectContext.getSessionVariable().isEnableMinidump()) {
+        if (MinidumpUtils.isDump()) {
             saveMinidumpString(connectContext.getMinidump(), DebugUtil.printId(connectContext.queryId()));
         }
     }
@@ -328,11 +345,11 @@ public class MinidumpUtils {
     public static void serializeOutputMessagesToDumpFile(String key, String value) {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext.getSessionVariable().isPlayNereidsDump()
-                || !connectContext.getSessionVariable().isEnableMinidump()) {
+                || !MinidumpUtils.isDump()) {
             return;
         }
         connectContext.getMinidump().put(key, value);
-        if (connectContext.getSessionVariable().isEnableMinidump()) {
+        if (MinidumpUtils.isDump()) {
             saveMinidumpString(connectContext.getMinidump(), DebugUtil.printId(connectContext.queryId()));
         }
     }
@@ -533,15 +550,10 @@ public class MinidumpUtils {
         ConnectContext connectContext = ConnectContext.get();
         // when playing minidump file, we do not save input again.
         if (connectContext.getSessionVariable().isPlayNereidsDump()
-                || !connectContext.getSessionVariable().isEnableMinidump()) {
+                || !MinidumpUtils.isDump()) {
             return;
         }
 
-        if (!connectContext.getSessionVariable().getMinidumpPath().equals("")) {
-            MinidumpUtils.DUMP_PATH = connectContext.getSessionVariable().getMinidumpPath();
-        } else {
-            connectContext.getSessionVariable().setMinidumpPath("defaultMinidumpPath");
-        }
         MinidumpUtils.init();
         connectContext.setMinidump(serializeInputs(parsedPlan, tables));
     }

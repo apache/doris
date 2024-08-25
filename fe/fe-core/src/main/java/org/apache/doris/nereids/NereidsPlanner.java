@@ -623,6 +623,9 @@ public class NereidsPlanner extends Planner {
                 }
                 plan += mvSummary;
                 break;
+            case DUMP:
+                plan = MinidumpUtils.getDumpFileFullPath() + "\n" + statementContext.getOriginStatement().originStmt;
+                break;
             default:
                 plan = super.getExplainString(explainOptions);
                 plan += mvSummary;

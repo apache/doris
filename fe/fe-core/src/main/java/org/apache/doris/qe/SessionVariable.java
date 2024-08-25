@@ -431,8 +431,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String JOIN_REORDER_TIME_LIMIT = "join_order_time_limit";
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
 
-    public static final String ENABLE_MINIDUMP = "enable_minidump";
-
     public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
 
     public static final String MINIDUMP_PATH = "minidump_path";
@@ -1594,9 +1592,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DPHYPER_LIMIT)
     public int dphyperLimit = 1000;
 
-    @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
-    public boolean enableMinidump = false;
-
 
     @VariableMgr.VarAttr(
             name = ENABLE_PAGE_CACHE,
@@ -1608,9 +1603,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = false;
-
-    @VariableMgr.VarAttr(name = MINIDUMP_PATH)
-    public String minidumpPath = "";
 
     @VariableMgr.VarAttr(name = TRACE_NEREIDS)
     public boolean traceNereids = false;
@@ -4000,22 +3992,6 @@ public class SessionVariable implements Serializable, Writable {
             }
         }
         return "";
-    }
-
-    public boolean isEnableMinidump() {
-        return enableMinidump;
-    }
-
-    public void setEnableMinidump(boolean enableMinidump) {
-        this.enableMinidump = enableMinidump;
-    }
-
-    public String getMinidumpPath() {
-        return minidumpPath;
-    }
-
-    public void setMinidumpPath(String minidumpPath) {
-        this.minidumpPath = minidumpPath;
     }
 
     public boolean isTraceNereids() {
