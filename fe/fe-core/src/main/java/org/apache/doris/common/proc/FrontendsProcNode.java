@@ -171,6 +171,15 @@ public class FrontendsProcNode implements ProcNodeInterface {
         }
     }
 
+    public static String getCurrentFrontendVersion(Env env) {
+        for (Frontend fe : env.getFrontends(null /* all */)) {
+            if (fe.getHost().equals(env.getSelfNode().getHost())) {
+                return fe.getVersion();
+            }
+        }
+        return null;
+    }
+
     public static void getFrontendsDiskInfo(Env env, List<List<String>> infos) {
         for (Frontend fe : env.getFrontends(null /* all */)) {
             if (fe.getDiskInfos() != null) {

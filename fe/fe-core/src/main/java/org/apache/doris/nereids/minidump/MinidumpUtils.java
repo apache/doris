@@ -24,7 +24,9 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -76,6 +78,8 @@ public class MinidumpUtils {
 
     private static boolean dump = false;
 
+    private static final int FE_VERSION_PREFIX_LENGTH = 13;
+
     public static void openDump() {
         dump = true;
     }
@@ -92,7 +96,9 @@ public class MinidumpUtils {
      * Saving of minidump file to fe log path
      */
     public static void saveMinidumpString(JSONObject minidump, String dumpName) {
-        String dumpPath = MinidumpUtils.DUMP_PATH + "/" + dumpName;
+        String feVersion = FrontendsProcNode.getCurrentFrontendVersion(Env.getCurrentEnv())
+                .substring(FE_VERSION_PREFIX_LENGTH);
+        String dumpPath = MinidumpUtils.DUMP_PATH + File.separator + feVersion + "_" + dumpName;
         MinidumpUtils.DUMP_FILE_FULL_PATH = dumpPath + ".json";
         String jsonMinidump = minidump.toString(4);
         try (FileWriter file = new FileWriter(MinidumpUtils.DUMP_FILE_FULL_PATH)) {
@@ -216,7 +222,13 @@ public class MinidumpUtils {
      * @param minidumpPath path of minidump file
      * @return minidump messages in memory
      */
-    public static Minidump loadMinidumpInputs(String minidumpPath) {
+    public static Minidump loadMinidumpInputs(String minidumpPath) throws AnalysisException {
+        String feVersion = FrontendsProcNode.getCurrentFrontendVersion(Env.getCurrentEnv())
+                .substring(FE_VERSION_PREFIX_LENGTH);
+        String dumpVersion = minidumpPath.substring(minidumpPath.length() - 49, minidumpPath.length() - 39);
+        if (!feVersion.equals(dumpVersion)) {
+            throw new AnalysisException("fe version:" + feVersion + " does not match dump fe version: " + dumpVersion);
+        }
         Minidump minidump = null;
         try {
             minidump = MinidumpUtils.jsonMinidumpLoad(minidumpPath);
@@ -329,26 +341,10 @@ public class MinidumpUtils {
      */
     public static void serializeOutputToDumpFile(Plan resultPlan) {
         ConnectContext connectContext = ConnectContext.get();
-        if (connectContext.getSessionVariable().isPlayNereidsDump()
-                || !MinidumpUtils.isDump()) {
+        if (connectContext.getSessionVariable().isPlayNereidsDump()) {
             return;
         }
         connectContext.getMinidump().put("ResultPlan", ((AbstractPlan) resultPlan).toJson());
-        if (MinidumpUtils.isDump()) {
-            saveMinidumpString(connectContext.getMinidump(), DebugUtil.printId(connectContext.queryId()));
-        }
-    }
-
-    /**
-     * serialize output plan to dump file and persistent into disk
-     */
-    public static void serializeOutputMessagesToDumpFile(String key, String value) {
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext.getSessionVariable().isPlayNereidsDump()
-                || !MinidumpUtils.isDump()) {
-            return;
-        }
-        connectContext.getMinidump().put(key, value);
         if (MinidumpUtils.isDump()) {
             saveMinidumpString(connectContext.getMinidump(), DebugUtil.printId(connectContext.queryId()));
         }
@@ -549,8 +545,7 @@ public class MinidumpUtils {
             throws IOException {
         ConnectContext connectContext = ConnectContext.get();
         // when playing minidump file, we do not save input again.
-        if (connectContext.getSessionVariable().isPlayNereidsDump()
-                || !MinidumpUtils.isDump()) {
+        if (connectContext.getSessionVariable().isPlayNereidsDump()) {
             return;
         }
 
