@@ -317,12 +317,11 @@ struct TQueryOptions {
 
   118: optional TSerdeDialect serde_dialect = TSerdeDialect.DORIS;
 
-  119: optional bool enable_match_without_inverted_index = true;
+  119: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV.
 
-  120: optional bool enable_fallback_on_missing_inverted_index = true;
-
-  121: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV.
-
+  120: optional bool enable_match_without_inverted_index = true;
+  121: optional bool enable_fallback_on_missing_inverted_index = true;
+  
   122: optional i32 runtime_bloom_filter_min_size = 1048576;
 
   //Access Parquet/ORC columns by name by default. Set this property to `false` to access columns
