@@ -96,7 +96,7 @@ public class TableInfo implements Writable {
 
     public static TableInfo createForPartitionRename(long dbId, long tableId, long partitionId,
                                                      String oldPartitionName, String newPartitionName) {
-            return new TableInfo(dbId, tableId, -1L, partitionId, "", "", "", "", newPartitionName, oldPartitionName);
+        return new TableInfo(dbId, tableId, -1L, partitionId, "", "", "", "", newPartitionName, oldPartitionName);
     }
 
     public static TableInfo createForModifyDistribution(long dbId, long tableId) {
