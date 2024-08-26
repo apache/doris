@@ -514,11 +514,6 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     return Status::OK();
 }
 
-// return true if there is any flying segcompaction, otherwise return false
-bool BetaRowsetWriter::_check_and_set_is_doing_segcompaction() {
-    return _is_doing_segcompaction.exchange(true);
-}
-
 Status BetaRowsetWriter::_segcompaction_if_necessary() {
     Status status = Status::OK();
     // if not doing segcompaction, just check segment number
@@ -527,9 +522,9 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
         _context.tablet_schema->num_variant_columns() > 0) {
         return _check_segment_number_limit(_num_segment);
     }
-    // leave _check_and_set_is_doing_segcompaction as the last condition
+    // leave _is_doing_segcompaction as the last condition
     // otherwise _segcompacting_cond will never get notified
-    if (_check_and_set_is_doing_segcompaction()) {
+    if (_is_doing_segcompaction.exchange(true)) {
         return status;
     }
     if (_segcompaction_status.load() != OK) {
