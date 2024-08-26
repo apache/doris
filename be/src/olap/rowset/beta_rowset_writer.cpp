@@ -532,7 +532,7 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
                 "BetaRowsetWriter::_segcompaction_if_necessary meet invalid state, error code: {}",
                 _segcompaction_status.load());
     } else {
-        status = _check_segment_number_limit(_segcompacted_point);
+        status = _check_segment_number_limit(_num_segcompacted);
     }
     if (status.ok() && (_num_segment - _segcompacted_point) >= config::segcompaction_batch_size) {
         SegCompactionCandidatesSharedPtr segments;
