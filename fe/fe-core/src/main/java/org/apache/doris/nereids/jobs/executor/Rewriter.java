@@ -421,7 +421,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("eliminate",
                         // SORT_PRUNING should be applied after mergeLimit
                         custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
-<<<<<<< HEAD
                         bottomUp(
                                 new EliminateEmptyRelation(),
                                 // after eliminate empty relation under union, we could get
@@ -433,9 +432,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new PushDownFilterThroughProject(),
                                 new PushDownProjectThroughLimit(),
                                 new MergeProjects())
-=======
-                        bottomUp(new EliminateEmptyRelation())
->>>>>>> 7404c6ecc7 ([Feat](nereids) support pull up predicate from set operator)
                 ),
                 topic("agg rewrite",
                     // these rules should be put after mv optimization to avoid mv matching fail

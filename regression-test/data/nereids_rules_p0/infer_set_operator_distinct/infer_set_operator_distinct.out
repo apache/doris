@@ -403,15 +403,10 @@ SyntaxError:
 -- !with_hint_except_with_filter --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalExcept
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[LOCAL]
-----------filter((t1.id > 100))
-------------PhysicalOlapScan[t1]
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[LOCAL]
-----------filter((t2.id < 50))
-------------PhysicalOlapScan[t2]
+----PhysicalProject
+------hashAgg[LOCAL]
+--------filter((t1.id > 100))
+----------PhysicalOlapScan[t1]
 
 Hint log:
 Used: use_INFER_SET_OPERATOR_DISTINCT
