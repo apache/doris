@@ -121,7 +121,7 @@ Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
         {
             std::vector<StringRef> strs(row_num);
             int idx = 0;
-            for (auto& it : _var_result.variables) {
+            for (auto& it : _var_result.variables_list) {
                 strs[idx] = StringRef(it[0].c_str(), it[0].size());
                 datas[idx] = strs.data() + idx;
                 ++idx;
@@ -132,7 +132,7 @@ Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
         {
             std::vector<StringRef> strs(row_num);
             int idx = 0;
-            for (auto& it : _var_result.variables) {
+            for (auto& it : _var_result.variables_list) {
                 strs[idx] = StringRef(it[1].c_str(), it[1].size());
                 datas[idx] = strs.data() + idx;
                 ++idx;
@@ -143,7 +143,7 @@ Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
         {
             std::vector<StringRef> strs(row_num);
             int idx = 0;
-            for (auto& it : _var_result.variables) {
+            for (auto& it : _var_result.variables_list) {
                 strs[idx] = StringRef(it[2].c_str(), it[2].size());
                 datas[idx] = strs.data() + idx;
                 ++idx;
@@ -154,7 +154,7 @@ Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
         {
             std::vector<StringRef> strs(row_num);
             int idx = 0;
-            for (auto& it : _var_result.variables) {
+            for (auto& it : _var_result.variables_list) {
                 strs[idx] = StringRef(it[3].c_str(), it[3].size());
                 datas[idx] = strs.data() + idx;
                 ++idx;
