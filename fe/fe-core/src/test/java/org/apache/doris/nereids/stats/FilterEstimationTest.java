@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -175,6 +176,80 @@ class FilterEstimationTest {
         Assertions.assertEquals(100, aStatsEst.minValue);
         Assertions.assertEquals(200, aStatsEst.maxValue);
         Assertions.assertEquals(10, aStatsEst.ndv);
+    }
+
+    @Test
+    public void knownEqualToUnknown() {
+        SlotReference ym = new SlotReference("a", new VarcharType(7));
+        double rowCount = 404962.0;
+        double ndv = 14.0;
+        ColumnStatistic ymStats = new ColumnStatisticBuilder()
+                .setCount(rowCount)
+                .setNdv(ndv)
+                .setMinExpr(new StringLiteral("2023-07"))
+                .setMinValue(14126741000630328.000000)
+                .setMaxExpr(new StringLiteral("2024-08"))
+                .setMaxValue(14126741017407544.000000)
+                .setAvgSizeByte(7)
+                .build();
+        Statistics stats = new StatisticsBuilder()
+                .setRowCount(404962).putColumnStatistics(ym, ymStats)
+                .build();
+
+        EqualTo predicate = new EqualTo(ym,
+                new Left(new org.apache.doris.nereids.trees.expressions.literal.StringLiteral("2024-08-14"),
+                        new IntegerLiteral(7))
+        );
+        FilterEstimation filterEstimation = new FilterEstimation();
+        Statistics outStats = filterEstimation.estimate(predicate, stats);
+        Assertions.assertEquals(rowCount / ndv, outStats.getRowCount());
+    }
+
+    @Test
+    public void knownEqualToUnknownWithLittleNdv() {
+        SlotReference ym = new SlotReference("a", new VarcharType(7));
+        double rowCount = 404962.0;
+        double ndv = 0.5;
+        ColumnStatistic ymStats = new ColumnStatisticBuilder()
+                .setCount(rowCount)
+                .setNdv(ndv)
+                .setMinExpr(new StringLiteral("2023-07"))
+                .setMinValue(14126741000630328.000000)
+                .setMaxExpr(new StringLiteral("2024-08"))
+                .setMaxValue(14126741017407544.000000)
+                .setAvgSizeByte(7)
+                .build();
+        Statistics stats = new StatisticsBuilder()
+                .setRowCount(404962).putColumnStatistics(ym, ymStats)
+                .build();
+
+        EqualTo predicate = new EqualTo(ym,
+                new Left(new org.apache.doris.nereids.trees.expressions.literal.StringLiteral("2024-08-14"),
+                        new IntegerLiteral(7))
+        );
+        FilterEstimation filterEstimation = new FilterEstimation();
+        Statistics outStats = filterEstimation.estimate(predicate, stats);
+        Assertions.assertEquals(rowCount * FilterEstimation.DEFAULT_INEQUALITY_COEFFICIENT,
+                outStats.getRowCount());
+    }
+
+    @Test
+    public void unknownEqualToUnknown() {
+        SlotReference ym = new SlotReference("a", new VarcharType(7));
+        ColumnStatistic ymStats = ColumnStatistic.UNKNOWN;
+        double rowCount = 404962.0;
+        Statistics stats = new StatisticsBuilder()
+                .setRowCount(rowCount).putColumnStatistics(ym, ymStats)
+                .build();
+
+        EqualTo predicate = new EqualTo(ym,
+                new Left(new org.apache.doris.nereids.trees.expressions.literal.StringLiteral("2024-08-14"),
+                        new IntegerLiteral(7))
+        );
+        FilterEstimation filterEstimation = new FilterEstimation();
+        Statistics outStats = filterEstimation.estimate(predicate, stats);
+        Assertions.assertEquals(rowCount * FilterEstimation.DEFAULT_INEQUALITY_COEFFICIENT,
+                outStats.getRowCount());
     }
 
     // a > 500 and b < 100 or a = c
