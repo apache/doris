@@ -183,8 +183,15 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
             uint32_t start = local_state._partition_rows_histogram[i];
             uint32_t size = local_state._partition_rows_histogram[i + 1] - start;
             if (size > 0) {
-                _enqueue_data_and_set_ready(i % _num_sources, local_state,
-                                            {new_block_wrapper, {row_idx, start, size}});
+                local_state._shared_state->add_mem_usage(
+                        i % _num_sources, new_block_wrapper->data_block.allocated_bytes(), false);
+                if (!_enqueue_data_and_set_ready(i % _num_sources, local_state,
+                                                 {new_block_wrapper, {row_idx, start, size}})) {
+                    local_state._shared_state->sub_mem_usage(
+                            i % _num_sources, new_block_wrapper->data_block.allocated_bytes(),
+                            false);
+                    new_block_wrapper->unref(local_state._shared_state);
+                }
             } else {
                 new_block_wrapper->unref(local_state._shared_state);
             }
@@ -204,8 +211,15 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
             uint32_t start = local_state._partition_rows_histogram[it.first];
             uint32_t size = local_state._partition_rows_histogram[it.first + 1] - start;
             if (size > 0) {
-                _enqueue_data_and_set_ready(it.second, local_state,
-                                            {new_block_wrapper, {row_idx, start, size}});
+                local_state._shared_state->add_mem_usage(
+                        it.second, new_block_wrapper->data_block.allocated_bytes(), false);
+
+                if (!_enqueue_data_and_set_ready(it.second, local_state,
+                                                 {new_block_wrapper, {row_idx, start, size}})) {
+                    local_state._shared_state->sub_mem_usage(
+                            it.second, new_block_wrapper->data_block.allocated_bytes(), false);
+                    new_block_wrapper->unref(local_state._shared_state);
+                }
             } else {
                 new_block_wrapper->unref(local_state._shared_state);
             }
