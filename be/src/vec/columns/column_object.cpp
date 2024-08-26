@@ -1704,8 +1704,7 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
     if (!is_finalized()) {
         auto finalized = clone_finalized();
         auto& finalized_object = assert_cast<ColumnObject&>(*finalized);
-        return finalized_object.apply_for_subcolumns(
-                [&](const auto& subcolumn) { return subcolumn.filter(filter, count); });
+        return finalized_object.filter(filter, count);
     }
     if (subcolumns.empty()) {
         // Add an emtpy column with filtered rows
@@ -1715,7 +1714,7 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
     }
     auto new_column = ColumnObject::create(true, false);
     for (auto& entry : subcolumns) {
-        auto subcolumn = entry->data.get_finalized_column().filter(filter, count);
+        auto subcolumn = entry->data.get_finalized_column().filter(filter, -1);
         new_column->add_sub_column(entry->path, subcolumn->assume_mutable(),
                                    entry->data.get_least_common_type());
     }
