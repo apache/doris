@@ -98,6 +98,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NereidsException;
+import org.apache.doris.common.NotSupportPreparedStmtError;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.profile.Profile;
@@ -873,6 +874,9 @@ public class StmtExecutor {
             // the exception happens when interact with client
             // this exception shows the connection is gone
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
+            throw e;
+        } catch (NotSupportPreparedStmtError e) {
+            // just throw
             throw e;
         } catch (UserException e) {
             // analysis exception only print message, not print the stack
