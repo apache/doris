@@ -609,8 +609,8 @@ public class BackupJob extends AbstractJob {
                 }
             }
 
-            LOG.info("snapshot for partition {}, version: {}",
-                    partition.getId(), visibleVersion);
+            LOG.info("snapshot for partition {}, version: {}, job: {}",
+                    partition.getId(), visibleVersion, label);
         }
         return Status.OK;
     }
