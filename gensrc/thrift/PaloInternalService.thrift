@@ -333,6 +333,9 @@ struct TQueryOptions {
 
   126: optional i32 runtime_bloom_filter_max_size = 16777216;
 
+  128: optional bool enable_adaptive_pipeline_task_serial_read_on_limit = true;
+  129: optional i32 adaptive_pipeline_task_serial_read_on_limit = 8192;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

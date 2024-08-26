@@ -1386,12 +1386,6 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
         : OperatorX<LocalStateType>(pool, tnode, operator_id, descs),
           _runtime_filter_descs(tnode.runtime_filters),
           _parallel_tasks(parallel_tasks) {
-    if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
-        // Which means the request could be fullfilled in a single segment iterator request.
-        if (tnode.limit > 0 && tnode.limit < 1024) {
-            _should_run_serial = true;
-        }
-    }
     if (tnode.__isset.push_down_count) {
         _push_down_count = tnode.push_down_count;
     }
@@ -1424,6 +1418,31 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
     if (tnode.__isset.topn_filter_source_node_ids) {
         topn_filter_source_node_ids = tnode.topn_filter_source_node_ids;
     }
+
+    // The first branch is kept for compatibility with the old version of the FE
+    if (!state->query_options().__isset.enable_adaptive_pipeline_task_serial_read_on_limit) {
+        if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
+            // Which means the request could be fullfilled in a single segment iterator request.
+            if (tnode.limit > 0 && tnode.limit <= 8192) {
+                _should_run_serial = true;
+            }
+        }
+    } else {
+        if (state->query_options().enable_adaptive_pipeline_task_serial_read_on_limit) {
+            int32_t adaptive_pipeline_task_serial_read_on_limit = 8192;
+            if (state->query_options().__isset.adaptive_pipeline_task_serial_read_on_limit) {
+                adaptive_pipeline_task_serial_read_on_limit =
+                        state->query_options().adaptive_pipeline_task_serial_read_on_limit;
+            }
+
+            LOG_INFO("tnode.limit{}, adaptive_pipeline_task_serial_read_on_limit: {}", tnode.limit,
+                     adaptive_pipeline_task_serial_read_on_limit);
+            if (tnode.limit > 0 && tnode.limit <= adaptive_pipeline_task_serial_read_on_limit) {
+                _should_run_serial = true;
+            }
+        }
+    }
+
     return Status::OK();
 }
 

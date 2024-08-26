@@ -739,8 +739,20 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     }
 
     public boolean shouldUseOneInstance(ConnectContext ctx) {
-        long limitRowsForSingleInstance = ctx == null ? 10000 : ctx.getSessionVariable().limitRowsForSingleInstance;
-        return hasLimit() && getLimit() < limitRowsForSingleInstance && conjuncts.isEmpty();
+        long adaptivePipelineTaskSerialReadOnLimit = 8192;
+
+        if (ctx != null) {
+            if (ctx.getSessionVariable().enableAdaptivePipelineTaskSerialReadOnLimit) {
+                adaptivePipelineTaskSerialReadOnLimit = ctx.getSessionVariable().adaptivePipelineTaskSerialReadOnLimit;
+            } else {
+                return false;
+            }
+        } else {
+            // No connection context, typically for broker load.
+            adaptivePipelineTaskSerialReadOnLimit = 8192;
+        }
+
+        return hasLimit() && getLimit() < adaptivePipelineTaskSerialReadOnLimit && conjuncts.isEmpty();
     }
 
     // In cloud mode, meta read lock is not enough to keep a snapshot of the partition versions.

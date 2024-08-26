@@ -650,6 +650,11 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATCH_WITHOUT_INVERTED_INDEX = "enable_match_without_inverted_index";
     public static final String ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX = "enable_fallback_on_missing_inverted_index";
 
+    public static final String ENABLE_ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT =
+                                    "enable_adaptive_pipeline_task_serial_read_on_limit";
+    public static final String ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT =
+                                    "adaptive_pipeline_task_serial_read_on_limit";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -1246,13 +1251,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = NTH_OPTIMIZED_PLAN)
     private int nthOptimizedPlan = 1;
 
-    @VariableMgr.VarAttr(name = LIMIT_ROWS_FOR_SINGLE_INSTANCE,
-            description = {"当一个 ScanNode 上没有过滤条件，且 limit 值小于这个阈值时，"
-                    + "系统会将这个算子的并发度调整为1，以减少简单查询的扇出",
-                    "When a ScanNode has no filter conditions and the limit value is less than this threshold, "
-                            + "the system will adjust the concurrency of this operator to 1 "
-                            + "to reduce the fan-out of simple queries"})
-    public long limitRowsForSingleInstance = 10000;
+    @VariableMgr.VarAttr(name = LIMIT_ROWS_FOR_SINGLE_INSTANCE, setter = "setLimitRowsForSingleInstance",
+            description = {
+                "请使用 adaptive_pipeline_task_serial_read_on_limit",
+                "Please use adaptive_pipeline_task_serial_read_on_limit"})
+    public long limitRowsForSingleInstance = 8192;
 
     public boolean isEnableLeftZigZag() {
         return enableLeftZigZag;
@@ -2108,6 +2111,22 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean enableFallbackOnMissingInvertedIndex = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT, needForward = true, description = {
+        "开启后将会允许自动调整 pipeline task 的并发数。当 scan 节点没有过滤条件，且 limit 参数小于"
+            + "adaptive_pipeline_task_serial_read_on_limit 中指定的行数时，scan 的并行度将会被设置为 1",
+        "When enabled, the pipeline task concurrency will be adjusted automatically. When the scan node has no filter "
+            + "conditions and the limit parameter is less than the number of rows specified in "
+            + "adaptive_pipeline_task_serial_read_on_limit, the parallelism of the scan will be set to 1."
+    })
+    public boolean enableAdaptivePipelineTaskSerialReadOnLimit = true;
+
+    @VariableMgr.VarAttr(name = ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT, needForward = true, description = {
+        "当 enable_adaptive_pipeline_task_serial_read_on_limit 开启时，scan 的并行度将会被设置为 1 的行数阈值",
+            "When enable_adaptive_pipeline_task_serial_read_on_limit is enabled, "
+            + "the number of rows at which the parallelism of the scan will be set to 1."
+    })
+    public int adaptivePipelineTaskSerialReadOnLimit = 8196;
+
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
     }
@@ -2650,6 +2669,10 @@ public class SessionVariable implements Serializable, Writable {
     public void setFragmentInstanceNum(String value) throws Exception {
         int val = checkFieldValue(PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, 1, value);
         this.parallelExecInstanceNum = val;
+    }
+
+    public void setLimitRowsForSingleInstance() throws Exception {
+        throw new Exception("Use adaptive_pipeline_task_serial_read_on_limit instead.");
     }
 
     private int checkFieldValue(String variableName, int minValue, String value) throws Exception {
