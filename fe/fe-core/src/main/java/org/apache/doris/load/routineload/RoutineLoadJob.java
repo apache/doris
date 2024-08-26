@@ -1084,9 +1084,6 @@ public abstract class RoutineLoadJob
     @Override
     public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException {
         long taskBeId = -1L;
-        if (Config.isCloudMode()) {
-            writeLock();
-        }
         try {
             if (txnOperated) {
                 // find task in job
