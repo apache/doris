@@ -117,7 +117,7 @@ public:
                 }
             }
             _partitioner.reset(
-                    _type == ExchangeType::HASH_SHUFFLE
+                    _type == ExchangeType::HASH_SHUFFLE || _bucket_seq_to_instance_idx.empty()
                             ? new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
                                       _num_partitions)
                             : new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
