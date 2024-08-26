@@ -1360,6 +1360,8 @@ DECLARE_mBool(enable_parquet_page_index);
 // Default is true, if set to false, the not found file will result in query failure.
 DECLARE_mBool(ignore_not_found_file_in_external_table);
 
+DECLARE_mInt64(tablet_meta_serialize_size_limit);
+
 DECLARE_mInt64(pipeline_task_leakage_detect_period_secs);
 
 #ifdef BE_TEST
