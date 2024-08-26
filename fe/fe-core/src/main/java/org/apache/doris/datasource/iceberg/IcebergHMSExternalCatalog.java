@@ -44,7 +44,7 @@ public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {
         Map<String, String> catalogProperties = catalogProperty.getProperties();
         String metastoreUris = catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
         catalogProperties.put(CatalogProperties.URI, metastoreUris);
-        hiveCatalog.initialize(icebergCatalogType, catalogProperties);
+        hiveCatalog.initialize(getName(), catalogProperties);
         catalog = hiveCatalog;
     }
 }
