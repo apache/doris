@@ -244,22 +244,13 @@ public:
         thread_mem_tracker_mgr->consume(size, skip_large_memory_check);
     }
 
-    bool try_reserve_memory(const int64_t size, std::string& err_msg) const {
+    doris::Status try_reserve_memory(const int64_t size, bool print_log = false) const {
 #ifdef USE_MEM_TRACKER
         DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
                thread_mem_tracker()->label() != "Orphan")
                 << doris::memory_orphan_check_msg;
 #endif
-        return thread_mem_tracker_mgr->try_reserve(size, err_msg);
-    }
-
-    bool try_reserve_memory(const int64_t size, bool print_err_msg = false) const {
-#ifdef USE_MEM_TRACKER
-        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
-               thread_mem_tracker()->label() != "Orphan")
-                << doris::memory_orphan_check_msg;
-#endif
-        return thread_mem_tracker_mgr->try_reserve(size, print_err_msg);
+        return thread_mem_tracker_mgr->try_reserve(size, print_log);
     }
 
     void release_reserved_memory() const {
