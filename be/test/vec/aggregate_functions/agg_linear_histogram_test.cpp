@@ -237,24 +237,25 @@ public:
         EXPECT_EQ(column_result2->size(), 1);
         EXPECT_TRUE(column_result2->get_offsets()[0] >= 1);
 
-        // GTEST_LOG_(INFO) << column_result1->get_data_at(0).to_string();
-        // GTEST_LOG_(INFO) << column_result2->get_data_at(0).to_string();
+        std::string result1 = column_result1->get_data_at(0).to_string();
+        std::string result2 = column_result2->get_data_at(0).to_string();
 
+        expect_eq(input_rows, interval, offset, result1, result2);
+    }
+
+    void expect_eq(size_t input_rows, double interval, double offset, std::string& result1,
+                   std::string& result2) {
         // test empty data
         if (input_rows == 0) {
             std::string expect_empty_result = "{\"num_buckets\":0,\"buckets\":[]}";
-            std::string empty_result1 = column_result1->get_data_at(0).to_string();
-            std::string empty_result2 = column_result2->get_data_at(0).to_string();
-            EXPECT_EQ(empty_result1, expect_empty_result);
-            EXPECT_EQ(empty_result2, expect_empty_result);
+            EXPECT_EQ(result1, expect_empty_result);
+            EXPECT_EQ(result2, expect_empty_result);
         }
 
         // test with data
         if (input_rows == 100 && interval == 10 && offset == 0) {
             std::string expect_result1 = s1;
             std::string expect_result2 = s2;
-            std::string result1 = column_result1->get_data_at(0).to_string();
-            std::string result2 = column_result2->get_data_at(0).to_string();
             EXPECT_EQ(result1, expect_result1);
             EXPECT_EQ(result2, expect_result2);
         }
@@ -262,8 +263,6 @@ public:
         if (input_rows == 100 && interval == 10 && offset == 5) {
             std::string expect_result1 = s3;
             std::string expect_result2 = s4;
-            std::string result1 = column_result1->get_data_at(0).to_string();
-            std::string result2 = column_result2->get_data_at(0).to_string();
             EXPECT_EQ(result1, expect_result1);
             EXPECT_EQ(result2, expect_result2);
         }
@@ -271,8 +270,6 @@ public:
         if (input_rows == 5 && interval == 0.5 && offset == 0) {
             std::string expect_result1 = s5;
             std::string expect_result2 = s6;
-            std::string result1 = column_result1->get_data_at(0).to_string();
-            std::string result2 = column_result2->get_data_at(0).to_string();
             EXPECT_EQ(result1, expect_result1);
             EXPECT_EQ(result2, expect_result2);
         }
@@ -280,8 +277,6 @@ public:
         if (input_rows == 5 && interval == 0.5 && offset == 0.25) {
             std::string expect_result1 = s7;
             std::string expect_result2 = s8;
-            std::string result1 = column_result1->get_data_at(0).to_string();
-            std::string result2 = column_result2->get_data_at(0).to_string();
             EXPECT_EQ(result1, expect_result1);
             EXPECT_EQ(result2, expect_result2);
         }
