@@ -86,7 +86,7 @@ public class RestBaseController extends BaseController {
         try {
             urlObj = new URI(urlStr);
             resultUriObj = new URI("http", userInfo, addr.getHostname(),
-                    addr.getPort(), urlObj.getPath(),"", null);
+                    addr.getPort(), urlObj.getPath(), "", null);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
