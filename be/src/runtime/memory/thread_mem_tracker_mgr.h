@@ -95,7 +95,7 @@ public:
     void consume(int64_t size, int skip_large_memory_check = 0);
     void flush_untracked_mem();
 
-    doris::Status try_reserve(int64_t size, bool print_log);
+    doris::Status try_reserve(int64_t size);
 
     void release_reserved();
 
@@ -296,7 +296,7 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     _stop_consume = false;
 }
 
-inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size, bool print_log) {
+inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
     DCHECK(_limiter_tracker_raw);
     DCHECK(size >= 0);
     CHECK(init());
@@ -309,9 +309,6 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size, bool print_l
                 "reserve memory failed, size: {}, because memory tracker consumption: {}, limit: "
                 "{}",
                 size, _limiter_tracker_raw->consumption(), _limiter_tracker_raw->limit());
-        if (print_log) {
-            LOG(INFO) << err_msg;
-        }
         return doris::Status::MemoryLimitExceeded(err_msg);
     }
     auto wg_ptr = _wg_wptr.lock();
@@ -320,9 +317,6 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size, bool print_l
             err_msg = fmt::format("reserve memory failed, size: {}, because {}", size,
                                   wg_ptr->memory_debug_string());
             _limiter_tracker_raw->release(size); // rollback
-            if (print_log) {
-                LOG(INFO) << err_msg;
-            }
             return doris::Status::MemoryLimitExceeded(err_msg);
         }
     }
@@ -332,9 +326,6 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size, bool print_l
         _limiter_tracker_raw->release(size); // rollback
         if (wg_ptr) {
             wg_ptr->sub_wg_refresh_interval_memory_growth(size); // rollback
-        }
-        if (print_log) {
-            LOG(INFO) << err_msg;
         }
         return doris::Status::MemoryLimitExceeded(err_msg);
     }
