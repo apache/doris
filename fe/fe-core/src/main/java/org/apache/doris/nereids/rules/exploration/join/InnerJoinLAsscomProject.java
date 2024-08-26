@@ -98,7 +98,7 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     newTopHashConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     newTopOtherConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     Plan left = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
-                    Plan right = CBOUtils.newProject(topUsedExprIds, b);
+                    Plan right = CBOUtils.newProjectIfNeeded(topUsedExprIds, b);
 
                     LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(newTopHashConjuncts,
                             newTopOtherConjuncts, left, right, null);

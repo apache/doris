@@ -79,8 +79,8 @@ PhysicalResultSink
 -- !pushdown_multiple_joins --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----hashJoin[INNER_JOIN bucketShuffle] hashCondition=((id2 = id3)) otherCondition=((id2 < id3))
-------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((id1 = id2)) otherCondition=((id1 > id2))
+----hashJoin[INNER_JOIN broadcast] hashCondition=((id2 = id3)) otherCondition=((id2 < id3))
+------hashJoin[INNER_JOIN broadcast] hashCondition=((id1 = id2)) otherCondition=((id1 > id2))
 --------PhysicalProject
 ----------PhysicalOlapScan[t1]
 --------PhysicalProject
@@ -91,9 +91,9 @@ PhysicalResultSink
 -- !pushdown_multiple_joins --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----hashJoin[LEFT_SEMI_JOIN bucketShuffle] hashCondition=((id3 = t4.id)) otherCondition=()
+----hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((id3 = t4.id)) otherCondition=()
 ------hashJoin[RIGHT_OUTER_JOIN shuffle] hashCondition=((id2 = id3)) otherCondition=()
---------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((id1 = id2)) otherCondition=()
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((id1 = id2)) otherCondition=()
 ----------PhysicalProject
 ------------PhysicalOlapScan[t1]
 ----------PhysicalProject

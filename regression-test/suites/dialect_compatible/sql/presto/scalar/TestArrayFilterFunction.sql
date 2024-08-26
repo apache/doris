@@ -1,0 +1,52 @@
+set sql_dialect='presto';
+set enable_fallback_to_original_planner=false;
+set debug_skip_fold_constant=false;
+-- SELECT filter(ARRAY[5, 6], x -> x = 5); # differ: doris : [5], presto : [5]
+-- SELECT filter(ARRAY[5 + random(1), 6 + random(1)], x -> x = 5); # differ: doris : [5], presto : [5]
+-- SELECT filter(ARRAY[true, false, true, false], x -> nullif(x, false)); # differ: doris : [1, 1], presto : [True, True]
+-- SELECT filter(ARRAY[true, false, null, true, false, null], x -> not x); # differ: doris : [0, 0], presto : [False, False]
+-- SELECT filter(ARRAY[TIMESTAMP '2020-05-10 12:34:56.123456789', TIMESTAMP '1111-05-10 12:34:56.123456789'], t -> year(t) = 1111); # differ: doris : ["1111-05-10 12:34:56"], presto : ['1111-05-10 12:34:56.123']
+-- SELECT filter(ARRAY[], x -> true); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ARRAY_FILTER(x -> TRUE, ARRAY<ARRAY>)	                                           ^	Encountered: )	Expected: IDENTIFIER	
+-- SELECT filter(ARRAY[], x -> false); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ARRAY_FILTER(x -> FALSE, ARRAY<ARRAY>)	                                            ^	Encountered: )	Expected: IDENTIFIER	
+-- SELECT filter(ARRAY[], x -> CAST(null AS boolean)); # error: errCode = 2, detailMessage = Syntax error in line 1:	... AS BOOLEAN), ARRAY<ARRAY>)	                             ^	Encountered: )	Expected: IDENTIFIER	
+-- SELECT filter(CAST(ARRAY[] AS array(integer)), x -> true); # error: errCode = 2, detailMessage = Syntax error in line 1:	...> TRUE, CAST(ARRAY<ARRAY> AS ARRAY<INT>))	                             ^	Encountered: AS	Expected: AS is keyword, maybe `AS`	
+-- SELECT filter(ARRAY[NULL], x -> x IS NULL); # differ: doris : [null], presto : [None]
+-- SELECT filter(ARRAY[NULL], x -> x IS NOT NULL); # differ: doris : [], presto : []
+-- SELECT filter(ARRAY[CAST(NULL AS integer)], x -> x IS NULL); # differ: doris : [null], presto : [None]
+-- SELECT filter(ARRAY[NULL, NULL, NULL], x -> x IS NULL); # differ: doris : [null, null, null], presto : [None, None, None]
+-- SELECT filter(ARRAY[NULL, NULL, NULL], x -> x IS NOT NULL); # differ: doris : [], presto : []
+-- SELECT filter(ARRAY[25, 26, NULL], x -> x % 2 = 1 OR x IS NULL); # differ: doris : [25, null], presto : [25, None]
+-- SELECT filter(ARRAY[25.6E0, 37.3E0, NULL], x -> x < 30.0E0 OR x IS NULL); # differ: doris : [25.6, null], presto : [25.6, None]
+-- SELECT filter(ARRAY[true, false, NULL], x -> NOT x OR x IS NULL); # differ: doris : [0, null], presto : [False, None]
+-- SELECT filter(ARRAY['abc', 'def', NULL], x -> substr(x, 1, 1) = 'a' OR x IS NULL); # differ: doris : ["abc", null], presto : ['abc', None]
+-- SELECT filter(ARRAY[ARRAY['abc', NULL, '123']], x -> x[2] IS NULL OR x IS NULL); # differ: doris : [["abc", null, "123"]], presto : [['abc', None, '123']]
+-- SELECT filter(ARRAY[25, 26, 27], x -> x % 2 = 1); # differ: doris : [25, 27], presto : [25, 27]
+-- SELECT filter(ARRAY[25.6E0, 37.3E0, 28.6E0], x -> x < 30.0E0); # differ: doris : [25.6, 28.6], presto : [25.6, 28.6]
+-- SELECT filter(ARRAY[true, false, true], x -> NOT x); # differ: doris : [0], presto : [False]
+-- SELECT filter(ARRAY['abc', 'def', 'ayz'], x -> substr(x, 1, 1) = 'a' OR x IS NULL); # differ: doris : ["abc", "ayz"], presto : ['abc', 'ayz']
+-- SELECT filter(ARRAY[ARRAY['abc', NULL, '123'], ARRAY ['def', 'x', '456']], x -> x[2] IS NULL); # differ: doris : [["abc", null, "123"]], presto : [['abc', None, '123']]
+set debug_skip_fold_constant=true;
+-- SELECT filter(ARRAY[5, 6], x -> x = 5); # differ: doris : [5], presto : [5]
+-- SELECT filter(ARRAY[5 + random(1), 6 + random(1)], x -> x = 5); # differ: doris : [5], presto : [5]
+-- SELECT filter(ARRAY[true, false, true, false], x -> nullif(x, false)); # differ: doris : [1, 1], presto : [True, True]
+-- SELECT filter(ARRAY[true, false, null, true, false, null], x -> not x); # differ: doris : [0, 0], presto : [False, False]
+-- SELECT filter(ARRAY[TIMESTAMP '2020-05-10 12:34:56.123456789', TIMESTAMP '1111-05-10 12:34:56.123456789'], t -> year(t) = 1111); # differ: doris : ["1111-05-10 12:34:56"], presto : ['1111-05-10 12:34:56.123']
+-- SELECT filter(ARRAY[], x -> true); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ARRAY_FILTER(x -> TRUE, ARRAY<ARRAY>)	                                           ^	Encountered: )	Expected: IDENTIFIER	
+-- SELECT filter(ARRAY[], x -> false); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ARRAY_FILTER(x -> FALSE, ARRAY<ARRAY>)	                                            ^	Encountered: )	Expected: IDENTIFIER	
+-- SELECT filter(ARRAY[], x -> CAST(null AS boolean)); # error: errCode = 2, detailMessage = Syntax error in line 1:	... AS BOOLEAN), ARRAY<ARRAY>)	                             ^	Encountered: )	Expected: IDENTIFIER	
+-- SELECT filter(CAST(ARRAY[] AS array(integer)), x -> true); # error: errCode = 2, detailMessage = Syntax error in line 1:	...> TRUE, CAST(ARRAY<ARRAY> AS ARRAY<INT>))	                             ^	Encountered: AS	Expected: AS is keyword, maybe `AS`	
+-- SELECT filter(ARRAY[NULL], x -> x IS NULL); # differ: doris : [null], presto : [None]
+-- SELECT filter(ARRAY[NULL], x -> x IS NOT NULL); # differ: doris : [], presto : []
+-- SELECT filter(ARRAY[CAST(NULL AS integer)], x -> x IS NULL); # differ: doris : [null], presto : [None]
+-- SELECT filter(ARRAY[NULL, NULL, NULL], x -> x IS NULL); # differ: doris : [null, null, null], presto : [None, None, None]
+-- SELECT filter(ARRAY[NULL, NULL, NULL], x -> x IS NOT NULL); # differ: doris : [], presto : []
+-- SELECT filter(ARRAY[25, 26, NULL], x -> x % 2 = 1 OR x IS NULL); # differ: doris : [25, null], presto : [25, None]
+-- SELECT filter(ARRAY[25.6E0, 37.3E0, NULL], x -> x < 30.0E0 OR x IS NULL); # differ: doris : [25.6, null], presto : [25.6, None]
+-- SELECT filter(ARRAY[true, false, NULL], x -> NOT x OR x IS NULL); # differ: doris : [0, null], presto : [False, None]
+-- SELECT filter(ARRAY['abc', 'def', NULL], x -> substr(x, 1, 1) = 'a' OR x IS NULL); # differ: doris : ["abc", null], presto : ['abc', None]
+-- SELECT filter(ARRAY[ARRAY['abc', NULL, '123']], x -> x[2] IS NULL OR x IS NULL); # differ: doris : [["abc", null, "123"]], presto : [['abc', None, '123']]
+-- SELECT filter(ARRAY[25, 26, 27], x -> x % 2 = 1); # differ: doris : [25, 27], presto : [25, 27]
+-- SELECT filter(ARRAY[25.6E0, 37.3E0, 28.6E0], x -> x < 30.0E0); # differ: doris : [25.6, 28.6], presto : [25.6, 28.6]
+-- SELECT filter(ARRAY[true, false, true], x -> NOT x); # differ: doris : [0], presto : [False]
+-- SELECT filter(ARRAY['abc', 'def', 'ayz'], x -> substr(x, 1, 1) = 'a' OR x IS NULL); # differ: doris : ["abc", "ayz"], presto : ['abc', 'ayz']
+-- SELECT filter(ARRAY[ARRAY['abc', NULL, '123'], ARRAY ['def', 'x', '456']], x -> x[2] IS NULL) # differ: doris : [["abc", null, "123"]], presto : [['abc', None, '123']]

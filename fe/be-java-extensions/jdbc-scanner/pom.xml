@@ -45,6 +45,10 @@ under the License.
             <artifactId>HikariCP</artifactId>
             <scope>provided</scope>
         </dependency>
+        <dependency>
+            <groupId>org.semver4j</groupId>
+            <artifactId>semver4j</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

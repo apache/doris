@@ -97,6 +97,7 @@ public abstract class SqlTestBase extends TestWithFeService implements MemoPatte
     @Override
     protected void runBeforeEach() throws Exception {
         StatementScopeIdGenerator.clear();
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 
     protected LogicalCompatibilityContext constructContext(Plan p1, Plan p2, CascadesContext context) {

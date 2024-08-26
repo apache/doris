@@ -20,6 +20,7 @@
 #include <memory>
 #include <utility>
 
+#include "common/config.h"
 #include "common/object_pool.h"
 #include "exec/rowid_fetcher.h"
 #include "pipeline/exec/operator.h"
@@ -48,9 +49,10 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     if (state->query_options().enable_parallel_result_sink) {
         _sender = _parent->cast<ResultSinkOperatorX>()._sender;
     } else {
+        auto& p = _parent->cast<ResultSinkOperatorX>();
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                fragment_instance_id, RESULT_SINK_BUFFER_SIZE, &_sender, state->execution_timeout(),
-                state->batch_size()));
+                fragment_instance_id, p._result_sink_buffer_size_rows, &_sender,
+                state->execution_timeout(), state->batch_size()));
     }
     _sender->set_dependency(fragment_instance_id, _dependency->shared_from_this());
     return Status::OK();
@@ -107,6 +109,11 @@ ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, const RowDescriptor& r
     } else {
         _sink_type = sink.type;
     }
+    if (_sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCAL) {
+        _result_sink_buffer_size_rows = config::arrow_flight_result_sink_buffer_size_rows;
+    } else {
+        _result_sink_buffer_size_rows = RESULT_SINK_BUFFER_SIZE;
+    }
     _fetch_option = sink.fetch_option;
     _name = "ResultSink";
 }
@@ -126,8 +133,8 @@ Status ResultSinkOperatorX::prepare(RuntimeState* state) {
 
     if (state->query_options().enable_parallel_result_sink) {
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                state->query_id(), RESULT_SINK_BUFFER_SIZE, &_sender, state->execution_timeout(),
-                state->batch_size()));
+                state->query_id(), _result_sink_buffer_size_rows, &_sender,
+                state->execution_timeout(), state->batch_size()));
     }
     return Status::OK();
 }

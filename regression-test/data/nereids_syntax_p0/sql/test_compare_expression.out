@@ -35,3 +35,21 @@ true
 -- !test_compare_expression_12 --
 2008-08-08 00:00:00
 
+-- !test_compare_expression_13 --
+true	false	true	false
+
+-- !test_compare_expression_14 --
+true	false	true	true
+
+-- !test_compare_expression_15 --
+true	false	false	true
+
+-- !test_compare_expression_16 --
+\N	\N	\N	\N
+
+-- !test_compare_expression_17 --
+true	false	false	true
+
+-- !test_compare_expression_18 --
+true	false	false	true
+

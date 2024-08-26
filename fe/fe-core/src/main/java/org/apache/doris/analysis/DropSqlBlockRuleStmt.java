@@ -30,7 +30,7 @@ import lombok.Getter;
 import java.util.List;
 
 @Getter
-public class DropSqlBlockRuleStmt extends DdlStmt {
+public class DropSqlBlockRuleStmt extends DdlStmt implements NotFallbackInParser {
 
     private boolean ifExists;
 
@@ -55,5 +55,10 @@ public class DropSqlBlockRuleStmt extends DdlStmt {
         StringBuilder sb = new StringBuilder();
         sb.append("DROP SQL_BLOCK_RULE ").append(Joiner.on(",").join(ruleNames));
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
     }
 }

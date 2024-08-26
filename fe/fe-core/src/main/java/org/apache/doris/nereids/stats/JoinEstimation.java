@@ -267,8 +267,8 @@ public class JoinEstimation {
     }
 
     private static Statistics estimateSemiOrAnti(Statistics leftStats, Statistics rightStats, Join join) {
-        if (hashJoinConditionContainsUnknownColumnStats(leftStats, rightStats, join)) {
-            double sel = computeSelectivityForBuildSideWhenColStatsUnknown(rightStats, join);
+        if (hashJoinConditionContainsUnknownColumnStats(leftStats, rightStats, join) || join.isMarkJoin()) {
+            double sel = join.isMarkJoin() ? 1.0 : computeSelectivityForBuildSideWhenColStatsUnknown(rightStats, join);
             if (join.getJoinType().isLeftSemiOrAntiJoin()) {
                 return new StatisticsBuilder().setRowCount(leftStats.getRowCount() * sel)
                         .putColumnStatistics(leftStats.columnStatistics())

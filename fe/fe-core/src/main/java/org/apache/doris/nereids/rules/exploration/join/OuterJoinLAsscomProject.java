@@ -90,7 +90,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     bottomJoin.getHashJoinConjuncts().forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
                     bottomJoin.getOtherJoinConjuncts().forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
                     Plan left = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
-                    Plan right = CBOUtils.newProject(topUsedExprIds, b);
+                    Plan right = CBOUtils.newProjectIfNeeded(topUsedExprIds, b);
 
                     LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(left, right, null);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());

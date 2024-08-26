@@ -318,6 +318,7 @@ public:
     const TabletColumn& column(size_t ordinal) const;
     Result<const TabletColumn*> column(const std::string& field_name) const;
     Status have_column(const std::string& field_name) const;
+    bool exist_column(const std::string& field_name) const;
     const TabletColumn& column_by_uid(int32_t col_unique_id) const;
     TabletColumn& mutable_column_by_uid(int32_t col_unique_id);
     TabletColumn& mutable_column(size_t ordinal);
@@ -476,7 +477,7 @@ public:
         return str;
     }
 
-    vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
+    vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids) const;
 
     std::shared_ptr<TabletSchema> copy_without_variant_extracted_columns();
     InvertedIndexStorageFormatPB get_inverted_index_storage_format() const {

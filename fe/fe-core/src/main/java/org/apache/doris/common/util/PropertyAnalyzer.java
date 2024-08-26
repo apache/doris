@@ -97,7 +97,7 @@ public class PropertyAnalyzer {
 
     // row store page size, default 16KB
     public static final String PROPERTIES_ROW_STORE_PAGE_SIZE = "row_store_page_size";
-    public static final long ROW_STORE_PAGE_SIZE_DEFAULT_VALUE = 16384;
+    public static final long ROW_STORE_PAGE_SIZE_DEFAULT_VALUE = 16384L;
 
     public static final String PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE = "light_schema_change";
 

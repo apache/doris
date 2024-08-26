@@ -32,6 +32,7 @@ import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
+import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
@@ -48,6 +49,7 @@ import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.google.common.collect.BiMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -320,7 +322,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private long getRowCountFromExternalSource() {
-        long rowCount;
+        long rowCount = -1;
         switch (dlaType) {
             case HIVE:
                 rowCount = StatisticsUtil.getHiveRowCount(this);
@@ -332,7 +334,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("getRowCount for dlaType {} is not supported.", dlaType);
                 }
-                rowCount = -1;
         }
         return rowCount;
     }
@@ -543,8 +544,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     public boolean hasColumnStatistics(String colName) {
         Map<String, String> parameters = remoteTable.getParameters();
-        return parameters.keySet().stream()
-                .filter(k -> k.startsWith(SPARK_COL_STATS + colName + ".")).findAny().isPresent();
+        return parameters.keySet().stream().anyMatch(k -> k.startsWith(SPARK_COL_STATS + colName + "."));
     }
 
     public boolean fillColumnStatistics(String colName, Map<StatsType, String> statsTypes, Map<String, String> stats) {
@@ -556,12 +556,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         Map<String, String> parameters = remoteTable.getParameters();
         for (StatsType type : statsTypes.keySet()) {
             String key = SPARK_COL_STATS + colName + MAP_SPARK_STATS_TO_DORIS.getOrDefault(type, "-");
-            if (parameters.containsKey(key)) {
-                stats.put(statsTypes.get(type), parameters.get(key));
-            } else {
-                // should not happen, spark would have all type (except histogram)
-                stats.put(statsTypes.get(type), "NULL");
-            }
+            // 'NULL' should not happen, spark would have all type (except histogram)
+            stats.put(statsTypes.get(type), parameters.getOrDefault(key, "NULL"));
         }
         return true;
     }
@@ -615,21 +611,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 continue;
             }
             ColumnStatisticsData data = tableStat.getStatsData();
-            try {
-                setStatData(column, data, columnStatisticBuilder, count);
-            } catch (AnalysisException e) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(e);
-                }
-                return Optional.empty();
-            }
+            setStatData(column, data, columnStatisticBuilder, count);
         }
 
         return Optional.of(columnStatisticBuilder.build());
     }
 
-    private void setStatData(Column col, ColumnStatisticsData data, ColumnStatisticBuilder builder, long count)
-            throws AnalysisException {
+    private void setStatData(Column col, ColumnStatisticsData data, ColumnStatisticBuilder builder, long count) {
         long ndv = 0;
         long nulls = 0;
         double colSize = 0;
@@ -746,26 +734,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 getDbName(), getName(), getPartitionColumnTypes());
         Map<String, PartitionItem> res = Maps.newHashMap();
         Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
+        BiMap<Long, String> idToName = hivePartitionValues.getPartitionNameToIdMap().inverse();
         for (Entry<Long, PartitionItem> entry : idToPartitionItem.entrySet()) {
-            try {
-                res.put(getPartitionName(entry.getKey()), entry.getValue());
-            } catch (AnalysisException e) {
-                LOG.info("can not get partitionName by: " + entry.getKey());
-            }
-
+            res.put(idToName.get(entry.getKey()), entry.getValue());
         }
         return res;
-    }
-
-    @Override
-    public String getPartitionName(long partitionId) throws AnalysisException {
-        Map<String, Long> partitionNameToIdMap = getHivePartitionValues().getPartitionNameToIdMap();
-        for (Entry<String, Long> entry : partitionNameToIdMap.entrySet()) {
-            if (entry.getValue().equals(partitionId)) {
-                return entry.getKey();
-            }
-        }
-        throw new AnalysisException("can not find partition,  partitionId: " + partitionId);
     }
 
     private HiveMetaStoreCache.HivePartitionValues getHivePartitionValues() {
@@ -776,13 +749,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public MTMVSnapshotIf getPartitionSnapshot(String partitionName) throws AnalysisException {
+    public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context)
+            throws AnalysisException {
         long partitionLastModifyTime = getPartitionLastModifyTime(partitionName);
         return new MTMVTimestampSnapshot(partitionLastModifyTime);
     }
 
     @Override
-    public MTMVSnapshotIf getTableSnapshot() throws AnalysisException {
+    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context) throws AnalysisException {
         if (getPartitionType() == PartitionType.UNPARTITIONED) {
             return new MTMVMaxTimestampSnapshot(getName(), getLastDdlTime());
         }

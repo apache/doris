@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.Separator;
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.BrokerMgr;
@@ -399,5 +400,10 @@ public class ExportCommand extends Command implements ForwardWithSync {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitExportCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.EXPORT;
     }
 }

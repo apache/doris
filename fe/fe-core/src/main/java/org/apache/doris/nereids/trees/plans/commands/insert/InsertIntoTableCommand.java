@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -88,6 +89,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         this.cte = cte;
     }
 
+    public LogicalPlan getLogicalQuery() {
+        return logicalQuery;
+    }
+
     public Optional<String> getLabelName() {
         return labelName;
     }
@@ -117,15 +122,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      * Therefore, this section will be presented separately.
      */
     public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
-            try {
-                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            } catch (Exception e) {
-                throw new AnalysisException("failed to set fallback to original planner to true", e);
-            }
-            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
-        }
-
         TableIf targetTableIf = InsertUtils.getTargetTable(logicalQuery, ctx);
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
@@ -146,12 +142,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             if (cte.isPresent()) {
                 this.logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
             }
-            boolean isOverwrite = insertCtx.isPresent() && insertCtx.get() instanceof OlapInsertCommandContext
-                    && ((OlapInsertCommandContext) insertCtx.get()).isOverwrite();
-            if (this.logicalQuery instanceof UnboundTableSink && !isOverwrite) {
-                OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, targetTableIf,
-                        (UnboundTableSink<?>) this.logicalQuery);
-            }
+            OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, targetTableIf, this.logicalQuery, this.insertCtx);
             LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
             planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
@@ -204,9 +195,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 // TODO: support other table types
                 throw new AnalysisException("insert into command only support [olap, hive, iceberg] table");
             }
-
-            insertExecutor.beginTransaction();
-            insertExecutor.finalizeSink(planner.getFragments().get(0), sink, physicalSink);
+            if (!insertExecutor.isEmptyInsert()) {
+                insertExecutor.beginTransaction();
+                insertExecutor.finalizeSink(planner.getFragments().get(0), sink, physicalSink);
+            }
             targetTableIf.readUnlock();
         } catch (Throwable e) {
             targetTableIf.readUnlock();
@@ -253,5 +245,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             return true;
         }
         return false;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.INSERT;
     }
 }

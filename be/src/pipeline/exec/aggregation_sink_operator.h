@@ -120,6 +120,7 @@ protected:
 
     AggregatedDataVariants* _agg_data = nullptr;
     vectorized::Arena* _agg_arena_pool = nullptr;
+    std::unique_ptr<vectorized::Arena> _agg_profile_arena;
 
     std::unique_ptr<ExecutorBase> _executor = nullptr;
 };
@@ -189,7 +190,6 @@ protected:
     /// The total size of the row from the aggregate functions.
     size_t _total_size_of_aggregate_states = 0;
 
-    size_t _external_agg_bytes_threshold;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     ObjectPool* _pool = nullptr;

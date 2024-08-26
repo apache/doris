@@ -22,7 +22,7 @@ import org.apache.doris.common.UserException;
 
 import com.google.common.base.Strings;
 
-public class AlterCatalogCommentStmt extends AlterCatalogStmt {
+public class AlterCatalogCommentStmt extends AlterCatalogStmt implements NotFallbackInParser {
     private final String comment;
 
     public AlterCatalogCommentStmt(String catalogName, String comment) {
@@ -45,5 +45,10 @@ public class AlterCatalogCommentStmt extends AlterCatalogStmt {
     @Override
     public String toSql() {
         return "ALTER CATALOG " + catalogName + " MODIFY COMMENT " + comment;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 }

@@ -86,7 +86,7 @@ public:
          * it is guaranteed that these file blocks are not removed from cache.
          */
     FileBlocksHolder get_or_set(const UInt128Wrapper& hash, size_t offset, size_t size,
-                                const CacheContext& context);
+                                CacheContext& context);
 
     /**
      * Clear all cached data for this cache instance async
@@ -95,6 +95,14 @@ public:
      */
     std::string clear_file_cache_async();
     std::string clear_file_cache_directly();
+
+    /**
+     * Reset the cache capacity. If the new_capacity is smaller than _capacity, the redundant data will be remove async.
+     *
+     * @returns summary message
+     */
+    std::string reset_capacity(size_t new_capacity);
+
     std::map<size_t, FileBlockSPtr> get_blocks_by_key(const UInt128Wrapper& hash);
     /// For debug.
     std::string dump_structure(const UInt128Wrapper& hash);
@@ -358,7 +366,7 @@ private:
     size_t get_used_cache_size_unlocked(FileCacheType type,
                                         std::lock_guard<std::mutex>& cache_lock) const;
 
-    void check_disk_resource_limit(const std::string& path);
+    void check_disk_resource_limit();
 
     size_t get_available_cache_size_unlocked(FileCacheType type,
                                              std::lock_guard<std::mutex>& cache_lock) const;
@@ -382,7 +390,8 @@ private:
     bool try_reserve_from_other_queue_by_size(std::vector<FileCacheType> other_cache_types,
                                               size_t size, std::lock_guard<std::mutex>& cache_lock);
 
-    bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size) const;
+    bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size,
+                     bool is_ttl = false) const;
 
     void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&);
 
@@ -391,7 +400,7 @@ private:
 
     void find_evict_candidates(LRUQueue& queue, size_t size, size_t cur_cache_size,
                                size_t& removed_size, std::vector<FileBlockCell*>& to_evict,
-                               std::lock_guard<std::mutex>& cache_lock);
+                               std::lock_guard<std::mutex>& cache_lock, bool is_ttl);
     // info
     std::string _cache_base_path;
     size_t _capacity = 0;

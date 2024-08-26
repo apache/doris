@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -36,8 +37,8 @@ import java.util.Map;
 public class AdminCleanTrashStmt extends DdlStmt {
     private List<Backend> backends = Lists.newArrayList();
 
-    public AdminCleanTrashStmt(List<String> backends) {
-        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getIdToBackend();
+    public AdminCleanTrashStmt(List<String> backends) throws UserException {
+        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         Map<String, Long> backendsID = new HashMap<String, Long>();
         for (Backend backend : backendsInfo.values()) {
             backendsID.put(

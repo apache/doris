@@ -71,6 +71,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -122,7 +123,7 @@ public class CascadesContext implements ScheduleContext {
     private final Optional<CTEId> currentTree;
     private final Optional<CascadesContext> parent;
 
-    private final List<MaterializationContext> materializationContexts;
+    private final Set<MaterializationContext> materializationContexts;
     private boolean isLeadingJoin = false;
 
     private boolean isLeadingDisableJoinReorder = false;
@@ -160,7 +161,7 @@ public class CascadesContext implements ScheduleContext {
         this.currentJobContext = new JobContext(this, requireProperties, Double.MAX_VALUE);
         this.subqueryExprIsAnalyzed = new HashMap<>();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
-        this.materializationContexts = new ArrayList<>();
+        this.materializationContexts = new HashSet<>();
         if (statementContext.getConnectContext() != null) {
             ConnectContext connectContext = statementContext.getConnectContext();
             SessionVariable sessionVariable = connectContext.getSessionVariable();
@@ -261,7 +262,8 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public void setTables(List<TableIf> tables) {
-        this.tables = tables.stream().collect(Collectors.toMap(TableIf::getId, t -> t, (t1, t2) -> t1));
+        this.tables = tables.stream()
+                .collect(Collectors.toMap(TableIf::getId, t -> t, (t1, t2) -> t1, () -> Maps.newTreeMap()));
     }
 
     public final ConnectContext getConnectContext() {
@@ -399,7 +401,7 @@ public class CascadesContext implements ScheduleContext {
      */
     public void extractTables(LogicalPlan logicalPlan) {
         Set<List<String>> tableNames = getTables(logicalPlan);
-        tables = Maps.newHashMap();
+        tables = Maps.newTreeMap();
         for (List<String> tableName : tableNames) {
             try {
                 TableIf table = getTable(tableName);
@@ -552,16 +554,13 @@ public class CascadesContext implements ScheduleContext {
         if (db == null) {
             throw new RuntimeException("Database [" + dbName + "] does not exist in catalog [" + ctlName + "].");
         }
-        db.readLock();
-        try {
-            TableIf table = db.getTableNullable(tableName);
-            if (table == null) {
-                throw new RuntimeException("Table [" + tableName + "] does not exist in database [" + dbName + "].");
-            }
-            return table;
-        } finally {
-            db.readUnlock();
+
+        TableIf table = db.getTableNullable(tableName);
+        if (table == null) {
+            throw new RuntimeException("Table [" + tableName + "] does not exist in database [" + dbName + "].");
         }
+        return table;
+
     }
 
     /**
@@ -620,8 +619,8 @@ public class CascadesContext implements ScheduleContext {
         return this.statementContext.getConsumerIdToFilters();
     }
 
-    public void addCTEConsumerGroup(CTEId cteId, Group g, Map<Slot, Slot> producerSlotToConsumerSlot) {
-        List<Pair<Map<Slot, Slot>, Group>> consumerGroups =
+    public void addCTEConsumerGroup(CTEId cteId, Group g, Multimap<Slot, Slot> producerSlotToConsumerSlot) {
+        List<Pair<Multimap<Slot, Slot>, Group>> consumerGroups =
                 this.statementContext.getCteIdToConsumerGroup().computeIfAbsent(cteId, k -> new ArrayList<>());
         consumerGroups.add(Pair.of(producerSlotToConsumerSlot, g));
     }
@@ -630,12 +629,18 @@ public class CascadesContext implements ScheduleContext {
      * Update CTE consumer group as producer's stats update
      */
     public void updateConsumerStats(CTEId cteId, Statistics statistics) {
-        List<Pair<Map<Slot, Slot>, Group>> consumerGroups = this.statementContext.getCteIdToConsumerGroup().get(cteId);
-        for (Pair<Map<Slot, Slot>, Group> p : consumerGroups) {
-            Map<Slot, Slot> producerSlotToConsumerSlot = p.first;
+        List<Pair<Multimap<Slot, Slot>, Group>> consumerGroups
+                = this.statementContext.getCteIdToConsumerGroup().get(cteId);
+        for (Pair<Multimap<Slot, Slot>, Group> p : consumerGroups) {
+            Multimap<Slot, Slot> producerSlotToConsumerSlot = p.first;
             Statistics updatedConsumerStats = new StatisticsBuilder(statistics).build();
             for (Entry<Expression, ColumnStatistic> entry : statistics.columnStatistics().entrySet()) {
-                updatedConsumerStats.addColumnStats(producerSlotToConsumerSlot.get(entry.getKey()), entry.getValue());
+                if (!(entry.getKey() instanceof Slot)) {
+                    continue;
+                }
+                for (Slot consumer : producerSlotToConsumerSlot.get((Slot) entry.getKey())) {
+                    updatedConsumerStats.addColumnStats(consumer, entry.getValue());
+                }
             }
             p.value().setStatistics(updatedConsumerStats);
         }

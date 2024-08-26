@@ -251,7 +251,7 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
         _inflight_cnt++;
 
         RETURN_IF_ERROR(exec_env->fragment_mgr()->exec_plan_fragment(
-                plan, [this, plan](RuntimeState* state, Status* status) {
+                plan, QuerySource::ROUTINE_LOAD, [this, plan](RuntimeState* state, Status* status) {
                     DCHECK(state);
                     auto pair = _planned_tables.find(plan.table_name);
                     if (pair == _planned_tables.end()) {
@@ -326,6 +326,19 @@ void MultiTablePipe::_handle_consumer_finished() {
     _ctx->number_filtered_rows = _number_filtered_rows;
     _ctx->number_unselected_rows = _number_unselected_rows;
     _ctx->commit_infos = _tablet_commit_infos;
+
+    // remove ctx to avoid memory leak.
+    for (const auto& pair : _planned_tables) {
+        if (pair.second) {
+            doris::ExecEnv::GetInstance()->new_load_stream_mgr()->remove(pair.second->id);
+        }
+    }
+    for (const auto& pair : _unplanned_tables) {
+        if (pair.second) {
+            doris::ExecEnv::GetInstance()->new_load_stream_mgr()->remove(pair.second->id);
+        }
+    }
+
     LOG(INFO) << "all plan for multi-table load complete. number_total_rows="
               << _ctx->number_total_rows << " number_loaded_rows=" << _ctx->number_loaded_rows
               << " number_filtered_rows=" << _ctx->number_filtered_rows

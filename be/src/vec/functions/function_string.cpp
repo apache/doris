@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "runtime/string_search.hpp"
 #include "util/url_coding.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
@@ -82,7 +83,7 @@ struct NameQuoteImpl {
     }
 };
 
-struct NameStringLenght {
+struct NameStringLength {
     static constexpr auto name = "length";
 };
 
@@ -99,6 +100,28 @@ struct StringLengthImpl {
         for (int i = 0; i < size; ++i) {
             int str_size = offsets[i] - offsets[i - 1];
             res[i] = str_size;
+        }
+        return Status::OK();
+    }
+};
+
+struct NameCrc32 {
+    static constexpr auto name = "crc32";
+};
+
+struct Crc32Impl {
+    using ReturnType = DataTypeInt64;
+    static constexpr auto TYPE_INDEX = TypeIndex::String;
+    using Type = String;
+    using ReturnColumnType = ColumnVector<Int64>;
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         PaddedPODArray<Int64>& res) {
+        auto size = offsets.size();
+        res.resize(size);
+        for (int i = 0; i < size; ++i) {
+            res[i] = crc32_z(0L, (const unsigned char*)data.data() + offsets[i - 1],
+                             offsets[i] - offsets[i - 1]);
         }
         return Status::OK();
     }
@@ -598,8 +621,9 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (!is_string_or_fixed_string(arguments[0])) {
-            LOG(FATAL) << fmt::format("Illegal type {} of argument of function {}",
-                                      arguments[0]->get_name(), get_name());
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Illegal type {} of argument of function {}",
+                                   arguments[0]->get_name(), get_name());
         }
         return arguments[0];
     }
@@ -941,7 +965,8 @@ using StringFindInSetImpl = StringFunctionImpl<LeftDataType, RightDataType, Find
 
 // ready for regist function
 using FunctionStringASCII = FunctionUnaryToType<StringASCII, NameStringASCII>;
-using FunctionStringLength = FunctionUnaryToType<StringLengthImpl, NameStringLenght>;
+using FunctionStringLength = FunctionUnaryToType<StringLengthImpl, NameStringLength>;
+using FunctionCrc32 = FunctionUnaryToType<Crc32Impl, NameCrc32>;
 using FunctionStringUTF8Length = FunctionUnaryToType<StringUtf8LengthImpl, NameStringUtf8Length>;
 using FunctionStringSpace = FunctionUnaryToType<StringSpace, NameStringSpace>;
 using FunctionStringStartsWith =
@@ -976,6 +1001,7 @@ using FunctionStringRPad = FunctionStringPad<StringRPad>;
 void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringASCII>();
     factory.register_function<FunctionStringLength>();
+    factory.register_function<FunctionCrc32>();
     factory.register_function<FunctionStringUTF8Length>();
     factory.register_function<FunctionStringSpace>();
     factory.register_function<FunctionStringStartsWith>();
@@ -985,6 +1011,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringLocate>();
     factory.register_function<FunctionStringLocatePos>();
     factory.register_function<FunctionQuote>();
+    factory.register_function<FunctionAutoPartitionName>();
     factory.register_function<FunctionReverseCommon>();
     factory.register_function<FunctionUnHex>();
     factory.register_function<FunctionToLower>();
@@ -1037,6 +1064,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSubReplace<SubReplaceFourImpl>>();
     factory.register_function<FunctionOverlay>();
     factory.register_function<FunctionStrcmp>();
+    factory.register_function<FunctionNgramSearch>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");

@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_backup_restore_inverted_index", "backup_restore") {
-    String repoName = "test_backup_restore_inverted_index_repo"
+    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "test_backup_restore_inverted_index_db"
     String tableName = "test_backup_restore_inverted_index_table"
 

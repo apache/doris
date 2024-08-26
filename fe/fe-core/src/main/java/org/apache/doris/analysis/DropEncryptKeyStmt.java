@@ -25,7 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-public class DropEncryptKeyStmt extends DdlStmt {
+public class DropEncryptKeyStmt extends DdlStmt implements NotFallbackInParser {
     private final boolean ifExists;
     private final EncryptKeyName encryptKeyName;
     private EncryptKeySearchDesc encryptKeySearchDesc;
@@ -66,5 +66,10 @@ public class DropEncryptKeyStmt extends DdlStmt {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("DROP ENCRYPTKEY ").append(encryptKeyName.getKeyName());
         return stringBuilder.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
     }
 }

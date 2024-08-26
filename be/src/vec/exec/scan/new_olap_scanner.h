@@ -50,7 +50,6 @@ struct FilterPredicates;
 
 namespace vectorized {
 
-class NewOlapScanNode;
 class Block;
 
 class NewOlapScanner : public VScanner {
@@ -75,8 +74,6 @@ public:
     Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
-
-    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
 
     void set_compound_filters(const std::vector<TCondition>& compound_filters);
 

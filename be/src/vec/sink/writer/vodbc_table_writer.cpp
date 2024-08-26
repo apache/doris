@@ -42,8 +42,11 @@ ODBCConnectorParam VOdbcTableWriter::create_connect_param(const doris::TDataSink
 }
 
 VOdbcTableWriter::VOdbcTableWriter(const doris::TDataSink& t_sink,
-                                   const VExprContextSPtrs& output_expr_ctxs)
-        : AsyncResultWriter(output_expr_ctxs), ODBCConnector(create_connect_param(t_sink)) {}
+                                   const VExprContextSPtrs& output_expr_ctxs,
+                                   std::shared_ptr<pipeline::Dependency> dep,
+                                   std::shared_ptr<pipeline::Dependency> fin_dep)
+        : AsyncResultWriter(output_expr_ctxs, dep, fin_dep),
+          ODBCConnector(create_connect_param(t_sink)) {}
 
 Status VOdbcTableWriter::write(RuntimeState* state, vectorized::Block& block) {
     Block output_block;

@@ -75,26 +75,12 @@ suite("test_alter_table_drop_column") {
         exception "Can not drop key column in Unique data model table"
     }
 
-    def waitSchemaChangeJob = { String tableName /* param */ ->
-        int tryTimes = 30
-        while (tryTimes-- > 0) {
-            def jobResult = sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
-            def jobState = jobResult[0][9].toString()
-            if ('cancelled'.equalsIgnoreCase(jobState)) {
-                logger.info("jobResult:{}", jobResult)
-                throw new IllegalStateException("${tableName}'s job has been cancelled")
-            }
-            if ('finished'.equalsIgnoreCase(jobState)) {
-                logger.info("jobResult:{}", jobResult)
-                return
-            }
-            sleep(10000)
-        }
-        assertTrue(false)
-    }
-
     sql """ alter table ${uniqueTableName} drop COLUMN pv from ${uniqueTableRollupName};"""
-    waitSchemaChangeJob(uniqueTableName)
+
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${uniqueTableName}' ORDER BY createtime DESC LIMIT 1 """
+        time 600
+    }
 
     qt_order """ select * from ${uniqueTableName} order by siteid"""
     qt_order """ select * from ${uniqueTableName} order by citycode"""
@@ -138,7 +124,11 @@ suite("test_alter_table_drop_column") {
     }
 
     sql """ alter table ${aggTableName} drop COLUMN pv from ${aggTableRollupName};"""
-    waitSchemaChangeJob(aggTableName)
+
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${aggTableName}' ORDER BY createtime DESC LIMIT 1 """
+        time 600
+    }
 
     qt_order """ select * from ${aggTableName} order by siteid"""
     qt_order """ select * from ${aggTableName} order by citycode"""

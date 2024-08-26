@@ -63,6 +63,7 @@ Usage: $0 <options>
     STRIP_DEBUG_INFO            If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
     DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
+    DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
   Eg.
     $0                                      build all
     $0 --be                                 build Backend
@@ -158,6 +159,7 @@ HELP=0
 PARAMETER_COUNT="$#"
 PARAMETER_FLAG=0
 DENABLE_CLANG_COVERAGE='OFF'
+BUILD_AZURE='ON'
 BUILD_UI=1
 if [[ "$#" == 1 ]]; then
     # default
@@ -267,6 +269,12 @@ else
         BUILD_BE_JAVA_EXTENSIONS=1
         CLEAN=0
     fi
+fi
+
+ARCH="$(uname -m)"
+if [[ "${ARCH}" == "aarch64" ]]; then
+    echo "WARNING: Cloud module is not supported on ARM platform, will skip building it."
+    BUILD_CLOUD=0
 fi
 
 if [[ "${HELP}" -eq 1 ]]; then
@@ -432,6 +440,10 @@ if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
     DISABLE_JAVA_CHECK_STYLE='OFF'
 fi
 
+if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
+    BUILD_AZURE='OFF'
+fi
+
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
     ENABLE_INJECTION_POINT='OFF'
 fi
@@ -587,6 +599,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
+        -DBUILD_AZURE="${BUILD_AZURE}" \
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
@@ -625,6 +638,7 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
+        -DBUILD_AZURE="${BUILD_AZURE}" \
         -DBUILD_CHECK_META="${BUILD_CHECK_META:-OFF}" \
         "${DORIS_HOME}/cloud/"
     "${BUILD_SYSTEM}" -j "${PARALLEL}"

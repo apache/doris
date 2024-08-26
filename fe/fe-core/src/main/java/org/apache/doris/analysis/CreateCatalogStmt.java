@@ -40,7 +40,7 @@ import java.util.Map;
 /**
  * Statement for create a new catalog.
  */
-public class CreateCatalogStmt extends DdlStmt {
+public class CreateCatalogStmt extends DdlStmt implements NotFallbackInParser {
     public static final String CREATE_TIME_PROP = "create_time";
     private final boolean ifNotExists;
     private final String catalogName;
@@ -131,5 +131,10 @@ public class CreateCatalogStmt extends DdlStmt {
     @Override
     public boolean needAuditEncryption() {
         return true;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

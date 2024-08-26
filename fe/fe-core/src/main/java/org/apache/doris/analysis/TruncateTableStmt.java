@@ -27,7 +27,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 // TRUNCATE TABLE tbl [PARTITION(p1, p2, ...)]
-public class TruncateTableStmt extends DdlStmt {
+public class TruncateTableStmt extends DdlStmt implements NotFallbackInParser {
 
     private TableRef tblRef;
 
@@ -84,5 +84,10 @@ public class TruncateTableStmt extends DdlStmt {
             sb.append(tblRef.getPartitionNames().toSql());
         }
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.TRUNCATE;
     }
 }

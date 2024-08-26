@@ -51,30 +51,46 @@ suite("txn_insert_with_schema_change") {
     sql """ insert into ${table}_4 values(3, '23', 13), (4, '24', 14), (5, '25', 15) """
 
     def getAlterTableState = { tName, job_state ->
-        waitForSchemaChangeDone {
-            sql """ SHOW ALTER TABLE COLUMN WHERE tablename='${tName}' ORDER BY createtime DESC LIMIT 1 """
-            time 600
+        def retry = 0
+        sql "use ${dbName};"
+        def last_state = ""
+        while (true) {
+            sleep(2000)
+            def state = sql """ show alter table column where tablename = "${tName}" order by CreateTime desc limit 1"""
+            logger.info("alter table state: ${state}")
+            last_state = state[0][9]
+            if (state.size() > 0 && last_state == job_state) {
+                return
+            }
+            retry++
+            if (retry >= 10 || last_state == "FINISHED" || last_state == "CANCELLED") {
+                break
+            }
         }
+        assertTrue(false, "alter table job state is ${last_state}, not ${job_state} after retry ${retry} times")
     }
 
     def txnInsert = { sqls ->
         try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
              Statement statement = conn.createStatement()) {
-            logger.info("execute sql: begin")
-            statement.execute("begin")
-            logger.info("execute sql: ${sqls[0]}")
-            statement.execute(sqls[0])
+            try {
+                logger.info("execute sql: begin")
+                statement.execute("begin")
+                logger.info("execute sql: ${sqls[0]}")
+                statement.execute(sqls[0])
 
-            schemaChangeLatch.countDown()
-            insertLatch.await(5, TimeUnit.MINUTES)
+                schemaChangeLatch.countDown()
+                insertLatch.await(5, TimeUnit.MINUTES)
 
-            logger.info("execute sql: ${sqls[1]}")
-            statement.execute(sqls[1])
-            logger.info("execute sql: commit")
-            statement.execute("commit")
-        } catch (Throwable e) {
-            logger.error("txn insert failed", e)
-            errors.add("txn insert failed " + e.getMessage())
+                logger.info("execute sql: ${sqls[1]}")
+                statement.execute(sqls[1])
+                logger.info("execute sql: commit")
+                statement.execute("commit")
+            } catch (Throwable e) {
+                logger.error("txn insert failed", e)
+                errors.add("txn insert failed " + e.getMessage())
+                statement.execute("rollback")
+            }
         }
     }
 

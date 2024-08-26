@@ -96,9 +96,10 @@ public:
             return std::make_shared<DataTypeArray>(is_nullable ? make_nullable(return_type)
                                                                : return_type);
         } else {
-            LOG(FATAL) << "Function of " << name
-                       << " return type get wrong: and input argument is: "
-                       << arguments[0]->get_name();
+            throw doris::Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    "Function of {}, return type get wrong: and input argument is: {}", name,
+                    arguments[0]->get_name());
         }
     }
 

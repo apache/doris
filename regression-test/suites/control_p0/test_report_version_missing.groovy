@@ -19,7 +19,14 @@ import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 
 suite('test_report_version_missing', "nonConcurrent") {
+    if (isCloudMode()) {
+        return
+    }
     def tableName = "test_set_replica_status_table_in_docker"
+    try {
+    setFeConfig('disable_tablet_scheduler', true)
+    Thread.sleep(2000)
+
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
         CREATE TABLE ${tableName} (
@@ -45,7 +52,7 @@ suite('test_report_version_missing', "nonConcurrent") {
         tabletId = res.TabletId
         break
     }
-    try {
+
         GetDebugPoint().enableDebugPointForAllBEs("Tablet.build_tablet_report_info.version_miss", [tablet_id:"${tabletId}",version_miss:true])
         boolean succ = false
 
@@ -68,6 +75,8 @@ suite('test_report_version_missing', "nonConcurrent") {
         assertTrue(succ)
         
     } finally {
+        setFeConfig('disable_tablet_scheduler', false)
         GetDebugPoint().disableDebugPointForAllBEs("Tablet.build_tablet_report_info.version_miss")
+        sql "DROP TABLE IF EXISTS ${tableName}"
     }
 }

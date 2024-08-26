@@ -33,7 +33,7 @@ echo "#### Check env"
 if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 1; fi
 if [[ -z "${pr_num_from_trigger}" ]]; then echo "ERROR: env pr_num_from_trigger not set" && exit 1; fi
 if [[ -z "${commit_id_from_trigger}" ]]; then echo "ERROR: env commit_id_from_trigger not set" && exit 1; fi
-if [[ -z "${cos_ak}" || -z "${cos_sk}" ]]; then echo "ERROR: env cos_ak or cos_sk not set" && exit 1; fi
+if [[ -z "${s3SourceAk}" || -z "${s3SourceSk}" ]]; then echo "ERROR: env s3SourceAk or s3SourceSk not set" && exit 1; fi
 
 # shellcheck source=/dev/null
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
@@ -53,8 +53,8 @@ run() {
     cd "${teamcity_build_checkoutDir}" || return 1
     {
         echo # add a new line to prevent two config items from being combined, which will cause the error "No signature of method"
-        echo "ak='${cos_ak}'"
-        echo "sk='${cos_sk}'"
+        echo "ak='${s3SourceAk}'"
+        echo "sk='${s3SourceSk}'"
     } >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy \
         "${teamcity_build_checkoutDir}"/regression-test/conf/
@@ -69,9 +69,9 @@ run() {
         --clean \
         --run \
         --times "${repeat_times_from_trigger:-1}" \
-        -parallel 8 \
-        -suiteParallel 8 \
-        -actionParallel 2; then
+        -parallel 18 \
+        -suiteParallel 18 \
+        -actionParallel 10; then
         echo
     else
         bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export need_collect_log=true"

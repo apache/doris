@@ -44,6 +44,7 @@
 #include "vec/io/io_helper.h"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
+#include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -70,6 +71,8 @@ std::string cast_to_string(T value, int scale) {
         std::stringstream ss;
         ss << buf;
         return ss.str();
+    } else if constexpr (primitive_type == TYPE_TIMEV2) {
+        return TimeValue::to_string(value, scale);
     } else if constexpr (primitive_type == TYPE_IPV4) {
         return IPv4Value::to_string(value);
     } else if constexpr (primitive_type == TYPE_IPV6) {
@@ -767,6 +770,7 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
         if (step_size > MAX_STEP_SIZE) {
             return no_split();
         }
+        size_t real_step_size = 0;
 
         // Add null key if contain null, must do after no_split check
         if (contain_null()) {
@@ -794,6 +798,15 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
                 break;
             }
             ++min_value;
+            ++real_step_size;
+            if (real_step_size > MAX_STEP_SIZE) {
+                throw Exception(Status::InternalError(
+                        "convert_to_avg_range_value meet error. type={}, step_size={}, "
+                        "min_value={}, max_value={}",
+                        int(primitive_type), step_size,
+                        cast_to_string<primitive_type, CppType>(min_value, scale()),
+                        cast_to_string<primitive_type, CppType>(max_value, scale())));
+            }
         }
 
         return step_size != 0;

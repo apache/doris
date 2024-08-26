@@ -84,7 +84,7 @@ Status SpillSortSinkLocalState::setup_in_memory_sort_op(RuntimeState* state) {
     _runtime_state->set_be_number(state->be_number());
 
     _runtime_state->set_desc_tbl(&state->desc_tbl());
-    _runtime_state->set_pipeline_x_runtime_filter_mgr(state->local_runtime_filter_mgr());
+    _runtime_state->set_runtime_filter_mgr(state->local_runtime_filter_mgr());
 
     auto& parent = Base::_parent->template cast<Parent>();
     Base::_shared_state->in_mem_shared_state_sptr =

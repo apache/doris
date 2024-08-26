@@ -29,6 +29,7 @@ import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRange;
@@ -116,7 +117,8 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
             return selectForBucket(unassignedJob, scanNodes, bucketScanRangeSupplier, bucketBytesSupplier);
         }
         throw new IllegalStateException(
-                "Illegal bucket shuffle join or colocate join in fragment: " + fragment.getFragmentId()
+                "Illegal bucket shuffle join or colocate join in fragment:\n"
+                        + fragment.getExplainString(TExplainLevel.VERBOSE)
         );
     }
 

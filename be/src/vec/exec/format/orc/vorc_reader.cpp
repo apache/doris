@@ -71,6 +71,7 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/exec/format/orc/orc_memory_pool.h"
 #include "vec/exec/format/table/transactional_hive_common.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vdirect_in_predicate.h"
@@ -252,6 +253,7 @@ Status OrcReader::_create_file_reader() {
     // create orc reader
     try {
         orc::ReaderOptions options;
+        options.setMemoryPool(*ExecEnv::GetInstance()->orc_memory_pool());
         _reader = orc::createReader(
                 std::unique_ptr<ORCFileInputStream>(_file_input_stream.release()), options);
     } catch (std::exception& e) {
@@ -261,7 +263,9 @@ Status OrcReader::_create_file_reader() {
         if (_io_ctx && _io_ctx->should_stop && _err_msg == "stop") {
             return Status::EndOfFile("stop");
         }
-        if (_err_msg.find("No such file or directory") != std::string::npos) {
+        // one for fs, the other is for oss.
+        if (_err_msg.find("No such file or directory") != std::string::npos ||
+            _err_msg.find("NoSuchKey") != std::string::npos) {
             return Status::NotFound(_err_msg);
         }
         return Status::InternalError("Init OrcReader failed. reason = {}", _err_msg);
@@ -275,13 +279,15 @@ Status OrcReader::init_reader(
         const VExprContextSPtrs& conjuncts, bool is_acid, const TupleDescriptor* tuple_descriptor,
         const RowDescriptor* row_descriptor,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-        const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
+        const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
+        const bool hive_use_column_names) {
     _column_names = column_names;
     _colname_to_value_range = colname_to_value_range;
     _lazy_read_ctx.conjuncts = conjuncts;
     _is_acid = is_acid;
     _tuple_descriptor = tuple_descriptor;
     _row_descriptor = row_descriptor;
+    _is_hive1_orc_or_use_idx = !hive_use_column_names;
     if (not_single_slot_filter_conjuncts != nullptr && !not_single_slot_filter_conjuncts->empty()) {
         _not_single_slot_filter_conjuncts.insert(_not_single_slot_filter_conjuncts.end(),
                                                  not_single_slot_filter_conjuncts->begin(),
@@ -333,10 +339,11 @@ Status OrcReader::_init_read_columns() {
 
     // In old version slot_name_to_schema_pos may not be set in _scan_params
     // TODO, should be removed in 2.2 or later
-    _is_hive1_orc = is_hive1_orc && _scan_params.__isset.slot_name_to_schema_pos;
+    _is_hive1_orc_or_use_idx = (is_hive1_orc || _is_hive1_orc_or_use_idx) &&
+                               _scan_params.__isset.slot_name_to_schema_pos;
     for (size_t i = 0; i < _column_names->size(); ++i) {
         auto& col_name = (*_column_names)[i];
-        if (_is_hive1_orc) {
+        if (_is_hive1_orc_or_use_idx) {
             auto iter = _scan_params.slot_name_to_schema_pos.find(col_name);
             if (iter != _scan_params.slot_name_to_schema_pos.end()) {
                 int pos = iter->second;
@@ -371,9 +378,10 @@ Status OrcReader::_init_read_columns() {
             _read_cols_lower_case.emplace_back(col_name);
             // For hive engine, store the orc column name to schema column name map.
             // This is for Hive 1.x orc file with internal column name _col0, _col1...
-            if (_is_hive1_orc) {
+            if (_is_hive1_orc_or_use_idx) {
                 _removed_acid_file_col_name_to_schema_col[orc_cols[pos]] = col_name;
             }
+
             _col_name_to_file_col_name[col_name] = read_col;
         }
     }
@@ -704,7 +712,7 @@ bool OrcReader::_init_search_argument(
         if (iter == colname_to_value_range->end()) {
             continue;
         }
-        auto type_it = type_map.find(col_name);
+        auto type_it = type_map.find(_col_name_to_file_col_name[col_name]);
         if (type_it == type_map.end()) {
             continue;
         }
@@ -909,7 +917,7 @@ Status OrcReader::_init_select_types(const orc::Type& type, int idx) {
         std::string name;
         // For hive engine, translate the column name in orc file to schema column name.
         // This is for Hive 1.x which use internal column name _col0, _col1...
-        if (_is_hive1_orc) {
+        if (_is_hive1_orc_or_use_idx) {
             name = _removed_acid_file_col_name_to_schema_col[type.getFieldName(i)];
         } else {
             name = get_field_name_lower_case(&type, i);
@@ -1637,7 +1645,7 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
             RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
             RETURN_IF_CATCH_EXCEPTION(
                     RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                            _not_single_slot_filter_conjuncts, nullptr, block, columns_to_filter,
+                            _not_single_slot_filter_conjuncts, block, columns_to_filter,
                             column_to_keep)));
         } else {
             Block::erase_useless_column(block, column_to_keep);
@@ -1764,8 +1772,8 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
                 RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
                 RETURN_IF_CATCH_EXCEPTION(
                         RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                                _not_single_slot_filter_conjuncts, nullptr, block,
-                                columns_to_filter, column_to_keep)));
+                                _not_single_slot_filter_conjuncts, block, columns_to_filter,
+                                column_to_keep)));
             } else {
                 Block::erase_useless_column(block, column_to_keep);
                 RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
@@ -2114,7 +2122,7 @@ Status OrcReader::on_string_dicts_loaded(
             temp_block.get_by_position(0).column->assume_mutable()->resize(dict_value_column_size);
         }
         RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                ctxs, nullptr, &temp_block, columns_to_filter, column_to_keep)));
+                ctxs, &temp_block, columns_to_filter, column_to_keep)));
         if (dict_pos != 0) {
             // We have to clean the first column to insert right data.
             temp_block.get_by_position(0).column->assume_mutable()->clear();

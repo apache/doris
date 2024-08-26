@@ -23,13 +23,18 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <ctime>
+#include <functional>
 #include <limits>
+#include <memory>
 #include <random>
+#include <string>
 
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/meta_service.h"
+#include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
 
 namespace doris::cloud {
@@ -2220,6 +2225,72 @@ TEST(MetaServiceJobTest, ParallelCumuCompactionTest) {
     res.Clear();
     start_compaction_job(meta_service.get(), tablet_id, "job14", "BE1", 0, 0,
                          TabletCompactionJobPB::CUMULATIVE, res, {11, 11});
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+}
+
+TEST(MetaServiceJobTest, SchemaChangeJobPersistTest) {
+    auto meta_service = get_meta_service();
+
+    auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    brpc::Controller cntl;
+
+    int64_t table_id = 1;
+    int64_t index_id = 2;
+    int64_t partition_id = 3;
+    int64_t tablet_id = 4;
+
+    ASSERT_NO_FATAL_FAILURE(
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, false));
+
+    StartTabletJobResponse res;
+    start_compaction_job(meta_service.get(), tablet_id, "job1", "BE1", 0, 0,
+                         TabletCompactionJobPB::CUMULATIVE, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    res.Clear();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string job_key =
+            job_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    std::string job_val;
+    TabletJobInfoPB job_pb;
+    ASSERT_EQ(txn->get(job_key, &job_val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(job_pb.ParseFromString(job_val));
+    ASSERT_EQ(job_pb.compaction_size(), 1);
+    ASSERT_EQ(job_pb.compaction(0).id(), "job1");
+    ASSERT_EQ(job_pb.compaction(0).initiator(), "BE1");
+
+    int64_t new_tablet_id = 11;
+    ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
+                                          new_tablet_id, false, true));
+    ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
+                                                    partition_id, tablet_id, new_tablet_id, "job2",
+                                                    "BE1"));
+
+    long now = time(nullptr);
+    FinishTabletJobRequest req;
+    FinishTabletJobResponse finish_res_2;
+    req.set_action(FinishTabletJobRequest::LEASE);
+    auto* compaction = req.mutable_job()->add_compaction();
+    compaction->set_id("job1");
+    compaction->set_initiator("BE1");
+    compaction->set_lease(now + 10);
+    req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+    meta_service->finish_tablet_job(&cntl, &req, &finish_res_2, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    FinishTabletJobResponse finish_res;
+    finish_schema_change_job(meta_service.get(), tablet_id, new_tablet_id, "job1", "BE1", {},
+                             finish_res);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 }
 

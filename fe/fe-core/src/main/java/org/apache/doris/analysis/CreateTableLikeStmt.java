@@ -129,4 +129,9 @@ public class CreateTableLikeStmt extends DdlStmt implements NotFallbackInParser 
     public String toString() {
         return toSql();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
+    }
 }

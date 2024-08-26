@@ -28,7 +28,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.amazonaws.util.StringUtils;
 
 // Unset variables statement
-public class UnsetVariableStmt extends StatementBase {
+public class UnsetVariableStmt extends StatementBase implements NotFallbackInParser {
     private SetType setType;
 
     // variables to restore
@@ -105,5 +105,10 @@ public class UnsetVariableStmt extends StatementBase {
         }
 
         return RedirectStatus.NO_FORWARD;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.UNSET;
     }
 }

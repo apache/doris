@@ -63,7 +63,7 @@ public class UnassignedScanSingleOlapTableJob extends AbstractUnassignedScanJob 
     @Override
     protected List<AssignedJob> insideMachineParallelization(
             Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges,
-            ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+            ListMultimap<ExchangeNode, AssignedJob> inputJobs, DistributedPlanWorkerManager workerManager) {
         // for each worker, compute how many instances should be generated, and which data should be scanned.
         // for example:
         // {
@@ -77,6 +77,20 @@ public class UnassignedScanSingleOlapTableJob extends AbstractUnassignedScanJob 
         //        instance 5: olapScanNode1: ScanRanges([tablet_10007])
         //    ],
         // }
-        return super.insideMachineParallelization(workerToScanRanges, inputJobs);
+        return super.insideMachineParallelization(workerToScanRanges, inputJobs, workerManager);
+    }
+
+    @Override
+    protected List<AssignedJob> fillUpAssignedJobs(List<AssignedJob> assignedJobs,
+            DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+        if (assignedJobs.isEmpty()) {
+            // the tablets have pruned, so no assignedJobs,
+            // we should allocate an instance of it,
+            //
+            // for example: SELECT * FROM tbl TABLET(1234)
+            // if the tablet 1234 not exists
+            assignedJobs = fillUpSingleEmptyInstance(workerManager);
+        }
+        return assignedJobs;
     }
 }

@@ -27,8 +27,9 @@ LocalExchangeSinkLocalState::~LocalExchangeSinkLocalState() = default;
 
 std::vector<Dependency*> LocalExchangeSinkLocalState::dependencies() const {
     auto deps = Base::dependencies();
-    auto exchanger_deps = _exchanger->local_sink_state_dependency(_channel_id);
-    for (auto* dep : exchanger_deps) {
+
+    auto dep = _shared_state->get_sink_dep_by_channel_id(_channel_id);
+    if (dep != nullptr) {
         deps.push_back(dep);
     }
     return deps;
@@ -39,7 +40,7 @@ Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets
                                         const std::map<int, int>& shuffle_idx_to_instance_idx) {
     _name = "LOCAL_EXCHANGE_SINK_OPERATOR (" + get_exchange_type_name(type) + ")";
     _type = type;
-    if (_type == ExchangeType::HASH_SHUFFLE) {
+    if (_type == ExchangeType::HASH_SHUFFLE || _type == ExchangeType::BUCKET_HASH_SHUFFLE) {
         // For shuffle join, if data distribution has been broken by previous operator, we
         // should use a HASH_SHUFFLE local exchanger to shuffle data again. To be mentioned,
         // we should use map shuffle idx to instance idx because all instances will be
@@ -56,17 +57,17 @@ Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets
                 _shuffle_idx_to_instance_idx[i] = {i, i};
             }
         }
-        _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
-                _num_partitions));
-        RETURN_IF_ERROR(_partitioner->init(_texprs));
-    } else if (_type == ExchangeType::BUCKET_HASH_SHUFFLE) {
         _partitioner.reset(
-                new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(num_buckets));
+                _type == ExchangeType::HASH_SHUFFLE
+                        ? new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
+                                  _num_partitions)
+                        : new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
+                                  num_buckets));
         RETURN_IF_ERROR(_partitioner->init(_texprs));
     }
-
     return Status::OK();
 }
+
 Status LocalExchangeSinkOperatorX::prepare(RuntimeState* state) {
     if (_type == ExchangeType::HASH_SHUFFLE || _type == ExchangeType::BUCKET_HASH_SHUFFLE) {
         RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->row_desc()));

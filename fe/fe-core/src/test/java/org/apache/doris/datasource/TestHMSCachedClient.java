@@ -18,8 +18,8 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.common.info.SimpleTableInfo;
 import org.apache.doris.datasource.hive.HMSCachedClient;
-import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.datasource.hive.HiveDatabaseMetadata;
 import org.apache.doris.datasource.hive.HivePartitionStatistics;
 import org.apache.doris.datasource.hive.HivePartitionWithStatistics;
@@ -48,7 +48,7 @@ import java.util.stream.Collectors;
 
 public class TestHMSCachedClient implements HMSCachedClient {
 
-    public Map<HMSTransaction.DatabaseTableName, List<Partition>> partitions = new ConcurrentHashMap<>();
+    public Map<SimpleTableInfo, List<Partition>> partitions = new ConcurrentHashMap<>();
     public Map<String, List<Table>> tables = new HashMap<>();
     public List<Database> dbs = new ArrayList<>();
 
@@ -232,7 +232,7 @@ public class TestHMSCachedClient implements HMSCachedClient {
     public void dropTable(String dbName, String tableName) {
         Table table = getTable(dbName, tableName);
         this.tables.get(dbName).remove(table);
-        this.partitions.remove(new HMSTransaction.DatabaseTableName(dbName, tableName));
+        this.partitions.remove(new SimpleTableInfo(dbName, tableName));
     }
 
     @Override
@@ -248,7 +248,7 @@ public class TestHMSCachedClient implements HMSCachedClient {
 
         List<Table> tableList = getTableList(tbl.getDbName());
         tableList.add(HiveUtil.toHiveTable((HiveTableMetadata) tbl));
-        HMSTransaction.DatabaseTableName key = new HMSTransaction.DatabaseTableName(dbName, tbName);
+        SimpleTableInfo key = new SimpleTableInfo(dbName, tbName);
         partitions.put(key, new ArrayList<>());
     }
 
@@ -322,7 +322,7 @@ public class TestHMSCachedClient implements HMSCachedClient {
     }
 
     public List<Partition> getPartitionList(String dbName, String tableName) {
-        HMSTransaction.DatabaseTableName key = new HMSTransaction.DatabaseTableName(dbName, tableName);
+        SimpleTableInfo key = new SimpleTableInfo(dbName, tableName);
         List<Partition> partitionList = this.partitions.get(key);
         if (partitionList == null) {
             throw new RuntimeException("can't found table: " + key);

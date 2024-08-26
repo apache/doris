@@ -90,7 +90,7 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         this.idToTablets = new HashMap<>();
         this.tablets = new ArrayList<>();
 
-        this.rowCount = 0;
+        this.rowCount = -1;
 
         this.rollupIndexId = -1L;
         this.rollupFinishedVersion = -1L;

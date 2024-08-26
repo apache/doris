@@ -329,6 +329,7 @@ struct TPaimonFileDesc {
     10: optional i64 last_update_time
     11: optional string file_format
     12: optional TPaimonDeletionFileDesc deletion_file;
+    13: optional map<string, string> hadoop_conf
 }
 
 struct TTrinoConnectorFileDesc {
@@ -698,6 +699,7 @@ struct TSchemaScanNode {
   12: optional bool show_hidden_cloumns = false
   // 13: optional list<TSchemaTableStructure> table_structure // deprecated
   14: optional string catalog
+  15: optional list<Types.TNetworkAddress> fe_addr_list
 }
 
 struct TMetaScanNode {

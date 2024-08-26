@@ -52,6 +52,7 @@ private:
     std::wstring _field_name;
     std::vector<std::string> _terms;
     std::unique_ptr<CL_NS(search)::MultiPhraseQuery> _query;
+    int32_t _max_expansions = 50;
 };
 
 } // namespace doris::segment_v2

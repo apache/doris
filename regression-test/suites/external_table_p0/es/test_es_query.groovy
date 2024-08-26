@@ -214,6 +214,13 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_5_18 """select message from test1 where not_null_or_empty(message)"""
             order_qt_sql_5_19 """select * from test1 where esquery(c_unsigned_long, '{"match":{"c_unsigned_long":0}}')"""
             order_qt_sql_5_20 """select c_person, c_user, json_extract(c_person, '\$.[0].name'), json_extract(c_user, '\$.[1].last') from test1;"""
+            try {
+                sql """select * from composite_type_array;"""
+                fail("Should not reach here")
+            } catch (Exception e) {
+                logger.error(e.getMessage())
+                assertTrue(e.getMessage().contains("Expected value of type: ARRAY; but found type: Varchar/Char; Document slice is : \"soccer\""))
+            }
 
             sql """switch test_es_query_es6"""
             // order_qt_sql_6_01 """show tables"""
@@ -236,6 +243,12 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_6_18 """select message from test1 where not_null_or_empty(message)"""
             order_qt_sql_6_19 """select * from test1 where esquery(c_person, '{"match":{"c_person.name":"Andy"}}')"""
             order_qt_sql_6_20 """select c_person, c_user, json_extract(c_person, '\$.[0].name'), json_extract(c_user, '\$.[1].last') from test1;"""
+            try {
+                sql """select * from composite_type_array;"""
+                fail("Should not reach here")
+            } catch (Exception e) {
+                assertTrue(e.getMessage().contains("Expected value of type: ARRAY; but found type: Varchar/Char; Document slice is : \"soccer\""))
+            }
 
             List<List<String>> tables6N = sql """show tables"""
             boolean notContainHide = true
@@ -282,6 +295,12 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_7_23 """select * from test1 where level = 'debug'"""
             order_qt_sql_7_24 """select * from test1 where esquery(c_float, '{"match":{"c_float":1.1}}')"""
             order_qt_sql_7_25 """select c_person, c_user, json_extract(c_person, '\$.[0].name'), json_extract(c_user, '\$.[1].last') from test1;"""
+            try {
+                sql """select * from composite_type_array;"""
+                fail("Should not reach here")
+            } catch (Exception e) {
+                assertTrue(e.getMessage().contains("Expected value of type: ARRAY; but found type: Varchar/Char; Document slice is : \"soccer\""))
+            }
 
             List<List<String>> tables7N = sql """show tables"""
             boolean notContainHide7 = true
@@ -328,6 +347,12 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_8_21 """select * from test1 where level = 'debug'"""
             order_qt_sql_8_22 """select * from test1 where esquery(c_ip, '{"match":{"c_ip":"192.168.0.1"}}')"""
             order_qt_sql_8_23 """select c_person, c_user, json_extract(c_person, '\$.[0].name'), json_extract(c_user, '\$.[1].last') from test1;"""
+            try {
+                sql """select * from composite_type_array;"""
+                fail("Should not reach here")
+            } catch (Exception e) {
+                assertTrue(e.getMessage().contains("Expected value of type: ARRAY; but found type: Varchar/Char; Document slice is : \"soccer\""))
+            }
         
         }
 

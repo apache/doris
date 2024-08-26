@@ -27,10 +27,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
@@ -52,7 +50,6 @@ import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
-import org.apache.doris.thrift.TFileType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -94,6 +91,11 @@ public class HiveScanNode extends FileQueryScanNode {
 
     public static final String PROP_MAP_KV_DELIMITER = "mapkey.delim";
     public static final String DEFAULT_MAP_KV_DELIMITER = "\003";
+
+    public static final String PROP_ESCAPE_DELIMITER = "escape.delim";
+    public static final String DEFAULT_ESCAPE_DELIMIER = "\\";
+    public static final String PROP_NULL_FORMAT = "serialization.null.format";
+    public static final String DEFAULT_NULL_FORMAT = "\\N";
 
     protected final HMSExternalTable hmsTable;
     private HiveTransaction hiveTransaction = null;
@@ -320,10 +322,6 @@ public class HiveScanNode extends FileQueryScanNode {
             return;
         }
         for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
-            // This if branch is to support old splitter, will remove later.
-            if (fileCacheValue.getSplits() != null) {
-                allFiles.addAll(fileCacheValue.getSplits());
-            }
             if (fileCacheValue.getFiles() != null) {
                 boolean isSplittable = fileCacheValue.isSplittable();
                 for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
@@ -342,7 +340,7 @@ public class HiveScanNode extends FileQueryScanNode {
             allFiles.addAll(splitFile(status.getPath(), status.getBlockSize(),
                     status.getBlockLocations(), status.getLength(), status.getModificationTime(),
                     status.isSplittable(), status.getPartitionValues(),
-                new HiveSplitCreator(status.getAcidInfo())));
+                    new HiveSplitCreator(status.getAcidInfo())));
         }
     }
 
@@ -409,21 +407,6 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected TFileType getLocationType() throws UserException {
-        return getLocationType(hmsTable.getRemoteTable().getSd().getLocation());
-    }
-
-    @Override
-    protected TFileType getLocationType(String location) throws UserException {
-        String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
-        if (bindBrokerName != null) {
-            return TFileType.FILE_BROKER;
-        }
-        return Optional.ofNullable(LocationPath.getTFileTypeForBE(location)).orElseThrow(() ->
-                new DdlException("Unknown file location " + location + " for hms table " + hmsTable.getName()));
-    }
-
-    @Override
     public TFileFormatType getFileFormatType() throws UserException {
         TFileFormatType type = null;
         String inputFormatName = hmsTable.getRemoteTable().getSd().getInputFormat();
@@ -478,6 +461,21 @@ public class HiveScanNode extends FileQueryScanNode {
         Map<String, String> serdeParams = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
         if (serdeParams.containsKey(PROP_QUOTE_CHAR)) {
             textParams.setEnclose(serdeParams.get(PROP_QUOTE_CHAR).getBytes()[0]);
+        }
+
+        // TODO: support escape char and null format in csv_reader
+        Optional<String> escapeChar = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_ESCAPE_DELIMITER);
+        if (escapeChar.isPresent() && !escapeChar.get().equals(DEFAULT_ESCAPE_DELIMIER)) {
+            throw new UserException(
+                    "not support serde prop " + PROP_ESCAPE_DELIMITER + " in hive text reading");
+        }
+
+        Optional<String> nullFormat = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_NULL_FORMAT);
+        if (nullFormat.isPresent() && !nullFormat.get().equals(DEFAULT_NULL_FORMAT)) {
+            throw new UserException(
+                    "not support serde prop " + PROP_NULL_FORMAT + " in hive text reading");
         }
 
         TFileAttributes fileAttributes = new TFileAttributes();

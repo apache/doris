@@ -699,6 +699,15 @@ public class ExpressionUtils {
         return set.build();
     }
 
+    public static <E> List<E> collectToList(Collection<? extends Expression> expressions,
+            Predicate<TreeNode<Expression>> predicate) {
+        ImmutableList.Builder<E> list = ImmutableList.builder();
+        for (Expression expr : expressions) {
+            list.addAll(expr.collectToList(predicate));
+        }
+        return list.build();
+    }
+
     /**
      * extract uniform slot for the given predicate, such as a = 1 and b = 2
      */

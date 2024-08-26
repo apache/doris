@@ -194,4 +194,8 @@ public class ConnectScheduler {
     public Map<Integer, ConnectContext> getConnectionMap() {
         return connectionMap;
     }
+
+    public Map<String, AtomicInteger> getUserConnectionMap() {
+        return connByUser;
+    }
 }

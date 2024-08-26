@@ -54,6 +54,7 @@ public:
     const FunctionBasePtr function() { return _function; }
 
     bool is_not_in() const { return _is_not_in; };
+    bool can_fast_execute() const override { return true; }
 
 private:
     FunctionBasePtr _function;
@@ -61,7 +62,5 @@ private:
 
     const bool _is_not_in;
     static const constexpr char* function_name = "in";
-
-    bool _can_fast_execute = false;
 };
 } // namespace doris::vectorized

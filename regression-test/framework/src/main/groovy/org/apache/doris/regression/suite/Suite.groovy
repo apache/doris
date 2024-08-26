@@ -17,6 +17,8 @@
 
 package org.apache.doris.regression.suite
 
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
 import groovy.json.JsonOutput
 import com.google.common.collect.Maps
 import com.google.common.util.concurrent.Futures
@@ -28,6 +30,7 @@ import com.google.common.collect.ImmutableList
 import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.action.BenchmarkAction
+import org.apache.doris.regression.action.ProfileAction
 import org.apache.doris.regression.action.WaitForAction
 import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.OutputUtils
@@ -257,6 +260,15 @@ class Suite implements GroovyInterceptable {
     public <T> T connect(String user = context.config.jdbcUser, String password = context.config.jdbcPassword,
                          String url = context.config.jdbcUrl, Closure<T> actionSupplier) {
         return context.connect(user, password, url, actionSupplier)
+    }
+
+    public void dockerAwaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
+        def connInfo = context.threadLocalConn.get()
+        Awaitility.await().atMost(atMostSeconds, SECONDS).pollInterval(intervalSecond, SECONDS).until(
+            {
+                connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
+            }
+        )
     }
 
     public void docker(ClusterOptions options = new ClusterOptions(), Closure actionSupplier) throws Exception {
@@ -620,6 +632,10 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void profile(String tag, Closure<String> actionSupplier) {
+        runAction(new ProfileAction(context, tag), actionSupplier)
+    }
+
     void createMV(String sql) {
         (new CreateMVAction(context, sql)).run()
     }
@@ -861,7 +877,7 @@ class Suite implements GroovyInterceptable {
                 if (exitcode != 0) {
                     staticLogger.info("exit code: ${exitcode}, output\n: ${proc.text}")
                     if (mustSuc == true) {
-                       Assert.assertEquals(0, exitCode)
+                       Assert.assertEquals(0, exitcode)
                     }
                 }
             } catch (IOException e) {
@@ -922,6 +938,19 @@ class Suite implements GroovyInterceptable {
         }
         return;
     }
+
+    void getBackendIpHttpAndBrpcPort(Map<String, String> backendId_to_backendIP,
+        Map<String, String> backendId_to_backendHttpPort, Map<String, String> backendId_to_backendBrpcPort) {
+
+        List<List<Object>> backends = sql("show backends");
+        for (List<Object> backend : backends) {
+            backendId_to_backendIP.put(String.valueOf(backend[0]), String.valueOf(backend[1]));
+            backendId_to_backendHttpPort.put(String.valueOf(backend[0]), String.valueOf(backend[4]));
+            backendId_to_backendBrpcPort.put(String.valueOf(backend[0]), String.valueOf(backend[5]));
+        }
+        return;
+    }
+
 
     int getTotalLine(String filePath) {
         def file = new File(filePath)
@@ -1316,6 +1345,39 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    def getMVJobState = { tableName, limit  ->
+        def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC limit ${limit}"""
+        if (jobStateResult.size() != limit) {
+            logger.info("show alter table roll is empty" + jobStateResult)
+            return "NOT_READY"
+        }
+        for (int i = 0; i < jobStateResult.size(); i++) {
+            logger.info("getMVJobState is " + jobStateResult[i][8])
+            if (!jobStateResult[i][8].equals("FINISHED")) {
+                return "NOT_READY"
+            }
+        }
+        return "FINISHED";
+    }
+    def waitForRollUpJob =  (tbName, timeoutMillisecond, limit) -> {
+
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + timeoutMillisecond
+
+        String result
+        // time out or has run exceed 10 minute, then break
+        while (timeoutTimestamp > System.currentTimeMillis() && System.currentTimeMillis() - startTime < 600000){
+            result = getMVJobState(tbName, limit)
+            if (result == "FINISHED") {
+                sleep(200)
+                return
+            } else {
+                sleep(200)
+            }
+        }
+        Assert.assertEquals("FINISHED", result)
+    }
+
     String getJobName(String dbName, String mtmvName) {
         String showMTMV = "select JobName from mv_infos('database'='${dbName}') where Name = '${mtmvName}'";
 	    logger.info(showMTMV)
@@ -1440,26 +1502,57 @@ class Suite implements GroovyInterceptable {
         return result.values().toList()
     }
 
-    def check_mv_rewrite_success = { db, mv_sql, query_sql, mv_name ->
-
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS ${mv_sql}
-        """
-
-        def job_name = getJobName(db, mv_name);
-        waitingMTMVTaskFinished(job_name)
+    def mv_rewrite_success = { query_sql, mv_name ->
         explain {
-            sql("${query_sql}")
-            contains("${mv_name}(${mv_name})")
+            sql(" memo plan ${query_sql}")
+            contains("${mv_name} chose")
         }
     }
 
-    def check_mv_rewrite_fail = { db, mv_sql, query_sql, mv_name ->
+    def mv_rewrite_success_without_check_chosen = { query_sql, mv_name ->
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("${mv_name} not chose")
+        }
+    }
+
+    def mv_rewrite_fail = { query_sql, mv_name ->
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("${mv_name} fail")
+        }
+    }
+
+    def mv_rewrite_all_fail = {query_sql ->
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("chose: none")
+            contains("not chose: none")
+        }
+    }
+
+    def async_mv_rewrite_success = { db, mv_sql, query_sql, mv_name ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+
+        sql "analyze table ${mv_name} with sync;"
+
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("${mv_name} chose")
+        }
+    }
+
+    def async_mv_rewrite_success_without_check_chosen = { db, mv_sql, query_sql, mv_name ->
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
         sql"""
@@ -1472,9 +1565,36 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
+
+        sql "analyze table ${mv_name} with sync;"
+
         explain {
-            sql("${query_sql}")
-            notContains("${mv_name}(${mv_name})")
+            sql(" memo plan ${query_sql}")
+            notContains("${mv_name} fail")
+        }
+    }
+
+
+    def async_mv_rewrite_fail = { db, mv_sql, query_sql, mv_name ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+
+        sql "analyze table ${mv_name} with sync;"
+
+        explain {
+            sql(" memo plan ${query_sql}")
+            notContains("${mv_name} chose")
+            notContains("${mv_name} not chose")
         }
     }
 
@@ -1597,7 +1717,6 @@ class Suite implements GroovyInterceptable {
                 } else {
                     endpoint context.config.metaServiceHttpAddress
                 }
-                endpoint context.config.metaServiceHttpAddress
                 uri "/MetaService/http/drop_cluster?token=${token}"
                 body request_body
                 check check_func
@@ -1802,11 +1921,12 @@ class Suite implements GroovyInterceptable {
             def last_end_version = -1
             for(def rowset : rowsets) {
                 def version_str = rowset.substring(1, rowset.indexOf("]"))
-                logger.info("version_str: $version_str")
                 def versions = version_str.split("-")
                 def start_version = versions[0].toLong()
                 def end_version = versions[1].toLong()
-                logger.info("cur_version:[$start_version - $end_version], last_version:[$last_start_version - $last_end_version]")
+                if (last_end_version + 1 != start_version) {
+                    logger.warn("last_version:[$last_start_version - $last_end_version], cur_version:[$start_version - $end_version], version_str: $version_str")
+                }
                 assertEquals(last_end_version + 1, start_version)
                 last_start_version = start_version
                 last_end_version = end_version

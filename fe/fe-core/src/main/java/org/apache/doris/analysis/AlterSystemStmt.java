@@ -28,7 +28,7 @@ import com.google.common.base.Preconditions;
 import lombok.Getter;
 
 @Getter
-public class AlterSystemStmt extends DdlStmt {
+public class AlterSystemStmt extends DdlStmt implements NotFallbackInParser {
 
     private final AlterClause alterClause;
 
@@ -68,5 +68,10 @@ public class AlterSystemStmt extends DdlStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 }

@@ -18,6 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/array/arrayCumSum.cpp
 // and modified by Doris
 
+#include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/core/types.h"
@@ -81,9 +82,10 @@ public:
         if (return_type) {
             return std::make_shared<DataTypeArray>(make_nullable(return_type));
         } else {
-            LOG(FATAL) << "Function of " << name
-                       << " return type get wrong: and input argument is: "
-                       << arguments[0]->get_name();
+            throw doris::Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    "Function of {}, return type get wrong: and input argument is: {}", name,
+                    arguments[0]->get_name());
         }
 
         return nullptr;

@@ -25,9 +25,9 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
-import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
@@ -48,9 +48,6 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-//import com.google.gson.JsonElement;
-//import com.google.gson.JsonObject;
-//import com.google.gson.JsonParser;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -75,8 +72,6 @@ public class MTMV extends OlapTable {
     private String querySql;
     @SerializedName("s")
     private MTMVStatus status;
-    @SerializedName("ei")
-    private EnvInfo envInfo;
     @SerializedName("ji")
     private MTMVJobInfo jobInfo;
     @SerializedName("mp")
@@ -108,7 +103,6 @@ public class MTMV extends OlapTable {
         this.type = TableType.MATERIALIZED_VIEW;
         this.querySql = params.querySql;
         this.refreshInfo = params.refreshInfo;
-        this.envInfo = params.envInfo;
         this.status = new MTMVStatus();
         this.jobInfo = new MTMVJobInfo(MTMVJobManager.MTMV_JOB_PREFIX + params.tableId);
         this.mvProperties = params.mvProperties;
@@ -138,10 +132,6 @@ public class MTMV extends OlapTable {
         } finally {
             readMvUnlock();
         }
-    }
-
-    public EnvInfo getEnvInfo() {
-        return envInfo;
     }
 
     public MTMVJobInfo getJobInfo() {
@@ -195,7 +185,7 @@ public class MTMV extends OlapTable {
                 this.relation = relation;
                 if (!Env.isCheckpointThread() && !Config.enable_check_compatibility_mode) {
                     try {
-                        this.cache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this));
+                        this.cache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this), true);
                     } catch (Throwable e) {
                         this.cache = null;
                         LOG.warn("generate cache failed", e);
@@ -282,7 +272,7 @@ public class MTMV extends OlapTable {
             writeMvLock();
             try {
                 if (cache == null) {
-                    this.cache = MTMVCache.from(this, connectionContext);
+                    this.cache = MTMVCache.from(this, connectionContext, true);
                 }
             } finally {
                 writeMvUnlock();
@@ -408,11 +398,6 @@ public class MTMV extends OlapTable {
     }
 
     // for test
-    public void setEnvInfo(EnvInfo envInfo) {
-        this.envInfo = envInfo;
-    }
-
-    // for test
     public void setJobInfo(MTMVJobInfo jobInfo) {
         this.jobInfo = jobInfo;
     }
@@ -467,7 +452,6 @@ public class MTMV extends OlapTable {
         refreshInfo = materializedView.refreshInfo;
         querySql = materializedView.querySql;
         status = materializedView.status;
-        envInfo = materializedView.envInfo;
         jobInfo = materializedView.jobInfo;
         mvProperties = materializedView.mvProperties;
         relation = materializedView.relation;
@@ -485,7 +469,6 @@ public class MTMV extends OlapTable {
         sb.append("refreshInfo=").append(refreshInfo);
         sb.append(", querySql='").append(querySql).append('\'');
         sb.append(", status=").append(status);
-        sb.append(", envInfo=").append(envInfo);
         if (jobInfo != null) {
             sb.append(", jobInfo=").append(jobInfo.toInfoString());
         }
@@ -503,5 +486,22 @@ public class MTMV extends OlapTable {
         sb.append(", comment='").append(comment).append('\'');
         sb.append('}');
         return sb.toString();
+    }
+
+    /**
+     * Previously, ID was used to store the related table of materialized views,
+     * but when the catalog is deleted, the ID will change, so name is used instead.
+     * The logic here is to be compatible with older versions by converting ID to name
+     */
+    public void compatible(CatalogMgr catalogMgr) {
+        if (mvPartitionInfo != null) {
+            mvPartitionInfo.compatible(catalogMgr);
+        }
+        if (relation != null) {
+            relation.compatible(catalogMgr);
+        }
+        if (refreshSnapshot != null) {
+            refreshSnapshot.compatible(this);
+        }
     }
 }

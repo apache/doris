@@ -254,8 +254,6 @@ public:
                                     (size_t)parser.getWriter().getOutput()->getSize());
             } else {
                 error = parser.getErrorCode();
-                LOG(WARNING) << "json parse error: " << JsonbErrMsg::getErrMsg(error)
-                             << " for value: " << std::string_view(val.data, val.size);
 
                 switch (parse_error_handle_mode) {
                 case JsonbParseErrorMode::FAIL:
@@ -1099,7 +1097,8 @@ private:
                 res[i] = 0;
             }
         } else {
-            LOG(FATAL) << "unexpected type ";
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "unexpected type in JsonbExtractImpl");
             __builtin_unreachable();
         }
     }

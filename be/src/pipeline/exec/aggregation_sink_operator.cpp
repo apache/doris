@@ -48,7 +48,7 @@ namespace doris::pipeline {
 /// is in a random order. This means that we assume that the reduction factor will
 /// increase over time.
 AggSinkLocalState::AggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-        : Base(parent, state) {}
+        : Base(parent, state), _agg_profile_arena(std::make_unique<vectorized::Arena>()) {}
 
 Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -97,11 +97,10 @@ Status AggSinkLocalState::open(RuntimeState* state) {
         RETURN_IF_ERROR(
                 p._probe_expr_ctxs[i]->clone(state, Base::_shared_state->probe_expr_ctxs[i]));
     }
-    Base::_shared_state->agg_profile_arena = std::make_unique<vectorized::Arena>();
 
     if (Base::_shared_state->probe_expr_ctxs.empty()) {
         _agg_data->without_key = reinterpret_cast<vectorized::AggregateDataPtr>(
-                Base::_shared_state->agg_profile_arena->alloc(p._total_size_of_aggregate_states));
+                _agg_profile_arena->alloc(p._total_size_of_aggregate_states));
 
         if (p._is_merge) {
             _executor = std::make_unique<Executor<true, true>>();
@@ -503,7 +502,8 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
                 _shared_state->reach_limit =
                         hash_table_size >=
                         (_shared_state->do_sort_limit
-                                 ? Base::_parent->template cast<AggSinkOperatorX>()._limit * 5
+                                 ? Base::_parent->template cast<AggSinkOperatorX>()._limit *
+                                           config::topn_agg_limit_multiplier
                                  : Base::_parent->template cast<AggSinkOperatorX>()._limit);
                 if (_shared_state->reach_limit && _shared_state->do_sort_limit) {
                     _shared_state->build_limit_heap(hash_table_size);
@@ -747,7 +747,6 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 
     const auto& agg_functions = tnode.agg_node.aggregate_functions;
-    _external_agg_bytes_threshold = state->external_agg_bytes_threshold();
 
     _is_merge = std::any_of(agg_functions.cbegin(), agg_functions.cend(),
                             [](const auto& e) { return e.nodes[0].agg_expr.is_merge_agg; });

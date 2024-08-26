@@ -74,6 +74,19 @@ public class MetaLockUtils {
         return lockedTablesList;
     }
 
+    public static boolean tryWriteLockTablesIfExist(List<? extends TableIf> tableList, long timeout,
+            TimeUnit unit) {
+        for (int i = 0; i < tableList.size(); i++) {
+            if (!tableList.get(i).tryWriteLockIfExist(timeout, unit)) {
+                for (int j = i - 1; j >= 0; j--) {
+                    tableList.get(j).writeUnlock();
+                }
+                return false;
+            }
+        }
+        return true;
+    }
+
     public static void writeLockTablesOrMetaException(List<? extends TableIf> tableList) throws MetaNotFoundException {
         for (int i = 0; i < tableList.size(); i++) {
             try {

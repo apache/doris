@@ -44,9 +44,11 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.SqlParserUtils;
@@ -67,6 +69,8 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -373,11 +377,11 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         Preconditions.checkState(jobState == JobState.WAITING_TXN, jobState);
 
         try {
-            if (!isPreviousLoadFinished()) {
+            if (!checkFailedPreviousLoadAndAbort()) {
                 LOG.info("wait transactions before {} to be finished, rollup job: {}", watershedTxnId, jobId);
                 return;
             }
-        } catch (AnalysisException e) {
+        } catch (UserException e) {
             throw new AlterCancelException(e.getMessage());
         }
 
@@ -681,10 +685,20 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         }
     }
 
-    // Check whether transactions of the given database which txnId is less than 'watershedTxnId' are finished.
-    protected boolean isPreviousLoadFinished() throws AnalysisException {
-        return Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(
+    // Check whether transactions of the given database which txnId is less than 'watershedTxnId' are failed
+    // and abort it if it is failed.
+    // If return true, all previous load is finish
+    protected boolean checkFailedPreviousLoadAndAbort() throws UserException {
+        List<TransactionState> unFinishedTxns = Env.getCurrentGlobalTransactionMgr().getUnFinishedPreviousLoad(
                 watershedTxnId, dbId, Lists.newArrayList(tableId));
+        if (Config.enable_abort_txn_by_checking_conflict_txn) {
+            List<TransactionState> failedTxns = GlobalTransactionMgr.checkFailedTxns(unFinishedTxns);
+            for (TransactionState txn : failedTxns) {
+                Env.getCurrentGlobalTransactionMgr()
+                        .abortTransaction(txn.getDbId(), txn.getTransactionId(), "Cancel by schema change");
+            }
+        }
+        return unFinishedTxns.isEmpty();
     }
 
     /**

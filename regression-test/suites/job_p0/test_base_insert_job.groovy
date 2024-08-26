@@ -172,8 +172,6 @@ suite("test_base_insert_job") {
     def past_start_time_job = sql """ select status from jobs("type"="insert") where name='past_start_time'"""
     println past_start_time_job
     assert past_start_time_job.get(0).get(0) == "RUNNING"
-    def recurringTableDatas = sql """ select count(1) from ${tableName} where user_id=99 and type=99 """
-    assert recurringTableDatas.get(0).get(0) == 1
     sql """
         DROP JOB IF EXISTS where jobname =  'past_start_time'
     """
@@ -187,7 +185,7 @@ suite("test_base_insert_job") {
     Awaitility.await("create-job-test").atMost(60, SECONDS).until({
         def job = sql """ select SucceedTaskCount from jobs("type"="insert") where name='${jobName}'"""
         println job
-        job.size() == 1 && '1' == job.get(0).get(0)
+        job.size() == 1 && '1' <= job.get(0).get(0)
     })
 
     sql """

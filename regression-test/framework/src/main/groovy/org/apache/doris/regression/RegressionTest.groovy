@@ -279,6 +279,7 @@ class RegressionTest {
     static Recorder runScripts(Config config) {
         def recorder = new Recorder()
         def directoryFilter = config.getDirectoryFilter()
+        log.info("run scripts in directories: " + config.directories)
         if (!config.withOutLoadData) {
             log.info('Start to run load scripts')
             runScripts(config, recorder, directoryFilter,

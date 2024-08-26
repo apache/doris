@@ -29,7 +29,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import java.util.Map;
 
-public class AlterResourceStmt extends DdlStmt {
+public class AlterResourceStmt extends DdlStmt implements NotFallbackInParser {
     private static final String TYPE = "type";
 
     private final String resourceName;
@@ -86,5 +86,10 @@ public class AlterResourceStmt extends DdlStmt {
     @Override
     public boolean needAuditEncryption() {
         return true;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 }

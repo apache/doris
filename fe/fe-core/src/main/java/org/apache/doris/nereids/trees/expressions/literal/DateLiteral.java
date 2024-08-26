@@ -336,7 +336,7 @@ public class DateLiteral extends Literal {
     }
 
     protected static boolean isDateOutOfRange(LocalDateTime dateTime) {
-        return dateTime.isBefore(START_OF_A_DAY) || dateTime.isAfter(END_OF_A_DAY);
+        return dateTime == null || dateTime.isBefore(START_OF_A_DAY) || dateTime.isAfter(END_OF_A_DAY);
     }
 
     private boolean checkDatetime(TemporalAccessor dateTime) {
@@ -415,6 +415,21 @@ public class DateLiteral extends Literal {
 
     public long getDay() {
         return day;
+    }
+
+    public int getDayOfYear() {
+        if (year == 0 && month == 3 && (day == 1 || day == 2)) {
+            return toJavaDateType().getDayOfYear() - 1;
+        }
+        return toJavaDateType().getDayOfYear();
+    }
+
+    public int getDayOfWeek() {
+        if (year == 0 && (month == 1 || (month == 2 && day <= 28))) {
+            // shift right with 1 offset
+            return toJavaDateType().getDayOfWeek().getValue() % 7 + 1;
+        }
+        return toJavaDateType().getDayOfWeek().getValue();
     }
 
     public Expression plusDays(long days) {

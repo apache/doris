@@ -80,6 +80,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
             .add(WorkloadGroup.MIN_REMOTE_SCAN_THREAD_NUM)
             .add(WorkloadGroup.SPILL_THRESHOLD_LOW_WATERMARK).add(WorkloadGroup.SPILL_THRESHOLD_HIGH_WATERMARK)
             .add(WorkloadGroup.TAG)
+            .add(WorkloadGroup.READ_BYTES_PER_SECOND).add(WorkloadGroup.REMOTE_READ_BYTES_PER_SECOND)
             .add(QueryQueue.RUNNING_QUERY_NUM).add(QueryQueue.WAITING_QUERY_NUM)
             .build();
 
@@ -393,6 +394,9 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
     public void alterWorkloadGroup(AlterWorkloadGroupStmt stmt) throws DdlException {
         String workloadGroupName = stmt.getWorkloadGroupName();
         Map<String, String> properties = stmt.getProperties();
+        if (properties.size() == 0) {
+            throw new DdlException("alter workload group should contain at least one property");
+        }
         WorkloadGroup newWorkloadGroup;
         writeLock();
         try {

@@ -39,12 +39,13 @@ public:
 
     std::unique_ptr<ObjectListIterator> list_objects(ObjectStoragePathRef path) override;
 
-    ObjectStorageResponse delete_objects(const std::string& bucket,
-                                         std::vector<std::string> keys) override;
+    ObjectStorageResponse delete_objects(const std::string& bucket, std::vector<std::string> keys,
+                                         ObjClientOptions option) override;
 
     ObjectStorageResponse delete_object(ObjectStoragePathRef path) override;
 
     ObjectStorageResponse delete_objects_recursively(ObjectStoragePathRef path,
+                                                     ObjClientOptions option,
                                                      int64_t expiration_time = 0) override;
 
     ObjectStorageResponse get_life_cycle(const std::string& bucket,

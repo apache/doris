@@ -32,6 +32,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.info.SimpleTableInfo;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
@@ -125,7 +126,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             catalogDatabase.setProperties(properties);
             catalogDatabase.setComment(properties.getOrDefault("comment", ""));
             client.createDatabase(catalogDatabase);
-            catalog.onRefresh(true);
+            catalog.onRefreshCache(true);
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
         }
@@ -145,7 +146,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         }
         try {
             client.dropDatabase(dbName);
-            catalog.onRefresh(true);
+            catalog.onRefreshCache(true);
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
         }
@@ -297,25 +298,23 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     }
 
     public void updateTableStatistics(
-            String dbName,
-            String tableName,
+            SimpleTableInfo tableInfo,
             Function<HivePartitionStatistics, HivePartitionStatistics> update) {
-        client.updateTableStatistics(dbName, tableName, update);
+        client.updateTableStatistics(tableInfo.getDbName(), tableInfo.getTbName(), update);
     }
 
     void updatePartitionStatistics(
-            String dbName,
-            String tableName,
+            SimpleTableInfo tableInfo,
             String partitionName,
             Function<HivePartitionStatistics, HivePartitionStatistics> update) {
-        client.updatePartitionStatistics(dbName, tableName, partitionName, update);
+        client.updatePartitionStatistics(tableInfo.getDbName(), tableInfo.getTbName(), partitionName, update);
     }
 
-    public void addPartitions(String dbName, String tableName, List<HivePartitionWithStatistics> partitions) {
-        client.addPartitions(dbName, tableName, partitions);
+    public void addPartitions(SimpleTableInfo tableInfo, List<HivePartitionWithStatistics> partitions) {
+        client.addPartitions(tableInfo.getDbName(), tableInfo.getTbName(), partitions);
     }
 
-    public void dropPartition(String dbName, String tableName, List<String> partitionValues, boolean deleteData) {
-        client.dropPartition(dbName, tableName, partitionValues, deleteData);
+    public void dropPartition(SimpleTableInfo tableInfo, List<String> partitionValues, boolean deleteData) {
+        client.dropPartition(tableInfo.getDbName(), tableInfo.getTbName(), partitionValues, deleteData);
     }
 }

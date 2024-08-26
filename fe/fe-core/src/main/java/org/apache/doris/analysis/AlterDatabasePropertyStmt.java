@@ -32,7 +32,7 @@ import com.google.common.base.Strings;
 import java.util.HashMap;
 import java.util.Map;
 
-public class AlterDatabasePropertyStmt extends DdlStmt {
+public class AlterDatabasePropertyStmt extends DdlStmt implements NotFallbackInParser {
     private String dbName;
     private Map<String, String> properties;
 
@@ -75,5 +75,10 @@ public class AlterDatabasePropertyStmt extends DdlStmt {
     public String toSql() {
         return "ALTER DATABASE " + dbName + " SET PROPERTIES ("
                 + new PrintableMap<String, String>(properties, "=", true, false, ",") + ")";
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 }

@@ -107,6 +107,15 @@ struct ColumnPredicateInfo {
     int32_t column_id;
 };
 
+class SegmentIterator;
+struct FuncExprParams {
+    ColumnId _column_id = 0;
+    uint32_t _unique_id = 0;
+    std::string _column_name;
+    SegmentIterator* _segment_iterator = nullptr;
+    std::shared_ptr<roaring::Roaring> result;
+};
+
 class SegmentIterator : public RowwiseIterator {
 public:
     SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr schema);
@@ -123,6 +132,8 @@ public:
             std::vector<RowLocation>* block_row_locations) override;
 
     const Schema& schema() const override { return *_schema; }
+    Segment& segment() { return *_segment; }
+    StorageReadOptions& storage_read_options() { return _opts; }
     bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
     uint64_t data_id() const override { return _segment->id(); }
     RowsetId rowset_id() const { return _segment->rowset_id(); }
@@ -140,6 +151,10 @@ public:
         }
 
         return updated;
+    }
+
+    std::vector<std::unique_ptr<InvertedIndexIterator>>& inverted_index_iterators() {
+        return _inverted_index_iterators;
     }
 
 private:
@@ -310,6 +325,7 @@ private:
     bool _check_column_pred_all_push_down(const std::string& column_name, bool in_compound = false,
                                           bool is_match = false);
     void _calculate_pred_in_remaining_conjunct_root(const vectorized::VExprSPtr& expr);
+    void _calculate_func_in_remaining_conjunct_root();
 
     // todo(wb) remove this method after RowCursor is removed
     void _convert_rowcursor_to_short_key(const RowCursor& key, size_t num_keys) {
@@ -393,6 +409,9 @@ private:
     bool _check_all_predicates_passed_inverted_index_for_column(ColumnId cid,
                                                                 bool default_return = false);
 
+    Status execute_func_expr(const vectorized::VExprSPtr& expr,
+                             std::shared_ptr<roaring::Roaring>& result);
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -459,6 +478,10 @@ private:
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<ColumnPredicate*> _col_predicates;
     std::vector<ColumnPredicate*> _col_preds_except_leafnode_of_andnode;
+
+    std::vector<vectorized::VExprSPtr> no_compound_func_exprs;
+    std::vector<vectorized::VExprSPtr> compound_func_exprs;
+
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
     bool _enable_common_expr_pushdown = false;
     std::vector<vectorized::VExprSPtr> _remaining_conjunct_roots;
@@ -466,6 +489,7 @@ private:
     std::unique_ptr<ColumnPredicateInfo> _column_predicate_info;
     std::unordered_map<std::string, std::vector<ColumnPredicateInfo>>
             _column_pred_in_remaining_vconjunct;
+    std::unordered_map<std::string, std::vector<std::string>> _func_name_to_result_sign;
     std::set<ColumnId> _not_apply_index_pred;
 
     // row schema of the key to seek

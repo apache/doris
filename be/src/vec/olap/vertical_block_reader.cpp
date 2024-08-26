@@ -133,6 +133,7 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
         _reader_context.need_ordered_result = true; // TODO: should it be?
         _reader_context.is_unique = tablet()->keys_type() == UNIQUE_KEYS;
         _reader_context.is_key_column_group = read_params.is_key_column_group;
+        _reader_context.record_rowids = read_params.record_rowids;
     }
 
     // build heap if key column iterator or build vertical merge iterator if value column
@@ -462,7 +463,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
         }
 
         size_t block_rows = block->rows();
-        if (_filter_delete && block_rows > 0) {
+        if (_delete_sign_available && block_rows > 0) {
             int ori_delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
             if (ori_delete_sign_idx < 0) {
                 *eof = (res.is<END_OF_FILE>());

@@ -55,6 +55,8 @@ public:
 
     bool is_literal() const override { return true; }
 
+    bool equals(const VExpr& other) override;
+
 protected:
     ColumnPtr _column_ptr;
     std::string _expr_name;

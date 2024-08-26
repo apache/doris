@@ -22,6 +22,7 @@
 
 #include "common/status.h"
 #include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 #include "util/threadpool.h"
 
 struct bufferevent_rate_limit_group;
@@ -36,7 +37,7 @@ class HttpRequest;
 // TODO(lingbin): implements two useful header ('If-Modified-Since' and 'RANGE') to reduce
 // transmission consumption.
 // We use parameter named 'file' to specify the static resource path, it is an absolute path.
-class DownloadAction : public HttpHandler {
+class DownloadAction : public HttpHandlerWithAuth {
 public:
     DownloadAction(ExecEnv* exec_env,
                    std::shared_ptr<bufferevent_rate_limit_group> rate_limit_group,
@@ -63,7 +64,6 @@ private:
     void handle_error_log(HttpRequest* req, const std::string& file_param);
     void _handle(HttpRequest* req);
 
-    ExecEnv* _exec_env;
     DOWNLOAD_TYPE _download_type;
 
     std::vector<std::string> _allow_paths;

@@ -251,4 +251,9 @@ public class UpdateStmt extends DdlStmt implements NotFallbackInParser {
         }
         return sb.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.UPDATE;
+    }
 }

@@ -38,7 +38,7 @@ import java.util.List;
 import java.util.Map;
 
 // Alter table statement.
-public class AlterTableStmt extends DdlStmt {
+public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
     private TableName tbl;
     private List<AlterClause> ops;
 
@@ -209,5 +209,10 @@ public class AlterTableStmt extends DdlStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 }

@@ -226,7 +226,7 @@ Status TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id,
         // If the new tablet is fresher than the existing one, then replace
         // the existing tablet with the new one.
         // Use default replica_id to ignore whether replica_id is match when drop tablet.
-        Status status = _drop_tablet_unlocked(tablet_id, /* replica_id */ 0, keep_files, false);
+        Status status = _drop_tablet(tablet_id, /* replica_id */ 0, keep_files, false, true);
         COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "DropOldTablet", "AddTablet"),
                        static_cast<int64_t>(watch.reset()));
         RETURN_NOT_OK_STATUS_WITH_WARN(
@@ -438,7 +438,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
     }
     // something is wrong, we need clear environment
     if (is_tablet_added) {
-        Status status = _drop_tablet_unlocked(new_tablet_id, request.replica_id, false, false);
+        Status status = _drop_tablet(new_tablet_id, request.replica_id, false, false, true);
         COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "DropTablet", parent_timer_name),
                        static_cast<int64_t>(watch.reset()));
         if (!status.ok()) {
@@ -522,14 +522,12 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
 
 Status TabletManager::drop_tablet(TTabletId tablet_id, TReplicaId replica_id,
                                   bool is_drop_table_or_partition) {
-    auto& shard = _get_tablets_shard(tablet_id);
-    std::lock_guard wrlock(shard.lock);
-    return _drop_tablet_unlocked(tablet_id, replica_id, false, is_drop_table_or_partition);
+    return _drop_tablet(tablet_id, replica_id, false, is_drop_table_or_partition, false);
 }
 
 // Drop specified tablet.
-Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id,
-                                            bool keep_files, bool is_drop_table_or_partition) {
+Status TabletManager::_drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool keep_files,
+                                   bool is_drop_table_or_partition, bool had_held_shard_lock) {
     LOG(INFO) << "begin drop tablet. tablet_id=" << tablet_id << ", replica_id=" << replica_id
               << ", is_drop_table_or_partition=" << is_drop_table_or_partition;
     DorisMetrics::instance()->drop_tablet_requests_total->increment(1);
@@ -538,23 +536,31 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
     Defer defer {[&]() { unregister_transition_tablet(tablet_id, "drop tablet"); }};
 
     // Fetch tablet which need to be dropped
-    TabletSharedPtr to_drop_tablet = _get_tablet_unlocked(tablet_id);
-    if (to_drop_tablet == nullptr) {
-        LOG(WARNING) << "fail to drop tablet because it does not exist. "
-                     << "tablet_id=" << tablet_id;
-        return Status::OK();
-    }
+    TabletSharedPtr to_drop_tablet;
+    {
+        std::unique_lock<std::shared_mutex> wlock(_get_tablets_shard_lock(tablet_id),
+                                                  std::defer_lock);
+        if (!had_held_shard_lock) {
+            wlock.lock();
+        }
+        to_drop_tablet = _get_tablet_unlocked(tablet_id);
+        if (to_drop_tablet == nullptr) {
+            LOG(WARNING) << "fail to drop tablet because it does not exist. "
+                         << "tablet_id=" << tablet_id;
+            return Status::OK();
+        }
 
-    // We should compare replica id to avoid dropping new cloned tablet.
-    // Iff request replica id is 0, FE may be an older release, then we drop this tablet as before.
-    if (to_drop_tablet->replica_id() != replica_id && replica_id != 0) {
-        return Status::Aborted("replica_id not match({} vs {})", to_drop_tablet->replica_id(),
-                               replica_id);
-    }
+        // We should compare replica id to avoid dropping new cloned tablet.
+        // Iff request replica id is 0, FE may be an older release, then we drop this tablet as before.
+        if (to_drop_tablet->replica_id() != replica_id && replica_id != 0) {
+            return Status::Aborted("replica_id not match({} vs {})", to_drop_tablet->replica_id(),
+                                   replica_id);
+        }
 
-    _remove_tablet_from_partition(to_drop_tablet);
-    tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
-    tablet_map.erase(tablet_id);
+        _remove_tablet_from_partition(to_drop_tablet);
+        tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
+        tablet_map.erase(tablet_id);
+    }
 
     to_drop_tablet->clear_cache();
 

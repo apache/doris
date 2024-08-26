@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
-import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement.Assertion;
@@ -33,7 +32,6 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
@@ -120,11 +118,6 @@ public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<
     @Override
     public List<Slot> computeOutput() {
         return child().getOutput().stream().map(o -> o.withNullable(true)).collect(Collectors.toList());
-    }
-
-    @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        return ImmutableSet.of();
     }
 
     @Override

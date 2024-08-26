@@ -76,6 +76,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import io.netty.util.concurrent.FastThreadLocal;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
@@ -99,7 +100,7 @@ import javax.annotation.Nullable;
 // Use `volatile` to make the reference change atomic.
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
-    protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<>();
+    protected static FastThreadLocal<ConnectContext> threadLocalInfo = new FastThreadLocal<>();
 
     private static final String SSL_PROTOCOL = "TLS";
 
@@ -183,6 +184,9 @@ public class ConnectContext {
     protected String defaultCatalog = InternalCatalog.INTERNAL_CATALOG_NAME;
     protected boolean isSend;
 
+    // record last used database of every catalog
+    private final Map<String, String> lastDBOfCatalog = Maps.newConcurrentMap();
+
     protected AuditEventBuilder auditEventBuilder = new AuditEventBuilder();
 
     protected String remoteIP;
@@ -259,9 +263,6 @@ public class ConnectContext {
 
     private StatementContext statementContext;
 
-    // legacy planner
-    private Map<String, PrepareStmtContext> preparedStmtCtxs = Maps.newHashMap();
-
     // new planner
     private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
 
@@ -326,6 +327,18 @@ public class ConnectContext {
 
     public boolean isSend() {
         return this.isSend;
+    }
+
+    public void addLastDBOfCatalog(String catalog, String db) {
+        lastDBOfCatalog.put(catalog, db);
+    }
+
+    public String getLastDBOfCatalog(String catalog) {
+        return lastDBOfCatalog.get(catalog);
+    }
+
+    public String removeLastDBOfCatalog(String catalog) {
+        return lastDBOfCatalog.get(catalog);
     }
 
     public void setNotEvalNondeterministicFunction(boolean notEvalNondeterministicFunction) {
@@ -394,11 +407,10 @@ public class ConnectContext {
         return txnEntry != null && txnEntry.isInsertValuesTxnIniting();
     }
 
-    public void addPreparedStmt(String stmtName, PrepareStmtContext ctx) {
-        this.preparedStmtCtxs.put(stmtName, ctx);
-    }
-
     public void addPreparedStatementContext(String stmtName, PreparedStatementContext ctx) throws UserException {
+        if (!sessionVariable.enableServeSidePreparedStatement) {
+            throw new UserException("Failed to do prepared command, server side prepared statement is disabled");
+        }
         if (this.preparedStatementContextMap.size() > sessionVariable.maxPreparedStmtCount) {
             throw new UserException("Failed to create a server prepared statement"
                     + "possibly because there are too many active prepared statements on server already."
@@ -408,12 +420,7 @@ public class ConnectContext {
     }
 
     public void removePrepareStmt(String stmtName) {
-        this.preparedStmtCtxs.remove(stmtName);
         this.preparedStatementContextMap.remove(stmtName);
-    }
-
-    public PrepareStmtContext getPreparedStmt(String stmtName) {
-        return this.preparedStmtCtxs.get(stmtName);
     }
 
     public PreparedStatementContext getPreparedStementContext(String stmtName) {
@@ -542,7 +549,7 @@ public class ConnectContext {
             } else if (literalExpr instanceof NullLiteral) {
                 return Literal.of(null);
             } else {
-                return Literal.of("");
+                return Literal.of(literalExpr.getStringValue());
             }
         } else {
             // If there are no such user defined var, just return the NULL value.
@@ -571,7 +578,7 @@ public class ConnectContext {
                 desc.setIsNull();
             } else {
                 desc.setType(Type.VARCHAR);
-                desc.setStringValue("");
+                desc.setStringValue(literalExpr.getStringValue());
             }
         } else {
             // If there are no such user defined var, just fill the NULL value.

@@ -24,6 +24,7 @@
 #include <string>
 #include <typeinfo>
 
+#include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "serde/data_type_quantilestate_serde.h"
 #include "util/quantile_state.h"
@@ -93,7 +94,8 @@ public:
     Field get_default() const override { return QuantileState(); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
-        LOG(FATAL) << "Unimplemented get_field for quantilestate";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Unimplemented get_field for quantile state");
         __builtin_unreachable();
     }
 

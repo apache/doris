@@ -43,7 +43,7 @@ public class ReadLockTest extends SSBTestBase {
         String sql = "SELECT s_suppkey FROM supplier";
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        planner.plan(
+        planner.planWithLock(
                 parser.parseSingle(sql),
                 PhysicalProperties.ANY
         );
@@ -65,7 +65,7 @@ public class ReadLockTest extends SSBTestBase {
                 + "        FROM cte1 as t1, cte1 as t2";
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        planner.plan(
+        planner.planWithLock(
                 parser.parseSingle(sql),
                 PhysicalProperties.ANY
         );
@@ -80,7 +80,7 @@ public class ReadLockTest extends SSBTestBase {
         String sql = "SELECT s_suppkey FROM (SELECT * FROM supplier) t";
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        planner.plan(
+        planner.planWithLock(
                 parser.parseSingle(sql),
                 PhysicalProperties.ANY
         );
@@ -95,7 +95,7 @@ public class ReadLockTest extends SSBTestBase {
         String sql = "SELECT s_suppkey FROM supplier WHERE s_suppkey > (SELECT MAX(lo_orderkey) FROM lineorder)";
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        planner.plan(
+        planner.planWithLock(
                 parser.parseSingle(sql),
                 PhysicalProperties.ANY
         );
@@ -113,7 +113,7 @@ public class ReadLockTest extends SSBTestBase {
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         InsertIntoTableCommand insertIntoTableCommand = (InsertIntoTableCommand) parser.parseSingle(sql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        planner.plan(
+        planner.planWithLock(
                 (LogicalPlan) insertIntoTableCommand.getExplainPlan(connectContext),
                 PhysicalProperties.ANY
         );

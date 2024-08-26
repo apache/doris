@@ -125,23 +125,39 @@ public class FuncDeps {
     }
 
     /**
-     * Reduces a given set of slot sets by eliminating dependencies using a breadth-first search (BFS) approach.
+     * Reduces a given set of slot sets by eliminating dependencies based on valid functional dependency items.
      * <p>
-     * Let's assume we have the following sets of slots and functional dependencies:
-     * Slots: {A, B, C}, {D, E}, {F}
-     * Dependencies: {A} -> {B}, {D, E} -> {F}
-     * The BFS reduction process would look like this:
-     * 1. Initial set: [{A, B, C}, {D, E}, {F}]
-     * 2. Apply {A} -> {B}:
-     *    - New set: [{A, C}, {D, E}, {F}]
-     * 3. Apply {D, E} -> {F}:
-     *    - New set: [{A, C}, {D, E}]
-     * 4. No more dependencies can be applied, output: [{A, C}, {D, E}]
+     * This method works as follows:
+     * 1. Find valid functional dependency items (those not part of circular dependencies).
+     * 2. For each valid functional dependency item:
+     *    - If both the determinants and dependencies are present in the current set of slots,
+     *      mark the dependencies for elimination.
+     * 3. Remove all marked dependencies from the set of slots.
+     * </p>
+     * <p>
+     * Example:
+     * Given:
+     * - Initial slots: {{A, B, C}, {D, E}, {F, G}}
+     * - Required outputs: {A, D, F}
+     * - Valid functional dependencies: {A} -> {B}, {D, E} -> {G}, {F} -> {G}
+     *
+     * Process:
+     * 1. Start with minSlotSet = {{A, B, C}, {D, E}, {F, G}}
+     * 2. For {A} -> {B}:
+     *    - Both {A} and {B} are in minSlotSet, so mark {B} for elimination
+     * 3. For {D, E} -> {G}:
+     *    - Both {D, E} and {G} are in minSlotSet, so mark {G} for elimination
+     * 4. For {F} -> {G}:
+     *    - Both {F} and {G} are in minSlotSet, but {G} is already marked for elimination
+     * 5. Remove eliminated slots: {B} and {G}
+     *
+     * Result: {{A, C}, {D, E}, {F}}
      * </p>
      *
      * @param slots the initial set of slot sets to be reduced
+     * @param requireOutputs the set of slots that must be preserved in the output
      * @return the minimal set of slot sets after applying all possible reductions
-     */
+    */
     public Set<Set<Slot>> eliminateDeps(Set<Set<Slot>> slots, Set<Slot> requireOutputs) {
         Set<Set<Slot>> minSlotSet = Sets.newHashSet(slots);
         Set<Set<Slot>> eliminatedSlots = new HashSet<>();

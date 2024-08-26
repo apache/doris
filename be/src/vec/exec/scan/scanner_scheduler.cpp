@@ -80,28 +80,33 @@ void ScannerScheduler::stop() {
 
     _is_closed = true;
 
-    _local_scan_thread_pool->shutdown();
-    _remote_scan_thread_pool->shutdown();
     _limited_scan_thread_pool->shutdown();
-
-    _local_scan_thread_pool->join();
-    _remote_scan_thread_pool->join();
     _limited_scan_thread_pool->wait();
+
+    _local_scan_thread_pool->stop();
+    _remote_scan_thread_pool->stop();
 
     LOG(INFO) << "ScannerScheduler stopped";
 }
 
 Status ScannerScheduler::init(ExecEnv* env) {
     // 1. local scan thread pool
-    _local_scan_thread_pool = std::make_unique<PriorityThreadPool>(
-            config::doris_scanner_thread_pool_thread_num,
-            config::doris_scanner_thread_pool_queue_size, "local_scan");
+    _local_scan_thread_pool =
+            std::make_unique<vectorized::SimplifiedScanScheduler>("local_scan", nullptr);
+    Status ret1 = _local_scan_thread_pool->start(config::doris_scanner_thread_pool_thread_num,
+                                                 config::doris_scanner_thread_pool_thread_num,
+                                                 config::doris_scanner_thread_pool_queue_size);
+    RETURN_IF_ERROR(ret1);
 
     // 2. remote scan thread pool
-    _remote_thread_pool_max_size = ScannerScheduler::get_remote_scan_thread_num();
+    _remote_thread_pool_max_thread_num = ScannerScheduler::get_remote_scan_thread_num();
     int remote_scan_pool_queue_size = ScannerScheduler::get_remote_scan_thread_queue_size();
-    _remote_scan_thread_pool = std::make_unique<PriorityThreadPool>(
-            _remote_thread_pool_max_size, remote_scan_pool_queue_size, "RemoteScanThreadPool");
+    _remote_scan_thread_pool =
+            std::make_unique<vectorized::SimplifiedScanScheduler>("RemoteScanThreadPool", nullptr);
+    Status ret2 = _remote_scan_thread_pool->start(_remote_thread_pool_max_thread_num,
+                                                  config::doris_scanner_min_thread_pool_thread_num,
+                                                  remote_scan_pool_queue_size);
+    RETURN_IF_ERROR(ret2);
 
     // 3. limited scan thread pool
     RETURN_IF_ERROR(ThreadPoolBuilder("LimitedScanThreadPool")
@@ -127,9 +132,6 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
         return;
     }
 
-    // Submit scanners to thread pool
-    // TODO(cmy): How to handle this "nice"?
-    int nice = 1;
     if (ctx->thread_token != nullptr) {
         std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
         if (scanner_delegate == nullptr) {
@@ -163,27 +165,13 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
         TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
         auto sumbit_task = [&]() {
             bool is_local = type == TabletStorageType::STORAGE_TYPE_LOCAL;
-            auto* scan_sched =
+            SimplifiedScanScheduler* scan_sched =
                     is_local ? ctx->get_simple_scan_scheduler() : ctx->get_remote_scan_scheduler();
-            auto& thread_pool = is_local ? _local_scan_thread_pool : _remote_scan_thread_pool;
-            if (scan_sched) {
-                auto work_func = [scanner_ref = scan_task, ctx]() {
-                    auto status = [&] {
-                        RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
-                        return Status::OK();
-                    }();
-
-                    if (!status.ok()) {
-                        scanner_ref->set_status(status);
-                        ctx->append_block_to_queue(scanner_ref);
-                    }
-                };
-                SimplifiedScanTask simple_scan_task = {work_func, ctx};
-                return scan_sched->submit_scan_task(simple_scan_task);
+            if (!scan_sched) { // query without workload group
+                scan_sched =
+                        is_local ? _local_scan_thread_pool.get() : _remote_scan_thread_pool.get();
             }
-
-            PriorityThreadPool::Task task;
-            task.work_function = [scanner_ref = scan_task, ctx]() {
+            auto work_func = [scanner_ref = scan_task, ctx]() {
                 auto status = [&] {
                     RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
                     return Status::OK();
@@ -194,10 +182,8 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                     ctx->append_block_to_queue(scanner_ref);
                 }
             };
-            task.priority = nice;
-            return thread_pool->offer(task)
-                           ? Status::OK()
-                           : Status::InternalError("Scan thread pool had shutdown");
+            SimplifiedScanTask simple_scan_task = {work_func, ctx};
+            return scan_sched->submit_scan_task(simple_scan_task);
         };
 
         if (auto ret = sumbit_task(); !ret) {

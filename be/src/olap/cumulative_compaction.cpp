@@ -24,6 +24,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "olap/cumulative_compaction_policy.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet.h"
@@ -35,16 +36,19 @@
 namespace doris {
 using namespace ErrorCode;
 
-namespace {
-
-void find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
-                                      std::vector<Version>* missing_version) {
+void CumulativeCompaction::find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
+                                                            std::vector<Version>* missing_version) {
     if (rowsets->empty()) {
         return;
     }
 
     RowsetSharedPtr prev_rowset = rowsets->front();
     size_t i = 1;
+    int max_start = 0;
+    int max_length = 1;
+
+    int start = 0;
+    int length = 1;
     for (; i < rowsets->size(); ++i) {
         RowsetSharedPtr rowset = (*rowsets)[i];
         if (rowset->start_version() != prev_rowset->end_version() + 1) {
@@ -52,15 +56,21 @@ void find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
                 missing_version->push_back(prev_rowset->version());
                 missing_version->push_back(rowset->version());
             }
-            break;
+            start = i;
+            length = 1;
+        } else {
+            length++;
         }
+
+        if (length > max_length) {
+            max_start = start;
+            max_length = length;
+        }
+
         prev_rowset = rowset;
     }
-
-    rowsets->resize(i);
+    *rowsets = {rowsets->begin() + max_start, rowsets->begin() + max_start + max_length};
 }
-
-} // namespace
 
 CumulativeCompaction::CumulativeCompaction(StorageEngine& engine, const TabletSharedPtr& tablet)
         : CompactionMixin(engine, tablet,
@@ -100,16 +110,20 @@ Status CumulativeCompaction::execute_compact() {
 
     RETURN_IF_ERROR(CompactionMixin::execute_compact());
     DCHECK_EQ(_state, CompactionState::SUCCESS);
-
-    tablet()->cumulative_compaction_policy()->update_compaction_level(tablet(), _input_rowsets,
-                                                                      _output_rowset);
+    if (tablet()->tablet_meta()->time_series_compaction_level_threshold() >= 2) {
+        tablet()->cumulative_compaction_policy()->update_compaction_level(tablet(), _input_rowsets,
+                                                                          _output_rowset);
+    }
 
     tablet()->cumulative_compaction_policy()->update_cumulative_point(
             tablet(), _input_rowsets, _output_rowset, _last_delete_version);
     VLOG_CRITICAL << "after cumulative compaction, current cumulative point is "
                   << tablet()->cumulative_layer_point() << ", tablet=" << _tablet->tablet_id();
-
-    tablet()->set_last_cumu_compaction_success_time(UnixMillis());
+    // TIME_SERIES_POLICY, generating an empty rowset doesn't need to update the timestamp.
+    if (!(tablet()->tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY &&
+          _output_rowset->num_segments() == 0)) {
+        tablet()->set_last_cumu_compaction_success_time(UnixMillis());
+    }
     DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
     DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(_input_rowsets_size);
 
@@ -127,10 +141,11 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
     std::vector<Version> missing_versions;
     find_longest_consecutive_version(&candidate_rowsets, &missing_versions);
     if (!missing_versions.empty()) {
-        DCHECK(missing_versions.size() == 2);
+        DCHECK(missing_versions.size() % 2 == 0);
         LOG(WARNING) << "There are missed versions among rowsets. "
-                     << "prev rowset verison=" << missing_versions[0]
-                     << ", next rowset version=" << missing_versions[1]
+                     << "total missed version size: " << missing_versions.size() / 2
+                     << " first missed version prev rowset verison=" << missing_versions[0]
+                     << ", first missed version next rowset version=" << missing_versions[1]
                      << ", tablet=" << _tablet->tablet_id();
     }
 

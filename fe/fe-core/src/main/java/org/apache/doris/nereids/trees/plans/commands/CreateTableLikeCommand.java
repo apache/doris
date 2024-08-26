@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.CreateTableLikeStmt;
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableLikeInfo;
@@ -45,5 +46,10 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitCreateTableLikeCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }
