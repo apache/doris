@@ -530,7 +530,7 @@ Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
 }
 
 Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
-    RETURN_IF_CATCH_EXCEPTION(_to_block(res));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_to_block(res));
 }
 
 } // namespace doris
