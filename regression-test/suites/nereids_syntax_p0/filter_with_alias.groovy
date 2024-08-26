@@ -37,7 +37,7 @@ suite("filter_with_alias") {
     """
     test {
         sql " select * from internal.filter_alias_test.test b where internal.filter_alias_test.test.id = 1;"
-        exception "Unknown column 'id' in 'internal.filter_alias_test.test'"
+        exception "Unknown column 'id' in 'filter_alias_test.test'"
     }
 
     // Test using alias in WHERE clause directly
