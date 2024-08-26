@@ -369,7 +369,7 @@ private:
                 key[key_len++] = ch;
             }
         }
-
+        // The JSON key can be an empty string.
         if (!in.good() || in.peek() != '"') {
             if (key_len == JsonbKeyValue::sMaxKeyLen)
                 err_ = JsonbErrType::E_INVALID_KEY_LENGTH;
