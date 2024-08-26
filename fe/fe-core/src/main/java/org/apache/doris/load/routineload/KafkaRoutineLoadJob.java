@@ -723,12 +723,28 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 ((KafkaProgress) progress).checkPartitions(kafkaPartitionOffsets);
             }
 
+            if (Config.isCloudMode()) {
+                Cloud.ResetRLProgressRequest.Builder builder = Cloud.ResetRLProgressRequest.newBuilder();
+                builder.setCloudUniqueId(Config.cloud_unique_id);
+                builder.setDbId(dbId);
+                builder.setJobId(id);
+                if (!kafkaPartitionOffsets.isEmpty()) {
+                    Map<Integer, Long> partitionOffsetMap = new HashMap<>();
+                    for (Pair<Integer, Long> pair : kafkaPartitionOffsets) {
+                        // The reason why the value recorded in MS in cloud mode needs to be subtracted by one is
+                        // this value will be incremented
+                        // when pulling MS persistent progress data and updating memory
+                        // in routineLoadJob.updateCloudProgress().
+                        partitionOffsetMap.put(pair.first, pair.second - 1);
+                    }
+                    builder.putAllPartitionToOffset(partitionOffsetMap);
+                }
+                resetCloudProgress(builder);
+            }
+
             // It is necessary to reset the Kafka progress cache if topic change,
             // and should reset cache before modifying partition offset.
             if (!Strings.isNullOrEmpty(dataSourceProperties.getTopic())) {
-                if (Config.isCloudMode()) {
-                    resetCloudProgress();
-                }
                 this.topic = dataSourceProperties.getTopic();
                 this.progress = new KafkaProgress();
             }
@@ -756,13 +772,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 this.id, jobProperties, dataSourceProperties);
     }
 
-    private void resetCloudProgress() throws DdlException {
-        Cloud.ResetRLProgressRequest.Builder builder =
-                Cloud.ResetRLProgressRequest.newBuilder();
-        builder.setCloudUniqueId(Config.cloud_unique_id);
-        builder.setDbId(dbId);
-        builder.setJobId(id);
-
+    private void resetCloudProgress(Cloud.ResetRLProgressRequest.Builder builder) throws DdlException {
         Cloud.ResetRLProgressResponse response;
         try {
             response = MetaServiceProxy.getInstance().resetRLProgress(builder.build());
