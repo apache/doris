@@ -30,6 +30,7 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
+import org.apache.ranger.plugin.policyengine.RangerAccessRequest.ResourceMatchingScope;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
@@ -106,7 +107,9 @@ public class RangerDorisAccessController extends RangerAccessController {
             RangerDorisResource resource) {
         RangerAccessRequestImpl request = createRequest(currentUser, accessType);
         request.setResource(resource);
-
+        if (accessType == DorisAccessType.SHOW) {
+            request.setResourceMatchingScope(ResourceMatchingScope.SELF_OR_DESCENDANTS);
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("ranger request: {}", request);
         }
