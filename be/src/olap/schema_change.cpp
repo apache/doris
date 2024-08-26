@@ -825,7 +825,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             // before calculating version_to_be_changed,
             // remove all data from new tablet, prevent to rewrite data(those double pushed when wait)
             LOG(INFO) << "begin to remove all data from new tablet to prevent rewrite."
-                      << " new_tablet=" << new_tablet->full_name();
+                      << " new_tablet=" << new_tablet->full_name()
+                      << max_rowset;
             std::vector<RowsetSharedPtr> rowsets_to_delete;
             std::vector<std::pair<Version, RowsetSharedPtr>> version_rowsets;
             new_tablet->acquire_version_and_rowsets(&version_rowsets);
@@ -849,6 +850,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             }
             std::vector<RowsetSharedPtr> empty_vec;
             new_tablet->modify_rowsets(empty_vec, rowsets_to_delete);
+            new_tablet->delete_rowsets(rowsets_to_delete, false);
             // inherit cumulative_layer_point from base_tablet
             // check if new_tablet.ce_point > base_tablet.ce_point?
             new_tablet->set_cumulative_layer_point(-1);

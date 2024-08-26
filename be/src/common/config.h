@@ -1234,6 +1234,8 @@ DECLARE_Int32(partition_disk_index_lru_size);
 
 DECLARE_mBool(ignore_schema_change_check);
 
+DECLARE_mInt64(tablet_meta_serialize_size_limit);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
