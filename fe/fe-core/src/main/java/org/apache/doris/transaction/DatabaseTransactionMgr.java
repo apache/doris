@@ -22,7 +22,9 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
@@ -474,16 +476,24 @@ public class DatabaseTransactionMgr {
                 continue;
             }
 
-            if (tbl.getState() == OlapTable.OlapTableState.RESTORE) {
-                throw new LoadException("Table " + tbl.getName() + " is in restore process. "
-                        + "Can not load into it");
-            }
-
             long partitionId = tabletMeta.getPartitionId();
-            if (tbl.getPartition(partitionId) == null) {
+            Partition partition = tbl.getPartition(partitionId);
+            if (partition == null) {
                 // this can happen when partitionId == -1 (tablet being dropping)
                 // or partition really not exist.
                 continue;
+            } else if (partition.getState() == PartitionState.RESTORE) {
+                // partition which need load data
+                throw new LoadException("Table [" + tbl.getName() + "], Partition ["
+                        + partition.getName() + "] is in restore process. Can not load into it");
+            }
+            boolean isPartitionRestoring = tbl.getPartitions().stream().anyMatch(
+                    curPartition -> curPartition.getState() == PartitionState.RESTORE
+            );
+            // restore table
+            if (!isPartitionRestoring && tbl.getState() == OlapTableState.RESTORE) {
+                throw new LoadException("Table " + tbl.getName() + " is in restore process. "
+                    + "Can not load into it");
             }
 
             if (!tableToPartition.containsKey(tableId)) {
