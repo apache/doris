@@ -35,6 +35,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.Base64;
 import java.util.List;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -64,7 +70,7 @@ public class CompactionAction extends RestBaseController {
         if (Strings.isNullOrEmpty(compactType)) {
             return ResponseEntityBuilder.badRequest("compact_type need to be set.");
         } else if (!compactType.equals("base") && !compactType.equals("cumulative") && !compactType.equals("full")) {
-            return ResponseEntityBuilder.badRequest("tablet id and table id can not be empty at the same time!");
+            return ResponseEntityBuilder.badRequest("compact_type need to be base, cumulative or full.");
         }
 
         if (Strings.isNullOrEmpty(tabletId)) {
@@ -82,7 +88,8 @@ public class CompactionAction extends RestBaseController {
                     List<Replica> replicaList = tablet.getReplicas();
                     for (Replica replica : replicaList) {
                         Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
-                        redirectTo(request, new TNetworkAddress(backend.getHost(), backend.getHttpPort()), true);
+                        sendRequestToBe(request, new TNetworkAddress(backend.getHost(), backend.getHttpPort()),
+                                tablet.getId());
                     }
                 }
             }
@@ -98,11 +105,64 @@ public class CompactionAction extends RestBaseController {
                 List<Replica> replicaList = tablet.getReplicas();
                 for (Replica replica : replicaList) {
                     Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
-                    redirectTo(request, new TNetworkAddress(backend.getHost(), backend.getHttpPort()), true);
+                    sendRequestToBe(request, new TNetworkAddress(backend.getHost(), backend.getHttpPort()),
+                            tablet.getId());
                 }
             }
         }
         return ResponseEntityBuilder.ok("");
     }
 
+    private void sendRequestToBe(HttpServletRequest request, TNetworkAddress address, long tabletId) {
+        try {
+            String compactType = request.getParameter("compact_type");
+
+            String urlString = String.format("http://%s:%d/api/compaction/run?tablet_id=%d&compact_type=%s",
+                    address.getHostname(), address.getPort(), tabletId, compactType);
+
+            URL url = new URL(urlString);
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+
+            connection.setRequestMethod("POST");
+            connection.setDoOutput(true);
+            connection.setConnectTimeout(10000);
+            connection.setReadTimeout(10000);
+
+            ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
+            String auth = authInfo.fullUserName + ":" + authInfo.password;
+            String encodedAuth = Base64.getEncoder().encodeToString(auth.getBytes());
+            connection.setRequestProperty("Authorization", "Basic " + encodedAuth);
+
+            try (OutputStream os = connection.getOutputStream()) {
+                os.write(0);
+                os.flush();
+            }
+
+            LOG.info("Send request to BE, URL:{}", url);
+            int responseCode = connection.getResponseCode();
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                try (InputStream in = connection.getInputStream();
+                        ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+
+                    byte[] buffer = new byte[1024];
+                    int bytesRead;
+
+                    bytesRead = in.read(buffer);
+                    out.write(buffer, 0, bytesRead);
+
+                    String response = out.toString("UTF-8");
+                    LOG.info("Success. Url:{}, Response code:{}, Response body:{} ", urlString, responseCode,
+                            response);
+                }
+            } else {
+                LOG.warn("Failed. Url:{}, Response code:{}, Response Message: {}", urlString, responseCode,
+                        connection.getResponseMessage());
+            }
+            connection.disconnect();
+        } catch (Exception e) {
+            String url = String.format("http://%s:%d/api/compaction/run?tablet_id=%d&compact_type=%s",
+                    address.getHostname(), address.getPort(), tabletId, request.getParameter("compact_type"));
+            LOG.warn("Exception happens for url {}:{}", url, e.getMessage());
+        }
+    }
 }
