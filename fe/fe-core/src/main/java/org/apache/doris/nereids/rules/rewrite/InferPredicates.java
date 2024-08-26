@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.alter.Alter;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -33,6 +34,8 @@ import org.apache.doris.nereids.util.PlanUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -58,11 +61,17 @@ import java.util.stream.Collectors;
  * </pre>
  */
 public class InferPredicates extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
+    private static final Logger LOG = LogManager.getLogger(Alter.class);
     private final PullUpPredicates pollUpPredicates = new PullUpPredicates();
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        return plan.accept(this, jobContext);
+        long millis1 = System.currentTimeMillis();
+        Plan plan2 = plan.accept(this, jobContext);
+        long millis2 = System.currentTimeMillis();
+        long time = millis2 - millis1;
+        LOG.info("infer predicates time is :{}", time);
+        return plan2;
     }
 
     @Override

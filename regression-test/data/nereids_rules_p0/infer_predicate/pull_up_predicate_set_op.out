@@ -148,7 +148,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((expr_cast(a as DOUBLE) = expr_cast(a as DOUBLE)) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
-----filter((t3.a = 3) and b IN ('aa', 'dd'))
+----filter(b IN ('aa', 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
 -- !union_all_const2_has_cast_to_null_different_type --
@@ -169,7 +169,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = expr_cast(a as INT)) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
-----filter(a IN (2, 3, 5) and b IN ('aa', 'aab', 'dd'))
+----filter(a IN (2, 3, 5))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
 -- !intersect_one_side_constant_one_side_column_left_join --
@@ -340,14 +340,14 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_datetimev2 as DATETIMEV2(6)) = expr_cast(b as DATETIMEV2(6))) and (expr_cast(d_smallint as INT) = t.a)) otherCondition=()
 ----PhysicalUnion
-----filter(cast(d_smallint as INT) IN (12222222, 2) and d_datetimev2 IN ('2024-01-03 00:00:00', '2024-01-03 10:00:00'))
+----filter(cast(d_smallint as INT) IN (12222222, 2))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op4]
 
 -- !union_all_const_date --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_datev2 as DATETIMEV2(0)) = expr_cast(b as DATETIMEV2(0))) and (expr_cast(d_smallint as INT) = t.a)) otherCondition=()
 ----PhysicalUnion
-----filter(cast(d_datev2 as DATETIMEV2(0)) IN ('2024-01-03 00:00:00', '2024-01-03 10:00:00') and cast(d_smallint as INT) IN (12222222, 2))
+----filter(cast(d_smallint as INT) IN (12222222, 2))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op4]
 
 -- !union_all_const_char100 --
@@ -379,7 +379,8 @@ PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalUnion
-----PhysicalOlapScan[test_pull_up_predicate_set_op3]
+----filter(a IN (1, 2))
+------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
 -- !intersect_res --
 0	d2

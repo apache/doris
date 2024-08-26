@@ -150,16 +150,20 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                 Set<Expression> filters = new HashSet<>();
                 for (int i = 0; i < union.getArity(); ++i) {
                     Plan child = union.child(i);
+                    Set<Expression> childFilters = child.accept(this, context);
+                    if (childFilters.isEmpty()) {
+                        return ImmutableSet.of();
+                    }
                     Map<Expression, Expression> replaceMap = new HashMap<>();
                     for (int j = 0; j < union.getOutput().size(); ++j) {
                         NamedExpression output = union.getOutput().get(j);
                         replaceMap.put(union.getRegularChildOutput(i).get(j), output);
                     }
-                    Set<Expression> childFilters = ExpressionUtils.replace(child.accept(this, context), replaceMap);
+                    Set<Expression> unionFilters = ExpressionUtils.replace(childFilters, replaceMap);
                     if (0 == i) {
-                        filters.addAll(childFilters);
+                        filters.addAll(unionFilters);
                     } else {
-                        filters.retainAll(childFilters);
+                        filters.retainAll(unionFilters);
                     }
                 }
                 return ImmutableSet.copyOf(filters);
