@@ -30,7 +30,7 @@ import org.apache.iceberg.io.SeekableInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 
-public class IcebergHadoopInputFile  implements InputFile {
+public class IcebergHadoopInputFile implements InputFile {
 
     private String location;
     private final FileSystem fs;
@@ -59,7 +59,10 @@ public class IcebergHadoopInputFile  implements InputFile {
 
     @Override
     public long getLength() {
-        return length;
+        if (this.length == null) {
+            this.length = this.lazyStat().getLen();
+        }
+        return this.length;
     }
 
     public SeekableInputStream newStream() {
