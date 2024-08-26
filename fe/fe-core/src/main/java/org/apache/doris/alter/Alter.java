@@ -80,6 +80,7 @@ import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -171,6 +172,7 @@ public class Alter {
 
         olapTable.checkNormalStateForAlter();
         boolean needProcessOutsideTableLock = false;
+        String oldTableName = olapTable.getName();
         if (currentAlterOps.checkTableStoragePolicy(alterClauses)) {
             String tableStoragePolicy = olapTable.getStoragePolicy();
             String currentStoragePolicy = currentAlterOps.getTableStoragePolicy(alterClauses);
@@ -190,7 +192,19 @@ public class Alter {
             }
             // check currentStoragePolicy resource exist.
             Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(currentStoragePolicy);
-
+            boolean enableUniqueKeyMergeOnWrite;
+            olapTable.readLock();
+            try {
+                enableUniqueKeyMergeOnWrite = olapTable.getEnableUniqueKeyMergeOnWrite();
+            } finally {
+                olapTable.readUnlock();
+            }
+            // must check here whether you can set the policy, otherwise there will be inconsistent metadata
+            if (enableUniqueKeyMergeOnWrite && !Strings.isNullOrEmpty(currentStoragePolicy)) {
+                throw new UserException(
+                    "Can not set UNIQUE KEY table that enables Merge-On-write"
+                        + " with storage policy(" + currentStoragePolicy + ")");
+            }
             olapTable.setStoragePolicy(currentStoragePolicy);
             needProcessOutsideTableLock = true;
         } else if (currentAlterOps.checkIsBeingSynced(alterClauses)) {
@@ -284,7 +298,7 @@ public class Alter {
             throw new DdlException("Invalid alter operations: " + currentAlterOps);
         }
         if (needChangeMTMVState(alterClauses)) {
-            Env.getCurrentEnv().getMtmvService().alterTable(olapTable);
+            Env.getCurrentEnv().getMtmvService().alterTable(olapTable, oldTableName);
         }
         return needProcessOutsideTableLock;
     }

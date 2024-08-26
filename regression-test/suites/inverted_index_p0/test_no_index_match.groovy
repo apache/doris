@@ -94,6 +94,8 @@ suite("test_no_index_match", "p0") {
 
           qt_sql """ select count() from ${testTable} where (request match_phrase '欧冶工业品');  """
           qt_sql """ select count() from ${testTable} where (request match_phrase_prefix '欧冶工业品');  """
+
+          qt_sql """ select count() from ${testTable} where (request match_regexp '');  """
       } finally {
       }
 

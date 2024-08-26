@@ -18,10 +18,6 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_json_load_and_function", "p0") {
-
-    // TODO: remove it after we add implicit cast check in Nereids
-    sql "set enable_nereids_dml=false"
-
     // define a sql table
     def testTable = "tbl_test_json"
     def dataFile = "test_json.csv"
@@ -116,11 +112,12 @@ suite("test_json_load_and_function", "p0") {
     sql """INSERT INTO ${testTable} VALUES(31, '18446744073709551615')"""
     // insert into json with empty key
     sql """INSERT INTO ${testTable} VALUES(32, '{"":"v1"}')"""
-    sql """INSERT INTO ${testTable} VALUES(33, '{"":1, "":"v1"}')"""
-    sql """INSERT INTO ${testTable} VALUES(34, '{"":1, "ab":"v1", "":"v1", "": 2}')"""
+    sql """INSERT INTO ${testTable} VALUES(33, '{"":1, " ":"v1"}')"""
+    sql """INSERT INTO ${testTable} VALUES(34, '{"":1, "ab":"v1", " ":"v1", "  ": 2}')"""
 
     qt_select "SELECT * FROM ${testTable} where id in (32, 33, 34) ORDER BY id"
 
+<<<<<<< HEAD
     // insert into invalid json rows with enable_insert_strict=true
     // expect excepiton and no rows not changed
     sql """ set enable_insert_strict = true """

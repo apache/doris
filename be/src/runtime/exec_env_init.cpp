@@ -518,21 +518,18 @@ Status ExecEnv::_init_mem_env() {
     // SegmentLoader caches segments in rowset granularity. So the size of
     // opened files will greater than segment_cache_capacity.
     int64_t segment_cache_capacity = config::segment_cache_capacity;
-    if (segment_cache_capacity < 0 || segment_cache_capacity > fd_number * 1 / 5) {
-        segment_cache_capacity = fd_number * 1 / 5;
+    int64_t segment_cache_fd_limit = fd_number / 100 * config::segment_cache_fd_percentage;
+    if (segment_cache_capacity < 0 || segment_cache_capacity > segment_cache_fd_limit) {
+        segment_cache_capacity = segment_cache_fd_limit;
     }
 
     int64_t segment_cache_mem_limit =
             MemInfo::mem_limit() / 100 * config::segment_cache_memory_percentage;
-    // config::segment_cache_memory_percentage;
-    int64_t min_segment_cache_mem_limit =
-            min(segment_cache_mem_limit, segment_cache_capacity *
-                                                 config::estimated_num_columns_per_segment *
-                                                 config::estimated_mem_per_column_reader);
-    _segment_loader = new SegmentLoader(min_segment_cache_mem_limit, segment_cache_capacity);
+
+    _segment_loader = new SegmentLoader(segment_cache_mem_limit, segment_cache_capacity);
     LOG(INFO) << "segment_cache_capacity <= fd_number * 1 / 5, fd_number: " << fd_number
               << " segment_cache_capacity: " << segment_cache_capacity
-              << " min_segment_cache_mem_limit " << min_segment_cache_mem_limit;
+              << " min_segment_cache_mem_limit " << segment_cache_mem_limit;
 
     _schema_cache = new SchemaCache(config::schema_cache_capacity);
 
