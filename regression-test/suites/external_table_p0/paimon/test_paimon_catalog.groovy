@@ -193,8 +193,9 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             );"""
             sql """use `${catalog_name}`.`db1`"""
 
-            def test_cases = { String force ->
+            def test_cases = { String force, String cache ->
                 sql """ set force_jni_scanner=${force} """
+                sql """ set enable_file_cache=${cache} """
                 qt_all_type("all_table")
                 qt_all_type("all_table_with_parquet")
 
@@ -290,8 +291,10 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
                 qt_c109 c109
             }
 
-            test_cases("false")
-            test_cases("true")
+            test_cases("false", "false")
+            test_cases("false", "true")
+            test_cases("true", "false")
+            test_cases("true", "true")
             sql """ set force_jni_scanner=false; """
 
             // test view from jion paimon
