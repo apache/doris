@@ -73,10 +73,10 @@ public class RestBaseController extends BaseController {
         return authInfo;
     }
 
-    public RedirectView redirectTo(HttpServletRequest request, TNetworkAddress addr, boolean useOriginalUrl) {
+    public RedirectView redirectTo(HttpServletRequest request, TNetworkAddress addr) {
         URI urlObj = null;
         URI resultUriObj = null;
-        String urlStr = useOriginalUrl ? ((Request) request).getOriginalURI() : request.getRequestURI();
+        String urlStr = request.getRequestURI();
         String userInfo = null;
         if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
@@ -86,7 +86,7 @@ public class RestBaseController extends BaseController {
         try {
             urlObj = new URI(urlStr);
             resultUriObj = new URI("http", userInfo, addr.getHostname(),
-                    addr.getPort(), urlObj.getPath(), urlObj.getQuery(), null);
+                    addr.getPort(), urlObj.getPath(),"", null);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -116,7 +116,7 @@ public class RestBaseController extends BaseController {
             return null;
         }
         env.checkReadyOrThrow();
-        return redirectTo(request, new TNetworkAddress(env.getMasterHost(), env.getMasterHttpPort()), false);
+        return redirectTo(request, new TNetworkAddress(env.getMasterHost(), env.getMasterHttpPort()));
     }
 
     public Object redirectToMaster(HttpServletRequest request, HttpServletResponse response) {
