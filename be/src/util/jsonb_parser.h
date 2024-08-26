@@ -370,7 +370,7 @@ private:
             }
         }
 
-        if (!in.good() || in.peek() != '"' || key_len == 0) {
+        if (!in.good() || in.peek() != '"') {
             if (key_len == JsonbKeyValue::sMaxKeyLen)
                 err_ = JsonbErrType::E_INVALID_KEY_LENGTH;
             else
