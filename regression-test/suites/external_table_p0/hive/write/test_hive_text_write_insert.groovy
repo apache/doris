@@ -435,7 +435,70 @@ suite("test_hive_text_write_insert", "p0,external,hive,external_docker,external_
         select * from all_types_text;
         """
     }
+
     def q03 = { String format_compression, String catalog_name ->
+        logger.info("hive sql: " + """ truncate table all_types_text; """)
+        hive_docker """ truncate table all_types_text; """
+        sql """refresh catalog ${catalog_name};"""
+
+        sql """
+        INSERT INTO all_types_text
+        SELECT * FROM all_types_parquet_snappy_src;
+        """
+        sql """
+        INSERT INTO all_types_text
+        SELECT * FROM all_types_text;
+        """
+        sql """
+        INSERT INTO all_types_text
+        SELECT * FROM all_types_text;
+        """
+        sql """
+        INSERT INTO all_types_text
+        SELECT * FROM all_types_text;
+        """
+        sql """
+        INSERT INTO all_types_text
+        SELECT * FROM all_types_text;
+        """
+        sql """
+        INSERT INTO all_types_text
+        SELECT * FROM all_types_text;
+        """
+        sql """
+        INSERT INTO all_types_text
+        SELECT * FROM all_types_text;
+        """
+        sql """
+        INSERT INTO all_types_text
+        SELECT * FROM all_types_text;
+        """
+        sql """
+        INSERT INTO all_types_text
+        SELECT * FROM all_types_text;
+        """
+        sql """
+        INSERT INTO all_types_text
+        SELECT * FROM all_types_text;
+        """
+        sql """
+        INSERT INTO all_types_text
+        SELECT * FROM all_types_text;
+        """
+        sql """
+        INSERT INTO all_types_text
+        SELECT * FROM all_types_text;
+        """
+        sql """
+        INSERT INTO all_types_text
+        SELECT * FROM all_types_text;
+        """
+
+        order_qt_q01 """ select count(1) from all_types_text;
+        """
+    }
+
+    def q04 = { String format_compression, String catalog_name ->
         logger.info("hive sql: " + """ drop table if exists all_types_par_text_q3; """)
         hive_docker """ drop table if exists all_types_par_text_q3; """
         logger.info("hive sql: " + """ create table all_types_par_text_q3 like all_types_par_text; """)
@@ -847,6 +910,7 @@ suite("test_hive_text_write_insert", "p0,external,hive,external_docker,external_
                 q01(format_compression, catalog_name)
                 q02(format_compression, catalog_name)
                 q03(format_compression, catalog_name)
+                q04(format_compression, catalog_name)
             }
             sql """set hive_text_compression = 'uncompresssed';"""
             sql """drop catalog if exists ${catalog_name}"""
