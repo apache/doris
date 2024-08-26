@@ -76,13 +76,15 @@ AggregateFunctionPtr create_aggregate_function_covariance_pop(const std::string&
             name, argument_types, result_is_nullable, NOTNULLABLE);
 }
 
+// register covar_pop for nullable/non_nullable both.
 void register_aggregate_function_covar_pop(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("covar", create_aggregate_function_covariance_pop);
     factory.register_alias("covar", "covar_pop");
 }
 
 void register_aggregate_function_covar_samp(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("covar_samp", create_aggregate_function_covariance_samp<NOTNULLABLE>);
+    factory.register_function("covar_samp", create_aggregate_function_covariance_samp<NOTNULLABLE>,
+                              NOTNULLABLE);
     factory.register_function("covar_samp", create_aggregate_function_covariance_samp<NULLABLE>,
                               NULLABLE);
 }
