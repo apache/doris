@@ -801,6 +801,12 @@ public:
 struct FunctionJsonQuoteImpl {
     static constexpr auto name = "json_quote";
 
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        if (!arguments.empty() && arguments[0] && arguments[0]->is_nullable()) {
+            return make_nullable(std::make_shared<DataTypeString>());
+        }
+        return std::make_shared<DataTypeString>();
+    }
     static void execute(const std::vector<const ColumnString*>& data_columns,
                         ColumnString& result_column, size_t input_rows_count) {
         rapidjson::Document document;
@@ -960,7 +966,7 @@ public:
     bool is_variadic() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeString>();
+        return Impl::get_return_type_impl(arguments);
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
