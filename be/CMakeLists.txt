@@ -69,7 +69,7 @@ endif()
 # enable glog custom prefix
 add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
 
-# check eof for simdjson
+# enable simdjson check eof
 add_definitions(-DSIMDJSON_CHECK_EOF)
 
 # Options
@@ -385,7 +385,7 @@ endif()
 #   -O3: Enable all compiler optimizations
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
 set(CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
-set(CXX_FLAGS_ASAN "-O0 -fno-inline -fsanitize=address -fsanitize=undefined -fno-strict-aliasing -fno-sanitize=alignment,signed-integer-overflow,float-cast-overflow -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
+set(CXX_FLAGS_ASAN "-O0 -fsanitize=address -fsanitize=undefined -fno-strict-aliasing -fno-sanitize=alignment,signed-integer-overflow,float-cast-overflow -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
 set(CXX_FLAGS_LSAN "-O0 -fsanitize=leak -DLEAK_SANITIZER")
 ## Use for BE-UT
 set(CXX_FLAGS_ASAN_UT "-O0 -fsanitize=address -DADDRESS_SANITIZER")

@@ -117,18 +117,9 @@ suite("test_json_load_and_function", "p0") {
 
     qt_select "SELECT * FROM ${testTable} where id in (32, 33, 34) ORDER BY id"
 
-<<<<<<< HEAD
     // insert into invalid json rows with enable_insert_strict=true
     // expect excepiton and no rows not changed
     sql """ set enable_insert_strict = true """
-    def success = true
-    try {
-        sql """INSERT INTO ${testTable} VALUES(26, '')"""
-    } catch(Exception ex) {
-       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
-       success = false
-    }
-    assertEquals(false, success)
 
     // deal with tail charactor is not valid json
     try {
@@ -147,34 +138,6 @@ suite("test_json_load_and_function", "p0") {
        logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
     }
 
-    success = true
-    try {
-        sql """INSERT INTO ${testTable} VALUES(26, 'abc')"""
-    } catch(Exception ex) {
-       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
-       success = false
-    }
-    assertEquals(false, success)
-
-    // insert into invalid json rows with enable_insert_strict=false
-    // expect no excepiton but no rows not changed
-    sql """ set enable_insert_strict = false """
-    success = true
-    try {
-        sql """INSERT INTO ${testTable} VALUES(26, '')"""
-    } catch(Exception ex) {
-       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
-       success = false
-    }
-    assertEquals(true, success)
-    success = true
-    try {
-        sql """INSERT INTO ${testTable} VALUES(26, 'abc')"""
-    } catch(Exception ex) {
-       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
-       success = false
-    }
-    assertEquals(true, success)
 
     qt_select "SELECT * FROM ${testTable} ORDER BY id"
 

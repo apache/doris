@@ -18,6 +18,11 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("nereids_scalar_fn_J") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
+
+    // TODO: remove it after we add implicit cast check in Nereids
+    sql "set enable_nereids_dml=false"
 
     // define a sql table
     def testTable = "tbl_test_jsonb"
@@ -107,6 +112,64 @@ suite("nereids_scalar_fn_J") {
     sql """INSERT INTO ${testTable} VALUES(30, '-9223372036854775808')"""
     // int64 max value
     sql """INSERT INTO ${testTable} VALUES(31, '18446744073709551615')"""
+
+    // insert into invalid json rows with enable_insert_strict=true
+    // expect excepiton and no rows not changed
+    sql """ set enable_insert_strict = true """
+    def success = true
+    try {
+        sql """INSERT INTO ${testTable} VALUES(26, '')"""
+    } catch(Exception ex) {
+        logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+        success = false
+    }
+    assertEquals(false, success)
+
+    // deal with tail charactor is not valid json
+    try {
+        sql """INSERT INTO ${testTable} VALUES(26, '{"a": true} "x"')"""
+    } catch(Exception ex) {
+       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+    }
+    try {
+        sql """INSERT INTO ${testTable} VALUES(26, '[1]x')"""
+    } catch(Exception ex) {
+       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+    }
+    try {
+        sql """INSERT INTO ${testTable} VALUES(26, '{"a":"b"}#')"""
+    } catch(Exception ex) {
+       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+    }
+
+    success = true
+    try {
+        sql """INSERT INTO ${testTable} VALUES(26, 'abc')"""
+    } catch(Exception ex) {
+        logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+        success = false
+    }
+    assertEquals(false, success)
+
+    // insert into invalid json rows with enable_insert_strict=false
+    // expect no excepiton but no rows not changed
+    sql """ set enable_insert_strict = false """
+    success = true
+    try {
+        sql """INSERT INTO ${testTable} VALUES(26, '')"""
+    } catch(Exception ex) {
+        logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+        success = false
+    }
+    assertEquals(true, success)
+    success = true
+    try {
+        sql """INSERT INTO ${testTable} VALUES(26, 'abc')"""
+    } catch(Exception ex) {
+        logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+        success = false
+    }
+    assertEquals(true, success)
 
     qt_select "SELECT * FROM ${testTable} ORDER BY id"
 
