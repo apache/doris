@@ -157,6 +157,9 @@ Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
 
     _page_zone_maps.resize(reader.num_values());
 
+    g_zone_map_memory_bytes << sizeof(*this) + sizeof(ZoneMapPB) * _page_zone_maps.size() +
+                                       sizeof(IndexedColumnMetaPB);
+
     // read and cache all page zone maps
     for (int i = 0; i < reader.num_values(); ++i) {
         size_t num_to_read = 1;
@@ -176,16 +179,15 @@ Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
         }
     }
 
-    g_zone_map_memory_bytes << sizeof(*this) + sizeof(ZoneMapPB) * _page_zone_maps.size() +
-                                       sizeof(IndexedColumnMetaPB);
-
     return Status::OK();
 }
 
 ZoneMapIndexReader::~ZoneMapIndexReader() {
     // Maybe wrong due to load failures.
-    g_zone_map_memory_bytes << -sizeof(*this) - sizeof(ZoneMapPB) * _page_zone_maps.size() -
-                                       sizeof(IndexedColumnMetaPB);
+    if (_page_zone_maps.size() > 0) {
+        g_zone_map_memory_bytes << -sizeof(*this) - sizeof(ZoneMapPB) * _page_zone_maps.size() -
+                                           sizeof(IndexedColumnMetaPB);
+    }
 }
 #define APPLY_FOR_PRIMITITYPE(M) \
     M(TYPE_TINYINT)              \

@@ -115,6 +115,11 @@ Status OrdinalIndexReader::_load(bool use_page_cache, bool kept_in_memory,
     _num_pages = reader.count();
     _ordinals.resize(_num_pages + 1);
     _pages.resize(_num_pages);
+
+    g_ordinal_index_memory_bytes << sizeof(*this) + _ordinals.size() * sizeof(ordinal_t) +
+                                            _pages.size() * sizeof(PagePointer) +
+                                            sizeof(OrdinalIndexReader);
+
     for (int i = 0; i < _num_pages; i++) {
         Slice key = reader.get_key(i);
         ordinal_t ordinal = 0;
@@ -127,9 +132,6 @@ Status OrdinalIndexReader::_load(bool use_page_cache, bool kept_in_memory,
     }
     _ordinals[_num_pages] = _num_values;
 
-    g_ordinal_index_memory_bytes << sizeof(*this) + _ordinals.size() * sizeof(ordinal_t) +
-                                            _pages.size() * sizeof(PagePointer) +
-                                            sizeof(OrdinalIndexReader);
     return Status::OK();
 }
 
@@ -155,9 +157,11 @@ OrdinalPageIndexIterator OrdinalIndexReader::seek_at_or_before(ordinal_t ordinal
 }
 
 OrdinalIndexReader::~OrdinalIndexReader() {
-    g_ordinal_index_memory_bytes << -sizeof(*this) - _ordinals.size() * sizeof(ordinal_t) -
-                                            _pages.size() * sizeof(PagePointer) -
-                                            sizeof(OrdinalIndexReader);
+    if (_ordinals.size() > 0) {
+        g_ordinal_index_memory_bytes << -sizeof(*this) - _ordinals.size() * sizeof(ordinal_t) -
+                                                _pages.size() * sizeof(PagePointer) -
+                                                sizeof(OrdinalIndexReader);
+    }
 }
 
 } // namespace segment_v2

@@ -149,12 +149,14 @@ import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.NotAllowFallback;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
+import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -700,6 +702,9 @@ public class StmtExecutor {
             if (isForwardToMaster()) {
                 throw new UserException("Forward master command is not supported for prepare statement");
             }
+            if (logicalPlan instanceof UnsupportedCommand || logicalPlan instanceof CreatePolicyCommand) {
+                throw new MustFallbackException("cannot prepare command " + logicalPlan.getClass().getSimpleName());
+            }
             logicalPlan = new PrepareCommand(String.valueOf(context.getStmtId()),
                     logicalPlan, statementContext.getPlaceholders(), originStmt);
 
@@ -954,7 +959,8 @@ public class StmtExecutor {
             parseByLegacy();
             if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
                     && !(parsedStmt instanceof TransactionStmt)) {
-                throw new TException("This is in a transaction, only insert, commit, rollback is acceptable.");
+                throw new TException("This is in a transaction, only insert, update, delete, "
+                        + "commit, rollback is acceptable.");
             }
             // support select hint e.g. select /*+ SET_VAR(query_timeout=1) */ sleep(3);
             analyzeVariablesInStmt();

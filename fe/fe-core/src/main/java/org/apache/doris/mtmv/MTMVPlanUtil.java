@@ -55,7 +55,6 @@ public class MTMVPlanUtil {
         ctx.getState().reset();
         ctx.setThreadLocalInfo();
         ctx.getSessionVariable().enableFallbackToOriginalPlanner = false;
-        ctx.getSessionVariable().enableNereidsDML = true;
         ctx.getSessionVariable().allowModifyMaterializedViewData = true;
         Optional<String> workloadGroup = mtmv.getWorkloadGroup();
         if (workloadGroup.isPresent()) {

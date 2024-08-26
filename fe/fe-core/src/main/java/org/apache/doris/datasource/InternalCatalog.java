@@ -1367,8 +1367,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (resultExpr.getSrcSlotRef() != null
                             && resultExpr.getSrcSlotRef().getTable() != null
                             && !resultExpr.getSrcSlotRef().getTable().isManagedTable()) {
-                        if (createTableStmt.getPartitionDesc().inIdentifierPartitions(
-                                resultExpr.getSrcSlotRef().getColumnName())
+                        if ((createTableStmt.getPartitionDesc() != null
+                                && createTableStmt.getPartitionDesc().inIdentifierPartitions(
+                                resultExpr.getSrcSlotRef().getColumnName()))
                                 || (createTableStmt.getDistributionDesc() != null
                                 && createTableStmt.getDistributionDesc().inDistributionColumns(
                                         resultExpr.getSrcSlotRef().getColumnName()))) {
@@ -2326,7 +2327,11 @@ public class InternalCatalog implements CatalogIf<Database> {
     private void checkLegalityofPartitionExprs(CreateTableStmt stmt, PartitionDesc partitionDesc)
             throws AnalysisException {
         for (Expr expr : partitionDesc.getPartitionExprs()) {
-            if (expr != null && expr instanceof FunctionCallExpr) { // test them
+            if (expr instanceof FunctionCallExpr) { // test them
+                if (!partitionDesc.isAutoCreatePartitions() || partitionDesc.getType() != PartitionType.RANGE) {
+                    throw new AnalysisException("only Auto Range Partition support FunctionCallExpr");
+                }
+
                 FunctionCallExpr func = (FunctionCallExpr) expr;
                 ArrayList<Expr> children = func.getChildren();
                 Type[] childTypes = new Type[children.size()];
@@ -2350,6 +2355,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (fn == null) {
                     throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
                 }
+            } else if (expr instanceof SlotRef) {
+                if (partitionDesc.isAutoCreatePartitions() && partitionDesc.getType() == PartitionType.RANGE) {
+                    throw new AnalysisException("Auto Range Partition need FunctionCallExpr");
+                }
+            } else {
+                throw new AnalysisException("partition expr " + expr.getExprName() + " is illegal!");
             }
         }
     }
