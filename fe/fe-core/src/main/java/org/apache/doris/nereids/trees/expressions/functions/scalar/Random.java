@@ -90,11 +90,6 @@ public class Random extends ScalarFunction
         }
     }
 
-    @Override
-    public boolean foldable() {
-        return false;
-    }
-
     /**
      * withChildren.
      */
