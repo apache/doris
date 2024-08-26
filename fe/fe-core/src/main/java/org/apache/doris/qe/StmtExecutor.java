@@ -207,6 +207,7 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -1613,7 +1614,15 @@ public class StmtExecutor {
                         }
                         isSendFields = true;
                     }
-                    for (ByteBuffer row : batch.getBatch().getRows()) {
+                    List<ByteBuffer> rows = batch.getBatch().getRows();
+                    for (ByteBuffer row : rows) {
+                        try {
+                            if (rows.size() == 1 && row.array().length < 100) {
+                                LOG.info("User bytes from BE [{}]", Arrays.toString(row.array()));
+                            }
+                        } catch (Exception e) {
+                            LOG.info("Fail to print User bytes from BE {}", e.getMessage());
+                        }
                         channel.sendOnePacket(row);
                     }
                     profile.getSummaryProfile().freshWriteResultConsumeTime();
@@ -2836,6 +2845,15 @@ public class StmtExecutor {
 
             for (int i = 0; i < columns.size(); i++) {
                 String value = queryBuffer.readStringWithLength();
+                if (rows.size() == 1 && columns.size() == 2) {
+                    try {
+                        LOG.info("Internal bytes from BE [{}]", Arrays.toString(buffer.array()));
+                        LOG.info("Internal bytes after slice [{}]", Arrays.toString(queryBuffer.data()));
+                        LOG.info("Internal query value: [{}]", value);
+                    } catch (Exception e) {
+                        LOG.info("Fail to print internal bytes from BE {}", e.getMessage());
+                    }
+                }
                 values.add(value);
             }
             ResultRow resultRow = new ResultRow(values);

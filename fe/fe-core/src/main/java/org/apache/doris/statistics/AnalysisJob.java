@@ -134,6 +134,7 @@ public class AnalysisJob {
             } catch (Exception t) {
                 throw new RuntimeException("Failed to analyze: " + t.getMessage());
             }
+            LOG.debug("INSERT INTO sql : [{}]", insertStmt);
         }
         updateTaskState(AnalysisState.FINISHED, "");
         queryFinished.clear();

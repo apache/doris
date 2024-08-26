@@ -119,6 +119,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                     ? basicStats.get(0) : null);
             String max = StatisticsUtil.escapeSQL(basicStats != null && basicStats.getValues().size() > 1
                     ? basicStats.get(1) : null);
+            LOG.debug("Min value is [{}], max value is [{}]", min, max);
 
             boolean limitFlag = false;
             long rowsToSample = pair.second;
@@ -179,6 +180,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                     col.getName(), params.get("rowCount"), rowsToSample, params.get("scaleFactor"),
                     limitFlag, tbl.isDistributionColumn(col.getName()),
                     tbl.isPartitionColumn(col.getName()), col.isKey(), isSingleUniqueKey());
+            LOG.debug("Sample analyze sql: [{}]", sql);
             runQuery(sql);
         }
     }
@@ -202,6 +204,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         stmtExecutor = new StmtExecutor(context.connectContext, sql);
         ResultRow resultRow = stmtExecutor.executeInternalQuery().get(0);
         if (LOG.isDebugEnabled()) {
+            LOG.debug("Min max result row: {}", resultRow.toString());
             LOG.debug("Cost time in millisec: " + (System.currentTimeMillis() - startTime)
                     + " Min max SQL: " + sql + " QueryId: " + DebugUtil.printId(stmtExecutor.getContext().queryId()));
         }
