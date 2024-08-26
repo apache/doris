@@ -145,6 +145,11 @@ public class RangerDorisAccessController extends RangerAccessController {
 
     @Override
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
+        boolean res = checkDbPriv(currentUser, ctl, db, wanted);
+        if (res) {
+            return true;
+        }
+
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.TABLE,
                 ctl, ClusterNamespace.getNameFromFullName(db), tbl);
         return checkPrivilege(currentUser, DorisAccessType.toAccessType(wanted), resource);
