@@ -831,7 +831,12 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
     /// version 2.0: cache_base_path / key_prefix / key / offset
     if (USE_CACHE_VERSION2 && read_file_cache_version() != "2.0") {
         // move directories format as version 2.0
-        fs::directory_iterator key_it {_cache_base_path};
+        std::error_code ec;
+        fs::directory_iterator key_it {_cache_base_path, ec};
+        if (ec) {
+            return Status::InternalError("Failed to list dir {}: {}", _cache_base_path,
+                                         ec.message());
+        }
         for (; key_it != fs::directory_iterator(); ++key_it) {
             if (key_it->is_directory()) {
                 std::string cache_key = key_it->path().filename().native();
@@ -874,7 +879,13 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
                     vectorized::unhex_uint<uint128_t>(key_it->path().filename().native().c_str()));
             CacheContext context;
             context.query_id = TUniqueId();
-            fs::directory_iterator offset_it {key_it->path()};
+            std::error_code ec;
+            fs::directory_iterator offset_it {key_it->path(), ec};
+            if (ec) [[unlikely]] {
+                LOG(WARNING) << "filesystem error, failed to iterate directory, file="
+                             << key_it->path() << " error=" << ec.message();
+                continue;
+            }
             for (; offset_it != fs::directory_iterator(); ++offset_it) {
                 auto offset_with_suffix = offset_it->path().filename().native();
                 auto delim_pos = offset_with_suffix.find('_');
@@ -938,8 +949,13 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
         }
     };
 
+    std::error_code ec;
     if constexpr (USE_CACHE_VERSION2) {
-        fs::directory_iterator key_prefix_it {_cache_base_path};
+        fs::directory_iterator key_prefix_it {_cache_base_path, ec};
+        if (ec) [[unlikely]] {
+            return Status::InternalError("Failed to list dir {}: {}", _cache_base_path,
+                                         ec.message());
+        }
         for (; key_prefix_it != fs::directory_iterator(); ++key_prefix_it) {
             if (!key_prefix_it->is_directory()) {
                 // maybe version hits file
@@ -948,14 +964,25 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
             if (key_prefix_it->path().filename().native().size() != KEY_PREFIX_LENGTH) {
                 LOG(WARNING) << "Unknown directory " << key_prefix_it->path().native()
                              << ", try to remove it";
-                std::filesystem::remove(key_prefix_it->path());
+                std::error_code ec;
+                std::filesystem::remove(key_prefix_it->path(), ec);
+                if (ec) {
+                    LOG(WARNING) << "filesystem error, failed to remove file, file="
+                                 << key_prefix_it->path() << " error=" << ec.message();
+                }
                 continue;
             }
-            fs::directory_iterator key_it {key_prefix_it->path()};
+            fs::directory_iterator key_it {key_prefix_it->path(), ec};
+            if (ec) [[unlikely]] {
+                return Status::IOError(ec.message());
+            }
             scan_file_cache(key_it);
         }
     } else {
-        fs::directory_iterator key_it {_cache_base_path};
+        fs::directory_iterator key_it {_cache_base_path, ec};
+        if (ec) [[unlikely]] {
+            return Status::IOError(ec.message());
+        }
         scan_file_cache(key_it);
     }
     if (!st) {
