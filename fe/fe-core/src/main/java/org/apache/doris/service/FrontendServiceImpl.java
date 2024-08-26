@@ -960,14 +960,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TShowVariableResult showVariables(TShowVariableRequest params) throws TException {
         TShowVariableResult result = new TShowVariableResult();
         List<List<String>> vars = Lists.newArrayList();
-        result.setVariables(vars);
+        result.setVariablesList(vars);
         // Find connect
         ConnectContext ctx = exeEnv.getScheduler().getContext((int) params.getThreadId());
         if (ctx == null) {
             return result;
         }
         vars = VariableMgr.dump(SetType.fromThrift(params.getVarType()), ctx.getSessionVariable(), null);
-        result.setVariables(vars);
+        result.setVariablesList(vars);
         return result;
     }
 
