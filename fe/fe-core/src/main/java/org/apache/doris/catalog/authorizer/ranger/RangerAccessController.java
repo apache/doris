@@ -124,7 +124,9 @@ public abstract class RangerAccessController implements CatalogAccessController 
         if (LOG.isDebugEnabled()) {
             LOG.debug("ranger request: {}", request);
         }
+        long start = System.currentTimeMillis();
         RangerAccessResult policy = getPlugin().evalDataMaskPolicies(request, getAccessResultProcessor());
+        LOG.warn("datamask for col: {} use : {}", col, System.currentTimeMillis() - start);
         if (LOG.isDebugEnabled()) {
             LOG.debug("ranger response: {}", policy);
         }
