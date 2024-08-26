@@ -184,6 +184,11 @@ public class BackendServiceClient {
     }
 
 
+    public Future<InternalService.PGetBeResourceResponse> getBeResource(InternalService.PGetBeResourceRequest request,
+            int timeoutSec) {
+        return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).getBeResource(request);
+    }
+
     public void shutdown() {
         ConnectivityState state = channel.getState(false);
         LOG.warn("shut down backend service client: {}, channel state: {}", address, state);

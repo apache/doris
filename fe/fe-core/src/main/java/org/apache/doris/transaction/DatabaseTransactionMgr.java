@@ -1103,7 +1103,7 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    private void produceEvent(TransactionState transactionState, Database db) {
+    private void produceEvent(TransactionState transactionState, Database db) throws AnalysisException {
         Collection<TableCommitInfo> tableCommitInfos = transactionState.getIdToTableCommitInfos().values();
         for (TableCommitInfo tableCommitInfo : tableCommitInfos) {
             long tableId = tableCommitInfo.getTableId();

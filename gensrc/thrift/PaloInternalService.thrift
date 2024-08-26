@@ -82,8 +82,8 @@ struct TResourceLimit {
 }
 
 enum TSerdeDialect {
-  DORIS,
-  PRESTO
+  DORIS = 0,
+  PRESTO = 1
 }
 
 // Query options that correspond to PaloService.PaloQueryOptions,
@@ -310,6 +310,9 @@ struct TQueryOptions {
 
   119: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV.
 
+  120: optional bool enable_match_without_inverted_index = true;
+  121: optional bool enable_fallback_on_missing_inverted_index = true;
+
   122: optional i32 runtime_bloom_filter_min_size = 1048576;
   
   //Access Parquet/ORC columns by name by default. Set this property to `false` to access columns
@@ -317,10 +320,10 @@ struct TQueryOptions {
   123: optional bool hive_parquet_use_column_names = true;
   124: optional bool hive_orc_use_column_names = true;
 
-  125: optional bool enable_match_without_inverted_index = true;
-  126: optional bool enable_fallback_on_missing_inverted_index = true;
+  126: optional i32 runtime_bloom_filter_max_size = 16777216;
 
-  127: optional i32 runtime_bloom_filter_max_size = 16777216;
+  128: optional bool enable_verbose_profile = false;
+  129: optional i32 rpc_verbose_profile_max_instance_count = 0;
 
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false

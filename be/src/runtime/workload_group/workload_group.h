@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <bvar/bvar.h>
 #include <gen_cpp/BackendService_types.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -40,6 +41,7 @@ class ThreadPool;
 class ExecEnv;
 class CgroupCpuCtl;
 class QueryContext;
+class IOThrottle;
 
 namespace vectorized {
 class SimplifiedScanScheduler;
@@ -190,6 +192,23 @@ public:
 
     std::string thread_debug_info();
 
+    std::shared_ptr<IOThrottle> get_local_scan_io_throttle(const std::string& disk_dir);
+
+    std::shared_ptr<IOThrottle> get_remote_scan_io_throttle();
+
+    void upsert_scan_io_throttle(WorkloadGroupInfo* tg_info);
+
+    void update_cpu_adder(int64_t delta_cpu_time);
+
+    void update_total_local_scan_io_adder(size_t scan_bytes);
+
+    int64_t get_mem_used() { return _mem_used_status->get_value(); }
+    uint64_t get_cpu_usage() { return _cpu_usage_per_second->get_value(); }
+    int64_t get_local_scan_bytes_per_second() {
+        return _total_local_scan_io_per_second->get_value();
+    }
+    int64_t get_remote_scan_bytes_per_second();
+
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
@@ -210,6 +229,8 @@ private:
     std::atomic<int> _min_remote_scan_thread_num;
     std::atomic<int> _spill_low_watermark;
     std::atomic<int> _spill_high_watermark;
+    std::atomic<int64_t> _scan_bytes_per_second {-1};
+    std::atomic<int64_t> _remote_scan_bytes_per_second {-1};
 
     // means workload group is mark dropped
     // new query can not submit
@@ -223,6 +244,16 @@ private:
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _scan_task_sched {nullptr};
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _remote_scan_task_sched {nullptr};
     std::unique_ptr<ThreadPool> _memtable_flush_pool {nullptr};
+
+    std::map<std::string, std::shared_ptr<IOThrottle>> _scan_io_throttle_map;
+    std::shared_ptr<IOThrottle> _remote_scan_io_throttle {nullptr};
+
+    // bvar metric
+    std::unique_ptr<bvar::Status<int64_t>> _mem_used_status;
+    std::unique_ptr<bvar::Adder<uint64_t>> _cpu_usage_adder;
+    std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _cpu_usage_per_second;
+    std::unique_ptr<bvar::Adder<size_t>> _total_local_scan_io_adder;
+    std::unique_ptr<bvar::PerSecond<bvar::Adder<size_t>>> _total_local_scan_io_per_second;
 };
 
 using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;
@@ -241,6 +272,8 @@ struct WorkloadGroupInfo {
     int min_remote_scan_thread_num;
     int spill_low_watermark;
     int spill_high_watermark;
+    int read_bytes_per_second;
+    int remote_read_bytes_per_second;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;

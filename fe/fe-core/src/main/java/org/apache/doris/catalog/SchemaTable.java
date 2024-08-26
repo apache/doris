@@ -488,6 +488,8 @@ public class SchemaTable extends Table {
                             .column("SPILL_THRESHOLD_LOW_WATERMARK", ScalarType.createVarchar(256))
                             .column("SPILL_THRESHOLD_HIGH_WATERMARK", ScalarType.createVarchar(256))
                             .column("TAG", ScalarType.createVarchar(256))
+                            .column("READ_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("REMOTE_READ_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                             .build()))
             .put("processlist",
                     new SchemaTable(SystemIdGenerator.getNextId(), "processlist", TableType.SCHEMA,
@@ -530,6 +532,16 @@ public class SchemaTable extends Table {
                                     .column("WORKLOAD_GROUP_NAME", ScalarType.createVarchar(256))
                                     .column("PRIVILEGE_TYPE", ScalarType.createVarchar(PRIVILEGE_TYPE_LEN))
                                     .column("IS_GRANTABLE", ScalarType.createVarchar(IS_GRANTABLE_LEN))
+                                    .build())
+            )
+            .put("workload_group_resource_usage",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "workload_group_resource_usage", TableType.SCHEMA,
+                            builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("WORKLOAD_GROUP_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("MEMORY_USAGE_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CPU_USAGE_PERCENT", ScalarType.createType(PrimitiveType.DOUBLE))
+                                    .column("LOCAL_SCAN_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("REMOTE_SCAN_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
             .build();

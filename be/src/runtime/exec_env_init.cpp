@@ -36,6 +36,7 @@
 #include "common/status.h"
 #include "io/cache/block/block_file_cache_factory.h"
 #include "io/fs/file_meta_cache.h"
+#include "io/fs/local_file_reader.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
@@ -212,7 +213,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
     _runtime_query_statistics_mgr = new RuntimeQueryStatiticsMgr();
 
-    init_file_cache_factory();
+    std::vector<doris::CachePath> cache_paths;
+    init_file_cache_factory(cache_paths);
+    doris::io::BeConfDataDirReader::init_be_conf_data_dir(store_paths, spill_store_paths,
+                                                          cache_paths);
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _workload_group_manager = new WorkloadGroupMgr();
@@ -229,7 +233,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _load_stream_mgr = std::make_unique<LoadStreamMgr>(num_flush_threads);
     _new_load_stream_mgr = NewLoadStreamMgr::create_shared();
     _internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
-    _function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
+    _streaming_client_cache =
+            new BrpcClientCache<PBackendService_Stub>("baidu_std", "single", "streaming");
+    _function_client_cache =
+            new BrpcClientCache<PFunctionService_Stub>(config::function_service_protocol);
     _stream_load_executor = StreamLoadExecutor::create_shared(this);
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     RETURN_IF_ERROR(_routine_load_task_executor->init());
@@ -321,13 +328,12 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     return Status::OK();
 }
 
-void ExecEnv::init_file_cache_factory() {
+void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths) {
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
     if (doris::config::enable_file_cache) {
         _file_cache_factory = new io::FileCacheFactory();
         io::IFileCache::init();
         std::unordered_set<std::string> cache_path_set;
-        std::vector<doris::CachePath> cache_paths;
         Status olap_res =
                 doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
         if (!olap_res) {
@@ -628,6 +634,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_routine_load_task_executor);
     // _stream_load_executor
     SAFE_DELETE(_function_client_cache);
+    SAFE_DELETE(_streaming_client_cache);
     SAFE_DELETE(_internal_client_cache);
 
     SAFE_DELETE(_bfd_parser);

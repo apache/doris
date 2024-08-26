@@ -203,7 +203,7 @@ public:
     ThreadPool* lazy_release_obj_pool() { return _lazy_release_obj_pool.get(); }
 
     Status init_pipeline_task_scheduler();
-    void init_file_cache_factory();
+    void init_file_cache_factory(std::vector<doris::CachePath>& cache_paths);
     io::FileCacheFactory* file_cache_factory() { return _file_cache_factory; }
     UserFunctionCache* user_function_cache() { return _user_function_cache; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
@@ -214,6 +214,9 @@ public:
     BrokerMgr* broker_mgr() const { return _broker_mgr; }
     BrpcClientCache<PBackendService_Stub>* brpc_internal_client_cache() const {
         return _internal_client_cache;
+    }
+    BrpcClientCache<PBackendService_Stub>* brpc_streaming_client_cache() const {
+        return _streaming_client_cache;
     }
     BrpcClientCache<PFunctionService_Stub>* brpc_function_client_cache() const {
         return _function_client_cache;
@@ -392,6 +395,7 @@ private:
     // TODO(zhiqiang): Do not use shared_ptr in exec_env, we can not control its life cycle.
     std::shared_ptr<NewLoadStreamMgr> _new_load_stream_mgr;
     BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;
+    BrpcClientCache<PBackendService_Stub>* _streaming_client_cache = nullptr;
     BrpcClientCache<PFunctionService_Stub>* _function_client_cache = nullptr;
 
     std::shared_ptr<StreamLoadExecutor> _stream_load_executor;
