@@ -30,10 +30,11 @@ suite("test_group_commit_stream_load_with_nonexist_db_and_table") {
         def process = command.execute()
         code = process.waitFor()
         out = process.text
-        log.info("stream load result: ${out}".toString())
+        log.info("stream lad result: ${out}".toString())
+        assertTrue(out.toString().contains("table not found"))
     } catch (Exception e) {
         logger.info("failed: " + e.getMessage())
-        assertTrue(e.getMessage().contains(table not found))
+        assertTrue(false)
     } finally {
 
     }
