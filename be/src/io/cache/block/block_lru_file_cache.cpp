@@ -899,7 +899,6 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
                         std::string suffix = offset_with_suffix.substr(delim_pos + 1);
                         // not need persistent any more
                         if (suffix == "persistent") {
-                            std::error_code ec;
                             std::filesystem::remove(offset_it->path(), ec);
                             if (ec) {
                                 st = Status::IOError(ec.message());
@@ -918,10 +917,13 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
                     st = Status::IOError("Unexpected file: {}", offset_it->path().native());
                     break;
                 }
+                size = offset_it->file_size(ec);
+                if (ec) [[unlikely]] {
+                    st = Status::IOError(ec.message());
+                    break;
+                }
 
-                size = offset_it->file_size();
                 if (size == 0) {
-                    std::error_code ec;
                     fs::remove(offset_it->path(), ec);
                     if (ec) {
                         LOG(WARNING) << ec.message();
@@ -933,7 +935,6 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
                     add_cell(key, context, offset, size, FileBlock::State::DOWNLOADED, cache_lock);
                     queue_entries.emplace_back(key, offset);
                 } else {
-                    std::error_code ec;
                     std::filesystem::remove(offset_it->path(), ec);
                     if (ec) {
                         st = Status::IOError(ec.message());
