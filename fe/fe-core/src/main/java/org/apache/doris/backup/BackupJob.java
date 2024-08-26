@@ -471,7 +471,7 @@ public class BackupJob extends AbstractJob {
             }
         }
 
-        backupMeta = new BackupMeta(db.getName(), copiedTables, copiedResources);
+        backupMeta = new BackupMeta(copiedTables, copiedResources);
 
         // send tasks
         for (AgentTask task : batchTask.getAllTasks()) {
