@@ -346,9 +346,10 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
     private static Expression migrateToDateV2(DateTimeLiteral l, AdjustType type) {
         DateV2Literal d = new DateV2Literal(l.getYear(), l.getMonth(), l.getDay());
         if (type == AdjustType.UPPER && (l.getHour() != 0 || l.getMinute() != 0 || l.getSecond() != 0)) {
-            d = ((DateV2Literal) d.plusDays(1));
+            return d.plusDays(1);
+        } else {
+            return d;
         }
-        return d;
     }
 
     private static Expression migrateToDate(DateV2Literal l) {

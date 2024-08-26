@@ -29,7 +29,6 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -40,6 +39,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
@@ -193,7 +193,6 @@ public class OlapScanNode extends ScanNode {
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
     public Map<Integer, Long> bucketSeq2Bytes = Maps.newLinkedHashMap();
 
-    boolean isFromPrepareStmt = false;
     // For point query
     private Map<SlotRef, Expr> pointQueryEqualPredicats;
     private DescriptorTable descTable;
@@ -208,7 +207,6 @@ public class OlapScanNode extends ScanNode {
     // only used in short circuit plan at present
     private final PartitionPruneV2ForShortCircuitPlan cachedPartitionPruner =
                         new PartitionPruneV2ForShortCircuitPlan();
-    PrepareStmt preparedStatment = null;
 
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
@@ -539,16 +537,12 @@ public class OlapScanNode extends ScanNode {
         super.init(analyzer);
 
         filterDeletedRows(analyzer);
-        // point query could do lazy evaluation, since stmt is a prepared statment
-        preparedStatment = analyzer.getPrepareStmt();
-        if (preparedStatment == null || !preparedStatment.isPointQueryShortCircuit()) {
-            if (olapTable.getPartitionInfo().enableAutomaticPartition()) {
-                partitionsInfo = olapTable.getPartitionInfo();
-                analyzerPartitionExpr(analyzer, partitionsInfo);
-            }
-            computeColumnsFilter();
-            computePartitionInfo();
+        if (olapTable.getPartitionInfo().enableAutomaticPartition()) {
+            partitionsInfo = olapTable.getPartitionInfo();
+            analyzerPartitionExpr(analyzer, partitionsInfo);
         }
+        computeColumnsFilter();
+        computePartitionInfo();
         computeTupleState(analyzer);
 
         /**
@@ -606,13 +600,10 @@ public class OlapScanNode extends ScanNode {
             cardinality = 0;
         }
 
-        // prepare stmt evaluate lazily in Coordinator execute
-        if (preparedStatment == null || !preparedStatment.isPointQueryShortCircuit()) {
-            try {
-                createScanRangeLocations();
-            } catch (AnalysisException e) {
-                throw new UserException(e.getMessage());
-            }
+        try {
+            createScanRangeLocations();
+        } catch (AnalysisException e) {
+            throw new UserException(e.getMessage());
         }
 
         // Relatively accurate cardinality according to ScanRange in
@@ -751,7 +742,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     private void addScanRangeLocations(Partition partition,
-            List<Tablet> tablets) throws UserException {
+            List<Tablet> tablets, Map<Long, Set<Long>> backendAlivePathHashs) throws UserException {
         long visibleVersion = Partition.PARTITION_INIT_VERSION;
 
         // For cloud mode, set scan range visible version in Coordinator.exec so that we could
@@ -804,7 +795,8 @@ public class OlapScanNode extends ScanNode {
             //
             // ATTN: visibleVersion is not used in cloud mode, see CloudReplica.checkVersionCatchup
             // for details.
-            List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion, skipMissingVersion);
+            List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion,
+                    backendAlivePathHashs, skipMissingVersion);
             if (replicas.isEmpty()) {
                 if (ConnectContext.get().getSessionVariable().skipBadTablet) {
                     continue;
@@ -1143,22 +1135,8 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
-    public boolean isFromPrepareStmt() {
-        return this.isFromPrepareStmt;
-    }
-
-    public void setPointQueryEqualPredicates(Map<SlotRef, Expr> predicates) {
-        this.pointQueryEqualPredicats = predicates;
-    }
-
-    public Map<SlotRef, Expr> getPointQueryEqualPredicates() {
-        return this.pointQueryEqualPredicats;
-    }
-
     public boolean isPointQuery() {
-        return this.pointQueryEqualPredicats != null
-                    || (preparedStatment != null && preparedStatment.isPointQueryShortCircuit())
-                    || ConnectContext.get().getStatementContext().isShortCircuitQuery();
+        return ConnectContext.get().getStatementContext().isShortCircuitQuery();
     }
 
     private void computeTabletInfo() throws UserException {
@@ -1168,6 +1146,12 @@ public class OlapScanNode extends ScanNode {
          */
         Preconditions.checkState(scanBackendIds.size() == 0);
         Preconditions.checkState(scanTabletIds.size() == 0);
+        Map<Long, Set<Long>> backendAlivePathHashs = Maps.newHashMap();
+        for (Backend backend : Env.getCurrentSystemInfo().getAllClusterBackendsNoException().values()) {
+            backendAlivePathHashs.put(backend.getId(), backend.getDisks().values().stream()
+                    .filter(DiskInfo::isAlive).map(DiskInfo::getPathHash).collect(Collectors.toSet()));
+        }
+
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
@@ -1209,7 +1193,7 @@ public class OlapScanNode extends ScanNode {
 
             totalTabletsNum += selectedTable.getTablets().size();
             selectedSplitNum += tablets.size();
-            addScanRangeLocations(partition, tablets);
+            addScanRangeLocations(partition, tablets, backendAlivePathHashs);
         }
     }
 

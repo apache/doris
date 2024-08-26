@@ -62,9 +62,11 @@ public:
 
     void static check_chars_length(size_t total_length, size_t element_number) {
         if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
-            throw Exception(ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
-                            "string column length is too large: total_length={}, element_number={}",
-                            total_length, element_number);
+            throw Exception(
+                    ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
+                    "string column length is too large: total_length={}, element_number={}, "
+                    "you can set batch_size a number smaller than {} to avoid this error",
+                    total_length, element_number, element_number);
         }
     }
 

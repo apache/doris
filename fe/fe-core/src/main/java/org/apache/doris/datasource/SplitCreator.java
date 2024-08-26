@@ -17,13 +17,12 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.spi.Split;
-
-import org.apache.hadoop.fs.Path;
 
 import java.util.List;
 
 public interface SplitCreator {
-    Split create(Path path, long start, long length, long fileLength,
+    Split create(LocationPath path, long start, long length, long fileLength,
             long modificationTime, String[] hosts, List<String> partitionValues);
 }

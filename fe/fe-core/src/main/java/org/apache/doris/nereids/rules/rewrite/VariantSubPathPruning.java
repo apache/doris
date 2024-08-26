@@ -59,8 +59,10 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
 import java.util.Collections;
@@ -394,7 +396,7 @@ public class VariantSubPathPruning extends DefaultPlanRewriter<PruneContext> imp
                 return cteConsumer;
             }
             Map<Slot, Slot> consumerToProducerOutputMap = Maps.newHashMap();
-            Map<Slot, Slot> producerToConsumerOutputMap = Maps.newHashMap();
+            Multimap<Slot, Slot> producerToConsumerOutputMap = LinkedHashMultimap.create();
             Map<Slot, Map<List<String>, SlotReference>> oriSlotToSubPathToSlot = Maps.newHashMap();
             for (Map.Entry<Slot, Slot> consumerToProducer : cteConsumer.getConsumerToProducerOutputMap().entrySet()) {
                 Slot consumer = consumerToProducer.getKey();

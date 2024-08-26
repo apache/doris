@@ -28,14 +28,6 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/utils/util.hpp"
 
-namespace doris {
-namespace vectorized {
-class VExprContext;
-} // namespace vectorized
-} // namespace doris
-
-using std::vector;
-
 namespace doris::vectorized {
 
 VSortedRunMerger::VSortedRunMerger(const VExprContextSPtrs& ordering_expr,
@@ -68,13 +60,14 @@ void VSortedRunMerger::init_timers(RuntimeProfile* profile) {
     _get_next_block_timer = ADD_TIMER(profile, "MergeGetNextBlock");
 }
 
-Status VSortedRunMerger::prepare(const vector<BlockSupplier>& input_runs) {
+Status VSortedRunMerger::prepare(const std::vector<BlockSupplier>& input_runs) {
     try {
         for (const auto& supplier : input_runs) {
             if (_use_sort_desc) {
-                _cursors.emplace_back(supplier, _desc);
+                _cursors.emplace_back(BlockSupplierSortCursorImpl::create_shared(supplier, _desc));
             } else {
-                _cursors.emplace_back(supplier, _ordering_expr, _is_asc_order, _nulls_first);
+                _cursors.emplace_back(BlockSupplierSortCursorImpl::create_shared(
+                        supplier, _ordering_expr, _is_asc_order, _nulls_first));
             }
         }
     } catch (const std::exception& e) {
@@ -82,15 +75,8 @@ Status VSortedRunMerger::prepare(const vector<BlockSupplier>& input_runs) {
     }
 
     for (auto& _cursor : _cursors) {
-        if (!_cursor._is_eof) {
-            _priority_queue.push(MergeSortCursor(&_cursor));
-        }
-    }
-
-    for (const auto& cursor : _cursors) {
-        if (!cursor._is_eof) {
-            _empty_block = cursor.create_empty_blocks();
-            break;
+        if (!_cursor->_is_eof) {
+            _priority_queue.push(MergeSortCursor(_cursor));
         }
     }
 
@@ -139,7 +125,7 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
             }
         } else {
             if (current->block_ptr() != nullptr) {
-                for (int i = 0; i < current->all_columns.size(); i++) {
+                for (int i = 0; i < current->block->columns(); i++) {
                     auto& column_with_type = current->block_ptr()->get_by_position(i);
                     column_with_type.column = column_with_type.column->cut(
                             current->pos, current->rows - current->pos);
@@ -153,9 +139,9 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
             }
         }
     } else {
-        size_t num_columns = _empty_block.columns();
-        MutableBlock m_block =
-                VectorizedUtils::build_mutable_mem_reuse_block(output_block, _empty_block);
+        size_t num_columns = _priority_queue.top().impl->block->columns();
+        MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(
+                output_block, *_priority_queue.top().impl->block);
         MutableColumns& merged_columns = m_block.mutable_columns();
 
         if (num_columns != merged_columns.size()) {

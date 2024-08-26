@@ -25,6 +25,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -54,7 +55,6 @@ public class MTMVPlanUtil {
         ctx.getState().reset();
         ctx.setThreadLocalInfo();
         ctx.getSessionVariable().enableFallbackToOriginalPlanner = false;
-        ctx.getSessionVariable().enableNereidsDML = true;
         ctx.getSessionVariable().allowModifyMaterializedViewData = true;
         Optional<String> workloadGroup = mtmv.getWorkloadGroup();
         if (workloadGroup.isPresent()) {
@@ -117,7 +117,13 @@ public class MTMVPlanUtil {
         }
         StatementBase parsedStmt = statements.get(0);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        return planner.planWithLock(logicalPlan, PhysicalProperties.ANY, ExplainLevel.NONE);
+        StatementContext original = ctx.getStatementContext();
+        ctx.setStatementContext(new StatementContext());
+        try {
+            NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+            return planner.planWithLock(logicalPlan, PhysicalProperties.ANY, ExplainLevel.NONE);
+        } finally {
+            ctx.setStatementContext(original);
+        }
     }
 }

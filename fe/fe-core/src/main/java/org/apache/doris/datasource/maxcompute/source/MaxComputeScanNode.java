@@ -23,11 +23,10 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileQueryScanNode;
-import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.TablePartitionValues;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PlanNodeId;
@@ -35,13 +34,12 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
-import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TMaxComputeFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.aliyun.odps.Table;
 import com.aliyun.odps.tunnel.TunnelException;
-import org.apache.hadoop.fs.Path;
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -53,8 +51,8 @@ import java.util.Map;
 public class MaxComputeScanNode extends FileQueryScanNode {
 
     private final MaxComputeExternalTable table;
-    private final MaxComputeExternalCatalog catalog;
-    public static final int MIN_SPLIT_SIZE = 4096;
+    private static final int MIN_SPLIT_SIZE = 4096;
+    private static final LocationPath VIRTUAL_SLICE_PART = new LocationPath("/virtual_slice_part", Maps.newHashMap());
 
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE, needCheckColumnPriv);
@@ -64,7 +62,6 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                               StatisticalType statisticalType, boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
         table = (MaxComputeExternalTable) desc.getTable();
-        catalog = (MaxComputeExternalCatalog) table.getCatalog();
     }
 
     @Override
@@ -74,7 +71,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         }
     }
 
-    public void setScanParams(TFileRangeDesc rangeDesc, MaxComputeSplit maxComputeSplit) {
+    private void setScanParams(TFileRangeDesc rangeDesc, MaxComputeSplit maxComputeSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(TableFormatType.MAX_COMPUTE.value());
         TMaxComputeFileDesc fileDesc = new TMaxComputeFileDesc();
@@ -83,16 +80,6 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         }
         tableFormatFileDesc.setMaxComputeParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
-    }
-
-    @Override
-    protected TFileType getLocationType() throws UserException {
-        return getLocationType(null);
-    }
-
-    @Override
-    protected TFileType getLocationType(String location) throws UserException {
-        return TFileType.FILE_NET;
     }
 
     @Override
@@ -144,10 +131,8 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     private static void addPartitionSplits(List<Split> result, Table odpsTable, String partitionSpec) {
         long modificationTime = odpsTable.getLastDataModifiedTime().getTime();
         // use '-1' to read whole partition, avoid expending too much time on calling table.getTotalRows()
-        Pair<Long, Long> range = Pair.of(0L, -1L);
-        FileSplit rangeSplit = new FileSplit(new Path("/virtual_slice_part"),
-                range.first, range.second, -1, modificationTime, null, Collections.emptyList());
-        result.add(new MaxComputeSplit(partitionSpec, rangeSplit));
+        result.add(new MaxComputeSplit(VIRTUAL_SLICE_PART,
+                0, -1L, -1, modificationTime, null, Collections.emptyList(), null));
     }
 
     private static void addBatchSplits(List<Split> result, Table odpsTable, long totalRows) {
@@ -171,9 +156,8 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         if (!sliceRange.isEmpty()) {
             for (int i = 0; i < sliceRange.size(); i++) {
                 Pair<Long, Long> range = sliceRange.get(i);
-                FileSplit rangeSplit = new FileSplit(new Path("/virtual_slice_" + i),
-                        range.first, range.second, totalRows, modificationTime, null, Collections.emptyList());
-                result.add(new MaxComputeSplit(rangeSplit));
+                result.add(new MaxComputeSplit(new LocationPath("/virtual_slice_" + i, Maps.newHashMap()),
+                        range.first, range.second, totalRows, modificationTime, null, Collections.emptyList(), null));
             }
         }
     }

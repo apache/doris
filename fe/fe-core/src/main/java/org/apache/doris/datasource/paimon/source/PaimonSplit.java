@@ -17,11 +17,12 @@
 
 package org.apache.doris.datasource.paimon.source;
 
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.SplitCreator;
 import org.apache.doris.datasource.TableFormatType;
 
-import org.apache.hadoop.fs.Path;
+import com.google.common.collect.Maps;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.Split;
 
@@ -29,30 +30,27 @@ import java.util.List;
 import java.util.Optional;
 
 public class PaimonSplit extends FileSplit {
+    private static final LocationPath DUMMY_PATH = new LocationPath("/dummyPath", Maps.newHashMap());
     private Split split;
     private TableFormatType tableFormatType;
     private Optional<DeletionFile> optDeletionFile;
 
     public PaimonSplit(Split split) {
-        super(new Path("hdfs://dummyPath"), 0, 0, 0, null, null);
+        super(DUMMY_PATH, 0, 0, 0, 0, null, null);
         this.split = split;
         this.tableFormatType = TableFormatType.PAIMON;
         this.optDeletionFile = Optional.empty();
     }
 
-    public PaimonSplit(Path file, long start, long length, long fileLength, String[] hosts,
-            List<String> partitionList) {
-        super(file, start, length, fileLength, hosts, partitionList);
+    private PaimonSplit(LocationPath file, long start, long length, long fileLength, long modificationTime,
+            String[] hosts, List<String> partitionList) {
+        super(file, start, length, fileLength, modificationTime, hosts, partitionList);
         this.tableFormatType = TableFormatType.PAIMON;
         this.optDeletionFile = Optional.empty();
     }
 
     public Split getSplit() {
         return split;
-    }
-
-    public void setSplit(Split split) {
-        this.split = split;
     }
 
     public TableFormatType getTableFormatType() {
@@ -76,14 +74,14 @@ public class PaimonSplit extends FileSplit {
         static final PaimonSplitCreator DEFAULT = new PaimonSplitCreator();
 
         @Override
-        public org.apache.doris.spi.Split create(Path path,
+        public org.apache.doris.spi.Split create(LocationPath path,
                 long start,
                 long length,
                 long fileLength,
                 long modificationTime,
                 String[] hosts,
                 List<String> partitionValues) {
-            return new PaimonSplit(path, start, length, fileLength, hosts, partitionValues);
+            return new PaimonSplit(path, start, length, fileLength, modificationTime, hosts, partitionValues);
         }
     }
 }

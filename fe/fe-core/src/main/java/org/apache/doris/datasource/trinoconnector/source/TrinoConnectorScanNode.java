@@ -33,7 +33,6 @@ import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
-import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.TTrinoConnectorFileDesc;
 import org.apache.doris.trinoconnector.TrinoColumnMetadata;
@@ -233,7 +232,7 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         }
     }
 
-    public void setTrinoConnectorParams(TFileRangeDesc rangeDesc, TrinoConnectorSplit trinoConnectorSplit) {
+    private void setTrinoConnectorParams(TFileRangeDesc rangeDesc, TrinoConnectorSplit trinoConnectorSplit) {
         // mock ObjectMapperProvider
         objectMapperProvider = createObjectMapperProvider();
 
@@ -313,17 +312,6 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
-    }
-
-    @Override
-    public TFileType getLocationType() throws DdlException, MetaNotFoundException {
-        return getLocationType("");
-    }
-
-    @Override
-    public TFileType getLocationType(String location) throws DdlException, MetaNotFoundException {
-        // todo: no use
-        return TFileType.FILE_S3;
     }
 
     @Override

@@ -122,8 +122,15 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         return indexId;
     }
 
-    public void resetIndexIdForRestore(long id) {
+    public void resetIndexIdForRestore(long id, String srcDbName, String dbName) {
         indexId = id;
+
+        // the source db name is not setted in old BackupMeta, keep compatible with the old one.
+        // See InitMaterializationContextHook.java:createSyncMvContexts for details.
+        if (defineStmt != null && srcDbName != null) {
+            String newStmt = defineStmt.originStmt.replaceAll(srcDbName, dbName);
+            defineStmt = new OriginStatement(newStmt, defineStmt.idx);
+        }
     }
 
     public KeysType getKeysType() {

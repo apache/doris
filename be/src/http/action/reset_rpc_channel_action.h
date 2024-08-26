@@ -31,8 +31,5 @@ public:
     ~ResetRPCChannelAction() override = default;
 
     void handle(HttpRequest* req) override;
-
-private:
-    ExecEnv* _exec_env;
 };
 } // namespace doris

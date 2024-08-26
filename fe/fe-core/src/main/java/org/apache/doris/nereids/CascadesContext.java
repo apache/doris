@@ -71,6 +71,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -618,8 +619,8 @@ public class CascadesContext implements ScheduleContext {
         return this.statementContext.getConsumerIdToFilters();
     }
 
-    public void addCTEConsumerGroup(CTEId cteId, Group g, Map<Slot, Slot> producerSlotToConsumerSlot) {
-        List<Pair<Map<Slot, Slot>, Group>> consumerGroups =
+    public void addCTEConsumerGroup(CTEId cteId, Group g, Multimap<Slot, Slot> producerSlotToConsumerSlot) {
+        List<Pair<Multimap<Slot, Slot>, Group>> consumerGroups =
                 this.statementContext.getCteIdToConsumerGroup().computeIfAbsent(cteId, k -> new ArrayList<>());
         consumerGroups.add(Pair.of(producerSlotToConsumerSlot, g));
     }
@@ -628,12 +629,18 @@ public class CascadesContext implements ScheduleContext {
      * Update CTE consumer group as producer's stats update
      */
     public void updateConsumerStats(CTEId cteId, Statistics statistics) {
-        List<Pair<Map<Slot, Slot>, Group>> consumerGroups = this.statementContext.getCteIdToConsumerGroup().get(cteId);
-        for (Pair<Map<Slot, Slot>, Group> p : consumerGroups) {
-            Map<Slot, Slot> producerSlotToConsumerSlot = p.first;
+        List<Pair<Multimap<Slot, Slot>, Group>> consumerGroups
+                = this.statementContext.getCteIdToConsumerGroup().get(cteId);
+        for (Pair<Multimap<Slot, Slot>, Group> p : consumerGroups) {
+            Multimap<Slot, Slot> producerSlotToConsumerSlot = p.first;
             Statistics updatedConsumerStats = new StatisticsBuilder(statistics).build();
             for (Entry<Expression, ColumnStatistic> entry : statistics.columnStatistics().entrySet()) {
-                updatedConsumerStats.addColumnStats(producerSlotToConsumerSlot.get(entry.getKey()), entry.getValue());
+                if (!(entry.getKey() instanceof Slot)) {
+                    continue;
+                }
+                for (Slot consumer : producerSlotToConsumerSlot.get((Slot) entry.getKey())) {
+                    updatedConsumerStats.addColumnStats(consumer, entry.getValue());
+                }
             }
             p.value().setStatistics(updatedConsumerStats);
         }

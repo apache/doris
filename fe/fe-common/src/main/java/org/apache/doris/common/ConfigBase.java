@@ -123,6 +123,10 @@ public class ConfigBase {
         }
     }
 
+    public static Field getField(String name) {
+        return confFields.get(name);
+    }
+
     public void initCustom(String customConfFile) throws Exception {
         this.customConfFile = customConfFile;
         File file = new File(customConfFile);

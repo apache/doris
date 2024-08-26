@@ -25,7 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-public class DropWorkloadSchedPolicyStmt extends DdlStmt {
+public class DropWorkloadSchedPolicyStmt extends DdlStmt implements NotFallbackInParser {
 
     private boolean ifExists;
     private String policyName;

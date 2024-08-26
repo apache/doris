@@ -20,6 +20,8 @@
 #include <gen_cpp/parquet_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
+
+#include <exception>
 // Only used on x86 or x86_64
 #if defined(__x86_64__) || defined(_M_X64) || defined(i386) || defined(__i386__) || \
         defined(__i386) || defined(_M_IX86)
@@ -951,6 +953,8 @@ public:
             if (max_len <= MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
                 output->assign_copy(reinterpret_cast<uint8_t*>(compressed_buf.data), out_buf.pos);
             }
+        } catch (std::exception& e) {
+            return Status::InternalError("Fail to do ZSTD compress due to exception {}", e.what());
         } catch (...) {
             // Do not set compress_failed to release context
             DCHECK(!compress_failed);

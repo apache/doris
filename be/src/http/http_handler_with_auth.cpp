@@ -46,7 +46,9 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
     if (!parse_basic_auth(*req, &auth_info)) {
         LOG(WARNING) << "parse basic authorization failed"
                      << ", request: " << req->debug_string();
-        HttpChannel::send_error(req, HttpStatus::UNAUTHORIZED);
+        evhttp_add_header(evhttp_request_get_output_headers(req->get_evhttp_request()),
+                          "WWW-Authenticate", "Basic realm=\"Restricted\"");
+        HttpChannel::send_reply(req, HttpStatus::UNAUTHORIZED);
         return -1;
     }
 
@@ -75,12 +77,17 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
         }
     }
 #else
-    CHECK(_exec_env == nullptr);
+    if (auth_request.user == "root" && auth_request.passwd.empty()) {
+        auth_result.status.status_code = TStatusCode::type::OK;
+        auth_result.status.error_msgs.clear();
+    } else {
+        return -1;
+    }
 #endif
     Status status(Status::create(auth_result.status));
     if (!status.ok()) {
         LOG(WARNING) << "permission verification failed, request: " << auth_request;
-        HttpChannel::send_error(req, HttpStatus::FORBIDDEN);
+        HttpChannel::send_reply(req, HttpStatus::FORBIDDEN);
         return -1;
     }
     return 0;

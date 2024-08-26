@@ -103,8 +103,8 @@ public class ListPartitionPrunerV2Test {
         String tblName = "tb";
         HiveMetaStoreCache.HivePartitionValues partitionValues = cache.getPartitionValues(dbName, tblName, types);
         Assert.assertEquals(1, partitionValues.getIdToPartitionItem().size());
-        Assert.assertTrue(partitionValues.getIdToPartitionItem().containsKey(0L));
-        List<PartitionKey> items = partitionValues.getIdToPartitionItem().get(0L).getItems();
+        Assert.assertTrue(partitionValues.getIdToPartitionItem().containsKey(8882801933302843777L));
+        List<PartitionKey> items = partitionValues.getIdToPartitionItem().get(8882801933302843777L).getItems();
         Assert.assertEquals(1, items.size());
         PartitionKey partitionKey = items.get(0);
         Assert.assertEquals("1.234", partitionKey.getKeys().get(0).toString());
@@ -116,8 +116,8 @@ public class ListPartitionPrunerV2Test {
         cache.addPartitionsCache(dbName, tblName, values, types);
         HiveMetaStoreCache.HivePartitionValues partitionValues2 = cache.getPartitionValues(dbName, tblName, types);
         Assert.assertEquals(2, partitionValues2.getIdToPartitionItem().size());
-        Assert.assertTrue(partitionValues2.getIdToPartitionItem().containsKey(1L));
-        List<PartitionKey> items2 = partitionValues2.getIdToPartitionItem().get(1L).getItems();
+        Assert.assertTrue(partitionValues2.getIdToPartitionItem().containsKey(7070400225537799947L));
+        List<PartitionKey> items2 = partitionValues2.getIdToPartitionItem().get(7070400225537799947L).getItems();
         Assert.assertEquals(1, items2.size());
         PartitionKey partitionKey2 = items2.get(0);
         Assert.assertEquals("5.678", partitionKey2.getKeys().get(0).toString());
@@ -128,8 +128,8 @@ public class ListPartitionPrunerV2Test {
         cache.invalidateTableCache(dbName, tblName);
         HiveMetaStoreCache.HivePartitionValues partitionValues3 = cache.getPartitionValues(dbName, tblName, types);
         Assert.assertEquals(1, partitionValues3.getIdToPartitionItem().size());
-        Assert.assertTrue(partitionValues3.getIdToPartitionItem().containsKey(0L));
-        List<PartitionKey> items3 = partitionValues3.getIdToPartitionItem().get(0L).getItems();
+        Assert.assertTrue(partitionValues3.getIdToPartitionItem().containsKey(8882801933302843777L));
+        List<PartitionKey> items3 = partitionValues3.getIdToPartitionItem().get(8882801933302843777L).getItems();
         Assert.assertEquals(1, items3.size());
         PartitionKey partitionKey3 = items3.get(0);
         Assert.assertEquals("1.234", partitionKey3.getKeys().get(0).toString());

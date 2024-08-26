@@ -927,6 +927,21 @@ class Config {
         }
     }
 
+    void tryCreateDownstreamDbIfNotExist(String dbName = defaultDb) {
+        // connect without specify default db
+        try {
+            String sql = "CREATE DATABASE IF NOT EXISTS ${dbName}"
+            log.info("Try to create db, sql: ${sql}".toString())
+            if (!dryRun) {
+                getDownstreamConnection().withCloseable { conn ->
+                    JdbcUtils.executeToList(conn, sql)
+                }
+            }
+        } catch (Throwable t) {
+            throw new IllegalStateException("Create database failed, ccrDownstreamUrl: ${ccrDownstreamUrl}", t)
+        }
+    }
+
     boolean fetchRunMode() {
         if (isCloudMode == RunMode.UNKNOWN) {
             try {
@@ -970,11 +985,15 @@ class Config {
         return DriverManager.getConnection(dbUrl, arrowFlightSqlJdbcUser, arrowFlightSqlJdbcPassword)
     }
 
+    Connection getDownstreamConnection() {
+        return DriverManager.getConnection(ccrDownstreamUrl, ccrDownstreamUser, ccrDownstreamPassword)
+    }
+
     Connection getDownstreamConnectionByDbName(String dbName) {
         log.info("get downstream connection, url: ${ccrDownstreamUrl}, db: ${dbName}, " +
                 "user: ${ccrDownstreamUser}, passwd: ${ccrDownstreamPassword}")
         String dbUrl = buildUrlWithDb(ccrDownstreamUrl, dbName)
-        tryCreateDbIfNotExist(dbName)
+        tryCreateDownstreamDbIfNotExist(dbName)
         log.info("connect to ${dbUrl}".toString())
         return DriverManager.getConnection(dbUrl, ccrDownstreamUser, ccrDownstreamPassword)
     }

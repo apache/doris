@@ -89,6 +89,7 @@ public final class MetricRepo {
     public static Histogram HISTO_QUERY_LATENCY;
     public static AutoMappedMetric<Histogram> USER_HISTO_QUERY_LATENCY;
     public static AutoMappedMetric<GaugeMetricImpl<Long>> USER_GAUGE_QUERY_INSTANCE_NUM;
+    public static AutoMappedMetric<GaugeMetricImpl<Integer>> USER_GAUGE_CONNECTIONS;
     public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_INSTANCE_BEGIN;
     public static AutoMappedMetric<LongCounterMetric> BE_COUNTER_QUERY_RPC_ALL;
     public static AutoMappedMetric<LongCounterMetric> BE_COUNTER_QUERY_RPC_FAILED;
@@ -228,10 +229,15 @@ public final class MetricRepo {
         generateBackendsTabletMetrics();
 
         // connections
-        GaugeMetric<Integer> connections = new GaugeMetric<Integer>("connection_total", MetricUnit.CONNECTIONS,
-                "total connections") {
+        USER_GAUGE_CONNECTIONS = addLabeledMetrics("user", () ->
+                new GaugeMetricImpl<>("connection_total", MetricUnit.CONNECTIONS,
+                        "total connections", 0));
+        GaugeMetric<Integer> connections = new GaugeMetric<Integer>("connection_total",
+                MetricUnit.CONNECTIONS, "total connections") {
             @Override
             public Integer getValue() {
+                ExecuteEnv.getInstance().getScheduler().getUserConnectionMap()
+                        .forEach((k, v) -> USER_GAUGE_CONNECTIONS.getOrAdd(k).setValue(v.get()));
                 return ExecuteEnv.getInstance().getScheduler().getConnectionNum();
             }
         };

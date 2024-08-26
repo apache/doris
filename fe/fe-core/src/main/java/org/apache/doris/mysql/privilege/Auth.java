@@ -36,8 +36,10 @@ import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -54,6 +56,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
@@ -86,6 +89,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -677,6 +681,7 @@ public class Auth implements Writable {
             throws DdlException {
         writeLock();
         try {
+            checkTablePatternExist(tblPattern);
             if (role == null) {
                 if (!doesUserExist(userIdent)) {
                     throw new DdlException("user " + userIdent + " does not exist");
@@ -692,6 +697,32 @@ public class Auth implements Writable {
             LOG.info("finished to grant privilege. is replay: {}", isReplay);
         } finally {
             writeUnlock();
+        }
+    }
+
+    private void checkTablePatternExist(TablePattern tablePattern) throws DdlException {
+        Objects.requireNonNull(tablePattern, "tablePattern can not be null");
+        PrivLevel privLevel = tablePattern.getPrivLevel();
+        if (privLevel == PrivLevel.GLOBAL) {
+            return;
+        }
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tablePattern.getQualifiedCtl());
+        if (catalog == null) {
+            throw new DdlException("catalog:" + tablePattern.getQualifiedCtl() + " does not exist");
+        }
+        if (privLevel == PrivLevel.CATALOG) {
+            return;
+        }
+        DatabaseIf db = catalog.getDbNullable(tablePattern.getQualifiedDb());
+        if (db == null) {
+            throw new DdlException("database:" + tablePattern.getQualifiedDb() + " does not exist");
+        }
+        if (privLevel == PrivLevel.DATABASE) {
+            return;
+        }
+        TableIf table = db.getTableNullable(tablePattern.getTbl());
+        if (table == null) {
+            throw new DdlException("table:" + tablePattern.getTbl() + " does not exist");
         }
     }
 

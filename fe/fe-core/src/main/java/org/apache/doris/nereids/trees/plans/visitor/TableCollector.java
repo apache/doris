@@ -75,7 +75,7 @@ public class TableCollector extends DefaultPlanVisitor<Plan, TableCollectorConte
         }
         // Make sure use only one connection context when in query to avoid ConnectionContext.get() wrong
         MTMVCache expandedMv = MTMVCache.from(mtmv, context.getConnectContext() == null
-                ? MTMVPlanUtil.createMTMVContext(mtmv) : context.getConnectContext());
+                ? MTMVPlanUtil.createMTMVContext(mtmv) : context.getConnectContext(), false);
         expandedMv.getLogicalPlan().accept(this, context);
     }
 

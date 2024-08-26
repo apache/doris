@@ -94,6 +94,12 @@ struct PartitionedRowIdxs {
 
 using PartitionedBlock = std::pair<std::shared_ptr<BlockWrapper>, PartitionedRowIdxs>;
 
+struct RowRange {
+    uint32_t offset_start;
+    size_t length;
+};
+using BroadcastBlock = std::pair<std::shared_ptr<BlockWrapper>, RowRange>;
+
 template <typename BlockType>
 struct BlockQueue {
     std::atomic<bool> eos = false;
@@ -172,6 +178,7 @@ struct BlockWrapper {
     void ref(int delta) { ref_count += delta; }
     void unref(LocalExchangeSharedState* shared_state, size_t allocated_bytes) {
         if (ref_count.fetch_sub(1) == 1) {
+            DCHECK_GT(allocated_bytes, 0);
             shared_state->sub_total_mem_usage(allocated_bytes);
             if (shared_state->exchanger->_free_block_limit == 0 ||
                 shared_state->exchanger->_free_blocks.size_approx() <
@@ -183,17 +190,9 @@ struct BlockWrapper {
         }
     }
     void unref(LocalExchangeSharedState* shared_state) {
-        if (ref_count.fetch_sub(1) == 1) {
-            shared_state->sub_total_mem_usage(data_block.allocated_bytes());
-            if (shared_state->exchanger->_free_block_limit == 0 ||
-                shared_state->exchanger->_free_blocks.size_approx() <
-                        shared_state->exchanger->_free_block_limit *
-                                shared_state->exchanger->_num_sources) {
-                data_block.clear_column_data();
-                shared_state->exchanger->_free_blocks.enqueue(std::move(data_block));
-            }
-        }
+        unref(shared_state, data_block.allocated_bytes());
     }
+    int ref_value() const { return ref_count.load(); }
     std::atomic<int> ref_count = 0;
     vectorized::Block data_block;
 };
@@ -224,8 +223,7 @@ protected:
         _data_queue.resize(num_partitions);
     }
     Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
-                       vectorized::Block* block, bool eos,
-                       LocalExchangeSinkLocalState& local_state);
+                       vectorized::Block* block, LocalExchangeSinkLocalState& local_state);
 
     const bool _ignore_source_data_distribution = false;
 };
@@ -273,7 +271,7 @@ public:
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                      LocalExchangeSourceLocalState& local_state) override;
     ExchangeType get_type() const override { return ExchangeType::PASS_TO_ONE; }
-    void close(LocalExchangeSourceLocalState& local_state) override {}
+    void close(LocalExchangeSourceLocalState& local_state) override;
 };
 
 class LocalMergeSortExchanger final : public Exchanger<BlockWrapperSPtr> {
@@ -304,12 +302,11 @@ private:
     std::vector<std::atomic_int64_t> _queues_mem_usege;
 };
 
-class BroadcastExchanger final : public Exchanger<BlockWrapperSPtr> {
+class BroadcastExchanger final : public Exchanger<BroadcastBlock> {
 public:
     ENABLE_FACTORY_CREATOR(BroadcastExchanger);
     BroadcastExchanger(int running_sink_operators, int num_partitions, int free_block_limit)
-            : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions,
-                                          free_block_limit) {
+            : Exchanger<BroadcastBlock>(running_sink_operators, num_partitions, free_block_limit) {
         _data_queue.resize(num_partitions);
     }
     ~BroadcastExchanger() override = default;
@@ -343,13 +340,12 @@ public:
     void close(LocalExchangeSourceLocalState& local_state) override;
 
 private:
-    Status _passthrough_sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
+    Status _passthrough_sink(RuntimeState* state, vectorized::Block* in_block,
                              LocalExchangeSinkLocalState& local_state);
-    Status _shuffle_sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
+    Status _shuffle_sink(RuntimeState* state, vectorized::Block* in_block,
                          LocalExchangeSinkLocalState& local_state);
     Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
-                       vectorized::Block* block, bool eos,
-                       LocalExchangeSinkLocalState& local_state);
+                       vectorized::Block* block, LocalExchangeSinkLocalState& local_state);
 
     std::atomic_bool _is_pass_through = false;
     std::atomic_int32_t _total_block = 0;

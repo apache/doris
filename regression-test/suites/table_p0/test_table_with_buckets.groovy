@@ -23,7 +23,7 @@ suite('test_table_with_buckets') {
     try {
         test {
             sql "create table ${tbl1}(k int) distributed by hash(k) buckets 0 properties('replication_num' = '1')"
-            exception 'Buckets number of distribution should be greater than zero.'
+            exception 'Number of hash distribution should be greater than zero.'
         }
 
         test {

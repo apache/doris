@@ -356,8 +356,8 @@ void EnginePublishVersionTask::_calculate_tbl_num_delta_rows(
         auto table_id = tablet->get_table_id();
         if (kv.second > 0) {
             (*_table_id_to_tablet_id_to_num_delta_rows)[table_id][kv.first] += kv.second;
-            LOG(INFO) << "report delta rows to fe, table_id=" << table_id << ", tablet=" << kv.first
-                      << ", num_rows=" << kv.second;
+            VLOG_DEBUG << "report delta rows to fe, table_id=" << table_id
+                       << ", tablet=" << kv.first << ", num_rows=" << kv.second;
         }
     }
 }

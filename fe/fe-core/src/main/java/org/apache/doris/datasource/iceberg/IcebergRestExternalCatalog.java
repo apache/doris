@@ -47,7 +47,7 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
 
         Configuration conf = replaceS3Properties(getConfiguration());
 
-        catalog = CatalogUtil.buildIcebergCatalog(icebergCatalogType,
+        catalog = CatalogUtil.buildIcebergCatalog(getName(),
                 convertToRestCatalogProperties(),
                 conf);
     }

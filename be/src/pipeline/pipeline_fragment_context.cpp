@@ -176,6 +176,12 @@ void PipelineFragmentContext::cancel(const Status reason) {
     if (reason.is<ErrorCode::TIMEOUT>()) {
         LOG(WARNING) << "PipelineFragmentContext is cancelled due to timeout : " << debug_string();
     }
+
+    if (reason.is<ErrorCode::ILLEGAL_STATE>()) {
+        LOG_WARNING("PipelineFragmentContext is cancelled due to illegal state : {}",
+                    this->debug_string());
+    }
+
     _query_ctx->cancel(reason, _fragment_id);
     if (reason.is<ErrorCode::LIMIT_REACH>()) {
         _is_report_on_cancel = false;

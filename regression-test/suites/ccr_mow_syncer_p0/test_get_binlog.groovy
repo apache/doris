@@ -133,7 +133,6 @@ suite("test_mow_get_binlog_case") {
     sql """DROP USER IF EXISTS ${noPrivUser}"""
     sql """CREATE USER ${noPrivUser} IDENTIFIED BY '123456'"""
     sql """GRANT ALL ON ${context.config.defaultDb}.* TO ${noPrivUser}"""
-    sql """GRANT ALL ON TEST_${context.dbName}.${emptyTable} TO ${noPrivUser}"""
     syncer.context.user = "${noPrivUser}"
     syncer.context.passwd = "123456"
     assertTrue((syncer.getBinlog("${seqTableName}")) == false)

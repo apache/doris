@@ -17,13 +17,24 @@
 
 #pragma once
 #include <cstdint>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
 
+#include "common/status.h"
+#include "olap/rowset/rowset_fwd.h"
+#include "olap/tablet_fwd.h"
+
 namespace doris {
 class TabletSchema;
 class PartialUpdateInfoPB;
+struct RowLocation;
+namespace vectorized {
+class Block;
+}
+struct RowsetWriterContext;
+struct RowsetId;
 
 struct PartialUpdateInfo {
     void init(const TabletSchema& tablet_schema, bool partial_update,
@@ -55,4 +66,31 @@ public:
     // default values for missing cids
     std::vector<std::string> default_values;
 };
+
+// used in mow partial update
+struct RidAndPos {
+    uint32_t rid;
+    // pos in block
+    size_t pos;
+};
+
+class PartialUpdateReadPlan {
+public:
+    void prepare_to_read(const RowLocation& row_location, size_t pos);
+    Status read_columns_by_plan(const TabletSchema& tablet_schema,
+                                const std::vector<uint32_t> cids_to_read,
+                                const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+                                vectorized::Block& block, std::map<uint32_t, uint32_t>* read_index,
+                                const signed char* __restrict skip_map = nullptr) const;
+    Status fill_missing_columns(RowsetWriterContext* rowset_ctx,
+                                const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+                                const TabletSchema& tablet_schema, vectorized::Block& full_block,
+                                const std::vector<bool>& use_default_or_null_flag,
+                                bool has_default_or_nullable, const size_t& segment_start_pos,
+                                const vectorized::Block* block) const;
+
+private:
+    std::map<RowsetId, std::map<uint32_t, std::vector<RidAndPos>>> plan;
+};
+
 } // namespace doris

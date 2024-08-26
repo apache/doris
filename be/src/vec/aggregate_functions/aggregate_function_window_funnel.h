@@ -329,9 +329,11 @@ struct WindowFunnelState {
         Status status;
         std::string buff;
         if (is_merge) {
+            // as the branch-2.1 is used the new impl of window funnel, and the be_exec_version is 5
+            // but in branch-3.0 this be_exec_version have update to 7, so when upgrade from branch-2.1 to branch-3.0
+            // maybe have error send the branch-3.0 version of version 7 to branch-2.1([0---version--5])
             status = block.serialize(
-                    BeExecVersionManager::get_newest_version(), &pblock, &uncompressed_bytes,
-                    &compressed_bytes,
+                    5, &pblock, &uncompressed_bytes, &compressed_bytes,
                     segment_v2::CompressionTypePB::ZSTD); // ZSTD for better compression ratio
         } else {
             Block tmp_block;
@@ -344,8 +346,7 @@ struct WindowFunnelState {
                                   "event_" + std::to_string(i)});
             }
             status = tmp_block.serialize(
-                    BeExecVersionManager::get_newest_version(), &pblock, &uncompressed_bytes,
-                    &compressed_bytes,
+                    5, &pblock, &uncompressed_bytes, &compressed_bytes,
                     segment_v2::CompressionTypePB::ZSTD); // ZSTD for better compression ratio
         }
         if (!status.ok()) {

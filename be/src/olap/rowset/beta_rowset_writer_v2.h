@@ -157,6 +157,8 @@ private:
 
     SegmentCreator _segment_creator;
 
+    InvertedIndexFilesInfo _idx_files_info;
+
     fmt::memory_buffer vlog_buffer;
 
     std::vector<std::shared_ptr<LoadStreamStub>> _streams;

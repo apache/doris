@@ -156,7 +156,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                 Long tableRowsetCount = 0L;
                 Long tableSegmentCount = 0L;
 
-                if (!table.writeLockIfExist()) {
+                if (!table.readLockIfExist()) {
                     continue;
                 }
                 try {
@@ -203,13 +203,14 @@ public class CloudTabletStatMgr extends MasterDaemon {
                         } // end for indices
                     } // end for partitions
 
+                    //  this is only one thread to update table statistics, readLock is enough
                     olapTable.setStatistics(new OlapTable.Statistics(db.getName(),
                             table.getName(), tableDataSize, tableTotalReplicaDataSize, 0L,
                             tableReplicaCount, tableRowCount, tableRowsetCount, tableSegmentCount));
                     LOG.debug("finished to set row num for table: {} in database: {}",
                              table.getName(), db.getFullName());
                 } finally {
-                    table.writeUnlock();
+                    table.readUnlock();
                 }
 
                 newCloudTableStatsMap.put(Pair.of(dbId, table.getId()), new OlapTable.Statistics(db.getName(),

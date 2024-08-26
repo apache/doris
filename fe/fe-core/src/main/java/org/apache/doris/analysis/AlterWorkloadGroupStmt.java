@@ -28,7 +28,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import java.util.Map;
 
-public class AlterWorkloadGroupStmt extends DdlStmt {
+public class AlterWorkloadGroupStmt extends DdlStmt implements NotFallbackInParser {
     private final String workloadGroupName;
     private final Map<String, String> properties;
 

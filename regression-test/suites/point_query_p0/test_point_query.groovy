@@ -201,7 +201,7 @@ suite("test_point_query", "nonConcurrent") {
                 qe_point_select stmt
                 qe_point_select stmt
                 // invalidate cache
-                sql "sync"
+                // "sync"
                 nprep_sql """ INSERT INTO ${tableName} VALUES(1235, 120939.11130, "a    ddd", "xxxxxx", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38", 0, 1929111.1111,[119291.19291], ["111", "222", "333"], 2) """
                 qe_point_select stmt
                 qe_point_select stmt
@@ -217,9 +217,10 @@ suite("test_point_query", "nonConcurrent") {
                 qe_point_select stmt
                 qe_point_select stmt
 
-                sql """
+                nprep_sql """
                   ALTER table ${tableName} ADD COLUMN new_column1 INT default "0";
                 """
+                sql "select 1"
                 qe_point_select stmt
             }
             // disable useServerPrepStmts

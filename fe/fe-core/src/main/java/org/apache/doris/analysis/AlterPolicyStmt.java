@@ -39,7 +39,7 @@ import java.util.Optional;
  * Alter policy
  **/
 @Data
-public class AlterPolicyStmt extends DdlStmt {
+public class AlterPolicyStmt extends DdlStmt implements NotFallbackInParser {
     private final String policyName;
     private final Map<String, String> properties;
 

@@ -569,7 +569,7 @@ struct TTopicItem {
 }
 
 enum TTopicType {
-    RESOURCE
+    RESOURCE = 0
 }
 
 struct TTopicUpdate {

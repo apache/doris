@@ -34,7 +34,8 @@ AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* paren
           _rows_end_offset(0),
           _fn_place_ptr(nullptr),
           _agg_functions_size(0),
-          _agg_functions_created(false) {}
+          _agg_functions_created(false),
+          _agg_arena_pool(std::make_unique<vectorized::Arena>()) {}
 
 //_partition_by_columns,_order_by_columns save in blocks, so if need to calculate the boundary, may find in which blocks firstly
 BlockRowPos AnalyticLocalState::_compare_row_to_find_end(int idx, BlockRowPos start,
@@ -168,7 +169,6 @@ Status AnalyticLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(PipelineXLocalState<AnalyticSharedState>::open(state));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    _agg_arena_pool = std::make_unique<vectorized::Arena>();
 
     auto& p = _parent->cast<AnalyticSourceOperatorX>();
     _agg_functions_size = p._agg_functions.size();

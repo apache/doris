@@ -148,6 +148,8 @@ namespace {
 bvar::Adder<uint64_t> exceed_version_limit_counter;
 bvar::Window<bvar::Adder<uint64_t>> exceed_version_limit_counter_minute(
         &exceed_version_limit_counter, 60);
+bvar::Adder<uint64_t> cooldown_pending_task("cooldown_pending_task");
+bvar::Adder<uint64_t> cooldown_processing_task("cooldown_processing_task");
 
 void set_last_failure_time(Tablet* tablet, const Compaction& compaction, int64_t ms) {
     switch (compaction.compaction_type()) {
@@ -167,6 +169,8 @@ void set_last_failure_time(Tablet* tablet, const Compaction& compaction, int64_t
 };
 
 } // namespace
+
+bvar::Adder<uint64_t> unused_remote_rowset_num("unused_remote_rowset_num");
 
 WriteCooldownMetaExecutors::WriteCooldownMetaExecutors(size_t executor_nums)
         : _executor_nums(executor_nums) {
@@ -230,8 +234,13 @@ void WriteCooldownMetaExecutors::WriteCooldownMetaExecutors::submit(TabletShared
         VLOG_DEBUG << "tablet " << t->tablet_id() << " is not cooldown replica";
     };
 
-    _executors[_get_executor_pos(tablet_id)]->offer(
-            [task = std::move(async_write_task)]() { task(); });
+    cooldown_pending_task << 1;
+    _executors[_get_executor_pos(tablet_id)]->offer([task = std::move(async_write_task)]() {
+        cooldown_pending_task << -1;
+        cooldown_processing_task << 1;
+        task();
+        cooldown_processing_task << -1;
+    });
 }
 
 Tablet::Tablet(StorageEngine& engine, TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
@@ -2387,6 +2396,7 @@ void Tablet::record_unused_remote_rowset(const RowsetId& rowset_id, const std::s
         LOG(WARNING) << "failed to record unused remote rowset. tablet_id=" << tablet_id()
                      << " rowset_id=" << rowset_id << " resource_id=" << resource;
     }
+    unused_remote_rowset_num << 1;
 }
 
 Status Tablet::remove_all_remote_rowsets() {

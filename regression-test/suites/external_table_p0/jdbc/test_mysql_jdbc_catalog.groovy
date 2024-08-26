@@ -23,6 +23,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+    // String driver_url = "mysql-connector-java-8.0.25.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String user = "test_jdbc_user";
         String pwd = '123456';
@@ -611,6 +612,30 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         order_qt_sql """SELECT * FROM mysql_conjuncts.doris_test.compoundpredicate_test WHERE (pk > 4) OR ((pk < 6 OR pk > 7) AND col_int_undef_signed < 1);"""
 
         order_qt_sql """select * from mysql_conjuncts.doris_test.text_push where pk <=7;"""
+
+        // test create table as select
+        sql """use internal.${internal_db_name}"""
+        sql """drop table if exists ctas_partition_text_1"""
+        sql """drop table if exists ctas_partition_text_2"""
+        sql """drop table if exists ctas_partition_text_3"""
+        sql """drop table if exists ctas_partition_text_4"""
+        sql """set enable_nereids_planner=true"""
+        // 1. test text type column as distribution col
+        sql """create table ctas_partition_text_1 distributed by hash(text) buckets 1 properties("replication_num" = "1") as select int_u, text, text as t2 from mysql_conjuncts.doris_test.all_types;"""
+        qt_sql """desc ctas_partition_text_1"""
+        // 2. test varchar type column as first col
+        sql """create table ctas_partition_text_2 distributed by hash(int_u) buckets 1 properties("replication_num" = "1") as select varchar, int_u from mysql_conjuncts.doris_test.all_types;"""
+        qt_sql """desc ctas_partition_text_2"""
+        // ctas logic is different between new and old planner.
+        // so need to test both.
+        // the old planner's test can be removed once the old planner is removed.
+        sql """set enable_nereids_planner=false"""
+        // 1. test text type column as distribution col
+        sql """create table ctas_partition_text_3 distributed by hash(text) buckets 1 properties("replication_num" = "1") as select int_u, text, text as t2 from mysql_conjuncts.doris_test.all_types;"""
+        qt_sql """desc ctas_partition_text_3"""
+        // 2. test varchar type column as first col
+        sql """create table ctas_partition_text_4 distributed by hash(int_u) buckets 1 properties("replication_num" = "1") as select varchar, int_u from mysql_conjuncts.doris_test.all_types;"""
+        qt_sql """desc ctas_partition_text_4"""
 
         sql """drop catalog if exists mysql_conjuncts;"""
     }

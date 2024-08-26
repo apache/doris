@@ -17,10 +17,10 @@
 
 package org.apache.doris.datasource.iceberg.source;
 
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
 
 import lombok.Data;
-import org.apache.hadoop.fs.Path;
 
 import java.util.List;
 import java.util.Map;
@@ -28,21 +28,23 @@ import java.util.Map;
 @Data
 public class IcebergSplit extends FileSplit {
 
+    // Doris will convert the schema in FileSystem to achieve the function of natively reading files.
+    // For example, s3a:// will be converted to s3://.
+    // The position delete file of iceberg will record the full path of the datafile, which includes the schema.
+    // When comparing datafile with position delete, the converted path cannot be used,
+    // but the original datafile path must be used.
     private final String originalPath;
+    private Integer formatVersion;
+    private List<IcebergDeleteFileFilter> deleteFileFilters;
+    private Map<String, String> config;
 
     // File path will be changed if the file is modified, so there's no need to get modification time.
-    public IcebergSplit(Path file, long start, long length, long fileLength, String[] hosts,
+    public IcebergSplit(LocationPath file, long start, long length, long fileLength, String[] hosts,
                         Integer formatVersion, Map<String, String> config,
                         List<String> partitionList, String originalPath) {
-        super(file, start, length, fileLength, hosts, partitionList);
+        super(file, start, length, fileLength, 0, hosts, partitionList);
         this.formatVersion = formatVersion;
         this.config = config;
         this.originalPath = originalPath;
     }
-
-    private Integer formatVersion;
-    private List<IcebergDeleteFileFilter> deleteFileFilters;
-    private Map<String, String> config;
 }
-
-

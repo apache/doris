@@ -140,9 +140,7 @@ public class TwoDimensionalGreedyRebalanceAlgo {
             if (LOG.isDebugEnabled()) {
                 LOG.debug(keySet);
             }
-            Preconditions.checkState(keySet.isEmpty() || keySet.last() == 0L,
-                    "non-zero replica count on be while no partition skew information in skewMap");
-            // Nothing to balance: cluster is empty.
+
             return Lists.newArrayList();
         }
 
@@ -155,7 +153,6 @@ public class TwoDimensionalGreedyRebalanceAlgo {
             // cause rebalance exception
             return Lists.newArrayList();
         }
-
 
         List<PartitionMove> moves = Lists.newArrayList();
         for (int i = 0; i < maxMovesNum; ++i) {
@@ -178,12 +175,8 @@ public class TwoDimensionalGreedyRebalanceAlgo {
             return null;
         }
         long maxPartitionSkew = skewMap.keySet().last();
-        long maxBeSkew = beByTotalReplicaCount.keySet().last() - beByTotalReplicaCount.keySet().first();
-
-        // 1. Every partition is balanced(maxPartitionSkew<=1) and any move will unbalance a partition, so there
-        // is no potential for the greedy algorithm to balance the cluster.
-        // 2. Every partition is balanced(maxPartitionSkew<=1) and the cluster as a whole is balanced(maxBeSkew<=1).
-        if (maxPartitionSkew == 0L || (maxPartitionSkew <= 1L && maxBeSkew <= 1L)) {
+        // don't make a global balance because beByTotalReplicaCount may contains tablets for other medium or tag
+        if (maxPartitionSkew <= 1L) {
             return null;
         }
 

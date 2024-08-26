@@ -63,11 +63,10 @@ suite("test_group_commit_interval_ms_property") {
             sql """ set group_commit = async_mode; """
 
             if (item == "nereids") {
-                sql """ set enable_nereids_dml = true; """
                 sql """ set enable_nereids_planner=true; """
                 sql """ set enable_fallback_to_original_planner=false; """
             } else {
-                sql """ set enable_nereids_dml = false; """
+                sql """ set enable_nereids_planner = false; """
             }
 
             def res1 = sql """show create table ${test_table}"""

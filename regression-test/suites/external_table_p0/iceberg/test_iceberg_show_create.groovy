@@ -22,11 +22,58 @@ suite("test_iceberg_show_create", "p0,external,doris,external_docker,external_do
         return
     }
 
+    String catalog_name = "test_iceberg_show_create"
+    String hivePrefix = "hive2";
+    String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+    String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
+    String iceberg_catalog_name = "test_iceberg_write_partitions_iceberg_${hivePrefix}"
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String default_fs = "hdfs://${externalEnvIp}:${hdfs_port}"
+    String warehouse = "${default_fs}/warehouse"
+
+    sql """drop catalog if exists ${catalog_name}"""
+    sql """create catalog if not exists ${catalog_name} properties (
+        'type'='iceberg',
+        'iceberg.catalog.type'='hms',
+        'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+        'fs.defaultFS' = '${default_fs}',
+        'warehouse' = '${warehouse}',
+        'use_meta_cache' = 'true'
+    );"""
+
+    sql """ switch ${catalog_name} """
+
+    String db1 = "test_db1"
+    String db2 = "test_db2"
+    String tb1 = "test_tb1"
+
+    sql """ drop table if exists ${db1}.${tb1} """
+    sql """ drop database if exists ${db1} """
+    sql """ drop database if exists ${db2} """
+
+    sql """ create database ${db1} properties ('location'='${warehouse}/other_location') """
+    sql """ create database ${db2} """
+
+    String result = ""
+    result = sql "show create database ${db1}"
+    logger.info("${result}")
+    assertTrue(result.toString().containsIgnoreCase("${warehouse}/other_location"))
+
+    result = sql "show create database ${db2}"
+    logger.info("${result}")
+    assertTrue(result.toString().containsIgnoreCase("${warehouse}/${db2}"))
+
+    sql """ create table ${db1}.${tb1} (id int) """
+    result = sql "show create table ${db1}.${tb1}"
+    logger.info("${result}")
+    assertTrue(result.toString().containsIgnoreCase("${warehouse}/other_location/${tb1}"))
+
+    sql """ drop table ${db1}.${tb1} """
+    sql """ drop database ${db1} """
+    sql """ drop database ${db2} """
+
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
-    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    String catalog_name = "test_iceberg_show_create"
-
     sql """drop catalog if exists ${catalog_name}"""
     sql """
     CREATE CATALOG ${catalog_name} PROPERTIES (
@@ -40,34 +87,13 @@ suite("test_iceberg_show_create", "p0,external,doris,external_docker,external_do
     );"""
 
     sql """ switch ${catalog_name} """
-
-    String db1 = "test_db1"
-    String db2 = "test_db2"
-    String tb1 = "test_tb1"
-
-    sql """ drop table if exists ${db1}.${tb1} """
     sql """ drop database if exists ${db1} """
-    sql """ drop database if exists ${db2} """
 
-    sql """ create database ${db1} properties ('location'='s3a://warehouse/wh/${db1}') """
-    sql """ create database ${db2} """
+    test {
+        sql """ create database ${db1} properties ('location'='${warehouse}/other_location') """
+        exception "Not supported: create database with properties for iceberg catalog type"
+    }
 
-    String result = ""
-    result = sql "show create database ${db1}"
-    logger.info("${result}")
-    assertTrue(result.toString().containsIgnoreCase("s3a://warehouse/wh/${db1}"))
-
-    result = sql "show create database ${db2}"
-    logger.info("${result}")
-    assertTrue(result.toString().containsIgnoreCase("s3a://warehouse/wh/${db2}"))
-
-    sql """ create table ${db1}.${tb1} (id int) """
-    result = sql "show create table ${db1}.${tb1}"
-    logger.info("${result}")
-    assertTrue(result.toString().containsIgnoreCase("s3a://warehouse/wh/${db1}/${tb1}"))
-
-    sql """ drop table ${db1}.${tb1} """
-    sql """ drop database ${db1} """
-    sql """ drop database ${db2} """
-
+    sql """ drop database if exists ${db1} """
+    sql """drop catalog if exists ${catalog_name}"""
 }

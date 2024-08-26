@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
@@ -114,10 +115,15 @@ public class SyncMaterializationContext extends MaterializationContext {
         }
         if (queryStructInfo.getRelations().size() == 1
                 && queryStructInfo.getRelations().get(0) instanceof LogicalOlapScan
-                && !((LogicalOlapScan) queryStructInfo.getRelations().get(0)).getSelectedPartitionIds().isEmpty()
-                && scanPlan instanceof LogicalOlapScan) {
-            return ((LogicalOlapScan) scanPlan).withSelectedPartitionIds(
-                    ((LogicalOlapScan) queryStructInfo.getRelations().get(0)).getSelectedPartitionIds());
+                && !((LogicalOlapScan) queryStructInfo.getRelations().get(0)).getSelectedPartitionIds().isEmpty()) {
+            // Partition prune if sync materialized view
+            return scanPlan.accept(new DefaultPlanRewriter<Void>() {
+                @Override
+                public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, Void context) {
+                    return olapScan.withSelectedPartitionIds(
+                            ((LogicalOlapScan) queryStructInfo.getRelations().get(0)).getSelectedPartitionIds());
+                }
+            }, null);
         }
         return scanPlan;
     }

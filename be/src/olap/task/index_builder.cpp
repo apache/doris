@@ -310,7 +310,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     LOG(ERROR) << "close inverted_index_writer error:" << st;
                     return st;
                 }
-                inverted_index_size += inverted_index_writer->get_index_file_size();
+                inverted_index_size += inverted_index_writer->get_index_file_total_size();
             }
             _inverted_index_file_writers.clear();
             output_rowset_meta->set_data_disk_size(output_rowset_meta->data_disk_size() +
@@ -465,7 +465,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 LOG(ERROR) << "close inverted_index_writer error:" << st;
                 return st;
             }
-            inverted_index_size += inverted_index_file_writer->get_index_file_size();
+            inverted_index_size += inverted_index_file_writer->get_index_file_total_size();
         }
         _inverted_index_builders.clear();
         _inverted_index_file_writers.clear();

@@ -39,11 +39,7 @@ public:
         return Base::open(state);
     }
 
-    Status close(RuntimeState* state, Status exec_status) override;
     friend class HiveTableSinkOperatorX;
-
-private:
-    Status _close_status = Status::OK();
 };
 
 class HiveTableSinkOperatorX final : public DataSinkOperatorX<HiveTableSinkLocalState> {

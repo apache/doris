@@ -43,3 +43,8 @@ V5_3
 -- !multi --
 1	2
 
+-- !test_dumplicate --
+1	\N
+2	bddd
+3	\N
+

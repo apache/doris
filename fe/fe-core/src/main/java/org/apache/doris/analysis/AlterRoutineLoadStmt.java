@@ -48,7 +48,7 @@ import java.util.Optional;
  * ...
  * )
  */
-public class AlterRoutineLoadStmt extends DdlStmt {
+public class AlterRoutineLoadStmt extends DdlStmt implements NotFallbackInParser {
 
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
 

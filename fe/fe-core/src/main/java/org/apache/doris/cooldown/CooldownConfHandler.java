@@ -124,7 +124,11 @@ public class CooldownConfHandler extends MasterDaemon {
                 table.readUnlock();
             }
         } catch (RuntimeException e) {
-            LOG.warn("failed to get tablet. tabletId={}", conf.tabletId);
+            if (Env.getCurrentRecycleBin().isRecyclePartition(conf.dbId, conf.tableId, conf.partitionId)) {
+                LOG.debug("failed to get tablet, it's in catalog recycle bin. tabletId={}", conf.tabletId);
+            } else {
+                LOG.warn("failed to get tablet. tabletId={}", conf.tabletId);
+            }
             return null;
         }
     }

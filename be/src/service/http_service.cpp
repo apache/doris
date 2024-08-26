@@ -103,7 +103,7 @@ std::shared_ptr<bufferevent_rate_limit_group> get_rate_limit_group(event_base* e
 HttpService::HttpService(ExecEnv* env, int port, int num_threads)
         : _env(env),
           _ev_http_server(new EvHttpServer(port, num_threads)),
-          _web_page_handler(new WebPageHandler(_ev_http_server.get())) {}
+          _web_page_handler(new WebPageHandler(_ev_http_server.get(), env)) {}
 
 HttpService::~HttpService() {
     stop();
@@ -139,11 +139,11 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_load_error_log",
                                       error_log_download_action);
 
-    AdjustLogLevelAction* adjust_log_level_action = _pool.add(new AdjustLogLevelAction());
+    AdjustLogLevelAction* adjust_log_level_action = _pool.add(new AdjustLogLevelAction(_env));
     _ev_http_server->register_handler(HttpMethod::POST, "api/glog/adjust", adjust_log_level_action);
 
     //TODO: add query GET interface
-    auto* adjust_tracing_dump = _pool.add(new AdjustTracingDump());
+    auto* adjust_tracing_dump = _pool.add(new AdjustTracingDump(_env));
     _ev_http_server->register_handler(HttpMethod::POST, "api/pipeline/tracing",
                                       adjust_tracing_dump);
 
@@ -153,36 +153,37 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/be_version_info", version_action);
 
     // Register BE health action
-    HealthAction* health_action = _pool.add(new HealthAction());
+    HealthAction* health_action = _pool.add(new HealthAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/health", health_action);
 
     // Clear cache action
-    ClearCacheAction* clear_cache_action = _pool.add(new ClearCacheAction());
+    ClearCacheAction* clear_cache_action = _pool.add(new ClearCacheAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/clear_cache/{type}",
                                       clear_cache_action);
 
     // Dump all running pipeline tasks
-    PipelineTaskAction* pipeline_task_action = _pool.add(new PipelineTaskAction());
+    PipelineTaskAction* pipeline_task_action = _pool.add(new PipelineTaskAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/running_pipeline_tasks",
                                       pipeline_task_action);
 
     // Dump all running pipeline tasks which has been running for more than {duration} seconds
-    LongPipelineTaskAction* long_pipeline_task_action = _pool.add(new LongPipelineTaskAction());
+    LongPipelineTaskAction* long_pipeline_task_action = _pool.add(new LongPipelineTaskAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/running_pipeline_tasks/{duration}",
                                       long_pipeline_task_action);
 
     // Dump all running pipeline tasks which has been running for more than {duration} seconds
-    QueryPipelineTaskAction* query_pipeline_task_action = _pool.add(new QueryPipelineTaskAction());
+    QueryPipelineTaskAction* query_pipeline_task_action =
+            _pool.add(new QueryPipelineTaskAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/query_pipeline_tasks/{query_id}",
                                       query_pipeline_task_action);
 
     // Dump all be process thread num
-    BeProcThreadAction* be_proc_thread_action = _pool.add(new BeProcThreadAction());
+    BeProcThreadAction* be_proc_thread_action = _pool.add(new BeProcThreadAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/be_process_thread_num",
                                       be_proc_thread_action);
 
     // Register BE LoadStream action
-    LoadStreamAction* load_stream_action = _pool.add(new LoadStreamAction());
+    LoadStreamAction* load_stream_action = _pool.add(new LoadStreamAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/load_streams", load_stream_action);
 
     // Register Tablets Info action
@@ -209,10 +210,11 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/meta/{op}/{tablet_id}", meta_action);
 
     ConfigAction* update_config_action =
-            _pool.add(new ConfigAction(ConfigActionType::UPDATE_CONFIG));
+            _pool.add(new ConfigAction(ConfigActionType::UPDATE_CONFIG, _env));
     _ev_http_server->register_handler(HttpMethod::POST, "/api/update_config", update_config_action);
 
-    ConfigAction* show_config_action = _pool.add(new ConfigAction(ConfigActionType::SHOW_CONFIG));
+    ConfigAction* show_config_action =
+            _pool.add(new ConfigAction(ConfigActionType::SHOW_CONFIG, _env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/show_config", show_config_action);
 
     // 3 check action
@@ -234,16 +236,17 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/report/task", report_task_action);
 
     // shrink memory for starting co-exist process during upgrade
-    ShrinkMemAction* shrink_mem_action = _pool.add(new ShrinkMemAction());
+    ShrinkMemAction* shrink_mem_action = _pool.add(new ShrinkMemAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/shrink_mem", shrink_mem_action);
 
+#ifndef BE_TEST
     auto& engine = _env->storage_engine();
     if (config::is_cloud_mode()) {
         register_cloud_handler(engine.to_cloud());
     } else {
         register_local_handler(engine.to_local());
     }
-
+#endif
     _ev_http_server->start();
     return Status::OK();
 }
@@ -300,7 +303,7 @@ void HttpService::register_local_handler(StorageEngine& engine) {
     _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_binlog/_download",
                                       download_binlog_action);
 
-    FileCacheAction* file_cache_action = _pool.add(new FileCacheAction());
+    FileCacheAction* file_cache_action = _pool.add(new FileCacheAction(_env));
     _ev_http_server->register_handler(HttpMethod::POST, "/api/file_cache", file_cache_action);
 
     TabletsDistributionAction* tablets_distribution_action =
@@ -401,9 +404,9 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/injection_point/{op}",
                                       injection_point_action);
 #endif
-    FileCacheAction* file_cache_action = _pool.add(new FileCacheAction());
+    FileCacheAction* file_cache_action = _pool.add(new FileCacheAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/file_cache", file_cache_action);
-    auto* show_hotspot_action = _pool.add(new ShowHotspotAction(engine));
+    auto* show_hotspot_action = _pool.add(new ShowHotspotAction(engine, _env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/hotspot/tablet", show_hotspot_action);
 
     CalcFileCrcAction* calc_crc_action = _pool.add(

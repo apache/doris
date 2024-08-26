@@ -261,7 +261,7 @@ public class RestoreJobTest {
         List<Table> tbls = Lists.newArrayList();
         List<Resource> resources = Lists.newArrayList();
         tbls.add(expectedRestoreTbl);
-        backupMeta = new BackupMeta(null, tbls, resources);
+        backupMeta = new BackupMeta(tbls, resources);
     }
 
     @Test

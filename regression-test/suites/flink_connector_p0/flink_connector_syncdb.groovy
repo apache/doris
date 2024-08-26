@@ -19,7 +19,8 @@
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases/tpcds
 // and modified by Doris.
 
-
+import static java.util.concurrent.TimeUnit.SECONDS
+import org.awaitility.Awaitility
 
 suite("flink_connector_syncdb") {
 
@@ -77,7 +78,16 @@ PROPERTIES (
     logger.info("run_cmd : $run_cmd")
     def run_flink_jar = run_cmd.execute().getText()
     logger.info("result: $run_flink_jar")
+    // The publish in the commit phase is asynchronous
+    Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).await().until(
+            {
+                def resultTbl1 = sql """ select count(1) from $tableName1"""
+                logger.info("retry $tableName1  count: $resultTbl1")
+                def resultTbl2 = sql """ select count(1) from $tableName2"""
+                logger.info("retry $tableName2 count: $resultTbl2")
+                resultTbl1.size() >= 1 && resultTbl2.size >=1
+            })
+
     qt_select """ select * from $tableName1 order by id"""
     qt_select """ select * from $tableName2 order by id"""
-
 }

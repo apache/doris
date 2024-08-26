@@ -316,7 +316,6 @@ public:
     vectorized::VExprContextSPtrs probe_expr_ctxs;
     size_t input_num_rows = 0;
     std::vector<vectorized::AggregateDataPtr> values;
-    std::unique_ptr<vectorized::Arena> agg_profile_arena;
     /// The total size of the row from the aggregate functions.
     size_t total_size_of_aggregate_states = 0;
     size_t align_aggregate_states = 1;
@@ -684,6 +683,10 @@ public:
     std::unique_ptr<SetHashTableVariants> hash_table_variants = nullptr; // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 
+    // The SET operator's child might have different nullable attributes.
+    // If a calculation involves both nullable and non-nullable columns, the final output should be a nullable column
+    Status update_build_not_ignore_null(const vectorized::VExprContextSPtrs& ctxs);
+
     /// init in both upstream side.
     //The i-th result expr list refers to the i-th child.
     std::vector<vectorized::VExprContextSPtrs> child_exprs_lists;
@@ -886,8 +889,6 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
 
     void create_dependencies(int local_exchange_id) override {
         sink_deps.resize(source_deps.size());
-        std::vector<DependencySPtr> new_deps(sink_deps.size(), nullptr);
-        source_deps.swap(new_deps);
         for (size_t i = 0; i < source_deps.size(); i++) {
             source_deps[i] =
                     std::make_shared<Dependency>(local_exchange_id, local_exchange_id,

@@ -233,6 +233,13 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
             _rowset_meta_pb.add_segments_file_size(fsize);
         }
     }
+    if (_rowset_meta_pb.enable_inverted_index_file_info() &&
+        other._rowset_meta_pb.enable_inverted_index_file_info()) {
+        for (auto finfo : other.inverted_index_file_info()) {
+            InvertedIndexFileInfo* new_file_info = _rowset_meta_pb.add_inverted_index_file_info();
+            *new_file_info = finfo;
+        }
+    }
     // In partial update the rowset schema maybe updated when table contains variant type, so we need the newest schema to be updated
     // Otherwise the schema is stale and lead to wrong data read
     if (tablet_schema()->num_variant_columns() > 0) {
@@ -247,6 +254,29 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
     if (rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
         set_rowset_state(RowsetStatePB::COMMITTED);
     }
+}
+
+InvertedIndexFileInfo RowsetMeta::inverted_index_file_info(int seg_id) {
+    return _rowset_meta_pb.enable_inverted_index_file_info()
+                   ? (_rowset_meta_pb.inverted_index_file_info_size() > seg_id
+                              ? _rowset_meta_pb.inverted_index_file_info(seg_id)
+                              : InvertedIndexFileInfo())
+                   : InvertedIndexFileInfo();
+}
+
+void RowsetMeta::add_inverted_index_files_info(
+        const std::vector<InvertedIndexFileInfo>& idx_file_info) {
+    _rowset_meta_pb.set_enable_inverted_index_file_info(true);
+    for (auto finfo : idx_file_info) {
+        auto* new_file_info = _rowset_meta_pb.add_inverted_index_file_info();
+        *new_file_info = finfo;
+    }
+}
+
+void RowsetMeta::update_inverted_index_files_info(
+        const std::vector<InvertedIndexFileInfo>& idx_file_info) {
+    _rowset_meta_pb.clear_inverted_index_file_info();
+    add_inverted_index_files_info(idx_file_info);
 }
 
 bool operator==(const RowsetMeta& a, const RowsetMeta& b) {

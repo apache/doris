@@ -63,3 +63,13 @@ enum FileType {
   SEGMENT_FILE = 1;
   INVERTED_INDEX_FILE = 2;
 }
+
+message InvertedIndexFileInfo {
+    message IndexInfo {
+        required int64 index_id = 1;
+        required int64 index_file_size = 2 [default = -1];
+        optional string index_suffix = 3;
+    }
+    repeated IndexInfo index_info = 1; // for inverted index v1
+    optional int64 index_size = 2;     // for inverted index v2
+}

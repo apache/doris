@@ -28,6 +28,7 @@
 #include "pipeline/common/runtime_filter_consumer.h"
 #include "pipeline/dependency.h"
 #include "runtime/descriptors.h"
+#include "runtime/types.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vin_predicate.h"
@@ -340,7 +341,7 @@ protected:
     void get_cast_types_for_variants();
     void _filter_and_collect_cast_type_for_variant(
             const vectorized::VExpr* expr,
-            phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types);
+            std::unordered_map<std::string, std::vector<TypeDescriptor>>& colname_to_cast_types);
 
     Status _get_topn_filters(RuntimeState* state);
 
@@ -357,7 +358,7 @@ protected:
     std::vector<FunctionFilter> _push_down_functions;
 
     // colname -> cast dst type
-    std::map<std::string, PrimitiveType> _cast_types_for_variants;
+    std::map<std::string, TypeDescriptor> _cast_types_for_variants;
 
     // slot id -> ColumnValueRange
     // Parsed from conjuncts

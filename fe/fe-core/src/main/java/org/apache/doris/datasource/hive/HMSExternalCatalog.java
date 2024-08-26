@@ -25,6 +25,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -73,6 +74,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Getter
     private HadoopAuthenticator authenticator;
 
+    private int hmsEventsBatchSizePerRpc = -1;
+    private boolean enableHmsEventsIncrementalSync = false;
+
+
     @VisibleForTesting
     public HMSExternalCatalog() {
         catalogProperty = new CatalogProperty(null, null);
@@ -99,6 +104,19 @@ public class HMSExternalCatalog extends ExternalCatalog {
                 < FILE_META_CACHE_TTL_DISABLE_CACHE) {
             throw new DdlException(
                     "The parameter " + FILE_META_CACHE_TTL_SECOND + " is wrong, value is " + fileMetaCacheTtlSecond);
+        }
+        Map<String, String> properties = catalogProperty.getProperties();
+        if (properties.containsKey(HMSProperties.ENABLE_HMS_EVENTS_INCREMENTAL_SYNC)) {
+            enableHmsEventsIncrementalSync =
+                    properties.get(HMSProperties.ENABLE_HMS_EVENTS_INCREMENTAL_SYNC).equals("true");
+        } else {
+            enableHmsEventsIncrementalSync = Config.enable_hms_events_incremental_sync;
+        }
+
+        if (properties.containsKey(HMSProperties.HMS_EVENTIS_BATCH_SIZE_PER_RPC)) {
+            hmsEventsBatchSizePerRpc = Integer.valueOf(properties.get(HMSProperties.HMS_EVENTIS_BATCH_SIZE_PER_RPC));
+        } else {
+            hmsEventsBatchSizePerRpc = Config.hms_events_batch_size_per_rpc;
         }
 
         // check the dfs.ha properties
@@ -212,7 +230,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
         if (useMetaCache.get()) {
             if (isInitialized()) {
-                metaCache.invalidate(dbName);
+                metaCache.invalidate(dbName, Util.genIdByName(getQualifiedName(dbName)));
             }
         } else {
             Long dbId = dbNameToId.remove(dbName);
@@ -233,7 +251,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, dbId, logType);
         if (useMetaCache.get()) {
             if (isInitialized()) {
-                metaCache.updateCache(dbName, db);
+                metaCache.updateCache(dbName, db, Util.genIdByName(getQualifiedName(dbName)));
             }
         } else {
             dbNameToId.put(dbName, dbId);
@@ -265,5 +283,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     public String getHiveVersion() {
         return catalogProperty.getOrDefault(HMSProperties.HIVE_VERSION, "");
+    }
+
+    public int getHmsEventsBatchSizePerRpc() {
+        return hmsEventsBatchSizePerRpc;
+    }
+
+    public boolean isEnableHmsEventsIncrementalSync() {
+        return enableHmsEventsIncrementalSync;
     }
 }

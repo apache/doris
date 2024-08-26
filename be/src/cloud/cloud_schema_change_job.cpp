@@ -283,9 +283,13 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
             }
         }
 
-        RETURN_IF_ERROR(sc_procedure->process(rs_reader, rowset_writer.get(), _new_tablet,
-                                              _base_tablet, _base_tablet_schema,
-                                              _new_tablet_schema));
+        st = sc_procedure->process(rs_reader, rowset_writer.get(), _new_tablet, _base_tablet,
+                                   _base_tablet_schema, _new_tablet_schema);
+        if (!st.ok()) {
+            return Status::InternalError(
+                    "failed to process schema change on rowset, version=[{}-{}], status={}",
+                    rs_reader->version().first, rs_reader->version().second, st.to_string());
+        }
 
         RowsetSharedPtr new_rowset;
         st = rowset_writer->build(new_rowset);

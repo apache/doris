@@ -80,11 +80,6 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
     }
 
     @Override
-    public LogicalProperties getLogicalProperties() {
-        return child().getLogicalProperties();
-    }
-
-    @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalView(view, child());
     }
@@ -123,7 +118,16 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
 
     @Override
     public List<Slot> computeOutput() {
-        return child().getOutput();
+        List<Slot> childOutput = child().getOutput();
+        ImmutableList.Builder<Slot> currentOutput = ImmutableList.builder();
+        List<String> fullQualifiers = this.view.getFullQualifiers();
+        for (int i = 0; i < childOutput.size(); i++) {
+            Slot originSlot = childOutput.get(i);
+            Slot qualified = originSlot
+                    .withQualifier(fullQualifiers);
+            currentOutput.add(qualified);
+        }
+        return currentOutput.build();
     }
 
     @Override

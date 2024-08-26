@@ -33,6 +33,10 @@
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/utils.h"
+#include "runtime/exec_env.h"
+#include "service/backend_service.h"
+#include "service/http_service.h"
+#include "testutil/http_utils.h"
 #include "util/md5.h"
 
 namespace doris {
@@ -339,6 +343,202 @@ TEST_F(HttpClientTest, escape_url) {
     std::string input_G = hostname + "/download_file?key=0x2E&key=%2E#section";
     std::string output_G = hostname + "/download_file?key=0x2E&key=%252E#section";
     ASSERT_TRUE(check_result(input_G, output_G));
+}
+
+TEST_F(HttpClientTest, enable_http_auth) {
+    std::string origin_hostname = hostname;
+    Defer defer {[&origin_hostname]() {
+        hostname = origin_hostname;
+        config::enable_all_http_auth = false;
+    }};
+
+    hostname = doris::global_test_http_host;
+
+    {
+        config::enable_all_http_auth = false;
+        std::string url = hostname + "/api/health";
+        HttpClient client;
+        auto st = client.init(url);
+        EXPECT_TRUE(st.ok());
+        client.set_method(GET);
+        std::string response;
+        st = client.execute(&response);
+        EXPECT_TRUE(st.ok());
+        std::cout << "response = " << response << "\n";
+        EXPECT_TRUE(response.find("To Be Added") != std::string::npos);
+    }
+
+    {
+        config::enable_all_http_auth = true;
+        std::string url = hostname + "/api/health";
+        HttpClient client;
+        auto st = client.init(url);
+        EXPECT_TRUE(st.ok());
+        client.set_method(GET);
+        std::string response;
+        st = client.execute(&response);
+        std::cout << "st = " << st << "\n";
+        std::cout << "response = " << response << "\n";
+        std::cout << "st.msg() = " << st.msg() << "\n";
+        EXPECT_TRUE(!st.ok());
+        EXPECT_TRUE(st.msg().find("The requested URL returned error") != std::string::npos);
+    }
+
+    {
+        config::enable_all_http_auth = true;
+        std::string url = hostname + "/api/health";
+        HttpClient client;
+        auto st = client.init(url);
+        EXPECT_TRUE(st.ok());
+        client.set_method(GET);
+        client.set_basic_auth("root", "");
+        std::string response;
+        st = client.execute(&response);
+        EXPECT_TRUE(st.ok());
+        std::cout << "response = " << response << "\n";
+        EXPECT_TRUE(response.find("To Be Added") != std::string::npos);
+    }
+
+    {
+        config::enable_all_http_auth = true;
+        std::string url = hostname + "/api/health";
+        HttpClient client;
+        auto st = client.init(url);
+        EXPECT_TRUE(st.ok());
+        client.set_method(GET);
+        client.set_basic_auth("root", "errorpasswd");
+        client.set_timeout_ms(200);
+        std::string response;
+        st = client.execute(&response);
+        EXPECT_TRUE(!st.ok());
+        std::cout << "response = " << response << "\n";
+        std::cout << "st.msg() = " << st.msg() << "\n";
+        EXPECT_TRUE(st.msg().find("Operation timed out after") != std::string::npos);
+    }
+
+    {
+        config::enable_all_http_auth = false;
+        std::string url = hostname + "/metrics";
+        HttpClient client;
+        auto st = client.init(url);
+        EXPECT_TRUE(st.ok());
+        client.set_method(GET);
+        std::string response;
+        st = client.execute(&response);
+        EXPECT_TRUE(st.ok());
+        std::cout << "response = " << response << "\n";
+        EXPECT_TRUE(response.size() != 0);
+    }
+
+    {
+        config::enable_all_http_auth = true;
+        std::string url = hostname + "/metrics";
+        HttpClient client;
+        auto st = client.init(url);
+        EXPECT_TRUE(st.ok());
+        client.set_method(GET);
+        std::string response;
+        st = client.execute(&response);
+        std::cout << "st = " << st << "\n";
+        std::cout << "response = " << response << "\n";
+        std::cout << "st.msg() = " << st.msg() << "\n";
+        EXPECT_TRUE(!st.ok());
+        EXPECT_TRUE(st.msg().find("The requested URL returned error") != std::string::npos);
+    }
+    {
+        config::enable_all_http_auth = true;
+        std::string url = hostname + "/metrics";
+        HttpClient client;
+        auto st = client.init(url);
+        EXPECT_TRUE(st.ok());
+        client.set_method(GET);
+        client.set_basic_auth("root", "");
+        std::string response;
+        st = client.execute(&response);
+        EXPECT_TRUE(st.ok());
+        std::cout << "response = " << response << "\n";
+        EXPECT_TRUE(response.size() != 0);
+    }
+
+    {
+        config::enable_all_http_auth = true;
+        std::string url = hostname + "/metrics";
+        HttpClient client;
+        auto st = client.init(url);
+        EXPECT_TRUE(st.ok());
+        client.set_method(GET);
+        client.set_basic_auth("root", "errorpasswd");
+        client.set_timeout_ms(200);
+        std::string response;
+        st = client.execute(&response);
+        EXPECT_TRUE(!st.ok());
+        std::cout << "response = " << response << "\n";
+        std::cout << "st.msg() = " << st.msg() << "\n";
+        EXPECT_TRUE(st.msg().find("Operation timed out after") != std::string::npos);
+    }
+
+    {
+        config::enable_all_http_auth = true;
+        std::string url = hostname + "/api/glog/adjust";
+        HttpClient client;
+        auto st = client.init(url);
+        EXPECT_TRUE(st.ok());
+        client.set_method(POST);
+        client.set_basic_auth("rootss", "");
+        client.set_timeout_ms(200);
+        std::string response;
+        st = client.execute_post_request("level=1&module=xxx", &response);
+        EXPECT_TRUE(!st.ok());
+        std::cout << "response = " << response << "\n";
+        std::cout << "st.msg() = " << st.msg() << "\n";
+        EXPECT_TRUE(st.msg().find("Operation timed out after") != std::string::npos);
+    }
+
+    std::vector<std::string> check_get_list = {"/api/clear_cache/aa",
+                                               "/api/running_pipeline_tasks",
+                                               "/api/running_pipeline_tasks/223",
+                                               "/api/query_pipeline_tasks/78902309190709864",
+                                               "/api/be_process_thread_num",
+                                               "/api/load_streams",
+                                               "/api/show_config",
+                                               "/api/shrink_mem"};
+
+    for (auto endpoint : check_get_list) {
+        std::cout << "endpint = " << endpoint << "\n";
+
+        {
+            config::enable_all_http_auth = true;
+            std::string url = hostname + endpoint;
+            HttpClient client;
+            auto st = client.init(url);
+            EXPECT_TRUE(st.ok());
+            client.set_method(GET);
+            std::string response;
+            st = client.execute(&response);
+            std::cout << "st = " << st << "\n";
+            std::cout << "response = " << response << "\n";
+            std::cout << "st.msg() = " << st.msg() << "\n";
+            EXPECT_TRUE(!st.ok());
+            EXPECT_TRUE(st.msg().find("The requested URL returned error") != std::string::npos);
+        }
+
+        {
+            config::enable_all_http_auth = true;
+            std::string url = hostname + endpoint;
+            HttpClient client;
+            auto st = client.init(url);
+            EXPECT_TRUE(st.ok());
+            client.set_method(GET);
+            client.set_basic_auth("roxot", "errorpasswd");
+            client.set_timeout_ms(200);
+            std::string response;
+            st = client.execute(&response);
+            EXPECT_TRUE(!st.ok());
+            std::cout << "response = " << response << "\n";
+            std::cout << "st.msg() = " << st.msg() << "\n";
+            EXPECT_TRUE(st.msg().find("Operation timed out after") != std::string::npos);
+        }
+    }
 }
 
 } // namespace doris

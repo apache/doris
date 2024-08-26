@@ -57,6 +57,8 @@ private:
     int _channel_id;
     RuntimeProfile::Counter* _get_block_failed_counter = nullptr;
     RuntimeProfile::Counter* _copy_data_timer = nullptr;
+    std::vector<RuntimeProfile::Counter*> _deps_counter;
+    std::vector<DependencySPtr> _local_merge_deps;
 };
 
 class LocalExchangeSourceOperatorX final : public OperatorX<LocalExchangeSourceLocalState> {

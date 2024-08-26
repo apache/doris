@@ -241,12 +241,12 @@ public class CreateTableCommandTest extends TestWithFeService {
 
     @Test
     public void testAbnormal() throws ConfigException {
-        checkThrow(AnalysisException.class,
+        checkThrow(org.apache.doris.common.DdlException.class,
                 "Unknown properties: {aa=bb}",
                 () -> createTable("create table test.atbl1\n" + "(k1 int, k2 float)\n" + "duplicate key(k1)\n"
                         + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1','aa'='bb'); "));
 
-        checkThrow(AnalysisException.class,
+        checkThrow(org.apache.doris.common.DdlException.class,
                 "Floating point type should not be used in distribution column",
                 () -> createTable("create table test.atbl1\n" + "(k1 int, k2 float)\n" + "duplicate key(k1)\n"
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
@@ -257,18 +257,18 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "partition by range(k3)\n" + "(partition p1 values less than(\"10\"))\n"
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
 
-        checkThrow(AnalysisException.class,
+        checkThrow(org.apache.doris.common.DdlException.class,
                 "Varchar should not in the middle of short keys",
                 () -> createTable("create table test.atbl3\n" + "(k1 varchar(40), k2 int, k3 int)\n"
                         + "duplicate key(k1, k2, k3)\n" + "distributed by hash(k1) buckets 1\n"
                         + "properties('replication_num' = '1', 'short_key' = '3');"));
 
-        checkThrow(AnalysisException.class, "Short key is too large. should less than: 3",
+        checkThrow(org.apache.doris.common.DdlException.class, "Short key is too large. should less than: 3",
                 () -> createTable("create table test.atbl4\n" + "(k1 int, k2 int, k3 int)\n"
                         + "duplicate key(k1, k2, k3)\n" + "distributed by hash(k1) buckets 1\n"
                         + "properties('replication_num' = '1', 'short_key' = '4');"));
 
-        checkThrow(AnalysisException.class,
+        checkThrow(org.apache.doris.common.DdlException.class,
                 "replication num should be less than the number of available backends. replication num is 3, available backend num is 1",
                 () -> createTable("create table test.atbl5\n" + "(k1 int, k2 int, k3 int)\n"
                         + "duplicate key(k1, k2, k3)\n" + "distributed by hash(k1) buckets 1\n"
@@ -278,48 +278,49 @@ public class CreateTableCommandTest extends TestWithFeService {
                 () -> createTable("create table test.atbl6\n" + "(k1 int, k2 int)\n" + "duplicate key(k1)\n"
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
 
-        checkThrow(AnalysisException.class, "Table 'atbl6' already exists",
+        checkThrow(org.apache.doris.common.DdlException.class, "Table 'atbl6' already exists",
                 () -> createTable("create table test.atbl6\n" + "(k1 int, k2 int, k3 int)\n"
                         + "duplicate key(k1, k2, k3)\n" + "distributed by hash(k1) buckets 1\n"
                         + "properties('replication_num' = '1');"));
 
         ConfigBase.setMutableConfig("disable_storage_medium_check", "false");
-        checkThrow(AnalysisException.class,
+        checkThrow(org.apache.doris.common.DdlException.class,
                 "Failed to find enough backend, please check the replication num,replication tag and storage medium.\n"
                         + "Create failed replications:\n"
                         + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                 () -> createTable("create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
                         + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
 
-        checkThrow(AnalysisException.class, "sequence column only support UNIQUE_KEYS",
+        checkThrow(org.apache.doris.common.DdlException.class, "sequence column only support UNIQUE_KEYS",
                 () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int sum)\n"
                         + "aggregate key(k1, k2)\n"
                         + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
                         + "'function_column.sequence_type' = 'int');"));
 
-        checkThrow(AnalysisException.class, "sequence type only support integer types and date types",
+        checkThrow(org.apache.doris.common.DdlException.class,
+                "sequence type only support integer types and date types",
                 () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int)\n"
                         + "unique key(k1, k2)\n"
                         + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
                         + "'function_column.sequence_type' = 'double');"));
 
-        checkThrow(AnalysisException.class, "The sequence_col and sequence_type cannot be set at the same time",
+        checkThrow(org.apache.doris.common.DdlException.class, "The sequence_col and sequence_type cannot be set at the same time",
                 () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int)\n"
                         + "unique key(k1, k2)\n"
                         + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
                         + "'function_column.sequence_type' = 'int', 'function_column.sequence_col' = 'v1');"));
 
-        checkThrow(AnalysisException.class, "The specified sequence column[v3] not exists",
+        checkThrow(org.apache.doris.common.DdlException.class, "The specified sequence column[v3] not exists",
                 () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int)\n"
                         + "unique key(k1, k2)\n"
                         + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
                         + "'function_column.sequence_col' = 'v3');"));
 
-        checkThrow(AnalysisException.class, "Sequence type only support integer types and date types",
+        checkThrow(org.apache.doris.common.DdlException.class, "Sequence type only support integer types and date types",
                 () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int)\n"
                         + "unique key(k1, k2)\n"
                         + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
@@ -341,7 +342,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                 + "properties('replication_num' = '1');"));
 
         // single partition column with multi keys
-        checkThrow(AnalysisException.class,
+        checkThrow(org.apache.doris.common.AnalysisException.class,
                 "partition key desc list size[2] is not equal to partition column size[1]",
                 () -> createTable("create table test.tbl10\n"
                         + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
@@ -355,7 +356,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "properties('replication_num' = '1');"));
 
         // multi partition columns with single key
-        checkThrow(AnalysisException.class,
+        checkThrow(IllegalArgumentException.class,
                 "partition key desc list size[1] is not equal to partition column size[2]",
                 () -> createTable("create table test.tbl11\n"
                         + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
@@ -368,7 +369,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "properties('replication_num' = '1');"));
 
         // multi partition columns with multi keys
-        checkThrow(AnalysisException.class,
+        checkThrow(org.apache.doris.common.AnalysisException.class,
                 "partition key desc list size[3] is not equal to partition column size[2]",
                 () -> createTable("create table test.tbl12\n"
                         + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
@@ -453,7 +454,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "PROPERTIES(\"replication_num\" = \"1\");"));
 
         // range: partition content != partition key type
-        checkThrow(AnalysisException.class, "Invalid number format: beijing",
+        checkThrow(org.apache.doris.common.DdlException.class, "Invalid number format: beijing",
                 () -> createTable("CREATE TABLE test.tbl17 (\n"
                         + "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n"
                         + ")\n"
@@ -466,7 +467,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "PROPERTIES(\"replication_num\" = \"1\");"));
 
         // list: partition content != partition key type
-        checkThrow(AnalysisException.class, "Invalid number format: beijing",
+        checkThrow(org.apache.doris.common.DdlException.class, "Invalid number format: beijing",
                 () -> createTable("CREATE TABLE test.tbl18 (\n"
                         + "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n"
                         + ")\n"
@@ -482,7 +483,7 @@ public class CreateTableCommandTest extends TestWithFeService {
          * dynamic partition table
          */
         // list partition with dynamic properties
-        checkThrow(AnalysisException.class, "Only support dynamic partition properties on range partition table",
+        checkThrow(org.apache.doris.common.DdlException.class, "Only support dynamic partition properties on range partition table",
                 () -> createTable("CREATE TABLE test.tbl19\n"
                         + "(\n"
                         + "    k1 DATE not null\n"
@@ -500,7 +501,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + ");\n"));
 
         // no partition table with dynamic properties
-        checkThrow(AnalysisException.class, "Only support dynamic partition properties on range partition table",
+        checkThrow(org.apache.doris.common.DdlException.class, "Only support dynamic partition properties on range partition table",
                 () -> createTable("CREATE TABLE test.tbl20\n"
                         + "(\n"
                         + "    k1 DATE\n"
@@ -558,7 +559,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + " 'data_sort.sort_type' = 'lexical');"));
 
         // create z-order sort table, default col_num
-        checkThrow(AnalysisException.class, "only support lexical method now!",
+        checkThrow(org.apache.doris.common.AnalysisException.class, "only support lexical method now!",
                 () -> createTable(
                         "create table test.zorder_tbl2\n" + "(k1 varchar(40), k2 int, k3 int)\n"
                                 + "duplicate key(k1, k2, k3)\n"
@@ -567,7 +568,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                                 + " 'data_sort.sort_type' = 'zorder');"));
 
         // create z-order sort table, define sort_col_num
-        checkThrow(AnalysisException.class, "only support lexical method now!",
+        checkThrow(org.apache.doris.common.AnalysisException.class, "only support lexical method now!",
                 () -> createTable(
                         "create table test.zorder_tbl3\n" + "(k1 varchar(40), k2 int, k3 int)\n"
                                 + "duplicate key(k1, k2, k3)\n"
@@ -576,7 +577,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                                 + " 'data_sort.sort_type' = 'zorder',"
                                 + " 'data_sort.col_num' = '2');"));
         // create z-order sort table, only 1 sort column
-        checkThrow(AnalysisException.class, "only support lexical method now!",
+        checkThrow(org.apache.doris.common.AnalysisException.class, "only support lexical method now!",
                 () -> createTable("create table test.zorder_tbl4\n" + "(k1 varchar(40), k2 int, k3 int)\n"
                         + "duplicate key(k1, k2, k3)\n"
                         + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
@@ -584,7 +585,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + " 'data_sort.sort_type' = 'zorder',"
                         + " 'data_sort.col_num' = '1');"));
         // create z-order sort table, sort column is empty
-        checkThrow(AnalysisException.class, "only support lexical method now!",
+        checkThrow(org.apache.doris.common.AnalysisException.class, "only support lexical method now!",
                 () -> createTable("create table test.zorder_tbl4\n" + "(k1 varchar(40), k2 int, k3 int)\n"
                         + "duplicate key(k1, k2, k3)\n"
                         + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
@@ -691,7 +692,7 @@ public class CreateTableCommandTest extends TestWithFeService {
 
     @Test
     public void testCreateTableWithInMemory() {
-        checkThrow(AnalysisException.class, "Not support set 'in_memory'='true' now!",
+        checkThrow(org.apache.doris.common.AnalysisException.class, "Not support set 'in_memory'='true' now!",
                 () -> createTable("create table test.test_inmemory(k1 INT, k2 INT) duplicate key (k1) "
                         + "distributed by hash(k1) buckets 1 properties('replication_num' = '1','in_memory'='true');"));
     }

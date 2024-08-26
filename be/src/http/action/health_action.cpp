@@ -29,8 +29,6 @@ namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
-HealthAction::HealthAction() {}
-
 void HealthAction::handle(HttpRequest* req) {
     std::stringstream ss;
     ss << "{";

@@ -437,10 +437,6 @@ public:
 
     std::vector<TErrorTabletInfo>& error_tablet_infos() { return _error_tablet_infos; }
 
-    // get mem limit for load channel
-    // if load mem limit is not set, or is zero, using query mem limit instead.
-    int64_t get_load_mem_limit();
-
     // local runtime filter mgr, the runtime filter do not have remote target or
     // not need local merge should regist here. the instance exec finish, the local
     // runtime filter mgr can release the memory of local runtime filter
