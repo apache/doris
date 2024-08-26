@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit
 suite("txn_insert_with_specify_columns_schema_change_add_value_column", "nonConcurrent") {
     def table = "txn_insert_with_specify_columns_schema_change_add_value_column"
 
-    def dbName = "regression_test_insert_p0"
+    def dbName = "regression_test_insert_p0_transaction"
     def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, dbName).replace("&useServerPrepStmts=true", "") + "&useLocalSessionState=true"
     logger.info("url: ${url}")
     List<String> errors = new ArrayList<>()

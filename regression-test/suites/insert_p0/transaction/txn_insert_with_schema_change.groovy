@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit
 
 suite("txn_insert_with_schema_change") {
     def table = "txn_insert_with_schema_change"
-    def dbName = "regression_test_insert_p0"
+    def dbName = "regression_test_insert_p0_transaction"
     def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, dbName).replace("&useServerPrepStmts=true", "") + "&useLocalSessionState=true"
     logger.info("url: ${url}")
     List<String> errors = new ArrayList<>()
