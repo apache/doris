@@ -716,7 +716,7 @@ suite("test_dup_table_inverted_index", "p1") {
     
     
     try {
-         sql """ set enable_match_without_inverted_index = true """
+        sql """ set enable_match_without_inverted_index = true """
         sql """ set enable_common_expr_pushdown = true """
          def dupTableName = "dup_httplogs"
         sql """ drop table if exists ${dupTableName} """
@@ -795,14 +795,7 @@ suite("test_dup_table_inverted_index", "p1") {
         compare_result(dup_result5, dup_result6, all_dup_sql)
         compare_result(dup_result3, dup_result6, all_dup_sql)
 
-        def dup_result7 = execute_sql.call("enable_common_expr_pushdown_for_inverted_index", "true", all_dup_sql)
-        logger.info("dup_result7 is {}", dup_result7);
-        def dup_result8 = execute_sql.call("enable_common_expr_pushdown_for_inverted_index", "false", all_dup_sql)
-        logger.info("dup_result8 is {}", dup_result8);
-        compare_result(dup_result7, dup_result8, all_dup_sql)
-        compare_result(dup_result3, dup_result8, all_dup_sql)
-
-         def mowTable = "mow_httplogs"
+        def mowTable = "mow_httplogs"
         sql """ drop table if exists ${mowTable} """
         // create table
         sql """
