@@ -91,6 +91,8 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
     public static final String FINISH_SPLITS = "finishSplits";
     public static final String ASSIGNED_SPLITS = "assignedSplits";
     public static final String SNAPSHOT_TABLE = "snapshotTable";
+    private static final String PURE_BINLOG_PHASE = "pureBinlogPhase";
+
     public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("Id", ScalarType.createStringType()),
             new Column("Name", ScalarType.createStringType()),
@@ -104,7 +106,6 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
             new Column("Progress", ScalarType.createStringType()));
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
     private static final Logger LOG = LogManager.getLogger(CdcDatabaseJob.class);
-    private static final int port = 9096;
     private static ObjectMapper objectMapper = new ObjectMapper();
     @SerializedName("rs")
     List<SnapshotSplit> remainingSplits = new CopyOnWriteArrayList<>();
@@ -127,6 +128,8 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
     private long dbId;
     @SerializedName("cf")
     private Map<String, String> config;
+    @SerializedName("pbg")
+    private boolean pureBinlogPhase;
 
     static {
         ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
@@ -332,7 +335,6 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
             // Call the BE interface and pass host, port, jobId
             // select backends
             Backend backend = selectBackend(getJobId());
-
             if (!isBinlogSplitAssigned) {
                 if (!remainingSplits.isEmpty()) {
                     SnapshotSplit snapshotSplit = remainingSplits.get(0);
@@ -356,7 +358,7 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
             } else {
                 readOffset.put(SPLIT_ID, BINLOG_SPLIT_ID);
                 // todo: When fully entering the binlog phase, there is no need to pass splits
-                if (!splitFinishedOffsets.isEmpty() && !assignedSplits.isEmpty()) {
+                if (!pureBinlogPhase && !splitFinishedOffsets.isEmpty() && !assignedSplits.isEmpty()) {
                     readOffset.put(FINISH_SPLITS, objectMapper.writeValueAsString(splitFinishedOffsets));
                     readOffset.put(ASSIGNED_SPLITS, objectMapper.writeValueAsString(assignedSplits));
                 }
@@ -426,11 +428,17 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
         }
 
         if (JobStatus.RUNNING.equals(oldStatus) && JobStatus.PAUSED.equals(newStatus)) {
-            executor.shutdown();
+            if (executor != null){
+                executor.shutdown();
+            }
+        }
+
+        if (JobStatus.STOPPED.equals(newStatus)) {
+            closeCdcResource();
         }
     }
 
-    private void startCdcScanner(Backend backend) throws JobException {
+    public static void startCdcScanner(Backend backend) throws JobException {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         //Reserved parameters, currently empty
         String params = "";
@@ -459,6 +467,9 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
         String splitId = meta.get(SPLIT_ID);
         if (splitId == null) {
             return;
+        }
+        if(meta.containsKey(PURE_BINLOG_PHASE)){
+            pureBinlogPhase = Boolean.parseBoolean(meta.remove(PURE_BINLOG_PHASE));
         }
         if (!BINLOG_SPLIT_ID.equals(splitId)) {
             remainingSplits.remove(0);

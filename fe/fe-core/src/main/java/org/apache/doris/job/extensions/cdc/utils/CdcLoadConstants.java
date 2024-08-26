@@ -25,6 +25,8 @@ public class CdcLoadConstants {
     public static final String PASSWORD = "password";
     public static final String DATABASE_NAME = "database_name";
     public static final String TABLE_NAME = "table_name";
+    public static final String DRIVER_CLASS = "driver_class";
+    public static final String DRIVER_URL = "driver_url";
 
     public static final String INCLUDE_TABLES_LIST = "include_tables_list";
     public static final String EXCLUDE_TABLES_LIST = "exclude_tables_list";

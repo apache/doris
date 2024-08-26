@@ -18,6 +18,7 @@
 package org.apache.doris.cdcloader.mysql.reader;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -27,8 +28,8 @@ public class RecordWithMeta {
     private List<String> records;
     private List<String> sqls;
 
-    public RecordWithMeta(Map<String, String> meta) {
-        this.meta = meta;
+    public RecordWithMeta() {
+        this.meta = new HashMap<>();
         this.records = new ArrayList<>();
         this.sqls = new ArrayList<>();
     }

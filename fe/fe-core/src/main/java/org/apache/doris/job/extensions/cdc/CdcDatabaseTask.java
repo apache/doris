@@ -36,6 +36,7 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
@@ -47,11 +48,12 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
+import static org.apache.doris.job.extensions.cdc.CdcDatabaseJob.startCdcScanner;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
-import java.util.UUID;
 
 public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallback {
 
@@ -80,8 +82,8 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
         COLUMN_TO_INDEX = builder.build();
     }
 
-    private UUID id;
     private long dbId;
+    @SerializedName(value = "bd")
     private Backend backend;
     private Long jobId;
     private Map<String, String> meta;
@@ -96,7 +98,6 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
         this.jobId = jobId;
         this.meta = meta;
         this.config = config;
-        this.id = UUID.randomUUID();
     }
 
     @Override
@@ -114,8 +115,7 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
         //     //call be rpc
         //     //waitlock
         // }
-
-
+        startCdcScanner(backend);
         // Call the BE interface and pass host, port, jobId
         // mock pull data
         System.out.println("====run task...");
@@ -132,6 +132,7 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
     }
 
     public boolean beginTxn() throws JobException {
+        TUniqueId id = new TUniqueId(getJobId(), getTaskId());
         // begin a txn for task
         try {
             txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(dbId,
@@ -141,8 +142,8 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
                     TransactionState.LoadJobSourceType.BACKEND_STREAMING, getJobId(),
                     60000);
         } catch (Exception ex) {
-            LOG.warn("failed to begin txn for cdc load task: {}, job id: {}",
-                    DebugUtil.printId(id), jobId, ex);
+            LOG.warn("failed to begin txn for cdc load task: {}, task id {}, job id: {}",
+                    DebugUtil.printId(id), getTaskId(), jobId, ex);
             return false;
         }
         return true;
@@ -161,7 +162,7 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getCreateTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getStartTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getFinishTimeMs())));
-        trow.addToColumnValue(new TCell().setStringVal(backend.getHost()));
+        trow.addToColumnValue(new TCell().setStringVal(backend == null ? FeConstants.null_string : backend.getHost()));
         trow.addToColumnValue(new TCell().setStringVal(new Gson().toJson(meta)));
         trow.addToColumnValue(new TCell()
                 .setStringVal(finishedMeta == null ? FeConstants.null_string : new Gson().toJson(finishedMeta)));
@@ -213,8 +214,8 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
     public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException {
         if(txnOperated){
             if(txnState.getTransactionId() != txnId){
-                LOG.info("Can not find task with transaction {} after committed, task: {}, job: {}",
-                        txnState.getTransactionId(), id, getJobId());
+                LOG.info("Can not find task with transaction {} after committed, task id: {}, job: {}",
+                        txnState.getTransactionId(), getTaskId(), getJobId());
                 return;
             }
 

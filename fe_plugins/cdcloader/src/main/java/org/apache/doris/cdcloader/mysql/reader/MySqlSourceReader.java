@@ -50,6 +50,7 @@ import org.apache.doris.cdcloader.mysql.utils.ConfigUtil;
 import org.apache.doris.job.extensions.cdc.state.AbstractSourceSplit;
 import org.apache.doris.job.extensions.cdc.state.BinlogSplit;
 import org.apache.doris.job.extensions.cdc.state.SnapshotSplit;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.cdc.connectors.mysql.debezium.DebeziumUtils;
 import org.apache.flink.cdc.connectors.mysql.debezium.reader.BinlogSplitReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.reader.DebeziumReader;
@@ -83,6 +84,7 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
     private static final String FINISH_SPLITS = "finishSplits";
     private static final String ASSIGNED_SPLITS = "assignedSplits";
     private static final String SNAPSHOT_TABLE = "snapshotTable";
+    private static final String PURE_BINLOG_PHASE = "pureBinlogPhase";
     private static final FlinkJsonTableChangeSerializer TABLE_CHANGE_SERIALIZER =
         new FlinkJsonTableChangeSerializer();
     private Map<Long, MySqlSourceConfig> sourceConfigMap;
@@ -148,18 +150,19 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
     public RecordWithMeta read(FetchRecordReq fetchRecord) throws Exception {
         JobConfig jobConfig = new JobConfig(fetchRecord.getJobId(), fetchRecord.getConfig());
         int count=0;
-        Map<String, String> lastMeta = new HashMap<>();
-        RecordWithMeta recordResponse = new RecordWithMeta(lastMeta);
+        RecordWithMeta recordResponse = new RecordWithMeta();
         int fetchSize = fetchRecord.getFetchSize();
         boolean schedule = fetchRecord.isSchedule();
         MySqlSplit split = null;
-
+        boolean pureBinlogPhase = false;
         if(schedule){
             Map<String, String> offset = fetchRecord.getMeta();
             if(offset.isEmpty()){
                 throw new RuntimeException("miss meta offset");
             }
-            split = createMySqlSplit(offset, jobConfig);
+            Tuple2<MySqlSplit, Boolean> splitFlag = createMySqlSplit(offset, jobConfig);
+            split = splitFlag.f0;
+            pureBinlogPhase = splitFlag.f1;
             //reset current reader
             closeBinlogReader(jobConfig.getJobId());
             SplitRecords currentSplitRecords = pollSplitRecords(split, jobConfig);
@@ -195,9 +198,10 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
                         continue;
                     }
                     count += serialize.size();
-                    lastMeta = RecordUtils.getBinlogPosition(element).getOffset();
+                    Map<String, String> lastMeta = RecordUtils.getBinlogPosition(element).getOffset();
                     if(split.isBinlogSplit()){
                         lastMeta.put(SPLIT_ID, BINLOG_SPLIT_ID);
+                        lastMeta.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
                         recordResponse.setMeta(lastMeta);
                     }
                     recordResponse.getRecords().addAll(serialize);
@@ -211,7 +215,7 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
                         List<String> sqls = serializer.serialize(jobConfig.getConfig(), element);
                         if(!sqls.isEmpty()){
                             recordResponse.setSqls(sqls);
-                            lastMeta = RecordUtils.getBinlogPosition(element).getOffset();
+                            Map<String, String>  lastMeta = RecordUtils.getBinlogPosition(element).getOffset();
                             lastMeta.put(SPLIT_ID, BINLOG_SPLIT_ID);
                             recordResponse.setMeta(lastMeta);
                             return recordResponse;
@@ -232,6 +236,7 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
             if(split.isBinlogSplit()){
                 Map<String, String> offset = split.asBinlogSplit().getStartingOffset().getOffset();
                 offset.put(SPLIT_ID, BINLOG_SPLIT_ID);
+                offset.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
                 recordResponse.setMeta(offset);
             }else{
                 recordResponse.setMeta(fetchRecord.getMeta());
@@ -257,15 +262,16 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
         }
     }
 
-    private MySqlSplit createMySqlSplit(Map<String, String> offset, JobConfig jobConfig) throws JsonProcessingException {
-        MySqlSplit split = null;
+    private Tuple2<MySqlSplit, Boolean> createMySqlSplit(Map<String, String> offset, JobConfig jobConfig) throws JsonProcessingException {
+        Tuple2<MySqlSplit, Boolean> splitRes = null;
         String splitId = offset.get(SPLIT_ID);
         if(!BINLOG_SPLIT_ID.equals(splitId)){
-            split = createSnapshotSplit(offset, jobConfig);
+            MySqlSnapshotSplit split = createSnapshotSplit(offset, jobConfig);
+            splitRes = Tuple2.of(split, false);
         }else{
-            split = createBinlogSplit(offset,jobConfig);
+            splitRes = createBinlogSplit(offset, jobConfig);
         }
-        return split;
+        return splitRes;
     }
 
     private MySqlSnapshotSplit createSnapshotSplit(Map<String, String> offset, JobConfig jobConfig) throws JsonProcessingException {
@@ -283,7 +289,7 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
         return split;
     }
 
-    private MySqlBinlogSplit createBinlogSplit(Map<String, String> meta, JobConfig config) throws JsonProcessingException {
+    private Tuple2<MySqlSplit, Boolean> createBinlogSplit(Map<String, String> meta, JobConfig config) throws JsonProcessingException {
         MySqlSourceConfig sourceConfig = getSourceConfig(config);
         BinlogOffset offsetConfig = null;
         if(sourceConfig.getStartupOptions() != null){
@@ -292,7 +298,8 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
 
         List<FinishedSnapshotSplitInfo> finishedSnapshotSplitInfos = new ArrayList<>();
         BinlogOffset minOffsetFinishSplits = null;
-        if(meta.containsKey(FINISH_SPLITS) && meta.containsKey(ASSIGNED_SPLITS) ){
+        BinlogOffset maxOffsetFinishSplits = null;
+        if(meta.containsKey(FINISH_SPLITS) && meta.containsKey(ASSIGNED_SPLITS)) {
             //Construct binlogsplit based on the finished split and assigned split.
             String finishSplitsOffset = meta.remove(FINISH_SPLITS);
             String assignedSplits = meta.remove(ASSIGNED_SPLITS);
@@ -308,6 +315,9 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
                 BinlogOffset binlogOffset = new BinlogOffset(offsetMap);
                 if (minOffsetFinishSplits == null || binlogOffset.isBefore(minOffsetFinishSplits)) {
                     minOffsetFinishSplits = binlogOffset;
+                }
+                if (maxOffsetFinishSplits == null || binlogOffset.isAfter(maxOffsetFinishSplits)) {
+                    maxOffsetFinishSplits = binlogOffset;
                 }
                 Object[] splitStart = split.getSplitStart() == null ? null : objectMapper.readValue(split.getSplitStart(), Object[].class);
                 Object[] splitEnd = split.getSplitEnd() == null ? null : objectMapper.readValue(split.getSplitEnd(), Object[].class);
@@ -334,10 +344,20 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
             startOffset = BinlogOffset.ofEarliest();
         }
 
+        boolean pureBinlogPhase = false;
+        if(maxOffsetFinishSplits == null){
+            pureBinlogPhase = true;
+        }else if(startOffset.isAtOrAfter(maxOffsetFinishSplits)){
+            // All the offsets of the current split are smaller than the offset of the binlog,
+            // indicating that the binlog phase has been fully entered.
+            pureBinlogPhase = true;
+            LOG.info("The binlog phase has been fully entered, the current split is: {}", startOffset);
+        }
+
         MySqlBinlogSplit split = new MySqlBinlogSplit(BINLOG_SPLIT_ID, startOffset, BinlogOffset.ofNonStopping(), finishedSnapshotSplitInfos, new HashMap<>(), 0);
         //filterTableSchema
         MySqlBinlogSplit binlogSplit = MySqlBinlogSplit.fillTableSchemas(split.asBinlogSplit(), getTableSchemas(config));
-        return binlogSplit;
+        return Tuple2.of(binlogSplit, pureBinlogPhase);
     }
 
     private List<MySqlSnapshotSplit> startSplitChunks(MySqlSourceConfig sourceConfig, String snapshotTable, Map<String, String> config){
@@ -457,8 +477,9 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
         closeSnapshotReader(jobId);
         closeBinlogReader(jobId);
         sourceConfigMap.remove(jobId);
-        tableSchemaMaps.remove(jobId).clear();
+        tableSchemaMaps.remove(jobId);
         currentSplitRecordsMap.remove(jobId);
+        LOG.info("Close source reader for job {}", jobId);
     }
 
     private Map<TableId, TableChanges.TableChange> getTableSchemas(JobConfig config){

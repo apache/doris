@@ -34,6 +34,8 @@ import org.apache.doris.job.extensions.cdc.DataSourceType;
 
 import static org.apache.doris.job.extensions.cdc.utils.CdcLoadConstants.DATABASE_NAME;
 import static org.apache.doris.job.extensions.cdc.utils.CdcLoadConstants.DB_SOURCE_TYPE;
+import static org.apache.doris.job.extensions.cdc.utils.CdcLoadConstants.DRIVER_CLASS;
+import static org.apache.doris.job.extensions.cdc.utils.CdcLoadConstants.DRIVER_URL;
 import static org.apache.doris.job.extensions.cdc.utils.CdcLoadConstants.HOST;
 import static org.apache.doris.job.extensions.cdc.utils.CdcLoadConstants.INCLUDE_TABLES_LIST;
 import static org.apache.doris.job.extensions.cdc.utils.CdcLoadConstants.PASSWORD;
@@ -57,8 +59,8 @@ public class CdcUtils {
         config.setCatalog(properties.get(DB_SOURCE_TYPE));
         config.setUser(properties.get(USERNAME));
         config.setPassword(properties.get(PASSWORD));
-        config.setDriverClass(sourceType.getDriverClass());
-        config.setDriverUrl(sourceType.getDriverUrl());
+        config.setDriverClass(properties.get(DRIVER_CLASS));
+        config.setDriverUrl(properties.get(DRIVER_URL));
         config.setJdbcUrl(
                 "jdbc:" + properties.get(DB_SOURCE_TYPE) + "://" + properties.get(HOST) + ":" + properties.get(PORT)
                         + "/");
