@@ -114,11 +114,6 @@ Status MultiCastDataStreamerSourceOperator::get_block(RuntimeState* state, vecto
     return Status::OK();
 }
 
-Status MultiCastDataStreamerSourceOperator::close(doris::RuntimeState* state) {
-    _multi_cast_data_streamer->close_sender(_consumer_id);
-    return OperatorBase::close(state);
-}
-
 RuntimeProfile* MultiCastDataStreamerSourceOperator::get_runtime_profile() const {
     return _multi_cast_data_streamer->profile();
 }

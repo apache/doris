@@ -269,7 +269,8 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
 
     auto exception_catch_func = [spill_func, query_id, mem_tracker, shared_state_holder,
                                  execution_context, this]() {
-        SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
+        QueryThreadContext query_thread_context {query_id, mem_tracker};
+        SCOPED_ATTACH_TASK(query_thread_context);
         std::shared_ptr<TaskExecutionContext> execution_context_lock;
         auto shared_state_sptr = shared_state_holder.lock();
         if (shared_state_sptr) {

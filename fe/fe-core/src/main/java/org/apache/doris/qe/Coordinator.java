@@ -62,6 +62,7 @@ import org.apache.doris.planner.ResultSink;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.SchemaScanNode;
 import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.UnionNode;
@@ -645,6 +646,22 @@ public class Coordinator implements CoordInterface {
         return fragmentParams;
     }
 
+    private boolean shouldQueue() {
+        boolean ret = Config.enable_query_queue && !context.getSessionVariable()
+                .getBypassWorkloadGroup() && !isQueryCancelled();
+        if (!ret) {
+            return false;
+        }
+        // a query with ScanNode need not queue only when all its scan node is SchemaScanNode
+        for (ScanNode scanNode : this.scanNodes) {
+            boolean isSchemaScanNode = scanNode instanceof SchemaScanNode;
+            if (!isSchemaScanNode) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // Initiate asynchronous execution of query. Returns as soon as all plan fragments
     // have started executing at their respective backends.
     // 'Request' must contain at least a coordinator plan fragment (ie, can't
@@ -656,8 +673,7 @@ public class Coordinator implements CoordInterface {
         if (context != null) {
             if (Config.enable_workload_group) {
                 this.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
-                boolean shouldQueue = Config.enable_query_queue && !context.getSessionVariable()
-                        .getBypassWorkloadGroup() && !isQueryCancelled();
+                boolean shouldQueue = this.shouldQueue();
                 if (shouldQueue) {
                     queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
                     if (queryQueue == null) {
@@ -666,11 +682,8 @@ public class Coordinator implements CoordInterface {
                         throw new UserException("could not find query queue");
                     }
                     queueToken = queryQueue.getToken();
-                    if (!queueToken.waitSignal(this.queryOptions.getExecutionTimeout() * 1000)) {
-                        LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + queueToken.getOfferResultDetail());
-                        queryQueue.returnToken(queueToken);
-                        throw new UserException(queueToken.getOfferResultDetail());
-                    }
+                    queueToken.get(DebugUtil.printId(queryId),
+                            this.queryOptions.getExecutionTimeout() * 1000);
                 }
             } else {
                 context.setWorkloadGroupName("");
@@ -681,15 +694,21 @@ public class Coordinator implements CoordInterface {
 
     @Override
     public void close() {
-        for (ScanNode scanNode : scanNodes) {
-            scanNode.stop();
-        }
+        // NOTE: all close method should be no exception
         if (queryQueue != null && queueToken != null) {
             try {
-                queryQueue.returnToken(queueToken);
+                queryQueue.releaseAndNotify(queueToken);
             } catch (Throwable t) {
                 LOG.error("error happens when coordinator close ", t);
             }
+        }
+
+        try {
+            for (ScanNode scanNode : scanNodes) {
+                scanNode.stop();
+            }
+        } catch (Throwable t) {
+            LOG.error("error happens when scannode stop ", t);
         }
     }
 
@@ -1516,7 +1535,7 @@ public class Coordinator implements CoordInterface {
     public void cancel() {
         cancel(Types.PPlanFragmentCancelReason.USER_CANCEL, "user cancel");
         if (queueToken != null) {
-            queueToken.signalForCancel();
+            queueToken.cancel();
         }
     }
 
@@ -2107,10 +2126,11 @@ public class Coordinator implements CoordInterface {
             if ((isColocateFragment(fragment, fragment.getPlanRoot())
                     && fragmentIdToSeqToAddressMap.containsKey(fragment.getFragmentId())
                     && fragmentIdToSeqToAddressMap.get(fragment.getFragmentId()).size() > 0)) {
-                computeColocateJoinInstanceParam(fragment.getFragmentId(), parallelExecInstanceNum, params);
+                computeColocateJoinInstanceParam(fragment.getFragmentId(), parallelExecInstanceNum, params,
+                        fragment.hasNullAwareLeftAntiJoin());
             } else if (bucketShuffleJoinController.isBucketShuffleJoin(fragment.getFragmentId().asInt())) {
                 bucketShuffleJoinController.computeInstanceParam(fragment.getFragmentId(),
-                        parallelExecInstanceNum, params);
+                        parallelExecInstanceNum, params, fragment.hasNullAwareLeftAntiJoin());
             } else {
                 // case A
                 for (Entry<TNetworkAddress, Map<Integer, List<TScanRangeParams>>> entry : fragmentExecParamsMap.get(
@@ -2135,7 +2155,8 @@ public class Coordinator implements CoordInterface {
                         int expectedInstanceNum = Math.min(parallelExecInstanceNum,
                                 leftMostNode.getNumInstances());
                         boolean forceToLocalShuffle = context != null
-                                && context.getSessionVariable().isForceToLocalShuffle();
+                                && context.getSessionVariable().isForceToLocalShuffle()
+                                && !fragment.hasNullAwareLeftAntiJoin() && useNereids;
                         boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream()
                                 .allMatch(scanNode -> scanNode.ignoreStorageDataDistribution(context,
                                         addressToBackendID.size())) && useNereids);
@@ -2304,9 +2325,9 @@ public class Coordinator implements CoordInterface {
     }
 
     private void computeColocateJoinInstanceParam(PlanFragmentId fragmentId,
-            int parallelExecInstanceNum, FragmentExecParams params) {
+            int parallelExecInstanceNum, FragmentExecParams params, boolean hasNullAwareLeftAntiJoin) {
         assignScanRanges(fragmentId, parallelExecInstanceNum, params, fragmentIdTobucketSeqToScanRangeMap,
-                fragmentIdToSeqToAddressMap, fragmentIdToScanNodeIds);
+                fragmentIdToSeqToAddressMap, fragmentIdToScanNodeIds, hasNullAwareLeftAntiJoin);
     }
 
     private Map<TNetworkAddress, Long> getReplicaNumPerHostForOlapTable() {
@@ -3049,16 +3070,16 @@ public class Coordinator implements CoordInterface {
         }
 
         private void computeInstanceParam(PlanFragmentId fragmentId,
-                int parallelExecInstanceNum, FragmentExecParams params) {
+                int parallelExecInstanceNum, FragmentExecParams params, boolean hasNullAwareLeftAntiJoin) {
             assignScanRanges(fragmentId, parallelExecInstanceNum, params, fragmentIdBucketSeqToScanRangeMap,
-                    fragmentIdToSeqToAddressMap, fragmentIdToScanNodeIds);
+                    fragmentIdToSeqToAddressMap, fragmentIdToScanNodeIds, hasNullAwareLeftAntiJoin);
         }
     }
 
     private void assignScanRanges(PlanFragmentId fragmentId, int parallelExecInstanceNum, FragmentExecParams params,
             Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdBucketSeqToScanRangeMap,
             Map<PlanFragmentId, Map<Integer, TNetworkAddress>> curFragmentIdToSeqToAddressMap,
-            Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds) {
+            Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds, boolean hasNullAwareLeftAntiJoin) {
         Map<Integer, TNetworkAddress> bucketSeqToAddress = curFragmentIdToSeqToAddressMap.get(fragmentId);
         BucketSeqToScanRange bucketSeqToScanRange = fragmentIdBucketSeqToScanRangeMap.get(fragmentId);
         Set<Integer> scanNodeIds = fragmentIdToScanNodeIds.get(fragmentId);
@@ -3092,7 +3113,7 @@ public class Coordinator implements CoordInterface {
          * 2. Use Nereids planner.
          */
         boolean forceToLocalShuffle = context != null
-                && context.getSessionVariable().isForceToLocalShuffle();
+                && context.getSessionVariable().isForceToLocalShuffle() && !hasNullAwareLeftAntiJoin && useNereids;
         boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream()
                 .allMatch(node -> node.ignoreStorageDataDistribution(context,
                         addressToBackendID.size()))

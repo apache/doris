@@ -69,6 +69,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
@@ -104,6 +105,7 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -115,6 +117,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -507,6 +510,8 @@ public class BindExpression implements AnalysisRuleFactory {
         LogicalJoin<Plan, Plan> join = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
 
+        checkConflictAlias(join);
+
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
                 join, cascadesContext, join.children(), true, true);
 
@@ -529,6 +534,47 @@ public class BindExpression implements AnalysisRuleFactory {
                 hashJoinConjuncts.build(), otherJoinConjuncts.build(),
                 join.getDistributeHint(), join.getMarkJoinSlotReference(),
                 join.children(), null);
+    }
+
+    private void checkConflictAlias(Plan plan) {
+        Set<String> existsTableNames = Sets.newLinkedHashSet();
+        Consumer<String> checkAlias = tableAliasName -> {
+            if (!existsTableNames.add(tableAliasName)) {
+                String tableName = tableAliasName.substring(tableAliasName.lastIndexOf('.') + 1);
+                throw new AnalysisException("Not unique table/alias: '" + tableName + "'");
+            }
+        };
+
+        boolean stopCheckChildren = true;
+        plan.foreach(p -> {
+            if (p instanceof LogicalSubQueryAlias) {
+                String alias = ((LogicalSubQueryAlias<?>) p).getAlias();
+                String dbName = getDbName(p.children().get(0));
+                String result = dbName + "." + alias;
+                checkAlias.accept(result);
+                return stopCheckChildren;
+
+            } else if (p instanceof LogicalCatalogRelation) {
+                String table = ((LogicalCatalogRelation) p).qualifiedName();
+                checkAlias.accept(table);
+                return stopCheckChildren;
+            } else {
+                return !stopCheckChildren;
+            }
+        });
+    }
+
+    private String getDbName(Plan plan) {
+        if (plan instanceof LogicalCatalogRelation) {
+            return ((LogicalCatalogRelation) plan).qualifiedName().split("\\.")[0]
+                    + ((LogicalCatalogRelation) plan).qualifiedName().split("\\.")[1];
+        } else if (plan instanceof LogicalSubQueryAlias) {
+            return ((LogicalSubQueryAlias<?>) plan).getQualifier().get(0)
+                    + ((LogicalSubQueryAlias<?>) plan).getQualifier().get(1);
+
+        } else {
+            return "default-catalog" + "default-db";
+        }
     }
 
     private LogicalJoin<Plan, Plan> bindUsingJoin(MatchingContext<UsingJoin<Plan, Plan>> ctx) {

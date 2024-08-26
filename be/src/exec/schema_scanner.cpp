@@ -32,6 +32,7 @@
 #include "exec/schema_scanner/schema_collations_scanner.h"
 #include "exec/schema_scanner/schema_columns_scanner.h"
 #include "exec/schema_scanner/schema_dummy_scanner.h"
+#include "exec/schema_scanner/schema_file_cache_statistics.h"
 #include "exec/schema_scanner/schema_files_scanner.h"
 #include "exec/schema_scanner/schema_metadata_name_ids_scanner.h"
 #include "exec/schema_scanner/schema_partitions_scanner.h"
@@ -47,6 +48,8 @@
 #include "exec/schema_scanner/schema_user_scanner.h"
 #include "exec/schema_scanner/schema_variables_scanner.h"
 #include "exec/schema_scanner/schema_views_scanner.h"
+#include "exec/schema_scanner/schema_workload_group_privileges.h"
+#include "exec/schema_scanner/schema_workload_group_resource_usage_scanner.h"
 #include "exec/schema_scanner/schema_workload_groups_scanner.h"
 #include "exec/schema_scanner/schema_workload_sched_policy_scanner.h"
 #include "olap/hll.h"
@@ -224,6 +227,12 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaUserScanner::create_unique();
     case TSchemaTableType::SCH_WORKLOAD_POLICY:
         return SchemaWorkloadSchedulePolicyScanner::create_unique();
+    case TSchemaTableType::SCH_FILE_CACHE_STATISTICS:
+        return SchemaFileCacheStatisticsScanner::create_unique();
+    case TSchemaTableType::SCH_WORKLOAD_GROUP_PRIVILEGES:
+        return SchemaWorkloadGroupPrivilegesScanner::create_unique();
+    case TSchemaTableType::SCH_WORKLOAD_GROUP_RESOURCE_USAGE:
+        return SchemaBackendWorkloadGroupResourceUsage::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

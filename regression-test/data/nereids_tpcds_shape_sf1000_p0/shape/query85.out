@@ -10,8 +10,9 @@ PhysicalResultSink
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF9 ws_web_page_sk->[wp_web_page_sk]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[web_page] apply RFs: RF9
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[web_page] apply RFs: RF9
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN] hashCondition=((reason.r_reason_sk = web_returns.wr_reason_sk)) otherCondition=() build RFs:RF8 r_reason_sk->[wr_reason_sk]

@@ -28,6 +28,8 @@
 #include "common/logging.h"
 #include "io/fs/err_utils.h"
 // #include "io/fs/hdfs_file_system.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_management/io_throttle.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/hdfs_util.h"
@@ -97,6 +99,7 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         return Status::OK();
     }
 
+    LIMIT_REMOTE_SCAN_IO(bytes_read);
     size_t has_read = 0;
     while (has_read < bytes_req) {
         tSize loop_read = hdfsPread(_handle->fs(), _handle->file(), offset + has_read,
@@ -152,6 +155,7 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         return Status::OK();
     }
 
+    LIMIT_REMOTE_SCAN_IO(bytes_read);
     size_t has_read = 0;
     while (has_read < bytes_req) {
         int64_t loop_read =

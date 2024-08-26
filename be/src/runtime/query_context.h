@@ -61,6 +61,16 @@ struct ReportStatusRequest {
     std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
 };
 
+enum class QuerySource {
+    INTERNAL_FRONTEND,
+    STREAM_LOAD,
+    GROUP_COMMIT_LOAD,
+    ROUTINE_LOAD,
+    EXTERNAL_CONNECTOR
+};
+
+const std::string toString(QuerySource query_source);
+
 // Save the common components of fragments in a query.
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
@@ -71,7 +81,7 @@ class QueryContext {
 public:
     QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
                  const TQueryOptions& query_options, TNetworkAddress coord_addr, bool is_pipeline,
-                 bool is_nereids, TNetworkAddress current_connect_fe);
+                 bool is_nereids, TNetworkAddress current_connect_fe, QuerySource query_type);
 
     ~QueryContext();
 
@@ -259,15 +269,16 @@ public:
         return _running_big_mem_op_num.load(std::memory_order_relaxed);
     }
 
-    void set_weighted_mem(int64_t weighted_limit, int64_t weighted_consumption) {
+    void set_weighted_memory(int64_t weighted_limit, double weighted_ratio) {
         std::lock_guard<std::mutex> l(_weighted_mem_lock);
-        _weighted_consumption = weighted_consumption;
         _weighted_limit = weighted_limit;
+        _weighted_ratio = weighted_ratio;
     }
-    void get_weighted_mem_info(int64_t& weighted_limit, int64_t& weighted_consumption) {
+
+    void get_weighted_memory(int64_t& weighted_limit, int64_t& weighted_consumption) {
         std::lock_guard<std::mutex> l(_weighted_mem_lock);
         weighted_limit = _weighted_limit;
-        weighted_consumption = _weighted_consumption;
+        weighted_consumption = int64_t(query_mem_tracker->consumption() * _weighted_ratio);
     }
 
     DescriptorTbl* desc_tbl = nullptr;
@@ -296,6 +307,12 @@ public:
     // plan node id -> TFileScanRangeParams
     // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
+
+    void update_wg_cpu_adder(int64_t delta_cpu_time) {
+        if (_workload_group != nullptr) {
+            _workload_group->update_cpu_adder(delta_cpu_time);
+        }
+    }
 
 private:
     TUniqueId _query_id;
@@ -350,8 +367,16 @@ private:
     std::mutex _pipeline_map_write_lock;
 
     std::mutex _weighted_mem_lock;
-    int64_t _weighted_consumption = 0;
+    double _weighted_ratio = 0;
     int64_t _weighted_limit = 0;
+    timespec _query_arrival_timestamp;
+    // Distinguish the query source, for query that comes from fe, we will have some memory structure on FE to
+    // help us manage the query.
+    QuerySource _query_source;
+
+public:
+    timespec get_query_arrival_timestamp() const { return this->_query_arrival_timestamp; }
+    QuerySource get_query_source() const { return this->_query_source; }
 };
 
 } // namespace doris

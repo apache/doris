@@ -127,7 +127,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
     auto spill_func = [build_blocks = std::move(build_blocks), state, num_slots, this]() mutable {
         Defer defer {[&]() {
             // need to reset build_block here, or else build_block will be destructed
-            // after SCOPED_ATTACH_TASK_WITH_ID and will trigger memory_orphan_check failure
+            // after SCOPED_ATTACH_TASK and will trigger memory_orphan_check failure
             build_blocks.clear();
         }};
 
@@ -216,7 +216,8 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
 
     auto exception_catch_func = [spill_func, shared_state_holder, execution_context, state,
                                  query_id, mem_tracker, this]() mutable {
-        SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
+        QueryThreadContext query_thread_context {query_id, mem_tracker};
+        SCOPED_ATTACH_TASK(query_thread_context);
         std::shared_ptr<TaskExecutionContext> execution_context_lock;
         auto shared_state_sptr = shared_state_holder.lock();
         if (shared_state_sptr) {
@@ -289,7 +290,8 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
 
         auto st = spill_io_pool->submit_func([this, query_id, mem_tracker, shared_state_holder,
                                               execution_context, spilling_stream, i, submit_timer] {
-            SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
+            QueryThreadContext query_thread_context {query_id, mem_tracker};
+            SCOPED_ATTACH_TASK(query_thread_context);
             std::shared_ptr<TaskExecutionContext> execution_context_lock;
             auto shared_state_sptr = shared_state_holder.lock();
             if (shared_state_sptr) {

@@ -87,6 +87,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_EXECUTION_TIME = "max_execution_time";
     public static final String INSERT_TIMEOUT = "insert_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
+    public static final String ENABLE_VERBOSE_PROFILE = "enable_verbose_profile";
+    public static final String RPC_VERBOSE_PROFILE_MAX_INSTANCE_COUNT = "rpc_verbose_profile_max_instance_count";
     public static final String AUTO_PROFILE_THRESHOLD_MS = "auto_profile_threshold_ms";
     public static final String SQL_MODE = "sql_mode";
     public static final String WORKLOAD_VARIABLE = "workload_group";
@@ -260,8 +262,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
 
-    public static final String ENABLE_BUCKET_SHUFFLE_DOWNGRADE = "enable_bucket_shuffle_downgrade";
-
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
 
     public static final String ENABLE_SINGLE_DISTINCT_COLUMN_OPT = "enable_single_distinct_column_opt";
@@ -302,6 +302,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORBID_UNKNOWN_COLUMN_STATS = "forbid_unknown_col_stats";
     public static final String BROADCAST_RIGHT_TABLE_SCALE_FACTOR = "broadcast_right_table_scale_factor";
+    public static final String LEFT_SEMI_OR_ANTI_PROBE_FACTOR = "left_semi_or_anti_probe_factor";
     public static final String BROADCAST_ROW_COUNT_LIMIT = "broadcast_row_count_limit";
 
     // percentage of EXEC_MEM_LIMIT
@@ -415,6 +416,8 @@ public class SessionVariable implements Serializable, Writable {
 
     // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
     public static final String USE_FIX_REPLICA = "use_fix_replica";
+
+    public static final String QUERY_BACKEND_BLACKLIST = "query_backend_blacklist";
 
     public static final String DRY_RUN_QUERY = "dry_run_query";
 
@@ -706,6 +709,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
     public boolean enableProfile = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_VERBOSE_PROFILE, needForward = true)
+    public boolean enableVerboseProfile = true;
+
+    @VariableMgr.VarAttr(name = RPC_VERBOSE_PROFILE_MAX_INSTANCE_COUNT, needForward = true)
+    public int rpcVerboseProfileMaxInstanceCount = 5;
+
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = AUTO_PROFILE_THRESHOLD_MS, needForward = true)
     public int autoProfileThresholdMs = -1;
@@ -788,7 +797,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = MAX_ALLOWED_PACKET)
-    public int maxAllowedPacket = 1048576;
+    public int maxAllowedPacket = 16777216;
 
     @VariableMgr.VarAttr(name = AUTO_INCREMENT_INCREMENT)
     public int autoIncrementIncrement = 1;
@@ -849,9 +858,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN, varType = VariableAnnotation.EXPERIMENTAL_ONLINE)
     public boolean enableBucketShuffleJoin = true;
-
-    @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_DOWNGRADE, needForward = true)
-    public boolean enableBucketShuffleDownGrade = false;
 
     /**
      * explode function row count enlarge factor.
@@ -1258,6 +1264,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = BROADCAST_RIGHT_TABLE_SCALE_FACTOR)
     private double broadcastRightTableScaleFactor = 0.0;
 
+    @VariableMgr.VarAttr(name = LEFT_SEMI_OR_ANTI_PROBE_FACTOR)
+    private double leftSemiOrAntiProbeFactor = 0.05;
+
     @VariableMgr.VarAttr(name = BROADCAST_ROW_COUNT_LIMIT, needForward = true)
     private double broadcastRowCountLimit = 30000000;
 
@@ -1475,6 +1484,13 @@ public class SessionVariable implements Serializable, Writable {
     // Default value is -1, which means not fix replica
     @VariableMgr.VarAttr(name = USE_FIX_REPLICA)
     public int useFixReplica = -1;
+
+    // This is a debug feature, when we find a backend is not stable(for example network reasons)
+    // we could use this variable to exclude it from query plan. It is only used for query. Not for
+    // load jobs.
+    // Use could set multiple backendids using , to split like "10111,10112"
+    @VariableMgr.VarAttr(name = QUERY_BACKEND_BLACKLIST, needForward = true)
+    public String queryBackendBlacklist = "";
 
     @VariableMgr.VarAttr(name = DUMP_NEREIDS_MEMO)
     public boolean dumpNereidsMemo = false;
@@ -2552,10 +2568,6 @@ public class SessionVariable implements Serializable, Writable {
         return enableBucketShuffleJoin;
     }
 
-    public boolean isEnableBucketShuffleDownGrade() {
-        return enableBucketShuffleDownGrade;
-    }
-
     public boolean isEnableOdbcTransaction() {
         return enableOdbcTransaction;
     }
@@ -2712,6 +2724,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setBroadcastRightTableScaleFactor(double broadcastRightTableScaleFactor) {
         this.broadcastRightTableScaleFactor = broadcastRightTableScaleFactor;
+    }
+
+    public double getLeftSemiOrAntiProbeFactor() {
+        return leftSemiOrAntiProbeFactor;
+    }
+
+    public void setLeftSemiOrAntiProbeFactor(double leftSemiOrAntiProbeFactor) {
+        this.leftSemiOrAntiProbeFactor = leftSemiOrAntiProbeFactor;
     }
 
     public double getBroadcastRowCountLimit() {
@@ -3383,6 +3403,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setQueryTimeout(queryTimeoutS);
         tResult.setEnableProfile(enableProfile);
+        tResult.setEnableVerboseProfile(enableVerboseProfile);
+        tResult.setRpcVerboseProfileMaxInstanceCount(rpcVerboseProfileMaxInstanceCount);
         if (enableProfile) {
             // If enable profile == true, then also set report success to true
             // be need report success to start report thread. But it is very tricky
@@ -3417,6 +3439,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);
         tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
         tResult.setRuntimeBloomFilterMinSize(runtimeBloomFilterMinSize);
+        tResult.setRuntimeBloomFilterMaxSize(runtimeBloomFilterMaxSize);
         tResult.setRuntimeFilterWaitInfinitely(runtimeFilterWaitInfinitely);
 
         if (cpuResourceLimit > 0) {
@@ -4044,6 +4067,21 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setIgnoreStorageDataDistribution(boolean ignoreStorageDataDistribution) {
         this.ignoreStorageDataDistribution = ignoreStorageDataDistribution;
+    }
+
+    // If anything wrong during parsing, just throw exception to forbidden the query
+    // so there is not many exception handling logic here.
+    public Set<Long> getQueryBackendBlacklist() {
+        Set<Long> blacklist = Sets.newHashSet();
+        if (Strings.isNullOrEmpty(queryBackendBlacklist)) {
+            return blacklist;
+        }
+        String[] backendIds = this.queryBackendBlacklist.trim().split(",");
+        for (int i = 0; i < backendIds.length; ++i) {
+            long backendId = Long.parseLong(backendIds[i].trim());
+            blacklist.add(backendId);
+        }
+        return blacklist;
     }
 
     public boolean isForceJniScanner() {

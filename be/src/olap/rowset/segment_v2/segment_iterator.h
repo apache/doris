@@ -156,7 +156,6 @@ public:
     std::vector<std::unique_ptr<InvertedIndexIterator>>& inverted_index_iterators() {
         return _inverted_index_iterators;
     }
-    [[nodiscard]] Status _init_inverted_index_iterators(ColumnId cid);
 
 private:
     Status _next_batch_internal(vectorized::Block* block);
@@ -401,13 +400,13 @@ private:
 
     bool _has_delete_predicate(ColumnId cid);
 
-    bool _can_opt_topn_reads() const;
+    bool _can_opt_topn_reads();
 
     Status execute_func_expr(const vectorized::VExprSPtr& expr,
-                             const vectorized::VExprContextSPtr& expr_ctx,
                              std::shared_ptr<roaring::Roaring>& result);
     void _initialize_predicate_results();
-    bool _check_all_predicates_passed_inverted_index_for_column(ColumnId cid);
+    bool _check_all_predicates_passed_inverted_index_for_column(ColumnId cid,
+                                                                bool default_return = false);
 
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
@@ -475,9 +474,8 @@ private:
     std::vector<ColumnPredicate*> _col_predicates;
     std::vector<ColumnPredicate*> _col_preds_except_leafnode_of_andnode;
 
-    using FuncExprPair = std::pair<vectorized::VExprSPtr, vectorized::VExprContextSPtr>;
-    std::vector<FuncExprPair> no_compound_func_exprs;
-    std::vector<FuncExprPair> compound_func_exprs;
+    std::vector<vectorized::VExprSPtr> no_compound_func_exprs;
+    std::vector<vectorized::VExprSPtr> compound_func_exprs;
 
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
     bool _enable_common_expr_pushdown = false;
@@ -486,6 +484,7 @@ private:
     std::unique_ptr<ColumnPredicateInfo> _column_predicate_info;
     std::unordered_map<std::string, std::vector<ColumnPredicateInfo>>
             _column_pred_in_remaining_vconjunct;
+    std::unordered_map<std::string, std::vector<std::string>> _func_name_to_result_sign;
     std::set<ColumnId> _not_apply_index_pred;
 
     // row schema of the key to seek
@@ -525,8 +524,6 @@ private:
 
     std::unordered_map<int, std::unordered_map<std::string, bool>>
             _column_predicate_inverted_index_status;
-
-    std::mutex _idx_init_lock;
 };
 
 } // namespace segment_v2

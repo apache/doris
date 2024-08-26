@@ -28,6 +28,7 @@
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"
+#include "runtime/types.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/runtime_filter_consumer.h"
 #include "vec/exec/scan/pip_scanner_context.h"
@@ -168,14 +169,14 @@ Status ScanLocalState<Derived>::_normalize_conjuncts() {
     // The conjuncts is always on output tuple, so use _output_tuple_desc;
     std::vector<SlotDescriptor*> slots = p._output_tuple_desc->slots();
 
-    auto init_value_range = [&](SlotDescriptor* slot, PrimitiveType type) {
-        switch (type) {
-#define M(NAME)                                                                          \
-    case TYPE_##NAME: {                                                                  \
-        ColumnValueRange<TYPE_##NAME> range(slot->col_name(), slot->is_nullable(),       \
-                                            slot->type().precision, slot->type().scale); \
-        _slot_id_to_value_range[slot->id()] = std::pair {slot, range};                   \
-        break;                                                                           \
+    auto init_value_range = [&](SlotDescriptor* slot, const TypeDescriptor& type_desc) {
+        switch (type_desc.type) {
+#define M(NAME)                                                                    \
+    case TYPE_##NAME: {                                                            \
+        ColumnValueRange<TYPE_##NAME> range(slot->col_name(), slot->is_nullable(), \
+                                            type_desc.precision, type_desc.scale); \
+        _slot_id_to_value_range[slot->id()] = std::pair {slot, range};             \
+        break;                                                                     \
     }
 #define APPLY_FOR_PRIMITIVE_TYPE(M) \
     M(TINYINT)                      \
@@ -219,7 +220,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts() {
                 continue;
             }
         }
-        init_value_range(slots[slot_idx], slots[slot_idx]->type().type);
+        init_value_range(slots[slot_idx], slots[slot_idx]->type());
     }
 
     get_cast_types_for_variants();
@@ -580,6 +581,7 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
                                                       vectorized::VExprContext* expr_ctx,
                                                       vectorized::VScanNode::PushDownType* pdt) {
+    // Used to handle constant expressions, such as '1 = 1' _eval_const_conjuncts does not handle cases like 'colA = 1'
     char* constant_val = nullptr;
     if (vexpr->is_constant()) {
         std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
@@ -630,7 +632,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(
         vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
         ColumnValueRange<T>& range, vectorized::VScanNode::PushDownType* pdt) {
     auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
-            slot->is_nullable(), slot->type().precision, slot->type().scale);
+            slot->is_nullable(), range.precision(), range.scale());
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
         HybridSetBase::IteratorBase* iter = nullptr;
@@ -720,6 +722,9 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(
                         ColumnValueRange<T>::add_fixed_value_range, fn_name));
             }
             range.intersection(temp_range);
+        } else {
+            _eos = true;
+            _scan_dependency->set_ready();
         }
         *pdt = temp_pdt;
     }
@@ -737,7 +742,7 @@ Status ScanLocalState<Derived>::_should_push_down_binary_predicate(
         pdt = vectorized::VScanNode::PushDownType::UNACCEPTABLE;
         return Status::OK();
     }
-
+    DCHECK(constant_val->data == nullptr) << "constant_val should not have a value";
     const auto& children = fn_call->children();
     DCHECK(children.size() == 2);
     for (size_t i = 0; i < children.size(); i++) {
@@ -783,7 +788,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
         ColumnValueRange<T>& range, vectorized::VScanNode::PushDownType* pdt) {
     bool is_fixed_range = range.is_fixed_value_range();
     auto not_in_range = ColumnValueRange<T>::create_empty_column_value_range(
-            range.column_name(), slot->is_nullable(), slot->type().precision, slot->type().scale);
+            range.column_name(), slot->is_nullable(), range.precision(), range.scale());
     vectorized::VScanNode::PushDownType temp_pdt =
             vectorized::VScanNode::PushDownType::UNACCEPTABLE;
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
@@ -873,6 +878,9 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
                             ColumnValueRange<T>::add_fixed_value_range, fn_name));
                 }
             }
+        } else {
+            _eos = true;
+            _scan_dependency->set_ready();
         }
     } else {
         return Status::OK();
@@ -962,14 +970,14 @@ Status ScanLocalState<Derived>::_normalize_is_null_predicate(
         if (reinterpret_cast<vectorized::VectorizedFnCall*>(expr)->fn().name.function_name ==
             "is_null_pred") {
             auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
-                    slot->is_nullable(), slot->type().precision, slot->type().scale);
+                    slot->is_nullable(), range.precision(), range.scale());
             temp_range.set_contain_null(true);
             range.intersection(temp_range);
             *pdt = temp_pdt;
         } else if (reinterpret_cast<vectorized::VectorizedFnCall*>(expr)->fn().name.function_name ==
                    "is_not_null_pred") {
             auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
-                    slot->is_nullable(), slot->type().precision, slot->type().scale);
+                    slot->is_nullable(), range.precision(), range.scale());
             temp_range.set_contain_null(false);
             range.intersection(temp_range);
             *pdt = temp_pdt;
@@ -1014,6 +1022,9 @@ Status ScanLocalState<Derived>::_normalize_noneq_binary_predicate(
                             ColumnValueRange<T>::add_value_range, fn_name, slot_ref_child));
                 }
                 *pdt = temp_pdt;
+            } else {
+                _eos = true;
+                _scan_dependency->set_ready();
             }
         }
     }
@@ -1206,7 +1217,7 @@ Status ScanLocalState<Derived>::_normalize_match_predicate(
 
         // create empty range as temp range, temp range should do intersection on range
         auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
-                slot->is_nullable(), slot->type().precision, slot->type().scale);
+                slot->is_nullable(), range.precision(), range.scale());
         // Normalize match conjuncts like 'where col match value'
 
         auto match_checker = [](const std::string& fn_name) { return is_match_condition(fn_name); };
@@ -1351,7 +1362,7 @@ Status ScanLocalState<Derived>::_init_profile() {
 template <typename Derived>
 void ScanLocalState<Derived>::_filter_and_collect_cast_type_for_variant(
         const vectorized::VExpr* expr,
-        phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types) {
+        std::unordered_map<std::string, std::vector<TypeDescriptor>>& colname_to_cast_types) {
     const auto* cast_expr = dynamic_cast<const vectorized::VCastExpr*>(expr);
     if (cast_expr != nullptr) {
         const auto* src_slot =
@@ -1363,10 +1374,9 @@ void ScanLocalState<Derived>::_filter_and_collect_cast_type_for_variant(
         }
         std::vector<SlotDescriptor*> slots = output_tuple_desc()->slots();
         SlotDescriptor* src_slot_desc = _slot_id_to_slot_desc[src_slot->slot_id()];
-        PrimitiveType cast_dst_type =
-                cast_expr->get_target_type()->get_type_as_type_descriptor().type;
+        TypeDescriptor type_desc = cast_expr->get_target_type()->get_type_as_type_descriptor();
         if (src_slot_desc->type().is_variant_type()) {
-            colname_to_cast_types[src_slot_desc->col_name()].push_back(cast_dst_type);
+            colname_to_cast_types[src_slot_desc->col_name()].push_back(type_desc);
         }
     }
     for (const auto& child : expr->children()) {
@@ -1376,7 +1386,7 @@ void ScanLocalState<Derived>::_filter_and_collect_cast_type_for_variant(
 
 template <typename Derived>
 void ScanLocalState<Derived>::get_cast_types_for_variants() {
-    phmap::flat_hash_map<std::string, std::vector<PrimitiveType>> colname_to_cast_types;
+    std::unordered_map<std::string, std::vector<TypeDescriptor>> colname_to_cast_types;
     for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
         auto& conjunct = *it;
         if (conjunct->root()) {
@@ -1486,12 +1496,7 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
     // remove them when query leave scan node to avoid other nodes use block->columns() to make a wrong decision
     Defer drop_block_temp_column {[&]() {
         std::unique_lock l(local_state._block_lock);
-        auto all_column_names = block->get_names();
-        for (auto& name : all_column_names) {
-            if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
-                block->erase(name);
-            }
-        }
+        block->erase_tmp_columns();
     }};
 
     if (state->is_cancelled()) {

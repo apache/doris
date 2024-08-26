@@ -65,6 +65,10 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
         BEACKEND_ID_COLUMN_SET.add("backend_id");
 
         BACKEND_TABLE.add("backend_active_tasks");
+        BACKEND_TABLE.add("workload_group_resource_usage");
+        BEACKEND_ID_COLUMN_SET.add("be_id");
+
+        BACKEND_TABLE.add("file_cache_statistics");
         BEACKEND_ID_COLUMN_SET.add("be_id");
     }
 

@@ -30,6 +30,7 @@ include "RuntimeProfile.thrift"
 include "MasterService.thrift"
 include "AgentService.thrift"
 include "DataSinks.thrift"
+include "HeartbeatService.thrift"
 
 // These are supporting structs for JniFrontend.java, which serves as the glue
 // between our C++ execution environment and the Java frontend.
@@ -485,7 +486,7 @@ struct TReportExecStatusParams {
 
   26: optional list<DataSinks.THivePartitionUpdate> hive_partition_updates
 
-  27: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
+  28: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
 }
 
 struct TFeResult {
@@ -517,9 +518,9 @@ struct TTxnLoadInfo {
 struct TGroupCommitInfo{
     1: optional bool getGroupCommitLoadBeId
     2: optional i64 groupCommitLoadTableId
-    3: optional bool updateLoadData
-    4: optional i64 tableId 
-    5: optional i64 receiveData
+    5: optional bool updateLoadData
+    6: optional i64 tableId 
+    7: optional i64 receiveData
 }
 
 struct TMasterOpRequest {
@@ -608,7 +609,7 @@ struct TLoadTxnBeginRequest {
     10: optional i64 timeout
     11: optional Types.TUniqueId request_id
     12: optional string token
-    13: optional i64 backend_id
+    15: optional i64 backend_id
 }
 
 struct TLoadTxnBeginResult {
@@ -953,6 +954,8 @@ enum TSchemaTableName {
   WORKLOAD_GROUPS = 3, // db information_schema's table
   ROUTINES_INFO = 4, // db information_schema's table
   WORKLOAD_SCHEDULE_POLICY = 5,
+  TABLE_OPTIONS = 6,
+  WORKLOAD_GROUP_PRIVILEGES = 7,
 }
 
 struct TMetadataTableRequestParams {
@@ -1477,6 +1480,15 @@ struct TFetchSplitBatchRequest {
 
 struct TFetchSplitBatchResult {
     1: optional list<Planner.TScanRangeLocations> splits
+    2: optional Status.TStatus status
+}
+
+struct TFetchRunningQueriesResult {
+    1: optional Status.TStatus status
+    2: optional list<Types.TUniqueId> running_queries
+}
+
+struct TFetchRunningQueriesRequest {
 }
 
 service FrontendService {
@@ -1569,4 +1581,6 @@ service FrontendService {
     TShowProcessListResult showProcessList(1: TShowProcessListRequest request)
     TShowUserResult showUser(1: TShowUserRequest request)
     TFetchSplitBatchResult fetchSplitBatch(1: TFetchSplitBatchRequest request)
+
+    TFetchRunningQueriesResult fetchRunningQueries(1: TFetchRunningQueriesRequest request)
 }

@@ -112,7 +112,7 @@ PipelineXFragmentContext::PipelineXFragmentContext(
 
 PipelineXFragmentContext::~PipelineXFragmentContext() {
     // The memory released by the query end is recorded in the query mem tracker.
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker);
     auto st = _query_ctx->exec_status();
     _tasks.clear();
     if (!_task_runtime_states.empty()) {
@@ -147,6 +147,14 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         LOG(WARNING) << "PipelineXFragmentContext is cancelled due to timeout : " << debug_string();
     }
     _query_ctx->cancel(msg, Status::Cancelled(msg), _fragment_id);
+
+    if (reason == PPlanFragmentCancelReason::INTERNAL_ERROR && !msg.empty()) {
+        if (msg.find("Pipeline task leak.") != std::string::npos) {
+            LOG_WARNING("PipelineFragmentContext is cancelled due to illegal state : {}",
+                        this->debug_string());
+        }
+    }
+
     if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
         _is_report_on_cancel = false;
     } else {

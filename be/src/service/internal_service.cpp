@@ -524,9 +524,11 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(
             RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
         }
         if (cb) {
-            return _exec_env->fragment_mgr()->exec_plan_fragment(t_request, cb);
+            return _exec_env->fragment_mgr()->exec_plan_fragment(
+                    t_request, QuerySource::INTERNAL_FRONTEND, cb);
         } else {
-            return _exec_env->fragment_mgr()->exec_plan_fragment(t_request);
+            return _exec_env->fragment_mgr()->exec_plan_fragment(t_request,
+                                                                 QuerySource::INTERNAL_FRONTEND);
         }
     } else if (version == PFragmentRequestVersion::VERSION_2) {
         TExecPlanFragmentParamsList t_request;
@@ -541,9 +543,11 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(
 
         for (const TExecPlanFragmentParams& params : t_request.paramsList) {
             if (cb) {
-                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params, cb));
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
+                        params, QuerySource::INTERNAL_FRONTEND, cb));
             } else {
-                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
+                        params, QuerySource::INTERNAL_FRONTEND));
             }
         }
 
@@ -572,9 +576,11 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(
         timer.start();
         for (const TPipelineFragmentParams& fragment : fragment_list) {
             if (cb) {
-                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(fragment, cb));
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
+                        fragment, QuerySource::INTERNAL_FRONTEND, cb));
             } else {
-                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(fragment));
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
+                        fragment, QuerySource::INTERNAL_FRONTEND));
             }
         }
         timer.stop();
@@ -2315,6 +2321,27 @@ void PInternalServiceImpl::get_wal_queue_size(google::protobuf::RpcController* c
         auto table_id = request->table_id();
         auto count = _exec_env->wal_mgr()->get_wal_queue_size(table_id);
         response->set_size(count);
+        response->mutable_status()->set_status_code(st.code());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+    }
+}
+
+void PInternalServiceImpl::get_be_resource(google::protobuf::RpcController* controller,
+                                           const PGetBeResourceRequest* request,
+                                           PGetBeResourceResponse* response,
+                                           google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        int64_t mem_limit = MemInfo::mem_limit();
+        int64_t mem_usage = PerfCounters::get_vm_rss();
+
+        PGlobalResourceUsage* global_resource_usage = response->mutable_global_be_resource_usage();
+        global_resource_usage->set_mem_limit(mem_limit);
+        global_resource_usage->set_mem_usage(mem_usage);
+
+        Status st = Status::OK();
         response->mutable_status()->set_status_code(st.code());
     });
     if (!ret) {
