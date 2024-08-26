@@ -80,8 +80,8 @@ Status SchemaVariablesScanner::get_next_block_internal(vectorized::Block* block,
     }
 
     *eos = true;
-    if ((!_var_result.__isset.variables || _var_result.variables.empty())
-            && (!_var_result.__isset.variables_list || _var_result.variables_list.empty())) {
+    if ((!_var_result.__isset.variables || _var_result.variables.empty()) &&
+        (!_var_result.__isset.variables_list || _var_result.variables_list.empty())) {
         return Status::OK();
     }
     return _fill_block_impl(block);
