@@ -18,8 +18,7 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=()
 ------------------------------PhysicalProject
---------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------PhysicalOlapScan[lineitem]
+--------------------------------PhysicalOlapScan[lineitem]
 ------------------------------PhysicalProject
 --------------------------------filter((p_name like '%green%'))
 ----------------------------------PhysicalOlapScan[part]

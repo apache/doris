@@ -16,10 +16,9 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[orders]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=()
+----------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=()
 ------------------------------PhysicalProject
---------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------PhysicalOlapScan[lineitem]
+--------------------------------PhysicalOlapScan[lineitem]
 ------------------------------PhysicalProject
 --------------------------------filter((p_name like '%green%'))
 ----------------------------------PhysicalOlapScan[part]

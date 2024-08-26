@@ -11,20 +11,22 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[supplier]
 ----------------PhysicalProject
-------------------hashAgg[LOCAL]
---------------------PhysicalProject
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------filter((lineitem.l_shipdate < '1996-04-01') and (lineitem.l_shipdate >= '1996-01-01'))
---------------------------PhysicalOlapScan[lineitem]
+------------------hashAgg[GLOBAL]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------hashAgg[LOCAL]
+------------------------PhysicalProject
+--------------------------filter((lineitem.l_shipdate < '1996-04-01') and (lineitem.l_shipdate >= '1996-01-01'))
+----------------------------PhysicalOlapScan[lineitem]
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute[DistributionSpecGather]
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------filter((lineitem.l_shipdate < '1996-04-01') and (lineitem.l_shipdate >= '1996-01-01'))
-----------------------------PhysicalOlapScan[lineitem]
+--------------------hashAgg[GLOBAL]
+----------------------PhysicalDistribute[DistributionSpecHash]
+------------------------hashAgg[LOCAL]
+--------------------------PhysicalProject
+----------------------------filter((lineitem.l_shipdate < '1996-04-01') and (lineitem.l_shipdate >= '1996-01-01'))
+------------------------------PhysicalOlapScan[lineitem]
 
 Hint log:
 Used: leading(supplier revenue0 )
