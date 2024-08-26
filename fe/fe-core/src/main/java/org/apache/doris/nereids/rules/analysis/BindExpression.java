@@ -80,6 +80,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
@@ -183,6 +184,15 @@ public class BindExpression implements AnalysisRuleFactory {
             ),
             RuleType.BINDING_HAVING_SLOT.build(
                 logicalHaving(any().whenNot(Aggregate.class::isInstance)).thenApply(this::bindHaving)
+            ),
+            RuleType.BINDING_QUALIFY_PROJECT_SLOT.build(
+                logicalQualify(logicalProject()).thenApply(this::bindQualifyProject)
+            ),
+            RuleType.BINDING_QUALIFY_AGGREGATE_SLOT.build(
+                logicalQualify(aggregate()).thenApply(this::bindQualifyAggregate)
+            ),
+            RuleType.BINDING_QUALIFY_HAVING_SLOT.build(
+                logicalQualify(logicalHaving()).thenApply(this::bindQualifyHaving)
             ),
             RuleType.BINDING_INLINE_TABLE_SLOT.build(
                 logicalInlineTable().thenApply(this::bindInlineTable)
@@ -691,6 +701,139 @@ public class BindExpression implements AnalysisRuleFactory {
             boundConjuncts.add(boundConjunct);
         }
         return new LogicalFilter<>(boundConjuncts.build(), filter.child());
+    }
+
+    /**
+     * qualify -> project
+     * qualify -> project(distinct)
+     * qualify -> project(distinct) -> agg
+     * qualify -> project(distinct) -> having -> agg
+     */
+    private Plan bindQualifyProject(MatchingContext<LogicalQualify<LogicalProject<Plan>>> ctx) {
+        LogicalQualify<LogicalProject<Plan>> qualify = ctx.root;
+        CascadesContext cascadesContext = ctx.cascadesContext;
+        LogicalProject<Plan> project = qualify.child();
+        ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builderWithExpectedSize(
+                qualify.getConjuncts().size());
+        if (project.child() instanceof Aggregate) {
+            Aggregate<Plan> aggregate = (Aggregate<Plan>) project.child();
+            bindQualifyByAggregate(aggregate, cascadesContext, qualify, boundConjuncts);
+        } else if (project.child() instanceof LogicalHaving) {
+            LogicalHaving<Plan> having = (LogicalHaving<Plan>) project.child();
+            Aggregate<Plan> aggregate = (Aggregate<Plan>) having.child();
+            bindQualifyByAggregate(aggregate, cascadesContext, qualify, boundConjuncts);
+        } else {
+            bindQualifyByProject(project, cascadesContext, qualify, boundConjuncts);
+        }
+        return new LogicalQualify<>(boundConjuncts.build(), qualify.child());
+    }
+
+    /**
+     * qualify -> having -> agg
+     * qualify -> having -> project
+     * qualify -> having -> project(distinct)
+     */
+    private Plan bindQualifyHaving(MatchingContext<LogicalQualify<LogicalHaving<Plan>>> ctx) {
+        LogicalQualify<LogicalHaving<Plan>> qualify = ctx.root;
+        CascadesContext cascadesContext = ctx.cascadesContext;
+        LogicalHaving<Plan> having = qualify.child();
+        ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builderWithExpectedSize(
+                qualify.getConjuncts().size());
+        if (having.child() instanceof Aggregate) {
+            bindQualifyByAggregate((Aggregate<? extends Plan>) having.child(), cascadesContext, qualify,
+                    boundConjuncts);
+        } else {
+            bindQualifyByProject((LogicalProject<? extends Plan>) having.child(), cascadesContext, qualify,
+                    boundConjuncts);
+        }
+        return new LogicalQualify<>(boundConjuncts.build(), qualify.child());
+    }
+
+    /**
+     * qualify -> agg
+     */
+    private Plan bindQualifyAggregate(MatchingContext<LogicalQualify<Aggregate<Plan>>> ctx) {
+        LogicalQualify<Aggregate<Plan>> qualify = ctx.root;
+        CascadesContext cascadesContext = ctx.cascadesContext;
+        Aggregate<Plan> aggregate = qualify.child();
+        ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builderWithExpectedSize(
+                qualify.getConjuncts().size());
+        bindQualifyByAggregate(aggregate, cascadesContext, qualify, boundConjuncts);
+        return new LogicalQualify<>(boundConjuncts.build(), qualify.child());
+    }
+
+    private void bindQualifyByProject(LogicalProject<? extends Plan> project, CascadesContext cascadesContext,
+                                    LogicalQualify<? extends Plan> qualify,
+                                    ImmutableSet.Builder<Expression> boundConjuncts) {
+        Supplier<Scope> defaultScope = Suppliers.memoize(() ->
+                toScope(cascadesContext, PlanUtils.fastGetChildrenOutputs(project.children()))
+        );
+        Scope backupScope = toScope(cascadesContext, project.getOutput());
+
+        SimpleExprAnalyzer analyzer = buildCustomSlotBinderAnalyzer(
+                qualify, cascadesContext, defaultScope.get(), true, true,
+                (self, unboundSlot) -> {
+                List<Slot> slots = self.bindSlotByScope(unboundSlot, defaultScope.get());
+                if (!slots.isEmpty()) {
+                    return slots;
+                }
+                return self.bindSlotByScope(unboundSlot, backupScope);
+                });
+
+        for (Expression conjunct : qualify.getConjuncts()) {
+            conjunct = analyzer.analyze(conjunct);
+            conjunct = TypeCoercionUtils.castIfNotSameType(conjunct, BooleanType.INSTANCE);
+            boundConjuncts.add(conjunct);
+        }
+    }
+
+    private void bindQualifyByAggregate(Aggregate<? extends Plan> aggregate, CascadesContext cascadesContext,
+                                      LogicalQualify<? extends Plan> qualify,
+                                      ImmutableSet.Builder<Expression> boundConjuncts) {
+        Supplier<CustomSlotBinderAnalyzer> bindByAggChild = Suppliers.memoize(() -> {
+            Scope aggChildOutputScope
+                    = toScope(cascadesContext, PlanUtils.fastGetChildrenOutputs(aggregate.children()));
+            return (analyzer, unboundSlot) -> analyzer.bindSlotByScope(unboundSlot, aggChildOutputScope);
+        });
+        Scope aggOutputScope = toScope(cascadesContext, aggregate.getOutput());
+        Supplier<CustomSlotBinderAnalyzer> bindByGroupByThenAggOutputThenAggChildOutput = Suppliers.memoize(() -> {
+            List<Expression> groupByExprs = aggregate.getGroupByExpressions();
+            ImmutableList.Builder<Slot> groupBySlots = ImmutableList.builderWithExpectedSize(groupByExprs.size());
+            for (Expression groupBy : groupByExprs) {
+                if (groupBy instanceof Slot) {
+                    groupBySlots.add((Slot) groupBy);
+                }
+            }
+            Scope groupBySlotsScope = toScope(cascadesContext, groupBySlots.build());
+
+            return (analyzer, unboundSlot) -> {
+                List<Slot> boundInGroupBy = analyzer.bindSlotByScope(unboundSlot, groupBySlotsScope);
+                if (!boundInGroupBy.isEmpty()) {
+                    return ImmutableList.of(boundInGroupBy.get(0));
+                }
+                List<Slot> boundInAggOutput = analyzer.bindSlotByScope(unboundSlot, aggOutputScope);
+                if (!boundInAggOutput.isEmpty()) {
+                    return ImmutableList.of(boundInAggOutput.get(0));
+                }
+                List<? extends Expression> expressions = bindByAggChild.get().bindSlot(analyzer, unboundSlot);
+                return expressions.isEmpty() ? expressions : ImmutableList.of(expressions.get(0));
+            };
+        });
+
+        ExpressionAnalyzer qualifyAnalyzer = new ExpressionAnalyzer(qualify, aggOutputScope, cascadesContext,
+                true, true) {
+            @Override
+            protected List<? extends Expression> bindSlotByThisScope(UnboundSlot unboundSlot) {
+                return bindByGroupByThenAggOutputThenAggChildOutput.get().bindSlot(this, unboundSlot);
+            }
+        };
+
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
+        for (Expression expression : qualify.getConjuncts()) {
+            Expression boundConjunct = qualifyAnalyzer.analyze(expression, rewriteContext);
+            boundConjunct = TypeCoercionUtils.castIfNotSameType(boundConjunct, BooleanType.INSTANCE);
+            boundConjuncts.add(boundConjunct);
+        }
     }
 
     private List<Slot> exceptStarSlots(Set<NamedExpression> boundExcepts, BoundStar boundStar) {
