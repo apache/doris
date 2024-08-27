@@ -2483,8 +2483,7 @@ bool SegmentIterator::_can_opt_topn_reads() {
     }
 
     bool all_true = std::ranges::all_of(_schema->column_ids(), [this](auto cid) {
-        if (cid == _opts.tablet_schema->delete_sign_idx() ||
-            _opts.tablet_schema->column(cid).is_key()) {
+        if (cid == _opts.tablet_schema->delete_sign_idx()) {
             return true;
         }
         if (_check_all_conditions_passed_inverted_index_for_column(cid, true)) {
