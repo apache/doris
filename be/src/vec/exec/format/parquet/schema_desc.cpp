@@ -396,16 +396,19 @@ std::pair<TypeDescriptor, bool> FieldDescriptor::convert_to_doris_type(
         break;
     case tparquet::ConvertedType::type::UINT_8:
         is_type_compatibility = true;
+        [[fallthrough]];
     case tparquet::ConvertedType::type::INT_16:
         type = TypeDescriptor(TYPE_SMALLINT);
         break;
     case tparquet::ConvertedType::type::UINT_16:
         is_type_compatibility = true;
+        [[fallthrough]];
     case tparquet::ConvertedType::type::INT_32:
         type = TypeDescriptor(TYPE_INT);
         break;
     case tparquet::ConvertedType::type::UINT_32:
         is_type_compatibility = true;
+        [[fallthrough]];
     case tparquet::ConvertedType::type::INT_64:
         type = TypeDescriptor(TYPE_BIGINT);
         break;

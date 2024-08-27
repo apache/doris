@@ -277,42 +277,42 @@ class LittleIntPhysicalConverter : public PhysicalToLogicalConverter {
     }
 };
 
+template <PrimitiveType type>
+struct UnsignedTypeTraits;
+
+template <>
+struct UnsignedTypeTraits<TYPE_SMALLINT> {
+    using UnsignedCppType = UInt8;
+    //https://github.com/apache/parquet-format/blob/master/LogicalTypes.md#unsigned-integers
+    //INT(8, false), INT(16, false), and INT(32, false) must annotate an int32 primitive type and INT(64, false)
+    //must annotate an int64 primitive type.
+    using StorageCppType = Int32;
+    using StorageColumnType = vectorized::ColumnInt32;
+};
+
+template <>
+struct UnsignedTypeTraits<TYPE_INT> {
+    using UnsignedCppType = UInt16;
+    using StorageCppType = Int32;
+    using StorageColumnType = vectorized::ColumnInt32;
+};
+
+template <>
+struct UnsignedTypeTraits<TYPE_BIGINT> {
+    using UnsignedCppType = UInt32;
+    using StorageCppType = Int32;
+    using StorageColumnType = vectorized::ColumnInt32;
+};
+
+template <>
+struct UnsignedTypeTraits<TYPE_LARGEINT> {
+    using UnsignedCppType = UInt64;
+    using StorageCppType = Int64;
+    using StorageColumnType = vectorized::ColumnInt64;
+};
+
 template <PrimitiveType IntPrimitiveType>
 class UnsignedIntegerConverter : public PhysicalToLogicalConverter {
-    template <PrimitiveType type>
-    struct UnsignedTypeTraits;
-
-    template <>
-    struct UnsignedTypeTraits<TYPE_SMALLINT> {
-        using UnsignedCppType = UInt8;
-        //https://github.com/apache/parquet-format/blob/master/LogicalTypes.md#unsigned-integers
-        //INT(8, false), INT(16, false), and INT(32, false) must annotate an int32 primitive type and INT(64, false)
-        //must annotate an int64 primitive type.
-        using StorageCppType = Int32;
-        using StorageColumnType = vectorized::ColumnInt32;
-    };
-
-    template <>
-    struct UnsignedTypeTraits<TYPE_INT> {
-        using UnsignedCppType = UInt16;
-        using StorageCppType = Int32;
-        using StorageColumnType = vectorized::ColumnInt32;
-    };
-
-    template <>
-    struct UnsignedTypeTraits<TYPE_BIGINT> {
-        using UnsignedCppType = UInt32;
-        using StorageCppType = Int32;
-        using StorageColumnType = vectorized::ColumnInt32;
-    };
-
-    template <>
-    struct UnsignedTypeTraits<TYPE_LARGEINT> {
-        using UnsignedCppType = UInt64;
-        using StorageCppType = Int64;
-        using StorageColumnType = vectorized::ColumnInt64;
-    };
-
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         using UnsignedCppType = typename UnsignedTypeTraits<IntPrimitiveType>::UnsignedCppType;
         using StorageCppType = typename UnsignedTypeTraits<IntPrimitiveType>::StorageCppType;
