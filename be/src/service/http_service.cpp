@@ -384,8 +384,8 @@ void HttpService::register_local_handler(StorageEngine& engine) {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/show_nested_index_file",
                                       show_nested_index_file_action);
 
-    CompactionScoreAction* compaction_score_action = _pool.add(
-            new CompactionScoreAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, engine));
+    CompactionScoreAction* compaction_score_action = _pool.add(new CompactionScoreAction(
+            _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, engine.tablet_manager()));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction_score",
                                       compaction_score_action);
 }
@@ -424,6 +424,10 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
             new ShowNestedIndexFileAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/show_nested_index_file",
                                       show_nested_index_file_action);
+    CompactionScoreAction* compaction_score_action = _pool.add(new CompactionScoreAction(
+            _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, engine.tablet_mgr()));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction_score",
+                                      compaction_score_action);
 }
 // NOLINTEND(readability-function-size)
 

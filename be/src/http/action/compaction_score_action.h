@@ -17,26 +17,37 @@
 
 #pragma once
 
+#include <gen_cpp/FrontendService_types.h>
+
+#include <cstddef>
+#include <memory>
 #include <string>
 
+#include "cloud/cloud_tablet_mgr.h"
 #include "common/status.h"
 #include "http/http_handler_with_auth.h"
 #include "http/http_request.h"
 #include "olap/storage_engine.h"
+#include "runtime/exec_env.h"
 namespace doris {
+
+struct CompactionScoresAccessor;
 
 // topn, sync
 class CompactionScoreAction : public HttpHandlerWithAuth {
 public:
-    CompactionScoreAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type,
-                          StorageEngine& storage_engine);
+    explicit CompactionScoreAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                   TPrivilegeType::type type, TabletManager* tablet_mgr);
+
+    explicit CompactionScoreAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                   TPrivilegeType::type type, CloudTabletMgr& tablet_mgr);
 
     void handle(HttpRequest* req) override;
 
 private:
-    Status _handle(HttpRequest* req, std::string* result);
+    Status _handle(size_t top_n, bool sync_meta, std::string* result);
 
-    StorageEngine& _storage_engine;
+    std::unique_ptr<CompactionScoresAccessor> _accessor;
 };
 
 } // namespace doris
