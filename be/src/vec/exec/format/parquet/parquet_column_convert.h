@@ -284,40 +284,44 @@ class UnsignedIntegerConverter : public PhysicalToLogicalConverter {
 
     template <>
     struct UnsignedTypeTraits<TYPE_SMALLINT> {
-        using CppType = UInt8;
+        using UnsignedCppType = UInt8;
         //https://github.com/apache/parquet-format/blob/master/LogicalTypes.md#unsigned-integers
         //INT(8, false), INT(16, false), and INT(32, false) must annotate an int32 primitive type and INT(64, false)
         //must annotate an int64 primitive type.
-        using UnsignedColumnType = vectorized::ColumnUInt32;
+        using StorageCppType = Int32;
+        using StorageColumnType = vectorized::ColumnInt32;
     };
 
     template <>
     struct UnsignedTypeTraits<TYPE_INT> {
-        using CppType = UInt16;
-        using UnsignedColumnType = vectorized::ColumnUInt32;
+        using UnsignedCppType = UInt16;
+        using StorageCppType = Int32;
+        using StorageColumnType = vectorized::ColumnInt32;
     };
 
     template <>
     struct UnsignedTypeTraits<TYPE_BIGINT> {
-        using CppType = UInt32;
-        using UnsignedColumnType = vectorized::ColumnUInt32;
+        using UnsignedCppType = UInt32;
+        using StorageCppType = Int32;
+        using StorageColumnType = vectorized::ColumnInt32;
     };
 
     template <>
     struct UnsignedTypeTraits<TYPE_LARGEINT> {
-        using CppType = UInt64;
-        using UnsignedColumnType = vectorized::ColumnUInt64;
+        using UnsignedCppType = UInt64;
+        using StorageCppType = Int64;
+        using StorageColumnType = vectorized::ColumnInt64;
     };
 
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
-        using DstCppType = typename PrimitiveTypeTraits<IntPrimitiveType>::CppType;
-        using UnsignedColumnType =
-                typename UnsignedTypeTraits<IntPrimitiveType>::UnsignedColumnType;
+        using UnsignedCppType = typename UnsignedTypeTraits<IntPrimitiveType>::UnsignedCppType;
+        using StorageCppType = typename UnsignedTypeTraits<IntPrimitiveType>::StorageCppType;
+        using StorageColumnType = typename UnsignedTypeTraits<IntPrimitiveType>::StorageColumnType;
         using DstColumnType = typename PrimitiveTypeTraits<IntPrimitiveType>::ColumnType;
 
         ColumnPtr from_col = remove_nullable(src_physical_col);
         MutableColumnPtr to_col = remove_nullable(src_logical_column)->assume_mutable();
-        auto& src_data = static_cast<const UnsignedColumnType*>(from_col.get())->get_data();
+        auto& src_data = static_cast<const StorageColumnType*>(from_col.get())->get_data();
 
         size_t rows = src_data.size();
         size_t start_idx = to_col->size();
@@ -325,7 +329,9 @@ class UnsignedIntegerConverter : public PhysicalToLogicalConverter {
         auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
 
         for (int i = 0; i < rows; i++) {
-            data[start_idx + i] = static_cast<DstCppType>(src_data[i]);
+            StorageCppType src_value = src_data[i];
+            auto unsigned_value = static_cast<UnsignedCppType>(src_value);
+            data[start_idx + i] = unsigned_value;
         }
 
         return Status::OK();
