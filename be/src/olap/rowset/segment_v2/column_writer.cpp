@@ -69,9 +69,10 @@ public:
     // Returns whether the building nullmap contains nullptr
     bool has_null() const { return _has_null; }
 
-    OwnedSlice finish() {
+    Status finish(OwnedSlice* slice) {
         _rle_encoder.Flush();
-        return _bitmap_buf.build();
+        RETURN_IF_CATCH_EXCEPTION({ *slice = _bitmap_buf.build(); });
+        return Status::OK();
     }
 
     void reset() {
@@ -676,14 +677,15 @@ Status ScalarColumnWriter::finish_current_page() {
 
     // build data page body : encoded values + [nullmap]
     std::vector<Slice> body;
-    OwnedSlice encoded_values = _page_builder->finish();
+    OwnedSlice encoded_values;
+    RETURN_IF_ERROR(_page_builder->finish(&encoded_values));
     RETURN_IF_ERROR(_page_builder->reset());
     body.push_back(encoded_values.slice());
 
     OwnedSlice nullmap;
     if (_null_bitmap_builder != nullptr) {
         if (is_nullable() && _null_bitmap_builder->has_null()) {
-            nullmap = _null_bitmap_builder->finish();
+            RETURN_IF_ERROR(_null_bitmap_builder->finish(&nullmap));
             body.push_back(nullmap.slice());
         }
         _null_bitmap_builder->reset();
