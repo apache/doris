@@ -96,6 +96,21 @@ std::string WorkloadGroup::debug_string() const {
             _scan_bytes_per_second, _remote_scan_bytes_per_second);
 }
 
+std::string WorkloadGroup::memory_debug_string() const {
+    return fmt::format(
+            "TG[id = {}, name = {}, memory_limit = {}, enable_memory_overcommit = "
+            "{}, weighted_memory_limit = {}, total_mem_used = {}, "
+            "wg_refresh_interval_memory_growth = {}, spill_low_watermark = {}, "
+            "spill_high_watermark = {}, version = {}, is_shutdown = {}, query_num = {}]",
+            _id, _name, PrettyPrinter::print(_memory_limit, TUnit::BYTES),
+            _enable_memory_overcommit ? "true" : "false",
+            PrettyPrinter::print(_weighted_memory_limit, TUnit::BYTES),
+            PrettyPrinter::print(_total_mem_used, TUnit::BYTES),
+            PrettyPrinter::print(_wg_refresh_interval_memory_growth, TUnit::BYTES),
+            _spill_low_watermark, _spill_high_watermark, _version, _is_shutdown,
+            _query_ctxs.size());
+}
+
 void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
     if (UNLIKELY(tg_info.id != _id)) {
         return;
