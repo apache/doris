@@ -148,8 +148,8 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
         break;
     }
     default:
-        DCHECK(false);
-        throw std::invalid_argument("Invalid type!");
+        throw Exception(ErrorCode::INTERNAL_ERROR, "runtime filter meet invalid type {}",
+                        int(type));
     }
     return node;
 }
