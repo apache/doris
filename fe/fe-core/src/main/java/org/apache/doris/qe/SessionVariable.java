@@ -623,6 +623,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATCH_WITHOUT_INVERTED_INDEX = "enable_match_without_inverted_index";
     public static final String ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX = "enable_fallback_on_missing_inverted_index";
 
+    public static final String IN_LIST_VALUE_COUNT_THRESHOLD = "in_list_value_count_threshold";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2026,6 +2028,13 @@ public class SessionVariable implements Serializable, Writable {
                 + " It is recommended to keep this enabled in the production environment."
     })
     public boolean enableFallbackOnMissingInvertedIndex = true;
+
+    @VariableMgr.VarAttr(name = IN_LIST_VALUE_COUNT_THRESHOLD, description = {
+        "in条件value数量大于这个threshold后将不会走fast_execute",
+        "When the number of values in the IN condition exceeds this threshold,"
+                + " fast_execute will not be used."
+    })
+    public int inListValueCountThreshold = 10;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
@@ -3530,6 +3539,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableFallbackOnMissingInvertedIndex(enableFallbackOnMissingInvertedIndex);
 
         tResult.setKeepCarriageReturn(keepCarriageReturn);
+        tResult.setInListValueCountThreshold(inListValueCountThreshold);
         return tResult;
     }
 

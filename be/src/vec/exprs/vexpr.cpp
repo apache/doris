@@ -652,6 +652,9 @@ std::string VExpr::gen_predicate_result_sign(Block& block, const ColumnNumbers& 
         pred_result_sign +=
                 BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_" + function_name + "_";
         if (function_name == "in" || function_name == "not_in") {
+            if (arguments.size() - 1 > _in_list_value_count_threshold) {
+                return pred_result_sign;
+            }
             // Generating 'result_sign' from 'inlist' requires sorting the values.
             std::set<std::string> values;
             for (size_t i = 1; i < arguments.size(); i++) {
