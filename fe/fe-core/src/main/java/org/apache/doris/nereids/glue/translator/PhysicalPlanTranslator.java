@@ -57,6 +57,7 @@ import org.apache.doris.datasource.hudi.source.HudiScanNode;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.datasource.jdbc.sink.JdbcTableSink;
 import org.apache.doris.datasource.jdbc.source.JdbcScanNode;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
 import org.apache.doris.datasource.lakesoul.source.LakeSoulScanNode;
@@ -129,6 +130,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHudiScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
@@ -494,6 +496,24 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             slotDesc.setAutoInc(column.isAutoInc());
         }
         IcebergTableSink sink = new IcebergTableSink((IcebergExternalTable) icebergTableSink.getTargetTable());
+        rootFragment.setSink(sink);
+        return rootFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalJdbcTableSink(PhysicalJdbcTableSink<? extends Plan> jdbcTableSink,
+            PlanTranslatorContext context) {
+        PlanFragment rootFragment = jdbcTableSink.child().accept(this, context);
+        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+        List<Column> targetTableColumns = jdbcTableSink.getCols();
+        List<String> insertCols = targetTableColumns.stream()
+                .map(Column::getName)
+                .collect(Collectors.toList());
+
+        JdbcTableSink sink = new JdbcTableSink(
+                ((JdbcExternalTable) jdbcTableSink.getTargetTable()).getJdbcTable(),
+                insertCols
+        );
         rootFragment.setSink(sink);
         return rootFragment;
     }

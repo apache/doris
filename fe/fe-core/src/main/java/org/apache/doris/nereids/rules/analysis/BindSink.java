@@ -32,10 +32,13 @@ import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
+import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
+import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -58,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -109,7 +113,8 @@ public class BindSink implements AnalysisRuleFactory {
                 // TODO: bind hive taget table
                 RuleType.BINDING_INSERT_HIVE_TABLE.build(unboundHiveTableSink().thenApply(this::bindHiveTableSink)),
                 RuleType.BINDING_INSERT_ICEBERG_TABLE.build(
-                    unboundIcebergTableSink().thenApply(this::bindIcebergTableSink))
+                    unboundIcebergTableSink().thenApply(this::bindIcebergTableSink)),
+                RuleType.BINDING_INSERT_JDBC_TABLE.build(unboundJdbcTableSink().thenApply(this::bindJdbcTableSink))
         );
     }
 
@@ -524,6 +529,48 @@ public class BindSink implements AnalysisRuleFactory {
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
     }
 
+    private Plan bindJdbcTableSink(MatchingContext<UnboundJdbcTableSink<Plan>> ctx) {
+        UnboundJdbcTableSink<?> sink = ctx.root;
+        Pair<JdbcExternalDatabase, JdbcExternalTable> pair = bind(ctx.cascadesContext, sink);
+        JdbcExternalDatabase database = pair.first;
+        JdbcExternalTable table = pair.second;
+        LogicalPlan child = ((LogicalPlan) sink.child());
+
+        List<Column> bindColumns;
+        if (sink.getColNames().isEmpty()) {
+            bindColumns = table.getBaseSchema(true).stream().collect(ImmutableList.toImmutableList());
+        } else {
+            bindColumns = sink.getColNames().stream().map(cn -> {
+                Column column = table.getColumn(cn);
+                if (column == null) {
+                    throw new AnalysisException(String.format("column %s is not found in table %s",
+                            cn, table.getName()));
+                }
+                return column;
+            }).collect(ImmutableList.toImmutableList());
+        }
+        LogicalJdbcTableSink<?> boundSink = new LogicalJdbcTableSink<>(
+                database,
+                table,
+                bindColumns,
+                child.getOutput().stream()
+                        .map(NamedExpression.class::cast)
+                        .collect(ImmutableList.toImmutableList()),
+                sink.getDMLCommandType(),
+                Optional.empty(),
+                Optional.empty(),
+                child);
+        // we need to insert all the columns of the target table
+        if (boundSink.getCols().size() != child.getOutput().size()) {
+            throw new AnalysisException("insert into cols should be corresponding to the query output");
+        }
+        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false,
+                boundSink, child);
+        // We don't need to insert unmentioned columns, only user specified columns
+        LogicalProject<?> outputProject = getOutputProjectByCoercion(bindColumns, child, columnToOutput);
+        return boundSink.withChildAndUpdateOutput(outputProject);
+    }
+
     private Pair<Database, OlapTable> bind(CascadesContext cascadesContext, UnboundTableSink<? extends Plan> sink) {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 sink.getNameParts());
@@ -565,6 +612,18 @@ public class BindSink implements AnalysisRuleFactory {
             return Pair.of(((IcebergExternalDatabase) pair.first), (IcebergExternalTable) pair.second);
         }
         throw new AnalysisException("the target table of insert into is not an iceberg table");
+    }
+
+    private Pair<JdbcExternalDatabase, JdbcExternalTable> bind(CascadesContext cascadesContext,
+            UnboundJdbcTableSink<? extends Plan> sink) {
+        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
+                sink.getNameParts());
+        Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
+                cascadesContext.getConnectContext().getEnv());
+        if (pair.second instanceof JdbcExternalTable) {
+            return Pair.of(((JdbcExternalDatabase) pair.first), (JdbcExternalTable) pair.second);
+        }
+        throw new AnalysisException("the target table of insert into is not an jdbc table");
     }
 
     private List<Long> bindPartitionIds(OlapTable table, List<String> partitions, boolean temp) {
