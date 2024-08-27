@@ -365,6 +365,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
                     Block::filter_block_internal(block, columns_to_filter, result_filter));
             if (!_not_single_slot_filter_conjuncts.empty()) {
                 _convert_dict_cols_to_string_cols(block);
+                SCOPED_RAW_TIMER(&_predicate_filter_time);
                 RETURN_IF_CATCH_EXCEPTION(
                         RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
                                 _not_single_slot_filter_conjuncts, block, columns_to_filter,
