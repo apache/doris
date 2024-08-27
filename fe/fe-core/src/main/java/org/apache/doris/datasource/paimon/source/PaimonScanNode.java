@@ -23,6 +23,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
@@ -299,6 +300,18 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
         });
         return map;
+    }
+
+    @Override
+    protected PrintableMap<String, String> explainFrontendParameters() {
+        return new PrintableMap<>(source.getCatalog().getCatalogProperty().getProperties(),
+                "=", true, true, true, true);
+    }
+
+    @Override
+    protected PrintableMap<String, String> explainBackendParameters() {
+        return new PrintableMap<>(((PaimonExternalCatalog) source.getCatalog()).getPaimonOptionsMap(),
+                "=", true, true, true, true);
     }
 
     @Override

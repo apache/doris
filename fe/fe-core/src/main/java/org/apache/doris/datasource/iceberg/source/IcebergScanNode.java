@@ -26,6 +26,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
@@ -385,6 +386,11 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     public long getPushDownCount() {
         return getCountFromSnapshot();
+    }
+
+    @Override
+    protected PrintableMap<String, String> explainFrontendParameters() {
+        return new PrintableMap<>(source.getCatalog().getProperties(), "=", true, true, true, true);
     }
 
     @Override

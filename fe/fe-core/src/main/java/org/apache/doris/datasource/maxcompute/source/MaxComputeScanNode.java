@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.TablePartitionValues;
@@ -126,6 +127,12 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
         }
         return result;
+    }
+
+    @Override
+    protected PrintableMap<String, String> explainFrontendParameters() {
+        return new PrintableMap<>(table.getCatalog().getCatalogProperty().getProperties(),
+                "=", true, true, true, true);
     }
 
     private static void addPartitionSplits(List<Split> result, Table odpsTable, String partitionSpec) {

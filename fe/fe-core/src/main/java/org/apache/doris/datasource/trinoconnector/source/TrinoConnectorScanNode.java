@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorPluginLoader;
@@ -339,5 +340,17 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
     @Override
     public Map<String, String> getLocationProperties() throws MetaNotFoundException, DdlException {
         return source.getCatalog().getCatalogProperty().getHadoopProperties();
+    }
+
+    @Override
+    protected PrintableMap<String, String> explainFrontendParameters() {
+        return new PrintableMap<>(source.getCatalog().getCatalogProperty().getProperties(),
+                "=", true, true, true, true);
+    }
+
+    @Override
+    protected PrintableMap<String, String> explainBackendParameters() {
+        return new PrintableMap<>(source.getCatalog().getTrinoConnectorPropertiesWithCreateTime(),
+                "=", true, true, true, true);
     }
 }

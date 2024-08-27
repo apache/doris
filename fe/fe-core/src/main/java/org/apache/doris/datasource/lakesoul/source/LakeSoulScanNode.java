@@ -20,6 +20,7 @@ package org.apache.doris.datasource.lakesoul.source;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
@@ -139,6 +140,11 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         if (split instanceof LakeSoulSplit) {
             setLakeSoulParams(rangeDesc, (LakeSoulSplit) split);
         }
+    }
+
+    @Override
+    protected PrintableMap<String, String> explainFrontendParameters() {
+        return new PrintableMap<>(tableProperties, "=", true, true, true, true);
     }
 
     public ExternalCatalog getCatalog() {
