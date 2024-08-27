@@ -1255,7 +1255,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {
                 "请使用 adaptive_pipeline_task_serial_read_on_limit",
                 "Please use adaptive_pipeline_task_serial_read_on_limit"})
-    public long limitRowsForSingleInstance = 8192;
+    public long limitRowsForSingleInstance = 10000;
 
     public boolean isEnableLeftZigZag() {
         return enableLeftZigZag;
@@ -2125,7 +2125,7 @@ public class SessionVariable implements Serializable, Writable {
             "When enable_adaptive_pipeline_task_serial_read_on_limit is enabled, "
             + "the number of rows at which the parallelism of the scan will be set to 1."
     })
-    public int adaptivePipelineTaskSerialReadOnLimit = 8192;
+    public int adaptivePipelineTaskSerialReadOnLimit = 10000;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
@@ -2671,7 +2671,7 @@ public class SessionVariable implements Serializable, Writable {
         this.parallelExecInstanceNum = val;
     }
 
-    public void setLimitRowsForSingleInstance() throws Exception {
+    public void setLimitRowsForSingleInstance(String value) throws Exception {
         throw new Exception("Use adaptive_pipeline_task_serial_read_on_limit instead.");
     }
 
@@ -3709,6 +3709,9 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setKeepCarriageReturn(keepCarriageReturn);
 
         tResult.setEnableSegmentCache(enableSegmentCache);
+        
+        tResult.setEnableAdaptivePipelineTaskSerialReadOnLimit(enableAdaptivePipelineTaskSerialReadOnLimit);
+        tResult.setAdaptivePipelineTaskSerialReadOnLimit(adaptivePipelineTaskSerialReadOnLimit);
         return tResult;
     }
 

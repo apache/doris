@@ -76,6 +76,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -739,7 +740,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     }
 
     public boolean shouldUseOneInstance(ConnectContext ctx) {
-        long adaptivePipelineTaskSerialReadOnLimit = 8192;
+        int adaptivePipelineTaskSerialReadOnLimit = 10000;
 
         if (ctx != null) {
             if (ctx.getSessionVariable().enableAdaptivePipelineTaskSerialReadOnLimit) {
@@ -749,10 +750,11 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
             }
         } else {
             // No connection context, typically for broker load.
-            adaptivePipelineTaskSerialReadOnLimit = 8192;
+            adaptivePipelineTaskSerialReadOnLimit = 10000;
         }
 
-        return hasLimit() && getLimit() < adaptivePipelineTaskSerialReadOnLimit && conjuncts.isEmpty();
+        // For UniqueKey table, we will use multiple instance.
+        return hasLimit() && getLimit() <= adaptivePipelineTaskSerialReadOnLimit && conjuncts.isEmpty();
     }
 
     // In cloud mode, meta read lock is not enough to keep a snapshot of the partition versions.
