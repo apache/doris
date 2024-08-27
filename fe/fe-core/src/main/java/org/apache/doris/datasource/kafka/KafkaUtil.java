@@ -236,7 +236,7 @@ public class KafkaUtil {
 
             try {
                 future = BackendServiceProxy.getInstance().getInfo(address, request);
-                result = future.get(Config.max_get_kafka_meta_timeout_second, TimeUnit.SECONDS);
+                result = future.get(timeout, TimeUnit.SECONDS);
             } catch (Exception e) {
                 LOG.warn("failed to get info request to " + address + " err " + e.getMessage());
                 retryTimes++;
