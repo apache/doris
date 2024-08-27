@@ -992,9 +992,7 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         bool is_support = pred_type == PredicateType::EQ || pred_type == PredicateType::NE ||
                           pred_type == PredicateType::LT || pred_type == PredicateType::LE ||
                           pred_type == PredicateType::GT || pred_type == PredicateType::GE ||
-                          pred_type == PredicateType::MATCH ||
-                          pred_type == PredicateType::IN_LIST ||
-                          pred_type == PredicateType::NOT_IN_LIST;
+                          pred_type == PredicateType::MATCH;
         if (!is_support) {
             continue;
         }

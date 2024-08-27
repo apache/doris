@@ -604,7 +604,9 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
 bool VExpr::fast_execute(Block& block, const ColumnNumbers& arguments, size_t result,
                          size_t input_rows_count, const std::string& function_name) {
     std::string result_column_name = gen_predicate_result_sign(block, arguments, function_name);
+    LOG(ERROR) << "result_column_name 1: " << result_column_name;
     if (!block.has(result_column_name)) {
+        LOG(ERROR) << "result_column_name 2: " << result_column_name;
         DBUG_EXECUTE_IF("segment_iterator.fast_execute", {
             auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
                     "segment_iterator._read_columns_by_index", "column_name", "");
@@ -621,6 +623,7 @@ bool VExpr::fast_execute(Block& block, const ColumnNumbers& arguments, size_t re
         })
         return false;
     }
+    LOG(ERROR) << "result_column_name 3: " << result_column_name;
 
     auto result_column =
             block.get_by_name(result_column_name).column->convert_to_full_column_if_const();
@@ -647,15 +650,24 @@ std::string VExpr::gen_predicate_result_sign(Block& block, const ColumnNumbers& 
         pred_result_sign +=
                 BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_" + function_name + "_";
         if (function_name == "in" || function_name == "not_in") {
+            if (arguments.size() - 1 > _in_list_value_count_threshold) {
+                return "";
+            }
             // Generating 'result_sign' from 'inlist' requires sorting the values.
             std::set<std::string> values;
             for (size_t i = 1; i < arguments.size(); i++) {
                 const auto& entry = block.get_by_position(arguments[i]);
+                if (!is_column_const(*entry.column)) {
+                    return "";
+                }
                 values.insert(entry.type->to_string(*entry.column, 0));
             }
             pred_result_sign += boost::join(values, ",");
         } else {
             const auto& entry = block.get_by_position(arguments[1]);
+            if (!is_column_const(*entry.column)) {
+                return "";
+            }
             pred_result_sign += entry.type->to_string(*entry.column, 0);
         }
     }

@@ -328,6 +328,7 @@ protected:
     // ensuring uniqueness during index traversal
     uint32_t _index_unique_id = 0;
     bool _can_fast_execute = false;
+    uint32_t _in_list_value_count_threshold = 10;
 };
 
 } // namespace vectorized
