@@ -102,6 +102,7 @@ public class HMSTransaction implements Transaction {
     private HmsCommitter hmsCommitter;
     private List<THivePartitionUpdate> hivePartitionUpdates = Lists.newArrayList();
     private String declaredIntentionsToWrite;
+    private boolean isMockedPartitionUpdate = false;
 
     private static class UncompletedMpuPendingUpload {
 
@@ -193,6 +194,7 @@ public class HMSTransaction implements Transaction {
         Table table = getTable(tableInfo);
         if (hivePartitionUpdates.isEmpty() && isOverwrite && table.getPartitionKeysSize() == 0) {
             // use an empty hivePartitionUpdate to clean source table
+            isMockedPartitionUpdate = true;
             THivePartitionUpdate emptyUpdate = new THivePartitionUpdate() {{
                     setUpdateMode(TUpdateMode.OVERWRITE);
                     setFileSize(0);
@@ -1590,7 +1592,7 @@ public class HMSTransaction implements Transaction {
             AtomicBoolean fileSystemTaskCancelled, THivePartitionUpdate hivePartitionUpdate, String path) {
 
         List<TS3MPUPendingUpload> s3MpuPendingUploads = hivePartitionUpdate.getS3MpuPendingUploads();
-        if (s3MpuPendingUploads.size() == 1 && !s3MpuPendingUploads.get(0).isSetEtags()) {
+        if (isMockedPartitionUpdate) {
             return;
         }
 
