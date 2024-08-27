@@ -174,7 +174,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                         tbl.getEnableMowLightDelete(),
                         tbl.getInvertedIndexFileStorageFormat(),
-                        tbl.rowStorePageSize());
+                        tbl.rowStorePageSize(),
+                        tbl.variantEnableFlattenNested());
                 requestBuilder.addTabletMetas(builder);
             }
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
@@ -222,7 +223,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
             Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
             List<Integer> rowStoreColumnUniqueIds, boolean enableMowLightDelete,
-            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize) throws DdlException {
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
+            boolean variantEnableFlattenNested) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -349,6 +351,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
         }
         schemaBuilder.setRowStorePageSize(pageSize);
+        schemaBuilder.setEnableVariantFlattenNested(variantEnableFlattenNested);
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
         builder.setSchema(schema);
@@ -842,6 +845,67 @@ public class CloudInternalCatalog extends InternalCatalog {
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
             LOG.warn("dropPartition response: {} ", response);
             throw new DdlException(response.getStatus().getMsg());
+        }
+    }
+
+    public void removeSchemaChangeJob(long dbId, long tableId, long indexId, long newIndexId,
+            long partitionId, long tabletId, long newTabletId)
+            throws DdlException {
+        Cloud.FinishTabletJobRequest.Builder finishTabletJobRequestBuilder = Cloud.FinishTabletJobRequest.newBuilder();
+        finishTabletJobRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
+        finishTabletJobRequestBuilder.setAction(Cloud.FinishTabletJobRequest.Action.ABORT);
+        Cloud.TabletJobInfoPB.Builder tabletJobInfoPBBuilder = Cloud.TabletJobInfoPB.newBuilder();
+
+        // set origin tablet
+        Cloud.TabletIndexPB.Builder tabletIndexPBBuilder = Cloud.TabletIndexPB.newBuilder();
+        tabletIndexPBBuilder.setDbId(dbId);
+        tabletIndexPBBuilder.setTableId(tableId);
+        tabletIndexPBBuilder.setIndexId(indexId);
+        tabletIndexPBBuilder.setPartitionId(partitionId);
+        tabletIndexPBBuilder.setTabletId(tabletId);
+        final Cloud.TabletIndexPB tabletIndex = tabletIndexPBBuilder.build();
+        tabletJobInfoPBBuilder.setIdx(tabletIndex);
+
+        // set new tablet
+        Cloud.TabletSchemaChangeJobPB.Builder schemaChangeJobPBBuilder =
+                Cloud.TabletSchemaChangeJobPB.newBuilder();
+        Cloud.TabletIndexPB.Builder newtabletIndexPBBuilder = Cloud.TabletIndexPB.newBuilder();
+        newtabletIndexPBBuilder.setDbId(dbId);
+        newtabletIndexPBBuilder.setTableId(tableId);
+        newtabletIndexPBBuilder.setIndexId(newIndexId);
+        newtabletIndexPBBuilder.setPartitionId(partitionId);
+        newtabletIndexPBBuilder.setTabletId(newTabletId);
+        final Cloud.TabletIndexPB newtabletIndex = newtabletIndexPBBuilder.build();
+        schemaChangeJobPBBuilder.setNewTabletIdx(newtabletIndex);
+        final Cloud.TabletSchemaChangeJobPB tabletSchemaChangeJobPb =
+                schemaChangeJobPBBuilder.build();
+
+        tabletJobInfoPBBuilder.setSchemaChange(tabletSchemaChangeJobPb);
+
+        final Cloud.TabletJobInfoPB tabletJobInfoPB = tabletJobInfoPBBuilder.build();
+        finishTabletJobRequestBuilder.setJob(tabletJobInfoPB);
+
+        final Cloud.FinishTabletJobRequest request = finishTabletJobRequestBuilder.build();
+
+        Cloud.FinishTabletJobResponse response = null;
+        int tryTimes = 0;
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
+            try {
+                response = MetaServiceProxy.getInstance().finishTabletJob(request);
+                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+            } catch (RpcException e) {
+                LOG.warn("tryTimes:{}, finishTabletJob RpcException", tryTimes, e);
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
+                    throw new DdlException(e.getMessage());
+                }
+            }
+            sleepSeveralMs();
+        }
+
+        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+            LOG.warn("finishTabletJob response: {} ", response);
         }
     }
 
