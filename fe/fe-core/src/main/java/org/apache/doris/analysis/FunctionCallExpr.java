@@ -651,6 +651,7 @@ public class FunctionCallExpr extends Expr {
                             || fnName.getFunction().equalsIgnoreCase("sm4_decrypt_v2")
                             || fnName.getFunction().equalsIgnoreCase("sm4_encrypt_v2"))) {
                 sb.append("\'***\'");
+                continue;
             } else if (orderByElements.size() > 0 && i == len - orderByElements.size()) {
                 sb.append("ORDER BY ");
             }
