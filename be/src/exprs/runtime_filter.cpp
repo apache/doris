@@ -111,9 +111,9 @@ PColumnType to_proto(PrimitiveType type) {
     case TYPE_STRING:
         return PColumnType::COLUMN_TYPE_STRING;
     default:
-        DCHECK(false) << "Invalid type.";
+        throw Exception(ErrorCode::INTERNAL_ERROR, "runtime filter meet invalid type {}",
+                        int(type));
     }
-    DCHECK(false);
     return PColumnType::COLUMN_TYPE_INT;
 }
 
@@ -1140,7 +1140,7 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr) {
     merge_filter_request->set_filter_id(_filter_id);
     merge_filter_request->set_is_pipeline(true);
     auto column_type = _wrapper->column_type();
-    merge_filter_request->set_column_type(to_proto(column_type));
+    RETURN_IF_CATCH_EXCEPTION(merge_filter_request->set_column_type(to_proto(column_type)));
     merge_filter_callback->cntl_->set_timeout_ms(wait_time_ms());
 
     if (get_ignored()) {
@@ -1414,9 +1414,6 @@ Status IRuntimeFilter::_create_wrapper(const T* param,
                                        std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
     int filter_type = param->request->filter_type();
     PrimitiveType column_type = PrimitiveType::INVALID_TYPE;
-    if (param->request->has_in_filter()) {
-        column_type = to_primitive_type(param->request->in_filter().column_type());
-    }
     if (param->request->has_column_type()) {
         column_type = to_primitive_type(param->request->column_type());
     }
