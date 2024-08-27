@@ -670,7 +670,7 @@ public class LoadAction extends RestBaseController {
         Backend backend = null;
         try {
             backend = Env.getCurrentEnv().getGroupCommitManager()
-                    .selectBackendForGroupCommit(tableId, ctx, true);
+                    .selectBackendForGroupCommit(tableId, ctx, isCloud);
         } catch (DdlException e) {
             throw new RuntimeException(e);
         }
