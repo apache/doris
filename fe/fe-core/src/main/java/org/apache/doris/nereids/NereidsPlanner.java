@@ -596,7 +596,7 @@ public class NereidsPlanner extends Planner {
             default:
                 plan = super.getExplainString(explainOptions);
                 plan += mvSummary;
-                plan += "\n\n========== STATISTICS ==========\n";
+                plan += "\n\n\n========== STATISTICS ==========\n";
                 if (statementContext != null) {
                     if (statementContext.isHasUnknownColStats()) {
                         plan += "planed with unknown column statistics\n";
