@@ -193,7 +193,8 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
     int32_t delete_sign_idx = -1;
     // in key column compaction, seq_col real index is _num_key_columns
     // and delete_sign column is _block->columns() - 1
-    if (tablet_schema.keys_type() == KeysType::UNIQUE_KEYS) {
+    if (tablet_schema.keys_type() == KeysType::UNIQUE_KEYS ||
+        tablet_schema.keys_type() == KeysType::AGG_KEYS) {
         if (tablet_schema.has_sequence_col()) {
             sequence_col_idx = tablet_schema.sequence_col_idx();
             key_columns.emplace_back(sequence_col_idx);

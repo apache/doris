@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -100,9 +101,9 @@ public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
                         && alterFeature == EnableFeatureClause.Features.BATCH_DELETE) {
                     throw new AnalysisException("Batch delete only supported in unique tables.");
                 }
-                if (table.getKeysType() != KeysType.UNIQUE_KEYS
-                        && alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
-                    throw new AnalysisException("Sequence load only supported in unique tables.");
+                if (table.getKeysType() != KeysType.UNIQUE_KEYS && table.getKeysType() != KeysType.AGG_KEYS
+                    && alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
+                    throw new AnalysisException("Sequence load only supported in unique or agg tables.");
                 }
                 // analyse sequence column
                 Type sequenceColType = null;
@@ -131,8 +132,13 @@ public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
                             addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
                                     table.getIndexNameById(idx.getId()), null);
                         } else if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
-                            addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType), null,
+                            if (table.getKeysType() == KeysType.AGG_KEYS) {
+                                addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType, AggregateType.REPLACE), null,
                                     table.getIndexNameById(idx.getId()), null);
+                            } else {
+                                addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType), null,
+                                    table.getIndexNameById(idx.getId()), null);
+                            }
                         } else {
                             throw new AnalysisException("unknown feature : " + alterFeature);
                         }
@@ -146,8 +152,13 @@ public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
                         addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
                                 null, null);
                     } else if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
-                        addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType), null,
+                        if(table.getKeysType() == KeysType.AGG_KEYS) {
+                            addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType, AggregateType.REPLACE), null,
                                 null, null);
+                        } else {
+                            addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType), null,
+                                null, null);
+                        }
                     }
                     addColumnClause.analyze(analyzer);
                     clauses.add(addColumnClause);

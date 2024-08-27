@@ -1172,8 +1172,8 @@ public class PropertyAnalyzer {
         if (typeStr == null) {
             return null;
         }
-        if (typeStr != null && keysType != KeysType.UNIQUE_KEYS) {
-            throw new AnalysisException("sequence column only support UNIQUE_KEYS");
+        if (typeStr != null && keysType != KeysType.UNIQUE_KEYS && keysType != KeysType.AGG_KEYS) {
+            throw new AnalysisException("sequence column only support UNIQUE_KEYS or AGG_KEYS");
         }
         PrimitiveType type = PrimitiveType.valueOf(typeStr.toUpperCase());
         if (!type.isFixedPointType() && !type.isDateType()) {
