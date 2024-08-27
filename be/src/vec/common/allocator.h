@@ -399,12 +399,12 @@ public:
         return buf;
     }
 
-    std::shared_ptr<doris::MemTrackerLimiter> mem_tracker_ {nullptr};
-
 protected:
     static constexpr size_t get_stack_threshold() { return 0; }
 
     static constexpr bool clear_memory = clear_memory_;
+
+    std::shared_ptr<doris::MemTrackerLimiter> mem_tracker_ {nullptr};
 
     // Freshly mmapped pages are copy-on-write references to a global zero page.
     // On the first write, a page fault occurs, and an actual writable page is
