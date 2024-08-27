@@ -525,8 +525,9 @@ public class BackupJob extends AbstractJob {
 
         // Limit the max num of tablets involved in a backup job, to avoid OOM.
         if (unfinishedTaskIds.size() > Config.max_backup_tablets_per_job) {
-            String msg = String.format("the num involved tablets %d exceeds the limit %d"
-                    + "change config `max_backup_tablets_per_job` to change this limitation",
+            String msg = String.format("the num involved tablets %d exceeds the limit %d, "
+                    + "which might cause the FE OOM, change config `max_backup_tablets_per_job` "
+                    + "to change this limitation",
                     unfinishedTaskIds.size(), Config.max_backup_tablets_per_job);
             LOG.warn(msg);
             status = new Status(ErrCode.COMMON_ERROR, msg);
