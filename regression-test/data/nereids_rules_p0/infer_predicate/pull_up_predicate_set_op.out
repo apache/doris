@@ -2,24 +2,24 @@
 -- !intersect --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
-----filter((t3.a < 1) and (t3.b > 'ab'))
-------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 ----PhysicalIntersect
 ------filter((test_pull_up_predicate_set_op1.a < 1) and (test_pull_up_predicate_set_op1.b > 'ab'))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op1]
 ------filter((test_pull_up_predicate_set_op2.a < 1) and (test_pull_up_predicate_set_op2.b > 'ab'))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op2]
+----filter((t3.a < 1) and (t3.b > 'ab'))
+------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
 -- !except --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
-----filter((t3.a < 1))
-------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 ----PhysicalExcept
 ------filter((test_pull_up_predicate_set_op1.a < 1))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op1]
 ------filter((test_pull_up_predicate_set_op2.a < 1) and (test_pull_up_predicate_set_op2.b > 'ab'))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op2]
+----filter((t3.a < 1))
+------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
 -- !union --
 PhysicalResultSink
@@ -38,10 +38,10 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
 ----PhysicalIntersect
-------filter((test_pull_up_predicate_set_op2.a = 1) and (test_pull_up_predicate_set_op2.b > 'ab'))
---------PhysicalOlapScan[test_pull_up_predicate_set_op2]
 ------filter((test_pull_up_predicate_set_op1.b > 'ab'))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op1]
+------filter((test_pull_up_predicate_set_op2.a = 1) and (test_pull_up_predicate_set_op2.b > 'ab'))
+--------PhysicalOlapScan[test_pull_up_predicate_set_op2]
 ----filter((t3.a = 1) and (t3.b > 'ab'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
@@ -95,12 +95,12 @@ PhysicalResultSink
 -- !union_different_filter --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
-----PhysicalOlapScan[test_pull_up_predicate_set_op3]
 ----PhysicalUnion
 ------filter((test_pull_up_predicate_set_op1.a < 2))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op1]
 ------filter((test_pull_up_predicate_set_op2.a < 1))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op2]
+----PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
 -- !union_one_side_filter --
 PhysicalResultSink
@@ -176,10 +176,10 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
 ----PhysicalIntersect
-------filter((test_pull_up_predicate_set_op2.a = 1) and (test_pull_up_predicate_set_op2.b > 'ab'))
---------PhysicalOlapScan[test_pull_up_predicate_set_op2]
 ------filter((test_pull_up_predicate_set_op1.b > 'ab'))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op1]
+------filter((test_pull_up_predicate_set_op2.a = 1) and (test_pull_up_predicate_set_op2.b > 'ab'))
+--------PhysicalOlapScan[test_pull_up_predicate_set_op2]
 ----filter((t3.a = 1) and (t3.b > 'ab'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
@@ -209,8 +209,7 @@ PhysicalResultSink
 
 -- !union_right_join --
 PhysicalResultSink
---hashJoin[LEFT_OUTER_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
-----PhysicalOlapScan[test_pull_up_predicate_set_op3]
+--hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalUnion
@@ -218,28 +217,29 @@ PhysicalResultSink
 ------------PhysicalOlapScan[test_pull_up_predicate_set_op1]
 ----------filter((test_pull_up_predicate_set_op2.a < 1))
 ------------PhysicalOlapScan[test_pull_up_predicate_set_op2]
+----PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
 -- !intersect_one_side_constant_one_side_column_left_semi_join --
 PhysicalResultSink
 --hashJoin[LEFT_SEMI_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
 ----PhysicalIntersect
-------filter((test_pull_up_predicate_set_op2.a = 1) and (test_pull_up_predicate_set_op2.b > 'ab'))
---------PhysicalOlapScan[test_pull_up_predicate_set_op2]
 ------filter((test_pull_up_predicate_set_op1.b > 'ab'))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op1]
+------filter((test_pull_up_predicate_set_op2.a = 1) and (test_pull_up_predicate_set_op2.b > 'ab'))
+--------PhysicalOlapScan[test_pull_up_predicate_set_op2]
 ----filter((t3.a = 1) and (t3.b > 'ab'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
 -- !except_second_no_filter_right_semi_join --
 PhysicalResultSink
---hashJoin[LEFT_SEMI_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
-----filter((t3.a > 1))
-------PhysicalOlapScan[test_pull_up_predicate_set_op3]
+--hashJoin[RIGHT_SEMI_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
 ----PhysicalExcept
 ------filter((test_pull_up_predicate_set_op1.a > 1))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op1]
 ------filter((test_pull_up_predicate_set_op2.a > 1))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op2]
+----filter((t3.a > 1))
+------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
 -- !union_left_anti_join --
 PhysicalResultSink
@@ -256,8 +256,7 @@ PhysicalResultSink
 
 -- !union_right_anti_join --
 PhysicalResultSink
---hashJoin[LEFT_ANTI_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
-----PhysicalOlapScan[test_pull_up_predicate_set_op3]
+--hashJoin[RIGHT_ANTI_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalUnion
@@ -265,6 +264,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[test_pull_up_predicate_set_op1]
 ----------filter((test_pull_up_predicate_set_op2.a < 1))
 ------------PhysicalOlapScan[test_pull_up_predicate_set_op2]
+----PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
 -- !union_all_const_full_join --
 PhysicalResultSink
@@ -281,14 +281,14 @@ PhysicalResultSink
 -- !intersect_union --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
-----PhysicalUnion
-------filter((test_pull_up_predicate_set_op2.a < 1) and (test_pull_up_predicate_set_op2.b > 'ab'))
---------PhysicalOlapScan[test_pull_up_predicate_set_op2]
-------filter((test_pull_up_predicate_set_op2.a < 1) and (test_pull_up_predicate_set_op2.b > 'ab'))
---------PhysicalOlapScan[test_pull_up_predicate_set_op2]
 ----PhysicalIntersect
 ------filter((test_pull_up_predicate_set_op1.a < 1) and (test_pull_up_predicate_set_op1.b > 'ab'))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op1]
+------filter((test_pull_up_predicate_set_op2.a < 1) and (test_pull_up_predicate_set_op2.b > 'ab'))
+--------PhysicalOlapScan[test_pull_up_predicate_set_op2]
+----PhysicalUnion
+------filter((test_pull_up_predicate_set_op2.a < 1) and (test_pull_up_predicate_set_op2.b > 'ab'))
+--------PhysicalOlapScan[test_pull_up_predicate_set_op2]
 ------filter((test_pull_up_predicate_set_op2.a < 1) and (test_pull_up_predicate_set_op2.b > 'ab'))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op2]
 
@@ -316,18 +316,13 @@ PhysicalResultSink
 ----------filter((test_pull_up_predicate_set_op2.a < 1))
 ------------PhysicalOlapScan[test_pull_up_predicate_set_op2]
 ----NestedLoopJoin[CROSS_JOIN]
-------PhysicalOlapScan[test_pull_up_predicate_set_op1]
 ------filter((t3.a < 1))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op3]
+------PhysicalOlapScan[test_pull_up_predicate_set_op1]
 
 -- !union_inner_join --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
-----hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
-------filter((t2.a < 1))
---------PhysicalOlapScan[test_pull_up_predicate_set_op1]
-------filter((t3.a < 1))
---------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalUnion
@@ -335,6 +330,11 @@ PhysicalResultSink
 ------------PhysicalOlapScan[test_pull_up_predicate_set_op1]
 ----------filter((test_pull_up_predicate_set_op2.a < 1))
 ------------PhysicalOlapScan[test_pull_up_predicate_set_op2]
+----hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
+------filter((t3.a < 1))
+--------PhysicalOlapScan[test_pull_up_predicate_set_op3]
+------filter((t2.a < 1))
+--------PhysicalOlapScan[test_pull_up_predicate_set_op1]
 
 -- !union_all_const_datetime --
 PhysicalResultSink
