@@ -31,7 +31,20 @@
 #include "runtime/exec_env.h"
 namespace doris {
 
-struct CompactionScoresAccessor;
+struct CompactionScoreResult {
+    int64_t tablet_id;
+    size_t compaction_score;
+};
+
+inline bool operator>(const CompactionScoreResult& lhs, const CompactionScoreResult& rhs) {
+    return lhs.compaction_score > rhs.compaction_score;
+}
+
+struct CompactionScoresAccessor {
+    virtual ~CompactionScoresAccessor() = default;
+
+    virtual std::vector<CompactionScoreResult> get_all_tablet_compaction_scores() = 0;
+};
 
 // topn, sync
 class CompactionScoreAction : public HttpHandlerWithAuth {

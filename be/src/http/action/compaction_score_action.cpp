@@ -16,6 +16,7 @@
 // under the License.
 #include "http/action/compaction_score_action.h"
 
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 #include <rapidjson/document.h>
@@ -58,15 +59,6 @@ constexpr size_t DEFAULT_TOP_N = std::numeric_limits<size_t>::max();
 constexpr bool DEFAULT_SYNC_META = false;
 constexpr std::string_view TABLET_ID = "tablet_id";
 
-struct CompactionScoreResult {
-    int64_t tablet_id;
-    size_t compaction_score;
-};
-
-bool operator>(const CompactionScoreResult& lhs, const CompactionScoreResult& rhs) {
-    return lhs.compaction_score > rhs.compaction_score;
-}
-
 template <typename T>
 concept CompactionScoreAccessble = requires(T t) {
     { t.get_real_compaction_score() } -> std::same_as<uint32_t>;
@@ -84,12 +76,6 @@ std::vector<CompactionScoreResult> calculate_compaction_scores(
                            });
     return result;
 }
-
-struct CompactionScoresAccessor {
-    virtual ~CompactionScoresAccessor() = default;
-
-    virtual std::vector<CompactionScoreResult> get_all_tablet_compaction_scores() = 0;
-};
 
 struct LocalCompactionScoreAccessor final : CompactionScoresAccessor {
     LocalCompactionScoreAccessor(TabletManager* tablet_mgr) : tablet_mgr(tablet_mgr) {}
@@ -127,7 +113,8 @@ struct CloudCompactionScoresAccessor final : CompactionScoresAccessor {
         std::vector<CloudTabletSPtr> tablets;
         tablets.reserve(weak_tablets.size());
         for (auto& weak_tablet : weak_tablets) {
-            if (auto tablet = weak_tablet.lock()) {
+            if (auto tablet = weak_tablet.lock();
+                tablet != nullptr and tablet->tablet_state() == TABLET_RUNNING) {
                 tablets.push_back(std::move(tablet));
             }
         }
@@ -196,7 +183,7 @@ void CompactionScoreAction::handle(HttpRequest* req) {
         sync_meta = true;
     } else if (sync_meta_param == "false") {
         sync_meta = false;
-    } else {
+    } else if (!sync_meta_param.empty()) {
         auto msg = std::format("invalid argument: sync_meta={}", sync_meta_param);
         HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, msg);
         return;
