@@ -106,11 +106,9 @@ Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status SortSinkOperatorX::prepare(RuntimeState* state) {
-    return _vsort_exec_exprs.prepare(state, _child_x->row_desc(), _row_descriptor);
-}
-
 Status SortSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<SortSinkLocalState>::open(state));
+    RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child_x->row_desc(), _row_descriptor));
     return _vsort_exec_exprs.open(state);
 }
 

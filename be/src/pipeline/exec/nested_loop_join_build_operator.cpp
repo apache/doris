@@ -107,8 +107,8 @@ Status NestedLoopJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
     return Status::OK();
 }
 
-Status NestedLoopJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
-    // pre-compute the tuple index of build tuples in the output row
+Status NestedLoopJoinBuildSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>::open(state));
     int num_build_tuples = _child_x->row_desc().tuple_descriptors().size();
 
     for (int i = 0; i < num_build_tuples; ++i) {
@@ -117,10 +117,6 @@ Status NestedLoopJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
         RETURN_IF_INVALID_TUPLE_IDX(build_tuple_desc->id(), tuple_idx);
     }
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_filter_src_expr_ctxs, state, _child_x->row_desc()));
-    return Status::OK();
-}
-
-Status NestedLoopJoinBuildSinkOperatorX::open(RuntimeState* state) {
     return vectorized::VExpr::open(_filter_src_expr_ctxs, state);
 }
 
