@@ -2125,7 +2125,7 @@ public class SessionVariable implements Serializable, Writable {
             "When enable_adaptive_pipeline_task_serial_read_on_limit is enabled, "
             + "the number of rows at which the parallelism of the scan will be set to 1."
     })
-    public int adaptivePipelineTaskSerialReadOnLimit = 8196;
+    public int adaptivePipelineTaskSerialReadOnLimit = 8192;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
