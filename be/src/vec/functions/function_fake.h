@@ -55,7 +55,7 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return true; }
-    
+
     DataTypes get_variadic_argument_types_impl() const override {
         return Impl::get_variadic_argument_types();
     }
