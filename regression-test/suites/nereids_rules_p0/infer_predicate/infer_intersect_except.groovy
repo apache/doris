@@ -173,6 +173,10 @@ suite("infer_intersect_except") {
     qt_intersect_and_except_res """
     select a,b from infer_intersect_except1 where a>0 intersect select 1,'abc' from infer_intersect_except2 where b>'ab' except select a,b from infer_intersect_except3 where a<10  order by 1,2;
     """
+    def res_test = sql """select abs(a) from infer_intersect_except1 t1 where abs(a)<3 intersect select abs(a) from infer_intersect_except2 t2  order by 1"""
+    logger.info("function_intersect_res:" + res_test)
+    def var_result = sql "show variables"
+    logger.info("show variales result: " + var_result )
 
     qt_function_intersect_res """
     select abs(a) from infer_intersect_except1 t1 where abs(a)<3 intersect select abs(a) from infer_intersect_except2 t2  order by 1  """
