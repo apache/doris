@@ -1811,8 +1811,7 @@ public class Coordinator implements CoordInterface {
                 // and the third child is the right child(ExchangeNode) of broadcast HashJoinNode.
                 // We only need to pay attention to the maximum parallelism among
                 // the two ExchangeNodes of shuffle HashJoinNode.
-                int childrenCount = (fatherNode != null) ? fatherNode.getChildren().size() : 1;
-                for (int j = 0; j < childrenCount; j++) {
+                for (int j = 0; j < fragment.getChildren().size(); j++) {
                     int currentChildFragmentParallelism
                             = fragmentExecParamsMap.get(fragment.getChild(j).getFragmentId()).instanceExecParams.size();
                     if (currentChildFragmentParallelism > maxParallelism) {
