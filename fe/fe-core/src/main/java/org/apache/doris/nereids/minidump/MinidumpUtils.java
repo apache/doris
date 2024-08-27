@@ -58,6 +58,8 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Type;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -551,6 +553,36 @@ public class MinidumpUtils {
 
         MinidumpUtils.init();
         connectContext.setMinidump(serializeInputs(parsedPlan, tables));
+    }
+
+    /**
+     * get minidump string by query id, would find file in DUMP_PATH
+     * @param queryId unique query id of a sql
+     * @return minidump file content
+     */
+    public static String getMinidumpString(String queryId) {
+        // Create a File object for the directory
+        File directory = new File(DUMP_PATH);
+
+        // Get all files in the directory
+        File[] files = directory.listFiles();
+
+        if (files != null) {
+            for (File file : files) {
+                // Check if the file name contains the search string
+                if (file.isFile() && file.getName().contains(queryId)) {
+                    try {
+                        // Read the content of the file
+                        String content = new String(Files.readAllBytes(Paths.get(file.getPath())));
+                        // Add the content to the list
+                        return content;
+                    } catch (IOException e) {
+                        break;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     /**
