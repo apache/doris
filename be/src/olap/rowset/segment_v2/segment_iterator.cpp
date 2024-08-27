@@ -2983,7 +2983,7 @@ bool SegmentIterator::_no_need_read_key_data(ColumnId cid, vectorized::MutableCo
         return false;
     }
 
-    if (!_check_all_predicates_passed_inverted_index_for_column(cid)) {
+    if (!_check_all_predicates_passed_inverted_index_for_column(cid, true)) {
         return false;
     }
 
