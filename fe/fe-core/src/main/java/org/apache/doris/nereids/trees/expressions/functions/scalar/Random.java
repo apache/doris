@@ -118,4 +118,9 @@ public class Random extends ScalarFunction
     public boolean isDeterministic() {
         return false;
     }
+
+    @Override
+    public boolean foldable() {
+        return false;
+    }
 }
