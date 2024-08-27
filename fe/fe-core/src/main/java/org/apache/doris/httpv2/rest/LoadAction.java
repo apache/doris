@@ -102,21 +102,25 @@ public class LoadAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_stream_load", method = RequestMethod.PUT)
     public Object streamLoad(HttpServletRequest request,
-                             HttpServletResponse response,
-                             @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
-        LOG.info("streamload action, db: {}, tbl: {}, headers: {}", db, table,  getAllHeaders(request));
+            HttpServletResponse response,
+            @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
+        LOG.info("streamload action, db: {}, tbl: {}, headers: {}", db, table, getAllHeaders(request));
         boolean groupCommit = false;
         String groupCommitStr = request.getHeader("group_commit");
-        if (groupCommitStr != null && groupCommitStr.equalsIgnoreCase("async_mode")) {
-            groupCommit = true;
-            try {
-                if (isGroupCommitBlock(db, table)) {
-                    String msg = "insert table " + table + GroupCommitPlanner.SCHEMA_CHANGE;
-                    return new RestBaseResult(msg);
+        if (groupCommitStr != null) {
+            if (groupCommitStr.equalsIgnoreCase("async_mode")) {
+                groupCommit = true;
+                try {
+                    if (isGroupCommitBlock(db, table)) {
+                        String msg = "insert table " + table + GroupCommitPlanner.SCHEMA_CHANGE;
+                        return new RestBaseResult(msg);
+                    }
+                } catch (Exception e) {
+                    LOG.info("exception:" + e);
+                    return new RestBaseResult(e.getMessage());
                 }
-            } catch (Exception e) {
-                LOG.info("exception:" + e);
-                return new RestBaseResult(e.getMessage());
+            } else if (groupCommitStr.equalsIgnoreCase("sync_mode")) {
+                groupCommit = true;
             }
         }
         if (needRedirect(request.getScheme())) {
@@ -147,21 +151,29 @@ public class LoadAction extends RestBaseController {
         boolean groupCommit = false;
         long tableId = -1;
         String groupCommitStr = request.getHeader("group_commit");
-        if (groupCommitStr != null && groupCommitStr.equalsIgnoreCase("async_mode")) {
-            groupCommit = true;
-            try {
-                String[] pair = parseDbAndTb(sql);
-                Database db = Env.getCurrentInternalCatalog()
-                        .getDbOrException(pair[0], s -> new TException("database is invalid for dbName: " + s));
-                Table tbl = db.getTableOrException(pair[1], s -> new TException("table is invalid: " + s));
-                tableId = tbl.getId();
-                if (isGroupCommitBlock(pair[0], pair[1])) {
-                    String msg = "insert table " + pair[1] + GroupCommitPlanner.SCHEMA_CHANGE;
-                    return new RestBaseResult(msg);
+        if (groupCommitStr != null) {
+            if (groupCommitStr.equalsIgnoreCase("async_mode")) {
+                try {
+                    groupCommit = true;
+                    String[] pair = parseDbAndTb(sql);
+                    Database db = Env.getCurrentInternalCatalog()
+                            .getDbOrException(pair[0], s -> new TException("database is invalid for dbName: " + s));
+                    Table tbl = db.getTableOrException(pair[1], s -> new TException("table is invalid: " + s));
+                    tableId = tbl.getId();
+
+                    if (groupCommitStr.equalsIgnoreCase("async_mode")) {
+                        if (isGroupCommitBlock(pair[0], pair[1])) {
+                            String msg = "insert table " + pair[1] + GroupCommitPlanner.SCHEMA_CHANGE;
+                            return new RestBaseResult(msg);
+                        }
+
+                    }
+                } catch (Exception e) {
+                    LOG.info("exception:" + e);
+                    return new RestBaseResult(e.getMessage());
                 }
-            } catch (Exception e) {
-                LOG.info("exception:" + e);
-                return new RestBaseResult(e.getMessage());
+            } else if (groupCommitStr.equalsIgnoreCase("sync_mode")) {
+                groupCommit = true;
             }
         }
         executeCheckPassword(request, response);
@@ -409,21 +421,7 @@ public class LoadAction extends RestBaseController {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
         if (groupCommit) {
-            ConnectContext ctx = new ConnectContext();
-            ctx.setEnv(Env.getCurrentEnv());
-            ctx.setThreadLocalInfo();
-            ctx.setRemoteIP(request.getRemoteAddr());
-            // We set this variable to fulfill required field 'user' in
-            // TMasterOpRequest(FrontendService.thrift)
-            ctx.setQualifiedUser(Auth.ADMIN_USER);
-            ctx.setThreadLocalInfo();
-
-            try {
-                backend = Env.getCurrentEnv().getGroupCommitManager()
-                        .selectBackendForGroupCommit(tableId, ctx, false);
-            } catch (DdlException e) {
-                throw new RuntimeException(e);
-            }
+            backend = selectBackendForGroupCommit("", request, tableId, false);
         } else {
             backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
         }
@@ -438,21 +436,7 @@ public class LoadAction extends RestBaseController {
             throws LoadException {
         Backend backend = null;
         if (groupCommit) {
-            ConnectContext ctx = new ConnectContext();
-            ctx.setEnv(Env.getCurrentEnv());
-            ctx.setThreadLocalInfo();
-            ctx.setRemoteIP(req.getRemoteAddr());
-            // We set this variable to fulfill required field 'user' in
-            // TMasterOpRequest(FrontendService.thrift)
-            ctx.setQualifiedUser(Auth.ADMIN_USER);
-            ctx.setThreadLocalInfo();
-
-            try {
-                backend = Env.getCurrentEnv().getGroupCommitManager()
-                        .selectBackendForGroupCommit(tableId, ctx, false);
-            } catch (DdlException e) {
-                throw new RuntimeException(e);
-            }
+            backend = selectBackendForGroupCommit(clusterName, req, tableId, true);
         } else {
             backend = StreamLoadHandler.selectBackend(clusterName);
         }
@@ -666,5 +650,30 @@ public class LoadAction extends RestBaseController {
             headers.append(headerName).append(":").append(headerValue).append(", ");
         }
         return headers.toString();
+    }
+
+    private Backend selectBackendForGroupCommit(String clusterName, HttpServletRequest req, long tableId,
+            boolean isCloud)
+            throws LoadException {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setThreadLocalInfo();
+        ctx.setRemoteIP(req.getRemoteAddr());
+        // We set this variable to fulfill required field 'user' in
+        // TMasterOpRequest(FrontendService.thrift)
+        ctx.setQualifiedUser(Auth.ADMIN_USER);
+        ctx.setThreadLocalInfo();
+        if (isCloud) {
+            ctx.setCloudCluster(clusterName);
+        }
+
+        Backend backend = null;
+        try {
+            backend = Env.getCurrentEnv().getGroupCommitManager()
+                    .selectBackendForGroupCommit(tableId, ctx, true);
+        } catch (DdlException e) {
+            throw new RuntimeException(e);
+        }
+        return backend;
     }
 }
