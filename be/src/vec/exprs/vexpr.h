@@ -119,12 +119,12 @@ public:
     virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
 
     // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
-    virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) const {
+    virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
         return Status::NotSupported("Not supported execute_with_inverted_index");
     }
 
     Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
-                                    uint32_t segment_num_rows) const;
+                                    uint32_t segment_num_rows);
 
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface

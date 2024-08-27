@@ -115,7 +115,6 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     }
     VExpr::register_function_context(state, context);
     _function_name = _fn.name.function_name;
-    _can_fast_execute = can_fast_execute();
     _prepare_finished = true;
     return Status::OK();
 }
@@ -139,8 +138,7 @@ void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionSta
     VExpr::close(context, scope);
 }
 
-Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context,
-                                                 uint32_t segment_num_rows) const {
+Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
     DCHECK_GE(get_num_children(), 1);
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
@@ -151,7 +149,7 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
     if (is_const_and_have_executed()) { // const have executed in open function
         return get_result_from_const(block, _expr_name, result_column_id);
     }
-    if (fast_execute(context, block, result_column_id)) {
+    if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
         return Status::OK();
     }
     DBUG_EXECUTE_IF("VectorizedFnCall.must_in_slow_path", {
@@ -237,17 +235,6 @@ std::string VectorizedFnCall::debug_string(const std::vector<VectorizedFnCall*>&
 }
 
 bool VectorizedFnCall::can_push_down_to_index() const {
-    return _function->can_push_down_to_index();
-}
-
-bool VectorizedFnCall::can_fast_execute() const {
-    auto function_name = _function->get_name();
-    if (function_name == "eq" || function_name == "ne" || function_name == "lt" ||
-        function_name == "gt" || function_name == "le" || function_name == "ge") {
-        if (_children.size() == 2 && _children[0]->is_slot_ref() && _children[1]->is_literal()) {
-            return true;
-        }
-    }
     return _function->can_push_down_to_index();
 }
 

@@ -52,7 +52,7 @@ public:
     Status execute_runtime_fitler(doris::vectorized::VExprContext* context,
                                   doris::vectorized::Block* block, int* result_column_id,
                                   std::vector<size_t>& args) override;
-    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) const override;
+    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;

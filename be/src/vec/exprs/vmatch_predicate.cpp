@@ -132,16 +132,14 @@ void VMatchPredicate::close(VExprContext* context, FunctionContext::FunctionStat
     VExpr::close(context, scope);
 }
 
-Status VMatchPredicate::evaluate_inverted_index(VExprContext* context,
-                                                uint32_t segment_num_rows) const {
+Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
     DCHECK_EQ(get_num_children(), 2);
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
 Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
     DCHECK(_open_finished || _getting_const_col);
-    // TODO: not execute const expr again, but use the const column in function context
-    if (fast_execute(context, block, result_column_id)) {
+    if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
         return Status::OK();
     }
     DBUG_EXECUTE_IF("VMatchPredicate.execute", {

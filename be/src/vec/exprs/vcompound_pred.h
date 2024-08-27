@@ -54,8 +54,7 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
-    Status evaluate_inverted_index(VExprContext* context,
-                                   uint32_t segment_num_rows) const override {
+    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
         segment_v2::InvertedIndexResultBitmap res;
         bool all_pass = true;
 
@@ -145,13 +144,15 @@ public:
         }
 
         if (all_pass && !res.is_empty()) {
+            // set fast_execute when expr evaluated by inverted index correctly
+            _can_fast_execute = true;
             context->get_inverted_index_context()->set_inverted_index_result_for_expr(this, res);
         }
         return Status::OK();
     }
 
     Status execute(VExprContext* context, Block* block, int* result_column_id) override {
-        if (fast_execute(context, block, result_column_id)) {
+        if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
             return Status::OK();
         }
         if (children().size() == 1 || !_all_child_is_compound_and_not_const()) {

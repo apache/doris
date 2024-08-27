@@ -81,8 +81,6 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
 
     VExpr::register_function_context(state, context);
     _prepare_finished = true;
-    _can_fast_execute = can_fast_execute();
-    _in_list_value_count_threshold = state->query_options().in_list_value_count_threshold;
     return Status::OK();
 }
 
@@ -105,8 +103,7 @@ void VInPredicate::close(VExprContext* context, FunctionContext::FunctionStateSc
     VExpr::close(context, scope);
 }
 
-Status VInPredicate::evaluate_inverted_index(VExprContext* context,
-                                             uint32_t segment_num_rows) const {
+Status VInPredicate::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
     DCHECK_GE(get_num_children(), 2);
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
@@ -115,7 +112,7 @@ Status VInPredicate::execute(VExprContext* context, Block* block, int* result_co
     if (is_const_and_have_executed()) { // const have execute in open function
         return get_result_from_const(block, _expr_name, result_column_id);
     }
-    if (fast_execute(context, block, result_column_id)) {
+    if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
         return Status::OK();
     }
     DCHECK(_open_finished || _getting_const_col);

@@ -611,7 +611,7 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
 }
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
-                                       uint32_t segment_num_rows) const {
+                                       uint32_t segment_num_rows) {
     std::vector<segment_v2::InvertedIndexIterator*> iterators;
     std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
     std::vector<int> column_ids;
@@ -668,6 +668,8 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
             context->get_inverted_index_context()->set_true_for_inverted_index_status(this,
                                                                                       column_id);
         }
+        // set fast_execute when expr evaluated by inverted index correctly
+        _can_fast_execute = true;
     }
     return Status::OK();
 }
