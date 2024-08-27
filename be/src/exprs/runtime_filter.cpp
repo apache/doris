@@ -553,14 +553,14 @@ public:
         return Status::OK();
     }
 
-    Status assign(const PInFilter* in_filter, bool contain_null, PrimitiveType type) {
-        _context->hybrid_set.reset(create_set(type));
+    Status assign(const PInFilter* in_filter, bool contain_null) {
+        _context->hybrid_set.reset(create_set(_column_return_type));
         if (contain_null) {
             _context->hybrid_set->set_null_aware(true);
             _context->hybrid_set->insert((const void*)nullptr);
         }
 
-        switch (type) {
+        switch (_column_return_type) {
         case TYPE_BOOLEAN: {
             batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
                 bool bool_val = column.boolval();
@@ -702,7 +702,7 @@ public:
         }
         default: {
             return Status::InternalError("not support assign to in filter, type: " +
-                                         type_to_string(type));
+                                         type_to_string(_column_return_type));
         }
         }
         return Status::OK();
@@ -724,15 +724,15 @@ public:
 
     // used by shuffle runtime filter
     // assign this filter by protobuf
-    Status assign(const PMinMaxFilter* minmax_filter, bool contain_null, PrimitiveType type) {
-        _context->minmax_func.reset(create_minmax_filter(type));
+    Status assign(const PMinMaxFilter* minmax_filter, bool contain_null) {
+        _context->minmax_func.reset(create_minmax_filter(_column_return_type));
 
         if (contain_null) {
             _context->minmax_func->set_null_aware(true);
             _context->minmax_func->set_contain_null();
         }
 
-        switch (type) {
+        switch (_column_return_type) {
         case TYPE_BOOLEAN: {
             bool min_val = minmax_filter->min_val().boolval();
             bool max_val = minmax_filter->max_val().boolval();
@@ -1380,8 +1380,7 @@ Status IRuntimeFilter::create_wrapper(const UpdateRuntimeFilterParamsV2* param,
     switch (filter_type) {
     case PFilterType::IN_FILTER: {
         DCHECK(param->request->has_in_filter());
-        return (*wrapper)->assign(&param->request->in_filter(), param->request->contain_null(),
-                                  column_type);
+        return (*wrapper)->assign(&param->request->in_filter(), param->request->contain_null());
     }
     case PFilterType::BLOOM_FILTER: {
         DCHECK(param->request->has_bloom_filter());
@@ -1392,8 +1391,7 @@ Status IRuntimeFilter::create_wrapper(const UpdateRuntimeFilterParamsV2* param,
     case PFilterType::MAX_FILTER:
     case PFilterType::MINMAX_FILTER: {
         DCHECK(param->request->has_minmax_filter());
-        return (*wrapper)->assign(&param->request->minmax_filter(), param->request->contain_null(),
-                                  column_type);
+        return (*wrapper)->assign(&param->request->minmax_filter(), param->request->contain_null());
     }
     default:
         return Status::InternalError("unknown filter type");
@@ -1413,10 +1411,10 @@ template <class T>
 Status IRuntimeFilter::_create_wrapper(const T* param,
                                        std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
     int filter_type = param->request->filter_type();
-    PrimitiveType column_type = PrimitiveType::INVALID_TYPE;
-    if (param->request->has_column_type()) {
-        column_type = to_primitive_type(param->request->column_type());
+    if (!param->request->has_column_type()) {
+        return Status::InternalError("unknown filter column type");
     }
+    PrimitiveType column_type = to_primitive_type(param->request->column_type());
     *wrapper = std::make_unique<RuntimePredicateWrapper>(column_type, get_type(filter_type),
                                                          param->request->filter_id());
 
@@ -1428,8 +1426,7 @@ Status IRuntimeFilter::_create_wrapper(const T* param,
     switch (filter_type) {
     case PFilterType::IN_FILTER: {
         DCHECK(param->request->has_in_filter());
-        return (*wrapper)->assign(&param->request->in_filter(), param->request->contain_null(),
-                                  column_type);
+        return (*wrapper)->assign(&param->request->in_filter(), param->request->contain_null());
     }
     case PFilterType::BLOOM_FILTER: {
         DCHECK(param->request->has_bloom_filter());
@@ -1440,8 +1437,7 @@ Status IRuntimeFilter::_create_wrapper(const T* param,
     case PFilterType::MAX_FILTER:
     case PFilterType::MINMAX_FILTER: {
         DCHECK(param->request->has_minmax_filter());
-        return (*wrapper)->assign(&param->request->minmax_filter(), param->request->contain_null(),
-                                  column_type);
+        return (*wrapper)->assign(&param->request->minmax_filter(), param->request->contain_null());
     }
     default:
         return Status::InternalError("unknown filter type");
