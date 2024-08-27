@@ -151,14 +151,29 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));
     }
+    LOG(INFO) << "Scan operator start to process conjuncts. Query ID = "
+              << print_id(state->query_id())
+              << " InstanceId = " << print_id(state->fragment_instance_id())
+              << " NodeId = " << p.node_id();
     RETURN_IF_ERROR(_process_conjuncts());
 
+    LOG(INFO) << "Scan operator start to prepare scanners. Query ID = "
+              << print_id(state->query_id())
+              << " InstanceId = " << print_id(state->fragment_instance_id())
+              << " NodeId = " << p.node_id();
     auto status = _eos ? Status::OK() : _prepare_scanners();
     RETURN_IF_ERROR(status);
+    LOG(INFO) << "Scan operator start to init scanner context. Query ID = "
+              << print_id(state->query_id())
+              << " InstanceId = " << print_id(state->fragment_instance_id())
+              << " NodeId = " << p.node_id();
     if (_scanner_ctx) {
         DCHECK(!_eos && _num_scanners->value() > 0);
         RETURN_IF_ERROR(_scanner_ctx->init());
     }
+    LOG(INFO) << "Scan operator is ready to execute. Query ID = " << print_id(state->query_id())
+              << " InstanceId = " << print_id(state->fragment_instance_id())
+              << " NodeId = " << p.node_id();
     _opened = true;
     return status;
 }
