@@ -247,8 +247,8 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
             // schema_buffer stores 1M of data for parsing column information
             // need to determine whether to cache for the first time
             if (ctx->is_read_schema) {
-                if (ctx->schema_buffer->pos + remove_bytes < config::stream_tvf_buffer_size) {
-                    ctx->schema_buffer->put_bytes(bb->ptr, remove_bytes);
+                if (ctx->schema_buffer()->pos + remove_bytes < config::stream_tvf_buffer_size) {
+                    ctx->schema_buffer()->put_bytes(bb->ptr, remove_bytes);
                 } else {
                     LOG(INFO) << "use a portion of data to request fe to obtain column information";
                     ctx->is_read_schema = false;
