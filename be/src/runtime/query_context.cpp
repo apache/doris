@@ -87,7 +87,6 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker);
     _query_watcher.start();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
-    _shared_scanner_controller.reset(new vectorized::SharedScannerController());
     _execution_dependency = pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency");
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
             TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker);
@@ -193,7 +192,6 @@ QueryContext::~QueryContext() {
     _runtime_filter_mgr.reset();
     _execution_dependency.reset();
     _shared_hash_table_controller.reset();
-    _shared_scanner_controller.reset();
     _runtime_predicates.clear();
     file_scan_range_params_map.clear();
     obj_pool.clear();
@@ -206,24 +204,14 @@ QueryContext::~QueryContext() {
 
 void QueryContext::set_ready_to_execute(Status reason) {
     set_execution_dependency_ready();
-    {
-        std::lock_guard<std::mutex> l(_start_lock);
-        _exec_status.update(reason);
-        _ready_to_execute = true;
-    }
+    _exec_status.update(reason);
     if (query_mem_tracker && !reason.ok()) {
         query_mem_tracker->set_is_query_cancelled(!reason.ok());
     }
-    _start_cond.notify_all();
 }
 
 void QueryContext::set_ready_to_execute_only() {
     set_execution_dependency_ready();
-    {
-        std::lock_guard<std::mutex> l(_start_lock);
-        _ready_to_execute = true;
-    }
-    _start_cond.notify_all();
 }
 
 void QueryContext::set_execution_dependency_ready() {
@@ -282,21 +270,6 @@ std::string QueryContext::print_all_pipeline_context() {
         }
     }
     return fmt::to_string(debug_string_buffer);
-}
-
-Status QueryContext::cancel_pipeline_context(const int fragment_id, const Status& reason) {
-    std::weak_ptr<pipeline::PipelineFragmentContext> ctx_to_cancel;
-    {
-        std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
-        if (!_fragment_id_to_pipeline_ctx.contains(fragment_id)) {
-            return Status::InternalError("fragment_id_to_pipeline_ctx is empty!");
-        }
-        ctx_to_cancel = _fragment_id_to_pipeline_ctx[fragment_id];
-    }
-    if (auto pipeline_ctx = ctx_to_cancel.lock()) {
-        pipeline_ctx->cancel(reason);
-    }
-    return Status::OK();
 }
 
 void QueryContext::set_pipeline_context(
