@@ -69,6 +69,7 @@ public class SummaryProfile {
     public static final String PHYSICAL_PLAN = "Physical Plan";
     public static final String DISTRIBUTED_PLAN = "Distributed Plan";
     public static final String SYSTEM_MESSAGE = "System Message";
+    public static final String EXECUTED_BY_FRONTEND = "Executed By Frontend";
     // Execution Summary
     public static final String EXECUTION_SUMMARY_PROFILE_NAME = "Execution Summary";
     public static final String ANALYSIS_TIME = "Analysis Time";
@@ -175,7 +176,8 @@ public class SummaryProfile {
             PARALLEL_FRAGMENT_EXEC_INSTANCE,
             TRACE_ID,
             TRANSACTION_COMMIT_TIME,
-            SYSTEM_MESSAGE
+            SYSTEM_MESSAGE,
+            EXECUTED_BY_FRONTEND
     );
 
     // Ident of each item. Default is 0, which doesn't need to present in this Map.
@@ -903,6 +905,10 @@ public class SummaryProfile {
 
     public void setSystemMessage(String msg) {
         summaryProfile.addInfoString(SYSTEM_MESSAGE, msg);
+    }
+
+    public void setExecutedByFrontend(boolean executedByFrontend) {
+        summaryProfile.addInfoString(EXECUTED_BY_FRONTEND, String.valueOf(executedByFrontend));
     }
 
     public void write(DataOutput output) throws IOException {
