@@ -20,6 +20,7 @@ import command
 import sys
 import traceback
 import utils
+import warnings
 
 
 def parse_args():
@@ -48,6 +49,7 @@ if __name__ == '__main__':
     disable_log = getattr(args, "output_json", False)
     if disable_log:
         utils.set_enable_log(False)
+        warnings.filterwarnings("ignore")
 
     code = None
     try:
