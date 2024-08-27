@@ -34,7 +34,8 @@ namespace segment_v2 {
 Status HierarchicalDataReader::create(std::unique_ptr<ColumnIterator>* reader,
                                       vectorized::PathInData path,
                                       const SubcolumnColumnReaders::Node* node,
-                                      const SubcolumnColumnReaders::Node* root) {
+                                      const SubcolumnColumnReaders::Node* root,
+                                      ReadType read_type) {
     // None leave node need merge with root
     auto* stream_iter = new HierarchicalDataReader(path);
     std::vector<const SubcolumnColumnReaders::Node*> leaves;
@@ -51,12 +52,15 @@ Status HierarchicalDataReader::create(std::unique_ptr<ColumnIterator>* reader,
     // Eg. {"a" : "b" : {"c" : 1}}, access the `a.b` path and merge with root path so that
     // we could make sure the data could be fully merged, since some column may not be extracted but remains in root
     // like {"a" : "b" : {"e" : 1.1}} in jsonb format
-    ColumnIterator* it;
-    RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
-    stream_iter->set_root(std::make_unique<StreamReader>(
-            root->data.file_column_type->create_column(), std::unique_ptr<ColumnIterator>(it),
-            root->data.file_column_type));
+    if (read_type == ReadType::MERGE_SPARSE) {
+        ColumnIterator* it;
+        RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
+        stream_iter->set_root(std::make_unique<SubstreamIterator>(
+                root->data.file_column_type->create_column(), std::unique_ptr<ColumnIterator>(it),
+                root->data.file_column_type));
+    }
     reader->reset(stream_iter);
+
     return Status::OK();
 }
 
@@ -93,7 +97,7 @@ Status HierarchicalDataReader::seek_to_ordinal(ordinal_t ord) {
 Status HierarchicalDataReader::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
                                           bool* has_null) {
     return process_read(
-            [&](StreamReader& reader, const vectorized::PathInData& path,
+            [&](SubstreamIterator& reader, const vectorized::PathInData& path,
                 const vectorized::DataTypePtr& type) {
                 CHECK(reader.inited);
                 RETURN_IF_ERROR(reader.iterator->next_batch(n, reader.column, has_null));
@@ -108,7 +112,7 @@ Status HierarchicalDataReader::next_batch(size_t* n, vectorized::MutableColumnPt
 Status HierarchicalDataReader::read_by_rowids(const rowid_t* rowids, const size_t count,
                                               vectorized::MutableColumnPtr& dst) {
     return process_read(
-            [&](StreamReader& reader, const vectorized::PathInData& path,
+            [&](SubstreamIterator& reader, const vectorized::PathInData& path,
                 const vectorized::DataTypePtr& type) {
                 CHECK(reader.inited);
                 RETURN_IF_ERROR(reader.iterator->read_by_rowids(rowids, count, reader.column));
@@ -130,8 +134,8 @@ Status HierarchicalDataReader::add_stream(const SubcolumnColumnReaders::Node* no
     RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
     std::unique_ptr<ColumnIterator> it_ptr;
     it_ptr.reset(it);
-    StreamReader reader(node->data.file_column_type->create_column(), std::move(it_ptr),
-                        node->data.file_column_type);
+    SubstreamIterator reader(node->data.file_column_type->create_column(), std::move(it_ptr),
+                             node->data.file_column_type);
     bool added = _substream_reader.add(node->path, std::move(reader));
     if (!added) {
         return Status::InternalError("Failed to add node path {}", node->path.get_path());

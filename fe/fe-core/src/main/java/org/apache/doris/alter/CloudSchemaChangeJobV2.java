@@ -232,7 +232,8 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                             tbl.getEnableMowLightDelete(),
                                             tbl.getInvertedIndexFileStorageFormat(),
-                                            tbl.rowStorePageSize());
+                                            tbl.rowStorePageSize(),
+                                            tbl.variantEnableFlattenNested());
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
