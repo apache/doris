@@ -1046,7 +1046,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         Tablet tablet = materializedIndex.getTablet(info.getTabletId());
         Replica replica = tablet.getReplicaByBackendId(info.getBackendId());
         Preconditions.checkNotNull(replica, info);
-        replica.updateVersionInfo(info.getVersion(), info.getDataSize(), info.getRemoteDataSize(), info.getRowCount());
+        replica.updateVersionWithFailed(info.getVersion(), info.getLastFailedVersion(),
+                info.getLastSuccessVersion());
+        replica.setDataSize(info.getDataSize());
+        replica.setRemoteDataSize(info.getRemoteDataSize());
+        replica.setRowCount(info.getRowCount());
         replica.setBad(false);
     }
 

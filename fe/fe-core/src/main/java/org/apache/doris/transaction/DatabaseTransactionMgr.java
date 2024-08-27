@@ -1933,7 +1933,7 @@ public class DatabaseTransactionMgr {
                                     lastFailedVersion = newCommitVersion;
                                 }
                             }
-                            replica.updateVersionWithFailedInfo(newVersion, lastFailedVersion, lastSuccessVersion);
+                            replica.updateVersionWithFailed(newVersion, lastFailedVersion, lastSuccessVersion);
                         }
                     }
                 } // end for indices
