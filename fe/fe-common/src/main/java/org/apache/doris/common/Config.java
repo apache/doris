@@ -3019,7 +3019,7 @@ public class Config extends ConfigBase {
     public static int try_commit_lock_timeout_seconds = 5;
 
     @ConfField(mutable = true, description = {"存算分离模式下是否开启大事务提交，默认false"})
-    public static boolean enable_cloud_txn_lazy_commit = false;
+    public static boolean enable_cloud_txn_lazy_commit = true;
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
