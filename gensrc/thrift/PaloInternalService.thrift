@@ -332,8 +332,9 @@ struct TQueryOptions {
   132: optional i32 parallel_prepare_threshold = 0;
   133: optional i32 partition_topn_max_partitions = 1024;
   134: optional i32 partition_topn_pre_partition_rows = 1000;
-  135: optional bool enable_verbose_profile = false;
-  136: optional i32 rpc_verbose_profile_max_instance_count = 0;
+  // 135: optional bool enable_verbose_profile = false;
+  // 136: optional i32 rpc_verbose_profile_max_instance_count = 0;
+  135: optional bool enable_brpc_write_in_background = false;
 
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false

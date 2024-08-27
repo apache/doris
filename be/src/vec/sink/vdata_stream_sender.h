@@ -562,13 +562,13 @@ public:
     }
 
     std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> get_send_callback(
-            InstanceLoId id, bool eos) {
+            bool enable_brpc_write_in_background, InstanceLoId id, bool eos) {
         if (!_send_callback) {
             _send_callback = pipeline::ExchangeSendCallback<PTransmitDataResult>::create_shared();
         } else {
             _send_callback->cntl_->Reset();
         }
-        _send_callback->init(id, eos);
+        _send_callback->init(enable_brpc_write_in_background, id, eos);
         return _send_callback;
     }
 

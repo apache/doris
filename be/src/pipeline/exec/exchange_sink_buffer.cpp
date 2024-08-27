@@ -268,7 +268,8 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
         if (!request.exec_status.ok()) {
             request.exec_status.to_protobuf(brpc_request->mutable_exec_status());
         }
-        auto send_callback = request.channel->get_send_callback(id, request.eos);
+        auto send_callback = request.channel->get_send_callback(
+                _state->enable_brpc_write_in_background(), id, request.eos);
 
         _instance_to_rpc_ctx[id]._send_callback = send_callback;
         _instance_to_rpc_ctx[id].is_cancelled = false;
@@ -288,11 +289,12 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
             SCOPED_ATTACH_TASK(_state);
             _failed(id, err);
         });
-        send_callback->start_rpc_time = GetCurrentTimeNanos();
-        send_callback->addSuccessHandler([&, weak_task_ctx = weak_task_exec_ctx()](
+        send_callback->start_rpc_time_us = butil::gettimeofday_us();
+        send_callback->addSuccessHandler([&, weak_task_ctx = weak_task_exec_ctx(),
+                                          cntl = send_callback->cntl_](
                                                  const InstanceLoId& id, const bool& eos,
                                                  const PTransmitDataResult& result,
-                                                 const int64_t& start_rpc_time) {
+                                                 const int64_t& start_rpc_time_us) {
             auto task_lock = weak_task_ctx.lock();
             if (task_lock == nullptr) {
                 // This means ExchangeSinkBuffer Ojbect already destroyed, not need run failed any more.
@@ -301,8 +303,14 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
             // attach task for memory tracker and query id when core
             SCOPED_ATTACH_TASK(_state);
             if (_state->enable_verbose_profile()) {
-                auto end_rpc_time = GetCurrentTimeNanos();
-                update_rpc_time(id, start_rpc_time, end_rpc_time);
+                auto end_rpc_time_us = butil::gettimeofday_us();
+                update_rpc_time(
+                        id, start_rpc_time_us,
+
+                        cntl->sent_time_us(), // time when the request was sent out to network
+                        result.receive_time(), // time when the request was received on the server side
+                        cntl->resp_recved_time_us(), // time when the response was received from the server side
+                        end_rpc_time_us);
             }
             Status s(Status::create(result.status()));
             if (s.is<ErrorCode::END_OF_FILE>()) {
@@ -347,7 +355,8 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
         if (request.block_holder->get_block()) {
             brpc_request->set_allocated_block(request.block_holder->get_block());
         }
-        auto send_callback = request.channel->get_send_callback(id, request.eos);
+        auto send_callback = request.channel->get_send_callback(
+                _state->enable_brpc_write_in_background(), id, request.eos);
 
         ExchangeRpcContext rpc_ctx;
         rpc_ctx._send_callback = send_callback;
@@ -369,11 +378,12 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
             SCOPED_ATTACH_TASK(_state);
             _failed(id, err);
         });
-        send_callback->start_rpc_time = GetCurrentTimeNanos();
-        send_callback->addSuccessHandler([&, weak_task_ctx = weak_task_exec_ctx()](
+        send_callback->start_rpc_time_us = butil::gettimeofday_us();
+        send_callback->addSuccessHandler([&, weak_task_ctx = weak_task_exec_ctx(),
+                                          cntl = send_callback->cntl_](
                                                  const InstanceLoId& id, const bool& eos,
                                                  const PTransmitDataResult& result,
-                                                 const int64_t& start_rpc_time) {
+                                                 const int64_t& start_rpc_time_us) {
             auto task_lock = weak_task_ctx.lock();
             if (task_lock == nullptr) {
                 // This means ExchangeSinkBuffer Ojbect already destroyed, not need run failed any more.
@@ -382,8 +392,14 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
             // attach task for memory tracker and query id when core
             SCOPED_ATTACH_TASK(_state);
             if (_state->enable_verbose_profile()) {
-                auto end_rpc_time = GetCurrentTimeNanos();
-                update_rpc_time(id, start_rpc_time, end_rpc_time);
+                auto end_rpc_time_us = butil::gettimeofday_us();
+                update_rpc_time(
+                        id, start_rpc_time_us,
+
+                        cntl->sent_time_us(), // time when the request was sent out to network
+                        result.receive_time(), // time when the request was received on the server side
+                        cntl->resp_recved_time_us(), // time when the response was received from the server side
+                        end_rpc_time_us);
             }
             Status s(Status::create(result.status()));
             if (s.is<ErrorCode::END_OF_FILE>()) {
@@ -512,18 +528,40 @@ int64_t ExchangeSinkBuffer<Parent>::get_sum_rpc_time() {
 }
 
 template <typename Parent>
-void ExchangeSinkBuffer<Parent>::update_rpc_time(InstanceLoId id, int64_t start_rpc_time,
-                                                 int64_t receive_rpc_time) {
+void ExchangeSinkBuffer<Parent>::update_rpc_time(InstanceLoId id, int64_t start_rpc_time_us,
+                                                 int64_t sent_time_us, int64_t req_received_time_us,
+                                                 int64_t resp_received_time_us,
+                                                 int64_t end_rpc_time_us) {
     _rpc_count++;
-    int64_t rpc_spend_time = receive_rpc_time - start_rpc_time;
-    DCHECK(_instance_to_rpc_stats.find(id) != _instance_to_rpc_stats.end());
-    if (rpc_spend_time > 0) {
-        ++_instance_to_rpc_stats[id]->rpc_count;
-        _instance_to_rpc_stats[id]->sum_time += rpc_spend_time;
-        _instance_to_rpc_stats[id]->max_time =
-                std::max(_instance_to_rpc_stats[id]->max_time, rpc_spend_time);
-        _instance_to_rpc_stats[id]->min_time =
-                std::min(_instance_to_rpc_stats[id]->min_time, rpc_spend_time);
+    auto rpc_time = end_rpc_time_us - start_rpc_time_us;
+    auto req_queue_time = sent_time_us - start_rpc_time_us;
+    auto req_network_time = req_received_time_us - sent_time_us;
+    auto resp_queue_time = end_rpc_time_us - resp_received_time_us;
+    auto stats_it = _instance_to_rpc_stats.find(id);
+    DCHECK(stats_it != _instance_to_rpc_stats.end());
+    ++stats_it->second->rpc_count;
+    if (rpc_time > 0) {
+        stats_it->second->sum_time += rpc_time;
+        stats_it->second->max_time = std::max(stats_it->second->max_time, rpc_time);
+        stats_it->second->min_time = std::min(stats_it->second->min_time, rpc_time);
+
+        // stats_it->second->req_queue_time_sum += req_queue_time;
+        stats_it->second->req_queue_time_max =
+                std::max(stats_it->second->req_queue_time_max, req_queue_time);
+        stats_it->second->req_queue_time_min =
+                std::min(stats_it->second->req_queue_time_min, req_queue_time);
+
+        // stats_it->second->req_network_time_sum += req_network_time;
+        stats_it->second->req_network_time_max =
+                std::max(stats_it->second->req_network_time_max, req_network_time);
+        stats_it->second->req_network_time_min =
+                std::min(stats_it->second->req_network_time_min, req_network_time);
+
+        // stats_it->second->resp_queue_time_sum += resp_queue_time;
+        stats_it->second->resp_queue_time_max =
+                std::max(stats_it->second->resp_queue_time_max, resp_queue_time);
+        stats_it->second->resp_queue_time_min =
+                std::min(stats_it->second->resp_queue_time_min, resp_queue_time);
     }
 }
 
@@ -548,25 +586,41 @@ void ExchangeSinkBuffer<Parent>::update_profile(RuntimeProfile* profile) {
     if constexpr (std::is_same_v<ExchangeSinkLocalState, Parent>) {
         auto max_count = _state->rpc_verbose_profile_max_instance_count();
         if (_state->enable_verbose_profile() && max_count > 0) {
-            pdqsort(_instance_to_rpc_stats_vec.begin(), _instance_to_rpc_stats_vec.end(),
-                    [](const auto& a, const auto& b) { return a->max_time > b->max_time; });
-            auto count = std::min((size_t)max_count, _instance_to_rpc_stats_vec.size());
+            std::vector<RpcInstanceStatistics> tmp_rpc_stats_vec;
+            for (const auto& stats : _instance_to_rpc_stats_vec) {
+                tmp_rpc_stats_vec.emplace_back(*stats);
+            }
+            pdqsort(tmp_rpc_stats_vec.begin(), tmp_rpc_stats_vec.end(),
+                    [](const auto& a, const auto& b) { return a.max_time > b.max_time; });
+            auto count = std::min((size_t)max_count, tmp_rpc_stats_vec.size());
             int i = 0;
             auto* detail_profile = profile->create_child("RpcInstanceDetails", true, true);
-            for (const auto& stats : _instance_to_rpc_stats_vec) {
-                if (0 == stats->rpc_count) {
+            for (const auto& stats : tmp_rpc_stats_vec) {
+                if (0 == stats.rpc_count) {
                     continue;
                 }
                 std::stringstream out;
-                out << "Instance " << std::hex << stats->inst_lo_id;
+                out << "Instance " << std::hex << stats.inst_lo_id;
                 auto stats_str = fmt::format(
-                        "Count: {}, MaxTime: {}, MinTime: {}, AvgTime: {}, SumTime: {}",
-                        stats->rpc_count, PrettyPrinter::print(stats->max_time, TUnit::TIME_NS),
-                        PrettyPrinter::print(stats->min_time, TUnit::TIME_NS),
-                        PrettyPrinter::print(stats->sum_time / std::max(static_cast<int64_t>(1),
-                                                                        stats->rpc_count),
-                                             TUnit::TIME_NS),
-                        PrettyPrinter::print(stats->sum_time, TUnit::TIME_NS));
+                        "Count: {}, MaxTime: {}, MinTime: {}, "
+                        "AvgTime: {}, SumTime: {}, "
+                        "MaxReqQueueTime: {}, MinReqQueueTime: {}, "
+                        "MaxReqNetworkTime: {}, MinReqNetworkTime: {}, "
+                        "MaxRespQueueTime: {}, MinRespQueueTime: {}",
+                        stats.rpc_count,
+                        PrettyPrinter::print(stats.max_time * 1000L, TUnit::TIME_NS),
+                        PrettyPrinter::print(stats.min_time * 1000L, TUnit::TIME_NS),
+                        PrettyPrinter::print(
+                                stats.sum_time * 1000L /
+                                        std::max(static_cast<int64_t>(1), stats.rpc_count),
+                                TUnit::TIME_NS),
+                        PrettyPrinter::print(stats.sum_time * 1000L, TUnit::TIME_NS),
+                        PrettyPrinter::print(stats.req_queue_time_max * 1000L, TUnit::TIME_NS),
+                        PrettyPrinter::print(stats.req_queue_time_min * 1000L, TUnit::TIME_NS),
+                        PrettyPrinter::print(stats.req_network_time_max * 1000L, TUnit::TIME_NS),
+                        PrettyPrinter::print(stats.req_network_time_min * 1000L, TUnit::TIME_NS),
+                        PrettyPrinter::print(stats.resp_queue_time_max * 1000L, TUnit::TIME_NS),
+                        PrettyPrinter::print(stats.resp_queue_time_min * 1000L, TUnit::TIME_NS));
                 detail_profile->add_info_string(out.str(), stats_str);
                 if (++i == count) {
                     break;

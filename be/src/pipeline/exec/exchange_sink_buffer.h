@@ -143,9 +143,11 @@ class ExchangeSendCallback : public ::doris::DummyBrpcCallback<Response> {
 public:
     ExchangeSendCallback() = default;
 
-    void init(InstanceLoId id, bool eos) {
+    void init(bool enable_brpc_write_in_background, InstanceLoId id, bool eos) {
         _id = id;
         _eos = eos;
+        ::doris::DummyBrpcCallback<Response>::cntl_->set_write_to_socket_in_background(
+                enable_brpc_write_in_background);
     }
 
     ~ExchangeSendCallback() override = default;
@@ -173,7 +175,7 @@ public:
                 _fail_fn(_id, err);
             } else {
                 _suc_fn(_id, _eos, *(::doris::DummyBrpcCallback<Response>::response_),
-                        start_rpc_time);
+                        start_rpc_time_us);
             }
         } catch (const std::exception& exp) {
             LOG(FATAL) << "brpc callback error: " << exp.what();
@@ -182,7 +184,7 @@ public:
             __builtin_unreachable();
         }
     }
-    int64_t start_rpc_time;
+    int64_t start_rpc_time_us;
 
 private:
     std::function<void(const InstanceLoId&, const std::string&)> _fail_fn;
@@ -210,7 +212,9 @@ public:
     bool can_write() const;
     bool is_pending_finish();
     void close();
-    void update_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
+    void update_rpc_time(InstanceLoId id, int64_t start_rpc_time_us, int64_t sent_time_us,
+                         int64_t req_received_time_us, int64_t resp_received_time_us,
+                         int64_t end_rpc_time_us);
     void update_profile(RuntimeProfile* profile);
 
     void set_dependency(std::shared_ptr<Dependency> queue_dependency,
@@ -257,9 +261,22 @@ private:
         RpcInstanceStatistics(InstanceLoId id) : inst_lo_id(id) {}
         InstanceLoId inst_lo_id;
         int64_t rpc_count = 0;
+
         int64_t max_time = 0;
         int64_t min_time = INT64_MAX;
         int64_t sum_time = 0;
+
+        int64_t req_queue_time_max = 0;
+        int64_t req_queue_time_min = INT64_MAX;
+        int64_t req_queue_time_sum = 0;
+
+        int64_t req_network_time_max = 0;
+        int64_t req_network_time_min = INT64_MAX;
+        int64_t req_network_time_sum = 0;
+
+        int64_t resp_queue_time_max = 0;
+        int64_t resp_queue_time_min = INT64_MAX;
+        int64_t resp_queue_time_sum = 0;
     };
     std::vector<std::shared_ptr<RpcInstanceStatistics>> _instance_to_rpc_stats_vec;
     phmap::flat_hash_map<InstanceLoId, RpcInstanceStatistics*> _instance_to_rpc_stats;

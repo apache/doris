@@ -506,6 +506,11 @@ public:
                        : 0;
     }
 
+    bool enable_brpc_write_in_background() const {
+        return _query_options.__isset.enable_brpc_write_in_background &&
+               _query_options.enable_brpc_write_in_background;
+    }
+
     bool enable_scan_node_run_serial() const {
         return _query_options.__isset.enable_scan_node_run_serial &&
                _query_options.enable_scan_node_run_serial;

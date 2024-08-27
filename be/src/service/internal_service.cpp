@@ -1548,8 +1548,9 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
                                           const PTransmitDataParams* request,
                                           PTransmitDataResult* response,
                                           google::protobuf::Closure* done) {
-    int64_t receive_time = GetCurrentTimeNanos();
-    response->set_receive_time(receive_time);
+    // int64_t receive_time = GetCurrentTimeNanos();
+    brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
+    response->set_receive_time(cntl->req_received_time_us());
 
     // under high concurrency, thread pool will have a lot of lock contention.
     // May offer failed to the thread pool, so that we should avoid using thread

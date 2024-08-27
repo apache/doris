@@ -90,6 +90,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_PROFILE = "enable_profile";
     public static final String ENABLE_VERBOSE_PROFILE = "enable_verbose_profile";
     public static final String RPC_VERBOSE_PROFILE_MAX_INSTANCE_COUNT = "rpc_verbose_profile_max_instance_count";
+    public static final String ENABLE_BRPC_WRITE_IN_BACKGROUND = "enable_brpc_write_in_background";
     public static final String AUTO_PROFILE_THRESHOLD_MS = "auto_profile_threshold_ms";
     public static final String SQL_MODE = "sql_mode";
     public static final String WORKLOAD_VARIABLE = "workload_group";
@@ -750,6 +751,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = RPC_VERBOSE_PROFILE_MAX_INSTANCE_COUNT, needForward = true)
     public int rpcVerboseProfileMaxInstanceCount = 5;
+
+    @VariableMgr.VarAttr(name = ENABLE_BRPC_WRITE_IN_BACKGROUND, needForward = true)
+    public boolean enableBrpcWriteInBackground = false;
 
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = AUTO_PROFILE_THRESHOLD_MS, needForward = true)
@@ -3540,6 +3544,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableProfile(enableProfile);
         tResult.setEnableVerboseProfile(enableVerboseProfile);
         tResult.setRpcVerboseProfileMaxInstanceCount(rpcVerboseProfileMaxInstanceCount);
+        tResult.setEnableBrpcWriteInBackground(enableBrpcWriteInBackground);
         if (enableProfile) {
             // If enable profile == true, then also set report success to true
             // be need report success to start report thread. But it is very tricky
