@@ -1175,9 +1175,6 @@ DECLARE_mInt64(lookup_connection_cache_capacity);
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
-// Whether flatten nested arrays in variant column
-// Notice: TEST ONLY
-DECLARE_mBool(variant_enable_flatten_nested);
 // Threshold of a column as sparse column
 // Notice: TEST ONLY
 DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);

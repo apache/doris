@@ -174,7 +174,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                         tbl.getEnableMowLightDelete(),
                         tbl.getInvertedIndexFileStorageFormat(),
-                        tbl.rowStorePageSize());
+                        tbl.rowStorePageSize(),
+                        tbl.variantEnableFlattenNested());
                 requestBuilder.addTabletMetas(builder);
             }
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
@@ -222,7 +223,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
             Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
             List<Integer> rowStoreColumnUniqueIds, boolean enableMowLightDelete,
-            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize) throws DdlException {
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
+            boolean variantEnableFlattenNested) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -349,6 +351,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
         }
         schemaBuilder.setRowStorePageSize(pageSize);
+        schemaBuilder.setEnableVariantFlattenNested(variantEnableFlattenNested);
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
         builder.setSchema(schema);
