@@ -388,6 +388,7 @@ class IFunction : public std::enable_shared_from_this<IFunction>,
 public:
     String get_name() const override = 0;
 
+    /// Notice: We should not change the column in the block, because the column may be shared by multiple expressions or exec nodes.
     virtual Status execute_impl(FunctionContext* context, Block& block,
                                 const ColumnNumbers& arguments, size_t result,
                                 size_t input_rows_count) const override = 0;

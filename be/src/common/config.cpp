@@ -975,6 +975,7 @@ DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
+// format: {"path": "/path/to/file_cache", "total_size":53687091200, "normal_percent":85, "disposable_percent":10, "index_percent":5}
 DEFINE_String(file_cache_path, "");
 DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
@@ -1304,6 +1305,13 @@ DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
 DEFINE_mBool(enable_hdfs_mem_limiter, "true");
 
 DEFINE_mInt16(topn_agg_limit_multiplier, "2");
+
+// Tablet meta size limit after serialization, 1.5GB
+DEFINE_mInt64(tablet_meta_serialize_size_limit, "1610612736");
+// Protobuf supports a maximum of 2GB, so the size of the tablet meta after serialization must be less than 2GB
+// 1717986918 = 2GB * 0.8
+DEFINE_Validator(tablet_meta_serialize_size_limit,
+                 [](const int64_t config) -> bool { return config < 1717986918; });
 
 DEFINE_mInt64(pipeline_task_leakage_detect_period_secs, "60");
 

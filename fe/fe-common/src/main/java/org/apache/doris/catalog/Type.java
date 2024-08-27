@@ -322,8 +322,6 @@ public abstract class Type {
                     .put(PrimitiveType.DOUBLE, Sets.newHashSet(Double.class, double.class))
                     .put(PrimitiveType.BIGINT, Sets.newHashSet(Long.class, long.class))
                     .put(PrimitiveType.IPV4, Sets.newHashSet(Integer.class, int.class))
-                    .put(PrimitiveType.CHAR, Sets.newHashSet(String.class))
-                    .put(PrimitiveType.VARCHAR, Sets.newHashSet(String.class))
                     .put(PrimitiveType.STRING, Sets.newHashSet(String.class))
                     .put(PrimitiveType.DATE, DATE_SUPPORTED_JAVA_TYPE)
                     .put(PrimitiveType.DATEV2, DATE_SUPPORTED_JAVA_TYPE)

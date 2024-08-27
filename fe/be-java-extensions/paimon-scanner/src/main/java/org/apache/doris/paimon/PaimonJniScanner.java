@@ -42,9 +42,12 @@ import java.util.stream.Collectors;
 
 public class PaimonJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonJniScanner.class);
-    private static final String PAIMON_OPTION_PREFIX = "paimon_option_prefix.";
+    private static final String PAIMON_OPTION_PREFIX = "paimon.";
+    private static final String HADOOP_OPTION_PREFIX = "hadoop.";
+
     private final Map<String, String> params;
     private final Map<String, String> paimonOptionParams;
+    private final Map<String, String> hadoopOptionParams;
     private final String dbName;
     private final String tblName;
     private final String paimonSplit;
@@ -87,6 +90,10 @@ public class PaimonJniScanner extends JniScanner {
                 .filter(kv -> kv.getKey().startsWith(PAIMON_OPTION_PREFIX))
                 .collect(Collectors
                         .toMap(kv1 -> kv1.getKey().substring(PAIMON_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
+        hadoopOptionParams = params.entrySet().stream()
+                .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
+                .collect(Collectors
+                        .toMap(kv1 -> kv1.getKey().substring(HADOOP_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
     }
 
     @Override
@@ -207,7 +214,8 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private void initTable() {
-        PaimonTableCacheKey key = new PaimonTableCacheKey(ctlId, dbId, tblId, paimonOptionParams, dbName, tblName);
+        PaimonTableCacheKey key = new PaimonTableCacheKey(ctlId, dbId, tblId,
+                paimonOptionParams, hadoopOptionParams, dbName, tblName);
         TableExt tableExt = PaimonTableCache.getTable(key);
         if (tableExt.getCreateTime() < lastUpdateTime) {
             LOG.warn("invalidate cache table:{}, localTime:{}, remoteTime:{}", key, tableExt.getCreateTime(),
@@ -223,3 +231,4 @@ public class PaimonJniScanner extends JniScanner {
     }
 
 }
+
