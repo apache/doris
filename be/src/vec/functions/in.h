@@ -137,9 +137,13 @@ public:
 
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
-            const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
-            segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+        DCHECK(data_type_with_names.size() == 1);
+        DCHECK(iterators.size() == 1);
+        auto* iter = iterators[0];
+        auto data_type_with_name = data_type_with_names[0];
         std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
 
@@ -180,6 +184,7 @@ public:
         }
         segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
         bitmap_result = result;
+        bitmap_result.mask_out_null();
         if constexpr (negative) {
             roaring::Roaring full_result;
             full_result.addRange(0, num_rows);

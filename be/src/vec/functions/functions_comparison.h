@@ -530,10 +530,14 @@ public:
 
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
-            const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
-            segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(arguments.size() == 1);
+        DCHECK(data_type_with_names.size() == 1);
+        DCHECK(iterators.size() == 1);
+        auto* iter = iterators[0];
+        auto data_type_with_name = data_type_with_names[0];
         if (iter == nullptr) {
             return Status::OK();
         }
@@ -550,19 +554,17 @@ public:
         std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                 param_type, &param_value, query_param));
-        segment_v2::InvertedIndexQueryType query_type =
-                segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY;
-        if (name == "eq") {
+        segment_v2::InvertedIndexQueryType query_type;
+        std::string_view name_view(name);
+        if (name_view == NameEquals::name || name_view == NameNotEquals::name) {
             query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
-        } else if (name == "ne") {
-            query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
-        } else if (name == "lt") {
+        } else if (name_view == NameLess::name) {
             query_type = segment_v2::InvertedIndexQueryType::LESS_THAN_QUERY;
-        } else if (name == "le") {
+        } else if (name_view == NameLessOrEquals::name) {
             query_type = segment_v2::InvertedIndexQueryType::LESS_EQUAL_QUERY;
-        } else if (name == "gt") {
+        } else if (name_view == NameGreater::name) {
             query_type = segment_v2::InvertedIndexQueryType::GREATER_THAN_QUERY;
-        } else if (name == "ge") {
+        } else if (name_view == NameGreaterOrEquals::name) {
             query_type = segment_v2::InvertedIndexQueryType::GREATER_EQUAL_QUERY;
         } else {
             return Status::InvalidArgument("invalid comparison op type {}", Name::name);
@@ -581,6 +583,7 @@ public:
         }
         segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
         bitmap_result = result;
+        bitmap_result.mask_out_null();
 
         if (name == "ne") {
             roaring::Roaring full_result;

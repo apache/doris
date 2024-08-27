@@ -97,8 +97,8 @@ public:
     Status check(FunctionContext* context, const std::string& function_name) const;
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
-            const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
-            segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override;
 };
 

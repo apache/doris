@@ -192,8 +192,8 @@ public:
 
     virtual Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
-            const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
-            segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
         return Status::NotSupported("evaluate_inverted_index is not supported in function: ",
                                     get_name());
@@ -458,12 +458,13 @@ protected:
         return function->execute_impl(context, block, arguments, result, input_rows_count);
     }
 
-    Status evaluate_inverted_index(const ColumnsWithTypeAndName& arguments,
-                                   const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
-                                   segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
-                                   segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
-        return function->evaluate_inverted_index(arguments, data_type_with_name, iter, num_rows,
-                                                 bitmap_result);
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
+        return function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
+                                                 num_rows, bitmap_result);
     }
 
     Status execute_impl_dry_run(FunctionContext* context, Block& block,
@@ -525,10 +526,10 @@ public:
 
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& args,
-            const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
-            segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
-        return function->evaluate_inverted_index(args, data_type_with_name, iter, num_rows,
+        return function->evaluate_inverted_index(args, data_type_with_names, iterators, num_rows,
                                                  bitmap_result);
     }
 

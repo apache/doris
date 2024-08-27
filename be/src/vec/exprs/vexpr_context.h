@@ -189,9 +189,6 @@ public:
     //  but some situation although column b has indexes, but apply index is not useful, we should
     //  skip this expr, just do not apply index anymore.
 
-    [[nodiscard]] static Status evaluate_inverted_index(const VExprContextSPtrs& conjuncts,
-                                                        uint32_t segment_num_rows);
-
     [[nodiscard]] Status evaluate_inverted_index(uint32_t segment_num_rows);
 
     bool all_expr_inverted_index_evaluated();

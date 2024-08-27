@@ -44,7 +44,6 @@
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vinfo_func.h"
 #include "vec/exprs/vlambda_function_call_expr.h"
@@ -52,7 +51,6 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vmap_literal.h"
 #include "vec/exprs/vmatch_predicate.h"
-#include "vec/exprs/vmulti_match_predicate.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
 #include "vec/exprs/vtuple_is_null_predicate.h"
@@ -296,11 +294,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         case TExprNodeType::NULL_AWARE_BINARY_PRED:
         case TExprNodeType::FUNCTION_CALL:
         case TExprNodeType::COMPUTE_FUNCTION_CALL: {
-            if (expr_node.fn.name.function_name == "multi_match") {
-                expr = VMultiMatchPredicate::create_shared(expr_node);
-            } else {
-                expr = VectorizedFnCall::create_shared(expr_node);
-            }
+            expr = VectorizedFnCall::create_shared(expr_node);
             break;
         }
         case TExprNodeType::MATCH_PRED: {
@@ -616,33 +610,66 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
     return Status::OK();
 }
 
-Result<segment_v2::InvertedIndexResultBitmap> VExpr::_evaluate_inverted_index(
-        VExprContext* context, const FunctionBasePtr& function, int column_id,
-        const vectorized::ColumnsWithTypeAndName& args, uint32_t segment_num_rows) const {
-    auto* iter = context->get_inverted_index_context()->get_inverted_index_iterator_by_column_id(
-            column_id);
+Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
+                                       uint32_t segment_num_rows) const {
+    std::vector<segment_v2::InvertedIndexIterator*> iterators;
+    std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
+    std::vector<int> column_ids;
+    vectorized::ColumnsWithTypeAndName arguments;
+
+    for (auto child : children()) {
+        if (child->is_slot_ref()) {
+            auto* column_slot_ref = assert_cast<VSlotRef*>(child.get());
+            auto column_id = column_slot_ref->column_id();
+            auto* iter =
+                    context->get_inverted_index_context()->get_inverted_index_iterator_by_column_id(
+                            column_id);
+            //column does not have inverted index
+            if (iter == nullptr) {
+                continue;
+            }
+            const auto* storage_name_type =
+                    context->get_inverted_index_context()->get_storage_name_and_type_by_column_id(
+                            column_id);
+            if (storage_name_type == nullptr) {
+                auto err_msg = fmt::format(
+                        "storage_name_type cannot be found for column {} while in {} "
+                        "evaluate_inverted_index",
+                        column_id, expr_name());
+                LOG(ERROR) << err_msg;
+                return Status::InternalError(err_msg);
+            }
+            iterators.emplace_back(iter);
+            data_type_with_names.emplace_back(*storage_name_type);
+            column_ids.emplace_back(column_id);
+        } else if (child->is_literal()) {
+            auto* column_literal = assert_cast<VLiteral*>(child.get());
+            arguments.emplace_back(column_literal->get_column_ptr(),
+                                   column_literal->get_data_type(), column_literal->expr_name());
+        }
+    }
     auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
-    //column does not have inverted index
-    if (iter == nullptr) {
-        return result_bitmap;
+    if (iterators.empty()) {
+        return Status::OK();
     }
-    const auto* storage_name_type =
-            context->get_inverted_index_context()->get_storage_name_and_type_by_column_id(
-                    column_id);
-    if (storage_name_type == nullptr) {
-        auto err_msg = fmt::format(
-                "storage_name_type cannot be found for column {} while in {} "
-                "evaluate_inverted_index",
-                column_id, expr_name());
-        LOG(ERROR) << err_msg;
-        return ResultError(Status::InternalError(err_msg));
+    // If arguments are empty, it means the left value in the expression is not a literal.
+    if (arguments.empty()) {
+        return Status::OK();
     }
-    auto res = function->evaluate_inverted_index(args, *storage_name_type, iter, segment_num_rows,
-                                                 result_bitmap);
+    auto res = function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
+                                                 segment_num_rows, result_bitmap);
     if (!res.ok()) {
-        return ResultError(res);
+        return res;
     }
-    return result_bitmap;
+    if (!result_bitmap.is_empty()) {
+        context->get_inverted_index_context()->set_inverted_index_result_for_expr(this,
+                                                                                  result_bitmap);
+        for (auto column_id : column_ids) {
+            context->get_inverted_index_context()->set_true_for_inverted_index_status(this,
+                                                                                      column_id);
+        }
+    }
+    return Status::OK();
 }
 
 bool VExpr::fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,

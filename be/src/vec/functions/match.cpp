@@ -26,15 +26,21 @@
 namespace doris::vectorized {
 Status FunctionMatchBase::evaluate_inverted_index(
         const ColumnsWithTypeAndName& arguments,
-        const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
-        segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+        const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+        std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
         segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
     DCHECK(arguments.size() == 1);
+    DCHECK(data_type_with_names.size() == 1);
+    DCHECK(iterators.size() == 1);
+    auto* iter = iterators[0];
+    auto data_type_with_name = data_type_with_names[0];
     if (iter == nullptr) {
         return Status::OK();
     }
-    if (get_name() == "match_phrase" || get_name() == "match_phrase_prefix" ||
-        get_name() == "match_phrase_edge") {
+    const std::string& function_name = get_name();
+
+    if (function_name == MATCH_PHRASE_FUNCTION || function_name == MATCH_PHRASE_PREFIX_FUNCTION ||
+        function_name == MATCH_PHRASE_EDGE_FUNCTION) {
         if (iter->get_inverted_index_reader_type() == InvertedIndexReaderType::FULLTEXT &&
             get_parser_phrase_support_string_from_properties(iter->get_index_properties()) ==
                     INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO) {
@@ -46,6 +52,10 @@ Status FunctionMatchBase::evaluate_inverted_index(
     Field param_value;
     arguments[0].column->get(0, param_value);
     auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
+    if (!is_string_type(param_type)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+                "arguments for match must be string");
+    }
     std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
     RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
                                                                        query_param));
@@ -67,6 +77,7 @@ Status FunctionMatchBase::evaluate_inverted_index(
     }
     segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
     bitmap_result = result;
+    bitmap_result.mask_out_null();
 
     return Status::OK();
 }

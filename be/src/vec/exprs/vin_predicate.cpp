@@ -108,39 +108,7 @@ void VInPredicate::close(VExprContext* context, FunctionContext::FunctionStateSc
 Status VInPredicate::evaluate_inverted_index(VExprContext* context,
                                              uint32_t segment_num_rows) const {
     DCHECK_GE(get_num_children(), 2);
-    if (get_child(0)->is_slot_ref()) {
-        auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
-        vectorized::ColumnsWithTypeAndName arguments;
-        for (int child_num = 1; child_num < get_num_children(); child_num++) {
-            if (get_child(child_num)->is_literal()) {
-                auto* column_literal = assert_cast<VLiteral*>(get_child(child_num).get());
-                arguments.emplace_back(column_literal->get_column_ptr(),
-                                       column_literal->get_data_type(),
-                                       column_literal->expr_name());
-
-            } else {
-                return Status::NotSupported(
-                        "arguments in evaluate_inverted_index for VInPredicate must be literal, "
-                        "but we got {}",
-                        get_child(child_num)->expr_name());
-            }
-        }
-        auto result_bitmap = DORIS_TRY(_evaluate_inverted_index(
-                context, _function, column_slot_ref->column_id(), arguments, segment_num_rows));
-        if (!result_bitmap.is_empty()) {
-            result_bitmap.mask_out_null();
-            context->get_inverted_index_context()->set_inverted_index_result_for_expr(
-                    this, result_bitmap);
-            context->get_inverted_index_context()->set_true_for_inverted_index_status(
-                    this, column_slot_ref->column_id());
-        }
-        return Status::OK();
-    } else {
-        return Status::NotSupported(
-                "child 0 in evaluate_inverted_index for VInPredicate must be slot ref, but we got "
-                "{}",
-                get_child(0)->expr_name());
-    }
+    return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
 Status VInPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {

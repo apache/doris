@@ -131,17 +131,6 @@ bool VExprContext::all_expr_inverted_index_evaluated() {
     return _inverted_index_context->has_inverted_index_result_for_expr(_root.get());
 }
 
-Status VExprContext::evaluate_inverted_index(const VExprContextSPtrs& conjuncts,
-                                             uint32_t segment_num_rows) {
-    for (const auto& conjunct : conjuncts) {
-        if (conjunct->evaluate_inverted_index(segment_num_rows) != Status::OK()) {
-            return Status::InternalError("expr {} evaluate inverted index failed",
-                                         conjunct->_root->expr_name());
-        }
-    }
-    return Status::OK();
-}
-
 Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int column_to_keep) {
     if (vexpr_ctx == nullptr || block->rows() == 0) {
         return Status::OK();

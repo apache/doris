@@ -2467,13 +2467,11 @@ void SegmentIterator::_calculate_expr_in_remaining_conjunct_root() {
             const auto& expr = stack.top();
             stack.pop();
 
-            if (vectorized::VExpr::is_directly_action_on_a_slot(*expr)) {
-                for (const auto& child : expr->children()) {
-                    if (child->is_slot_ref()) {
-                        auto* column_slot_ref = assert_cast<vectorized::VSlotRef*>(child.get());
-                        _common_expr_inverted_index_status[_schema->column_id(
-                                column_slot_ref->column_id())][expr.get()] = false;
-                    }
+            for (const auto& child : expr->children()) {
+                if (child->is_slot_ref()) {
+                    auto* column_slot_ref = assert_cast<vectorized::VSlotRef*>(child.get());
+                    _common_expr_inverted_index_status[_schema->column_id(
+                            column_slot_ref->column_id())][expr.get()] = false;
                 }
             }
 
