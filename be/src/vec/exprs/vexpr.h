@@ -248,7 +248,6 @@ public:
                       int* result_column_id);
 
     virtual bool can_push_down_to_index() const { return false; }
-    virtual bool can_fast_execute() const { return false; }
     virtual bool equals(const VExpr& other);
     void set_index_unique_id(uint32_t index_unique_id) { _index_unique_id = index_unique_id; }
     uint32_t index_unique_id() const { return _index_unique_id; }

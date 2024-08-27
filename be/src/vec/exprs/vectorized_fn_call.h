@@ -70,7 +70,6 @@ public:
     static std::string debug_string(const std::vector<VectorizedFnCall*>& exprs);
 
     bool can_push_down_to_index() const override;
-    bool can_fast_execute() const override;
     bool equals(const VExpr& other) override;
 
 protected:
