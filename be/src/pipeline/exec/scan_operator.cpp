@@ -1441,8 +1441,7 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
                 adaptive_pipeline_task_serial_read_on_limit =
                         query_options.adaptive_pipeline_task_serial_read_on_limit;
             }
-            LOG_INFO("tnode.limit {}, adaptive_pipeline_task_serial_read_on_limit: {}", tnode.limit,
-                     adaptive_pipeline_task_serial_read_on_limit);
+
             if (tnode.limit > 0 && tnode.limit <= adaptive_pipeline_task_serial_read_on_limit) {
                 _should_run_serial = true;
             }

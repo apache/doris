@@ -3709,7 +3709,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setKeepCarriageReturn(keepCarriageReturn);
 
         tResult.setEnableSegmentCache(enableSegmentCache);
-        
+
         tResult.setEnableAdaptivePipelineTaskSerialReadOnLimit(enableAdaptivePipelineTaskSerialReadOnLimit);
         tResult.setAdaptivePipelineTaskSerialReadOnLimit(adaptivePipelineTaskSerialReadOnLimit);
         return tResult;
