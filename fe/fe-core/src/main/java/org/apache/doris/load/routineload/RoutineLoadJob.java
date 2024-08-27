@@ -999,7 +999,7 @@ public abstract class RoutineLoadJob
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
             if (txnState == null) {
-                throw new MetaNotFoundException("txn does not exist: " + txnId);
+                throw new UserException("txn does not exist: " + txnId);
             }
             txnState.addTableIndexes(planner.getDestTable());
             if (isPartialUpdate) {
@@ -1084,9 +1084,6 @@ public abstract class RoutineLoadJob
     @Override
     public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException {
         long taskBeId = -1L;
-        if (Config.isCloudMode()) {
-            writeLock();
-        }
         try {
             if (txnOperated) {
                 // find task in job

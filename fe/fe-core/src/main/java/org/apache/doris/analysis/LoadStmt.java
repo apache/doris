@@ -608,7 +608,14 @@ public class LoadStmt extends DdlStmt {
             connection.connect();
         } catch (Exception e) {
             LOG.warn("Failed to connect endpoint={}, err={}", endpoint, e);
-            throw new UserException("Failed to access object storage", e);
+            String msg;
+            if (e instanceof UserException) {
+                msg = ((UserException) e).getDetailMessage();
+            } else {
+                msg = e.getMessage();
+            }
+            throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                    "Failed to access object storage, message=" + msg, e);
         } finally {
             if (connection != null) {
                 try {
@@ -674,8 +681,14 @@ public class LoadStmt extends DdlStmt {
             }
         } catch (Exception e) {
             LOG.warn("Failed to access object storage, file={}, proto={}, err={}", curFile, objectInfo, e.toString());
+            String msg;
+            if (e instanceof UserException) {
+                msg = ((UserException) e).getDetailMessage();
+            } else {
+                msg = e.getMessage();
+            }
             throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
-                    "Failed to access object storage", e);
+                    "Failed to access object storage, message=" + msg, e);
         } finally {
             if (remote != null) {
                 remote.close();

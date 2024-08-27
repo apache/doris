@@ -123,11 +123,10 @@ suite("insert_group_commit_into") {
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl + "&useLocalSessionState=true") {
                 sql """ set group_commit = async_mode; """
                 if (item == "nereids") {
-                    sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
                     sql """ set enable_fallback_to_original_planner=false; """
                 } else {
-                    sql """ set enable_nereids_dml = false; """
+                    sql """ set enable_nereids_planner = false; """
                 }
 
                 // 1. insert into
@@ -242,6 +241,9 @@ suite("insert_group_commit_into") {
                 assertEquals(23, rowCount[0][0])
 
                 // txn insert
+                sql """ set enable_nereids_dml = true; """
+                sql """ set enable_nereids_planner=true; """
+                sql """ set enable_fallback_to_original_planner=false; """
                 def stmt = prepareStatement """ begin  """
                 stmt.executeUpdate()
                 txn_insert """ insert into ${table}(id, name, score) values(20, 'i', 101);  """, 1
@@ -337,11 +339,10 @@ suite("insert_group_commit_into") {
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
                 sql """ set group_commit = async_mode; """
                 if (item == "nereids") {
-                    sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
                     sql """ set enable_fallback_to_original_planner=false; """
                 } else {
-                    sql """ set enable_nereids_dml = false; """
+                    sql """ set enable_nereids_planner = false; """
                 }
 
                 // 1. insert into
@@ -412,11 +413,10 @@ suite("insert_group_commit_into") {
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
                 sql """ set group_commit = async_mode; """
                 if (item == "nereids") {
-                    sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
                     sql """ set enable_fallback_to_original_planner=false; """
                 } else {
-                    sql """ set enable_nereids_dml = false; """
+                    sql """ set enable_nereids_planner = false; """
                 }
 
                 // 1. insert into
@@ -515,11 +515,10 @@ suite("insert_group_commit_into") {
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
                 sql """ set group_commit = async_mode; """
                 if (item == "nereids") {
-                    sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner = true; """
                     sql """ set enable_fallback_to_original_planner = false; """
                 } else {
-                    sql """ set enable_nereids_dml = false; """
+                    sql """ set enable_nereids_planner = false; """
                 }
                 group_commit_insert """ insert into ${table} values(1, 'test'); """, 1
                 group_commit_insert """ insert into ${table}(k1,`or`) values (2,"or"); """, 1

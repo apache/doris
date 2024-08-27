@@ -27,11 +27,9 @@ suite("test_partial_update_auto_inc") {
                 sql "use ${db};"
 
                 if (use_nereids_planner) {
-                    sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
                     sql """ set enable_fallback_to_original_planner=false; """
                 } else {
-                    sql """ set enable_nereids_dml = false; """
                     sql """ set enable_nereids_planner = false; """
                 }
 

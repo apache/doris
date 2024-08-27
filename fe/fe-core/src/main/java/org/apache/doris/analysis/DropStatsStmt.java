@@ -42,7 +42,7 @@ import java.util.Set;
  * syntax:
  * DROP [EXPIRED] STATS [TableName [PARTITIONS(partitionNames)]];
  */
-public class DropStatsStmt extends DdlStmt {
+public class DropStatsStmt extends DdlStmt implements NotFallbackInParser {
 
     public static final int MAX_IN_ELEMENT_TO_DELETE = 100;
     public final boolean dropExpired;

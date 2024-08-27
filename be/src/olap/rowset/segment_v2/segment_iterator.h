@@ -69,7 +69,6 @@ class BitmapIndexIterator;
 class ColumnIterator;
 class InvertedIndexIterator;
 class RowRanges;
-
 struct ColumnPredicateInfo {
     ColumnPredicateInfo() = default;
 
@@ -522,8 +521,6 @@ private:
     bool _record_rowids = false;
     int64_t _tablet_id = 0;
     std::set<int32_t> _output_columns;
-
-    std::unique_ptr<HierarchicalDataReader> _path_reader;
 
     std::vector<uint8_t> _ret_flags;
 

@@ -26,6 +26,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -40,8 +41,7 @@ import java.util.Map;
 /**
  * Statement for create a new catalog.
  */
-public class CreateCatalogStmt extends DdlStmt {
-    public static final String CREATE_TIME_PROP = "create_time";
+public class CreateCatalogStmt extends DdlStmt implements NotFallbackInParser {
     private final boolean ifNotExists;
     private final String catalogName;
     private final String resource;
@@ -101,7 +101,7 @@ public class CreateCatalogStmt extends DdlStmt {
         }
 
         String currentDateTime = LocalDateTime.now(ZoneId.systemDefault()).toString().replace("T", " ");
-        properties.put(CREATE_TIME_PROP, currentDateTime);
+        properties.put(ExternalCatalog.CREATE_TIME, currentDateTime);
         PropertyAnalyzer.checkCatalogProperties(properties, false);
     }
 

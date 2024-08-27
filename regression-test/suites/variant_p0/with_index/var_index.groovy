@@ -41,5 +41,6 @@ suite("regression_test_variant_var_index", "p0"){
     sql """insert into var_index values(7, '{"timestamp": 17.0}')"""
     sql """insert into var_index values(8, '{"timestamp": [123]}')"""
     sql """insert into var_index values(9, '{"timestamp": 17.0}'),(10, '{"timestamp": "17.0"}')"""
-    qt_sql "select * from var_index order by k limit 10"
+    sql """insert into var_index values(11, '{"nested": [{"a" : 1}]}'),(11, '{"nested": [{"b" : "1024"}]}')"""
+    qt_sql "select * from var_index order by k limit 15"
 }

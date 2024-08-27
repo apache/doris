@@ -54,7 +54,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.time.Instant;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -181,6 +180,15 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
             this.readLockThreads.put(thread.getId(),
                     "(" + thread.toString() + ", time " + System.currentTimeMillis() + ")");
         }
+    }
+
+    public boolean readLockIfExist() {
+        readLock();
+        if (isDropped) {
+            readUnlock();
+            return false;
+        }
+        return true;
     }
 
     public boolean tryReadLock(long timeout, TimeUnit unit) {
@@ -588,14 +596,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         table.put("Id", Long.toString(id));
         table.put("Name", name);
         return table;
-    }
-
-    public boolean isHasCompoundKey() {
-        return hasCompoundKey;
-    }
-
-    public Set<String> getPartitionNames() {
-        return Collections.EMPTY_SET;
     }
 
     @Override
