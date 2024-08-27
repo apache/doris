@@ -66,12 +66,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        long millis1 = System.currentTimeMillis();
-        Plan plan2 = plan.accept(this, jobContext);
-        long millis2 = System.currentTimeMillis();
-        long time = millis2 - millis1;
-        LOG.info("infer predicates time is :{}", time);
-        return plan2;
+        return plan.accept(this, jobContext);
     }
 
     @Override
