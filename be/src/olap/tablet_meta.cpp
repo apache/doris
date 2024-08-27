@@ -31,8 +31,8 @@
 #include <utility>
 
 #include "common/config.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "gutil/integral_types.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "olap/data_dir.h"
 #include "olap/file_header.h"
