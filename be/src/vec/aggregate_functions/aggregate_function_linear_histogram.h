@@ -43,7 +43,7 @@ struct AggregateFunctionLinearHistogramData {
 
 private:
     // influxdb use double
-    double interval;
+    double interval = 0;
     double offset;
     double lower; // not used yet
     double upper; // not used yet
