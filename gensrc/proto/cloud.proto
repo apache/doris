@@ -1443,6 +1443,7 @@ message ResetRLProgressRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 db_id = 2;
     optional int64 job_id = 3;
+    map<int32, int64> partition_to_offset = 4;
 }
 
 message ResetRLProgressResponse {

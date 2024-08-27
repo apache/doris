@@ -164,7 +164,7 @@ import java.util.stream.Collectors;
  * Used to calculate the stats for each plan
  */
 public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
-    public static double DEFAULT_AGGREGATE_RATIO = 0.5;
+    public static double DEFAULT_AGGREGATE_RATIO = 1 / 3.0;
     public static double AGGREGATE_COLUMN_CORRELATION_COEFFICIENT = 0.75;
     public static double DEFAULT_COLUMN_NDV_RATIO = 0.5;
 
@@ -1199,8 +1199,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             builder.setDataSize(rowCount * outputExpression.getDataType().width());
             slotToColumnStats.put(outputExpression.toSlot(), columnStat);
         }
-        return new Statistics(rowCount, 1, slotToColumnStats);
-        // TODO: Update ColumnStats properly, add new mapping from output slot to ColumnStats
+        Statistics aggOutputStats = new Statistics(rowCount, 1, slotToColumnStats);
+        aggOutputStats.enforceValid();
+        return aggOutputStats;
     }
 
     private Statistics computeRepeat(Repeat<? extends Plan> repeat) {
@@ -1436,6 +1437,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private ColumnStatistic unionColumn(ColumnStatistic leftStats, double leftRowCount, ColumnStatistic rightStats,
             double rightRowCount, DataType dataType) {
+        if (leftStats.isUnKnown() || rightStats.isUnKnown()) {
+            return new ColumnStatisticBuilder(leftStats).setCount(leftRowCount + rightRowCount).build();
+        }
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
         columnStatisticBuilder.setMaxValue(Math.max(leftStats.maxValue, rightStats.maxValue));
         columnStatisticBuilder.setMinValue(Math.min(leftStats.minValue, rightStats.minValue));

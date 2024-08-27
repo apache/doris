@@ -282,6 +282,22 @@ public class PlanVisitorTest extends TestWithFeService {
     }
 
     @Test
+    public void testContainsNondeterministic() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT * FROM table1 "
+                                + "LEFT SEMI JOIN table2 ON table1.c1 = table2.c1 "
+                                + "WHERE table1.c1 IN (SELECT c1 FROM table2) OR date_add(current_date(), INTERVAL 2 DAY) < '2023-01-01'",
+                        nereidsPlanner -> {
+                            // Check nondeterministic collect
+                            List<Expression> nondeterministicFunctionSet =
+                                    MaterializedViewUtils.extractNondeterministicFunction(
+                                            nereidsPlanner.getAnalyzedPlan());
+                            Assertions.assertEquals(1, nondeterministicFunctionSet.size());
+                            Assertions.assertTrue(nondeterministicFunctionSet.get(0) instanceof CurrentDate);
+                        });
+    }
+
+    @Test
     public void testUnixTimestampWithArgsFunction() {
         PlanChecker.from(connectContext)
                 .checkExplain("SELECT * FROM table1 "
