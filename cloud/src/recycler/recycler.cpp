@@ -891,12 +891,13 @@ bool check_lazy_txn_finished(std::shared_ptr<TxnKv> txn_kv, const std::string in
         return false;
     }
 
-    if (version_pb.has_txn_id()) {
+    if (version_pb.txn_ids_size() > 0) {
+        DCHECK(version_pb.txn_ids_size() == 1);
         LOG(WARNING) << "lazy txn not finished, instance_id=" << instance_id
                      << " db_id=" << tablet_idx_pb.db_id()
                      << " table_id=" << tablet_idx_pb.table_id()
                      << " partition_id=" << tablet_idx_pb.partition_id()
-                     << " tablet_id=" << tablet_id << " txn_id=" << version_pb.txn_id()
+                     << " tablet_id=" << tablet_id << " txn_id=" << version_pb.txn_ids(0)
                      << " key=" << hex(ver_key);
         return false;
     }

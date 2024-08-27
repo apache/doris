@@ -267,18 +267,10 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                 msg = "malformed version value";
                 return;
             }
-
-            if (version_pb.has_txn_id()) {
-                txn.reset();
-                std::shared_ptr<TxnLazyCommitTask> task =
-                        txn_lazy_committer_->submit(instance_id, version_pb.txn_id());
-
-                std::tie(code, msg) = task->wait();
-                if (code != MetaServiceCode::OK) {
-                    LOG(WARNING) << "wait txn lazy commit failed, txn_id=" << version_pb.txn_id()
-                                 << " code=" << code << " msg=" << msg;
-                    return;
-                }
+            if (!version_pb.has_version()) {
+                msg = "not found";
+                code = MetaServiceCode::VERSION_NOT_FOUND;
+                return;
             }
 
             response->set_version(version_pb.version());
@@ -407,22 +399,15 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                         msg = "malformed version value";
                         break;
                     }
-                    if (version_pb.has_txn_id()) {
-                        txn.reset();
-                        std::shared_ptr<TxnLazyCommitTask> task =
-                                txn_lazy_committer_->submit(instance_id, version_pb.txn_id());
-                        std::tie(code, msg) = task->wait();
-                        if (code != MetaServiceCode::OK) {
-                            LOG(WARNING) << "wait txn lazy commit failed, txn_id="
-                                         << version_pb.txn_id();
-                            response->clear_partition_ids();
-                            response->clear_table_ids();
-                            response->clear_versions();
-                            return;
-                        }
+
+                    if (!version_pb.has_version()) {
+                        // return -1 if the target version is not exists.
+                        response->add_versions(-1);
+                        response->add_version_update_time_ms(-1);
+                    } else {
+                        response->add_versions(version_pb.version());
+                        response->add_version_update_time_ms(version_pb.update_time_ms());
                     }
-                    response->add_versions(version_pb.version());
-                    response->add_version_update_time_ms(version_pb.update_time_ms());
                 }
             }
         }
@@ -1473,6 +1458,8 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         DCHECK(request->has_idx());
 
         if (idx.has_db_id()) {
+            // there is maybe a lazy commit txn when call get_rowset
+            // we need advance lazy commit txn here
             std::string ver_val;
             std::string ver_key = partition_version_key(
                     {instance_id, idx.db_id(), idx.table_id(), idx.partition_id()});
@@ -1490,21 +1477,23 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                 VersionPB version_pb;
                 if (!version_pb.ParseFromString(ver_val)) {
                     code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                    ss << "failed to parse version pb tablet_id=" << tablet_id
+                    ss << "failed to parse version pb db_id=" << idx.db_id()
+                       << " table_id=" << idx.table_id() << " partition_id" << idx.partition_id()
                        << " key=" << hex(ver_key);
                     msg = ss.str();
                     LOG(WARNING) << msg;
                     return;
                 }
 
-                if (version_pb.has_txn_id()) {
+                if (version_pb.txn_ids_size() > 0) {
+                    DCHECK(version_pb.txn_ids_size() == 1);
                     txn.reset();
                     std::shared_ptr<TxnLazyCommitTask> task =
-                            txn_lazy_committer_->submit(instance_id, version_pb.txn_id());
+                            txn_lazy_committer_->submit(instance_id, version_pb.txn_ids(0));
 
                     std::tie(code, msg) = task->wait();
                     if (code != MetaServiceCode::OK) {
-                        LOG(WARNING) << "advance_last_txn failed last_txn=" << version_pb.txn_id()
+                        LOG(WARNING) << "advance_last_txn failed last_txn=" << version_pb.txn_ids(0)
                                      << " code=" << code << "msg=" << msg;
                         return;
                     }

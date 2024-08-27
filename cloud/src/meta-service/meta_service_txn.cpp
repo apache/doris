@@ -916,9 +916,8 @@ void commit_txn_immediately(
         std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta) {
     std::stringstream ss;
     int64_t txn_id = request->txn_id();
-    bool need_advance_last_txn = false;
-    int64_t last_pending_txn_id = 0;
     do {
+        int64_t last_pending_txn_id = 0;
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -1079,9 +1078,10 @@ void commit_txn_immediately(
                     msg = ss.str();
                     return;
                 }
-                if (version_pb.has_txn_id()) {
-                    need_advance_last_txn = true;
-                    last_pending_txn_id = version_pb.txn_id();
+                if (version_pb.txn_ids_size() > 0) {
+                    DCHECK(version_pb.txn_ids_size() == 1);
+                    last_pending_txn_id = version_pb.txn_ids(0);
+                    DCHECK(last_pending_txn_id > 0);
                     break;
                 }
                 version = version_pb.version();
@@ -1089,26 +1089,23 @@ void commit_txn_immediately(
                 version = 1;
             }
             new_versions[version_keys[i]] = version + 1;
-            need_advance_last_txn = false;
             last_pending_txn_id = 0;
         }
         version_keys.clear();
         version_values.clear();
 
-        if (need_advance_last_txn) {
+        if (last_pending_txn_id > 0) {
             txn.reset();
-            DCHECK(last_pending_txn_id > 0);
             std::shared_ptr<TxnLazyCommitTask> task =
                     txn_lazy_committer->submit(instance_id, last_pending_txn_id);
 
             std::tie(code, msg) = task->wait();
-            need_advance_last_txn = false;
-            last_pending_txn_id = 0;
             if (code != MetaServiceCode::OK) {
                 LOG(WARNING) << "advance_last_txn failed last_txn=" << last_pending_txn_id
                              << " code=" << code << "msg=" << msg;
                 return;
             }
+            last_pending_txn_id = 0;
             continue;
         }
 
@@ -1428,6 +1425,8 @@ void get_tablet_indexes(
     tablet_idx_values.clear();
 }
 
+// rewrite TabletIndexPB for fill db_id, in case of historical reasons
+// TabletIndexPB missing db_id
 void repair_tablet_index(
         std::shared_ptr<TxnKv>& txn_kv, MetaServiceCode& code, std::string& msg,
         const std::string& instance_id, int64_t db_id, int64_t txn_id,
@@ -1438,12 +1437,13 @@ void repair_tablet_index(
         tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id, i.tablet_id()}));
     }
 
-#define MAX_TABLET_INDEX_NUM 2048
-    for (size_t i = 0; i < tablet_idx_keys.size(); i += MAX_TABLET_INDEX_NUM) {
-        size_t end = (i + MAX_TABLET_INDEX_NUM) > tablet_idx_keys.size() ? tablet_idx_keys.size()
-                                                                         : i + MAX_TABLET_INDEX_NUM;
+    for (size_t i = 0; i < tablet_idx_keys.size(); i += config::max_tablet_index_num_per_batch) {
+        size_t end = (i + config::max_tablet_index_num_per_batch) > tablet_idx_keys.size()
+                             ? tablet_idx_keys.size()
+                             : i + config::max_tablet_index_num_per_batch;
         const std::vector<std::string> sub_tablet_idx_keys(tablet_idx_keys.begin() + i,
                                                            tablet_idx_keys.begin() + end);
+
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -1456,7 +1456,7 @@ void repair_tablet_index(
 
         std::vector<std::optional<std::string>> tablet_idx_values;
         // batch get snapshot is false
-        err = txn->batch_get(&tablet_idx_values, tablet_idx_keys,
+        err = txn->batch_get(&tablet_idx_values, sub_tablet_idx_keys,
                              Transaction::BatchGetOptions(false));
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
@@ -1465,6 +1465,7 @@ void repair_tablet_index(
             LOG(WARNING) << msg << " txn_id=" << txn_id;
             return;
         }
+        DCHECK(tablet_idx_values.size() <= config::max_tablet_index_num_per_batch);
 
         for (size_t j = 0; j < sub_tablet_idx_keys.size(); j++) {
             if (!tablet_idx_values[j].has_value()) [[unlikely]] {
@@ -1498,6 +1499,9 @@ void repair_tablet_index(
                     return;
                 }
                 txn->put(sub_tablet_idx_keys[j], idx_val);
+                LOG(INFO) << " repaire tablet index txn_id=" << txn_id
+                          << " tablet_idx_pb:" << tablet_idx_pb.ShortDebugString()
+                          << " key=" << hex(sub_tablet_idx_keys[j]);
             }
         }
 
@@ -1520,10 +1524,9 @@ void commit_txn_eventually(
     std::stringstream ss;
     TxnErrorCode err = TxnErrorCode::TXN_OK;
     int64_t txn_id = request->txn_id();
-    bool need_advance_last_txn = false;
-    int64_t last_pending_txn_id = 0;
 
     do {
+        int64_t last_pending_txn_id = 0;
         std::unique_ptr<Transaction> txn;
         err = txn_kv->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -1556,6 +1559,7 @@ void commit_txn_eventually(
             continue;
         }
 
+        // <partition_version_key, version>
         std::unordered_map<std::string, uint64_t> new_versions;
         std::vector<std::string> version_keys;
         for (auto& [_, i] : tmp_rowsets_meta) {
@@ -1591,35 +1595,33 @@ void commit_txn_eventually(
                     msg = ss.str();
                     return;
                 }
-                if (version_pb.has_txn_id()) {
-                    need_advance_last_txn = true;
-                    last_pending_txn_id = version_pb.txn_id();
+                if (version_pb.txn_ids_size() > 0) {
+                    DCHECK(version_pb.txn_ids_size() == 1);
+                    last_pending_txn_id = version_pb.txn_ids(0);
+                    DCHECK(last_pending_txn_id > 0);
                     break;
                 }
                 version = version_pb.version();
             } else {
                 version = 1;
             }
-            new_versions[version_keys[i]] = version + 1;
-            need_advance_last_txn = false;
+            new_versions[version_keys[i]] = version;
             last_pending_txn_id = 0;
         }
 
-        if (need_advance_last_txn) {
+        if (last_pending_txn_id > 0) {
             txn.reset();
-            DCHECK(last_pending_txn_id > 0);
             std::shared_ptr<TxnLazyCommitTask> task =
                     txn_lazy_committer->submit(instance_id, last_pending_txn_id);
 
             std::tie(code, msg) = task->wait();
-            need_advance_last_txn = false;
-            last_pending_txn_id = 0;
             if (code != MetaServiceCode::OK) {
                 LOG(WARNING) << "advance_last_txn failed last_txn=" << last_pending_txn_id
                              << " code=" << code << "msg=" << msg;
                 return;
             }
 
+            last_pending_txn_id = 0;
             // there maybe concurrent commit_txn_eventually, so we need continue to make sure
             // partition versionPB has no txn_id
             continue;
@@ -1646,6 +1648,7 @@ void commit_txn_eventually(
             LOG(WARNING) << msg;
             return;
         }
+        LOG(INFO) << "txn_id=" << txn_id << " txn_info=" << txn_info.ShortDebugString();
 
         DCHECK(txn_info.txn_id() == txn_id);
         if (txn_info.status() == TxnStatusPB::TXN_STATUS_ABORTED) {
@@ -1682,7 +1685,6 @@ void commit_txn_eventually(
             LOG(WARNING) << msg;
             return;
         }
-        LOG(INFO) << "txn_id=" << txn_id << " txn_info=" << txn_info.ShortDebugString();
 
         auto now_time = system_clock::now();
         uint64_t commit_time = duration_cast<milliseconds>(now_time.time_since_epoch()).count();
@@ -1699,10 +1701,12 @@ void commit_txn_eventually(
             txn_info.mutable_commit_attachment()->CopyFrom(request->commit_attachment());
         }
         DCHECK(txn_info.status() != TxnStatusPB::TXN_STATUS_COMMITTED);
-        // lazy commit set status TXN_STATUS_COMMITTED not TXN_STATUS_VISIBLE !!!
+        // set status TXN_STATUS_COMMITTED not TXN_STATUS_VISIBLE !!!
+        // lazy commit task will advance txn to make txn visible
         txn_info.set_status(TxnStatusPB::TXN_STATUS_COMMITTED);
 
-        LOG(INFO) << "after update txn_info=" << txn_info.ShortDebugString();
+        LOG(INFO) << "after update txn_id= " << txn_id
+                  << " txn_info=" << txn_info.ShortDebugString();
         info_val.clear();
         if (!txn_info.SerializeToString(&info_val)) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
@@ -1712,7 +1716,7 @@ void commit_txn_eventually(
         }
 
         txn->put(info_key, info_val);
-        LOG(INFO) << "xxx put info_key=" << hex(info_key) << " txn_id=" << txn_id;
+        LOG(INFO) << "put info_key=" << hex(info_key) << " txn_id=" << txn_id;
 
         if (txn_info.load_job_source_type() ==
             LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_ROUTINE_LOAD_TASK) {
@@ -1726,18 +1730,22 @@ void commit_txn_eventually(
         for (auto& i : new_versions) {
             std::string ver_val;
             VersionPB version_pb;
-            version_pb.set_version(i.second);
-            version_pb.set_txn_id(txn_id);
+            version_pb.add_txn_ids(txn_id);
             version_pb.set_update_time_ms(version_update_time_ms);
+            if (i.second > 1) {
+                version_pb.set_version(i.second);
+            }
+
             if (!version_pb.SerializeToString(&ver_val)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-                ss << "failed to serialize version_pb when saving, txn_id=" << txn_id;
+                ss << "failed to serialize version_pb when saving, txn_id=" << txn_id
+                   << " partiton_key=" << hex(i.first);
                 msg = ss.str();
                 return;
             }
 
             txn->put(i.first, ver_val);
-            LOG(INFO) << "xxx put partition_version_key=" << hex(i.first) << " version:" << i.second
+            LOG(INFO) << "put partition_version_key=" << hex(i.first) << " version:" << i.second
                       << " txn_id=" << txn_id << " update_time=" << version_update_time_ms;
 
             std::string_view ver_key = i.first;
@@ -1761,7 +1769,7 @@ void commit_txn_eventually(
 
             response->add_table_ids(table_id);
             response->add_partition_ids(partition_id);
-            response->add_versions(i.second);
+            response->add_versions(i.second + 1);
         }
 
         // process mow table, check lock and remove pending key
@@ -1844,7 +1852,7 @@ void commit_txn_eventually(
         std::shared_ptr<TxnLazyCommitTask> task = txn_lazy_committer->submit(instance_id, txn_id);
         std::pair<MetaServiceCode, std::string> ret = task->wait();
         if (ret.first != MetaServiceCode::OK) {
-            LOG(WARNING) << "lazy commit txn failed txn_id=" << txn_id << " code=" << ret.first
+            LOG(WARNING) << "txn lazy commit failed txn_id=" << txn_id << " code=" << ret.first
                          << "msg=" << ret.second;
         }
 
@@ -1874,6 +1882,7 @@ void commit_txn_eventually(
                        << " updated_row_count=" << stats_pb->updated_row_count();
         }
 
+        // txn set visible for fe callback
         txn_info.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
         response->mutable_txn_info()->CopyFrom(txn_info);
         break;
@@ -2503,8 +2512,8 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
         return;
     }
 
-    if (request->has_is_2pc() && !request->is_2pc() && request->has_lazy_commit() &&
-        request->lazy_commit() && config::enable_txn_lazy_commit &&
+    if (request->has_is_2pc() && !request->is_2pc() && request->has_enable_txn_lazy_commit() &&
+        request->enable_txn_lazy_commit() && config::enable_cloud_txn_lazy_commit &&
         (tmp_rowsets_meta.size() >= config::txn_lazy_commit_rowsets_thresold)) {
         LOG(INFO) << "txn_id=" << txn_id << " commit_txn_eventually"
                   << " size=" << tmp_rowsets_meta.size();

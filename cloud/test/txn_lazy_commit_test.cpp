@@ -51,7 +51,7 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    config::enable_txn_lazy_commit = true;
+    config::enable_cloud_txn_lazy_commit = true;
     config::txn_lazy_commit_rowsets_thresold = 1;
     config::txn_lazy_max_rowsets_per_batch = 1;
     config::txn_lazy_commit_num_threads = 2;
@@ -190,7 +190,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyTest) {
         req.set_db_id(db_id);
         req.set_txn_id(txn_id);
         req.set_is_2pc(false);
-        req.set_lazy_commit(true);
+        req.set_enable_txn_lazy_commit(true);
         CommitTxnResponse res;
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);

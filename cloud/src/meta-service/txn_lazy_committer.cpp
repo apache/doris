@@ -127,18 +127,20 @@ void convert_tmp_rowsets(
             }
             LOG(INFO) << "txn_id=" << txn_id << " key=" << hex(ver_key)
                       << " version_pb:" << version_pb.ShortDebugString();
-            DCHECK(version_pb.has_txn_id());
-            DCHECK(version_pb.txn_id() == txn_id);
             partition_versions.emplace(tmp_rowset_pb.partition_id(), version_pb);
         }
 
         const VersionPB& version_pb = partition_versions[tmp_rowset_pb.partition_id()];
+        DCHECK(version_pb.txn_ids_size() > 0);
+        DCHECK_EQ(version_pb.txn_ids(0), txn_id);
 
-        std::string rowset_key =
-                meta_rowset_key({instance_id, tmp_rowset_pb.tablet_id(), version_pb.version()});
+        int64_t version = version_pb.has_version() ? (version_pb.version() + 1) : 2;
+
+        std::string rowset_key = meta_rowset_key({instance_id, tmp_rowset_pb.tablet_id(), version});
         std::string rowset_val;
         err = txn->get(rowset_key, &rowset_val);
         if (TxnErrorCode::TXN_OK == err) {
+            // tmp rowset key has been converted
             continue;
         }
 
@@ -152,8 +154,8 @@ void convert_tmp_rowsets(
         }
         DCHECK(err == TxnErrorCode::TXN_KEY_NOT_FOUND);
 
-        tmp_rowset_pb.set_start_version(version_pb.version());
-        tmp_rowset_pb.set_end_version(version_pb.version());
+        tmp_rowset_pb.set_start_version(version);
+        tmp_rowset_pb.set_end_version(version);
 
         rowset_val.clear();
         if (!tmp_rowset_pb.SerializeToString(&rowset_val)) {
@@ -165,7 +167,7 @@ void convert_tmp_rowsets(
         }
 
         txn->put(rowset_key, rowset_val);
-        LOG(INFO) << "xxx put rowset_key=" << hex(rowset_key) << " txn_id=" << txn_id
+        LOG(INFO) << "put rowset_key=" << hex(rowset_key) << " txn_id=" << txn_id
                   << " rowset_size=" << rowset_key.size() + rowset_val.size();
 
         // Accumulate affected rows
@@ -248,10 +250,10 @@ void make_committed_txn_visible(const std::string& instance_id, int64_t db_id, i
             return;
         }
         txn->put(info_key, info_val);
-        LOG(INFO) << "xxx put info_key=" << hex(info_key) << " txn_id=" << txn_id;
+        LOG(INFO) << "put info_key=" << hex(info_key) << " txn_id=" << txn_id;
 
         const std::string running_key = txn_running_key({instance_id, db_id, txn_id});
-        LOG(INFO) << "xxx remove running_key=" << hex(running_key) << " txn_id=" << txn_id;
+        LOG(INFO) << "remove running_key=" << hex(running_key) << " txn_id=" << txn_id;
         txn->remove(running_key);
 
         std::string recycle_val;
@@ -268,7 +270,9 @@ void make_committed_txn_visible(const std::string& instance_id, int64_t db_id, i
             msg = ss.str();
             return;
         }
+
         txn->put(recycle_key, recycle_val);
+        LOG(INFO) << "put recycle_key=" << hex(recycle_key) << " txn_id=" << txn_id;
 
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
@@ -359,6 +363,8 @@ void TxnLazyCommitTask::commit() {
                         table_id = tablet_ids[tmp_rowset_pb.tablet_id()].table_id();
                     }
                     txn->remove(tmp_rowset_key);
+                    LOG(INFO) << "remove tmp_rowset_key=" << hex(tmp_rowset_key)
+                              << " txn_id=" << txn_id_;
                 }
 
                 DCHECK(table_id > 0);
@@ -387,9 +393,17 @@ void TxnLazyCommitTask::commit() {
                     break;
                 }
 
-                if (version_pb.has_txn_id() && version_pb.txn_id() == txn_id_) {
-                    version_pb.clear_txn_id();
+                if (version_pb.txn_ids_size() > 0 && version_pb.txn_ids(0) == txn_id_) {
+                    DCHECK(version_pb.txn_ids_size() == 1);
+                    version_pb.clear_txn_ids();
                     ver_val.clear();
+
+                    if (version_pb.has_version()) {
+                        version_pb.set_version(version_pb.version() + 1);
+                    } else {
+                        // first commit txn version is 2
+                        version_pb.set_version(2);
+                    }
                     if (!version_pb.SerializeToString(&ver_val)) {
                         code_ = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                         ss << "failed to serialize version_pb when saving, txn_id=" << txn_id_;
@@ -397,6 +411,8 @@ void TxnLazyCommitTask::commit() {
                         return;
                     }
                     txn->put(ver_key, ver_val);
+                    LOG(INFO) << "put ver_key=" << hex(ver_key) << " txn_id=" << txn_id_
+                              << " version_pb=" << version_pb.ShortDebugString();
 
                     err = txn->commit();
                     if (err != TxnErrorCode::TXN_OK) {
