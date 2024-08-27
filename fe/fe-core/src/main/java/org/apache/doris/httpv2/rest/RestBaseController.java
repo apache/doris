@@ -34,7 +34,6 @@ import com.google.common.base.Strings;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.jetty.server.Request;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.servlet.view.RedirectView;
 
