@@ -17,8 +17,12 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_compaction_uniq_cluster_keys_with_delete") {
-    def tableName = "test_compaction_uniq_cluster_keys_with_delete"
+suite("test_vertical_compaction_uniq_keys_ck") {
+    if (isCloudMode()) {
+        logger.info("cloud does not support mow cluster key")
+        return
+    }
+    def tableName = "test_vertical_compaction_uniq_keys_ck"
 
     try {
         String backend_id;
@@ -28,7 +32,6 @@ suite("test_compaction_uniq_cluster_keys_with_delete") {
 
         backend_id = backendId_to_backendIP.keySet()[0]
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        
         logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def configList = parseJson(out.trim())
@@ -44,7 +47,7 @@ suite("test_compaction_uniq_cluster_keys_with_delete") {
 
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
-            CREATE TABLE IF NOT EXISTS ${tableName} (
+            CREATE TABLE ${tableName} (
                 `user_id` LARGEINT NOT NULL COMMENT "用户id",
                 `date` DATE NOT NULL COMMENT "数据灌入日期时间",
                 `datev2` DATEV2 NOT NULL COMMENT "数据灌入日期时间",
@@ -62,13 +65,9 @@ suite("test_compaction_uniq_cluster_keys_with_delete") {
                 `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`)
-            CLUSTER BY(`sex`, `date`, `cost`) 
+            CLUSTER BY(`age`, `sex`, `user_id`) 
             DISTRIBUTED BY HASH(`user_id`)
-            PROPERTIES (
-                "replication_num" = "1",
-                "enable_unique_key_merge_on_write" = "true",
-                "enable_mow_light_delete" = "true"
-            );
+            PROPERTIES ( "replication_num" = "1", "enable_unique_key_merge_on_write"="true" );
         """
 
         sql """ INSERT INTO ${tableName} VALUES
@@ -80,8 +79,10 @@ suite("test_compaction_uniq_cluster_keys_with_delete") {
             """
 
         sql """
-            DELETE FROM ${tableName} where user_id <= 5
+            DELETE from ${tableName} where user_id <= 0
             """
+        qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
+
 
         sql """ INSERT INTO ${tableName} VALUES
              (2, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2017-10-01 11:11:11.150000', '2017-10-01 11:11:11.130111', '2020-01-02', 1, 31, 21)
@@ -92,10 +93,9 @@ suite("test_compaction_uniq_cluster_keys_with_delete") {
             """
 
         sql """
-            DELETE FROM ${tableName} where user_id <= 1
+            DELETE from ${tableName} where user_id <= 1
             """
-
-        qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
+        qt_select_default1 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
         sql """ INSERT INTO ${tableName} VALUES
              (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2017-10-01 11:11:11.100000', '2017-10-01 11:11:11.140111', '2020-01-03', 1, 32, 22)
@@ -105,23 +105,17 @@ suite("test_compaction_uniq_cluster_keys_with_delete") {
              (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-04', '2020-01-04', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.150111', '2020-01-04', 1, 33, 21)
             """
 
-        sql """
-            DELETE FROM ${tableName} where user_id <= 2
-            """
-
         sql """ INSERT INTO ${tableName} VALUES
              (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, NULL, NULL, NULL, NULL, '2020-01-05', 1, 34, 20)
             """
 
-        qt_select_default1 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
-
         sql """ INSERT INTO ${tableName} VALUES
              (4, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, NULL, NULL, NULL, NULL, '2020-01-05', 1, 34, 20)
             """
-        sql """sync"""
+
         qt_select_default2 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
-        //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
+        //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
         // trigger compactions for all tablets in ${tableName}

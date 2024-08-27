@@ -17,8 +17,12 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_compaction_uniq_keys_cluster_key") {
-    def tableName = "compaction_uniq_keys_cluster_key"
+suite("test_compaction_uniq_keys_with_delete_ck") {
+    if (isCloudMode()) {
+        logger.info("cloud does not support mow cluster key")
+        return
+    }
+    def tableName = "test_compaction_uniq_keys_with_delete_ck"
 
     try {
         String backend_id;
@@ -62,49 +66,77 @@ suite("test_compaction_uniq_keys_cluster_key") {
                 `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`)
-            CLUSTER BY(`last_visit_date_not_null`, `age`, `sex`, `city`) 
+            CLUSTER BY(`sex`, `date`, `cost`) 
             DISTRIBUTED BY HASH(`user_id`)
-            PROPERTIES ( 
+            PROPERTIES (
                 "replication_num" = "1",
-                "enable_unique_key_merge_on_write" = "true"
+                "enable_unique_key_merge_on_write" = "true",
+                "enable_mow_light_delete" = "true"
             );
         """
 
+        // 2
         sql """ INSERT INTO ${tableName} VALUES
              (1, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-01', '2020-01-01', '2017-10-01 11:11:11.170000', '2017-10-01 11:11:11.110111', '2020-01-01', 1, 30, 20)
             """
 
+        // 3
         sql """ INSERT INTO ${tableName} VALUES
              (1, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2017-10-01 11:11:11.160000', '2017-10-01 11:11:11.100111', '2020-01-02', 1, 31, 19)
             """
 
+        // 4
+        sql """
+            DELETE FROM ${tableName} where user_id <= 5
+            """
+
+        // 5
         sql """ INSERT INTO ${tableName} VALUES
              (2, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2017-10-01 11:11:11.150000', '2017-10-01 11:11:11.130111', '2020-01-02', 1, 31, 21)
             """
 
+        // 6
         sql """ INSERT INTO ${tableName} VALUES
              (2, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2017-10-01 11:11:11.140000', '2017-10-01 11:11:11.120111', '2020-01-03', 1, 32, 20)
             """
 
-        sql """ INSERT INTO ${tableName} VALUES
-             (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2017-10-01 11:11:11.100000', '2017-10-01 11:11:11.140111', '2020-01-03', 1, 32, 22)
-            """
-
-        sql """ INSERT INTO ${tableName} VALUES
-             (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-04', '2020-01-04', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.150111', '2020-01-04', 1, 33, 21)
-            """
-
-        sql """ INSERT INTO ${tableName} VALUES
-             (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, NULL, NULL, NULL, NULL, '2020-01-05', 1, 34, 20)
-            """
-
-        sql """ INSERT INTO ${tableName} VALUES
-             (4, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, NULL, NULL, NULL, NULL, '2020-01-05', 1, 34, 20)
+        // 7
+        sql """
+            DELETE FROM ${tableName} where user_id <= 1
             """
 
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
-        //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
+        // 8
+        sql """ INSERT INTO ${tableName} VALUES
+             (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2017-10-01 11:11:11.100000', '2017-10-01 11:11:11.140111', '2020-01-03', 1, 32, 22)
+            """
+
+        // 9
+        sql """ INSERT INTO ${tableName} VALUES
+             (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-04', '2020-01-04', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.150111', '2020-01-04', 1, 33, 21)
+            """
+
+        // 10
+        sql """
+            DELETE FROM ${tableName} where user_id <= 2
+            """
+
+        // 11
+        sql """ INSERT INTO ${tableName} VALUES
+             (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, NULL, NULL, NULL, NULL, '2020-01-05', 1, 34, 20)
+            """
+
+        qt_select_default1 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
+
+        // 12
+        sql """ INSERT INTO ${tableName} VALUES
+             (4, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, NULL, NULL, NULL, NULL, '2020-01-05', 1, 34, 20)
+            """
+        sql """sync"""
+        qt_select_default2 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
+
+        //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
         // trigger compactions for all tablets in ${tableName}
@@ -155,7 +187,7 @@ suite("test_compaction_uniq_keys_cluster_key") {
             }
         }
         assert (rowCount < 8 * replicaNum)
-        qt_select_default2 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
+        qt_select_default3 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
     } finally {
         // try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
