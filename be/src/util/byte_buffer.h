@@ -24,6 +24,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "runtime/thread_context.h"
 #include "vec/common/allocator.h"
 #include "vec/common/allocator_fwd.h"
 
@@ -38,7 +39,10 @@ struct ByteBuffer : private Allocator<false> {
         return Status::OK();
     }
 
-    ~ByteBuffer() { Allocator<false>::free(ptr, capacity); }
+    ~ByteBuffer() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker_);
+        Allocator<false>::free(ptr, capacity);
+    }
 
     void put_bytes(const char* data, size_t size) {
         memcpy(ptr + pos, data, size);
