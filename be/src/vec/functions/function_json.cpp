@@ -815,13 +815,13 @@ struct FunctionJsonQuoteImpl {
         rapidjson::Value value;
 
         rapidjson::StringBuffer buf;
-        rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
 
         for (int i = 0; i < input_rows_count; i++) {
             StringRef data = data_columns[0]->get_data_at(i);
             value.SetString(data.data, data.size, allocator);
 
             buf.Clear();
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
             value.Accept(writer);
             result_column.insert_data(buf.GetString(), buf.GetSize());
         }
