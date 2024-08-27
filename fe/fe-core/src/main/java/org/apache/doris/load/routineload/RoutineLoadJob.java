@@ -866,6 +866,18 @@ public abstract class RoutineLoadJob
                 attachment.getReceivedBytes(), false /* not replay */);
     }
 
+    protected void updateCloudProgress(RLTaskTxnCommitAttachment attachment) {
+        // In the cloud mode, the reason for needing to overwrite jobStatistic is that
+        // pulling the progress of meta service is equivalent to a replay operation of edit log,
+        // but this method will be called whenever scheduled by RoutineLoadScheduler,
+        // and accumulation will result in incorrect jobStatistic information.
+        this.jobStatistic.totalRows = attachment.getTotalRows();
+        this.jobStatistic.errorRows = attachment.getFilteredRows();
+        this.jobStatistic.unselectedRows = attachment.getUnselectedRows();
+        this.jobStatistic.receivedBytes = attachment.getReceivedBytes();
+        this.jobStatistic.totalTaskExcutionTimeMs = System.currentTimeMillis() - createTimestamp;
+    }
+
     private void updateNumOfData(long numOfTotalRows, long numOfErrorRows, long unselectedRows, long receivedBytes,
                                  boolean isReplay) throws UserException {
         this.jobStatistic.totalRows += numOfTotalRows;
