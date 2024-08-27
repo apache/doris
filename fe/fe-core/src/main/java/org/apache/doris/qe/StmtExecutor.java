@@ -1704,6 +1704,11 @@ public class StmtExecutor {
                 sendResultSet(resultSet.get(), ((Queriable) parsedStmt).getFieldInfos());
                 isHandleQueryInFe = true;
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
+                if (context.getSessionVariable().enableProfile()) {
+                    if (profile != null) {
+                        this.profile.getSummaryProfile().setExecutedByFrontend(true);
+                    }
+                }
                 return;
             }
         }

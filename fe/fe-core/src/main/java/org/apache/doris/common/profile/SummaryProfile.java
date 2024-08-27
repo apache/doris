@@ -60,7 +60,7 @@ public class SummaryProfile {
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE = "Parallel Fragment Exec Instance Num";
     public static final String TRACE_ID = "Trace ID";
     public static final String WORKLOAD_GROUP = "Workload Group";
-
+    public static final String EXECUTED_BY_FRONTEND = "Executed By Frontend";
     // Execution Summary
     public static final String EXECUTION_SUMMARY_PROFILE_NAME = "Execution Summary";
     public static final String ANALYSIS_TIME = "Analysis Time";
@@ -151,7 +151,8 @@ public class SummaryProfile {
             INSTANCES_NUM_PER_BE,
             PARALLEL_FRAGMENT_EXEC_INSTANCE,
             TRACE_ID,
-            TRANSACTION_COMMIT_TIME
+            TRANSACTION_COMMIT_TIME,
+            EXECUTED_BY_FRONTEND
     );
 
     // Ident of each item. Default is 0, which doesn't need to present in this Map.
@@ -745,5 +746,9 @@ public class SummaryProfile {
             jsonObject.put("phase2", latencyForPhase2);
         }
         return new Gson().toJson(jsonObject);
+    }
+
+    public void setExecutedByFrontend(boolean executedByFrontend) {
+        summaryProfile.addInfoString(EXECUTED_BY_FRONTEND, String.valueOf(executedByFrontend));
     }
 }
