@@ -135,7 +135,7 @@ public class StageProperties extends CopyProperties {
         }
         properties.put(PREFIX, prefix);
         // analyze provider
-        String provider = properties.get(PROVIDER);
+        String provider = properties.get(PROVIDER).toUpperCase();
         if (!EnumUtils.isValidEnumIgnoreCase(ObjectStoreInfoPB.Provider.class, provider)) {
             throw new AnalysisException("Property " + PROVIDER + " with invalid value " + provider);
         }
