@@ -212,6 +212,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new NormalizeAggregate()
                         )
                 ),
+                //
                 // before `Subquery unnesting` topic, some correlate slots should have appeared at LogicalApply.left,
                 // but it appeared at LogicalApply.right. After the `Subquery unnesting` topic, all slots is placed in a
                 // normal position, then we can check column privileges by these steps
