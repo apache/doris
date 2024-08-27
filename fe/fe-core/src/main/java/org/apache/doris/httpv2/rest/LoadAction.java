@@ -382,7 +382,7 @@ public class LoadAction extends RestBaseController {
             if (Strings.isNullOrEmpty(cloudClusterName)) {
                 throw new LoadException("No cloud cluster name selected.");
             }
-            return selectCloudRedirectBackend(cloudClusterName, request, groupCommit);
+            return selectCloudRedirectBackend(cloudClusterName, request, groupCommit, tableId);
         } else {
             return selectLocalRedirectBackend(groupCommit, request, tableId);
         }
@@ -433,9 +433,29 @@ public class LoadAction extends RestBaseController {
         return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
     }
 
-    private TNetworkAddress selectCloudRedirectBackend(String clusterName, HttpServletRequest req, boolean groupCommit)
+    private TNetworkAddress selectCloudRedirectBackend(String clusterName, HttpServletRequest req, boolean groupCommit,
+            long tableId)
             throws LoadException {
-        Backend backend = StreamLoadHandler.selectBackend(clusterName, groupCommit);
+        Backend backend = null;
+        if (groupCommit) {
+            ConnectContext ctx = new ConnectContext();
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setThreadLocalInfo();
+            ctx.setRemoteIP(req.getRemoteAddr());
+            // We set this variable to fulfill required field 'user' in
+            // TMasterOpRequest(FrontendService.thrift)
+            ctx.setQualifiedUser(Auth.ADMIN_USER);
+            ctx.setThreadLocalInfo();
+
+            try {
+                backend = Env.getCurrentEnv().getGroupCommitManager()
+                        .selectBackendForGroupCommit(tableId, ctx, false);
+            } catch (DdlException e) {
+                throw new RuntimeException(e);
+            }
+        } else {
+            backend = StreamLoadHandler.selectBackend(clusterName);
+        }
 
         String redirectPolicy = req.getHeader(LoadAction.HEADER_REDIRECT_POLICY);
         // User specified redirect policy
