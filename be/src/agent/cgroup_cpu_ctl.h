@@ -59,14 +59,17 @@ public:
     static uint64_t cpu_soft_limit_default_value();
 
 protected:
-    Status write_cg_sys_file(std::string file_path, std::string value, std::string msg,
-                             bool is_append);
-
     virtual Status modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) = 0;
 
     virtual Status modify_cg_cpu_soft_limit_no_lock(int cpu_shares) = 0;
 
     Status add_thread_to_cgroup(std::string task_file);
+
+    static Status write_cg_sys_file(std::string file_path, std::string value, std::string msg,
+                                    bool is_append);
+
+    static Status init_cgroup_v2_query_path_public_file(std::string home_path,
+                                                        std::string query_path);
 
 protected:
     inline static uint64_t _cpu_core_num;
@@ -76,6 +79,11 @@ protected:
     inline static bool _is_enable_cgroup_v1_in_env = false;
     inline static bool _is_enable_cgroup_v2_in_env = false;
     inline static bool _is_cgroup_query_path_valid = false;
+
+    // cgroup v2 public file
+    inline static std::string _doris_cgroup_cpu_path_subtree_ctl_file = "";
+    inline static std::string _cgroup_v2_query_path_subtree_ctl_file = "";
+    inline static std::string _doris_cg_v2_procs_file = "";
 
 protected:
     int _cpu_hard_limit = 0;
@@ -143,16 +151,19 @@ private:
     5 query path subtree_control file:
         /sys/fs/cgroup/{doris_home}/query/cgroup.subtree_control
 
-    6 workload group path:
+    6 query path procs file:
+        /sys/fs/cgroup/{doris_home}/query/cgroup.procs
+
+    7 workload group path:
         /sys/fs/cgroup/{doris_home}/query/{workload_group_id}
 
-    7 workload grou cpu.max file:
+    8 workload grou cpu.max file:
         /sys/fs/cgroup/{doris_home}/query/{workload_group_id}/cpu.max
 
-    8 workload grou cpu.weight file:
+    9 workload grou cpu.weight file:
         /sys/fs/cgroup/{doris_home}/query/{workload_group_id}/cpu.weight
 
-    9 workload group cgroup type file:
+    10 workload group cgroup type file:
         /sys/fs/cgroup/{doris_home}/query/{workload_group_id}/cgroup.type
 
 */
@@ -165,11 +176,6 @@ public:
     Status add_thread_to_cgroup() override;
 
 private:
-    Status enable_cpu_controller(std::string file);
-
-private:
-    std::string _doris_cgroup_cpu_path_subtree_ctl_file;
-    std::string _cgroup_v2_query_path_subtree_ctl_file;
     std::string _cgroup_v2_query_wg_path;
     std::string _cgroup_v2_query_wg_cpu_max_file;
     std::string _cgroup_v2_query_wg_cpu_weight_file;
