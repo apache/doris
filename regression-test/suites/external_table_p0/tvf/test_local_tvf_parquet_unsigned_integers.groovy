@@ -95,7 +95,7 @@ suite("test_local_tvf_parquet_unsigned_integers", "p0") {
  
     qt_test_21 """ select count(uint64_column) from local( "file_path" = "${file3}", "backend_id" = "${be_id}", "format" = "parquet")  ;"""
     
-    qt_test_22 """ select * from local( "file_path" = "${file3}", "backend_id" = "${be_id}", "format" = "parquet") where uint64_column = 17860909737657133518 order by id ;"""
+    qt_test_22 """ select * from local( "file_path" = "${file3}", "backend_id" = "${be_id}", "format" = "parquet") where uint64_column = 18446744073709551614 order by id ;"""
 
 
 
