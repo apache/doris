@@ -467,8 +467,8 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
     return Status::OK();
 }
 
-Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                              const ParseConfig& config) {
+Status _internal_parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
+                                       const ParseConfig& config) {
     for (int i = 0; i < variant_pos.size(); ++i) {
         auto column_ref = block.get_by_position(variant_pos[i]).column;
         bool is_nullable = column_ref->is_nullable();
