@@ -2765,6 +2765,9 @@ PARTITION `p599` VALUES IN (599)
     alter_result = sql """show column cached stats alter_test(id)"""
     assertEquals(1, alter_result.size())
 
+    def tablets = sql """ show tablets from __internal_schema.column_statistics """
+    println(tablets)
+
     // Test trigger type, manual default full, manual high health value, sample empty, kill job, show analyze
     sql """DROP DATABASE IF EXISTS trigger"""
     sql """CREATE DATABASE IF NOT EXISTS trigger"""
@@ -2904,7 +2907,6 @@ PARTITION `p599` VALUES IN (599)
     assertEquals("0.0", alter_result[0][4])
     assertEquals("521779.0", alter_result[0][5])
     assertEquals("7.142863009760572", alter_result[0][6])
-
 
     sql """DROP DATABASE IF EXISTS trigger"""
 }
