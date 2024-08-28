@@ -342,9 +342,15 @@ class Node(object):
             for path in ("/etc/localtime", "/etc/timezone",
                          "/usr/share/zoneinfo") if os.path.exists(path)
         ]
+
         if self.cluster.coverage_dir:
             volumes.append("{}:{}/coverage".format(self.cluster.coverage_dir,
                                                    DOCKER_DORIS_PATH))
+
+        extra_hosts = [
+            "{}:{}".format(node.get_name(), node.get_ip())
+            for node in self.cluster.get_all_nodes()
+        ]
 
         content = {
             "cap_add": ["SYS_PTRACE"],
@@ -357,6 +363,7 @@ class Node(object):
                     "ipv4_address": self.get_ip(),
                 }
             },
+            "extra_hosts": extra_hosts(),
             "ports": self.docker_ports(),
             "ulimits": {
                 "core": -1
@@ -699,7 +706,14 @@ class Cluster(object):
             raise Exception("No found {} with id {}".format(node_type, id))
         return Node.new(self, node_type, id, meta)
 
-    def get_all_nodes(self, node_type):
+    def get_all_nodes(self, node_type=None):
+        if node_type is None:
+            nodes = []
+            for nt, group in self.groups.items():
+                for id, meta in group.get_all_nodes().items():
+                    nodes.append(Node.new(self, nt, id, meta))
+            return nodes
+
         group = self.groups.get(node_type, None)
         if not group:
             raise Exception("Unknown node_type: {}".format(node_type))
