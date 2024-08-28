@@ -169,7 +169,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
 
     // build inverted index at middle of loading the data
     // ADD INDEX
-    sql """ ALTER TABLE github_events ADD INDEX idx_var (`v`) USING INVERTED PROPERTIES("parser" = "chinese", "parser_mode" = "fine_grained", "support_phrase" = "true") """
+    sql """ ALTER TABLE github_events ADD INDEX idx_var (`v`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") """
     wait_for_latest_op_on_table_finish("github_events", timeout)
 
     // 2022
@@ -212,9 +212,11 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         } while (running)
     }
 
-    
-    // TODO fix compaction issue, this case could be stable
+    sql """set enable_match_without_inverted_index = false""" 
+    // filter by bloom filter
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
     qt_sql """select * from github_events where  cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1 limit 10"""
-    // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
+    // query with inverted index
+    qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where v["repo"]["name"] match 'xpressengine' order by 1;"""
+    qt_sql """select count()  from github_events where v["repo"]["name"] match 'apache' order by 1;"""
 }
