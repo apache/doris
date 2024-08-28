@@ -26,7 +26,7 @@ import org.apache.doris.qe.StmtExecutor;
 /**
  * user database command
  */
-public class UseDatabaseCommand extends Command implements ForwardWithSync {
+public class UseDatabaseCommand extends Command implements NoForward {
     private String catalog;
     private String database;
 
