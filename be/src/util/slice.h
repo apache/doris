@@ -358,7 +358,16 @@ public:
         return *this;
     }
 
-    ~OwnedSlice() { Allocator::free(_slice.data, _capacity); }
+    // disable copy constructor and copy assignment
+    OwnedSlice(const OwnedSlice&) = delete;
+    void operator=(const OwnedSlice&) = delete;
+
+    ~OwnedSlice() {
+        if (_slice.data != nullptr) {
+            DCHECK(_capacity != 0);
+            Allocator::free(_slice.data, _capacity);
+        }
+    }
 
     const Slice& slice() const { return _slice; }
 
