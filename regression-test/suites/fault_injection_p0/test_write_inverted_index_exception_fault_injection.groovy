@@ -20,7 +20,36 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
     def tableNamePrefix = "test_write_inverted_index_exception_fault_injection"
 
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+    def set_be_config = { key, value ->
+        for (String backend_id: backendId_to_backendIP.keySet()) {
+            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        }
+    }
+
+    def check_config = { String key, String value ->
+        for (String backend_id: backendId_to_backendIP.keySet()) {
+            def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
+            logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+            def configList = parseJson(out.trim())
+            assert configList instanceof List
+            for (Object ele in (List) configList) {
+                assert ele instanceof List<String>
+                if (((List<String>) ele)[0] == key) {
+                    assertEquals(value, ((List<String>) ele)[2])
+                }
+            }
+        }
+    }
+
     sql "SET enable_match_without_inverted_index = false"
+    boolean inverted_index_ram_dir_enable = true
+    boolean has_update_be_config = false
     
     def creata_table = { String tableName, String format -> 
         sql "DROP TABLE IF EXISTS ${tableName}"
@@ -209,33 +238,60 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
     ]
 
     def inverted_index_storage_format = ["v1", "v2"]
-    inverted_index_storage_format.each { format ->
-        def tableName = "${tableNamePrefix}_${format}"
-        creata_table("${tableName}", format)
 
-        // for each debug point, enable it, run the insert, check the count, and disable the debug point
-        // catch any exceptions and disable the debug point
-        debug_points.each { debug_point ->
-            try {
-                GetDebugPoint().enableDebugPointForAllBEs(debug_point)
-                run_insert("${tableName}")
-                check_count("${tableName}", 6)
-                // if debug_point equals InvertedIndexColumnWriterImpl::add_array_values_count_is_zero, run_select(false)
-                // else run_select(true)
-                if (debug_point == "InvertedIndexColumnWriterImpl::add_array_values_count_is_zero") {
-                    run_select("${tableName}", false)
-                } else {
-                    run_select("${tableName}", true)
-                }
-                sql "TRUNCATE TABLE ${tableName}"
-            } catch (Exception e) {
-                log.error("Caught exception: ${e}")
-                check_count("${tableName}", 0)
-            } finally {
-                GetDebugPoint().disableDebugPointForAllBEs(debug_point)
+    try {
+        String backend_id;
+        backend_id = backendId_to_backendIP.keySet()[0]
+        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
+        
+        logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
+        assertEquals(code, 0)
+        def configList = parseJson(out.trim())
+        assert configList instanceof List
+
+        for (Object ele in (List) configList) {
+            assert ele instanceof List<String>
+            if (((List<String>) ele)[0] == "inverted_index_ram_dir_enable") {
+                invertedIndexCompactionEnable = Boolean.parseBoolean(((List<String>) ele)[2])
+                logger.info("inverted_index_ram_dir_enable: ${((List<String>) ele)[2]}")
             }
         }
+        set_be_config.call("inverted_index_ram_dir_enable", "false")
+        has_update_be_config = true
+        // check updated config
+        check_config.call("inverted_index_ram_dir_enable", "false");
+        inverted_index_storage_format.each { format ->
+            def tableName = "${tableNamePrefix}_${format}"
+            creata_table("${tableName}", format)
+
+            // for each debug point, enable it, run the insert, check the count, and disable the debug point
+            // catch any exceptions and disable the debug point
+            debug_points.each { debug_point ->
+                try {
+                    GetDebugPoint().enableDebugPointForAllBEs(debug_point)
+                    run_insert("${tableName}")
+                    check_count("${tableName}", 6)
+                    // if debug_point equals InvertedIndexColumnWriterImpl::add_array_values_count_is_zero, run_select(false)
+                    // else run_select(true)
+                    if (debug_point == "InvertedIndexColumnWriterImpl::add_array_values_count_is_zero") {
+                        run_select("${tableName}", false)
+                    } else {
+                        run_select("${tableName}", true)
+                    }
+                    sql "TRUNCATE TABLE ${tableName}"
+                } catch (Exception e) {
+                    log.error("Caught exception: ${e}")
+                    check_count("${tableName}", 0)
+                } finally {
+                    GetDebugPoint().disableDebugPointForAllBEs(debug_point)
+                }
+            }
+        }
+    } finally {
+        if (has_update_be_config) {
+            set_be_config.call("inverted_index_ram_dir_enable", inverted_index_ram_dir_enable.toString())
+        }
+        sql "SET enable_match_without_inverted_index = true"
     }
 
-    sql "SET enable_match_without_inverted_index = true"
 }
