@@ -108,8 +108,11 @@ public class LoadAction extends RestBaseController {
         boolean groupCommit = false;
         String groupCommitStr = request.getHeader("group_commit");
         if (groupCommitStr != null) {
+            if (!groupCommitStr.equalsIgnoreCase("async_mode") && !groupCommitStr.equalsIgnoreCase("sync_mode")) {
+                return new RestBaseResult("Header `group_commit` can only be `sync_mode` or `async_mode`.");
+            }
+            groupCommit = true;
             if (groupCommitStr.equalsIgnoreCase("async_mode")) {
-                groupCommit = true;
                 try {
                     if (isGroupCommitBlock(db, table)) {
                         String msg = "insert table " + table + GroupCommitPlanner.SCHEMA_CHANGE;
@@ -119,8 +122,6 @@ public class LoadAction extends RestBaseController {
                     LOG.info("exception:" + e);
                     return new RestBaseResult(e.getMessage());
                 }
-            } else if (groupCommitStr.equalsIgnoreCase("sync_mode")) {
-                groupCommit = true;
             }
         }
         if (needRedirect(request.getScheme())) {
@@ -152,28 +153,28 @@ public class LoadAction extends RestBaseController {
         long tableId = -1;
         String groupCommitStr = request.getHeader("group_commit");
         if (groupCommitStr != null) {
-            if (groupCommitStr.equalsIgnoreCase("async_mode")) {
-                try {
-                    groupCommit = true;
-                    String[] pair = parseDbAndTb(sql);
-                    Database db = Env.getCurrentInternalCatalog()
-                            .getDbOrException(pair[0], s -> new TException("database is invalid for dbName: " + s));
-                    Table tbl = db.getTableOrException(pair[1], s -> new TException("table is invalid: " + s));
-                    tableId = tbl.getId();
-
-                    if (groupCommitStr.equalsIgnoreCase("async_mode")) {
-                        if (isGroupCommitBlock(pair[0], pair[1])) {
-                            String msg = "insert table " + pair[1] + GroupCommitPlanner.SCHEMA_CHANGE;
-                            return new RestBaseResult(msg);
-                        }
-
-                    }
-                } catch (Exception e) {
-                    LOG.info("exception:" + e);
-                    return new RestBaseResult(e.getMessage());
-                }
-            } else if (groupCommitStr.equalsIgnoreCase("sync_mode")) {
+            if (!groupCommitStr.equalsIgnoreCase("async_mode") && !groupCommitStr.equalsIgnoreCase("sync_mode")) {
+                return new RestBaseResult("Header `group_commit` can only be `sync_mode` or `async_mode`.");
+            }
+            try {
                 groupCommit = true;
+                String[] pair = parseDbAndTb(sql);
+                Database db = Env.getCurrentInternalCatalog()
+                        .getDbOrException(pair[0], s -> new TException("database is invalid for dbName: " + s));
+                Table tbl = db.getTableOrException(pair[1], s -> new TException("table is invalid: " + s));
+                tableId = tbl.getId();
+
+                // async mode needs to write WAL, we need to block load during waiting WAL.
+                if (groupCommitStr.equalsIgnoreCase("async_mode")) {
+                    if (isGroupCommitBlock(pair[0], pair[1])) {
+                        String msg = "insert table " + pair[1] + GroupCommitPlanner.SCHEMA_CHANGE;
+                        return new RestBaseResult(msg);
+                    }
+
+                }
+            } catch (Exception e) {
+                LOG.info("exception:" + e);
+                return new RestBaseResult(e.getMessage());
             }
         }
         executeCheckPassword(request, response);
@@ -672,7 +673,7 @@ public class LoadAction extends RestBaseController {
             backend = Env.getCurrentEnv().getGroupCommitManager()
                     .selectBackendForGroupCommit(tableId, ctx, isCloud);
         } catch (DdlException e) {
-            throw new RuntimeException(e);
+            throw new LoadException(e.getMessage(), e);
         }
         return backend;
     }
