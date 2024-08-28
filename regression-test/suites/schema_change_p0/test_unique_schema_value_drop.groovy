@@ -27,7 +27,6 @@ suite("test_unique_schema_value_drop", "p0") {
     def errorMessage = ""
     def insertSql = "insert into ${tbName} values(123456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
 
-
     /**
      *  Test the unique model by drop a value type
      */

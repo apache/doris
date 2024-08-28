@@ -52,7 +52,6 @@ suite("test_dup_schema_value_modify4", "p0") {
     def errorMessage = ""
     def insertSql = "insert into ${tbName1} values(923456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
 
-
     /**
      *  Test the dup model by modify a value type from MAP to other type
      */
