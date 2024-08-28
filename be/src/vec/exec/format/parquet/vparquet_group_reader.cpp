@@ -863,8 +863,8 @@ Status RowGroupReader::_rewrite_dict_predicates() {
         bool can_filter_all;
         {
             SCOPED_RAW_TIMER(&_predicate_filter_time);
-            RETURN_IF_ERROR(VExprContext::execute_conjuncts(ctxs, nullptr, &temp_block, &result_filter,
-                                                            &can_filter_all));
+            RETURN_IF_ERROR(VExprContext::execute_conjuncts(ctxs, nullptr, &temp_block,
+                                                            &result_filter, &can_filter_all));
         }
         if (dict_pos != 0) {
             // We have to clean the first column to insert right data.
