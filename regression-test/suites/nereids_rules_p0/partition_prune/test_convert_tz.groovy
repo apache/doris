@@ -18,8 +18,8 @@
 
 suite("test_convert_tz") {
     sql "set enable_fallback_to_original_planner=false"
-    sql "drop table if exists test;"
-    sql """CREATE TABLE test
+    sql "drop table if exists test_convert_tz;"
+    sql """CREATE TABLE test_convert_tz
     (
             timestamp DATETIME NOT NULL
     )
@@ -33,7 +33,7 @@ suite("test_convert_tz") {
     PROPERTIES(
             "storage_format" = "DEFAULT",
             "replication_num" = "1");"""
-    sql """INSERT INTO test (timestamp)
+    sql """INSERT INTO test_convert_tz (timestamp)
     VALUES ('2020-12-31'),
     ('2021-01-05'),
     ('2021-01-15'),
@@ -41,48 +41,48 @@ suite("test_convert_tz") {
     ('2021-02-15');"""
 
     explain {
-        sql "SELECT * FROM test WHERE convert_tz(timestamp, 'Asia/Shanghai', 'Europe/Paris') < '2021-01-01';"
+        sql "SELECT * FROM test_convert_tz WHERE convert_tz(timestamp, 'Asia/Shanghai', 'Europe/Paris') < '2021-01-01';"
         contains("partitions=2/3 (p1,p2)")
     }
     explain {
-        sql "SELECT * FROM test WHERE convert_tz(timestamp, 'Asia/Shanghai', 'Europe/Paris') > '2021-01-01';";
+        sql "SELECT * FROM test_convert_tz WHERE convert_tz(timestamp, 'Asia/Shanghai', 'Europe/Paris') > '2021-01-01';";
         contains("partitions=2/3 (p2,p3)")
     }
 
     explain {
-        sql """SELECT * FROM test WHERE convert_tz(timestamp, 'Asia/Shanghai', 'Europe/Paris') < '2021-02-24'
+        sql """SELECT * FROM test_convert_tz WHERE convert_tz(timestamp, 'Asia/Shanghai', 'Europe/Paris') < '2021-02-24'
         and convert_tz(timestamp, 'Asia/Shanghai', 'Europe/Paris') > '2021-01-01';"""
         contains("partitions=2/3 (p2,p3)")
     }
 
     explain {
-        sql """SELECT * FROM test WHERE convert_tz(timestamp, 'Asia/Shanghai', 'Europe/Paris') < '2021-02-24'
+        sql """SELECT * FROM test_convert_tz WHERE convert_tz(timestamp, 'Asia/Shanghai', 'Europe/Paris') < '2021-02-24'
         or convert_tz(timestamp, 'Asia/Shanghai', 'Europe/Paris') > '2021-01-01';"""
         contains("partitions=3/3 (p1,p2,p3)")
     }
 
     explain {
-        sql "SELECT * FROM test WHERE convert_tz(timestamp, 'Asia/Beijing', 'Europe/Paris') is null;";
+        sql "SELECT * FROM test_convert_tz WHERE convert_tz(timestamp, 'Asia/Beijing', 'Europe/Paris') is null;";
         contains("partitions=3/3 (p1,p2,p3)")
     }
 
     explain {
-        sql "SELECT * FROM test WHERE convert_tz(timestamp, 'Asia/Beijing', 'Europe/Paris') is not null;";
+        sql "SELECT * FROM test_convert_tz WHERE convert_tz(timestamp, 'Asia/Beijing', 'Europe/Paris') is not null;";
         contains("partitions=3/3 (p1,p2,p3)")
     }
 
     explain {
-        sql "SELECT * FROM test WHERE date_trunc(convert_tz(timestamp, 'Asia/Beijing', 'Europe/Paris'), 'month') <'2021-01-01';";
+        sql "SELECT * FROM test_convert_tz WHERE date_trunc(convert_tz(timestamp, 'Asia/Beijing', 'Europe/Paris'), 'month') <'2021-01-01';";
         contains("partitions=3/3 (p1,p2,p3)")
     }
 
     explain {
-        sql "SELECT * FROM test WHERE date_trunc(convert_tz(timestamp, 'Asia/Shanghai', 'Europe/Paris'), 'month') <'2021-01-01';";
+        sql "SELECT * FROM test_convert_tz WHERE date_trunc(convert_tz(timestamp, 'Asia/Shanghai', 'Europe/Paris'), 'month') <'2021-01-01';";
         contains("partitions=2/3 (p1,p2)")
     }
 
     explain {
-        sql "SELECT * FROM test WHERE convert_tz(date_trunc(timestamp, 'month'), 'Asia/Shanghai', 'Europe/Paris') <'2021-01-01';";
+        sql "SELECT * FROM test_convert_tz WHERE convert_tz(date_trunc(timestamp, 'month'), 'Asia/Shanghai', 'Europe/Paris') <'2021-01-01';";
         contains("partitions=2/3 (p1,p2)")
     }
     for (int i = 0; i < 2; i++) {
@@ -92,7 +92,7 @@ suite("test_convert_tz") {
             sql "set disable_nereids_rules = ''"
         }
         explain {
-            sql "SELECT * FROM test WHERE not convert_tz(timestamp, 'Asia/Shanghai', 'Europe/Paris') <= '2021-01-01';";
+            sql "SELECT * FROM test_convert_tz WHERE not convert_tz(timestamp, 'Asia/Shanghai', 'Europe/Paris') <= '2021-01-01';";
             contains("partitions=2/3 (p2,p3)")
         }
     }
