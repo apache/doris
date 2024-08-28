@@ -61,7 +61,10 @@ suite("insert_with_drop", "nonConcurrent") {
     sql """ insert into ${table}_3 values(10, '1', 1), (20, '2', 2) """
     sql """ insert into ${table}_4 values(30, '3', 3), (40, '4', 4), (5, '5', 5) """
 
+    def insert_visible_timeout = sql """show variables where variable_name = 'insert_visible_timeout_ms';"""
+    logger.info("insert_visible_timeout: ${insert_visible_timeout}")
     try {
+        sql "set insert_visible_timeout_ms = 2000"
         // -------------------- drop partition --------------------
         // 1. stop publish and txn insert
         GetDebugPoint().enableDebugPointForAllFEs('PublishVersionDaemon.stop_publish')
@@ -117,6 +120,7 @@ suite("insert_with_drop", "nonConcurrent") {
     } catch (Exception e) {
         logger.info("failed", e)
     } finally {
+        sql "set insert_visible_timeout_ms = ${insert_visible_timeout[0][1]}"
         GetDebugPoint().disableDebugPointForAllFEs('PublishVersionDaemon.stop_publish')
     }
 }

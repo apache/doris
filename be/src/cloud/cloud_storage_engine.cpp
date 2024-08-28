@@ -567,21 +567,21 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
     std::function<bool(CloudTablet*)> filter_out;
     if (compaction_type == CompactionType::BASE_COMPACTION) {
         filter_out = [&submitted_base_compactions, &submitted_full_compactions](CloudTablet* t) {
-            return !!submitted_base_compactions.count(t->tablet_id()) ||
-                   !!submitted_full_compactions.count(t->tablet_id()) ||
+            return submitted_base_compactions.contains(t->tablet_id()) ||
+                   submitted_full_compactions.contains(t->tablet_id()) ||
                    t->tablet_state() != TABLET_RUNNING;
         };
     } else if (config::enable_parallel_cumu_compaction) {
         filter_out = [&tablet_preparing_cumu_compaction](CloudTablet* t) {
-            return !!tablet_preparing_cumu_compaction.count(t->tablet_id()) ||
-                   t->tablet_state() != TABLET_RUNNING;
+            return tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
+                   (t->tablet_state() != TABLET_RUNNING && t->alter_version() == -1);
         };
     } else {
         filter_out = [&tablet_preparing_cumu_compaction,
                       &submitted_cumu_compactions](CloudTablet* t) {
-            return !!tablet_preparing_cumu_compaction.count(t->tablet_id()) ||
-                   !!submitted_cumu_compactions.count(t->tablet_id()) ||
-                   t->tablet_state() != TABLET_RUNNING;
+            return tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
+                   submitted_cumu_compactions.contains(t->tablet_id()) ||
+                   (t->tablet_state() != TABLET_RUNNING && t->alter_version() == -1);
         };
     }
 

@@ -110,7 +110,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             return result;
         }
         try {
-            if (!table.getPartitionNames().isEmpty()) {
+            if (!table.getPartitionColumns().isEmpty()) {
                 if (conjuncts.isEmpty()) {
                     throw new IllegalArgumentException("Max Compute partition table need partition predicate.");
                 }

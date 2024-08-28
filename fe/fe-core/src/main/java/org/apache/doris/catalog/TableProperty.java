@@ -96,6 +96,8 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     private boolean disableAutoCompaction = false;
 
+    private boolean variantEnableFlattenNested = false;
+
     private boolean enableSingleReplicaCompaction = false;
 
     private boolean storeRowColumn = false;
@@ -235,6 +237,17 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     public boolean disableAutoCompaction() {
         return disableAutoCompaction;
+    }
+
+
+    public TableProperty buildVariantEnableFlattenNested() {
+        variantEnableFlattenNested = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED, "false"));
+        return this;
+    }
+
+    public boolean variantEnableFlattenNested() {
+        return variantEnableFlattenNested;
     }
 
     public TableProperty buildEnableSingleReplicaCompaction() {
@@ -681,6 +694,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
         buildTimeSeriesCompactionEmptyRowsetsThreshold();
         buildTimeSeriesCompactionLevelThreshold();
         buildTTLSeconds();
+        buildVariantEnableFlattenNested();
 
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation

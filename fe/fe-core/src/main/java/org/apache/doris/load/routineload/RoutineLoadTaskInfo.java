@@ -76,6 +76,8 @@ public abstract class RoutineLoadTaskInfo {
     protected static final int MAX_TIMEOUT_BACK_OFF_COUNT = 3;
     protected int timeoutBackOffCount = 0;
 
+    protected boolean isEof = false;
+
     // this status will be set when corresponding transaction's status is changed.
     // so that user or other logic can know the status of the corresponding txn.
     protected TransactionStatus txnStatus = TransactionStatus.UNKNOWN;
@@ -160,6 +162,10 @@ public abstract class RoutineLoadTaskInfo {
         return timeoutBackOffCount;
     }
 
+    public boolean getIsEof() {
+        return isEof;
+    }
+
     public boolean isTimeout() {
         if (txnStatus == TransactionStatus.COMMITTED || txnStatus == TransactionStatus.VISIBLE) {
             // the corresponding txn is already finished, this task can not be treated as timeout.
@@ -174,7 +180,12 @@ public abstract class RoutineLoadTaskInfo {
         return false;
     }
 
-    public void selfAdaptTimeout(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
+    public void handleTaskByTxnCommitAttachment(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
+        selfAdaptTimeout(rlTaskTxnCommitAttachment);
+        judgeEof(rlTaskTxnCommitAttachment);
+    }
+
+    private void selfAdaptTimeout(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
         long taskExecutionTime = rlTaskTxnCommitAttachment.getTaskExecutionTimeMs();
         long timeoutMs = this.timeoutMs;
 
@@ -187,6 +198,15 @@ public abstract class RoutineLoadTaskInfo {
             this.timeoutBackOffCount--;
         }
         this.timeoutMs = timeoutMs;
+    }
+
+    private void judgeEof(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
+        RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
+        if (rlTaskTxnCommitAttachment.getTotalRows() < routineLoadJob.getMaxBatchRows()
+                && rlTaskTxnCommitAttachment.getReceivedBytes() < routineLoadJob.getMaxBatchSizeBytes()
+                && rlTaskTxnCommitAttachment.getTaskExecutionTimeMs() < this.timeoutMs) {
+            this.isEof = true;
+        }
     }
 
     abstract TRoutineLoadTask createRoutineLoadTask() throws UserException;

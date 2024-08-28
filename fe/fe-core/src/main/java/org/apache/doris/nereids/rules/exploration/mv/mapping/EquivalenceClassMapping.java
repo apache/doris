@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.exploration.mv.EquivalenceClass;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -30,39 +31,41 @@ import java.util.Set;
  * This will extract the equivalence class set in EquivalenceClass and mapping set in
  * two different EquivalenceClass.
  */
-public class EquivalenceClassSetMapping extends Mapping {
+public class EquivalenceClassMapping extends Mapping {
 
-    private final Map<Set<SlotReference>, Set<SlotReference>> equivalenceClassSetMap;
+    private final Map<List<SlotReference>, List<SlotReference>> equivalenceClassSetMap;
 
-    public EquivalenceClassSetMapping(Map<Set<SlotReference>,
-            Set<SlotReference>> equivalenceClassSetMap) {
+    public EquivalenceClassMapping(Map<List<SlotReference>,
+            List<SlotReference>> equivalenceClassSetMap) {
         this.equivalenceClassSetMap = equivalenceClassSetMap;
     }
 
-    public static EquivalenceClassSetMapping of(Map<Set<SlotReference>, Set<SlotReference>> equivalenceClassSetMap) {
-        return new EquivalenceClassSetMapping(equivalenceClassSetMap);
+    public static EquivalenceClassMapping of(Map<List<SlotReference>, List<SlotReference>> equivalenceClassSetMap) {
+        return new EquivalenceClassMapping(equivalenceClassSetMap);
     }
 
     /**
      * Generate source equivalence set map to target equivalence set
      */
-    public static EquivalenceClassSetMapping generate(EquivalenceClass source, EquivalenceClass target) {
+    public static EquivalenceClassMapping generate(EquivalenceClass source, EquivalenceClass target) {
 
-        Map<Set<SlotReference>, Set<SlotReference>> equivalenceClassSetMap = new HashMap<>();
-        List<Set<SlotReference>> sourceSets = source.getEquivalenceSetList();
-        List<Set<SlotReference>> targetSets = target.getEquivalenceSetList();
+        Map<List<SlotReference>, List<SlotReference>> equivalenceClassSetMap = new HashMap<>();
+        List<List<SlotReference>> sourceSets = source.getEquivalenceSetList();
+        List<List<SlotReference>> targetSets = target.getEquivalenceSetList();
 
-        for (Set<SlotReference> sourceSet : sourceSets) {
-            for (Set<SlotReference> targetSet : targetSets) {
+        for (List<SlotReference> sourceList : sourceSets) {
+            Set<SlotReference> sourceSet = new HashSet<>(sourceList);
+            for (List<SlotReference> targetList : targetSets) {
+                Set<SlotReference> targetSet = new HashSet<>(targetList);
                 if (sourceSet.containsAll(targetSet)) {
-                    equivalenceClassSetMap.put(sourceSet, targetSet);
+                    equivalenceClassSetMap.put(sourceList, targetList);
                 }
             }
         }
-        return EquivalenceClassSetMapping.of(equivalenceClassSetMap);
+        return EquivalenceClassMapping.of(equivalenceClassSetMap);
     }
 
-    public Map<Set<SlotReference>, Set<SlotReference>> getEquivalenceClassSetMap() {
+    public Map<List<SlotReference>, List<SlotReference>> getEquivalenceClassSetMap() {
         return equivalenceClassSetMap;
     }
 }
