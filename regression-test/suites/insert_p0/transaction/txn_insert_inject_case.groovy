@@ -152,7 +152,7 @@ suite("txn_insert_inject_case", "nonConcurrent") {
 
     // 2. commit failed
     sql """ truncate table ${table}_0 """
-    def dbName = "regression_test_insert_p0"
+    def dbName = "regression_test_insert_p0_transaction"
     def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, dbName).replace("&useServerPrepStmts=true", "") + "&useLocalSessionState=true"
     logger.info("url: ${url}")
     def get_txn_id_from_server_info = { serverInfo ->
