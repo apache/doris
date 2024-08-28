@@ -344,6 +344,13 @@ public class NereidsParser {
         return tree;
     }
 
+    /**
+     * removeCommentAndTrimBlank
+     *
+     * for example: select   \/*+SET_VAR(key=value)*\/ \/* trace_id: 1234 *\/ *,   a, \n b from table
+     *
+     * will be normalized to: select \/*+SET_VAR(key=value)*\/ * , a, b from table
+     */
     public static String removeCommentAndTrimBlank(String sql) {
         DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
         CommonTokenStream tokenStream = new CommonTokenStream(lexer);
