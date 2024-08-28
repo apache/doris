@@ -130,6 +130,13 @@ void QueryContext::_init_query_mem_tracker() {
         query_mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::LOAD, fmt::format("Load#Id={}", print_id(_query_id)),
                 _bytes_limit);
+#ifndef NDEBUG
+        if (_query_source == QuerySource::GROUP_COMMIT_LOAD) {
+            query_mem_tracker->is_group_commit_load = true;
+            LOG(INFO) << "is group commit load finish stage "
+                      << query_mem_tracker->label(); // DEBUG
+        }
+#endif
     } else { // EXTERNAL
         query_mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::LOAD, fmt::format("External#Id={}", print_id(_query_id)),
