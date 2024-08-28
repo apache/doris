@@ -26,7 +26,6 @@ import org.apache.doris.httpv2.entity.RestBaseResult;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
-import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
