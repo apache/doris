@@ -389,7 +389,6 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     {
         DBUG_EXECUTE_IF("VerticalSegmentWriter._append_block_with_partial_content.sleep",
                         { sleep(60); })
-        std::shared_lock rlock(_tablet->get_header_lock());
         specified_rowsets = _mow_context->rowset_ptrs;
         if (specified_rowsets.size() != _mow_context->rowset_ids.size()) {
             // Only when this is a strict mode partial update that missing rowsets here will lead to problems.
