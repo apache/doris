@@ -1105,6 +1105,15 @@ public class MetadataGenerator {
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(clg);
         List<TRow> dataBatch = Lists.newArrayList();
         DatabaseIf database = catalog.getDbNullable(dbId);
+        if (database == null) {
+            // BE gets the database id list from FE and then invokes this interface
+            // per database. there is a chance that in between database can be dropped.
+            // so need to handle database not exist case and return ok so that BE continue the
+            // loop with next database.
+            result.setDataBatch(dataBatch);
+            result.setStatus(new TStatus(TStatusCode.OK));
+            return result;
+        }
         List<TableIf> tables = database.getTables();
         if (catalog instanceof InternalCatalog) {
             tablePropertiesForInternalCatalog(currentUserIdentity, catalog, database, tables, dataBatch);
