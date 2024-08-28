@@ -147,11 +147,11 @@ private:
                   std::lock_guard<std::mutex>& cache_lock);
 
     bool try_reserve(const Key& key, const CacheContext& context, size_t offset, size_t size,
-                     std::lock_guard<std::mutex>& cache_lock) override;
+                     std::lock_guard<std::mutex>& cache_lock, bool skip_round_check) override;
 
     bool try_reserve_for_lru(const Key& key, QueryFileCacheContextPtr query_context,
                              const CacheContext& context, size_t offset, size_t size,
-                             std::lock_guard<std::mutex>& cache_lock);
+                             bool skip_round_check, std::lock_guard<std::mutex>& cache_lock);
 
     std::vector<CacheType> get_other_cache_type(CacheType cur_cache_type);
 
