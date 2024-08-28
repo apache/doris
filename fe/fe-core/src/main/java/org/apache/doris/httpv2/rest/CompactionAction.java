@@ -56,7 +56,7 @@ public class CompactionAction extends RestBaseController {
     public static final String COMPACT_TYPE = "compact_type";
     public static final String TABLET_ID = "tablet_id";
     public static final String TABLE_ID = "table_id";
-    private static final Logger LOG = LogManager.getLogger(SetConfigAction.class);
+    public static final Logger LOG = LogManager.getLogger(CompactionAction.class);
 
     @RequestMapping(path = "/api/compaction/run", method = RequestMethod.POST)
     protected Object compaction(HttpServletRequest request, HttpServletResponse response) {
@@ -88,8 +88,7 @@ public class CompactionAction extends RestBaseController {
                     List<Replica> replicaList = tablet.getReplicas();
                     for (Replica replica : replicaList) {
                         Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
-                        sendRequestToBe(request, new TNetworkAddress(backend.getHost(), backend.getHttpPort()),
-                                tablet.getId());
+                        sendRequestToBe(request, backend, tablet.getId());
                     }
                 }
             }
@@ -105,23 +104,24 @@ public class CompactionAction extends RestBaseController {
                 List<Replica> replicaList = tablet.getReplicas();
                 for (Replica replica : replicaList) {
                     Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
-                    sendRequestToBe(request, new TNetworkAddress(backend.getHost(), backend.getHttpPort()),
-                            tablet.getId());
+                    sendRequestToBe(request, backend, tablet.getId());
                 }
             }
         }
         return ResponseEntityBuilder.ok("");
     }
 
-    private void sendRequestToBe(HttpServletRequest request, TNetworkAddress address, long tabletId) {
+    private void sendRequestToBe(HttpServletRequest request, Backend backend, long tabletId) {
+        HttpURLConnection connection = null;
+        URL url = null;
         try {
             String compactType = request.getParameter("compact_type");
 
             String urlString = String.format("http://%s:%d/api/compaction/run?tablet_id=%d&compact_type=%s",
-                    address.getHostname(), address.getPort(), tabletId, compactType);
+                    backend.getHost(), backend.getHttpPort(), tabletId, compactType);
 
-            URL url = new URL(urlString);
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            url = new URL(urlString);
+            connection = (HttpURLConnection) url.openConnection();
 
             connection.setRequestMethod("POST");
             connection.setDoOutput(true);
@@ -158,11 +158,14 @@ public class CompactionAction extends RestBaseController {
                 LOG.warn("Failed. Url:{}, Response code:{}, Response Message: {}", urlString, responseCode,
                         connection.getResponseMessage());
             }
-            connection.disconnect();
         } catch (Exception e) {
-            String url = String.format("http://%s:%d/api/compaction/run?tablet_id=%d&compact_type=%s",
-                    address.getHostname(), address.getPort(), tabletId, request.getParameter("compact_type"));
-            LOG.warn("Exception happens for url {}:{}", url, e.getMessage());
+            if (url != null) {
+                LOG.warn("Exception happens for url {}:{}", url, e.getMessage());
+            }
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
         }
     }
 }
