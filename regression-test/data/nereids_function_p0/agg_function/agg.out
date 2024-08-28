@@ -298,7 +298,7 @@
 12	0.65
 
 -- !sql_avg_Double_gb_notnull --
-0.39999999999999997
+0.4
 1.0
 
 -- !sql_avg_Double_notnull --
@@ -323,7 +323,7 @@
 
 -- !sql_avg_Double_agg_phase_3_notnull --
 0	\N
-7	0.4
+7	0.39999999999999997
 5	1.0
 
 -- !sql_avg_Double_agg_phase_4_notnull --
@@ -423,14 +423,14 @@
 
 -- !sql_avg_weighted_TinyInt_Double_agg_phase_3 --
 0	\N
-7	5.0
+7	4.999999999999999
 5	10.2
 
 -- !sql_avg_weighted_TinyInt_Double_agg_phase_4 --
-12	8.333333333333334
+12	8.333333333333332
 
 -- !sql_avg_weighted_TinyInt_Double_gb_notnull --
-4.999999999999999
+5.0
 10.2
 
 -- !sql_avg_weighted_TinyInt_Double_notnull --
@@ -451,12 +451,12 @@
 1	12.0
 
 -- !sql_avg_weighted_TinyInt_Double_agg_phase_2_notnull --
-12	8.333333333333334
+12	8.333333333333332
 
 -- !sql_avg_weighted_TinyInt_Double_agg_phase_3_notnull --
 0	\N
-7	5.0
-5	10.199999999999998
+7	4.999999999999999
+5	10.2
 
 -- !sql_avg_weighted_TinyInt_Double_agg_phase_4_notnull --
 12	8.333333333333332
@@ -467,7 +467,7 @@
 10.2
 
 -- !sql_avg_weighted_SmallInt_Double --
-8.333333333333332
+8.333333333333334
 
 -- !sql_avg_weighted_SmallInt_Double_agg_phase_1 --
 0	\N
@@ -489,14 +489,14 @@
 
 -- !sql_avg_weighted_SmallInt_Double_agg_phase_3 --
 0	\N
-7	5.0
+7	4.999999999999999
 5	10.2
 
 -- !sql_avg_weighted_SmallInt_Double_agg_phase_4 --
-12	8.333333333333332
+12	8.333333333333334
 
 -- !sql_avg_weighted_SmallInt_Double_gb_notnull --
-4.999999999999999
+5.0
 10.2
 
 -- !sql_avg_weighted_SmallInt_Double_notnull --
@@ -517,11 +517,11 @@
 1	12.0
 
 -- !sql_avg_weighted_SmallInt_Double_agg_phase_2_notnull --
-12	8.333333333333332
+12	8.333333333333334
 
 -- !sql_avg_weighted_SmallInt_Double_agg_phase_3_notnull --
 0	\N
-7	5.0
+7	4.999999999999999
 5	10.2
 
 -- !sql_avg_weighted_SmallInt_Double_agg_phase_4_notnull --
@@ -529,7 +529,7 @@
 
 -- !sql_avg_weighted_Integer_Double_gb --
 \N
-5.0
+4.999999999999999
 10.2
 
 -- !sql_avg_weighted_Integer_Double --
@@ -551,11 +551,11 @@
 1	12.0
 
 -- !sql_avg_weighted_Integer_Double_agg_phase_2 --
-12	8.333333333333332
+12	8.333333333333334
 
 -- !sql_avg_weighted_Integer_Double_agg_phase_3 --
 0	\N
-7	5.0
+7	4.999999999999999
 5	10.2
 
 -- !sql_avg_weighted_Integer_Double_agg_phase_4 --
@@ -566,7 +566,7 @@
 10.2
 
 -- !sql_avg_weighted_Integer_Double_notnull --
-8.333333333333332
+8.333333333333334
 
 -- !sql_avg_weighted_Integer_Double_agg_phase_1_notnull --
 1	1.0
@@ -587,15 +587,15 @@
 
 -- !sql_avg_weighted_Integer_Double_agg_phase_3_notnull --
 0	\N
-7	4.999999999999999
+7	5.0
 5	10.2
 
 -- !sql_avg_weighted_Integer_Double_agg_phase_4_notnull --
-12	8.333333333333334
+12	8.333333333333332
 
 -- !sql_avg_weighted_BigInt_Double_gb --
 \N
-5.0
+4.999999999999999
 10.2
 
 -- !sql_avg_weighted_BigInt_Double --
@@ -617,15 +617,15 @@
 1	12.0
 
 -- !sql_avg_weighted_BigInt_Double_agg_phase_2 --
-12	8.333333333333332
+12	8.333333333333334
 
 -- !sql_avg_weighted_BigInt_Double_agg_phase_3 --
 0	\N
-7	4.999999999999999
+7	5.0
 5	10.2
 
 -- !sql_avg_weighted_BigInt_Double_agg_phase_4 --
-12	8.333333333333334
+12	8.333333333333332
 
 -- !sql_avg_weighted_BigInt_Double_gb_notnull --
 5.0
@@ -657,12 +657,12 @@
 5	10.2
 
 -- !sql_avg_weighted_BigInt_Double_agg_phase_4_notnull --
-12	8.333333333333334
+12	8.333333333333332
 
 -- !sql_avg_weighted_Float_Double_gb --
 \N
 0.5000000045235667
-1.0200000143051147
+1.0200000143051144
 
 -- !sql_avg_weighted_Float_Double --
 0.833333344127123
@@ -683,11 +683,11 @@
 1	1.2000000476837158
 
 -- !sql_avg_weighted_Float_Double_agg_phase_2 --
-12	0.833333344127123
+12	0.8333333441271232
 
 -- !sql_avg_weighted_Float_Double_agg_phase_3 --
 0	\N
-7	0.5000000045235666
+7	0.5000000045235667
 5	1.0200000143051147
 
 -- !sql_avg_weighted_Float_Double_agg_phase_4 --
@@ -715,15 +715,15 @@
 1	1.2000000476837158
 
 -- !sql_avg_weighted_Float_Double_agg_phase_2_notnull --
-12	0.8333333441271232
+12	0.8333333441271231
 
 -- !sql_avg_weighted_Float_Double_agg_phase_3_notnull --
 0	\N
-7	0.5000000045235666
-5	1.0200000143051149
+7	0.5000000045235667
+5	1.0200000143051147
 
 -- !sql_avg_weighted_Float_Double_agg_phase_4_notnull --
-12	0.833333344127123
+12	0.8333333441271231
 
 -- !sql_avg_weighted_Double_Double_gb --
 \N
@@ -731,7 +731,7 @@
 1.02
 
 -- !sql_avg_weighted_Double_Double --
-0.8333333333333334
+0.8333333333333333
 
 -- !sql_avg_weighted_Double_Double_agg_phase_1 --
 0	\N
@@ -749,7 +749,7 @@
 1	1.2
 
 -- !sql_avg_weighted_Double_Double_agg_phase_2 --
-12	0.8333333333333334
+12	0.8333333333333333
 
 -- !sql_avg_weighted_Double_Double_agg_phase_3 --
 0	\N
@@ -764,7 +764,7 @@
 1.02
 
 -- !sql_avg_weighted_Double_Double_notnull --
-0.8333333333333335
+0.8333333333333334
 
 -- !sql_avg_weighted_Double_Double_agg_phase_1_notnull --
 1	0.10000000000000002
@@ -781,15 +781,15 @@
 1	1.2
 
 -- !sql_avg_weighted_Double_Double_agg_phase_2_notnull --
-12	0.8333333333333336
+12	0.8333333333333334
 
 -- !sql_avg_weighted_Double_Double_agg_phase_3_notnull --
 0	\N
-7	0.5000000000000001
+7	0.5
 5	1.02
 
 -- !sql_avg_weighted_Double_Double_agg_phase_4_notnull --
-12	0.8333333333333336
+12	0.8333333333333334
 
 -- !sql_avg_weighted_DecimalV2_Double_gb --
 \N
@@ -797,7 +797,7 @@
 1.02
 
 -- !sql_avg_weighted_DecimalV2_Double --
-0.8333333333333334
+0.8333333333333333
 
 -- !sql_avg_weighted_DecimalV2_Double_agg_phase_1 --
 0	\N
@@ -823,7 +823,7 @@
 5	1.02
 
 -- !sql_avg_weighted_DecimalV2_Double_agg_phase_4 --
-12	0.8333333333333335
+12	0.8333333333333334
 
 -- !sql_avg_weighted_DecimalV2_Double_gb_notnull --
 0.5
@@ -851,11 +851,11 @@
 
 -- !sql_avg_weighted_DecimalV2_Double_agg_phase_3_notnull --
 0	\N
-7	0.5000000000000001
-5	1.0199999999999998
+7	0.49999999999999994
+5	1.02
 
 -- !sql_avg_weighted_DecimalV2_Double_agg_phase_4_notnull --
-12	0.8333333333333335
+12	0.8333333333333334
 
 -- !sql_bitmap_intersect_Bitmap_gb --
 \N
@@ -2468,204 +2468,204 @@
 
 -- !sql_linear_histogram_TinyInt_gb --
 {"num_buckets":0,"buckets":[]}
-{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":7,"acc_count":7}]}
-{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":20.0,"count":3,"acc_count":5}]}
+{"num_buckets":4,"buckets":[{"lower":0.0,"upper":2.0,"count":1,"acc_count":1},{"lower":2.0,"upper":4.0,"count":2,"acc_count":3},{"lower":4.0,"upper":6.0,"count":2,"acc_count":5},{"lower":6.0,"upper":8.0,"count":2,"acc_count":7}]}
+{"num_buckets":3,"buckets":[{"lower":8.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":12.0,"count":2,"acc_count":4},{"lower":12.0,"upper":14.0,"count":1,"acc_count":5}]}
 
 -- !sql_linear_histogram_TinyInt --
-{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":9,"acc_count":9},{"lower":10.0,"upper":20.0,"count":3,"acc_count":12}]}
+{"num_buckets":7,"buckets":[{"lower":0.0,"upper":2.0,"count":1,"acc_count":1},{"lower":2.0,"upper":4.0,"count":2,"acc_count":3},{"lower":4.0,"upper":6.0,"count":2,"acc_count":5},{"lower":6.0,"upper":8.0,"count":2,"acc_count":7},{"lower":8.0,"upper":10.0,"count":2,"acc_count":9},{"lower":10.0,"upper":12.0,"count":2,"acc_count":11},{"lower":12.0,"upper":14.0,"count":1,"acc_count":12}]}
 
 -- !sql_linear_histogram_TinyInt_offset --
-{"num_buckets":2,"buckets":[{"lower":1.0,"upper":11.0,"count":10,"acc_count":10},{"lower":11.0,"upper":21.0,"count":2,"acc_count":12}]}
+{"num_buckets":6,"buckets":[{"lower":1.0,"upper":3.0,"count":2,"acc_count":2},{"lower":3.0,"upper":5.0,"count":2,"acc_count":4},{"lower":5.0,"upper":7.0,"count":2,"acc_count":6},{"lower":7.0,"upper":9.0,"count":2,"acc_count":8},{"lower":9.0,"upper":11.0,"count":2,"acc_count":10},{"lower":11.0,"upper":13.0,"count":2,"acc_count":12}]}
 
 -- !sql_linear_histogram_TinyInt_agg_phase_1 --
 0	{"num_buckets":0,"buckets":[]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":2.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":2.0,"upper":4.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":2.0,"upper":4.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":4.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":4.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":6.0,"upper":8.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":6.0,"upper":8.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":8.0,"upper":10.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":8.0,"upper":10.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":12.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":12.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":12.0,"upper":14.0,"count":1,"acc_count":1}]}
 
 -- !sql_linear_histogram_TinyInt_agg_phase_2 --
-12	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":9,"acc_count":9},{"lower":10.0,"upper":20.0,"count":3,"acc_count":12}]}
+12	{"num_buckets":7,"buckets":[{"lower":0.0,"upper":2.0,"count":1,"acc_count":1},{"lower":2.0,"upper":4.0,"count":2,"acc_count":3},{"lower":4.0,"upper":6.0,"count":2,"acc_count":5},{"lower":6.0,"upper":8.0,"count":2,"acc_count":7},{"lower":8.0,"upper":10.0,"count":2,"acc_count":9},{"lower":10.0,"upper":12.0,"count":2,"acc_count":11},{"lower":12.0,"upper":14.0,"count":1,"acc_count":12}]}
 
 -- !sql_linear_histogram_TinyInt_agg_phase_3 --
 0	{"num_buckets":0,"buckets":[]}
-7	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":7,"acc_count":7}]}
-5	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":20.0,"count":3,"acc_count":5}]}
+7	{"num_buckets":4,"buckets":[{"lower":0.0,"upper":2.0,"count":1,"acc_count":1},{"lower":2.0,"upper":4.0,"count":2,"acc_count":3},{"lower":4.0,"upper":6.0,"count":2,"acc_count":5},{"lower":6.0,"upper":8.0,"count":2,"acc_count":7}]}
+5	{"num_buckets":3,"buckets":[{"lower":8.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":12.0,"count":2,"acc_count":4},{"lower":12.0,"upper":14.0,"count":1,"acc_count":5}]}
 
 -- !sql_linear_histogram_TinyInt_agg_phase_4 --
-12	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":9,"acc_count":9},{"lower":10.0,"upper":20.0,"count":3,"acc_count":12}]}
+12	{"num_buckets":7,"buckets":[{"lower":0.0,"upper":2.0,"count":1,"acc_count":1},{"lower":2.0,"upper":4.0,"count":2,"acc_count":3},{"lower":4.0,"upper":6.0,"count":2,"acc_count":5},{"lower":6.0,"upper":8.0,"count":2,"acc_count":7},{"lower":8.0,"upper":10.0,"count":2,"acc_count":9},{"lower":10.0,"upper":12.0,"count":2,"acc_count":11},{"lower":12.0,"upper":14.0,"count":1,"acc_count":12}]}
 
 -- !sql_linear_histogram_TinyInt_gb_notnull --
-{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":7,"acc_count":7}]}
-{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":20.0,"count":3,"acc_count":5}]}
+{"num_buckets":4,"buckets":[{"lower":0.0,"upper":2.0,"count":1,"acc_count":1},{"lower":2.0,"upper":4.0,"count":2,"acc_count":3},{"lower":4.0,"upper":6.0,"count":2,"acc_count":5},{"lower":6.0,"upper":8.0,"count":2,"acc_count":7}]}
+{"num_buckets":3,"buckets":[{"lower":8.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":12.0,"count":2,"acc_count":4},{"lower":12.0,"upper":14.0,"count":1,"acc_count":5}]}
 
 -- !sql_linear_histogram_TinyInt_notnull --
-{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":9,"acc_count":9},{"lower":10.0,"upper":20.0,"count":3,"acc_count":12}]}
+{"num_buckets":7,"buckets":[{"lower":0.0,"upper":2.0,"count":1,"acc_count":1},{"lower":2.0,"upper":4.0,"count":2,"acc_count":3},{"lower":4.0,"upper":6.0,"count":2,"acc_count":5},{"lower":6.0,"upper":8.0,"count":2,"acc_count":7},{"lower":8.0,"upper":10.0,"count":2,"acc_count":9},{"lower":10.0,"upper":12.0,"count":2,"acc_count":11},{"lower":12.0,"upper":14.0,"count":1,"acc_count":12}]}
 
 -- !sql_linear_histogram_TinyInt_agg_phase_1_notnull --
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":2.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":2.0,"upper":4.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":2.0,"upper":4.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":4.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":4.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":6.0,"upper":8.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":6.0,"upper":8.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":8.0,"upper":10.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":8.0,"upper":10.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":12.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":12.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":12.0,"upper":14.0,"count":1,"acc_count":1}]}
 
 -- !sql_linear_histogram_TinyInt_agg_phase_2_notnull --
-12	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":9,"acc_count":9},{"lower":10.0,"upper":20.0,"count":3,"acc_count":12}]}
+12	{"num_buckets":7,"buckets":[{"lower":0.0,"upper":2.0,"count":1,"acc_count":1},{"lower":2.0,"upper":4.0,"count":2,"acc_count":3},{"lower":4.0,"upper":6.0,"count":2,"acc_count":5},{"lower":6.0,"upper":8.0,"count":2,"acc_count":7},{"lower":8.0,"upper":10.0,"count":2,"acc_count":9},{"lower":10.0,"upper":12.0,"count":2,"acc_count":11},{"lower":12.0,"upper":14.0,"count":1,"acc_count":12}]}
 
 -- !sql_linear_histogram_TinyInt_agg_phase_3_notnull --
 0	{"num_buckets":0,"buckets":[]}
-7	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":7,"acc_count":7}]}
-5	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":20.0,"count":3,"acc_count":5}]}
+7	{"num_buckets":4,"buckets":[{"lower":0.0,"upper":2.0,"count":1,"acc_count":1},{"lower":2.0,"upper":4.0,"count":2,"acc_count":3},{"lower":4.0,"upper":6.0,"count":2,"acc_count":5},{"lower":6.0,"upper":8.0,"count":2,"acc_count":7}]}
+5	{"num_buckets":3,"buckets":[{"lower":8.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":12.0,"count":2,"acc_count":4},{"lower":12.0,"upper":14.0,"count":1,"acc_count":5}]}
 
 -- !sql_linear_histogram_TinyInt_agg_phase_4_notnull --
-12	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":9,"acc_count":9},{"lower":10.0,"upper":20.0,"count":3,"acc_count":12}]}
+12	{"num_buckets":7,"buckets":[{"lower":0.0,"upper":2.0,"count":1,"acc_count":1},{"lower":2.0,"upper":4.0,"count":2,"acc_count":3},{"lower":4.0,"upper":6.0,"count":2,"acc_count":5},{"lower":6.0,"upper":8.0,"count":2,"acc_count":7},{"lower":8.0,"upper":10.0,"count":2,"acc_count":9},{"lower":10.0,"upper":12.0,"count":2,"acc_count":11},{"lower":12.0,"upper":14.0,"count":1,"acc_count":12}]}
 
 -- !sql_linear_histogram_SmallInt_gb --
 {"num_buckets":0,"buckets":[]}
-{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":7,"acc_count":7}]}
-{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":20.0,"count":3,"acc_count":5}]}
+{"num_buckets":3,"buckets":[{"lower":0.0,"upper":3.0,"count":2,"acc_count":2},{"lower":3.0,"upper":6.0,"count":3,"acc_count":5},{"lower":6.0,"upper":9.0,"count":2,"acc_count":7}]}
+{"num_buckets":3,"buckets":[{"lower":6.0,"upper":9.0,"count":1,"acc_count":1},{"lower":9.0,"upper":12.0,"count":3,"acc_count":4},{"lower":12.0,"upper":15.0,"count":1,"acc_count":5}]}
 
 -- !sql_linear_histogram_SmallInt --
-{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":9,"acc_count":9},{"lower":10.0,"upper":20.0,"count":3,"acc_count":12}]}
+{"num_buckets":5,"buckets":[{"lower":0.0,"upper":3.0,"count":2,"acc_count":2},{"lower":3.0,"upper":6.0,"count":3,"acc_count":5},{"lower":6.0,"upper":9.0,"count":3,"acc_count":8},{"lower":9.0,"upper":12.0,"count":3,"acc_count":11},{"lower":12.0,"upper":15.0,"count":1,"acc_count":12}]}
 
 -- !sql_linear_histogram_SmallInt_agg_phase_1 --
 0	{"num_buckets":0,"buckets":[]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":3.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":3.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":3.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":3.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":3.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":6.0,"upper":9.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":6.0,"upper":9.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":6.0,"upper":9.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":9.0,"upper":12.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":9.0,"upper":12.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":9.0,"upper":12.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":12.0,"upper":15.0,"count":1,"acc_count":1}]}
 
 -- !sql_linear_histogram_SmallInt_agg_phase_2 --
-12	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":9,"acc_count":9},{"lower":10.0,"upper":20.0,"count":3,"acc_count":12}]}
+12	{"num_buckets":5,"buckets":[{"lower":0.0,"upper":3.0,"count":2,"acc_count":2},{"lower":3.0,"upper":6.0,"count":3,"acc_count":5},{"lower":6.0,"upper":9.0,"count":3,"acc_count":8},{"lower":9.0,"upper":12.0,"count":3,"acc_count":11},{"lower":12.0,"upper":15.0,"count":1,"acc_count":12}]}
 
 -- !sql_linear_histogram_SmallInt_agg_phase_3 --
 0	{"num_buckets":0,"buckets":[]}
-7	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":7,"acc_count":7}]}
-5	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":20.0,"count":3,"acc_count":5}]}
+7	{"num_buckets":3,"buckets":[{"lower":0.0,"upper":3.0,"count":2,"acc_count":2},{"lower":3.0,"upper":6.0,"count":3,"acc_count":5},{"lower":6.0,"upper":9.0,"count":2,"acc_count":7}]}
+5	{"num_buckets":3,"buckets":[{"lower":6.0,"upper":9.0,"count":1,"acc_count":1},{"lower":9.0,"upper":12.0,"count":3,"acc_count":4},{"lower":12.0,"upper":15.0,"count":1,"acc_count":5}]}
 
 -- !sql_linear_histogram_SmallInt_agg_phase_4 --
-12	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":9,"acc_count":9},{"lower":10.0,"upper":20.0,"count":3,"acc_count":12}]}
+12	{"num_buckets":5,"buckets":[{"lower":0.0,"upper":3.0,"count":2,"acc_count":2},{"lower":3.0,"upper":6.0,"count":3,"acc_count":5},{"lower":6.0,"upper":9.0,"count":3,"acc_count":8},{"lower":9.0,"upper":12.0,"count":3,"acc_count":11},{"lower":12.0,"upper":15.0,"count":1,"acc_count":12}]}
 
 -- !sql_linear_histogram_SmallInt_gb_notnull --
-{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":7,"acc_count":7}]}
-{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":20.0,"count":3,"acc_count":5}]}
+{"num_buckets":3,"buckets":[{"lower":0.0,"upper":3.0,"count":2,"acc_count":2},{"lower":3.0,"upper":6.0,"count":3,"acc_count":5},{"lower":6.0,"upper":9.0,"count":2,"acc_count":7}]}
+{"num_buckets":3,"buckets":[{"lower":6.0,"upper":9.0,"count":1,"acc_count":1},{"lower":9.0,"upper":12.0,"count":3,"acc_count":4},{"lower":12.0,"upper":15.0,"count":1,"acc_count":5}]}
 
 -- !sql_linear_histogram_SmallInt_notnull --
-{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":9,"acc_count":9},{"lower":10.0,"upper":20.0,"count":3,"acc_count":12}]}
+{"num_buckets":5,"buckets":[{"lower":0.0,"upper":3.0,"count":2,"acc_count":2},{"lower":3.0,"upper":6.0,"count":3,"acc_count":5},{"lower":6.0,"upper":9.0,"count":3,"acc_count":8},{"lower":9.0,"upper":12.0,"count":3,"acc_count":11},{"lower":12.0,"upper":15.0,"count":1,"acc_count":12}]}
 
 -- !sql_linear_histogram_SmallInt_agg_phase_1_notnull --
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":3.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":3.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":3.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":3.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":3.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":6.0,"upper":9.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":6.0,"upper":9.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":6.0,"upper":9.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":9.0,"upper":12.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":9.0,"upper":12.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":9.0,"upper":12.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":12.0,"upper":15.0,"count":1,"acc_count":1}]}
 
 -- !sql_linear_histogram_SmallInt_agg_phase_2_notnull --
-12	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":9,"acc_count":9},{"lower":10.0,"upper":20.0,"count":3,"acc_count":12}]}
+12	{"num_buckets":5,"buckets":[{"lower":0.0,"upper":3.0,"count":2,"acc_count":2},{"lower":3.0,"upper":6.0,"count":3,"acc_count":5},{"lower":6.0,"upper":9.0,"count":3,"acc_count":8},{"lower":9.0,"upper":12.0,"count":3,"acc_count":11},{"lower":12.0,"upper":15.0,"count":1,"acc_count":12}]}
 
 -- !sql_linear_histogram_SmallInt_agg_phase_3_notnull --
 0	{"num_buckets":0,"buckets":[]}
-7	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":7,"acc_count":7}]}
-5	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":20.0,"count":3,"acc_count":5}]}
+7	{"num_buckets":3,"buckets":[{"lower":0.0,"upper":3.0,"count":2,"acc_count":2},{"lower":3.0,"upper":6.0,"count":3,"acc_count":5},{"lower":6.0,"upper":9.0,"count":2,"acc_count":7}]}
+5	{"num_buckets":3,"buckets":[{"lower":6.0,"upper":9.0,"count":1,"acc_count":1},{"lower":9.0,"upper":12.0,"count":3,"acc_count":4},{"lower":12.0,"upper":15.0,"count":1,"acc_count":5}]}
 
 -- !sql_linear_histogram_SmallInt_agg_phase_4_notnull --
-12	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":9,"acc_count":9},{"lower":10.0,"upper":20.0,"count":3,"acc_count":12}]}
+12	{"num_buckets":5,"buckets":[{"lower":0.0,"upper":3.0,"count":2,"acc_count":2},{"lower":3.0,"upper":6.0,"count":3,"acc_count":5},{"lower":6.0,"upper":9.0,"count":3,"acc_count":8},{"lower":9.0,"upper":12.0,"count":3,"acc_count":11},{"lower":12.0,"upper":15.0,"count":1,"acc_count":12}]}
 
 -- !sql_linear_histogram_Integer_gb --
 {"num_buckets":0,"buckets":[]}
-{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":7,"acc_count":7}]}
-{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":20.0,"count":3,"acc_count":5}]}
+{"num_buckets":2,"buckets":[{"lower":0.0,"upper":5.0,"count":4,"acc_count":4},{"lower":5.0,"upper":10.0,"count":3,"acc_count":7}]}
+{"num_buckets":2,"buckets":[{"lower":5.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":15.0,"count":3,"acc_count":5}]}
 
 -- !sql_linear_histogram_Integer --
-{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":9,"acc_count":9},{"lower":10.0,"upper":20.0,"count":3,"acc_count":12}]}
+{"num_buckets":3,"buckets":[{"lower":0.0,"upper":5.0,"count":4,"acc_count":4},{"lower":5.0,"upper":10.0,"count":5,"acc_count":9},{"lower":10.0,"upper":15.0,"count":3,"acc_count":12}]}
 
 -- !sql_linear_histogram_Integer_agg_phase_1 --
 0	{"num_buckets":0,"buckets":[]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":5.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":5.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":5.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":5.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":5.0,"upper":10.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":5.0,"upper":10.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":5.0,"upper":10.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":5.0,"upper":10.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":5.0,"upper":10.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":15.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":15.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":15.0,"count":1,"acc_count":1}]}
 
 -- !sql_linear_histogram_Integer_agg_phase_2 --
-12	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":9,"acc_count":9},{"lower":10.0,"upper":20.0,"count":3,"acc_count":12}]}
+12	{"num_buckets":3,"buckets":[{"lower":0.0,"upper":5.0,"count":4,"acc_count":4},{"lower":5.0,"upper":10.0,"count":5,"acc_count":9},{"lower":10.0,"upper":15.0,"count":3,"acc_count":12}]}
 
 -- !sql_linear_histogram_Integer_agg_phase_3 --
 0	{"num_buckets":0,"buckets":[]}
-7	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":7,"acc_count":7}]}
-5	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":20.0,"count":3,"acc_count":5}]}
+7	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":5.0,"count":4,"acc_count":4},{"lower":5.0,"upper":10.0,"count":3,"acc_count":7}]}
+5	{"num_buckets":2,"buckets":[{"lower":5.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":15.0,"count":3,"acc_count":5}]}
 
 -- !sql_linear_histogram_Integer_agg_phase_4 --
-12	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":9,"acc_count":9},{"lower":10.0,"upper":20.0,"count":3,"acc_count":12}]}
+12	{"num_buckets":3,"buckets":[{"lower":0.0,"upper":5.0,"count":4,"acc_count":4},{"lower":5.0,"upper":10.0,"count":5,"acc_count":9},{"lower":10.0,"upper":15.0,"count":3,"acc_count":12}]}
 
 -- !sql_linear_histogram_Integer_gb_notnull --
-{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":7,"acc_count":7}]}
-{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":20.0,"count":3,"acc_count":5}]}
+{"num_buckets":2,"buckets":[{"lower":0.0,"upper":5.0,"count":4,"acc_count":4},{"lower":5.0,"upper":10.0,"count":3,"acc_count":7}]}
+{"num_buckets":2,"buckets":[{"lower":5.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":15.0,"count":3,"acc_count":5}]}
 
 -- !sql_linear_histogram_Integer_notnull --
-{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":9,"acc_count":9},{"lower":10.0,"upper":20.0,"count":3,"acc_count":12}]}
+{"num_buckets":3,"buckets":[{"lower":0.0,"upper":5.0,"count":4,"acc_count":4},{"lower":5.0,"upper":10.0,"count":5,"acc_count":9},{"lower":10.0,"upper":15.0,"count":3,"acc_count":12}]}
 
 -- !sql_linear_histogram_Integer_agg_phase_1_notnull --
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":5.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":5.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":5.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":5.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":5.0,"upper":10.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":5.0,"upper":10.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":5.0,"upper":10.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":5.0,"upper":10.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":5.0,"upper":10.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":15.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":15.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":15.0,"count":1,"acc_count":1}]}
 
 -- !sql_linear_histogram_Integer_agg_phase_2_notnull --
-12	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":9,"acc_count":9},{"lower":10.0,"upper":20.0,"count":3,"acc_count":12}]}
+12	{"num_buckets":3,"buckets":[{"lower":0.0,"upper":5.0,"count":4,"acc_count":4},{"lower":5.0,"upper":10.0,"count":5,"acc_count":9},{"lower":10.0,"upper":15.0,"count":3,"acc_count":12}]}
 
 -- !sql_linear_histogram_Integer_agg_phase_3_notnull --
 0	{"num_buckets":0,"buckets":[]}
-7	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":7,"acc_count":7}]}
-5	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":20.0,"count":3,"acc_count":5}]}
+7	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":5.0,"count":4,"acc_count":4},{"lower":5.0,"upper":10.0,"count":3,"acc_count":7}]}
+5	{"num_buckets":2,"buckets":[{"lower":5.0,"upper":10.0,"count":2,"acc_count":2},{"lower":10.0,"upper":15.0,"count":3,"acc_count":5}]}
 
 -- !sql_linear_histogram_Integer_agg_phase_4_notnull --
-12	{"num_buckets":2,"buckets":[{"lower":0.0,"upper":10.0,"count":9,"acc_count":9},{"lower":10.0,"upper":20.0,"count":3,"acc_count":12}]}
+12	{"num_buckets":3,"buckets":[{"lower":0.0,"upper":5.0,"count":4,"acc_count":4},{"lower":5.0,"upper":10.0,"count":5,"acc_count":9},{"lower":10.0,"upper":15.0,"count":3,"acc_count":12}]}
 
 -- !sql_linear_histogram_BigInt_gb --
 {"num_buckets":0,"buckets":[]}
@@ -2735,69 +2735,69 @@
 
 -- !sql_linear_histogram_Double_gb --
 {"num_buckets":0,"buckets":[]}
-{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":7,"acc_count":7}]}
-{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":5,"acc_count":5}]}
+{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":7,"acc_count":7}]}
+{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":5,"acc_count":5}]}
 
 -- !sql_linear_histogram_Double --
-{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":12,"acc_count":12}]}
+{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":12,"acc_count":12}]}
 
 -- !sql_linear_histogram_Double_agg_phase_1 --
 0	{"num_buckets":0,"buckets":[]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
 
 -- !sql_linear_histogram_Double_agg_phase_2 --
-12	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":12,"acc_count":12}]}
+12	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":12,"acc_count":12}]}
 
 -- !sql_linear_histogram_Double_agg_phase_3 --
 0	{"num_buckets":0,"buckets":[]}
-7	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":7,"acc_count":7}]}
-5	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":5,"acc_count":5}]}
+7	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":7,"acc_count":7}]}
+5	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":5,"acc_count":5}]}
 
 -- !sql_linear_histogram_Double_agg_phase_4 --
-12	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":12,"acc_count":12}]}
+12	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":12,"acc_count":12}]}
 
 -- !sql_linear_histogram_Double_gb_notnull --
-{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":7,"acc_count":7}]}
-{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":5,"acc_count":5}]}
+{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":7,"acc_count":7}]}
+{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":5,"acc_count":5}]}
 
 -- !sql_linear_histogram_Double_notnull --
-{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":12,"acc_count":12}]}
+{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":12,"acc_count":12}]}
 
 -- !sql_linear_histogram_Double_agg_phase_1_notnull --
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
-1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":1,"acc_count":1}]}
 
 -- !sql_linear_histogram_Double_agg_phase_2_notnull --
-12	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":12,"acc_count":12}]}
+12	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":12,"acc_count":12}]}
 
 -- !sql_linear_histogram_Double_agg_phase_3_notnull --
 0	{"num_buckets":0,"buckets":[]}
-7	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":7,"acc_count":7}]}
-5	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":5,"acc_count":5}]}
+7	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":7,"acc_count":7}]}
+5	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":5,"acc_count":5}]}
 
 -- !sql_linear_histogram_Double_agg_phase_4_notnull --
-12	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":12,"acc_count":12}]}
+12	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":6.0,"count":12,"acc_count":12}]}
 
 -- !sql_linear_histogram_DecimalV2_gb --
 {"num_buckets":0,"buckets":[]}
@@ -3799,14 +3799,14 @@ true
 5	1.4142135623730951
 
 -- !sql_stddev_TinyInt_agg_phase_4 --
-12	3.452052529534663
+12	3.452052529534664
 
 -- !sql_stddev_TinyInt_gb_notnull --
-1.9999999999999998
+2.0
 1.4142135623730951
 
 -- !sql_stddev_TinyInt_notnull --
-3.452052529534664
+3.452052529534663
 
 -- !sql_stddev_TinyInt_agg_phase_1_notnull --
 1	0.0
@@ -3839,7 +3839,7 @@ true
 1.4142135623730951
 
 -- !sql_stddev_SmallInt --
-3.452052529534663
+3.452052529534664
 
 -- !sql_stddev_SmallInt_agg_phase_1 --
 0	\N
@@ -3861,7 +3861,7 @@ true
 
 -- !sql_stddev_SmallInt_agg_phase_3 --
 0	\N
-7	1.9999999999999998
+7	2.0
 5	1.4142135623730951
 
 -- !sql_stddev_SmallInt_agg_phase_4 --
@@ -3901,11 +3901,11 @@ true
 
 -- !sql_stddev_Integer_gb --
 \N
-2.0
+1.9999999999999998
 1.4142135623730951
 
 -- !sql_stddev_Integer --
-3.452052529534663
+3.452052529534664
 
 -- !sql_stddev_Integer_agg_phase_1 --
 0	\N
@@ -3927,18 +3927,18 @@ true
 
 -- !sql_stddev_Integer_agg_phase_3 --
 0	\N
-7	2.0
+7	1.9999999999999998
 5	1.4142135623730951
 
 -- !sql_stddev_Integer_agg_phase_4 --
 12	3.452052529534663
 
 -- !sql_stddev_Integer_gb_notnull --
-1.9999999999999998
+2.0
 1.4142135623730951
 
 -- !sql_stddev_Integer_notnull --
-3.452052529534663
+3.452052529534664
 
 -- !sql_stddev_Integer_agg_phase_1_notnull --
 1	0.0
@@ -3959,7 +3959,7 @@ true
 
 -- !sql_stddev_Integer_agg_phase_3_notnull --
 0	\N
-7	2.0
+7	1.9999999999999998
 5	1.4142135623730951
 
 -- !sql_stddev_Integer_agg_phase_4_notnull --
@@ -3967,11 +3967,11 @@ true
 
 -- !sql_stddev_BigInt_gb --
 \N
-2.0
+1.9999999999999998
 1.4142135623730951
 
 -- !sql_stddev_BigInt --
-3.452052529534663
+3.452052529534664
 
 -- !sql_stddev_BigInt_agg_phase_1 --
 0	\N
@@ -3993,11 +3993,11 @@ true
 
 -- !sql_stddev_BigInt_agg_phase_3 --
 0	\N
-7	1.9999999999999998
+7	2.0
 5	1.4142135623730951
 
 -- !sql_stddev_BigInt_agg_phase_4 --
-12	3.452052529534664
+12	3.452052529534663
 
 -- !sql_stddev_BigInt_gb_notnull --
 1.9999999999999998
@@ -4025,7 +4025,7 @@ true
 
 -- !sql_stddev_BigInt_agg_phase_3_notnull --
 0	\N
-7	2.0
+7	1.9999999999999998
 5	1.4142135623730951
 
 -- !sql_stddev_BigInt_agg_phase_4_notnull --
@@ -4063,7 +4063,7 @@ true
 5	0.1414213730960499
 
 -- !sql_stddev_Float_agg_phase_4 --
-12	0.34520525854707257
+12	0.3452052585470726
 
 -- !sql_stddev_Float_gb_notnull --
 0.1999999992549422
@@ -4087,7 +4087,7 @@ true
 1	0.0
 
 -- !sql_stddev_Float_agg_phase_2_notnull --
-12	0.34520525854707257
+12	0.3452052585470726
 
 -- !sql_stddev_Float_agg_phase_3_notnull --
 0	\N
@@ -4095,7 +4095,7 @@ true
 5	0.1414213730960499
 
 -- !sql_stddev_Float_agg_phase_4_notnull --
-12	0.3452052585470726
+12	0.34520525854707257
 
 -- !sql_stddev_Double_gb --
 \N
@@ -4121,7 +4121,7 @@ true
 1	0.0
 
 -- !sql_stddev_Double_agg_phase_2 --
-12	0.34520525295346627
+12	0.3452052529534663
 
 -- !sql_stddev_Double_agg_phase_3 --
 0	\N
@@ -4157,8 +4157,8 @@ true
 
 -- !sql_stddev_Double_agg_phase_3_notnull --
 0	\N
-7	0.19999999999999996
-5	0.14142135623730948
+7	0.19999999999999998
+5	0.1414213562373095
 
 -- !sql_stddev_Double_agg_phase_4_notnull --
 12	0.3452052529534663
@@ -4166,7 +4166,7 @@ true
 -- !sql_stddev_DecimalV2_gb --
 \N
 0.19999999999999998
-0.14142135623730948
+0.1414213562373095
 
 -- !sql_stddev_DecimalV2_agg_phase_1 --
 0	\N
@@ -4188,11 +4188,11 @@ true
 
 -- !sql_stddev_DecimalV2_agg_phase_3 --
 0	\N
-7	0.19999999999999998
-5	0.14142135623730948
+7	0.2
+5	0.1414213562373095
 
 -- !sql_stddev_DecimalV2_agg_phase_4 --
-12	0.34520525295346627
+12	0.3452052529534663
 
 -- !sql_stddev_DecimalV2_gb_notnull --
 0.19999999999999998
@@ -4221,7 +4221,7 @@ true
 5	0.1414213562373095
 
 -- !sql_stddev_DecimalV2_agg_phase_4_notnull --
-12	0.34520525295346627
+12	0.3452052529534663
 
 -- !sql_stddev_samp_TinyInt_gb --
 \N
@@ -4247,7 +4247,7 @@ true
 1	0.0
 
 -- !sql_stddev_samp_TinyInt_agg_phase_2 --
-12	3.6055512754639896
+12	3.605551275463989
 
 -- !sql_stddev_samp_TinyInt_agg_phase_3 --
 0	\N
@@ -4258,11 +4258,11 @@ true
 12	3.605551275463989
 
 -- !sql_stddev_samp_TinyInt_gb_notnull --
-2.1602468994692865
+2.160246899469287
 1.5811388300841898
 
 -- !sql_stddev_samp_TinyInt_notnull --
-3.605551275463989
+3.6055512754639896
 
 -- !sql_stddev_samp_TinyInt_agg_phase_1_notnull --
 1	0.0
@@ -4279,7 +4279,7 @@ true
 1	0.0
 
 -- !sql_stddev_samp_TinyInt_agg_phase_2_notnull --
-12	3.605551275463989
+12	3.6055512754639896
 
 -- !sql_stddev_samp_TinyInt_agg_phase_3_notnull --
 0	\N
@@ -4291,11 +4291,11 @@ true
 
 -- !sql_stddev_samp_SmallInt_gb --
 \N
-2.160246899469287
+2.1602468994692865
 1.5811388300841898
 
 -- !sql_stddev_samp_SmallInt --
-3.605551275463989
+3.6055512754639896
 
 -- !sql_stddev_samp_SmallInt_agg_phase_1 --
 0	\N
@@ -4313,7 +4313,7 @@ true
 1	0.0
 
 -- !sql_stddev_samp_SmallInt_agg_phase_2 --
-12	3.605551275463989
+12	3.6055512754639896
 
 -- !sql_stddev_samp_SmallInt_agg_phase_3 --
 0	\N
@@ -4321,7 +4321,7 @@ true
 5	1.5811388300841898
 
 -- !sql_stddev_samp_SmallInt_agg_phase_4 --
-12	3.605551275463989
+12	3.6055512754639896
 
 -- !sql_stddev_samp_SmallInt_gb_notnull --
 2.160246899469287
@@ -4349,15 +4349,15 @@ true
 
 -- !sql_stddev_samp_SmallInt_agg_phase_3_notnull --
 0	\N
-7	2.1602468994692865
-5	1.5811388300841898
+7	2.160246899469287
+5	1.58113883008419
 
 -- !sql_stddev_samp_SmallInt_agg_phase_4_notnull --
 12	3.605551275463989
 
 -- !sql_stddev_samp_Integer_gb --
 \N
-2.1602468994692865
+2.160246899469287
 1.5811388300841898
 
 -- !sql_stddev_samp_Integer --
@@ -4390,7 +4390,7 @@ true
 12	3.605551275463989
 
 -- !sql_stddev_samp_Integer_gb_notnull --
-2.160246899469287
+2.1602468994692865
 1.5811388300841898
 
 -- !sql_stddev_samp_Integer_notnull --
@@ -4415,8 +4415,8 @@ true
 
 -- !sql_stddev_samp_Integer_agg_phase_3_notnull --
 0	\N
-7	2.1602468994692865
-5	1.5811388300841898
+7	2.160246899469287
+5	1.58113883008419
 
 -- !sql_stddev_samp_Integer_agg_phase_4_notnull --
 12	3.605551275463989
@@ -4449,18 +4449,18 @@ true
 
 -- !sql_stddev_samp_BigInt_agg_phase_3 --
 0	\N
-7	2.1602468994692865
+7	2.160246899469287
 5	1.5811388300841898
 
 -- !sql_stddev_samp_BigInt_agg_phase_4 --
 12	3.605551275463989
 
 -- !sql_stddev_samp_BigInt_gb_notnull --
-2.160246899469287
+2.1602468994692865
 1.5811388300841898
 
 -- !sql_stddev_samp_BigInt_notnull --
-3.605551275463989
+3.6055512754639896
 
 -- !sql_stddev_samp_BigInt_agg_phase_1_notnull --
 1	0.0
@@ -4477,12 +4477,12 @@ true
 1	0.0
 
 -- !sql_stddev_samp_BigInt_agg_phase_2_notnull --
-12	3.6055512754639896
+12	3.605551275463989
 
 -- !sql_stddev_samp_BigInt_agg_phase_3_notnull --
 0	\N
-7	2.1602468994692865
-5	1.5811388300841893
+7	2.160246899469287
+5	1.5811388300841898
 
 -- !sql_stddev_samp_BigInt_agg_phase_4_notnull --
 12	3.605551275463989
@@ -4511,7 +4511,7 @@ true
 1	0.0
 
 -- !sql_stddev_samp_Float_agg_phase_2 --
-12	0.36055513338873013
+12	0.3605551333887302
 
 -- !sql_stddev_samp_Float_agg_phase_3 --
 0	\N
@@ -4551,7 +4551,7 @@ true
 5	0.15811390185706375
 
 -- !sql_stddev_samp_Float_agg_phase_4_notnull --
-12	0.3605551333887302
+12	0.36055513338873013
 
 -- !sql_stddev_samp_Double_gb --
 \N
@@ -4589,7 +4589,7 @@ true
 
 -- !sql_stddev_samp_Double_gb_notnull --
 0.21602468994692867
-0.15811388300841897
+0.15811388300841894
 
 -- !sql_stddev_samp_Double_notnull --
 0.36055512754639896
@@ -4613,8 +4613,8 @@ true
 
 -- !sql_stddev_samp_Double_agg_phase_3_notnull --
 0	\N
-7	0.21602468994692864
-5	0.15811388300841897
+7	0.21602468994692867
+5	0.15811388300841892
 
 -- !sql_stddev_samp_Double_agg_phase_4_notnull --
 12	0.36055512754639896
@@ -4639,8 +4639,8 @@ true
 
 -- !sql_stddev_samp_DecimalV2_agg_phase_3 --
 0	\N
-7	0.21602468994692867
-5	0.15811388300841897
+7	0.21602468994692864
+5	0.15811388300841894
 
 -- !sql_stddev_samp_DecimalV2_agg_phase_4 --
 12	0.36055512754639896
@@ -4664,7 +4664,7 @@ true
 
 -- !sql_stddev_samp_DecimalV2_agg_phase_3_notnull --
 0	\N
-7	0.21602468994692867
+7	0.21602468994692864
 5	0.15811388300841892
 
 -- !sql_stddev_samp_DecimalV2_agg_phase_4_notnull --
@@ -4958,7 +4958,7 @@ true
 5.0
 
 -- !sql_sum_Double --
-7.8
+7.800000000000001
 
 -- !sql_sum_Double_agg_phase_1 --
 0	\N
@@ -4980,18 +4980,18 @@ true
 
 -- !sql_sum_Double_agg_phase_3 --
 0	\N
-7	2.8000000000000007
-5	5.0
+7	2.8
+5	5.000000000000001
 
 -- !sql_sum_Double_agg_phase_4 --
-12	7.799999999999999
+12	7.800000000000001
 
 -- !sql_sum_Double_gb_notnull --
-2.8
+2.8000000000000003
 5.0
 
 -- !sql_sum_Double_notnull --
-7.800000000000001
+7.8
 
 -- !sql_sum_Double_agg_phase_1_notnull --
 1	0.1
@@ -5008,7 +5008,7 @@ true
 1	1.2
 
 -- !sql_sum_Double_agg_phase_2_notnull --
-12	7.800000000000001
+12	7.8
 
 -- !sql_sum_Double_agg_phase_3_notnull --
 0	\N
@@ -5016,7 +5016,7 @@ true
 5	5.0
 
 -- !sql_sum_Double_agg_phase_4_notnull --
-12	7.800000000000001
+12	7.8
 
 -- !sql_sum_DecimalV2_gb --
 \N
@@ -5434,7 +5434,7 @@ true
 
 -- !sql_sum0_Double_gb --
 0.0
-2.8000000000000003
+2.8
 5.0
 
 -- !sql_sum0_Double --
@@ -5456,12 +5456,12 @@ true
 1	1.2
 
 -- !sql_sum0_Double_agg_phase_2 --
-12	7.800000000000001
+12	7.8
 
 -- !sql_sum0_Double_agg_phase_3 --
 0	0.0
-7	2.8000000000000003
-5	5.0
+7	2.8
+5	5.000000000000001
 
 -- !sql_sum0_Double_agg_phase_4 --
 12	7.800000000000001
@@ -5488,7 +5488,7 @@ true
 1	1.2
 
 -- !sql_sum0_Double_agg_phase_2_notnull --
-12	7.800000000000001
+12	7.799999999999999
 
 -- !sql_sum0_Double_agg_phase_3_notnull --
 0	0.0
@@ -5922,18 +5922,18 @@ true
 
 -- !sql_variance_TinyInt_agg_phase_3 --
 0	\N
-7	4.0
+7	3.9999999999999996
 5	2.0
 
 -- !sql_variance_TinyInt_agg_phase_4 --
-12	11.916666666666664
+12	11.91666666666667
 
 -- !sql_variance_TinyInt_gb_notnull --
 4.000000000000001
 2.0
 
 -- !sql_variance_TinyInt_notnull --
-11.916666666666666
+11.91666666666667
 
 -- !sql_variance_TinyInt_agg_phase_1_notnull --
 1	0.0
@@ -5950,15 +5950,15 @@ true
 1	0.0
 
 -- !sql_variance_TinyInt_agg_phase_2_notnull --
-12	11.916666666666664
+12	11.916666666666666
 
 -- !sql_variance_TinyInt_agg_phase_3_notnull --
 0	\N
 7	4.0
-5	2.000000000000001
+5	2.0
 
 -- !sql_variance_TinyInt_agg_phase_4_notnull --
-12	11.916666666666666
+12	11.91666666666667
 
 -- !sql_variance_SmallInt_gb --
 \N
@@ -5966,7 +5966,7 @@ true
 2.0
 
 -- !sql_variance_SmallInt --
-11.91666666666667
+11.916666666666666
 
 -- !sql_variance_SmallInt_agg_phase_1 --
 0	\N
@@ -5984,15 +5984,15 @@ true
 1	0.0
 
 -- !sql_variance_SmallInt_agg_phase_2 --
-12	11.916666666666664
+12	11.916666666666666
 
 -- !sql_variance_SmallInt_agg_phase_3 --
 0	\N
-7	4.0
+7	3.9999999999999996
 5	2.0
 
 -- !sql_variance_SmallInt_agg_phase_4 --
-12	11.91666666666667
+12	11.916666666666666
 
 -- !sql_variance_SmallInt_gb_notnull --
 3.9999999999999996
@@ -6016,12 +6016,12 @@ true
 1	0.0
 
 -- !sql_variance_SmallInt_agg_phase_2_notnull --
-12	11.916666666666666
+12	11.91666666666667
 
 -- !sql_variance_SmallInt_agg_phase_3_notnull --
 0	\N
-7	3.9999999999999996
-5	1.9999999999999993
+7	4.0
+5	2.0
 
 -- !sql_variance_SmallInt_agg_phase_4_notnull --
 12	11.916666666666664
@@ -6050,15 +6050,15 @@ true
 1	0.0
 
 -- !sql_variance_Integer_agg_phase_2 --
-12	11.916666666666666
+12	11.916666666666664
 
 -- !sql_variance_Integer_agg_phase_3 --
 0	\N
-7	4.0
-5	2.000000000000001
+7	3.9999999999999996
+5	2.0
 
 -- !sql_variance_Integer_agg_phase_4 --
-12	11.916666666666666
+12	11.91666666666667
 
 -- !sql_variance_Integer_gb_notnull --
 3.9999999999999996
@@ -6086,19 +6086,19 @@ true
 
 -- !sql_variance_Integer_agg_phase_3_notnull --
 0	\N
-7	4.0
-5	2.0
+7	3.9999999999999996
+5	2.0000000000000004
 
 -- !sql_variance_Integer_agg_phase_4_notnull --
 12	11.916666666666666
 
 -- !sql_variance_BigInt_gb --
 \N
-3.9999999999999996
+4.000000000000001
 2.0
 
 -- !sql_variance_BigInt --
-11.916666666666666
+11.91666666666667
 
 -- !sql_variance_BigInt_agg_phase_1 --
 0	\N
@@ -6120,11 +6120,11 @@ true
 
 -- !sql_variance_BigInt_agg_phase_3 --
 0	\N
-7	4.0
-5	2.0
+7	3.9999999999999996
+5	1.9999999999999993
 
 -- !sql_variance_BigInt_agg_phase_4 --
-12	11.916666666666666
+12	11.916666666666664
 
 -- !sql_variance_BigInt_gb_notnull --
 4.0
@@ -6152,11 +6152,11 @@ true
 
 -- !sql_variance_BigInt_agg_phase_3_notnull --
 0	\N
-7	3.9999999999999996
+7	4.000000000000001
 5	2.0
 
 -- !sql_variance_BigInt_agg_phase_4_notnull --
-12	11.916666666666664
+12	11.916666666666666
 
 -- !sql_variance_Float_gb --
 \N
@@ -6164,7 +6164,7 @@ true
 0.020000004768372152
 
 -- !sql_variance_Float --
-0.11916667052855125
+0.11916667052855127
 
 -- !sql_variance_Float_agg_phase_1 --
 0	\N
@@ -6186,11 +6186,11 @@ true
 
 -- !sql_variance_Float_agg_phase_3 --
 0	\N
-7	0.039999999701976874
-5	0.020000004768372152
+7	0.03999999970197688
+5	0.020000004768372145
 
 -- !sql_variance_Float_agg_phase_4 --
-12	0.11916667052855127
+12	0.11916667052855123
 
 -- !sql_variance_Float_gb_notnull --
 0.03999999970197688
@@ -6218,7 +6218,7 @@ true
 
 -- !sql_variance_Float_agg_phase_3_notnull --
 0	\N
-7	0.03999999970197688
+7	0.039999999701976874
 5	0.020000004768372152
 
 -- !sql_variance_Float_agg_phase_4_notnull --
@@ -6256,11 +6256,11 @@ true
 5	0.019999999999999997
 
 -- !sql_variance_Double_agg_phase_4 --
-12	0.11916666666666668
+12	0.11916666666666664
 
 -- !sql_variance_Double_gb_notnull --
-0.039999999999999994
-0.019999999999999997
+0.04
+0.01999999999999999
 
 -- !sql_variance_Double_notnull --
 0.11916666666666666
@@ -6284,11 +6284,11 @@ true
 
 -- !sql_variance_Double_agg_phase_3_notnull --
 0	\N
-7	0.03999999999999999
-5	0.019999999999999993
+7	0.039999999999999994
+5	0.019999999999999997
 
 -- !sql_variance_Double_agg_phase_4_notnull --
-12	0.1191666666666667
+12	0.11916666666666668
 
 -- !sql_variance_DecimalV2_gb --
 \N
@@ -6296,7 +6296,7 @@ true
 0.019999999999999997
 
 -- !sql_variance_DecimalV2 --
-0.11916666666666666
+0.11916666666666664
 
 -- !sql_variance_DecimalV2_agg_phase_1 --
 0	\N
@@ -6319,10 +6319,10 @@ true
 -- !sql_variance_DecimalV2_agg_phase_3 --
 0	\N
 7	0.039999999999999994
-5	0.019999999999999997
+5	0.02
 
 -- !sql_variance_DecimalV2_agg_phase_4 --
-12	0.11916666666666666
+12	0.11916666666666668
 
 -- !sql_variance_DecimalV2_gb_notnull --
 0.039999999999999994
@@ -6346,19 +6346,19 @@ true
 1	0.0
 
 -- !sql_variance_DecimalV2_agg_phase_2_notnull --
-12	0.11916666666666666
+12	0.11916666666666668
 
 -- !sql_variance_DecimalV2_agg_phase_3_notnull --
 0	\N
 7	0.039999999999999994
-5	0.019999999999999987
+5	0.02
 
 -- !sql_variance_DecimalV2_agg_phase_4_notnull --
-12	0.11916666666666668
+12	0.11916666666666666
 
 -- !sql_variance_samp_TinyInt_gb --
 \N
-4.666666666666667
+4.666666666666666
 2.5
 
 -- !sql_variance_samp_TinyInt --
@@ -6380,11 +6380,11 @@ true
 1	0.0
 
 -- !sql_variance_samp_TinyInt_agg_phase_2 --
-12	12.999999999999998
+12	13.0
 
 -- !sql_variance_samp_TinyInt_agg_phase_3 --
 0	\N
-7	4.666666666666666
+7	4.666666666666667
 5	2.5
 
 -- !sql_variance_samp_TinyInt_agg_phase_4 --
@@ -6412,19 +6412,19 @@ true
 1	0.0
 
 -- !sql_variance_samp_TinyInt_agg_phase_2_notnull --
-12	13.000000000000002
+12	13.0
 
 -- !sql_variance_samp_TinyInt_agg_phase_3_notnull --
 0	\N
 7	4.666666666666666
-5	2.5
+5	2.5000000000000004
 
 -- !sql_variance_samp_TinyInt_agg_phase_4_notnull --
-12	13.0
+12	13.000000000000002
 
 -- !sql_variance_samp_SmallInt_gb --
 \N
-4.666666666666667
+4.666666666666666
 2.5
 
 -- !sql_variance_samp_SmallInt --
@@ -6446,22 +6446,22 @@ true
 1	0.0
 
 -- !sql_variance_samp_SmallInt_agg_phase_2 --
-12	13.0
+12	13.000000000000002
 
 -- !sql_variance_samp_SmallInt_agg_phase_3 --
 0	\N
 7	4.666666666666666
-5	2.5
+5	2.499999999999999
 
 -- !sql_variance_samp_SmallInt_agg_phase_4 --
-12	12.999999999999998
+12	13.0
 
 -- !sql_variance_samp_SmallInt_gb_notnull --
 4.666666666666667
 2.5
 
 -- !sql_variance_samp_SmallInt_notnull --
-13.000000000000002
+13.0
 
 -- !sql_variance_samp_SmallInt_agg_phase_1_notnull --
 1	0.0
@@ -6478,7 +6478,7 @@ true
 1	0.0
 
 -- !sql_variance_samp_SmallInt_agg_phase_2_notnull --
-12	13.0
+12	12.999999999999998
 
 -- !sql_variance_samp_SmallInt_agg_phase_3_notnull --
 0	\N
@@ -6516,8 +6516,8 @@ true
 
 -- !sql_variance_samp_Integer_agg_phase_3 --
 0	\N
-7	4.666666666666667
-5	2.5
+7	4.666666666666666
+5	2.5000000000000004
 
 -- !sql_variance_samp_Integer_agg_phase_4 --
 12	13.0
@@ -6527,7 +6527,7 @@ true
 2.5
 
 -- !sql_variance_samp_Integer_notnull --
-13.0
+13.000000000000002
 
 -- !sql_variance_samp_Integer_agg_phase_1_notnull --
 1	0.0
@@ -6548,11 +6548,11 @@ true
 
 -- !sql_variance_samp_Integer_agg_phase_3_notnull --
 0	\N
-7	4.666666666666667
+7	4.666666666666665
 5	2.5
 
 -- !sql_variance_samp_Integer_agg_phase_4_notnull --
-12	12.999999999999998
+12	13.000000000000002
 
 -- !sql_variance_samp_BigInt_gb --
 \N
@@ -6560,7 +6560,7 @@ true
 2.5
 
 -- !sql_variance_samp_BigInt --
-13.000000000000002
+13.0
 
 -- !sql_variance_samp_BigInt_agg_phase_1 --
 0	\N
@@ -6582,18 +6582,18 @@ true
 
 -- !sql_variance_samp_BigInt_agg_phase_3 --
 0	\N
-7	4.666666666666667
-5	2.500000000000001
+7	4.666666666666668
+5	2.5
 
 -- !sql_variance_samp_BigInt_agg_phase_4 --
-12	12.999999999999998
+12	13.0
 
 -- !sql_variance_samp_BigInt_gb_notnull --
 4.666666666666667
 2.5
 
 -- !sql_variance_samp_BigInt_notnull --
-13.0
+13.000000000000002
 
 -- !sql_variance_samp_BigInt_agg_phase_1_notnull --
 1	0.0
@@ -6610,19 +6610,19 @@ true
 1	0.0
 
 -- !sql_variance_samp_BigInt_agg_phase_2_notnull --
-12	12.999999999999998
+12	13.0
 
 -- !sql_variance_samp_BigInt_agg_phase_3_notnull --
 0	\N
 7	4.666666666666666
-5	2.5
+5	2.5000000000000004
 
 -- !sql_variance_samp_BigInt_agg_phase_4_notnull --
-12	13.000000000000002
+12	12.999999999999998
 
 -- !sql_variance_samp_Float_gb --
 \N
-0.04666666631897303
+0.04666666631897302
 0.02500000596046519
 
 -- !sql_variance_samp_Float --
@@ -6656,7 +6656,7 @@ true
 
 -- !sql_variance_samp_Float_gb_notnull --
 0.04666666631897303
-0.025000005960465192
+0.02500000596046519
 
 -- !sql_variance_samp_Float_notnull --
 0.130000004212965
@@ -6676,11 +6676,11 @@ true
 1	0.0
 
 -- !sql_variance_samp_Float_agg_phase_2_notnull --
-12	0.130000004212965
+12	0.13000000421296498
 
 -- !sql_variance_samp_Float_agg_phase_3_notnull --
 0	\N
-7	0.04666666631897302
+7	0.04666666631897303
 5	0.02500000596046519
 
 -- !sql_variance_samp_Float_agg_phase_4_notnull --
@@ -6688,11 +6688,11 @@ true
 
 -- !sql_variance_samp_Double_gb --
 \N
-0.04666666666666667
-0.024999999999999988
+0.04666666666666666
+0.024999999999999998
 
 -- !sql_variance_samp_Double --
-0.13
+0.12999999999999998
 
 -- !sql_variance_samp_Double_agg_phase_1 --
 0	\N
@@ -6710,22 +6710,22 @@ true
 1	0.0
 
 -- !sql_variance_samp_Double_agg_phase_2 --
-12	0.13
+12	0.12999999999999998
 
 -- !sql_variance_samp_Double_agg_phase_3 --
 0	\N
 7	0.04666666666666666
-5	0.024999999999999994
+5	0.02499999999999999
 
 -- !sql_variance_samp_Double_agg_phase_4 --
-12	0.12999999999999998
+12	0.13
 
 -- !sql_variance_samp_Double_gb_notnull --
-0.04666666666666667
+0.04666666666666666
 0.024999999999999994
 
 -- !sql_variance_samp_Double_notnull --
-0.13
+0.12999999999999998
 
 -- !sql_variance_samp_Double_agg_phase_1_notnull --
 1	0.0
@@ -6772,8 +6772,8 @@ true
 
 -- !sql_variance_samp_DecimalV2_agg_phase_3 --
 0	\N
-7	0.04666666666666666
-5	0.025
+7	0.046666666666666655
+5	0.024999999999999998
 
 -- !sql_variance_samp_DecimalV2_agg_phase_4 --
 12	0.13
@@ -6793,7 +6793,7 @@ true
 1	0.0
 
 -- !sql_variance_samp_DecimalV2_agg_phase_2_notnull --
-12	0.13
+12	0.12999999999999998
 
 -- !sql_variance_samp_DecimalV2_agg_phase_3_notnull --
 0	\N
@@ -6801,7 +6801,7 @@ true
 5	0.025
 
 -- !sql_variance_samp_DecimalV2_agg_phase_4_notnull --
-12	0.12999999999999998
+12	0.13
 
 -- !sql_window_funnel_BigInt_String_DateTime_Boolean_gb --
 \N

@@ -199,10 +199,6 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(histogram, context);
     }
 
-    default R visitLinearHistogram(LinearHistogram linearHistogram, C context) {
-        return visitAggregateFunction(linearHistogram, context);
-    }
-
     default R visitHllUnion(HllUnion hllUnion, C context) {
         return visitAggregateFunction(hllUnion, context);
     }
@@ -213,6 +209,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitIntersectCount(IntersectCount intersectCount, C context) {
         return visitAggregateFunction(intersectCount, context);
+    }
+
+    default R visitLinearHistogram(LinearHistogram linearHistogram, C context) {
+        return visitAggregateFunction(linearHistogram, context);
     }
 
     default R visitMapAgg(MapAgg mapAgg, C context) {

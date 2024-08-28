@@ -190,8 +190,10 @@ public:
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1])
                         .get_data()[row_num];
         if (interval <= 0) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Invalid interval {}, row_num {}",
-                                   interval, row_num);
+            throw doris::Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    "Invalid interval {}, row_num {}, interval should be larger than 0", interval,
+                    row_num);
         }
 
         double offset = 0;
