@@ -69,7 +69,7 @@ Status OlapMeta::init() {
     // set log file's size, num and level
     options.max_log_file_size = 10485760;
     options.keep_log_file_num = 10;
-    options.info_log_level = rocksdb::WARN_LEVEL;
+    options.info_log_level = rocksdb::InfoLogLevel::WARN_LEVEL;
 
     std::string db_path = _root_path + META_POSTFIX;
     std::vector<ColumnFamilyDescriptor> column_families;
