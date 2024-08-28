@@ -25,8 +25,6 @@ suite("test_dup_schema_value_modify3", "p0") {
     /**
      *  Test the dup model by modify a value type
      */
-    def initTable2 = ""
-    def initTableData2 = ""
     sql """ DROP TABLE IF EXISTS ${tbName1} """
     def initTable = " CREATE TABLE IF NOT EXISTS ${tbName1}\n" +
             "          (\n" +
