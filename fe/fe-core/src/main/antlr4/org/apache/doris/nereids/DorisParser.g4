@@ -739,11 +739,6 @@ selectClause
 
 selectColumnClause
     : namedExpressionSeq
-    | ASTERISK exceptOrReplace+
-    ;
-
-exceptOrReplace
-    : (EXCEPT | REPLACE) LEFT_PAREN namedExpressionSeq RIGHT_PAREN
     ;
 
 whereClause
@@ -1134,8 +1129,8 @@ primaryExpression
     | name=CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                              #cast
     | constant                                                                                 #constantDefault
     | interval                                                                                 #intervalLiteral
-    | ASTERISK                                                                                 #star
-    | qualifiedName DOT ASTERISK                                                               #star
+    | ASTERISK (exceptOrReplace)*                                                              #star
+    | qualifiedName DOT ASTERISK (exceptOrReplace)*                                            #star
     | CHAR LEFT_PAREN
                 arguments+=expression (COMMA arguments+=expression)*
                 (USING charSet=identifierOrText)?
@@ -1156,6 +1151,11 @@ primaryExpression
     | EXTRACT LEFT_PAREN field=identifier FROM (DATE | TIMESTAMP)?
       source=valueExpression RIGHT_PAREN                                                       #extract
     | primaryExpression COLLATE (identifier | STRING_LITERAL | DEFAULT)                        #collate
+    ;
+
+exceptOrReplace
+    : EXCEPT  LEFT_PAREN namedExpressionSeq RIGHT_PAREN                                  #except
+    | REPLACE LEFT_PAREN namedExpressionSeq RIGHT_PAREN                                  #replace
     ;
 
 castDataType

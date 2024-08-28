@@ -620,14 +620,6 @@ public class BindExpression implements AnalysisRuleFactory {
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
                 project, cascadesContext, project.children(), true, true);
 
-        List<NamedExpression> excepts = project.getExcepts();
-        Supplier<Set<NamedExpression>> boundExcepts = Suppliers.memoize(
-                () -> analyzer.analyzeToSet(project.getExcepts()));
-
-        List<NamedExpression> replaces = project.getReplaces();
-        Supplier<List<NamedExpression>> boundReplaces = Suppliers.memoize(
-                () -> analyzer.analyzeToList(project.getReplaces()));
-
         Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.arity());
         StatementContext statementContext = ctx.statementContext;
         for (Expression expression : project.getProjects()) {
@@ -635,14 +627,19 @@ public class BindExpression implements AnalysisRuleFactory {
             if (!(expr instanceof BoundStar)) {
                 boundProjections.add((NamedExpression) expr);
             } else {
+                UnboundStar unboundStar = (UnboundStar) expression;
+                List<NamedExpression> excepts = unboundStar.getExceptedSlots();
+                Set<NamedExpression> boundExcepts = Suppliers.memoize(() -> analyzer.analyzeToSet(excepts)).get();
                 BoundStar boundStar = (BoundStar) expr;
-                List<Slot> slots = boundStar.getSlots();
-                if (!excepts.isEmpty()) {
-                    slots = Utils.filterImmutableList(slots, slot -> !boundExcepts.get().contains((Slot) slot));
-                }
+
+                List<Slot> slots = exceptStarSlots(boundExcepts, boundStar);
+
+                List<NamedExpression> replaces = unboundStar.getReplacedAlias();
                 if (!replaces.isEmpty()) {
                     final Map<Expression, Expression> replaceMap = new HashMap<>();
                     final Set<Expression> replaced = new HashSet<>();
+                    Supplier<List<NamedExpression>> boundReplaces = Suppliers.memoize(
+                            () -> analyzer.analyzeToList(replaces));
                     for (NamedExpression replace : boundReplaces.get()) {
                         Preconditions.checkArgument(replace instanceof Alias);
                         Alias alias = (Alias) replace;
@@ -654,7 +651,7 @@ public class BindExpression implements AnalysisRuleFactory {
                         replaceMap.put(slot, alias);
                     }
 
-                    Collection c = CollectionUtils.intersection(boundExcepts.get(), replaceMap.keySet());
+                    Collection c = CollectionUtils.intersection(boundExcepts, replaceMap.keySet());
                     if (!c.isEmpty()) {
                         throw new AnalysisException("Replace column name: " + c + " is in excepts");
                     }
@@ -676,7 +673,6 @@ public class BindExpression implements AnalysisRuleFactory {
 
                 // for create view stmt expand star
                 List<Slot> slotsForLambda = slots;
-                UnboundStar unboundStar = (UnboundStar) expression;
                 unboundStar.getIndexInSqlString().ifPresent(pair -> {
                     statementContext.addIndexInSqlToString(pair, toSqlWithBackquote(slotsForLambda));
                 });
@@ -701,6 +697,17 @@ public class BindExpression implements AnalysisRuleFactory {
         return new LogicalFilter<>(boundConjuncts.build(), filter.child());
     }
 
+    private List<Slot> exceptStarSlots(Set<NamedExpression> boundExcepts, BoundStar boundStar) {
+        List<Slot> slots = boundStar.getSlots();
+        if (!boundExcepts.isEmpty()) {
+            slots = Utils.filterImmutableList(slots, slot -> !boundExcepts.contains(slot));
+            if (slots.isEmpty()) {
+                throw new AnalysisException("All slots in * EXCEPT clause are excepted");
+            }
+        }
+        return slots;
+    }
+
     private Plan bindAggregate(MatchingContext<LogicalAggregate<Plan>> ctx) {
         LogicalAggregate<Plan> agg = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
@@ -709,13 +716,23 @@ public class BindExpression implements AnalysisRuleFactory {
                 agg, cascadesContext, agg.children(), true, true);
         List<NamedExpression> boundAggOutput = aggOutputAnalyzer.analyzeToList(agg.getOutputExpressions());
         List<NamedExpression> boundProjections = new ArrayList<>(boundAggOutput.size());
-        for (NamedExpression output : boundAggOutput) {
+        for (int i = 0; i < boundAggOutput.size(); i++) {
+            NamedExpression output = boundAggOutput.get(i);
             if (output instanceof BoundStar) {
-                boundProjections.addAll(((BoundStar) output).getSlots());
+                UnboundStar unboundStar = (UnboundStar) ((agg.getOutputExpressions().get(i)));
+                if (!unboundStar.getReplacedAlias().isEmpty()) {
+                    throw new AnalysisException("* replace in agg is not supported");
+                }
+                List<NamedExpression> excepts = unboundStar.getExceptedSlots();
+                Set<NamedExpression> boundExcepts = Suppliers.memoize(
+                        () -> aggOutputAnalyzer.analyzeToSet(excepts)).get();
+                List<Slot> slots = exceptStarSlots(boundExcepts, (BoundStar) output);
+                boundProjections.addAll(slots);
             } else {
                 boundProjections.add(output);
             }
         }
+
         Supplier<Scope> aggOutputScopeWithoutAggFun =
                 buildAggOutputScopeWithoutAggFun(boundProjections, cascadesContext);
         List<Expression> boundGroupBy = bindGroupBy(

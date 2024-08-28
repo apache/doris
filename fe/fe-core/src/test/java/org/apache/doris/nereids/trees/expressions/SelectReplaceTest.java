@@ -94,18 +94,18 @@ public class SelectReplaceTest extends AnalyzeCheckTestBase implements MemoPatte
     public void testReplace2() {
         LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
-                ImmutableList.of(new UnboundStar(ImmutableList.of("db", "t1"))),
-                ImmutableList.of(),
-                ImmutableList.of(new UnboundAlias(new UnboundSlot("name"), "id")),
-                false,
-                olapScan);
+                ImmutableList.of(
+                        new UnboundStar(ImmutableList.of("db", "t1"),
+                                ImmutableList.of(),
+                                ImmutableList.of(new UnboundAlias(new UnboundSlot("name"), "id"))
+                        )), false, olapScan);
         PlanChecker.from(MemoTestUtils.createConnectContext())
                 .analyze(project)
                 .matches(
                         logicalProject(
                                 logicalOlapScan()
-                        ).when(proj -> proj.getReplaces().size() == 1
-                                && proj.getProjects().get(0).getName().equals("id"))
+                        // ).when(proj -> proj.getReplaces().size() == 1
+                        ).when(proj -> proj.getProjects().get(0).getName().equals("id"))
                 );
     }
 
