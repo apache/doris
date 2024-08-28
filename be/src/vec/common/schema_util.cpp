@@ -544,16 +544,11 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
 }
 
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                             const ParseContext& ctx) {
-    try {
-        // Parse each variant column from raw string column
-        RETURN_IF_ERROR(vectorized::schema_util::_parse_variant_columns(block, variant_pos, ctx));
-    } catch (const doris::Exception& e) {
-        // TODO more graceful, max_filter_ratio
-        LOG(WARNING) << "encounter execption " << e.to_string();
-        return Status::InternalError(e.to_string());
-    }
-    return Status::OK();
+                             const ParseConfig& config) {
+    // Parse each variant column from raw string column
+    RETURN_IF_CATCH_EXCEPTION({
+        return vectorized::schema_util::_parse_variant_columns(block, variant_pos, config);
+    });
 }
 
 void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
