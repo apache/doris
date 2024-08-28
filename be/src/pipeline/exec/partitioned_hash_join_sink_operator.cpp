@@ -139,7 +139,6 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
                 std::unique_lock<std::mutex> lock(_spill_lock);
                 _spill_status = status;
                 _spill_status_ok = false;
-                _dependency->set_ready();
                 return false;
             }
             return true;
@@ -187,7 +186,6 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
                         std::unique_lock<std::mutex> lock(_spill_lock);
                         _spill_status = st;
                         _spill_status_ok = false;
-                        _dependency->set_ready();
                         return;
                     }
                     partitions_indexes[partition_idx].clear();
@@ -202,8 +200,6 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
                 }
             }
         }
-
-        _dependency->set_ready();
     };
 
     auto exception_catch_func = [spill_func, this]() mutable {
@@ -216,8 +212,8 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
             std::unique_lock<std::mutex> lock(_spill_lock);
             _spill_status = status;
             _spill_status_ok = false;
-            _dependency->set_ready();
         }
+        _dependency->set_ready();
     };
 
     auto spill_runnable = std::make_shared<SpillRunnable>(state, _shared_state->shared_from_this(),
@@ -294,7 +290,7 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
                         return Status::OK();
                     }();
 
-                    if (!status.OK()) {
+                    if (!status.ok()) {
                         std::unique_lock<std::mutex> lock(_spill_lock);
                         _dependency->set_ready();
                         _spill_status_ok = false;

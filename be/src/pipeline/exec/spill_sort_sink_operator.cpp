@@ -231,12 +231,6 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
             }
 
             _spilling_stream.reset();
-            if (_eos) {
-                _dependency->set_ready_to_read();
-                _finish_dependency->set_ready();
-            } else {
-                _dependency->Dependency::set_ready();
-            }
         }};
 
         _shared_state->sink_status =
@@ -279,6 +273,13 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
         _shared_state->sink_status = [&]() {
             RETURN_IF_CATCH_EXCEPTION({ return spill_func(); });
         }();
+
+        if (_eos) {
+            _dependency->set_ready_to_read();
+            _finish_dependency->set_ready();
+        } else {
+            _dependency->Dependency::set_ready();
+        }
     };
 
     DBUG_EXECUTE_IF("fault_inject::spill_sort_sink::revoke_memory_submit_func", {

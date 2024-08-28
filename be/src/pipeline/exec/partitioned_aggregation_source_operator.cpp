@@ -227,7 +227,6 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
             }
             Base::_shared_state->in_mem_shared_state->aggregate_data_container->init_once();
             _is_merging = false;
-            _dependency->Dependency::set_ready();
         }};
         bool has_agg_data = false;
         auto& parent = Base::_parent->template cast<Parent>();
@@ -286,6 +285,7 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
         if (!status.ok()) {
             _status = status;
         }
+        _dependency->set_ready();
     };
 
     DBUG_EXECUTE_IF("fault_inject::partitioned_agg_source::submit_func", {
