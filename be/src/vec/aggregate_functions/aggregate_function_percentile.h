@@ -132,6 +132,10 @@ struct PercentileApproxState {
     }
 
     void add_with_weight(double source, double weight, double quantile) {
+        // the weight should be positive num, as have check the value valid use DCHECK_GT(c._weight, 0);
+        if (weight <= 0) {
+            return;
+        }
         digest->add(source, weight);
         target_quantile = quantile;
     }

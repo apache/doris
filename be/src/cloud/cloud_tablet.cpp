@@ -135,19 +135,6 @@ Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) 
     return st;
 }
 
-TabletSchemaSPtr CloudTablet::merged_tablet_schema() const {
-    std::shared_lock rdlock(_meta_lock);
-    TabletSchemaSPtr target_schema;
-    std::vector<TabletSchemaSPtr> schemas;
-    for (const auto& [_, rowset] : _rs_version_map) {
-        schemas.push_back(rowset->tablet_schema());
-    }
-    // get the max version schema and merge all schema
-    static_cast<void>(
-            vectorized::schema_util::get_least_common_schema(schemas, nullptr, target_schema));
-    return target_schema;
-}
-
 // Sync tablet meta and all rowset meta if not running.
 // This could happen when BE didn't finish schema change job and another BE committed this schema change job.
 // It should be a quite rare situation.
@@ -177,8 +164,7 @@ Status CloudTablet::sync_if_not_running() {
 
     if (tablet_meta->tablet_state() != TABLET_RUNNING) [[unlikely]] {
         // MoW may go to here when load while schema change
-        return Status::Error<INVALID_TABLET_STATE>("invalid tablet state {}. tablet_id={}",
-                                                   tablet_meta->tablet_state(), tablet_id());
+        return Status::OK();
     }
 
     TimestampedVersionTracker empty_tracker;
@@ -198,6 +184,19 @@ Status CloudTablet::sync_if_not_running() {
         clear_cache();
     }
     return st;
+}
+
+TabletSchemaSPtr CloudTablet::merged_tablet_schema() const {
+    std::shared_lock rdlock(_meta_lock);
+    TabletSchemaSPtr target_schema;
+    std::vector<TabletSchemaSPtr> schemas;
+    for (const auto& [_, rowset] : _rs_version_map) {
+        schemas.push_back(rowset->tablet_schema());
+    }
+    // get the max version schema and merge all schema
+    static_cast<void>(
+            vectorized::schema_util::get_least_common_schema(schemas, nullptr, target_schema));
+    return target_schema;
 }
 
 void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_overlap,
@@ -624,7 +623,8 @@ std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_base_compact
     {
         std::shared_lock rlock(_meta_lock);
         for (const auto& [version, rs] : _rs_version_map) {
-            if (version.first != 0 && version.first < _cumulative_point) {
+            if (version.first != 0 && version.first < _cumulative_point &&
+                (_alter_version == -1 || version.second <= _alter_version)) {
                 candidate_rowsets.push_back(rs);
             }
         }

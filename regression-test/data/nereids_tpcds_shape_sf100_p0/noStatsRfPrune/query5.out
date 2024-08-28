@@ -35,21 +35,21 @@ PhysicalResultSink
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((salesreturns.page_sk = catalog_page.cp_catalog_page_sk)) otherCondition=()
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((salesreturns.date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF3 d_date_sk->[cr_returned_date_sk,cs_sold_date_sk]
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((salesreturns.date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[cr_returned_date_sk,cs_sold_date_sk]
+----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((salesreturns.page_sk = catalog_page.cp_catalog_page_sk)) otherCondition=()
 ------------------------------------PhysicalUnion
 --------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2
+------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF3
 --------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF2
+------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF3
 ------------------------------------PhysicalProject
---------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
-----------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------PhysicalOlapScan[catalog_page]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[catalog_page]
+----------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
+------------------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalProject
 ----------------------hashAgg[GLOBAL]
 ------------------------PhysicalDistribute[DistributionSpecHash]

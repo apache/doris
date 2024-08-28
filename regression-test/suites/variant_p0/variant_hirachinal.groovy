@@ -43,6 +43,9 @@ suite("regression_test_variant_hirachinal", "variant_type"){
     sql """insert into  ${table_name} select -2, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : "null", "e" : 7.111}}'  as json_str
             union  all select -1, '{"a": 1123}' as json_str union all select *, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
     qt_sql "select * from ${table_name} order by k limit 10"
-    qt_sql "select v['c'] from ${table_name} where k = -3 or k = -2"
+    qt_sql "select v['c'] from ${table_name} where k = -3 or k = -2 order by k"
     qt_sql "select v['b'] from ${table_name} where k = -3 or k = -2"
+    sql """insert into ${table_name} values (-3, '{"c" : 12345}')"""
+    order_qt_sql1 "select v['c'] from var_rs where k = -3 or k = -2 or k = -4 or (k = 1 and v['c'] = 1024) order by k"
+    order_qt_sql2 "select v['c'] from var_rs where k = -3 or k = -2 or k = 1 order by k, cast(v['c'] as text) limit 3"
 }

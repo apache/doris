@@ -52,25 +52,25 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 --------------------------------------------------PhysicalProject
 ----------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = hd1.hd_demo_sk)) otherCondition=()
 ------------------------------------------------------PhysicalProject
---------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = d1.d_date_sk)) otherCondition=() build RFs:RF3 d_date_sk->[ss_sold_date_sk]
+--------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = cs_ui.cs_item_sk)) otherCondition=() build RFs:RF3 cs_item_sk->[ss_item_sk]
 ----------------------------------------------------------PhysicalProject
-------------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = cs_ui.cs_item_sk)) otherCondition=() build RFs:RF2 cs_item_sk->[ss_item_sk]
+------------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = d1.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ss_sold_date_sk]
 --------------------------------------------------------------PhysicalProject
 ----------------------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF3 RF8
 --------------------------------------------------------------PhysicalProject
-----------------------------------------------------------------filter((sale > (2 * refund)))
-------------------------------------------------------------------hashAgg[GLOBAL]
---------------------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------------------------------------------hashAgg[LOCAL]
-------------------------------------------------------------------------PhysicalProject
---------------------------------------------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=()
-----------------------------------------------------------------------------PhysicalProject
-------------------------------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF8
-----------------------------------------------------------------------------PhysicalProject
-------------------------------------------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF8
+----------------------------------------------------------------filter(d_year IN (2001, 2002))
+------------------------------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------------------------------PhysicalProject
-------------------------------------------------------------filter(d_year IN (2001, 2002))
---------------------------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------------------------filter((sale > (2 * refund)))
+--------------------------------------------------------------hashAgg[GLOBAL]
+----------------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------------------------------------hashAgg[LOCAL]
+--------------------------------------------------------------------PhysicalProject
+----------------------------------------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=()
+------------------------------------------------------------------------PhysicalProject
+--------------------------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF8
+------------------------------------------------------------------------PhysicalProject
+--------------------------------------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF8
 ------------------------------------------------------PhysicalProject
 --------------------------------------------------------PhysicalOlapScan[household_demographics]
 --------------------------------------------------PhysicalProject

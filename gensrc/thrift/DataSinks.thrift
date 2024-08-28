@@ -324,6 +324,15 @@ struct THivePartition {
   3: optional PlanNodes.TFileFormatType file_format
 }
 
+struct THiveSerDeProperties {
+    1: optional string field_delim
+    2: optional string line_delim
+    3: optional string collection_delim // array ,map ,struct delimiter 
+    4: optional string mapkv_delim
+    5: optional string escape_char
+    6: optional string null_format
+}
+
 struct THiveTableSink {
     1: optional string db_name
     2: optional string table_name
@@ -335,6 +344,7 @@ struct THiveTableSink {
     8: optional THiveLocationParams location
     9: optional map<string, string> hadoop_config
     10: optional bool overwrite
+    11: optional THiveSerDeProperties serde_properties
 }
 
 enum TUpdateMode {

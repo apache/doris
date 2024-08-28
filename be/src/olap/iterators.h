@@ -42,7 +42,7 @@ struct IteratorRowRef;
 };
 
 namespace segment_v2 {
-struct StreamReader;
+struct SubstreamIterator;
 }
 
 class StorageReadOptions {

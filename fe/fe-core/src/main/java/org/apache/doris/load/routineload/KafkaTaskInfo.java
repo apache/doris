@@ -19,10 +19,12 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TKafkaLoadInfo;
 import org.apache.doris.thrift.TLoadSourceType;
@@ -58,6 +60,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
                 kafkaTaskInfo.getTimeoutMs(), kafkaTaskInfo.getTimeoutBackOffCount(),
                 kafkaTaskInfo.getBeId(), isMultiTable);
         this.partitionIdToOffset = partitionIdToOffset;
+        this.isEof = kafkaTaskInfo.getIsEof();
     }
 
     public List<Integer> getPartitions() {
@@ -127,7 +130,11 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     private TPipelineFragmentParams rePlan(RoutineLoadJob routineLoadJob) throws UserException {
         TUniqueId loadId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
         // plan for each task, in case table has change(rollup or schema change)
-        TPipelineFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(loadId, txnId);
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(routineLoadJob.getDbId());
+        StreamLoadPlanner planner = new StreamLoadPlanner(db,
+                (OlapTable) db.getTableOrMetaException(routineLoadJob.getTableId(),
+                Table.TableType.OLAP), routineLoadJob);
+        TPipelineFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(planner, loadId, txnId);
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
         // it needs update timeout to make task timeout backoff work

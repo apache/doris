@@ -15,20 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+suite("test_mapagg_with_jsonfuncs") {
+   sql "set enable_nereids_planner = true"
+   sql "set enable_fallback_to_original_planner = false"
+   sql """ drop table if exists t003;"""
+   sql """ create table t003 (a bigint, b json not null) properties ("replication_num"="1"); """
+   sql """ insert into t003 values (1, '{"a":1,"b":2}'); """
+   qt_sql """ select a, map_agg("k1", json_quote(b)) from t003 group by a; """
 
-/**
- * Nondeterministic functions.
- * <p>
- * e.g. 'rand()', 'random()'.
- */
-public interface Nondeterministic extends ExpressionTrait {
-
-    /**
-     * Identify the function is deterministic or not, such as UnixTimestamp, when it's children is not empty
-     * it's deterministic
-     */
-    default boolean isDeterministic() {
-        return false;
-    }
+   sql "set enable_nereids_planner = false"
+   qt_sql """ select a, map_agg("k1", json_quote(b)) from t003 group by a; """
 }

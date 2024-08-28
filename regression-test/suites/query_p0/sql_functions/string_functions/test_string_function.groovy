@@ -390,4 +390,23 @@ suite("test_string_function", "arrow_flight_sql") {
     sql """  insert into test_function_ngram_search values(1,"fffhhhkkkk"),(2,"abc1313131"),(3,'1313131') ,(4,'abc') """
 
     qt_ngram_search1_not_null """ select k1, ngram_search(s,'abc1313131',3) as x , s from test_function_ngram_search order by x ;"""
+
+    sql "SELECT random_bytes(7);"
+    qt_sql_random_bytes "SELECT random_bytes(null);"
+    test {
+        sql " select random_bytes(-1); "
+        exception "argument -1 of function random_bytes at row 0 was invalid"
+    }
+    def some_result = sql """ SELECT random_bytes(10) a FROM numbers("number" = "10") """
+    assertTrue(some_result[0][0] != some_result[1][0], "${some_result[0][0]} should different with ${some_result[1][0]}")
+    sql "select random_bytes(k1) from test_function_ngram_search;"
+
+    explain {
+        sql("""select/*+SET_VAR(enable_fold_constant_by_be=true)*/ random_bytes(10) from numbers("number" = "10");""")
+        contains "final projections: random_bytes(10)"
+    }
+    explain {
+        sql("""select/*+SET_VAR(enable_fold_constant_by_be=true)*/ random(10) from numbers("number" = "10");""")
+        contains "final projections: random(10)"
+    }
 }

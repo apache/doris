@@ -25,6 +25,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <memory>
 #include <ostream>
 #include <string>
 
@@ -32,6 +33,7 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_nothing_serde.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
@@ -91,8 +93,7 @@ public:
 
     bool have_subtypes() const override { return false; }
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method get_serde not support serde {}.", get_name());
+        return std::make_shared<DataTypeNothingSerde>();
     };
 };
 

@@ -57,12 +57,10 @@ Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets
                 _shuffle_idx_to_instance_idx[i] = {i, i};
             }
         }
-        _partitioner.reset(
-                _type == ExchangeType::HASH_SHUFFLE
-                        ? new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
-                                  _num_partitions)
-                        : new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
-                                  num_buckets));
+        _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
+                _type == ExchangeType::HASH_SHUFFLE || _bucket_seq_to_instance_idx.empty()
+                        ? _num_partitions
+                        : num_buckets));
         RETURN_IF_ERROR(_partitioner->init(_texprs));
     }
     return Status::OK();

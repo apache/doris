@@ -58,5 +58,14 @@ suite("test_aggregate_percentile_approx_weighted") {
         percentile_approx_weighted(k,w,0.99,2048)
         from quantile_weighted_table;
     """
-    
+    sql """insert into quantile_weighted_table values(7,0),(8,-1);"""
+    qt_select_3 """
+        select 
+        percentile_approx_weighted(k,w,0.1,2048),
+        percentile_approx_weighted(k,w,0.35,2048),
+        percentile_approx_weighted(k,w,0.55,2048),
+        percentile_approx_weighted(k,w,0.78,2048),
+        percentile_approx_weighted(k,w,0.99,2048)
+        from quantile_weighted_table;
+    """
 }

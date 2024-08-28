@@ -1381,6 +1381,10 @@ public class AnalysisManager implements Writable {
         }
     }
 
+    public Set<Long> getIdToTblStatsKeys() {
+        return new HashSet<>(idToTblStats.keySet());
+    }
+
     public ColStatsMeta findColStatsMeta(long tblId, String indexName, String colName) {
         TableStatsMeta tableStats = findTableStatsStatus(tblId);
         if (tableStats == null) {

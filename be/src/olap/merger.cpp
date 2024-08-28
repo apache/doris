@@ -219,6 +219,7 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
     auto&& cluster_key_idxes = tablet_schema.cluster_key_idxes();
 
     std::vector<uint32_t> value_columns;
+
     for (uint32_t i = num_key_cols; i < total_cols; ++i) {
         if (i == sequence_col_idx || i == delete_sign_idx ||
             cluster_key_idxes.end() !=

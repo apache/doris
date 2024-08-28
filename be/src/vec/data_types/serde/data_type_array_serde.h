@@ -59,7 +59,7 @@ public:
             IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
             const FormatOptions& options,
             int hive_text_complex_type_delimiter_level = 1) const override;
-    void serialize_one_cell_to_hive_text(
+    Status serialize_one_cell_to_hive_text(
             const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
             int hive_text_complex_type_delimiter_level = 1) const override;
 

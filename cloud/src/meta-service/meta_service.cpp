@@ -1960,7 +1960,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         for (const auto& tablet_index : request->tablet_indexes()) {
             TabletIndexPB idx(tablet_index);
             TabletStatsPB tablet_stat;
-            internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat, true);
+            internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat, false);
             if (code != MetaServiceCode::OK) {
                 response->clear_base_compaction_cnts();
                 response->clear_cumulative_compaction_cnts();

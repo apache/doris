@@ -17,6 +17,9 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -128,13 +131,14 @@ public class DynamicPartitionUtil {
         return DynamicPartitionProperty.MIN_START_OFFSET;
     }
 
-    private static int checkEnd(String end) throws DdlException {
+    private static int checkEnd(String end, boolean enableAutoPartition) throws DdlException {
         if (Strings.isNullOrEmpty(end)) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_END_EMPTY);
         }
         try {
             int endInt = Integer.parseInt(end);
-            if (endInt <= 0) {
+            // with auto partition sometime we dont like to create future partition by dynamic partition.
+            if (endInt < 0 || endInt == 0 && !enableAutoPartition) {
                 ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_END_ZERO, end);
             }
             return endInt;
@@ -521,6 +525,25 @@ public class DynamicPartitionUtil {
         }
     }
 
+    public static void partitionIntervalCompatible(String dynamicUnit, ArrayList<Expr> autoExprs)
+            throws AnalysisException {
+        if (autoExprs == null) {
+            return;
+        }
+        for (Expr autoExpr : autoExprs) {
+            Expr func = (FunctionCallExpr) autoExpr;
+            for (Expr child : func.getChildren()) {
+                if (child instanceof LiteralExpr) {
+                    String autoUnit = ((LiteralExpr) child).getStringValue();
+                    if (!dynamicUnit.equalsIgnoreCase(autoUnit)) {
+                        throw new AnalysisException("If support auto partition and dynamic partition at same time, "
+                                + "they must have the same interval unit.");
+                    }
+                }
+            }
+        }
+    }
+
     // Analyze all properties to check their validation
     public static Map<String, String> analyzeDynamicPartition(Map<String, String> properties,
             OlapTable olapTable, Database db) throws UserException {
@@ -529,6 +552,12 @@ public class DynamicPartitionUtil {
         if (properties.containsKey(DynamicPartitionProperty.TIME_UNIT)) {
             String timeUnitValue = properties.get(DynamicPartitionProperty.TIME_UNIT);
             checkTimeUnit(timeUnitValue, olapTable.getPartitionInfo());
+
+            // if both enabled, must use same interval.
+            if (olapTable.getPartitionInfo().enableAutomaticPartition()) {
+                partitionIntervalCompatible(timeUnitValue, olapTable.getPartitionInfo().getPartitionExprs());
+            }
+
             properties.remove(DynamicPartitionProperty.TIME_UNIT);
             analyzedProperties.put(DynamicPartitionProperty.TIME_UNIT, timeUnitValue);
         }
@@ -553,11 +582,7 @@ public class DynamicPartitionUtil {
             analyzedProperties.put(DynamicPartitionProperty.ENABLE, enableValue);
         }
 
-        if (Boolean.parseBoolean(analyzedProperties.getOrDefault(DynamicPartitionProperty.ENABLE, "true"))
-                && olapTable.getPartitionInfo().enableAutomaticPartition()) {
-            throw new AnalysisException(
-                    "Can't use Dynamic Partition and Auto Partition at the same time");
-        }
+        boolean enableAutoPartition = olapTable.getPartitionInfo().enableAutomaticPartition();
 
         // If dynamic property "start" is not specified, use Integer.MIN_VALUE as default
         int start = DynamicPartitionProperty.MIN_START_OFFSET;
@@ -572,7 +597,7 @@ public class DynamicPartitionUtil {
         boolean hasEnd = false;
         if (properties.containsKey(DynamicPartitionProperty.END)) {
             String endValue = properties.get(DynamicPartitionProperty.END);
-            end = checkEnd(endValue);
+            end = checkEnd(endValue, enableAutoPartition);
             properties.remove(DynamicPartitionProperty.END);
             analyzedProperties.put(DynamicPartitionProperty.END, endValue);
             hasEnd = true;

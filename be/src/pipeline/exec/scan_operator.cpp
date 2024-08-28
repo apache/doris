@@ -32,6 +32,7 @@
 #include "pipeline/exec/operator.h"
 #include "runtime/types.h"
 #include "util/runtime_profile.h"
+#include "vec/exec/scan/scanner_context.h"
 #include "vec/exprs/vcast_expr.h"
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"

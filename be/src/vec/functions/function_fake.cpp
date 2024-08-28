@@ -30,6 +30,7 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/exprs/table_function/table_function.h"
@@ -157,6 +158,8 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_function_expand_outer_default<DataTypeFloat64, false>(
             factory, "explode_json_array_double");
     register_table_function_expand_outer_default<DataTypeInt64, false>(factory, "explode_bitmap");
+    register_table_function_expand_outer_default<DataTypeObject, false>(factory,
+                                                                        "explode_variant_array");
 }
 
 } // namespace doris::vectorized

@@ -57,6 +57,7 @@
 #include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_object.h"
@@ -328,6 +329,9 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
         break;
     case TypeIndex::JSONB:
         nested = std::make_shared<vectorized::DataTypeJsonb>();
+        break;
+    case TypeIndex::Nothing:
+        nested = std::make_shared<vectorized::DataTypeNothing>();
         break;
     case TypeIndex::BitMap:
         nested = std::make_shared<vectorized::DataTypeBitMap>();

@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeNum
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplit;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplitOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeVariantArray;
 
 import com.google.common.collect.ImmutableList;
 
@@ -69,7 +70,8 @@ public class BuiltinTableGeneratingFunctions implements FunctionHelper {
             tableGenerating(ExplodeJsonArrayString.class, "explode_json_array_string"),
             tableGenerating(ExplodeJsonArrayStringOuter.class, "explode_json_array_string_outer"),
             tableGenerating(ExplodeJsonArrayJson.class, "explode_json_array_json"),
-            tableGenerating(ExplodeJsonArrayJsonOuter.class, "explode_json_array_json_outer")
+            tableGenerating(ExplodeJsonArrayJsonOuter.class, "explode_json_array_json_outer"),
+            tableGenerating(ExplodeVariantArray.class, "explode_variant_array")
     );
 
     public static final BuiltinTableGeneratingFunctions INSTANCE = new BuiltinTableGeneratingFunctions();

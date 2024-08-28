@@ -145,6 +145,9 @@ public:
         _last_base_compaction_schedule_millis = millis;
     }
 
+    int64_t alter_version() const { return _alter_version; }
+    void set_alter_version(int64_t alter_version) { _alter_version = alter_version; }
+
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
 
     inline Version max_version() const {
@@ -238,6 +241,7 @@ private:
     int64_t _cumulative_compaction_cnt = 0;
     int64_t _max_version = -1;
     int64_t _base_size = 0;
+    int64_t _alter_version = -1;
 
     std::mutex _base_compaction_lock;
     std::mutex _cumulative_compaction_lock;

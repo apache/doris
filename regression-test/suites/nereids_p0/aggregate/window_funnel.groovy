@@ -595,7 +595,7 @@ suite("window_funnel") {
             event_timestamp datetime,
             phone_brand varchar(64),
             tab_num int
-        ) distributed by hash(user_id) buckets 3 properties("replication_num"="1");
+        ) distributed by hash(event_timestamp) buckets 3 properties("replication_num"="1");
     """
     sql """
         INSERT INTO windowfunnel_test VALUES

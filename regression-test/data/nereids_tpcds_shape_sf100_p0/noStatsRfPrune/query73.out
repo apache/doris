@@ -5,9 +5,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN broadcast] hashCondition=((dj.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF3 ss_customer_sk->[c_customer_sk]
-------------PhysicalProject
---------------PhysicalOlapScan[customer] apply RFs: RF3
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((dj.ss_customer_sk = customer.c_customer_sk)) otherCondition=()
 ------------filter((dj.cnt <= 5) and (dj.cnt >= 1))
 --------------hashAgg[GLOBAL]
 ----------------PhysicalDistribute[DistributionSpecHash]
@@ -29,4 +27,6 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------filter((household_demographics.hd_vehicle_count > 0) and (if((hd_vehicle_count > 0), (cast(hd_dep_count as DOUBLE) / cast(hd_vehicle_count as DOUBLE)), NULL) > 1.0) and hd_buy_potential IN ('501-1000', 'Unknown'))
 ----------------------------PhysicalOlapScan[household_demographics]
+------------PhysicalProject
+--------------PhysicalOlapScan[customer]
 

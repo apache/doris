@@ -195,13 +195,13 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         return Utils.toSqlString("PhysicalHashAggregate[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "aggPhase", aggregateParam.aggPhase,
                 "aggMode", aggregateParam.aggMode,
+                "stats", statistics,
                 "maybeUseStreaming", maybeUsingStream,
                 "groupByExpr", groupByExpressions,
                 "outputExpr", outputExpressions,
                 "partitionExpr", partitionExpressions,
                 "requireProperties", requireProperties,
-                "topnOpt", topnPushInfo != null,
-                "stats", statistics
+                "topnOpt", topnPushInfo != null
         );
     }
 

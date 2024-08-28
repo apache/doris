@@ -65,7 +65,7 @@ CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 CONF_Strings(recycle_whitelist, ""); // Comma seprated list
 // These instances will not be recycled, only effective when whitelist is empty.
 CONF_Strings(recycle_blacklist, ""); // Comma seprated list
-CONF_mInt32(instance_recycler_worker_pool_size, "1");
+CONF_mInt32(instance_recycler_worker_pool_size, "8");
 CONF_Bool(enable_checker, "false");
 // The parallelism for parallel recycle operation
 CONF_Int32(recycle_pool_parallelism, "10");

@@ -17,15 +17,18 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.stats.StatsMathUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 
 import java.text.DecimalFormat;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -83,7 +86,7 @@ public class Statistics {
     public void enforceValid() {
         for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
             ColumnStatistic columnStatistic = entry.getValue();
-            if (!checkColumnStatsValid(columnStatistic)) {
+            if (!checkColumnStatsValid(columnStatistic) && !columnStatistic.isUnKnown()) {
                 double ndv = Math.min(columnStatistic.ndv, rowCount);
                 ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
                 columnStatisticBuilder.setNdv(ndv);
@@ -130,7 +133,7 @@ public class Statistics {
             for (Slot slot : slots) {
                 ColumnStatistic s = expressionToColumnStats.get(slot);
                 if (s != null) {
-                    tempSize += s.avgSizeByte;
+                    tempSize += Math.max(1, Math.min(20, s.avgSizeByte));
                 }
             }
             tupleSize = Math.max(1, tempSize);
@@ -149,7 +152,26 @@ public class Statistics {
     }
 
     public double dataSizeFactor(List<Slot> slots) {
-        return 0.05 * computeTupleSize(slots);
+        boolean allUnknown = true;
+        for (Slot slot : slots) {
+            if (slot instanceof SlotReference) {
+                Optional<Column> colOpt = ((SlotReference) slot).getColumn();
+                if (colOpt.isPresent() && colOpt.get().isVisible()) {
+                    ColumnStatistic colStats = expressionToColumnStats.get(slot);
+                    if (colStats != null && !colStats.isUnKnown) {
+                        allUnknown = false;
+                        break;
+                    }
+                }
+            }
+        }
+        if (allUnknown) {
+            double lowerBound = 0.03;
+            double upperBound = 0.07;
+            return Math.min(Math.max(computeTupleSize(slots) / K_BYTES, lowerBound), upperBound);
+        } else {
+            return 0.05 * computeTupleSize(slots);
+        }
     }
 
     @Override

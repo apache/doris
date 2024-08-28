@@ -17,15 +17,15 @@
 
 package org.apache.doris.regression.util
 
+import com.google.common.collect.Sets
+
 class LoggerUtils {
     static Tuple2<Integer, String> getErrorInfo(Throwable t, File file) {
         if (file.name.endsWith(".groovy")) {
+            def st = findRootErrorStackTrace(t, Sets.newLinkedHashSet(), file)
             int lineNumber = -1
-            for (def st : t.getStackTrace()) {
-                if (Objects.equals(st.fileName, file.name)) {
-                    lineNumber = st.getLineNumber()
-                    break
-                }
+            if (!st.is(null)) {
+                lineNumber = st.getLineNumber()
             }
             if (lineNumber == -1) {
                 return new Tuple2<Integer, String>(null, null)
@@ -39,5 +39,24 @@ class LoggerUtils {
         } else {
             return new Tuple2<Integer, String>(null, null)
         }
+    }
+
+    static StackTraceElement findRootErrorStackTrace(Throwable t, Set<Throwable> throwables, File file) {
+        throwables.add(t)
+
+        def cause = t.getCause()
+        if (!cause.is(null) && !throwables.contains(cause)) {
+            def foundStackTrace = findRootErrorStackTrace(cause, throwables, file)
+            if (!foundStackTrace.is(null)) {
+                return foundStackTrace
+            }
+        }
+
+        for (def st : t.getStackTrace()) {
+            if (Objects.equals(st.fileName, file.name)) {
+                return st
+            }
+        }
+        return null
     }
 }

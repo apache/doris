@@ -334,7 +334,12 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
         const Field* col = _schema->column(i);
         if (col) {
             auto storage_type = _segment->get_data_type_of(
-                    col->path(), col->is_nullable(),
+                    Segment::ColumnIdentifier {
+                            col->unique_id(),
+                            col->parent_unique_id(),
+                            col->path(),
+                            col->is_nullable(),
+                    },
                     _opts.io_ctx.reader_type != ReaderType::READER_QUERY);
             if (storage_type == nullptr) {
                 storage_type = vectorized::DataTypeFactory::instance().create_data_type(*col);
@@ -3014,8 +3019,7 @@ bool SegmentIterator::_can_opt_topn_reads() {
     }
 
     bool all_true = std::ranges::all_of(_schema->column_ids(), [this](auto cid) {
-        if (cid == _opts.tablet_schema->delete_sign_idx() ||
-            _opts.tablet_schema->column(cid).is_key()) {
+        if (cid == _opts.tablet_schema->delete_sign_idx()) {
             return true;
         }
         if (_check_all_predicates_passed_inverted_index_for_column(cid, true)) {

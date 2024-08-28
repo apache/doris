@@ -127,7 +127,7 @@ public class ShowDataStmt extends ShowStmt {
             return;
         }
         dbName = analyzer.getDefaultDb();
-        if (Strings.isNullOrEmpty(dbName)) {
+        if (Strings.isNullOrEmpty(dbName) && tableName == null) {
             getAllDbStats();
             return;
         }

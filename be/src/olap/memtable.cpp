@@ -505,7 +505,7 @@ bool MemTable::need_agg() const {
     return false;
 }
 
-Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
+Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
     size_t same_keys_num = _sort();
     if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
         if (_keys_type == KeysType::DUP_KEYS && _tablet_schema->num_key_columns() == 0) {
@@ -526,6 +526,11 @@ Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
     _insert_mem_tracker->release(_mem_usage);
     _mem_usage = 0;
     *res = vectorized::Block::create_unique(_output_mutable_block.to_block());
+    return Status::OK();
+}
+
+Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_to_block(res));
     return Status::OK();
 }
 

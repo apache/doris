@@ -117,7 +117,8 @@ Status IndexedColumnWriter::_finish_current_data_page(size_t& num_val) {
     ordinal_t first_ordinal = _num_values - num_values_in_page;
 
     // IndexedColumn doesn't have NULLs, thus data page body only contains encoded values
-    OwnedSlice page_body = _data_page_builder->finish();
+    OwnedSlice page_body;
+    RETURN_IF_ERROR(_data_page_builder->finish(&page_body));
     RETURN_IF_ERROR(_data_page_builder->reset());
 
     PageFooterPB footer;

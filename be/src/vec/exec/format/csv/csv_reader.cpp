@@ -341,10 +341,10 @@ Status CsvReader::init_reader(bool is_load) {
     if (_params.file_attributes.text_params.mapkv_delimiter.size() == 0) {
         switch (_text_serde_type) {
         case TTextSerdeType::JSON_TEXT_SERDE:
-            _options.collection_delim = ':';
+            _options.map_key_delim = ':';
             break;
         case TTextSerdeType::HIVE_TEXT_SERDE:
-            _options.collection_delim = '\003';
+            _options.map_key_delim = '\003';
             break;
         default:
             break;

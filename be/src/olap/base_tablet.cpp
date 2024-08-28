@@ -427,21 +427,22 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
     return Status::OK();
 }
 
-Status BaseTablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
+Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest_schema,
+                                  bool with_seq_col,
                                   const std::vector<RowsetSharedPtr>& specified_rowsets,
                                   RowLocation* row_location, uint32_t version,
                                   std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                                   RowsetSharedPtr* rowset, bool with_rowid) {
     SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
-    if (_tablet_meta->tablet_schema()->has_sequence_col() && with_seq_col) {
-        seq_col_length = _tablet_meta->tablet_schema()
-                                 ->column(_tablet_meta->tablet_schema()->sequence_col_idx())
-                                 .length() +
-                         1;
+    // use the latest tablet schema to decide if the tablet has sequence column currently
+    const TabletSchema* schema =
+            (latest_schema == nullptr ? _tablet_meta->tablet_schema().get() : latest_schema);
+    if (schema->has_sequence_col() && with_seq_col) {
+        seq_col_length = schema->column(schema->sequence_col_idx()).length() + 1;
     }
     size_t rowid_length = 0;
-    if (with_rowid && !_tablet_meta->tablet_schema()->cluster_key_idxes().empty()) {
+    if (with_rowid && !schema->cluster_key_idxes().empty()) {
         rowid_length = PrimaryKeyIndexReader::ROW_ID_LENGTH;
     }
     Slice key_without_seq =
@@ -457,7 +458,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
         for (int i = num_segments - 1; i >= 0; i--) {
             // If mow table has cluster keys, the key bounds is short keys, not primary keys
             // use PrimaryKeyIndexMetaPB in primary key index?
-            if (_tablet_meta->tablet_schema()->cluster_key_idxes().empty()) {
+            if (schema->cluster_key_idxes().empty()) {
                 if (key_without_seq.compare(segments_key_bounds[i].max_key()) > 0 ||
                     key_without_seq.compare(segments_key_bounds[i].min_key()) < 0) {
                     continue;
@@ -478,7 +479,8 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
         DCHECK_EQ(segments.size(), num_segments);
 
         for (auto id : picked_segments) {
-            Status s = segments[id]->lookup_row_key(encoded_key, with_seq_col, with_rowid, &loc);
+            Status s = segments[id]->lookup_row_key(encoded_key, schema, with_seq_col, with_rowid,
+                                                    &loc);
             if (s.is<KEY_NOT_FOUND>()) {
                 continue;
             }
@@ -489,7 +491,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
                                   {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
                 // if has sequence col, we continue to compare the sequence_id of
                 // all rowsets, util we find an existing key.
-                if (_tablet_meta->tablet_schema()->has_sequence_col()) {
+                if (schema->has_sequence_col()) {
                     continue;
                 }
                 // The key is deleted, we don't need to search for it any more.
@@ -649,8 +651,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             }
 
             RowsetSharedPtr rowset_find;
-            auto st = lookup_row_key(key, true, specified_rowsets, &loc, dummy_version.first - 1,
-                                     segment_caches, &rowset_find);
+            auto st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
+                                     dummy_version.first - 1, segment_caches, &rowset_find);
             bool expected_st = st.ok() || st.is<KEY_NOT_FOUND>() || st.is<KEY_ALREADY_EXISTS>();
             // It's a defensive DCHECK, we need to exclude some common errors to avoid core-dump
             // while stress test
@@ -1451,7 +1453,7 @@ Status BaseTablet::update_delete_bitmap_without_lock(
                       << ", rnd:" << rnd << ", percent: " << percent;
         }
     });
-    int64_t cur_version = rowset->end_version();
+    int64_t cur_version = rowset->start_version();
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(std::dynamic_pointer_cast<BetaRowset>(rowset)->load_segments(&segments));
 

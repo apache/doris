@@ -16,9 +16,13 @@
 // under the License.
 #include "data_type_serde.h"
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "runtime/descriptors.h"
 #include "vec/columns/column.h"
+#include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_jsonb_serde.h"
 
 namespace doris {
 namespace vectorized {
@@ -40,6 +44,27 @@ DataTypeSerDeSPtrs create_data_type_serdes(const std::vector<SlotDescriptor*>& s
         serdes.push_back(slot->get_data_type_ptr()->get_serde());
     }
     return serdes;
+}
+
+void DataTypeSerDe::convert_variant_map_to_rapidjson(
+        const vectorized::VariantMap& map, rapidjson::Value& target,
+        rapidjson::Document::AllocatorType& allocator) {
+    target.SetObject();
+    for (const auto& item : map) {
+        if (item.second.is_null()) {
+            continue;
+        }
+        rapidjson::Value key;
+        key.SetString(item.first.data(), item.first.size());
+        rapidjson::Value val;
+        convert_field_to_rapidjson(item.second, val, allocator);
+        if (val.IsNull() && item.first.empty()) {
+            // skip null value with empty key, indicate the null json value of root in variant map,
+            // usally padding in nested arrays
+            continue;
+        }
+        target.AddMember(key, val, allocator);
+    }
 }
 
 void DataTypeSerDe::convert_array_to_rapidjson(const vectorized::Array& array,
@@ -66,6 +91,12 @@ void DataTypeSerDe::convert_field_to_rapidjson(const vectorized::Field& field,
     case vectorized::Field::Types::Float64:
         target.SetDouble(field.get<Float64>());
         break;
+    case vectorized::Field::Types::JSONB: {
+        const auto& val = field.get<JsonbField>();
+        JsonbValue* json_val = JsonbDocument::createValue(val.get_value(), val.get_size());
+        convert_jsonb_to_rapidjson(*json_val, target, allocator);
+        break;
+    }
     case vectorized::Field::Types::String: {
         const String& val = field.get<String>();
         target.SetString(val.data(), val.size());
@@ -76,8 +107,14 @@ void DataTypeSerDe::convert_field_to_rapidjson(const vectorized::Field& field,
         convert_array_to_rapidjson(array, target, allocator);
         break;
     }
+    case vectorized::Field::Types::VariantMap: {
+        const vectorized::VariantMap& map = field.get<VariantMap>();
+        convert_variant_map_to_rapidjson(map, target, allocator);
+        break;
+    }
     default:
-        CHECK(false) << "unkown field type: " << field.get_type_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "unkown field type: {}",
+                               field.get_type_name());
         break;
     }
 }

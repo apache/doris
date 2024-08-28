@@ -52,7 +52,7 @@ public:
 
     Status add(const uint8_t* vals, size_t* add_count) override;
 
-    OwnedSlice finish() override;
+    Status finish(OwnedSlice* slice) override;
 
     Status reset() override {
         _restart_points_offset.clear();

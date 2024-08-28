@@ -21,7 +21,6 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.stats.FilterEstimation.EstimationContext;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
@@ -61,7 +60,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Predicate;
 
 /**
  * Calculate selectivity of expression that produces boolean value.
@@ -70,8 +68,6 @@ import java.util.function.Predicate;
 public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationContext> {
     public static final double DEFAULT_INEQUALITY_COEFFICIENT = 0.5;
     public static final double DEFAULT_IN_COEFFICIENT = 1.0 / 3.0;
-
-    public static final double DEFAULT_HAVING_COEFFICIENT = 0.01;
 
     public static final double DEFAULT_LIKE_COMPARISON_SELECTIVITY = 0.2;
     public static final double DEFAULT_ISNULL_SELECTIVITY = 0.005;
@@ -164,24 +160,6 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         }
         ColumnStatistic statsForLeft = ExpressionEstimation.estimate(left, context.statistics);
         ColumnStatistic statsForRight = ExpressionEstimation.estimate(right, context.statistics);
-        if (aggSlots != null) {
-            Predicate<TreeNode<Expression>> containsAggSlot = e -> {
-                if (e instanceof SlotReference) {
-                    SlotReference slot = (SlotReference) e;
-                    return aggSlots.contains(slot);
-                }
-                return false;
-            };
-            boolean leftAgg = left.anyMatch(containsAggSlot);
-            boolean rightAgg = right.anyMatch(containsAggSlot);
-            // It means this predicate appears in HAVING clause.
-            if (leftAgg || rightAgg) {
-                double rowCount = context.statistics.getRowCount();
-                double newRowCount = Math.max(rowCount * DEFAULT_HAVING_COEFFICIENT,
-                        Math.max(statsForLeft.ndv, statsForRight.ndv));
-                return context.statistics.withRowCount(newRowCount);
-            }
-        }
         if (!left.isConstant() && !right.isConstant()) {
             return calculateWhenBothColumn(cp, context, statsForLeft, statsForRight);
         } else {
@@ -331,14 +309,28 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             ColumnStatistic statsForRight,
             EstimationContext context) {
         double selectivity;
-        double ndv = statsForLeft.ndv;
-        double val = statsForRight.maxValue;
-        if (val > statsForLeft.maxValue || val < statsForLeft.minValue) {
-            selectivity = 0.0;
+        if (statsForLeft.isUnKnown) {
+            selectivity = DEFAULT_INEQUALITY_COEFFICIENT;
         } else {
-            selectivity = StatsMathUtil.minNonNaN(1.0, 1.0 / ndv);
+            double ndv = statsForLeft.ndv;
+            if (statsForRight.isUnKnown) {
+                if (ndv >= 1.0) {
+                    selectivity = 1.0 / ndv;
+                } else {
+                    selectivity = DEFAULT_INEQUALITY_COEFFICIENT;
+                }
+            } else {
+                double val = statsForRight.maxValue;
+                if (val > statsForLeft.maxValue || val < statsForLeft.minValue) {
+                    selectivity = 0.0;
+                } else if (ndv >= 1.0) {
+                    selectivity = StatsMathUtil.minNonNaN(1.0, 1.0 / ndv);
+                } else {
+                    selectivity = DEFAULT_INEQUALITY_COEFFICIENT;
+                }
+                selectivity = getNotNullSelectivity(statsForLeft, selectivity);
+            }
         }
-        selectivity = getNotNullSelectivity(statsForLeft, selectivity);
         Statistics equalStats = context.statistics.withSel(selectivity);
         Expression left = cp.left();
         equalStats.addColumnStats(left, statsForRight);

@@ -29,6 +29,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
@@ -142,11 +143,20 @@ public class BrokerFileGroup implements Writable {
                         throw new DdlException("Unknown partition '" + pName
                                 + "' in table '" + olapTable.getName() + "'");
                     }
+                    // partition which need load data
+                    if (partition.getState() == PartitionState.RESTORE) {
+                        throw new DdlException("Table [" + olapTable.getName()
+                                + "], Partition[" + partition.getName() + "] is under restore");
+                    }
                     partitionIds.add(partition.getId());
                 }
             }
 
-            if (olapTable.getState() == OlapTableState.RESTORE) {
+            boolean isPartitionRestoring = olapTable.getPartitions().stream().anyMatch(
+                    partition -> partition.getState() == PartitionState.RESTORE
+            );
+            // restore table
+            if (!isPartitionRestoring && olapTable.getState() == OlapTableState.RESTORE) {
                 throw new DdlException("Table [" + olapTable.getName() + "] is under restore");
             }
 

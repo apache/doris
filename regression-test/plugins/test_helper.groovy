@@ -57,6 +57,8 @@ Suite.metaClass.createTestTable = { String tableName, boolean uniqueTable = fals
                (4, 1), (4, 2),
                (5, 1), (5, 2)
         """
+
+    sql "sync"
 }
 
 

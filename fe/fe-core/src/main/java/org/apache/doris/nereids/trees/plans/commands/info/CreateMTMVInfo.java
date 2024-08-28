@@ -287,7 +287,7 @@ public class CreateMTMVInfo {
                 if (type.isFloatLikeType() || type.isStringType() || type.isJsonType()
                         || catalogType.isComplexType() || type.isBitmapType() || type.isHllType()
                         || type.isQuantileStateType() || type.isJsonType() || type.isStructType()
-                        || column.getAggType() != null) {
+                        || column.getAggType() != null || type.isVariantType()) {
                     break;
                 }
                 keys.add(column.getName());

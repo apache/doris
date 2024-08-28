@@ -60,4 +60,6 @@ DEFINE_mBool(save_load_error_log_to_s3, "false");
 
 DEFINE_mInt32(sync_load_for_tablets_thread, "32");
 
+DEFINE_mBool(enable_new_tablet_do_compaction, "false");
+
 } // namespace doris::config

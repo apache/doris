@@ -106,7 +106,7 @@ public class GroupCommitManager {
     /**
      * Check the wal before the endTransactionId is finished or not.
      */
-    public boolean isPreviousWalFinished(long tableId, List<Long> aliveBeIds) {
+    private boolean isPreviousWalFinished(long tableId, List<Long> aliveBeIds) {
         boolean empty = true;
         for (int i = 0; i < aliveBeIds.size(); i++) {
             Backend backend = Env.getCurrentSystemInfo().getBackend(aliveBeIds.get(i));
@@ -137,7 +137,7 @@ public class GroupCommitManager {
         return size;
     }
 
-    public long getWalQueueSize(Backend backend, PGetWalQueueSizeRequest request) {
+    private long getWalQueueSize(Backend backend, PGetWalQueueSizeRequest request) {
         PGetWalQueueSizeResponse response = null;
         long expireTime = System.currentTimeMillis() + Config.check_wal_queue_timeout_threshold;
         long size = 0;
@@ -376,7 +376,7 @@ public class GroupCommitManager {
         }
     }
 
-    public void updateLoadDataInternal(long tableId, long receiveData) {
+    private void updateLoadDataInternal(long tableId, long receiveData) {
         if (tableToPressureMap.containsKey(tableId)) {
             tableToPressureMap.get(tableId).add(receiveData);
             LOG.info("Update load data for table{}, receiveData {}, tablePressureMap {}", tableId, receiveData,

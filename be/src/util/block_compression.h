@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/parquet_types.h>
 
 #include <cstddef>
@@ -85,5 +86,8 @@ Status get_block_compression_codec(segment_v2::CompressionTypePB type,
 
 Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_codec,
                                    BlockCompressionCodec** codec);
+
+// TODO: refactor code as CompressionOutputStream and CompressionInputStream
+Status get_block_compression_codec(TFileCompressType::type type, BlockCompressionCodec** codec);
 
 } // namespace doris
