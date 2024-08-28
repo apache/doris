@@ -127,10 +127,12 @@ void PartitionedAggSinkLocalState::update_profile(RuntimeProfile* child_profile)
 PartitionedAggSinkOperatorX::PartitionedAggSinkOperatorX(ObjectPool* pool, int operator_id,
                                                          const TPlanNode& tnode,
                                                          const DescriptorTbl& descs,
-                                                         bool require_bucket_distribution)
+                                                         bool require_bucket_distribution,
+                                                         const bool followed_by_shuffled_join)
         : DataSinkOperatorX<PartitionedAggSinkLocalState>(operator_id, tnode.node_id) {
     _agg_sink_operator = std::make_unique<AggSinkOperatorX>(pool, operator_id, tnode, descs,
-                                                            require_bucket_distribution);
+                                                            require_bucket_distribution,
+                                                            followed_by_shuffled_join);
 }
 
 Status PartitionedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {

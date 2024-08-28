@@ -85,7 +85,10 @@ struct LocalSinkStateInfo {
 
 class OperatorBase {
 public:
-    explicit OperatorBase() : _child_x(nullptr), _is_closed(false) {}
+    explicit OperatorBase(const bool followed_by_shuffled_join = false)
+            : _child_x(nullptr),
+              _is_closed(false),
+              _followed_by_shuffled_join(followed_by_shuffled_join) {}
     virtual ~OperatorBase() = default;
 
     virtual bool is_sink() const { return false; }
@@ -114,11 +117,13 @@ public:
     virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); }
     [[nodiscard]] virtual bool require_data_distribution() const { return false; }
     OperatorXPtr child_x() { return _child_x; }
+    [[nodiscard]] bool followed_by_shuffled_join() const { return _followed_by_shuffled_join; }
 
 protected:
     OperatorXPtr _child_x = nullptr;
 
     bool _is_closed;
+    bool _followed_by_shuffled_join = false;
 };
 
 class PipelineXLocalStateBase {
@@ -423,11 +428,19 @@ private:
 
 class DataSinkOperatorXBase : public OperatorBase {
 public:
-    DataSinkOperatorXBase(const int operator_id, const int node_id)
-            : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id({1}) {}
+    DataSinkOperatorXBase(const int operator_id, const int node_id,
+                          const bool followed_by_shuffled_join = false)
+            : OperatorBase(followed_by_shuffled_join),
+              _operator_id(operator_id),
+              _node_id(node_id),
+              _dests_id({1}) {}
 
-    DataSinkOperatorXBase(const int operator_id, const int node_id, const int dest_id)
-            : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id({dest_id}) {}
+    DataSinkOperatorXBase(const int operator_id, const int node_id, const int dest_id,
+                          const bool followed_by_shuffled_join = false)
+            : OperatorBase(followed_by_shuffled_join),
+              _operator_id(operator_id),
+              _node_id(node_id),
+              _dests_id({dest_id}) {}
 
     DataSinkOperatorXBase(const int operator_id, const int node_id, std::vector<int>& sources)
             : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id(sources) {}
@@ -534,11 +547,13 @@ protected:
 template <typename LocalStateType>
 class DataSinkOperatorX : public DataSinkOperatorXBase {
 public:
-    DataSinkOperatorX(int operator_id, const int node_id)
-            : DataSinkOperatorXBase(operator_id, node_id) {}
+    DataSinkOperatorX(int operator_id, const int node_id,
+                      const bool followed_by_shuffled_join = false)
+            : DataSinkOperatorXBase(operator_id, node_id, followed_by_shuffled_join) {}
 
-    DataSinkOperatorX(const int id, const int node_id, const int source_id)
-            : DataSinkOperatorXBase(id, node_id, source_id) {}
+    DataSinkOperatorX(const int id, const int node_id, const int source_id,
+                      const bool followed_by_shuffled_join = false)
+            : DataSinkOperatorXBase(id, node_id, source_id, followed_by_shuffled_join) {}
 
     DataSinkOperatorX(const int id, const int node_id, std::vector<int> sources)
             : DataSinkOperatorXBase(id, node_id, sources) {}
@@ -597,8 +612,8 @@ public:
 class OperatorXBase : public OperatorBase {
 public:
     OperatorXBase(ObjectPool* pool, const TPlanNode& tnode, const int operator_id,
-                  const DescriptorTbl& descs)
-            : OperatorBase(),
+                  const DescriptorTbl& descs, const bool followed_by_shuffled_join = false)
+            : OperatorBase(followed_by_shuffled_join),
               _operator_id(operator_id),
               _node_id(tnode.node_id),
               _type(tnode.node_type),
@@ -785,8 +800,8 @@ template <typename LocalStateType>
 class OperatorX : public OperatorXBase {
 public:
     OperatorX(ObjectPool* pool, const TPlanNode& tnode, const int operator_id,
-              const DescriptorTbl& descs)
-            : OperatorXBase(pool, tnode, operator_id, descs) {}
+              const DescriptorTbl& descs, const bool followed_by_shuffled_join = false)
+            : OperatorXBase(pool, tnode, operator_id, descs, followed_by_shuffled_join) {}
     OperatorX(ObjectPool* pool, int node_id, int operator_id)
             : OperatorXBase(pool, node_id, operator_id) {};
     ~OperatorX() override = default;
@@ -826,8 +841,9 @@ template <typename LocalStateType>
 class StatefulOperatorX : public OperatorX<LocalStateType> {
 public:
     StatefulOperatorX(ObjectPool* pool, const TPlanNode& tnode, const int operator_id,
-                      const DescriptorTbl& descs)
-            : OperatorX<LocalStateType>(pool, tnode, operator_id, descs) {}
+                      const DescriptorTbl& descs, const bool followed_by_shuffled_join = false)
+            : OperatorX<LocalStateType>(pool, tnode, operator_id, descs,
+                                        followed_by_shuffled_join) {}
     virtual ~StatefulOperatorX() = default;
 
     using OperatorX<LocalStateType>::get_local_state;

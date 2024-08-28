@@ -709,8 +709,9 @@ Status AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs&
 }
 
 AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                   const DescriptorTbl& descs, bool require_bucket_distribution)
-        : DataSinkOperatorX<AggSinkLocalState>(operator_id, tnode.node_id),
+                                   const DescriptorTbl& descs, bool require_bucket_distribution,
+                                   const bool followed_by_shuffled_join)
+        : DataSinkOperatorX<AggSinkLocalState>(operator_id, tnode.node_id, followed_by_shuffled_join),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
           _needs_finalize(tnode.agg_node.need_finalize),

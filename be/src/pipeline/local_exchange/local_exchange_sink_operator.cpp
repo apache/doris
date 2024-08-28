@@ -36,7 +36,7 @@ std::vector<Dependency*> LocalExchangeSinkLocalState::dependencies() const {
 }
 
 Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets,
-                                        const bool is_shuffled_hash_join,
+                                        const bool followed_by_shuffled_join,
                                         const std::map<int, int>& shuffle_idx_to_instance_idx) {
     _name = "LOCAL_EXCHANGE_SINK_OPERATOR (" + get_exchange_type_name(type) + ")";
     _type = type;
@@ -45,7 +45,7 @@ Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets
         // should use a HASH_SHUFFLE local exchanger to shuffle data again. To be mentioned,
         // we should use map shuffle idx to instance idx because all instances will be
         // distributed to all BEs. Otherwise, we should use shuffle idx directly.
-        if (is_shuffled_hash_join) {
+        if (followed_by_shuffled_join) {
             std::for_each(shuffle_idx_to_instance_idx.begin(), shuffle_idx_to_instance_idx.end(),
                           [&](const auto& item) {
                               DCHECK(item.first != -1);
@@ -58,9 +58,7 @@ Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets
             }
         }
         _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
-                _type == ExchangeType::HASH_SHUFFLE || _bucket_seq_to_instance_idx.empty()
-                        ? _num_partitions
-                        : num_buckets));
+                _type == ExchangeType::HASH_SHUFFLE ? _num_partitions : num_buckets));
         RETURN_IF_ERROR(_partitioner->init(_texprs));
     }
     return Status::OK();

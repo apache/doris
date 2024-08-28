@@ -192,8 +192,9 @@ BlockRowPos AnalyticSinkLocalState::_get_partition_by_end() {
 
 AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, int operator_id,
                                              const TPlanNode& tnode, const DescriptorTbl& descs,
-                                             bool require_bucket_distribution)
-        : DataSinkOperatorX(operator_id, tnode.node_id),
+                                             bool require_bucket_distribution,
+                                             const bool followed_by_shuffled_join)
+        : DataSinkOperatorX(operator_id, tnode.node_id, followed_by_shuffled_join),
           _buffered_tuple_id(tnode.analytic_node.__isset.buffered_tuple_id
                                      ? tnode.analytic_node.buffered_tuple_id
                                      : 0),

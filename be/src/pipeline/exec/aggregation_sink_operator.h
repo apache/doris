@@ -128,7 +128,8 @@ protected:
 class AggSinkOperatorX final : public DataSinkOperatorX<AggSinkLocalState> {
 public:
     AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                     const DescriptorTbl& descs, bool require_bucket_distribution);
+                     const DescriptorTbl& descs, bool require_bucket_distribution,
+                     const bool followed_by_shuffled_join);
     ~AggSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
@@ -149,7 +150,7 @@ public:
                            ? DataDistribution(ExchangeType::PASSTHROUGH)
                            : DataSinkOperatorX<AggSinkLocalState>::required_data_distribution();
         }
-        return _is_colocate && _require_bucket_distribution
+        return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_join
                        ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                        : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }

@@ -324,8 +324,10 @@ void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
 DistinctStreamingAggOperatorX::DistinctStreamingAggOperatorX(ObjectPool* pool, int operator_id,
                                                              const TPlanNode& tnode,
                                                              const DescriptorTbl& descs,
-                                                             bool require_bucket_distribution)
-        : StatefulOperatorX<DistinctStreamingAggLocalState>(pool, tnode, operator_id, descs),
+                                                             bool require_bucket_distribution,
+                                                             const bool followed_by_shuffled_join)
+        : StatefulOperatorX<DistinctStreamingAggLocalState>(pool, tnode, operator_id, descs,
+                                                            followed_by_shuffled_join),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
           _needs_finalize(tnode.agg_node.need_finalize),
