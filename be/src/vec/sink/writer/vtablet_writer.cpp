@@ -722,6 +722,12 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
         std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
                 _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
                                                                                           "http");
+        if (_brpc_http_stub == nullptr) {
+            cancel(fmt::format("{}, failed to open brpc http client to {}", channel_info(),
+                               brpc_url));
+            _send_block_callback->clear_in_flight();
+            return;
+        }
         _send_block_callback->cntl_->http_request().uri() =
                 brpc_url + "/PInternalServiceImpl/tablet_writer_add_block_by_http";
         _send_block_callback->cntl_->http_request().set_method(brpc::HTTP_METHOD_POST);

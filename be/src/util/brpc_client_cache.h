@@ -100,13 +100,16 @@ public:
         std::shared_ptr<T> stub_ptr;
         auto get_value = [&stub_ptr](const auto& v) { stub_ptr = v.second; };
         if (LIKELY(_stub_map.if_contains(host_port, get_value))) {
+            DCHECK(stub_ptr != nullptr);
             return stub_ptr;
         }
 
         // new one stub and insert into map
         auto stub = get_new_client_no_cache(host_port);
-        _stub_map.try_emplace_l(
-                host_port, [&stub](const auto& v) { stub = v.second; }, stub);
+        if (stub != nullptr) {
+            _stub_map.try_emplace_l(
+                    host_port, [&stub](const auto& v) { stub = v.second; }, stub);
+        }
         return stub;
     }
 
@@ -143,6 +146,7 @@ public:
                     channel->Init(host_port.c_str(), config::rpc_load_balancer.c_str(), &options);
         }
         if (ret_code) {
+            LOG(WARNING) << "Failed to initialize brpc Channel to " << host_port;
             return nullptr;
         }
         return std::make_shared<T>(channel.release(), google::protobuf::Service::STUB_OWNS_CHANNEL);

@@ -186,6 +186,9 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     POpenLoadStreamResponse response;
     // set connection_group "streaming" to distinguish with non-streaming connections
     const auto& stub = client_cache->get_client(host_port);
+    if (stub == nullptr) {
+        return Status::InternalError("failed to init brpc client to {}", host_port);
+    }
     stub->open_load_stream(&cntl, &request, &response, nullptr);
     for (const auto& resp : response.tablet_schemas()) {
         auto tablet_schema = std::make_unique<TabletSchema>();
