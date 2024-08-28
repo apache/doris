@@ -30,7 +30,6 @@ ARG JDK_IMAGE=openjdk:17-jdk-slim
 FROM ${JDK_IMAGE}
 
 # set environment variables
-ENV JAVA_HOME="/usr/local/openjdk"
 ENV JACOCO_VERSION 0.8.8
 
 RUN mkdir -p /opt/apache-doris/coverage
