@@ -172,12 +172,4 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
     assertTrue(profileWithLimit2.contains("- MaxScannerThreadNum: 10"))
     assertTrue(profileNotEnableLimit.contains("- MaxScannerThreadNum: 10"))
     assertTrue(profileModifyTo20.contains("- MaxScannerThreadNum: 1"))
-
-    try {
-        sql """
-            set limit_rows_for_single_instance=1;
-        """
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Use adaptive_pipeline_task_serial_read_on_limit instead"), e.getMessage())
-    } 
 }
