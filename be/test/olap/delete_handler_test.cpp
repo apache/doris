@@ -408,7 +408,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondInvalidParameters) {
     DeletePredicatePB del_pred;
     Status failed_res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(),
                                                                  conditions, &del_pred);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_PARAMETERS>(""), failed_res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), failed_res);
 }
 
 // 检测过滤条件中指定的列不存在,或者列不符合要求
