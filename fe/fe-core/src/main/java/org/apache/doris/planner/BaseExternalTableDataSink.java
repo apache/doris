@@ -80,6 +80,10 @@ public abstract class BaseExternalTableDataSink extends DataSink {
             return TFileCompressType.ZLIB;
         } else if ("zstd".equalsIgnoreCase(compressType)) {
             return TFileCompressType.ZSTD;
+        } else if ("gzip".equalsIgnoreCase(compressType)) {
+            return TFileCompressType.GZ;
+        } else if ("bzip2".equalsIgnoreCase(compressType)) {
+            return TFileCompressType.BZ2;
         } else if ("uncompressed".equalsIgnoreCase(compressType)) {
             return TFileCompressType.PLAIN;
         } else {
