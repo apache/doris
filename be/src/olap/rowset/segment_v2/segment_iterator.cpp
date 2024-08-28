@@ -1412,10 +1412,15 @@ Status SegmentIterator::_init_inverted_index_iterators() {
     }
     for (auto cid : _schema->column_ids()) {
         if (_inverted_index_iterators[cid] == nullptr) {
+            // Not check type valid, since we need to get inverted index for related variant type when reading the segment.
+            // If check type valid, we can not get inverted index for variant type, and result nullptr.The result for calling
+            // get_inverted_index with variant suffix should return corresponding inverted index meta.
+            bool check_inverted_index_by_type = false;
             // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
             RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
                     _opts.tablet_schema->column(cid),
-                    _segment->_tablet_schema->get_inverted_index(_opts.tablet_schema->column(cid)),
+                    _segment->_tablet_schema->get_inverted_index(_opts.tablet_schema->column(cid),
+                                                                 check_inverted_index_by_type),
                     _opts, &_inverted_index_iterators[cid]));
         }
     }
