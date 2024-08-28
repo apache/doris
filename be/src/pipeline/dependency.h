@@ -860,13 +860,13 @@ public:
 
     void sub_mem_usage(int channel_id, size_t delta) { mem_trackers[channel_id]->release(delta); }
 
-    virtual void add_total_mem_usage(size_t delta, int channel_id = 0) {
+    virtual void add_total_mem_usage(size_t delta, int channel_id) {
         if (mem_usage.fetch_add(delta) + delta > config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->block();
         }
     }
 
-    virtual void sub_total_mem_usage(size_t delta, int channel_id = 0) {
+    virtual void sub_total_mem_usage(size_t delta, int channel_id) {
         auto prev_usage = mem_usage.fetch_sub(delta);
         DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta
                                          << " channel_id: " << channel_id;

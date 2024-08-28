@@ -28,12 +28,10 @@ template <typename TAllocator>
 PageBase<TAllocator>::PageBase(size_t b, bool use_cache, segment_v2::PageTypePB page_type)
         : LRUCacheValueBase(), _size(b), _capacity(b) {
     if (use_cache) {
-        _mem_tracker_by_allocator = StoragePageCache::instance()->mem_tracker(page_type);
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                StoragePageCache::instance()->mem_tracker(page_type));
+        _data = reinterpret_cast<char*>(TAllocator::alloc(_capacity, ALLOCATOR_ALIGNMENT_16));
     } else {
-        _mem_tracker_by_allocator = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
-    }
-    {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker_by_allocator);
         _data = reinterpret_cast<char*>(TAllocator::alloc(_capacity, ALLOCATOR_ALIGNMENT_16));
     }
 }
@@ -42,7 +40,7 @@ template <typename TAllocator>
 PageBase<TAllocator>::~PageBase() {
     if (_data != nullptr) {
         DCHECK(_capacity != 0 && _size != 0);
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker_by_allocator);
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(TAllocator::mem_tracker_);
         TAllocator::free(_data, _capacity);
     }
 }
