@@ -287,7 +287,7 @@ suite("txn_insert") {
             if (observer_fe_url != null) {
                 logger.info("observer url: $observer_fe_url")
                 connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = observer_fe_url) {
-                    result = sql """ select count() from regression_test_insert_p0.${table}_0 """
+                    result = sql """ select count() from regression_test_insert_p0_transaction.${table}_0 """
                     logger.info("select from observer result: $result")
                     assertEquals(79, result[0][0])
                 }
@@ -403,7 +403,7 @@ suite("txn_insert") {
         }
 
         // 13. txn insert does not commit or rollback by user, and txn is aborted because connection is closed
-        def dbName = "regression_test_insert_p0"
+        def dbName = "regression_test_insert_p0_transaction"
         def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, dbName).replace("&useServerPrepStmts=true", "") + "&useLocalSessionState=true"
         logger.info("url: ${url}")
         def get_txn_id_from_server_info = { serverInfo ->
@@ -776,7 +776,7 @@ suite("txn_insert") {
         }
     }
 
-    def db_name = "regression_test_insert_p0"
+    def db_name = "regression_test_insert_p0_transaction"
     def tables = sql """ show tables from $db_name """
     logger.info("tables: $tables")
     for (def table_info : tables) {
