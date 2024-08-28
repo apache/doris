@@ -73,7 +73,7 @@ TEST_F(HttpAuthTest, enable_all_http_auth) {
     {
         auto evhttp_req = evhttp_request_new(nullptr, nullptr);
         HttpRequest req2(evhttp_req);
-        auto auth = encode_basic_auth("doris", "passwd");
+        auto auth = encode_basic_auth("root", "");
         req2._headers.emplace(HttpHeaders::AUTHORIZATION, auth);
         EXPECT_EQ(s_auth_handler.on_header(&req2), -1);
     }
@@ -82,7 +82,7 @@ TEST_F(HttpAuthTest, enable_all_http_auth) {
     {
         auto evhttp_req = evhttp_request_new(nullptr, nullptr);
         HttpRequest req3(evhttp_req);
-        auto auth = encode_basic_auth("doris", "passwd");
+        auto auth = encode_basic_auth("root", "");
         req3._headers.emplace(HttpHeaders::AUTHORIZATION, auth);
         req3._params.emplace("table", "T");
         EXPECT_EQ(s_auth_handler.on_header(&req3), 0);
