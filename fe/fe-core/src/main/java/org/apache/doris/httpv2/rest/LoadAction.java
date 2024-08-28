@@ -279,8 +279,20 @@ public class LoadAction extends RestBaseController {
                     return new RestBaseResult(e.getMessage());
                 }
             } else {
-                long tableId = ((OlapTable) ((Database) Env.getCurrentEnv().getCurrentCatalog().getDb(dbName)
-                        .get()).getTable(tableName).get()).getId();
+                long tableId = -1;
+                if (groupCommit) {
+                    Optional<?> database = Env.getCurrentEnv().getCurrentCatalog().getDb(dbName);
+                    if (!database.isPresent()) {
+                        return new RestBaseResult("Database not found.");
+                    }
+
+                    Optional<?> olapTable = ((Database) database.get()).getTable(tableName);
+                    if (!olapTable.isPresent()) {
+                        return new RestBaseResult("OlapTable not found.");
+                    }
+
+                    tableId = ((OlapTable) olapTable.get()).getId();
+                }
                 redirectAddr = selectRedirectBackend(request, groupCommit, tableId);
             }
 
@@ -337,7 +349,18 @@ public class LoadAction extends RestBaseController {
             Backend backend = Env.getCurrentSystemInfo().getBackend(debugBackendId);
             return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
         }
-        return selectLocalRedirectBackend(groupCommit, request, tableId);
+        if (Config.isCloudMode()) {
+            String cloudClusterName = getCloudClusterName(request);
+            if (Strings.isNullOrEmpty(cloudClusterName)) {
+                throw new LoadException("No cloud cluster name selected.");
+            }
+            return selectCloudRedirectBackend(cloudClusterName, request, groupCommit, tableId);
+        } else {
+            if (groupCommit && tableId == -1) {
+                throw new LoadException("Group commit table id wrong.");
+            }
+            return selectLocalRedirectBackend(groupCommit, request, tableId);
+        }
     }
 
     private TNetworkAddress selectLocalRedirectBackend(boolean groupCommit, HttpServletRequest request, long tableId)
