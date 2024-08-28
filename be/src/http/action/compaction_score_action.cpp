@@ -33,6 +33,7 @@
 #include <memory>
 #include <ranges>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -52,7 +53,7 @@
 
 namespace doris {
 
-const std::string TOP_N = "topn_n";
+const std::string TOP_N = "top_n";
 const std::string SYNC_META = "sync_meta";
 const std::string COMPACTION_SCORE = "compaction_score";
 constexpr size_t DEFAULT_TOP_N = std::numeric_limits<size_t>::max();
@@ -163,7 +164,11 @@ void CompactionScoreAction::handle(HttpRequest* req) {
     size_t top_n = DEFAULT_TOP_N;
     if (!top_n_param.empty()) {
         try {
-            top_n = std::stoll(top_n_param);
+            auto tmp_top_n = std::stoll(top_n_param);
+            if (tmp_top_n < 0) {
+                throw std::invalid_argument("`top_n` cannot less than 0");
+            }
+            top_n = tmp_top_n;
         } catch (const std::exception& e) {
             LOG(WARNING) << "convert failed:" << e.what();
             auto msg = std::format("invalid argument: top_n={}", top_n_param);
@@ -176,7 +181,7 @@ void CompactionScoreAction::handle(HttpRequest* req) {
     bool sync_meta = DEFAULT_SYNC_META;
     if (!sync_meta_param.empty() and !config::is_cloud_mode()) {
         HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST,
-                                "sync meta is only available for cloud mode");
+                                "param `sync_meta` is only available for cloud mode");
         return;
     }
     if (sync_meta_param == "true") {
@@ -210,9 +215,9 @@ Status CompactionScoreAction::_handle(size_t top_n, bool sync_meta, std::string*
     rapidjson::Document root;
     root.SetArray();
     auto& allocator = root.GetAllocator();
-    for (const auto& e : scores | std::views::take(top_n)) {
-        root.PushBack(jsonfy_tablet_compaction_score(e, allocator), allocator);
-    }
+    std::ranges::for_each(scores | std::views::take(top_n), [&root, &allocator](const auto& score) {
+        root.PushBack(jsonfy_tablet_compaction_score(score, allocator), allocator);
+    });
 
     rapidjson::StringBuffer str_buf;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(str_buf);
