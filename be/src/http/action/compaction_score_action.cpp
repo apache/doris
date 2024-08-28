@@ -171,7 +171,7 @@ void CompactionScoreAction::handle(HttpRequest* req) {
             top_n = tmp_top_n;
         } catch (const std::exception& e) {
             LOG(WARNING) << "convert failed:" << e.what();
-            auto msg = std::format("invalid argument: top_n={}", top_n_param);
+            auto msg = fmt::format("invalid argument: top_n={}", top_n_param);
             HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, msg);
             return;
         }
@@ -189,7 +189,7 @@ void CompactionScoreAction::handle(HttpRequest* req) {
     } else if (sync_meta_param == "false") {
         sync_meta = false;
     } else if (!sync_meta_param.empty()) {
-        auto msg = std::format("invalid argument: sync_meta={}", sync_meta_param);
+        auto msg = fmt::format("invalid argument: sync_meta={}", sync_meta_param);
         HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, msg);
         return;
     }
