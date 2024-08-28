@@ -27,10 +27,12 @@ import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.hint.OrderedHint;
 import org.apache.doris.nereids.hint.UseCboRuleHint;
+import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.properties.SelectHintUseCboRule;
+import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
@@ -77,6 +79,10 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                             ctx.statementContext, selectHintPlan.getHints());
                 } else if (hintName.equalsIgnoreCase("USE_CBO_RULE")) {
                     extractRule((SelectHintUseCboRule) hint.getValue(), ctx.statementContext);
+                } else if (hintName.equalsIgnoreCase("USE_MV")) {
+                    extractIndex((SelectHintUseMv) hint.getValue(), ConnectContext.get().getStatementContext());
+                } else if (hintName.equalsIgnoreCase("NO_USE_MV")) {
+                    extractIndex((SelectHintUseMv) hint.getValue(), ConnectContext.get().getStatementContext());
                 } else {
                     logger.warn("Can not process select hint '{}' and skip it", hint.getKey());
                 }
@@ -156,6 +162,22 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
             UseCboRuleHint hint = new UseCboRuleHint(parameter, selectHint.isNotUseCboRule());
             statementContext.addHint(hint);
         }
+    }
+
+    private void extractIndex(SelectHintUseMv selectHint, StatementContext statementContext) {
+        // todo: use index hint need added to current scope, where should it be visible?
+        boolean isAllMv = selectHint.getParameters().isEmpty();
+        UseMvHint useMvHint = new UseMvHint(selectHint.getHintName(), selectHint.getParameters(),
+                selectHint.isUseMv(), isAllMv);
+        for (Hint hint : statementContext.getHints()) {
+            if (hint.getHintName().equals(selectHint.getHintName())) {
+                hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+                hint.setErrorMessage("only one " + selectHint.getHintName() + " hint is allowed");
+                useMvHint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+                useMvHint.setErrorMessage("only one " + selectHint.getHintName() + " hint is allowed");
+            }
+        }
+        statementContext.addHint(useMvHint);
     }
 
 }

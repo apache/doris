@@ -54,6 +54,8 @@ import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVVersionSnapshot;
+import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -84,6 +86,7 @@ import org.apache.doris.thrift.TTableType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -539,6 +542,60 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             visibleMVs.put(mv.getId(), indexIdToMeta.get(mv.getId()));
         }
         return visibleMVs;
+    }
+
+    public Long getBestMvIdWithHint(List<Long> orderedMvs) {
+        List<Long> newOrderedMvs = new ArrayList<>();
+        for (Hint hint : ConnectContext.get().getStatementContext().getHints()) {
+            if (hint.isSyntaxError()) {
+                continue;
+            }
+            if (hint.getHintName().equalsIgnoreCase("USE_MV")) {
+                UseMvHint useMvHint = (UseMvHint) hint;
+                if (useMvHint.isAllMv()) {
+                    hint.setStatus(Hint.HintStatus.SUCCESS);
+                    return orderedMvs.get(0);
+                } else {
+                    String mvName = useMvHint.getUseMvName(this.name);
+                    if (mvName == null) {
+                        continue;
+                    }
+                    Long choosedIndexId = indexNameToId.get(mvName);
+                    if (orderedMvs.contains(choosedIndexId)) {
+                        return choosedIndexId;
+                    }
+                }
+            } else if (hint.getHintName().equalsIgnoreCase("NO_USE_MV")) {
+                UseMvHint noUseMvHint = (UseMvHint) hint;
+                if (noUseMvHint.isAllMv()) {
+                    hint.setStatus(Hint.HintStatus.SUCCESS);
+                    return getBaseIndex().getId();
+                } else {
+                    List<String> mvNames = noUseMvHint.getNoUseMVName(this.name);
+                    Set<Long> forbiddenIndexIds = Sets.newHashSet();
+                    for (int i = 0; i < mvNames.size(); i++) {
+                        if (hasMaterializedIndex(mvNames.get(i))) {
+                            Long forbiddenIndexId = indexNameToId.get(mvNames.get(i));
+                            forbiddenIndexIds.add(forbiddenIndexId);
+                        } else {
+                            hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+                            hint.setErrorMessage("do not have mv:" + mvNames.get(i) + "in table:" + this.name);
+                            break;
+                        }
+                    }
+                    for (int i = 0; i < orderedMvs.size(); i++) {
+                        if (!forbiddenIndexIds.contains(orderedMvs.get(i))) {
+                            newOrderedMvs.add(orderedMvs.get(i));
+                        } else {
+                            hint.setStatus(Hint.HintStatus.SUCCESS);
+                        }
+                    }
+                    orderedMvs = ImmutableList.copyOf(newOrderedMvs);
+                }
+            }
+        }
+        return orderedMvs.get(0);
+
     }
 
     public List<MaterializedIndex> getVisibleIndex() {
