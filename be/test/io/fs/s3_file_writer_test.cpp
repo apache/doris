@@ -944,10 +944,10 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_2) {
     sp->set_call_back("S3FileWriter::_complete:2", [](auto&& outcome) {
         // Deliberately make one upload one part task fail to test if s3 file writer could
         // handle io error
-        auto* parts = try_any_cast<std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>>*>(
+        auto* parts = try_any_cast<std::vector<io::ObjectCompleteMultiPart>*>(
                 outcome.back());
         size_t size = parts->size();
-        parts->back()->SetPartNumber(size + 2);
+        parts->back().part_num = (size + 2);
     });
     Defer defer {[&]() { sp->clear_call_back("S3FileWriter::_complete:2"); }};
     auto client = s3_fs->client_holder();
@@ -993,7 +993,7 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_1) {
         // Deliberately make one upload one part task fail to test if s3 file writer could
         // handle io error
         const auto& points = try_any_cast<const std::pair<
-                std::atomic_bool*, std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>>*>&>(
+                std::atomic_bool*, std::vector<io::ObjectCompleteMultiPart>*>&>(
                 outcome.back());
         (*points.first) = false;
         points.second->pop_back();
