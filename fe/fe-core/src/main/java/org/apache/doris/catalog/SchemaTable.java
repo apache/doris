@@ -558,6 +558,15 @@ public class SchemaTable extends Table {
                                     .column("REMOTE_SCAN_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
+            .put("file_cache_statistics",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "file_cache_statistics", TableType.SCHEMA,
+                            builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("BE_IP", ScalarType.createVarchar(256))
+                                    .column("CACHE_PATH", ScalarType.createVarchar(256))
+                                    .column("METRIC_NAME", ScalarType.createVarchar(256))
+                                    .column("METRIC_VALUE", ScalarType.createType(PrimitiveType.DOUBLE))
+                                    .build())
+            )
             .put("catalog_meta_cache_statistics",
                     new SchemaTable(SystemIdGenerator.getNextId(), "catalog_meta_cache_statistics", TableType.SCHEMA,
                             builder().column("CATALOG_NAME", ScalarType.createStringType())
