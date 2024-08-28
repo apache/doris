@@ -372,15 +372,15 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     public void checkInflghtWarmUpCacheAsync() {
-        Map<Long, List<InfightTask>> beToTabletIds = new HashMap<Long, List<InfightTask>>();
+        Map<Long, List<InfightTask>> beToInfightTasks = new HashMap<Long, List<InfightTask>>();
 
         for (Map.Entry<InfightTablet, InfightTask> entry : tabletToInfightTask.entrySet()) {
-            beToTabletIds.putIfAbsent(entry.getValue().destBe, new ArrayList<>());
-            beToTabletIds.get(entry.getValue().destBe).add(entry.getValue());
+            beToInfightTasks.putIfAbsent(entry.getValue().destBe, new ArrayList<>());
+            beToInfightTasks.get(entry.getValue().destBe).add(entry.getValue());
         }
 
         List<UpdateCloudReplicaInfo> infos = new ArrayList<>();
-        for (Map.Entry<Long, List<InfightTask>> entry : beToTabletIds.entrySet()) {
+        for (Map.Entry<Long, List<InfightTask>> entry : beToInfightTasks.entrySet()) {
             LOG.info("before pre cache check dest be {} inflight task num {}", entry.getKey(), entry.getValue().size());
             Backend destBackend = cloudSystemInfoService.getBackend(entry.getKey());
             if (destBackend == null) {
@@ -425,13 +425,13 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
 
         // recalculate inflight beToTablets, just for print the log
-        beToTabletIds.clear();
+        beToInfightTasks.clear();
         for (Map.Entry<InfightTablet, InfightTask> entry : tabletToInfightTask.entrySet()) {
-            beToTabletIds.putIfAbsent(entry.getValue().destBe, new ArrayList<>());
-            beToTabletIds.get(entry.getValue().destBe).add(entry.getValue());
+            beToInfightTasks.putIfAbsent(entry.getValue().destBe, new ArrayList<>());
+            beToInfightTasks.get(entry.getValue().destBe).add(entry.getValue());
         }
 
-        for (Map.Entry<Long, List<InfightTask>> entry : beToTabletIds.entrySet()) {
+        for (Map.Entry<Long, List<InfightTask>> entry : beToInfightTasks.entrySet()) {
             LOG.info("after pre cache check dest be {} inflight task num {}", entry.getKey(), entry.getValue().size());
         }
     }
