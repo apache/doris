@@ -307,7 +307,7 @@ public class PointQueryExecutor implements CoordInterface {
             }
             // if all key columns are distribution columns, then we don't need to prune
             if (distributionKeyColumns.size() == keyColumns.size()) {
-                keyTupleID2TabletID.add(tabletIDs);
+                keyTupleID2TabletID.add(Sets.newHashSet(tabletIDs));
                 return;
             }
             for (Integer colIdx : partitionKeyColumns) {
@@ -329,7 +329,7 @@ public class PointQueryExecutor implements CoordInterface {
                     throw new AnalysisException(e.getMessage());
                 }
             }
-            keyTupleID2TabletID.add(tabletIDs);
+            keyTupleID2TabletID.add(Sets.newHashSet(tabletIDs));
             return;
         }
 

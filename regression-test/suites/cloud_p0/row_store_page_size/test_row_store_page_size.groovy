@@ -46,7 +46,7 @@ suite ("test_row_store_page_size_cloud") {
 
     explain {
         sql("select * from ps_table_1 where k1=1 and k2=1;")
-        contains("SHORT")
+        contains("SHORT-CIRCUIT")
     }
 
     qt_select_star "select * from ps_table_1 where k1=1 and k2=1;"
@@ -81,7 +81,7 @@ suite ("test_row_store_page_size_cloud") {
 
     explain {
         sql("select * from ps_table_2 where k1=1 and k2=1;")
-        contains("SHORT")
+        contains("SHORT-CIRCUIT")
     }
 
     qt_select_star "select * from ps_table_2 where k1=1 and k2=1;"

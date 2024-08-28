@@ -43,8 +43,16 @@ suite("test_point_IN_query") {
             insert into ${tableName} values(4, 4, "i");
         """
     qt_sql "select * from ${tableName} where a = 123 and b = 132;"
-    qt_sql "select * from ${tableName} where a = 123 and b in (132, 1, 222, 333);"
-    qt_sql "select * from ${tableName} where a in (123, 1, 222) and b in (132, 1, 222, 333);"
+    explain {
+        sql("select * from ${tableName} where a = 123 and b in (132, 1, 222, 333);")
+        contains "SHORT-CIRCUIT"
+    }
+    qt_sql "select * from ${tableName} where a = 123 and b in (132, 1, 222, 333) order by a, b;"
+    explain {
+        sql("select * from ${tableName} where a in (123, 1, 222) and b in (132, 1, 222, 333);")
+        contains "SHORT-CIRCUIT"
+    }
+    qt_sql "select * from ${tableName} where a in (123, 1, 222) and b in (132, 1, 222, 333) order by a, b;"
 
     sql """DROP TABLE IF EXISTS ${tableName}"""
 
@@ -84,9 +92,9 @@ suite("test_point_IN_query") {
 
     qt_sql "select * from ${tableName} where a = 123 and b = 100;"
     qt_sql "select * from ${tableName} where a = 222 and b = 150;"
-    qt_sql "select * from ${tableName} where a = 123 and b in (132, 120, 222, 333);"
-    qt_sql "select * from ${tableName} where a = 400 and b in (260, 250, 300);"
-    qt_sql "select * from ${tableName} where a in (400, 222, 100) and b in (260, 250, 100, 150);"
+    qt_sql "select * from ${tableName} where a = 123 and b in (132, 120, 222, 333) order by a, b;"
+    qt_sql "select * from ${tableName} where a = 400 and b in (260, 250, 300) order by a, b;"
+    qt_sql "select * from ${tableName} where a in (400, 222, 100) and b in (260, 250, 100, 150) order by a, b;"
 
     sql """DROP TABLE IF EXISTS ${tableName}"""
 
@@ -124,9 +132,9 @@ suite("test_point_IN_query") {
         """
     qt_sql "select * from ${tableName} where a = 123 and b = 100;"
     qt_sql "select * from ${tableName} where a = 222 and b = 100;"
-    qt_sql "select * from ${tableName} where a = 123 and b in (132, 100, 222, 333);"
-    qt_sql "select * from ${tableName} where a = 400 and b in (250, 280, 300);"
-    qt_sql "select * from ${tableName} where a in (123, 1, 350, 400, 420, 500) and b in (132, 100, 222, 200, 350, 250);"
+    qt_sql "select * from ${tableName} where a = 123 and b in (132, 100, 222, 333) order by a, b;"
+    qt_sql "select * from ${tableName} where a = 400 and b in (250, 280, 300) order by a, b;"
+    qt_sql "select * from ${tableName} where a in (123, 1, 350, 400, 420, 500) and b in (132, 100, 222, 200, 350, 250) order by a, b;"
 
     sql """DROP TABLE IF EXISTS ${tableName}"""
 
@@ -169,8 +177,8 @@ suite("test_point_IN_query") {
     qt_sql "select * from ${tableName} where a = 123 and b = 100 and c = 110;"
     qt_sql "select * from ${tableName} where a = 123 and b = 101 and c = 110;"
     qt_sql "select * from ${tableName} where a = 1231 and b = 1220 and c = 210;"
-    qt_sql "select * from ${tableName} where a = 123 and b in (132, 100, 222, 333) and c in (110, 115, 120);"
-    qt_sql "select * from ${tableName} where a in (123, 1, 222, 1231, 420, 500) and b in (132, 100, 222, 1220, 300) and c in (210, 110, 115, 210);"
+    qt_sql "select * from ${tableName} where a = 123 and b in (132, 100, 222, 333) and c in (110, 115, 120) order by a, b;"
+    qt_sql "select * from ${tableName} where a in (123, 1, 222, 1231, 420, 500) and b in (132, 100, 222, 1220, 300) and c in (210, 110, 115, 210) order by a, b;"
 
     sql """DROP TABLE IF EXISTS ${tableName}"""
 }
