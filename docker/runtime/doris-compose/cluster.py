@@ -363,7 +363,7 @@ class Node(object):
                     "ipv4_address": self.get_ip(),
                 }
             },
-            "extra_hosts": extra_hosts(),
+            "extra_hosts": extra_hosts,
             "ports": self.docker_ports(),
             "ulimits": {
                 "core": -1
