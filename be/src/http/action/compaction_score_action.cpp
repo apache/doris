@@ -31,7 +31,6 @@
 #include <iterator>
 #include <limits>
 #include <memory>
-#include <ranges>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -50,6 +49,7 @@
 #include "http/http_status.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_manager.h"
+#include "util/stopwatch.hpp"
 
 namespace doris {
 
@@ -102,10 +102,19 @@ struct CloudCompactionScoresAccessor final : CompactionScoresAccessor {
 
     Status sync_meta() {
         auto tablets = get_all_tablets();
+        LOG(INFO) << "start to sync meta from ms";
+
+        MonotonicStopWatch stopwatch;
+        stopwatch.start();
+
         for (const auto& tablet : tablets) {
             RETURN_IF_ERROR(tablet->sync_meta());
             RETURN_IF_ERROR(tablet->sync_rowsets());
         }
+
+        stopwatch.stop();
+        LOG(INFO) << "sync meta finish, time=" << stopwatch.elapsed_time() << "ns";
+
         return Status::OK();
     }
 
@@ -215,10 +224,9 @@ Status CompactionScoreAction::_handle(size_t top_n, bool sync_meta, std::string*
     rapidjson::Document root;
     root.SetArray();
     auto& allocator = root.GetAllocator();
-    std::ranges::for_each(scores | std::views::take(top_n), [&root, &allocator](const auto& score) {
+    std::for_each(scores.begin(), scores.begin() + top_n, [&](const auto& score) {
         root.PushBack(jsonfy_tablet_compaction_score(score, allocator), allocator);
     });
-
     rapidjson::StringBuffer str_buf;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(str_buf);
     root.Accept(writer);
