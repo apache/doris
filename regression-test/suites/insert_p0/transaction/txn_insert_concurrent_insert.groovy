@@ -79,7 +79,7 @@ suite("txn_insert_concurrent_insert") {
     }
     sql """ sync """
 
-    def dbName = "regression_test_insert_p0"
+    def dbName = "regression_test_insert_p0_transaction"
     def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, dbName).replace("&useServerPrepStmts=true", "") + "&useLocalSessionState=true"
     logger.info("url: ${url}")
 
@@ -119,7 +119,7 @@ suite("txn_insert_concurrent_insert") {
     logger.info("result: ${result}")
     assertEquals(2606192, result[0][0])
 
-    def db_name = "regression_test_insert_p0"
+    def db_name = "regression_test_insert_p0_transaction"
     def tables = sql """ show tables from $db_name """
     logger.info("tables: $tables")
     for (def table_info : tables) {

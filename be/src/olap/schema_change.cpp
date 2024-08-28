@@ -777,6 +777,7 @@ SchemaChangeJob::SchemaChangeJob(StorageEngine& local_storage_engine,
 // The admin should upgrade all BE and then upgrade FE.
 // Should delete the old code after upgrade finished.
 Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& request) {
+    DBUG_EXECUTE_IF("SchemaChangeJob._do_process_alter_tablet.sleep", { sleep(10); })
     Status res;
     signal::tablet_id = _base_tablet->get_table_id();
 
