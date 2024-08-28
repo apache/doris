@@ -37,7 +37,7 @@ import com.google.common.base.Strings;
  * db_name: The name of db to which materialized view belongs.
  * table_name: The name of table to which materialized view belongs.
  */
-public class DropMaterializedViewStmt extends DdlStmt {
+public class DropMaterializedViewStmt extends DdlStmt implements NotFallbackInParser {
 
     private String mvName;
     private TableName tableName;
