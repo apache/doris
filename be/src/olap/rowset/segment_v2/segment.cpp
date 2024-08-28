@@ -796,14 +796,14 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
     return Status::OK();
 }
 
-Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, bool with_rowid,
-                               RowLocation* row_location) {
+Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_schema,
+                               bool with_seq_col, bool with_rowid, RowLocation* row_location) {
     RETURN_IF_ERROR(load_pk_index_and_bf());
-    bool has_seq_col = _tablet_schema->has_sequence_col();
-    bool has_rowid = !_tablet_schema->cluster_key_idxes().empty();
+    bool has_seq_col = latest_schema->has_sequence_col();
+    bool has_rowid = !latest_schema->cluster_key_idxes().empty();
     size_t seq_col_length = 0;
     if (has_seq_col) {
-        seq_col_length = _tablet_schema->column(_tablet_schema->sequence_col_idx()).length() + 1;
+        seq_col_length = latest_schema->column(latest_schema->sequence_col_idx()).length() + 1;
     }
     size_t rowid_length = has_rowid ? PrimaryKeyIndexReader::ROW_ID_LENGTH : 0;
 
@@ -839,16 +839,20 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, bool with_ro
 
     Slice sought_key = Slice(index_column->get_data_at(0).data, index_column->get_data_at(0).size);
 
+    // user may use "ALTER TABLE tbl ENABLE FEATURE "SEQUENCE_LOAD" WITH ..." to add a hidden sequence column
+    // for a merge-on-write table which doesn't have sequence column, so `has_seq_col ==  true` doesn't mean
+    // data in segment has sequence column value
+    bool segment_has_seq_col = _tablet_schema->has_sequence_col();
+    Slice sought_key_without_seq = Slice(
+            sought_key.get_data(),
+            sought_key.get_size() - (segment_has_seq_col ? seq_col_length : 0) - rowid_length);
     if (has_seq_col) {
-        Slice sought_key_without_seq =
-                Slice(sought_key.get_data(), sought_key.get_size() - seq_col_length - rowid_length);
-
         // compare key
         if (key_without_seq.compare(sought_key_without_seq) != 0) {
             return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
         }
 
-        if (with_seq_col) {
+        if (with_seq_col && segment_has_seq_col) {
             // compare sequence id
             Slice sequence_id =
                     Slice(key.get_data() + key_without_seq.get_size() + 1, seq_col_length - 1);
@@ -870,11 +874,9 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, bool with_ro
     }
     // found the key, use rowid in pk index if necessary.
     if (has_rowid) {
-        Slice sought_key_without_seq =
-                Slice(sought_key.get_data(), sought_key.get_size() - seq_col_length - rowid_length);
-        Slice rowid_slice = Slice(
-                sought_key.get_data() + sought_key_without_seq.get_size() + seq_col_length + 1,
-                rowid_length - 1);
+        Slice rowid_slice = Slice(sought_key.get_data() + sought_key_without_seq.get_size() +
+                                          (segment_has_seq_col ? seq_col_length : 0) + 1,
+                                  rowid_length - 1);
         const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
         const auto* rowid_coder = get_key_coder(type_info->type());
         RETURN_IF_ERROR(rowid_coder->decode_ascending(&rowid_slice, rowid_length,
