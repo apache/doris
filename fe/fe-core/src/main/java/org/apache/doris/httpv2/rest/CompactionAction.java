@@ -158,9 +158,7 @@ public class CompactionAction extends RestBaseController {
                         connection.getResponseMessage());
             }
         } catch (Exception e) {
-            if (url != null) {
-                LOG.warn("Exception happens for url {}:{}", url, e.getMessage());
-            }
+            LOG.warn("Exception happens for url {}:{}", url, e.getMessage());
         } finally {
             if (connection != null) {
                 connection.disconnect();
