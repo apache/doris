@@ -3883,7 +3883,7 @@ public class Env {
         GroupId groupId = null;
         if (!Strings.isNullOrEmpty(colocateGroup)) {
             String fullGroupName = db.getId() + "_" + colocateGroup;
-            //When the new name is the same as the old name, we return it to prevent npe
+            // When the new name is the same as the old name, we return it to prevent npe
             if (!Strings.isNullOrEmpty(oldGroup)) {
                 String oldFullGroupName = db.getId() + "_" + oldGroup;
                 if (oldFullGroupName.equals(fullGroupName)) {
@@ -4396,7 +4396,8 @@ public class Env {
                 throw new DdlException("Cannot change default bucket number of colocate table.");
             }
 
-            if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE) {
+            if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE
+                    && olapTable.getPartitionInfo().getType() != PartitionType.LIST) {
                 throw new DdlException("Only support change partitioned table's distribution.");
             }
 
