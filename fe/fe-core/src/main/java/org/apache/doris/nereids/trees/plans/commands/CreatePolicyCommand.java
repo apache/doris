@@ -107,7 +107,6 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
             Env.getCurrentEnv().getPolicyMgr().createPolicy(policy, ifNotExists);
             return;
         }
-        ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
         throw new MustFallbackException("Not support create policy command in Nereids now");
     }
 

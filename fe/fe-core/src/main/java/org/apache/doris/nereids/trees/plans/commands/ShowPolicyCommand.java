@@ -67,7 +67,6 @@ public class ShowPolicyCommand extends Command implements NoForward {
             executor.sendResultSet(showResultSet);
             return;
         }
-        ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
         throw new MustFallbackException("Not support show policy command in Nereids now");
     }
 }

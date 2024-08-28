@@ -67,7 +67,6 @@ public class DropPolicyCommand extends Command implements ForwardWithSync {
             Env.getCurrentEnv().getPolicyMgr().dropPolicy(dropPolicyLog, ifExists);
             return;
         }
-        ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
         throw new MustFallbackException("Not support drop policy command in Nereids now");
     }
 
