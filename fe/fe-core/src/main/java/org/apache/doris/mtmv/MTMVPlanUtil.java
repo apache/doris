@@ -39,8 +39,6 @@ import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollecto
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
-import com.google.common.collect.Sets;
-
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -83,21 +81,30 @@ public class MTMVPlanUtil {
     }
 
     public static MTMVRelation generateMTMVRelation(Plan plan) {
-        return new MTMVRelation(getBaseTables(plan, true), getBaseTables(plan, false), getBaseViews(plan));
+        return new MTMVRelation(getBaseTables(plan, true, true),
+                getBaseTables(plan, false, false), getBaseViews(plan));
     }
 
-    private static Set<BaseTableInfo> getBaseTables(Plan plan, boolean expand) {
+    private static Set<BaseTableInfo> getBaseTables(Plan plan,
+            boolean expandMaterializedView,
+            boolean expandView) {
         TableCollectorContext collectorContext =
                 new TableCollector.TableCollectorContext(
                         com.google.common.collect.Sets
-                                .newHashSet(TableType.values()), expand);
+                                .newHashSet(TableType.values()), expandMaterializedView, expandView);
         plan.accept(TableCollector.INSTANCE, collectorContext);
         Set<TableIf> collectedTables = collectorContext.getCollectedTables();
         return transferTableIfToInfo(collectedTables);
     }
 
     private static Set<BaseTableInfo> getBaseViews(Plan plan) {
-        return Sets.newHashSet();
+        TableCollectorContext collectorContext =
+                new TableCollector.TableCollectorContext(
+                        com.google.common.collect.Sets
+                                .newHashSet(TableType.VIEW), true, true);
+        plan.accept(TableCollector.INSTANCE, collectorContext);
+        Set<TableIf> collectedTables = collectorContext.getCollectedTables();
+        return transferTableIfToInfo(collectedTables);
     }
 
     private static Set<BaseTableInfo> transferTableIfToInfo(Set<TableIf> tables) {

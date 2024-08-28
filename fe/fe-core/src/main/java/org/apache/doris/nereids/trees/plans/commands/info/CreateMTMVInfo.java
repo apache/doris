@@ -30,7 +30,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
