@@ -800,15 +800,26 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
     // 1. Create a new pipeline with local exchange sink.
     DataSinkOperatorXPtr sink;
     auto sink_id = next_sink_operator_id();
-    const bool is_shuffled_hash_join = operator_xs.size() > idx
-                                               ? operator_xs[idx]->is_shuffled_hash_join()
-                                               : cur_pipe->sink_x()->is_shuffled_hash_join();
+    /**
+     * `bucket_seq_to_instance_idx` is empty if no scan operator is contained in this fragment.
+     * So co-located operators(e.g. Agg, Analytic) should use `HASH_SHUFFLE` instead of `BUCKET_HASH_SHUFFLE`.
+     */
+    const bool should_disable_bucket_shuffle =
+            bucket_seq_to_instance_idx.empty() ||
+            (operator_xs.size() > idx ? operator_xs[idx]->is_shuffled_hash_join()
+                                      : cur_pipe->sink_x()->is_shuffled_hash_join());
     sink.reset(new LocalExchangeSinkOperatorX(
-            sink_id, local_exchange_id, is_shuffled_hash_join ? _total_instances : _num_instances,
+            sink_id, local_exchange_id,
+            should_disable_bucket_shuffle ? _total_instances : _num_instances,
             data_distribution.partition_exprs, bucket_seq_to_instance_idx));
+    if (should_disable_bucket_shuffle &&
+        data_distribution.distribution_type == ExchangeType::BUCKET_HASH_SHUFFLE) {
+        data_distribution.distribution_type = ExchangeType::HASH_SHUFFLE;
+    }
     RETURN_IF_ERROR(new_pip->set_sink(sink));
     RETURN_IF_ERROR(new_pip->sink_x()->init(data_distribution.distribution_type, num_buckets,
-                                            is_shuffled_hash_join, shuffle_idx_to_instance_idx));
+                                            should_disable_bucket_shuffle,
+                                            shuffle_idx_to_instance_idx));
 
     // 2. Create and initialize LocalExchangeSharedState.
     auto shared_state = LocalExchangeSharedState::create_shared(_num_instances);
@@ -816,7 +827,7 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
     case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger = ShuffleExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances),
-                is_shuffled_hash_join ? _total_instances : _num_instances,
+                should_disable_bucket_shuffle ? _total_instances : _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
                         ? _runtime_state->query_options().local_exchange_free_blocks_limit
                         : 0);
