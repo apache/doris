@@ -93,4 +93,10 @@ private:
     std::map<RowsetId, std::map<uint32_t, std::vector<RidAndPos>>> plan;
 };
 
+struct PartialUpdateStats {
+    int64_t num_rows_updated {0};
+    int64_t num_rows_new_added {0};
+    int64_t num_rows_deleted {0};
+    int64_t num_rows_filtered {0};
+};
 } // namespace doris
