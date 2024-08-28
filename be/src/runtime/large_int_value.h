@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <iostream>
 #include <string>
+#include "olap/olap_common.h"
 
 namespace doris {
 
@@ -36,6 +37,7 @@ public:
     }
 
     static std::string to_string(__int128 value) { return fmt::format(FMT_COMPILE("{}"), value); }
+    static std::string to_string(__uint128_t value) { return fmt::format(FMT_COMPILE("{}"), value); }
 };
 
 std::ostream& operator<<(std::ostream& os, __int128 const& value);

@@ -31,6 +31,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -145,6 +146,10 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
     }
     case TYPE_STRING: {
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_STRING>(data, &node));
+        break;
+    }
+    case TYPE_IPV4: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV4>(data, &node));
         break;
     }
     default:

@@ -110,11 +110,14 @@ PColumnType to_proto(PrimitiveType type) {
         return PColumnType::COLUMN_TYPE_VARCHAR;
     case TYPE_STRING:
         return PColumnType::COLUMN_TYPE_STRING;
+    case TYPE_IPV4:
+        return PColumnType::COLUMN_TYPE_IPV4;
+    case TYPE_IPV6:
+        return PColumnType::COLUMN_TYPE_IPV6;
     default:
-        throw Exception(ErrorCode::INTERNAL_ERROR, "runtime filter meet invalid type {}",
-                        int(type));
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "runtime filter meet invalid PrimitiveType type {}", int(type));
     }
-    return PColumnType::COLUMN_TYPE_INT;
 }
 
 // PColumnType->PrimitiveType
@@ -160,10 +163,14 @@ PrimitiveType to_primitive_type(PColumnType type) {
         return TYPE_CHAR;
     case PColumnType::COLUMN_TYPE_STRING:
         return TYPE_STRING;
+    case PColumnType::COLUMN_TYPE_IPV4:
+        return TYPE_IPV4;
+    case PColumnType::COLUMN_TYPE_IPV6:
+        return TYPE_IPV6;
     default:
-        DCHECK(false);
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "runtime filter meet invalid PColumnType type {}", int(type));
     }
-    return TYPE_INT;
 }
 
 // PFilterType -> RuntimeFilterType
@@ -700,6 +707,24 @@ public:
             });
             break;
         }
+        case TYPE_IPV4: {
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
+                int32_t tmp = column.intval();
+                set->insert(&tmp);
+            });
+            break;
+        }
+        case TYPE_IPV6: {
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
+                auto string_val = column.stringval();
+                StringParser::ParseResult result;
+                auto int128_val = StringParser::string_to_int<uint128_t>(
+                        string_val.c_str(), string_val.length(), &result);
+                DCHECK(result == StringParser::PARSE_SUCCESS);
+                set->insert(&int128_val);
+            });
+            break;
+        }
         default: {
             return Status::InternalError("not support assign to in filter, type: " +
                                          type_to_string(_column_return_type));
@@ -847,6 +872,23 @@ public:
             auto min_val_ref = minmax_filter->min_val().stringval();
             auto max_val_ref = minmax_filter->max_val().stringval();
             return _context->minmax_func->assign(&min_val_ref, &max_val_ref);
+        }
+        case TYPE_IPV4: {
+            int tmp_min = minmax_filter->min_val().intval();
+            int tmp_max = minmax_filter->max_val().intval();
+            return _context->minmax_func->assign(&tmp_min, &tmp_max);
+        }
+        case TYPE_IPV6: {
+            auto min_string_val = minmax_filter->min_val().stringval();
+            auto max_string_val = minmax_filter->max_val().stringval();
+            StringParser::ParseResult result;
+            auto min_val = StringParser::string_to_int<uint128_t>(min_string_val.c_str(),
+                                                                  min_string_val.length(), &result);
+            DCHECK(result == StringParser::PARSE_SUCCESS);
+            auto max_val = StringParser::string_to_int<uint128_t>(max_string_val.c_str(),
+                                                                  max_string_val.length(), &result);
+            DCHECK(result == StringParser::PARSE_SUCCESS);
+            return _context->minmax_func->assign(&min_val, &max_val);
         }
         default:
             break;
@@ -1634,9 +1676,21 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
         });
         return;
     }
+    case TYPE_IPV4: {
+        batch_copy<IPv4>(filter, it, [](PColumnValue* column, const IPv4* value) {
+            column->set_intval(*reinterpret_cast<const int32_t*>(value));
+        });
+        return;
+    }
+    case TYPE_IPV6: {
+        batch_copy<IPv6>(filter, it, [](PColumnValue* column, const IPv6* value) {
+            column->set_stringval(LargeIntValue::to_string(*value));
+        });
+        return;
+    }
     default: {
-        DCHECK(false) << "unknown type";
-        break;
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "runtime filter meet invalid PrimitiveType type {}", int(column_type));
     }
     }
 }
@@ -1750,9 +1804,22 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
         filter->mutable_max_val()->set_stringval(*max_string_value);
         break;
     }
+    case TYPE_IPV4: {
+        filter->mutable_min_val()->set_intval(*reinterpret_cast<const int32_t*>(min_data));
+        filter->mutable_max_val()->set_intval(*reinterpret_cast<const int32_t*>(max_data));
+        return;
+    }
+    case TYPE_IPV6: {
+        filter->mutable_min_val()->set_stringval(
+                LargeIntValue::to_string(*reinterpret_cast<const uint128_t*>(min_data)));
+        filter->mutable_max_val()->set_stringval(
+                LargeIntValue::to_string(*reinterpret_cast<const uint128_t*>(max_data)));
+        return;
+    }
     default: {
-        DCHECK(false) << "unknown type";
-        break;
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "runtime filter meet invalid PrimitiveType type {}",
+                        int(_wrapper->column_type()));
     }
     }
 }
