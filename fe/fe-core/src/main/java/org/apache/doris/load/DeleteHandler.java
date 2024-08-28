@@ -406,6 +406,12 @@ public class DeleteHandler implements Writable {
                         break;
                 }
             } else {
+                if (!countDownLatch.getStatus().ok()) {
+                    // encounter some errors that don't need to retry, abort directly
+                    LOG.warn("delete job failed, errmsg={}", countDownLatch.getStatus().getErrorMsg());
+                    throw new DdlException(String.format("delete job failed, errmsg:%s",
+                            countDownLatch.getStatus().getErrorMsg()));
+                }
                 commitJob(deleteJob, db, olapTable, timeoutMs);
             }
         } finally {
