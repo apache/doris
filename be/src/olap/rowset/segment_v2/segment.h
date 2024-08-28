@@ -35,8 +35,8 @@
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
-#include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 #include "olap/rowset/segment_v2/page_handle.h"
+#include "olap/rowset/segment_v2/stream_reader.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
@@ -128,8 +128,8 @@ public:
         return _pk_index_reader.get();
     }
 
-    Status lookup_row_key(const Slice& key, bool with_seq_col, bool with_rowid,
-                          RowLocation* row_location);
+    Status lookup_row_key(const Slice& key, const TabletSchema* latest_schema, bool with_seq_col,
+                          bool with_rowid, RowLocation* row_location);
 
     Status read_key_by_rowid(uint32_t row_id, std::string* key);
 
@@ -162,10 +162,10 @@ public:
     // nullptr will returned if storage type does not contains such column
     std::shared_ptr<const vectorized::IDataType> get_data_type_of(vectorized::PathInDataPtr path,
                                                                   bool is_nullable,
-                                                                  bool ignore_children) const;
+                                                                  bool read_flat_leaves) const;
 
     // Check is schema read type equals storage column type
-    bool same_with_storage_type(int32_t cid, const Schema& schema, bool ignore_children) const;
+    bool same_with_storage_type(int32_t cid, const Schema& schema, bool read_flat_leaves) const;
 
     // If column in segment is the same type in schema, then it is safe to apply predicate
     template <typename Predicate>

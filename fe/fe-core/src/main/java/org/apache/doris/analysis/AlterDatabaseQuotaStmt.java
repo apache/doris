@@ -29,7 +29,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
-public class AlterDatabaseQuotaStmt extends DdlStmt {
+public class AlterDatabaseQuotaStmt extends DdlStmt implements NotFallbackInParser {
     @SerializedName("db")
     private String dbName;
 

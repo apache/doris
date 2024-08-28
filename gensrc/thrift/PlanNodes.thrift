@@ -329,6 +329,7 @@ struct TPaimonFileDesc {
     10: optional i64 last_update_time
     11: optional string file_format
     12: optional TPaimonDeletionFileDesc deletion_file;
+    13: optional map<string, string> hadoop_conf
 }
 
 struct TTrinoConnectorFileDesc {

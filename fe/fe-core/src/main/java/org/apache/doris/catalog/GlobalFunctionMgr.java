@@ -116,7 +116,7 @@ public class GlobalFunctionMgr extends MetaObject implements GsonPostProcessable
 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
         try {
-            FunctionUtil.dropFunctionImpl(functionSearchDesc, false, name2Function);
+            FunctionUtil.dropFunctionImpl(functionSearchDesc, true, name2Function);
             FunctionUtil.dropFromNereids(null, functionSearchDesc);
         } catch (UserException e) {
             throw new RuntimeException(e);

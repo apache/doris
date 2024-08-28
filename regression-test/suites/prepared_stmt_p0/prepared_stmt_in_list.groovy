@@ -22,6 +22,7 @@ suite("test_prepared_stmt_in_list", "nonConcurrent") {
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
     def url = context.config.jdbcUrl + "&useServerPrepStmts=true"
+    sql """set global max_prepared_stmt_count = 1024"""
     def result1 = connect(user=user, password=password, url=url) {
         sql """DROP TABLE IF EXISTS ${tableName} """
         sql """
