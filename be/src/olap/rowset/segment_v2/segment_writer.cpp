@@ -482,22 +482,9 @@ Status SegmentWriter::probe_key_for_mow(
                     {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
                     segment_pos);
         } else {
-            if (!_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update) {
-                std::string error_column;
-                for (auto cid : _opts.rowset_ctx->partial_update_info->missing_cids) {
-                    const TabletColumn& col = _tablet_schema->column(cid);
-                    if (!col.has_default_value() && !col.is_nullable() &&
-                        !(_tablet_schema->auto_increment_column() == col.name())) {
-                        error_column = col.name();
-                        break;
-                    }
-                }
-                return Status::Error<INVALID_SCHEMA, false>(
-                        "the unmentioned column `{}` should have default value or be nullable "
-                        "for "
-                        "newly inserted rows in non-strict mode partial update",
-                        error_column);
-            }
+            RETURN_IF_ERROR(
+                    _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
+                            *_tablet_schema));
         }
         ++stats.num_rows_new_added;
         has_default_or_nullable = true;
@@ -699,11 +686,6 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     _num_rows_filtered += stats.num_rows_filtered;
     if (_tablet_schema->has_sequence_col() && !have_input_seq_column) {
         DCHECK_NE(seq_column, nullptr);
-        DCHECK_EQ(_num_rows_written, row_pos)
-                << "_num_rows_written: " << _num_rows_written << ", row_pos" << row_pos;
-        DCHECK_EQ(_primary_key_index_builder->num_rows(), _num_rows_written)
-                << "primary key index builder num rows(" << _primary_key_index_builder->num_rows()
-                << ") not equal to segment writer's num rows written(" << _num_rows_written << ")";
         if (_num_rows_written != row_pos ||
             _primary_key_index_builder->num_rows() != _num_rows_written) {
             return Status::InternalError(

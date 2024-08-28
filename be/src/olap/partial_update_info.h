@@ -43,6 +43,7 @@ struct PartialUpdateInfo {
               const std::string& auto_increment_column, int64_t cur_max_version = -1);
     void to_pb(PartialUpdateInfoPB* partial_update_info) const;
     void from_pb(PartialUpdateInfoPB* partial_update_info);
+    Status handle_non_strict_mode_not_found_error(const TabletSchema& tablet_schema);
     std::string summary() const;
 
 private:
