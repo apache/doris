@@ -393,7 +393,7 @@ Status VScanNode::_normalize_conjuncts() {
                 continue;
             }
         }
-        init_value_range(slot, slot->type().type);
+        init_value_range(slot, slot->type());
     }
 
     get_cast_types_for_variants();
