@@ -40,6 +40,7 @@ import com.google.common.collect.Maps;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
+import org.antlr.v4.runtime.Recognizer;
 import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.TokenSource;
 import org.antlr.v4.runtime.atn.PredictionMode;
@@ -341,5 +342,36 @@ public class NereidsParser {
             tree = parseFunction.apply(parser);
         }
         return tree;
+    }
+
+    public static String removeCommentAndTrimBlank(String sql) {
+        DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+        CommonTokenStream tokenStream = new CommonTokenStream(lexer);
+        tokenStream.fill();
+
+        // maybe add more space char
+        StringBuilder newSql = new StringBuilder((int) (sql.length() * 1.2));
+
+        for (Token token : tokenStream.getTokens()) {
+            int tokenType = token.getType();
+            switch (tokenType) {
+                case DorisLexer.SIMPLE_COMMENT:
+                case DorisLexer.WS:
+                case Recognizer.EOF:
+                    break;
+                case DorisLexer.BRACKETED_COMMENT:
+                    String bracketedComment = token.getText();
+                    // append hint
+                    if (bracketedComment.startsWith("/*+")) {
+                        newSql.append(bracketedComment);
+                        newSql.append(" ");
+                    }
+                    break;
+                default:
+                    newSql.append(token.getText());
+                    newSql.append(" ");
+            }
+        }
+        return newSql.toString().trim();
     }
 }
