@@ -124,8 +124,11 @@ public:
     //     `body' points to page body,
     //     `footer' stores the page footer.
     // This method is exception safe, it will failed when allocate memory failed.
-    static Status read_and_decompress_page(const PageReadOptions& opts, PageHandle* handle,
-                                           Slice* body, PageFooterPB* footer);
+    Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle* handle,
+                                            Slice* body, PageFooterPB* footer) {
+        RETURN_IF_CATCH_EXCEPTION(
+                { return read_and_decompress_page_(opts, handle, body, footer); });
+    }
 
 private:
     // An internal method that not deal with exception.
