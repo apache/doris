@@ -271,7 +271,7 @@ suite("test_create_mtmv_contains_view","mtmv") {
               ps_partkey;
     """
     order_qt_query4_before "${query4}"
-    check_mv_rewrite_success(db, mv4, query4, mv4_name)
+    async_mv_rewrite_success(db, mv4, query4, mv4_name)
     order_qt_query4_after "${query4}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS ${mv4_name}"""
 
