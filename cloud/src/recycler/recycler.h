@@ -166,7 +166,7 @@ public:
 
     // scan and abort timeout txn label
     // returns 0 for success otherwise error
-    int advance_pending_txn();
+    int abort_timeout_txn();
 
     //scan and recycle expire txn label
     // returns 0 for success otherwise error

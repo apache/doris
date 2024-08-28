@@ -407,7 +407,7 @@ message VersionPB {
     optional int64 version = 1;
     optional int64 update_time_ms = 2;
     // now only allow one element
-    repeated int64 txn_ids = 3;
+    repeated int64 pending_txn_ids = 3;
 }
 
 message RecycleTxnPB {

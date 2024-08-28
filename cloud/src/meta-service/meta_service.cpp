@@ -1485,16 +1485,17 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                     return;
                 }
 
-                if (version_pb.txn_ids_size() > 0) {
-                    DCHECK(version_pb.txn_ids_size() == 1);
+                if (version_pb.pending_txn_ids_size() > 0) {
+                    DCHECK(version_pb.pending_txn_ids_size() == 1);
                     txn.reset();
                     std::shared_ptr<TxnLazyCommitTask> task =
-                            txn_lazy_committer_->submit(instance_id, version_pb.txn_ids(0));
+                            txn_lazy_committer_->submit(instance_id, version_pb.pending_txn_ids(0));
 
                     std::tie(code, msg) = task->wait();
                     if (code != MetaServiceCode::OK) {
-                        LOG(WARNING) << "advance_last_txn failed last_txn=" << version_pb.txn_ids(0)
-                                     << " code=" << code << "msg=" << msg;
+                        LOG(WARNING) << "advance_last_txn failed last_txn="
+                                     << version_pb.pending_txn_ids(0) << " code=" << code
+                                     << "msg=" << msg;
                         return;
                     }
                     continue;

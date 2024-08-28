@@ -1270,7 +1270,7 @@ TEST(RecyclerTest, advance_pending_txn) {
                               std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     sleep(1);
-    ASSERT_EQ(recycler.advance_pending_txn(), 0);
+    ASSERT_EQ(recycler.abort_timeout_txn(), 0);
     TxnInfoPB txn_info_pb;
     get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb);
     ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_ABORTED);
@@ -1314,7 +1314,7 @@ TEST(RecyclerTest, advance_pending_txn_and_rebegin) {
                               std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     sleep(1);
-    ASSERT_EQ(recycler.advance_pending_txn(), 0);
+    ASSERT_EQ(recycler.abort_timeout_txn(), 0);
     TxnInfoPB txn_info_pb;
     get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb);
     ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_ABORTED);
@@ -1381,7 +1381,7 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
         InstanceRecycler recycler(txn_kv, instance, thread_group,
                                   std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
-        recycler.advance_pending_txn();
+        recycler.abort_timeout_txn();
         TxnInfoPB txn_info_pb;
         ASSERT_EQ(get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb), 0);
         ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_PREPARED);
@@ -1434,7 +1434,7 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
                                   std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         sleep(1);
-        recycler.advance_pending_txn();
+        recycler.abort_timeout_txn();
         TxnInfoPB txn_info_pb;
         get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb);
         ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_PREPARED);
@@ -1487,7 +1487,7 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
                                   std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         sleep(1);
-        recycler.advance_pending_txn();
+        recycler.abort_timeout_txn();
         TxnInfoPB txn_info_pb;
         get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb);
         ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_PREPARED);
@@ -1547,7 +1547,7 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
                                   std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         sleep(1);
-        recycler.advance_pending_txn();
+        recycler.abort_timeout_txn();
         TxnInfoPB txn_info_pb;
         get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb);
         ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_PREPARED);

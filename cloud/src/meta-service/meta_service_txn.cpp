@@ -1078,9 +1078,9 @@ void commit_txn_immediately(
                     msg = ss.str();
                     return;
                 }
-                if (version_pb.txn_ids_size() > 0) {
-                    DCHECK(version_pb.txn_ids_size() == 1);
-                    last_pending_txn_id = version_pb.txn_ids(0);
+                if (version_pb.pending_txn_ids_size() > 0) {
+                    DCHECK(version_pb.pending_txn_ids_size() == 1);
+                    last_pending_txn_id = version_pb.pending_txn_ids(0);
                     DCHECK(last_pending_txn_id > 0);
                     break;
                 }
@@ -1595,9 +1595,9 @@ void commit_txn_eventually(
                     msg = ss.str();
                     return;
                 }
-                if (version_pb.txn_ids_size() > 0) {
-                    DCHECK(version_pb.txn_ids_size() == 1);
-                    last_pending_txn_id = version_pb.txn_ids(0);
+                if (version_pb.pending_txn_ids_size() > 0) {
+                    DCHECK(version_pb.pending_txn_ids_size() == 1);
+                    last_pending_txn_id = version_pb.pending_txn_ids(0);
                     DCHECK(last_pending_txn_id > 0);
                     break;
                 }
@@ -1730,7 +1730,7 @@ void commit_txn_eventually(
         for (auto& i : new_versions) {
             std::string ver_val;
             VersionPB version_pb;
-            version_pb.add_txn_ids(txn_id);
+            version_pb.add_pending_txn_ids(txn_id);
             version_pb.set_update_time_ms(version_update_time_ms);
             if (i.second > 1) {
                 version_pb.set_version(i.second);

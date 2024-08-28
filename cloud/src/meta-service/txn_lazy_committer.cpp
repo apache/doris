@@ -131,8 +131,8 @@ void convert_tmp_rowsets(
         }
 
         const VersionPB& version_pb = partition_versions[tmp_rowset_pb.partition_id()];
-        DCHECK(version_pb.txn_ids_size() > 0);
-        DCHECK_EQ(version_pb.txn_ids(0), txn_id);
+        DCHECK(version_pb.pending_txn_ids_size() > 0);
+        DCHECK_EQ(version_pb.pending_txn_ids(0), txn_id);
 
         int64_t version = version_pb.has_version() ? (version_pb.version() + 1) : 2;
 
@@ -393,9 +393,10 @@ void TxnLazyCommitTask::commit() {
                     break;
                 }
 
-                if (version_pb.txn_ids_size() > 0 && version_pb.txn_ids(0) == txn_id_) {
-                    DCHECK(version_pb.txn_ids_size() == 1);
-                    version_pb.clear_txn_ids();
+                if (version_pb.pending_txn_ids_size() > 0 &&
+                    version_pb.pending_txn_ids(0) == txn_id_) {
+                    DCHECK(version_pb.pending_txn_ids_size() == 1);
+                    version_pb.clear_pending_txn_ids();
                     ver_val.clear();
 
                     if (version_pb.has_version()) {

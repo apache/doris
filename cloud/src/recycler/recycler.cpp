@@ -593,7 +593,7 @@ int InstanceRecycler::do_recycle() {
                         [this]() -> int { return InstanceRecycler::recycle_tmp_rowsets(); },
                         [this]() -> int { return InstanceRecycler::recycle_rowsets(); }))
                 .add(task_wrapper(
-                        [this]() { return InstanceRecycler::advance_pending_txn(); },
+                        [this]() { return InstanceRecycler::abort_timeout_txn(); },
                         [this]() { return InstanceRecycler::recycle_expired_txn_label(); }))
                 .add(task_wrapper([this]() { return InstanceRecycler::recycle_copy_jobs(); }))
                 .add(task_wrapper([this]() { return InstanceRecycler::recycle_stage(); }))
@@ -891,13 +891,13 @@ bool check_lazy_txn_finished(std::shared_ptr<TxnKv> txn_kv, const std::string in
         return false;
     }
 
-    if (version_pb.txn_ids_size() > 0) {
-        DCHECK(version_pb.txn_ids_size() == 1);
+    if (version_pb.pending_txn_ids_size() > 0) {
+        DCHECK(version_pb.pending_txn_ids_size() == 1);
         LOG(WARNING) << "lazy txn not finished, instance_id=" << instance_id
                      << " db_id=" << tablet_idx_pb.db_id()
                      << " table_id=" << tablet_idx_pb.table_id()
                      << " partition_id=" << tablet_idx_pb.partition_id()
-                     << " tablet_id=" << tablet_id << " txn_id=" << version_pb.txn_ids(0)
+                     << " tablet_id=" << tablet_id << " txn_id=" << version_pb.pending_txn_ids(0)
                      << " key=" << hex(ver_key);
         return false;
     }
@@ -1998,8 +1998,8 @@ int InstanceRecycler::scan_and_recycle(
     return ret;
 }
 
-int InstanceRecycler::advance_pending_txn() {
-    const std::string task_name = "advance_pending_txn";
+int InstanceRecycler::abort_timeout_txn() {
+    const std::string task_name = "abort_timeout_txn";
     int num_scanned = 0;
     int num_timeout = 0;
     int num_abort = 0;
