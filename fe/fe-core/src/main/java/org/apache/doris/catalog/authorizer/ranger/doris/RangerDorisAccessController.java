@@ -23,14 +23,15 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthorizationException;
+import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
-import org.apache.ranger.plugin.policyengine.RangerAccessRequest.ResourceMatchingScope;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
@@ -103,13 +104,10 @@ public class RangerDorisAccessController extends RangerAccessController {
         checkRequestResults(results, accessType.name());
     }
 
-    private boolean checkPrivilege(UserIdentity currentUser, DorisAccessType accessType,
+    private boolean checkPrivilegeByPlugin(UserIdentity currentUser, DorisAccessType accessType,
             RangerDorisResource resource) {
         RangerAccessRequestImpl request = createRequest(currentUser, accessType);
         request.setResource(resource);
-        if (accessType == DorisAccessType.SHOW) {
-            request.setResourceMatchingScope(ResourceMatchingScope.SELF_OR_DESCENDANTS);
-        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("ranger request: {}", request);
         }
@@ -119,17 +117,37 @@ public class RangerDorisAccessController extends RangerAccessController {
         return checkRequestResult(request, result, accessType.name());
     }
 
+    private boolean checkPrivilege(UserIdentity currentUser, PrivPredicate wanted,
+            RangerDorisResource resource, PrivBitSet checkedPrivs) {
+        PrivBitSet copy = wanted.getPrivs().copy();
+        // avoid duplicate check auth at different levels
+        copy.remove(checkedPrivs);
+        for (Privilege privilege : copy.toPrivilegeList()) {
+            boolean res = checkPrivilegeByPlugin(currentUser, DorisAccessType.toAccessType(privilege), resource);
+            if (res) {
+                checkedPrivs.set(privilege.getIdx());
+            }
+            if (Privilege.satisfy(checkedPrivs, wanted)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
-        // ranger does not support global privilege,
-        // use internal privilege check instead
-        return Env.getCurrentEnv().getAuth().checkGlobalPriv(currentUser, wanted);
+        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.GLOBAL, "*");
+        return checkPrivilege(currentUser, wanted, resource);
     }
 
     @Override
     public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
+        boolean res = checkGlobalPriv(currentUser, wanted);
+        if (res) {
+            return true;
+        }
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.CATALOG, ctl);
-        return checkPrivilege(currentUser, DorisAccessType.toAccessType(wanted), resource);
+        return checkPrivilegeByPlugin(currentUser, DorisAccessType.toAccessType(wanted), resource);
     }
 
     @Override
@@ -140,19 +158,32 @@ public class RangerDorisAccessController extends RangerAccessController {
         }
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.DATABASE, ctl,
                 ClusterNamespace.getNameFromFullName(db));
-        return checkPrivilege(currentUser, DorisAccessType.toAccessType(wanted), resource);
+        return checkPrivilegeByPlugin(currentUser, DorisAccessType.toAccessType(wanted), resource);
+    }
+
+    public boolean checkDbPrivInternal(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted,
+            PrivBitSet checkedPrivs) {
+        boolean res = checkCtlPriv(currentUser, ctl, wanted);
+        if (res) {
+            return true;
+        }
+        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.DATABASE, ctl,
+                ClusterNamespace.getNameFromFullName(db));
+        return checkPrivilegeByPlugin(currentUser, DorisAccessType.toAccessType(wanted), resource);
     }
 
     @Override
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
-        boolean res = checkDbPriv(currentUser, ctl, db, wanted);
-        if (res) {
-            return true;
-        }
+        PrivBitSet checkedPrivs = PrivBitSet.of();
+        return checkDbPrivInternal(currentUser, ctl, db, wanted, checkedPrivs) ||
+                checkTblPrivInternal(currentUser, ctl, db, tbl, wanted, checkedPrivs);
+    }
 
+    public boolean checkTblPrivInternal(UserIdentity currentUser, String ctl, String db, String tbl,
+            PrivPredicate wanted, PrivBitSet checkedPrivs) {
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.TABLE,
                 ctl, ClusterNamespace.getNameFromFullName(db), tbl);
-        return checkPrivilege(currentUser, DorisAccessType.toAccessType(wanted), resource);
+        return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
     }
 
     @Override
@@ -182,7 +213,7 @@ public class RangerDorisAccessController extends RangerAccessController {
     @Override
     public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.RESOURCE, resourceName);
-        return checkPrivilege(currentUser, DorisAccessType.toAccessType(wanted), resource);
+        return checkPrivilegeByPlugin(currentUser, DorisAccessType.toAccessType(wanted), resource);
     }
 
     @Override
@@ -192,7 +223,7 @@ public class RangerDorisAccessController extends RangerAccessController {
             return true;
         }
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.WORKLOAD_GROUP, workloadGroupName);
-        return checkPrivilege(currentUser, DorisAccessType.toAccessType(wanted), resource);
+        return checkPrivilegeByPlugin(currentUser, DorisAccessType.toAccessType(wanted), resource);
     }
 
     @Override

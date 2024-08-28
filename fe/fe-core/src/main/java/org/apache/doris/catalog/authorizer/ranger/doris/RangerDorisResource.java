@@ -27,7 +27,7 @@ public class RangerDorisResource extends RangerAccessResourceImpl {
     public static final String KEY_RESOURCE = "resource";
     public static final String KEY_WORKLOAD_GROUP = "workload_group";
 
-    // FirstLevelResource => Catalog / Resource / WorkloadGroup
+    // FirstLevelResource => Catalog / Resource / WorkloadGroup / GLOBAL
     // SecondLevelResource => Database
     // ThirdLevelResource => Table
     // FourthLevelResource => Column
