@@ -611,7 +611,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
         OlapTable table = scan.getTable();
 
-        Map<Boolean, List<MaterializedIndex>> indexesGroupByIsBaseOrNot = table.getVisibleIndex()
+        Map<Boolean, List<MaterializedIndex>> indexesGroupByIsBaseOrNot = table.getVisibleIndexWithHint()
                 .stream()
                 .collect(Collectors.groupingBy(index -> index.getId() == table.getBaseIndexId()));
 

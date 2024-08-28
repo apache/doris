@@ -27,10 +27,12 @@ import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.hint.OrderedHint;
 import org.apache.doris.nereids.hint.UseCboRuleHint;
+import org.apache.doris.nereids.hint.UseIndexHint;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.properties.SelectHintUseCboRule;
+import org.apache.doris.nereids.properties.SelectHintUseIndex;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
@@ -77,6 +79,8 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                             ctx.statementContext, selectHintPlan.getHints());
                 } else if (hintName.equalsIgnoreCase("USE_CBO_RULE")) {
                     extractRule((SelectHintUseCboRule) hint.getValue(), ctx.statementContext);
+                } else if (hintName.equalsIgnoreCase("NO_USE_INDEX")) {
+                    extractIndex((SelectHintUseIndex) hint.getValue(), ConnectContext.get().getStatementContext());
                 } else {
                     logger.warn("Can not process select hint '{}' and skip it", hint.getKey());
                 }
@@ -156,6 +160,24 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
             UseCboRuleHint hint = new UseCboRuleHint(parameter, selectHint.isNotUseCboRule());
             statementContext.addHint(hint);
         }
+    }
+
+    private void extractIndex(SelectHintUseIndex selectHint, StatementContext statementContext) {
+        // todo: use index hint need added to current scope, where should it be visible?
+        boolean isAllIndex = false;
+        UseIndexHint hint = null;
+        if (selectHint.getParameters().isEmpty()) {
+            isAllIndex = true;
+            hint = new UseIndexHint("UseIndex", selectHint.getParameters(), selectHint.isNotUseIndex(), isAllIndex);
+        } else {
+            hint = new UseIndexHint("UseIndex", selectHint.getParameters(), selectHint.isNotUseIndex(), isAllIndex);
+            if (selectHint.getParameters().size() < 2) {
+                hint.setErrorMessage("Use index hint should be zero or more than one parameter, "
+                        + "which indicate (table index ...)");
+                hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+            }
+        }
+        statementContext.addHint(hint);
     }
 
 }

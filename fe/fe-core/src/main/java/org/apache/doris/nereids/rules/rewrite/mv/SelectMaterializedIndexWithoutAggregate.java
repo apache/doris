@@ -216,7 +216,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
         if (scan.getTable().isDupKeysOrMergeOnWrite()) {
             // Set pre-aggregation to `on` to keep consistency with legacy logic.
             List<MaterializedIndex> candidates = scan
-                    .getTable().getVisibleIndex().stream().filter(index -> index.getId() != baseIndexId)
+                    .getTable().getVisibleIndexWithHint().stream().filter(index -> index.getId() != baseIndexId)
                     .filter(index -> !indexHasAggregate(index, scan)).filter(index -> containAllRequiredColumns(index,
                             scan, requiredScanOutputSupplier.get(), requiredExpr.get(), predicatesSupplier.get()))
                     .collect(Collectors.toList());
@@ -232,7 +232,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
             int baseIndexKeySize = table.getKeyColumnsByIndexId(table.getBaseIndexId()).size();
             // No aggregate on scan.
             // So only base index and indexes that have all the keys could be used.
-            List<MaterializedIndex> candidates = table.getVisibleIndex().stream()
+            List<MaterializedIndex> candidates = table.getVisibleIndexWithHint().stream()
                     .filter(index -> table.getKeyColumnsByIndexId(index.getId()).size() == baseIndexKeySize)
                     .filter(index -> containAllRequiredColumns(index, scan, requiredScanOutputSupplier.get(),
                             requiredExpr.get(), predicatesSupplier.get()))

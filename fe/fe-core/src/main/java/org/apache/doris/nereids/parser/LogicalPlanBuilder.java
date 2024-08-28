@@ -233,6 +233,7 @@ import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintOrdered;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.properties.SelectHintUseCboRule;
+import org.apache.doris.nereids.properties.SelectHintUseIndex;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -3228,6 +3229,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             }
                         }
                         hints.put(hintName, new SelectHintUseCboRule(hintName, noUseRuleParameters, true));
+                        break;
+                    case "no_use_index":
+                        List<String> noUseIndexParameters = new ArrayList<String>();
+                        for (HintAssignmentContext kv : hintStatement.parameters) {
+                            String parameterName = visitIdentifierOrText(kv.key);
+                            if (kv.key != null) {
+                                noUseIndexParameters.add(parameterName);
+                            }
+                        }
+                        hints.put(hintName, new SelectHintUseIndex(hintName, noUseIndexParameters, true));
                         break;
                     default:
                         break;

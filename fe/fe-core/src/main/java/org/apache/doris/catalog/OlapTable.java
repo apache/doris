@@ -54,6 +54,8 @@ import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVVersionSnapshot;
+import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.UseIndexHint;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -102,6 +104,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -539,6 +542,46 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             visibleMVs.put(mv.getId(), indexIdToMeta.get(mv.getId()));
         }
         return visibleMVs;
+    }
+
+    public List<MaterializedIndex> getVisibleIndexWithHint() {
+        List<MaterializedIndex> visibleIndexes = getVisibleIndex();
+        Set<Long> indexIds = new HashSet<>();
+        for (MaterializedIndex mv : visibleIndexes) {
+            indexIds.add(mv.getId());
+        }
+        List<Long> forbiddenIndexIds = Lists.newArrayList();
+        for (Hint hint : ConnectContext.get().getStatementContext().getHints()) {
+            if (hint.getHintName().equalsIgnoreCase("UseIndex") && !hint.isSyntaxError()) {
+                UseIndexHint useIndexHint = (UseIndexHint) hint;
+                if (useIndexHint.isNotUseIndex()) {
+                    if (useIndexHint.isAllIndex()) {
+                        List<MaterializedIndex> allIndexes = Lists.newArrayList();
+                        allIndexes.add(getBaseIndex());
+                        hint.setStatus(Hint.HintStatus.SUCCESS);
+                        return allIndexes;
+                    } else if (useIndexHint.getParameters().get(0).equalsIgnoreCase(this.name)) {
+                        for (int i = 1; i < useIndexHint.getParameters().size(); i++) {
+                            if (hasMaterializedIndex(useIndexHint.getParameters().get(i))) {
+                                Long forbiddenIndexId = indexNameToId.get(useIndexHint.getParameters().get(i));
+                                forbiddenIndexIds.add(forbiddenIndexId);
+                                if (indexIds.contains(forbiddenIndexId)) {
+                                    hint.setStatus(Hint.HintStatus.SUCCESS);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        List<MaterializedIndex> finalVsibleIndexes = Lists.newArrayList();
+        for (MaterializedIndex mv : visibleIndexes) {
+            if (!forbiddenIndexIds.contains(mv.getId())) {
+                finalVsibleIndexes.add(mv);
+            }
+        }
+        return finalVsibleIndexes;
+
     }
 
     public List<MaterializedIndex> getVisibleIndex() {
