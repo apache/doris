@@ -881,7 +881,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     }
     auto tmp_rowset_key = meta_rowset_tmp_key({instance_id, txn_id, tablet_id});
     std::string tmp_rowset_val;
-    TxnErrorCode err = txn->get(tmp_rowset_key, &tmp_rowset_val);
+    ValueBuf buf;
+    auto err = selectdb::get(txn.get(), tmp_rowset_key, &buf);
     if (err != TxnErrorCode::TXN_OK) {
         SS << "failed to get tmp rowset key"
            << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? " (not found)" : "")
@@ -892,10 +893,21 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                                                       : cast_as<ErrCategory::READ>(err);
         return;
     }
+    doris::RowsetMetaPB rs_meta;
+    if (!buf.to_pb(&rs_meta)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = "malformed rowset meta, unable to deserialize";
+        LOG(WARNING) << msg << " key=" << hex(tmp_rowset_val);
+        return;
+    }
+    if (!rs_meta.SerializeToString(&tmp_rowset_val)) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = "malformed rowset meta, unable to serialize";
+        LOG(WARNING) << msg << " key=" << hex(tmp_rowset_key);
+        return;
+    }
 
     // We don't actually need to parse the rowset meta
-    doris::RowsetMetaCloudPB rs_meta;
-    rs_meta.ParseFromString(tmp_rowset_val);
     if (rs_meta.txn_id() <= 0) {
         SS << "invalid txn_id in output tmp rowset meta, tablet_id=" << tablet_id
            << " txn_id=" << rs_meta.txn_id();
@@ -910,7 +922,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
 
     int64_t version = compaction.output_versions(0);
     auto rowset_key = meta_rowset_key({instance_id, tablet_id, version});
-    txn->put(rowset_key, tmp_rowset_val);
+    // splitting large values (>90*1000) into multiple KVs
+    selectdb::put(txn.get(), rowset_key, tmp_rowset_val, 0);
     INSTANCE_LOG(INFO) << "put rowset meta, tablet_id=" << tablet_id
                        << " rowset_key=" << hex(rowset_key);
 
@@ -1214,7 +1227,8 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                 meta_rowset_tmp_key({instance_id, schema_change.txn_ids().at(i), new_tablet_id});
         std::string tmp_rowset_val;
         // FIXME: async get
-        TxnErrorCode err = txn->get(tmp_rowset_key, &tmp_rowset_val);
+        ValueBuf buf;
+        auto err = selectdb::get(txn.get(), tmp_rowset_key, &buf);
         if (err != TxnErrorCode::TXN_OK) {
             SS << "failed to get tmp rowset key"
                << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? " (not found)" : "")
@@ -1225,9 +1239,20 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                                                           : cast_as<ErrCategory::READ>(err);
             return;
         }
+        doris::RowsetMetaPB rs_meta;
+        if (!buf.to_pb(&rs_meta)) {
+            LOG(WARNING) << "failed to parse rs_meta value";
+            return;
+        }
+        if (!rs_meta.SerializeToString(&tmp_rowset_val)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            LOG(WARNING) << "failed to serialize rowset meta";
+            return;
+        }
         auto rowset_key = meta_rowset_key(
                 {instance_id, new_tablet_id, schema_change.output_versions().at(i)});
-        txn->put(rowset_key, tmp_rowset_val);
+        // splitting large values (>90*1000) into multiple KVs
+        selectdb::put(txn.get(), rowset_key, tmp_rowset_val, 0);
         txn->remove(tmp_rowset_key);
     }
 

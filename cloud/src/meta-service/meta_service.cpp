@@ -1158,7 +1158,8 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
 
     DCHECK_GT(rowset_meta.txn_expiration(), 0);
     auto tmp_rs_val = rowset_meta.SerializeAsString();
-    txn->put(tmp_rs_key, tmp_rs_val);
+    // splitting large values (>90*1000) into multiple KVs
+    selectdb::put(txn.get(), tmp_rs_key, tmp_rs_val, 0);
     LOG(INFO) << "put tmp_rs_key " << hex(tmp_rs_key) << " delete recycle_rs_key "
               << hex(recycle_rs_key) << " value_size " << tmp_rs_val.size() << " txn_id "
               << request->txn_id();
@@ -1258,7 +1259,8 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
         return;
     }
 
-    txn->put(update_key, update_val);
+    // splitting large values (>90*1000) into multiple KVs
+    selectdb::put(txn.get(), update_key, update_val, 0);
     LOG(INFO) << "xxx put "
               << "update_rowset_key " << hex(update_key) << " value_size " << update_val.size();
     err = txn->commit();
@@ -1290,6 +1292,7 @@ void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
             });
 
     std::stringstream ss;
+    std::string last_key = "";
     do {
         TxnErrorCode err = txn->get(key0, key1, &it);
         if (err != TxnErrorCode::TXN_OK) {
@@ -1302,17 +1305,37 @@ void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
 
         while (it->has_next()) {
             auto [k, v] = it->next();
-            auto rs = response->add_rowset_meta();
-            if (!rs->ParseFromArray(v.data(), v.size())) {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                msg = "malformed rowset meta, unable to deserialize";
-                LOG(WARNING) << msg << " key=" << hex(k);
-                return;
+            // remove suffix
+            k = k.substr(0, k.size() - 9);
+            if (k != last_key) {
+                last_key = k;
+                ValueBuf buf;
+                err = selectdb::get(txn, k, &buf);
+                if (err != TxnErrorCode::TXN_OK) {
+                    ss << "failed to get tmp rowset key"
+                       << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? " (not found)" : "");
+                    msg = ss.str();
+                    ss << " key=" << hex(k);
+                    LOG(WARNING) << ss.str();
+                    code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::UNDEFINED_ERR
+                                                                  : cast_as<ErrCategory::READ>(err);
+                    return;
+                }
+                doris::RowsetMetaPB rs_meta;
+                if (!buf.to_pb(&rs_meta)) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    msg = "malformed rowset meta, unable to deserialize";
+                    LOG(WARNING) << msg << " key=" << hex(k);
+                    return;
+                }
+                response->add_rowset_meta()->CopyFrom(rs_meta);
+                ++num_rowsets;
+            } else {
+                LOG(INFO) << "k=" << hex(k) << " equal with last_key,skip it";
             }
-            ++num_rowsets;
             if (!it->has_next()) key0 = k;
         }
-        key0.push_back('\x00'); // Update to next smallest key for iteration
+        key0 = it->next_begin_key(); // Update to next smallest key for iteration
     } while (it->more());
 }
 
