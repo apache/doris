@@ -127,7 +127,7 @@ private:
         auto& container_variant = assert_cast<vectorized::ColumnObject&>(*container);
 
         // add root first
-        if (_path.get_parts().size() == 1) {
+        if (_path.get_parts().empty() && _root_reader) {
             auto& root_var =
                     _root_reader->column->is_nullable()
                             ? assert_cast<vectorized::ColumnObject&>(
