@@ -27,7 +27,7 @@ suite("test_mow_enable_sequence_col") {
             UNIQUE KEY(`user_id`)
             DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
             PROPERTIES (
-            "disable_auto_compaction" = true,
+            "disable_auto_compaction" = "true",
             "replication_allocation" = "tag.location.default: 1",
             "enable_unique_key_merge_on_write" = "true");"""
 
