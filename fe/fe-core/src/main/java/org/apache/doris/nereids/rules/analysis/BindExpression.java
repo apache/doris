@@ -620,7 +620,7 @@ public class BindExpression implements AnalysisRuleFactory {
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
                 project, cascadesContext, project.children(), true, true);
 
-        Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.arity());
+        Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.getProjects().size());
         StatementContext statementContext = ctx.statementContext;
         for (Expression expression : project.getProjects()) {
             Expression expr = analyzer.analyze(expression);
@@ -719,9 +719,15 @@ public class BindExpression implements AnalysisRuleFactory {
         for (int i = 0; i < boundAggOutput.size(); i++) {
             NamedExpression output = boundAggOutput.get(i);
             if (output instanceof BoundStar) {
-                UnboundStar unboundStar = (UnboundStar) ((agg.getOutputExpressions().get(i)));
+                UnboundStar unboundStar = (UnboundStar) agg.getOutputExpression(i);
                 if (!unboundStar.getReplacedAlias().isEmpty()) {
-                    throw new AnalysisException("* replace in agg is not supported");
+                    // If user use * replace in agg, witch slot the group by clause should reference is ambiguous.
+                    // For example, select * replace (col % 2 as col) from t group by col
+                    // The sql should be rewritten like follows:
+                    // select * except (col), col % 2 as col1 from t group by ..., col1
+                    // or
+                    // select * except (col), col % 2 as col1 from t group by ..., col -- group by origin col in t
+                    throw new AnalysisException("* REPLACE in agg clause is not supported, use * EXCEPT instead");
                 }
                 List<NamedExpression> excepts = unboundStar.getExceptedSlots();
                 Set<NamedExpression> boundExcepts = Suppliers.memoize(
