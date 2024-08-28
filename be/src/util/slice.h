@@ -358,6 +358,10 @@ public:
         return *this;
     }
 
+    // disable copy constructor and copy assignment
+    OwnedSlice(const OwnedSlice&) = delete;
+    void operator=(const OwnedSlice&) = delete;
+
     ~OwnedSlice() {
         if (_slice.data != nullptr) {
             DCHECK(_capacity != 0);
@@ -373,11 +377,6 @@ private:
 
     OwnedSlice(uint8_t* _data, size_t size, size_t capacity)
             : _slice(_data, size), _capacity(capacity) {}
-
-private:
-    // disable copy constructor and copy assignment
-    OwnedSlice(const OwnedSlice&) = delete;
-    void operator=(const OwnedSlice&) = delete;
 
     Slice _slice;
     size_t _capacity = 0;
