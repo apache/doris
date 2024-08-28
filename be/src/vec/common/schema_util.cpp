@@ -467,8 +467,8 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
     return Status::OK();
 }
 
-Status _internal_parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                                       const ParseConfig& config) {
+Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
+                              const ParseConfig& config) {
     for (int i = 0; i < variant_pos.size(); ++i) {
         auto column_ref = block.get_by_position(variant_pos[i]).column;
         bool is_nullable = column_ref->is_nullable();
@@ -530,16 +530,10 @@ Status _internal_parse_variant_columns(Block& block, const std::vector<int>& var
 
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                              const ParseConfig& config) {
-    try {
-        // Parse each variant column from raw string column
-        RETURN_IF_ERROR(
-                vectorized::schema_util::_parse_variant_columns(block, variant_pos, config));
-    } catch (const doris::Exception& e) {
-        // TODO more graceful, max_filter_ratio
-        LOG(WARNING) << "encounter execption " << e.to_string();
-        return Status::InternalError(e.to_string());
-    }
-    return Status::OK();
+    // Parse each variant column from raw string column
+    RETURN_IF_CATCH_EXCEPTION({
+        return vectorized::schema_util::_parse_variant_columns(block, variant_pos, config);
+    });
 }
 
 Status encode_variant_sparse_subcolumns(ColumnObject& column) {
