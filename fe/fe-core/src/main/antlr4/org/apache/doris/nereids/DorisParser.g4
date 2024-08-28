@@ -237,7 +237,7 @@ addRollupClause
 
 alterTableClause
     : ADD COLUMN columnDef columnPosition? toRollup? properties=propertyClause?     #addColumnClause
-    | ADD COLUMN LEFT_PAREN columnDef (COMMA columnDef) RIGHT_PAREN
+    | ADD COLUMN LEFT_PAREN columnDef (COMMA columnDef)* RIGHT_PAREN
         toRollup? properties=propertyClause?                                        #addColumnsClause
     | DROP COLUMN name=identifier fromRollup? properties=propertyClause?            #dropColumnClause
     | MODIFY COLUMN columnDef columnPosition? fromRollup?
