@@ -923,7 +923,8 @@ public class NativeInsertStmt extends InsertStmt {
             Column col = targetColumns.get(i);
 
             if (expr instanceof DefaultValueExpr) {
-                if (targetColumns.get(i).getDefaultValue() == null && !targetColumns.get(i).isAllowNull()) {
+                if (targetColumns.get(i).getDefaultValue() == null && !targetColumns.get(i).isAllowNull()
+                        && !targetColumns.get(i).isAutoInc()) {
                     throw new AnalysisException("Column has no default value, column="
                             + targetColumns.get(i).getName());
                 }
