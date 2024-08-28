@@ -46,8 +46,23 @@ import java.util.stream.Collectors;
 
 public class TableStatsMeta implements Writable, GsonPostProcessable {
 
+    @SerializedName("ctlId")
+    public final long ctlId;
+
+    @SerializedName("ctln")
+    public final String ctlName;
+
+    @SerializedName("dbId")
+    public final long dbId;
+
+    @SerializedName("dbn")
+    public final String dbName;
+
     @SerializedName("tblId")
     public final long tblId;
+
+    @SerializedName("tbln")
+    public final String tblName;
 
     @SerializedName("idxId")
     public final long idxId;
@@ -82,14 +97,24 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
 
     @VisibleForTesting
     public TableStatsMeta() {
+        ctlId = 0;
+        ctlName = null;
+        dbId = 0;
+        dbName = null;
         tblId = 0;
+        tblName = null;
         idxId = 0;
     }
 
     // It's necessary to store these fields separately from AnalysisInfo, since the lifecycle between AnalysisInfo
     // and TableStats is quite different.
     public TableStatsMeta(long rowCount, AnalysisInfo analyzedJob, TableIf table) {
+        this.ctlId = table.getDatabase().getCatalog().getId();
+        this.ctlName = table.getDatabase().getCatalog().getName();
+        this.dbId = table.getDatabase().getId();
+        this.dbName = table.getDatabase().getFullName();
         this.tblId = table.getId();
+        this.tblName = table.getName();
         this.idxId = -1;
         this.rowCount = rowCount;
         update(analyzedJob, table);
