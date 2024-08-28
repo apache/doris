@@ -51,8 +51,8 @@ RUN curl -f https://repo1.maven.org/maven2/org/jacoco/jacoco/${JACOCO_VERSION}/j
 # cloud
 COPY cloud/CMakeLists.txt cloud/output* output/ms* /opt/apache-doris/cloud/
 RUN mkdir /opt/apache-doris/fdb
-RUN if [ -d /opt/apache-doris/cloud/bin ]; then                           \
-        sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/cloud/bin/start.sh  \
+RUN if [ -d /opt/apache-doris/cloud/bin ]; then                            \
+        sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/cloud/bin/start.sh ; \
     fi
 
 # fe and be
