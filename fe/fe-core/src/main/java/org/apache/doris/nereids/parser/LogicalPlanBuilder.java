@@ -3314,9 +3314,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private LogicalPlan withAggregate(LogicalPlan input, SelectColumnClauseContext selectCtx,
                                       Optional<AggClauseContext> aggCtx) {
         return input.optionalMap(aggCtx, () -> {
-            if (input instanceof UnboundOneRowRelation) {
-                throw new AnalysisException("Query without FROM clause cannot have a GROUP BY clause");
-            }
             GroupingElementContext groupingElementContext = aggCtx.get().groupingElement();
             List<NamedExpression> namedExpressions = getNamedExpressions(selectCtx.namedExpressionSeq());
             if (groupingElementContext.GROUPING() != null) {
