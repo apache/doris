@@ -30,7 +30,7 @@ suite("add_column") {
         `id` bigint(20) NOT NULL,
         `count` bigint(20) NOT NULL,
     ) ENGINE=OLAP
-    AGGREGATE KEY(`id`)
+    UNIQUE KEY(`id`)
     COMMENT 'OLAP'
     DISTRIBUTED BY HASH(`id`) BUCKETS 5
     PROPERTIES (
