@@ -125,8 +125,8 @@ DEFINE_Int64(max_sys_mem_available_low_water_mark_bytes, "6871947673");
 DEFINE_Int64(memtable_limiter_reserved_memory_bytes, "838860800");
 
 // The size of the memory that gc wants to release each time, as a percentage of the mem limit.
-DEFINE_mString(process_minor_gc_size, "10%");
-DEFINE_mString(process_full_gc_size, "20%");
+DEFINE_mString(process_minor_gc_size, "5%");
+DEFINE_mString(process_full_gc_size, "10%");
 
 // If true, when the process does not exceed the soft mem limit, the query memory will not be limited;
 // when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
@@ -140,7 +140,13 @@ DEFINE_mBool(enable_stacktrace, "true");
 
 DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
 
-DEFINE_mBool(enable_memory_orphan_check, "false");
+DEFINE_mInt64(crash_in_alloc_large_memory_bytes, "-1");
+
+// default is true. if any memory tracking in Orphan mem tracker will report error.
+// !! not modify the default value of this conf!! otherwise memory errors cannot be detected in time.
+// allocator free memory not need to check, because when the thread memory tracker label is Orphan,
+// use the tracker saved in Allocator.
+DEFINE_mBool(enable_memory_orphan_check, "true");
 
 // The maximum time a thread waits for full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
@@ -198,8 +204,6 @@ DEFINE_Int32(release_snapshot_worker_count, "5");
 DEFINE_mBool(report_random_wait, "true");
 // the interval time(seconds) for agent report tasks signature to FE
 DEFINE_mInt32(report_task_interval_seconds, "10");
-// the interval time(seconds) for refresh storage policy from FE
-DEFINE_mInt32(storage_refresh_storage_policy_task_interval_seconds, "5");
 // the interval time(seconds) for agent report disk state to FE
 DEFINE_mInt32(report_disk_state_interval_seconds, "60");
 // the interval time(seconds) for agent report olap table to FE
@@ -231,14 +235,8 @@ DEFINE_String(log_buffer_level, "");
 // number of threads available to serve backend execution requests
 DEFINE_Int32(be_service_threads, "64");
 
-// interval between profile reports; in seconds
-DEFINE_mInt32(status_report_interval, "5");
 // The pipeline task has a high concurrency, therefore reducing its report frequency
 DEFINE_mInt32(pipeline_status_report_interval, "10");
-// if true, each disk will have a separate thread pool for scanner
-DEFINE_Bool(doris_enable_scanner_thread_pool_per_disk, "true");
-// the timeout of a work thread to wait the blocking priority queue to get a task
-DEFINE_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "500");
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DEFINE_Int32(doris_scanner_thread_pool_thread_num, "-1");
@@ -263,26 +261,18 @@ DEFINE_mInt64(thrift_client_retry_interval_ms, "1000");
 // max message size of thrift request
 // default: 100 * 1024 * 1024
 DEFINE_mInt64(thrift_max_message_size, "104857600");
-// max row count number for single scan range, used in segmentv1
-DEFINE_mInt32(doris_scan_range_row_count, "524288");
 // max bytes number for single scan range, used in segmentv2
 DEFINE_mInt32(doris_scan_range_max_mb, "1024");
-// max bytes number for single scan block, used in segmentv2
-DEFINE_mInt32(doris_scan_block_max_mb, "67108864");
 // single read execute fragment row number
 DEFINE_mInt32(doris_scanner_row_num, "16384");
 // single read execute fragment row bytes
 DEFINE_mInt32(doris_scanner_row_bytes, "10485760");
-DEFINE_mInt32(min_bytes_in_scanner_queue, "67108864");
 // (Advanced) Maximum size of per-query receive-side buffer
 DEFINE_mInt32(exchg_node_buffer_size_bytes, "20485760");
 DEFINE_mInt32(exchg_buffer_queue_capacity_factor, "64");
 
-DEFINE_mInt64(column_dictionary_key_ratio_threshold, "0");
-DEFINE_mInt64(column_dictionary_key_size_threshold, "0");
 // memory_limitation_per_thread_for_schema_change_bytes unit bytes
 DEFINE_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
-DEFINE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "100000000");
 
 DEFINE_mInt32(cache_prune_interval_sec, "10");
 DEFINE_mInt32(cache_periodic_prune_stale_sweep_sec, "300");
@@ -338,7 +328,6 @@ DEFINE_mBool(disable_storage_page_cache, "false");
 DEFINE_mBool(disable_storage_row_cache, "true");
 // whether to disable pk page cache feature in storage
 DEFINE_Bool(disable_pk_storage_page_cache, "false");
-DEFINE_Bool(enable_non_pipeline, "false");
 
 // Cache for mow primary key storage page size
 DEFINE_String(pk_storage_page_cache_limit, "10%");
@@ -553,8 +542,6 @@ DEFINE_Int32(fragment_mgr_asynic_work_pool_queue_size, "4096");
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DEFINE_Int32(num_disks, "0");
-// The maximum number of the threads per disk is also the max queue depth per disk.
-DEFINE_Int32(num_threads_per_disk, "0");
 // The read size is the size of the reads sent to os.
 // There is a trade off of latency and throughout, trying to keep disks busy but
 // not introduce seeks.  The literature seems to agree that with 8 MB reads, random
@@ -588,7 +575,7 @@ DEFINE_mInt32(memory_maintenance_sleep_time_ms, "100");
 
 // After full gc, no longer full gc and minor gc during sleep.
 // After minor gc, no minor gc during sleep, but full gc is possible.
-DEFINE_mInt32(memory_gc_sleep_time_ms, "1000");
+DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
 
 // Sleep time in milliseconds between memtbale flush mgr refresh iterations
 DEFINE_mInt64(memtable_mem_tracker_refresh_interval_ms, "5");
@@ -883,16 +870,9 @@ DEFINE_mInt32(string_type_length_soft_limit_bytes, "1048576");
 DEFINE_Validator(string_type_length_soft_limit_bytes,
                  [](const int config) -> bool { return config > 0 && config <= 2147483643; });
 
-DEFINE_mInt32(jsonb_type_length_soft_limit_bytes, "1048576");
-
-DEFINE_Validator(jsonb_type_length_soft_limit_bytes,
-                 [](const int config) -> bool { return config > 0 && config <= 2147483643; });
-
 // Threshold of reading a small file into memory
 DEFINE_mInt32(in_memory_file_size, "1048576"); // 1MB
 
-// ParquetReaderWrap prefetch buffer size
-DEFINE_Int32(parquet_reader_max_buffer_size, "50");
 // Max size of parquet page header in bytes
 DEFINE_mInt32(parquet_header_max_size_mb, "1");
 // Max buffer size for parquet row group
@@ -990,7 +970,6 @@ DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 // Will remove after fully test.
 DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
-DEFINE_mBool(variant_enable_flatten_nested, "false");
 DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "1000");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
@@ -999,6 +978,7 @@ DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
+// format: {"path": "/path/to/file_cache", "total_size":53687091200, "normal_percent":85, "disposable_percent":10, "index_percent":5}
 DEFINE_String(file_cache_path, "");
 DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
@@ -1017,8 +997,6 @@ DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
 // inverted index searcher cache size
 DEFINE_String(inverted_index_searcher_cache_limit, "10%");
-// set `true` to enable insert searcher into cache when write inverted index data
-DEFINE_Bool(enable_write_index_searcher_cache, "true");
 DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
 DEFINE_Int32(inverted_index_fd_number_limit_percent, "40"); // 40%
 DEFINE_Int32(inverted_index_query_cache_shards, "256");
@@ -1331,7 +1309,16 @@ DEFINE_mBool(enable_hdfs_mem_limiter, "true");
 
 DEFINE_mInt16(topn_agg_limit_multiplier, "2");
 
+// Tablet meta size limit after serialization, 1.5GB
+DEFINE_mInt64(tablet_meta_serialize_size_limit, "1610612736");
+// Protobuf supports a maximum of 2GB, so the size of the tablet meta after serialization must be less than 2GB
+// 1717986918 = 2GB * 0.8
+DEFINE_Validator(tablet_meta_serialize_size_limit,
+                 [](const int64_t config) -> bool { return config < 1717986918; });
+
 DEFINE_mInt64(pipeline_task_leakage_detect_period_secs, "60");
+DEFINE_mInt32(snappy_compression_block_size, "262144");
+DEFINE_mInt32(lz4_compression_block_size, "262144");
 
 // clang-format off
 #ifdef BE_TEST

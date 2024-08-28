@@ -141,6 +141,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.DoNotFallbackException;
 import org.apache.doris.nereids.exceptions.MustFallbackException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -148,12 +149,14 @@ import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.NotAllowFallback;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
+import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -579,7 +582,10 @@ public class StmtExecutor {
         }
     }
 
-    public boolean notAllowFallback() {
+    public boolean notAllowFallback(NereidsException e) {
+        if (e.getException() instanceof DoNotFallbackException) {
+            return true;
+        }
         if (parsedStmt instanceof LogicalPlanAdapter) {
             LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
             return logicalPlan instanceof NotAllowFallback;
@@ -604,12 +610,12 @@ public class StmtExecutor {
                     }
                     // try to fall back to legacy planner
                     if (LOG.isDebugEnabled()) {
-                        LOG.debug("nereids cannot process statement\n" + originStmt.originStmt
-                                + "\n because of " + e.getMessage(), e);
+                        LOG.debug("nereids cannot process statement\n{}\n because of {}",
+                                originStmt.originStmt, e.getMessage(), e);
                     }
-                    if (notAllowFallback()) {
+                    if (e instanceof NereidsException && notAllowFallback((NereidsException) e)) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
-                        throw ((NereidsException) e).getException();
+                        throw new AnalysisException(e.getMessage());
                     }
                     if (e instanceof NereidsException
                             && !(((NereidsException) e).getException() instanceof MustFallbackException)
@@ -696,6 +702,9 @@ public class StmtExecutor {
             if (isForwardToMaster()) {
                 throw new UserException("Forward master command is not supported for prepare statement");
             }
+            if (logicalPlan instanceof UnsupportedCommand || logicalPlan instanceof CreatePolicyCommand) {
+                throw new MustFallbackException("cannot prepare command " + logicalPlan.getClass().getSimpleName());
+            }
             logicalPlan = new PrepareCommand(String.valueOf(context.getStmtId()),
                     logicalPlan, statementContext.getPlaceholders(), originStmt);
 
@@ -714,6 +723,10 @@ public class StmtExecutor {
             if (logicalPlan instanceof Forward) {
                 redirectStatus = ((Forward) logicalPlan).toRedirectStatus();
                 if (isForwardToMaster()) {
+                    // before forward to master, we also need to set profileType in this node
+                    if (logicalPlan instanceof InsertIntoTableCommand) {
+                        profileType = ProfileType.LOAD;
+                    }
                     if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                         throw new UserException("Forward master command is not supported for prepare statement");
                     }
@@ -741,7 +754,7 @@ public class StmtExecutor {
             syncJournalIfNeeded();
             try {
                 ((Command) logicalPlan).run(context, this);
-            } catch (MustFallbackException e) {
+            } catch (MustFallbackException | DoNotFallbackException e) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
                 }
@@ -790,11 +803,11 @@ public class StmtExecutor {
             try {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                 checkBlockRules();
+            } catch (MustFallbackException | DoNotFallbackException e) {
+                LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
+                throw new NereidsException("Command(" + originStmt.originStmt + ") process failed.", e);
             } catch (Exception e) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Nereids plan query failed:\n{}", originStmt.originStmt);
-                }
-                LOG.info("NereidsException", e);
+                LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
             profile.getSummaryProfile().setQueryPlanFinishTime();
@@ -946,7 +959,8 @@ public class StmtExecutor {
             parseByLegacy();
             if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
                     && !(parsedStmt instanceof TransactionStmt)) {
-                throw new TException("This is in a transaction, only insert, commit, rollback is acceptable.");
+                throw new TException("This is in a transaction, only insert, update, delete, "
+                        + "commit, rollback is acceptable.");
             }
             // support select hint e.g. select /*+ SET_VAR(query_timeout=1) */ sleep(3);
             analyzeVariablesInStmt();
@@ -956,6 +970,13 @@ public class StmtExecutor {
                 analyze(context.getSessionVariable().toThrift());
 
                 if (isForwardToMaster()) {
+                    // before forward to master, we also need to set profileType in this node
+                    if (parsedStmt instanceof InsertStmt) {
+                        InsertStmt insertStmt = (InsertStmt) parsedStmt;
+                        if (!insertStmt.getQueryStmt().isExplain()) {
+                            profileType = ProfileType.LOAD;
+                        }
+                    }
                     if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                         throw new UserException("Forward master command is not supported for prepare statement");
                     }
@@ -1762,6 +1783,11 @@ public class StmtExecutor {
                 sendResultSet(resultSet.get(), ((Queriable) parsedStmt).getFieldInfos());
                 isHandleQueryInFe = true;
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
+                if (context.getSessionVariable().enableProfile()) {
+                    if (profile != null) {
+                        this.profile.getSummaryProfile().setExecutedByFrontend(true);
+                    }
+                }
                 return;
             }
         }
@@ -3329,11 +3355,18 @@ public class StmtExecutor {
                         if (batch.getBatch() == null) {
                             continue;
                         }
-                        LOG.debug("Batch size for query {} is {}",
-                                DebugUtil.printId(queryId), batch.getBatch().rows.size());
+                        if (batch.getBatch().getRows() != null) {
+                            context.updateReturnRows(batch.getBatch().getRows().size());
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("Batch size for query {} is {}",
+                                        DebugUtil.printId(queryId), batch.getBatch().rows.size());
+                            }
+                        }
                         resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
-                        LOG.debug("Result size for query {} is currently {}",
-                                DebugUtil.printId(queryId), batch.getBatch().rows.size());
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Result size for query {} is currently {}",
+                                    DebugUtil.printId(queryId), resultRows.size());
+                        }
                     }
                 }
             } catch (Exception e) {
@@ -3471,10 +3504,10 @@ public class StmtExecutor {
                     }
                     // try to fall back to legacy planner
                     if (LOG.isDebugEnabled()) {
-                        LOG.debug("nereids cannot process statement\n" + originStmt.originStmt
-                                + "\n because of " + e.getMessage(), e);
+                        LOG.debug("nereids cannot process statement\n{}\n because of {}",
+                                originStmt.originStmt, e.getMessage(), e);
                     }
-                    if (notAllowFallback()) {
+                    if (e instanceof NereidsException && notAllowFallback((NereidsException) e)) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }

@@ -25,7 +25,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
-import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -350,7 +349,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         if (this instanceof LeafExpression) {
             return this instanceof Literal;
         } else {
-            return !(this instanceof Nondeterministic) && ExpressionUtils.allMatch(children(), Expression::isConstant);
+            return this.isDeterministic() && ExpressionUtils.allMatch(children(), Expression::isConstant);
         }
     }
 

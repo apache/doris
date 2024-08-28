@@ -69,7 +69,6 @@ class BitmapIndexIterator;
 class ColumnIterator;
 class InvertedIndexIterator;
 class RowRanges;
-
 struct ColumnPredicateInfo {
     ColumnPredicateInfo() = default;
 
@@ -269,7 +268,12 @@ private:
                 continue;
             }
             vectorized::DataTypePtr storage_type = _segment->get_data_type_of(
-                    _schema->column(cid)->path(), _schema->column(cid)->is_nullable(), false);
+                    Segment::ColumnIdentifier {
+                            .unique_id = _schema->column(cid)->unique_id(),
+                            .parent_unique_id = _schema->column(cid)->parent_unique_id(),
+                            .path = _schema->column(cid)->path(),
+                            .is_nullable = _schema->column(cid)->is_nullable()},
+                    false);
             if (storage_type && !storage_type->equals(*block->get_by_position(block_cid).type)) {
                 // Do additional cast
                 vectorized::MutableColumnPtr tmp = storage_type->create_column();
@@ -522,8 +526,6 @@ private:
     bool _record_rowids = false;
     int64_t _tablet_id = 0;
     std::set<int32_t> _output_columns;
-
-    std::unique_ptr<HierarchicalDataReader> _path_reader;
 
     std::vector<uint8_t> _ret_flags;
 

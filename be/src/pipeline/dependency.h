@@ -316,7 +316,6 @@ public:
     vectorized::VExprContextSPtrs probe_expr_ctxs;
     size_t input_num_rows = 0;
     std::vector<vectorized::AggregateDataPtr> values;
-    std::unique_ptr<vectorized::Arena> agg_profile_arena;
     /// The total size of the row from the aggregate functions.
     size_t total_size_of_aggregate_states = 0;
     size_t align_aggregate_states = 1;
@@ -684,6 +683,10 @@ public:
     std::unique_ptr<SetHashTableVariants> hash_table_variants = nullptr; // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 
+    // The SET operator's child might have different nullable attributes.
+    // If a calculation involves both nullable and non-nullable columns, the final output should be a nullable column
+    Status update_build_not_ignore_null(const vectorized::VExprContextSPtrs& ctxs);
+
     /// init in both upstream side.
     //The i-th result expr list refers to the i-th child.
     std::vector<vectorized::VExprContextSPtrs> child_exprs_lists;
@@ -857,13 +860,13 @@ public:
 
     void sub_mem_usage(int channel_id, size_t delta) { mem_trackers[channel_id]->release(delta); }
 
-    virtual void add_total_mem_usage(size_t delta, int channel_id = 0) {
+    virtual void add_total_mem_usage(size_t delta, int channel_id) {
         if (mem_usage.fetch_add(delta) + delta > config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->block();
         }
     }
 
-    virtual void sub_total_mem_usage(size_t delta, int channel_id = 0) {
+    virtual void sub_total_mem_usage(size_t delta, int channel_id) {
         auto prev_usage = mem_usage.fetch_sub(delta);
         DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta
                                          << " channel_id: " << channel_id;

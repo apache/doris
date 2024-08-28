@@ -818,9 +818,9 @@ void BlockFileCache::remove_file_blocks_and_clean_time_maps(
 void BlockFileCache::find_evict_candidates(LRUQueue& queue, size_t size, size_t cur_cache_size,
                                            size_t& removed_size,
                                            std::vector<FileBlockCell*>& to_evict,
-                                           std::lock_guard<std::mutex>& cache_lock) {
+                                           std::lock_guard<std::mutex>& cache_lock, bool is_ttl) {
     for (const auto& [entry_key, entry_offset, entry_size] : queue) {
-        if (!is_overflow(removed_size, size, cur_cache_size)) {
+        if (!is_overflow(removed_size, size, cur_cache_size, is_ttl)) {
             break;
         }
         auto* cell = get_cell(entry_key, entry_offset, cache_lock);
@@ -860,7 +860,8 @@ bool BlockFileCache::try_reserve_for_ttl_without_lru(size_t size,
     }
     std::vector<FileBlockCell*> to_evict;
     auto collect_eliminate_fragments = [&](LRUQueue& queue) {
-        find_evict_candidates(queue, size, cur_cache_size, removed_size, to_evict, cache_lock);
+        find_evict_candidates(queue, size, cur_cache_size, removed_size, to_evict, cache_lock,
+                              false);
     };
     if (disposable_queue_size != 0) {
         collect_eliminate_fragments(get_queue(FileCacheType::DISPOSABLE));
@@ -887,7 +888,8 @@ bool BlockFileCache::try_reserve_for_ttl(size_t size, std::lock_guard<std::mutex
         size_t cur_cache_size = _cur_cache_size;
 
         std::vector<FileBlockCell*> to_evict;
-        find_evict_candidates(queue, size, cur_cache_size, removed_size, to_evict, cache_lock);
+        find_evict_candidates(queue, size, cur_cache_size, removed_size, to_evict, cache_lock,
+                              true);
         remove_file_blocks_and_clean_time_maps(to_evict, cache_lock);
 
         return !is_overflow(removed_size, size, cur_cache_size);
@@ -1151,10 +1153,19 @@ bool BlockFileCache::try_reserve_from_other_queue_by_hot_interval(
     return !is_overflow(removed_size, size, cur_cache_size);
 }
 
-bool BlockFileCache::is_overflow(size_t removed_size, size_t need_size,
-                                 size_t cur_cache_size) const {
-    return _disk_resource_limit_mode ? removed_size < need_size
-                                     : cur_cache_size + need_size - removed_size > _capacity;
+bool BlockFileCache::is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size,
+                                 bool is_ttl) const {
+    bool ret = false;
+    if (_disk_resource_limit_mode) {
+        ret = (removed_size < need_size);
+    } else {
+        ret = (cur_cache_size + need_size - removed_size > _capacity);
+    }
+    if (is_ttl) {
+        size_t ttl_threshold = config::max_ttl_cache_ratio * _capacity / 100;
+        return (ret || ((cur_cache_size + need_size - removed_size) > ttl_threshold));
+    }
+    return ret;
 }
 
 bool BlockFileCache::try_reserve_from_other_queue_by_size(
@@ -1165,7 +1176,8 @@ bool BlockFileCache::try_reserve_from_other_queue_by_size(
     std::vector<FileBlockCell*> to_evict;
     for (FileCacheType cache_type : other_cache_types) {
         auto& queue = get_queue(cache_type);
-        find_evict_candidates(queue, size, cur_cache_size, removed_size, to_evict, cache_lock);
+        find_evict_candidates(queue, size, cur_cache_size, removed_size, to_evict, cache_lock,
+                              false);
     }
     remove_file_blocks(to_evict, cache_lock);
     return !is_overflow(removed_size, size, cur_cache_size);
@@ -1207,7 +1219,8 @@ bool BlockFileCache::try_reserve_for_lru(const UInt128Wrapper& hash,
         size_t cur_cache_size = _cur_cache_size;
 
         std::vector<FileBlockCell*> to_evict;
-        find_evict_candidates(queue, size, cur_cache_size, removed_size, to_evict, cache_lock);
+        find_evict_candidates(queue, size, cur_cache_size, removed_size, to_evict, cache_lock,
+                              false);
         remove_file_blocks(to_evict, cache_lock);
 
         if (is_overflow(removed_size, size, cur_cache_size)) {
