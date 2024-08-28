@@ -117,12 +117,14 @@ private:
         auto& container_variant = assert_cast<ColumnObject&>(*container);
 
         // add root first
-        if (_path.get_parts().size() == 1 && _root_reader) {
-            auto& root_var = _root_reader->column->is_nullable()
-                                     ? assert_cast<ColumnObject&>(
-                                               assert_cast<ColumnNullable&>(*_root_reader->column)
-                                                       .get_nested_column())
-                                     : assert_cast<ColumnObject&>(*_root_reader->column);
+        if (_path.get_parts().empty() && _root_reader) {
+            auto& root_var =
+                    _root_reader->column->is_nullable()
+                            ? assert_cast<vectorized::ColumnObject&>(
+                                      assert_cast<vectorized::ColumnNullable&>(
+                                              *_root_reader->column)
+                                              .get_nested_column())
+                            : assert_cast<vectorized::ColumnObject&>(*_root_reader->column);
             auto column = root_var.get_root();
             auto type = root_var.get_root_type();
             container_variant.add_sub_column({}, std::move(column), type);
