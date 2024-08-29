@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 #include <stdint.h>
 
+#include <memory>
 #include <ostream>
 
 #include "common/status.h"
@@ -33,6 +34,7 @@ class JsonbValue;
 namespace vectorized {
 class IColumn;
 class Arena;
+class IDataType;
 
 class DataTypeArraySerDe : public DataTypeSerDe {
 public:
@@ -73,7 +75,8 @@ public:
 
     Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                   rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                  int64_t row_num) const override;
+                                  int64_t row_num,
+                                  const std::shared_ptr<const IDataType>& type) const override;
     Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;

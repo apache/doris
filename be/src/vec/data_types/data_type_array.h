@@ -73,6 +73,8 @@ public:
 
     const char* get_family_name() const override { return "Array"; }
 
+    Field get_type_field(const IColumn& column, size_t row) const override;
+
     MutableColumnPtr create_column() const override;
 
     Field get_default() const override;
