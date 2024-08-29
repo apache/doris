@@ -30,7 +30,7 @@
 
 namespace doris {
 
-class ByteBuffer : private Allocator<false> {
+struct ByteBuffer : private Allocator<false> {
     static Status allocate(const size_t size, ByteBufferPtr* ptr) {
         RETURN_IF_CATCH_EXCEPTION({ *ptr = ByteBufferPtr(new ByteBuffer(size)); });
         return Status::OK();
