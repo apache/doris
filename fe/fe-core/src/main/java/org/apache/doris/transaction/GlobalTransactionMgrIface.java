@@ -77,6 +77,7 @@ public interface GlobalTransactionMgrIface extends Writable {
             TxnCommitAttachment txnCommitAttachment)
             throws UserException;
 
+    @Deprecated
     public void commitTransaction(long dbId, List<Table> tableList,
             long transactionId, List<TabletCommitInfo> tabletCommitInfos)
             throws UserException;
