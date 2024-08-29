@@ -82,7 +82,7 @@ public:
         if (_partition_by_eq_expr_ctxs.empty()) {
             return {ExchangeType::PASSTHROUGH};
         } else if (_order_by_eq_expr_ctxs.empty()) {
-            return _is_colocate && _require_bucket_distribution
+            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_join
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
@@ -90,6 +90,9 @@ public:
     }
 
     bool require_data_distribution() const override { return true; }
+    bool require_shuffled_data_distribution() const override {
+        return !_partition_by_eq_expr_ctxs.empty() && _order_by_eq_expr_ctxs.empty();
+    }
 
 private:
     Status _insert_range_column(vectorized::Block* block, const vectorized::VExprContextSPtr& expr,
