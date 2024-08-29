@@ -115,6 +115,9 @@ std::vector<IFileCache::QueryFileCacheContextHolderPtr> FileCacheFactory::get_qu
 }
 
 void FileCacheFactory::get_cache_stats_block(vectorized::Block* block) {
+    if (!config::enable_file_cache) {
+        return;
+    }
     // std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
     TBackend be = BackendOptions::get_local_backend();
     int64_t be_id = be.id;
@@ -128,17 +131,6 @@ void FileCacheFactory::get_cache_stats_block(vectorized::Block* block) {
         vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(
                 int_val);
-        nullable_column->get_null_map_data().emplace_back(0);
-    };
-
-    auto insert_double_value = [&](int col_index, double double_val, vectorized::Block* block) {
-        vectorized::MutableColumnPtr mutable_col_ptr;
-        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-        auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
-        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Float64>*>(col_ptr)->insert_value(
-                double_val);
         nullable_column->get_null_map_data().emplace_back(0);
     };
 
@@ -160,7 +152,7 @@ void FileCacheFactory::get_cache_stats_block(vectorized::Block* block) {
             insert_string_value(1, be_ip, block);                  // be ip
             insert_string_value(2, cache->get_base_path(), block); // cache path
             insert_string_value(3, k, block);                      // metric name
-            insert_double_value(4, v, block);                      // metric value
+            insert_string_value(4, std::to_string(v), block);      // metric value
         }
     }
 }

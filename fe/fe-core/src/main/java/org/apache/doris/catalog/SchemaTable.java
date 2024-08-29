@@ -524,7 +524,7 @@ public class SchemaTable extends Table {
                                     .column("BE_IP", ScalarType.createVarchar(256))
                                     .column("CACHE_PATH", ScalarType.createVarchar(256))
                                     .column("METRIC_NAME", ScalarType.createVarchar(256))
-                                    .column("METRIC_VALUE", ScalarType.createType(PrimitiveType.DOUBLE))
+                                    .column("METRIC_VALUE", ScalarType.createStringType())
                                     .build()))
             .put("workload_group_privileges",
                     new SchemaTable(SystemIdGenerator.getNextId(), "workload_group_privileges", TableType.SCHEMA,
