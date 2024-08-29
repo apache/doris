@@ -377,10 +377,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         boolean isPartialUpdate = olapTableSink.isPartialUpdate();
         if (isPartialUpdate) {
             OlapTable olapTable = (OlapTable) olapTableSink.getTargetTable();
-            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                throw new AnalysisException("Partial update is only allowed in"
-                        + "unique table with merge-on-write enabled.");
-            }
             for (Column col : olapTable.getFullSchema()) {
                 boolean exists = false;
                 for (Column insertCol : olapTableSink.getCols()) {

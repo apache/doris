@@ -1109,7 +1109,7 @@ public class NativeInsertStmt extends InsertStmt {
             return;
         }
         if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            throw new UserException("Partial update is only allowed on unique table with merge-on-write enabled.");
+            return;
         }
         if (hasEmptyTargetColumns) {
             throw new AnalysisException("You must explicitly specify the columns to be updated when "
