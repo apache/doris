@@ -550,10 +550,8 @@ public class ScalarType extends Type {
     }
 
     public static ScalarType createVariantType() {
-        // length checked in analysis
-        ScalarType type = new ScalarType(PrimitiveType.VARIANT);
-        type.len = MAX_STRING_LENGTH;
-        return type;
+        // Not return ScalarType return VariantType instead for compatibility reason
+        return new VariantType();
     }
 
     public static ScalarType createVarchar(int len) {

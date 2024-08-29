@@ -37,6 +37,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/cow.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
@@ -119,6 +120,14 @@ public:
     virtual Field get_default() const = 0;
 
     virtual Field get_field(const TExprNode& node) const = 0;
+
+    // Return Field which wrapped with the real type.
+    virtual Field get_type_field(const IColumn& column, size_t row) const {
+        Field field;
+        column.get(row, field);
+        field.set_type_info(get_type_id());
+        return field;
+    }
 
     /// Checks that two instances belong to the same type
     virtual bool equals(const IDataType& rhs) const = 0;

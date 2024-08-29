@@ -21,7 +21,6 @@ suite("regression_test_variant_nested", "p0"){
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
     try {
- 
         def table_name = "var_nested"
         sql "DROP TABLE IF EXISTS ${table_name}"
 

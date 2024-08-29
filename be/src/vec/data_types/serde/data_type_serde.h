@@ -350,7 +350,8 @@ public:
     // rapidjson
     virtual Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                           rapidjson::Document::AllocatorType& allocator,
-                                          Arena& mem_pool, int64_t row_num) const;
+                                          Arena& mem_pool, int64_t row_num,
+                                          const std::shared_ptr<const IDataType>& type) const;
     virtual Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const;
 
     virtual DataTypeSerDeSPtrs get_nested_serdes() const {
@@ -366,14 +367,6 @@ protected:
     // The _nesting_level of StructSerde is 1
     // The _nesting_level of StringSerde is 2
     int _nesting_level = 1;
-
-    static void convert_field_to_rapidjson(const vectorized::Field& field, rapidjson::Value& target,
-                                           rapidjson::Document::AllocatorType& allocator);
-    static void convert_array_to_rapidjson(const vectorized::Array& array, rapidjson::Value& target,
-                                           rapidjson::Document::AllocatorType& allocator);
-    static void convert_variant_map_to_rapidjson(const vectorized::VariantMap& array,
-                                                 rapidjson::Value& target,
-                                                 rapidjson::Document::AllocatorType& allocator);
 };
 
 /// Invert values since Arrow interprets 1 as a non-null value, while doris as a null

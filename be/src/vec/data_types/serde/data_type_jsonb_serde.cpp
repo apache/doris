@@ -237,7 +237,8 @@ void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
 
 Status DataTypeJsonbSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                                   rapidjson::Document::AllocatorType& allocator,
-                                                  Arena& mem_pool, int64_t row_num) const {
+                                                  Arena& mem_pool, int64_t row_num,
+                                                  const DataTypePtr& type) const {
     const auto& data = assert_cast<const ColumnString&>(column);
     const auto jsonb_val = data.get_data_at(row_num);
     if (jsonb_val.empty()) {

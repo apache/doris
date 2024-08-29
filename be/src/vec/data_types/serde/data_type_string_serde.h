@@ -347,7 +347,7 @@ public:
     }
     Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                   rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                  int64_t row_num) const override {
+                                  int64_t row_num, const DataTypePtr& type) const override {
         const auto& col = assert_cast<const ColumnType&>(column);
         const auto& data_ref = col.get_data_at(row_num);
         result.SetString(data_ref.data, cast_set<rapidjson::SizeType>(data_ref.size));

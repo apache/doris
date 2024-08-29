@@ -61,6 +61,13 @@ public:
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                 int end, const cctz::time_zone& ctz) const override;
 
+    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
+                                  int64_t row_num, const DataTypePtr& type) const override {
+        return DataTypeSerDe::write_one_cell_to_json(column, result, allocator, mem_pool, row_num,
+                                                     type);
+    }
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
