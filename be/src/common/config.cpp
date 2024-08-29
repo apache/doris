@@ -1279,6 +1279,8 @@ DEFINE_Validator(tablet_meta_serialize_size_limit,
                  [](const int64_t config) -> bool { return config < 1717986918; });
 
 DEFINE_mInt64(pipeline_task_leakage_detect_period_secs, "60");
+DEFINE_mInt32(snappy_compression_block_size, "262144");
+DEFINE_mInt32(lz4_compression_block_size, "262144");
 
 // clang-format off
 #ifdef BE_TEST

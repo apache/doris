@@ -569,6 +569,7 @@ public class Util {
      *
      * @param path of file to be inferred.
      */
+
     @NotNull
     public static TFileCompressType inferFileCompressTypeByPath(String path) {
         String lowerCasePath = path.toLowerCase();
@@ -586,6 +587,8 @@ public class Util {
             return TFileCompressType.DEFLATE;
         } else if (lowerCasePath.endsWith(".snappy")) {
             return TFileCompressType.SNAPPYBLOCK;
+        } else if (lowerCasePath.endsWith(".zst") || lowerCasePath.endsWith(".zstd")) {
+            return TFileCompressType.ZSTD;
         } else {
             return TFileCompressType.PLAIN;
         }

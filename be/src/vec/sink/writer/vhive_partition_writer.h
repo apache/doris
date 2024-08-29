@@ -51,6 +51,7 @@ public:
                          std::string file_name, int file_name_index,
                          TFileFormatType::type file_format_type,
                          TFileCompressType::type hive_compress_type,
+                         const THiveSerDeProperties* hive_serde_properties,
                          const std::map<std::string, std::string>& hadoop_conf);
 
     Status init_properties(ObjectPool* pool) { return Status::OK(); }
@@ -93,6 +94,7 @@ private:
     int _file_name_index;
     TFileFormatType::type _file_format_type;
     TFileCompressType::type _hive_compress_type;
+    const THiveSerDeProperties* _hive_serde_properties;
     const std::map<std::string, std::string>& _hadoop_conf;
 
     // If the result file format is plain text, like CSV, this _file_writer is owned by this FileResultWriter.
