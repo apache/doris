@@ -116,7 +116,7 @@ bool BufferControlBlock::can_sink() {
     return _get_batch_queue_empty() || _buffer_rows < _buffer_limit || _is_cancelled;
 }
 
-Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) {
+Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result, bool is_pipeline) {
     std::unique_lock<std::mutex> l(_lock);
 
     if (_is_cancelled) {
@@ -125,7 +125,8 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
 
     int num_rows = result->result_batch.rows.size();
 
-    while ((!_fe_result_batch_queue.empty() && _buffer_rows > _buffer_limit) && !_is_cancelled) {
+    while (!is_pipeline && (!_fe_result_batch_queue.empty() && _buffer_rows > _buffer_limit) &&
+           !_is_cancelled) {
         _data_removal.wait_for(l, std::chrono::seconds(1));
     }
 
@@ -276,8 +277,9 @@ void BufferControlBlock::cancel() {
     _waiting_rpc.clear();
 }
 
-Status PipBufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) {
-    RETURN_IF_ERROR(BufferControlBlock::add_batch(result));
+Status PipBufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result,
+                                        bool is_pipeline) {
+    RETURN_IF_ERROR(BufferControlBlock::add_batch(result, true));
     _update_dependency();
     return Status::OK();
 }
