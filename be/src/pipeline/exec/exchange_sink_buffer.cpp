@@ -555,25 +555,29 @@ void ExchangeSinkBuffer<Parent>::update_profile(RuntimeProfile* profile) {
     if constexpr (std::is_same_v<ExchangeSinkLocalState, Parent>) {
         auto max_count = _state->rpc_verbose_profile_max_instance_count();
         if (_state->enable_verbose_profile() && max_count > 0) {
-            pdqsort(_instance_to_rpc_stats_vec.begin(), _instance_to_rpc_stats_vec.end(),
-                    [](const auto& a, const auto& b) { return a->max_time > b->max_time; });
-            auto count = std::min((size_t)max_count, _instance_to_rpc_stats_vec.size());
+            std::vector<RpcInstanceStatistics> tmp_rpc_stats_vec;
+            for (const auto& stats : _instance_to_rpc_stats_vec) {
+                tmp_rpc_stats_vec.emplace_back(*stats);
+            }
+            pdqsort(tmp_rpc_stats_vec.begin(), tmp_rpc_stats_vec.end(),
+                    [](const auto& a, const auto& b) { return a.max_time > b.max_time; });
+            auto count = std::min((size_t)max_count, tmp_rpc_stats_vec.size());
             int i = 0;
             auto* detail_profile = profile->create_child("RpcInstanceDetails", true, true);
-            for (const auto& stats : _instance_to_rpc_stats_vec) {
-                if (0 == stats->rpc_count) {
+            for (const auto& stats : tmp_rpc_stats_vec) {
+                if (0 == stats.rpc_count) {
                     continue;
                 }
                 std::stringstream out;
-                out << "Instance " << std::hex << stats->inst_lo_id;
+                out << "Instance " << std::hex << stats.inst_lo_id;
                 auto stats_str = fmt::format(
                         "Count: {}, MaxTime: {}, MinTime: {}, AvgTime: {}, SumTime: {}",
-                        stats->rpc_count, PrettyPrinter::print(stats->max_time, TUnit::TIME_NS),
-                        PrettyPrinter::print(stats->min_time, TUnit::TIME_NS),
-                        PrettyPrinter::print(stats->sum_time / std::max(static_cast<int64_t>(1),
-                                                                        stats->rpc_count),
-                                             TUnit::TIME_NS),
-                        PrettyPrinter::print(stats->sum_time, TUnit::TIME_NS));
+                        stats.rpc_count, PrettyPrinter::print(stats.max_time, TUnit::TIME_NS),
+                        PrettyPrinter::print(stats.min_time, TUnit::TIME_NS),
+                        PrettyPrinter::print(
+                                stats.sum_time / std::max(static_cast<int64_t>(1), stats.rpc_count),
+                                TUnit::TIME_NS),
+                        PrettyPrinter::print(stats.sum_time, TUnit::TIME_NS));
                 detail_profile->add_info_string(out.str(), stats_str);
                 if (++i == count) {
                     break;
