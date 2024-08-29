@@ -46,6 +46,7 @@
 #include "exprs/json_functions.h"
 #include "olap/olap_common.h"
 #include "util/defer_op.h"
+#include "util/jsonb_utils.h"
 #include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/helpers.h"
@@ -68,6 +69,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/get_least_supertype.h"
+#include "vec/functions/function_binary_arithmetic.h"
 #include "vec/json/path_in_data.h"
 
 #ifdef __AVX2__
@@ -80,7 +82,8 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 namespace {
 
-DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_nullable) {
+DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_nullable,
+                                 int precision = -1, int scale = -1) {
     if (type == TypeIndex::Nothing) {
         return std::make_shared<DataTypeNothing>();
     }
@@ -90,7 +93,8 @@ DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_
         return is_nullable ? make_nullable(std::make_shared<ColumnObject::MostCommonType>())
                            : std::make_shared<ColumnObject::MostCommonType>();
     }
-    DataTypePtr result = DataTypeFactory::instance().create_data_type(type, is_nullable);
+    DataTypePtr result =
+            DataTypeFactory::instance().create_data_type(type, is_nullable, precision, scale);
     for (size_t i = 0; i < num_dimensions; ++i) {
         result = std::make_shared<DataTypeArray>(result);
         if (is_nullable) {
@@ -340,7 +344,44 @@ void get_field_info_impl(const Field& field, FieldInfo* info) {
     };
 }
 
+void get_base_field_info(const Field& field, FieldInfo* info) {
+    if (field.get_type_id() == TypeIndex::Array) {
+        if (field.safe_get<Array>().empty()) {
+            info->scalar_type_id = TypeIndex::Nothing;
+            ++info->num_dimensions;
+            info->have_nulls = true;
+            info->need_convert = false;
+        } else {
+            ++info->num_dimensions;
+            get_base_field_info(field.safe_get<Array>()[0], info);
+        }
+        return;
+    }
+
+    // handle scalar types
+    info->scalar_type_id = field.get_type_id();
+    info->have_nulls = true;
+    info->need_convert = false;
+    info->scale = field.get_scale();
+    info->precision = field.get_precision();
+
+    // Currently the jsonb type should be the top level type, so we should not wrap it in array,
+    // see create_array_of_type.
+    // TODO we need to support array<jsonb> correctly
+    if (UNLIKELY(field.get_type_id() == TypeIndex::JSONB && info->num_dimensions > 0)) {
+        info->num_dimensions = 0;
+        info->need_convert = true;
+    }
+}
+
 void get_field_info(const Field& field, FieldInfo* info) {
+    if (field.get_type_id() != TypeIndex::Nothing) {
+        // Currently we support specify predefined schema for other types include decimal, datetime ...etc
+        // so we should set specified info to create correct types, and those predefined types are static and
+        // type no need to deduce
+        get_base_field_info(field, info);
+        return;
+    }
     if (field.is_complex_field()) {
         get_field_info_impl<FieldVisitorToScalarType>(field, info);
     } else {
@@ -448,7 +489,11 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
         type_changed = true;
     }
     if (data.empty()) {
-        add_new_column_part(create_array_of_type(base_type.idx, value_dim, is_nullable));
+        // Currently we support specify predefined schema for other types include decimal, datetime ...etc
+        // so we should set specified info to create correct types, and those predefined types are static and
+        // no conflict, so we can set them directly.
+        add_new_column_part(create_array_of_type(base_type.idx, value_dim, is_nullable,
+                                                 info.precision, info.scale));
     } else if (least_common_type.get_base_type_id() != base_type.idx && !base_type.is_nothing()) {
         if (schema_util::is_conversion_required_between_integers(
                     base_type.idx, least_common_type.get_base_type_id())) {
@@ -1042,14 +1087,9 @@ void ColumnObject::Subcolumn::get(size_t n, Field& res) const {
         return;
     }
     if (is_finalized()) {
-        if (least_common_type.get_base_type_id() == TypeIndex::JSONB) {
-            // JsonbFiled is special case
-            res = JsonbField();
-        }
-        get_finalized_column().get(n, res);
+        res = get_least_common_type()->get_type_field(get_finalized_column(), n);
         return;
     }
-
     size_t ind = n;
     if (ind < num_of_defaults_in_prefix) {
         res = least_common_type.get()->get_default();

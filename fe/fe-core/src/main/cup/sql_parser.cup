@@ -43,9 +43,11 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.catalog.GeneratedColumnInfo;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.VariantField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.View;
@@ -818,7 +820,9 @@ nonterminal Expr function_call_expr, array_expr, map_expr;
 nonterminal ArrayLiteral array_literal;
 nonterminal MapLiteral map_literal;
 nonterminal StructField struct_field;
+nonterminal VariantField variant_field;
 nonterminal ArrayList<StructField> struct_field_list;
+nonterminal ArrayList<VariantField> variant_field_list;
 nonterminal StructLiteral struct_literal;
 nonterminal AnalyticWindow opt_window_clause;
 nonterminal AnalyticWindow.Type window_type;
@@ -6967,6 +6971,8 @@ type ::=
   {: RESULT = new MapType(key_type,value_type); :}
   | KW_STRUCT LESSTHAN struct_field_list:fields GREATERTHAN
   {: RESULT = new StructType(fields); :}
+  | KW_VARIANT LESSTHAN variant_field_list:fields GREATERTHAN
+  {: RESULT = new VariantType(fields); :}
   | KW_CHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: ScalarType type = ScalarType.createCharType(len.intValue());
      RESULT = type;
@@ -7276,6 +7282,23 @@ struct_field_list ::=
     RESULT = Lists.newArrayList(field);
   :}
   | struct_field_list:fields COMMA struct_field:field
+  {:
+     fields.add(field);
+     RESULT = fields;
+  :}
+  ;
+
+variant_field ::=
+  ident:name COLON type:type opt_comment:comment
+  {: RESULT = new VariantField(name, type, comment); :}
+  ;
+
+variant_field_list ::=
+  variant_field:field
+  {:
+    RESULT = Lists.newArrayList(field);
+  :}
+  | variant_field_list:fields COMMA variant_field:field
   {:
      fields.add(field);
      RESULT = fields;

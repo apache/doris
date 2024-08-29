@@ -17,87 +17,50 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.thrift.TStructField;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
-public class StructField {
-    @SerializedName(value = "name")
-    protected final String name;
+public class VariantField {
+    @SerializedName(value = "fp")
+    protected final String pattern;
 
     @SerializedName(value = "type")
     protected final Type type;
 
-    @SerializedName(value = "comment")
+    @SerializedName(value = "c")
     protected final String comment;
 
-    @SerializedName(value = "position")
-    protected int position;  // in struct
-
-    @SerializedName(value = "containsNull")
-    private final boolean containsNull; // Now always true (nullable field)
-
-    public static final String DEFAULT_FIELD_NAME = "col";
-
-    public StructField(String name, Type type, String comment, boolean containsNull) {
-        this.name = name;
+    public VariantField(String pattern, Type type, String comment) {
+        this.pattern = pattern;
         this.type = type;
         this.comment = comment;
-        this.containsNull = containsNull;
-    }
-
-    public StructField(String name, Type type) {
-        this(name, type, null, true);
-    }
-
-    public StructField(String name, Type type, String comment) {
-        this(name, type, comment, true);
-    }
-
-    public StructField(Type type) {
-        this(DEFAULT_FIELD_NAME, type, null, true);
-    }
-
-    public String getComment() {
-        return comment;
-    }
-
-    public String getName() {
-        return name;
     }
 
     public Type getType() {
         return type;
     }
 
-    public int getPosition() {
-        return position;
+    public String getPattern() {
+        return pattern;
     }
 
-    public void setPosition(int position) {
-        this.position = position;
-    }
-
-    public boolean getContainsNull() {
-        return containsNull;
+    public String getComment() {
+        return comment;
     }
 
     public String toSql(int depth) {
         String typeSql;
         if (depth < Type.MAX_NESTING_DEPTH) {
-            typeSql = type.toSql(depth + 1) + (!containsNull ? " not null" : "");
+            typeSql = type.toSql(depth + 1);
         } else {
             typeSql = "...";
         }
-        StringBuilder sb = new StringBuilder(name);
+        StringBuilder sb = new StringBuilder(pattern);
         if (type != null) {
             sb.append(":").append(typeSql);
-        }
-        if (!Strings.isNullOrEmpty(comment)) {
-            sb.append(String.format(" comment '%s'", comment));
         }
         return sb.toString();
     }
@@ -108,7 +71,7 @@ public class StructField {
      */
     public String prettyPrint(int lpad) {
         String leftPadding = Strings.repeat(" ", lpad);
-        StringBuilder sb = new StringBuilder(leftPadding + name);
+        StringBuilder sb = new StringBuilder(leftPadding + pattern);
         if (type != null) {
             // Pass in the padding to make sure nested fields are aligned properly,
             // even if we then strip the top-level padding.
@@ -116,35 +79,24 @@ public class StructField {
             typeStr = typeStr.substring(lpad);
             sb.append(":").append(typeStr);
         }
-        if (!Strings.isNullOrEmpty(comment)) {
-            sb.append(String.format(" COMMENT '%s'", comment));
-        }
         return sb.toString();
     }
 
-    public static boolean canCastTo(StructField field, StructField targetField) {
-        // not support cast not null to nullable
-        if (targetField.containsNull != field.containsNull) {
-            return false;
-        }
+    public static boolean canCastTo(VariantField field, VariantField targetField) {
         if (targetField.type.isStringType() && field.type.isStringType()) {
             return true;
         }
         return Type.canCastTo(field.type, targetField.type);
     }
 
-    public boolean matchesField(StructField f) {
+    public boolean matchesField(VariantField f) {
         if (equals(f)) {
             return true;
         }
-        return type.matchesType(f.getType()) && containsNull == f.getContainsNull();
+        return type.matchesType(f.getType());
     }
 
     public void toThrift(TTypeDesc container, TTypeNode node) {
-        TStructField field = new TStructField();
-        field.setName(name);
-        field.setContainsNull(containsNull);
-        node.struct_fields.add(field);
         type.toThrift(container);
     }
 
@@ -153,19 +105,15 @@ public class StructField {
         if (!(other instanceof StructField)) {
             return false;
         }
-        StructField otherStructField = (StructField) other;
-        return otherStructField.name.equals(name) && otherStructField.type.equals(type)
-                && otherStructField.containsNull == containsNull;
+        VariantField otherFiled = (VariantField) other;
+        return otherFiled.pattern.equals(pattern) && otherFiled.type.equals(type);
     }
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder(name);
+        StringBuilder sb = new StringBuilder(pattern);
         if (type != null) {
             sb.append(":").append(type);
-        }
-        if (!Strings.isNullOrEmpty(comment)) {
-            sb.append(String.format(" COMMENT '%s'", comment));
         }
         return sb.toString();
     }
