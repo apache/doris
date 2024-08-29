@@ -32,7 +32,6 @@ CREATE TABLE IF NOT EXISTS `text_all_types`(
 `t_decimal_precision_38` decimal(38,16),
 `t_binary` binary
 )
-ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t'
 STORED AS TEXTFILE
 LOCATION
   '/user/doris/preinstalled_data/text/text_all_types';
