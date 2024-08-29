@@ -32,7 +32,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaFileCacheStatisticsScanner::_s_tbls
         {"BE_IP", TYPE_VARCHAR, sizeof(StringRef), false},
         {"CACHE_PATH", TYPE_VARCHAR, sizeof(StringRef), false},
         {"METRIC_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"METRIC_VALUE", TYPE_DOUBLE, sizeof(double), false}};
+        {"METRIC_VALUE", TYPE_STRING, sizeof(StringRef), false}};
 
 SchemaFileCacheStatisticsScanner::SchemaFileCacheStatisticsScanner()
         : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_FILE_CACHE_STATISTICS) {}
