@@ -18,10 +18,12 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -33,11 +35,9 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSet.Builder;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.IdentityHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -91,6 +91,11 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                     allPredicates.add(childPredicate.rewriteDownShortCircuit(c -> c.equals(v) ? k : c));
                 }
             }
+            for (NamedExpression expr : project.getProjects()) {
+                if (expr instanceof Alias && expr.child(0) instanceof Literal) {
+                    allPredicates.add(new EqualTo(expr.toSlot(), expr.child(0)));
+                }
+            }
             return getAvailableExpressions(allPredicates, project);
         });
     }
@@ -100,21 +105,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
         return cacheOrElse(aggregate, () -> {
             ImmutableSet<Expression> childPredicates = aggregate.child().accept(this, context);
             // TODO
-            List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
-
-            Map<Expression, Slot> expressionSlotMap
-                    = Maps.newLinkedHashMapWithExpectedSize(outputExpressions.size());
-            for (NamedExpression output : outputExpressions) {
-                if (hasAgg(output)) {
-                    expressionSlotMap.putIfAbsent(
-                            output instanceof Alias ? output.child(0) : output, output.toSlot()
-                    );
-                }
-            }
-            Expression expression = ExpressionUtils.replace(
-                    ExpressionUtils.and(Lists.newArrayList(childPredicates)),
-                    expressionSlotMap
-            );
+            Expression expression = ExpressionUtils.and(Lists.newArrayList(childPredicates));
             Set<Expression> predicates = Sets.newLinkedHashSet(ExpressionUtils.extractConjunction(expression));
             return getAvailableExpressions(predicates, aggregate);
         });

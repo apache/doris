@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
@@ -112,6 +113,10 @@ public interface HMSCachedClient {
     void addPartitions(String dbName, String tableName, List<HivePartitionWithStatistics> partitions);
 
     void dropPartition(String dbName, String tableName, List<String> partitionValues, boolean deleteData);
+
+    default void setHadoopAuthenticator(HadoopAuthenticator hadoopAuthenticator) {
+        // Ignored by default
+    }
 
     /**
      * close the connection, eg, to hms

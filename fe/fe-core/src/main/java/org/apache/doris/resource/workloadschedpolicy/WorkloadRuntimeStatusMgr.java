@@ -71,18 +71,33 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         Map<String, TQueryStatistics> queryStatisticsMap = getQueryStatisticsMap();
 
         // 2 log query audit
-        List<AuditEvent> auditEventList = getQueryNeedAudit();
-        for (AuditEvent auditEvent : auditEventList) {
-            TQueryStatistics queryStats = queryStatisticsMap.get(auditEvent.queryId);
-            if (queryStats != null) {
-                auditEvent.scanRows = queryStats.scan_rows;
-                auditEvent.scanBytes = queryStats.scan_bytes;
-                auditEvent.peakMemoryBytes = queryStats.max_peak_memory_bytes;
-                auditEvent.cpuTimeMs = queryStats.cpu_ms;
-                auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
-                auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
+        try {
+            int missedLogCount = 0;
+            int succLogCount = 0;
+            List<AuditEvent> auditEventList = getQueryNeedAudit();
+            for (AuditEvent auditEvent : auditEventList) {
+                TQueryStatistics queryStats = queryStatisticsMap.get(auditEvent.queryId);
+                if (queryStats != null) {
+                    auditEvent.scanRows = queryStats.scan_rows;
+                    auditEvent.scanBytes = queryStats.scan_bytes;
+                    auditEvent.peakMemoryBytes = queryStats.max_peak_memory_bytes;
+                    auditEvent.cpuTimeMs = queryStats.cpu_ms;
+                    auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
+                    auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
+                }
+                boolean ret = Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent, true);
+                if (!ret) {
+                    missedLogCount++;
+                } else {
+                    succLogCount++;
+                }
             }
-            Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
+            if (missedLogCount > 0) {
+                LOG.warn("discard audit event because of log queue is full, discard num : {}, succ num : {}",
+                        missedLogCount, succLogCount);
+            }
+        } catch (Throwable t) {
+            LOG.warn("exception happens when handleAuditEvent, ", t);
         }
 
         // 3 clear beToQueryStatsMap when be report timeout
@@ -92,6 +107,12 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     public void submitFinishQueryToAudit(AuditEvent event) {
         queryAuditEventLogWriteLock();
         try {
+            if (queryAuditEventList.size() >= Config.audit_event_log_queue_size) {
+                LOG.warn("audit log event queue size {} is full, this may cause audit log missed."
+                                + "you can check whether qps is too high or reset audit_event_log_queue_size",
+                        queryAuditEventList.size());
+                return;
+            }
             event.pushToAuditLogQueueTime = System.currentTimeMillis();
             queryAuditEventList.add(event);
         } finally {

@@ -28,6 +28,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaTable;
@@ -58,7 +59,6 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Base class of external database.
@@ -69,7 +69,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         implements DatabaseIf<T>, Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalDatabase.class);
 
-    protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
+    protected MonitoredReentrantReadWriteLock rwLock = new MonitoredReentrantReadWriteLock(true);
 
     @SerializedName(value = "id")
     protected long id;
@@ -145,10 +145,11 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                             name,
                             OptionalLong.of(86400L),
                             OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
-                            Config.max_hive_table_cache_num,
+                            Config.max_meta_object_cache_num,
                             ignored -> listTableNames(),
                             tableName -> Optional.ofNullable(
-                                    buildTableForInit(tableName, Util.genTableIdByName(tableName), extCatalog)),
+                                    buildTableForInit(tableName,
+                                            Util.genIdByName(extCatalog.getName(), name, tableName), extCatalog)),
                             (key, value, cause) -> value.ifPresent(ExternalTable::unsetObjectCreated));
                 }
                 setLastUpdateTime(System.currentTimeMillis());
@@ -375,7 +376,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public T getTableNullable(String tableName) {
         makeSureInitialized();
         if (extCatalog.getUseMetaCache().get()) {
-            return metaCache.getMetaObj(tableName).orElse(null);
+            // must use full qualified name to generate id.
+            // otherwise, if 2 databases have the same table name, the id will be the same.
+            return metaCache.getMetaObj(tableName, Util.genIdByName(getQualifiedName(tableName))).orElse(null);
         } else {
             if (!tableNameToId.containsKey(tableName)) {
                 return null;
@@ -443,18 +446,19 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             }
         }
         idToTbl = tmpIdToTbl;
-        rwLock = new ReentrantReadWriteLock(true);
+        rwLock = new MonitoredReentrantReadWriteLock(true);
     }
 
     @Override
     public void unregisterTable(String tableName) {
+        makeSureInitialized();
         if (LOG.isDebugEnabled()) {
             LOG.debug("create table [{}]", tableName);
         }
 
         if (extCatalog.getUseMetaCache().get()) {
             if (isInitialized()) {
-                metaCache.invalidate(tableName);
+                metaCache.invalidate(tableName, Util.genIdByName(getQualifiedName(tableName)));
             }
         } else {
             Long tableId = tableNameToId.remove(tableName);
@@ -477,6 +481,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     // Only used for sync hive metastore event
     @Override
     public boolean registerTable(TableIf tableIf) {
+        makeSureInitialized();
         long tableId = tableIf.getId();
         String tableName = tableIf.getName();
         if (LOG.isDebugEnabled()) {
@@ -484,13 +489,19 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
         if (extCatalog.getUseMetaCache().get()) {
             if (isInitialized()) {
-                metaCache.updateCache(tableName, (T) tableIf);
+                metaCache.updateCache(tableName, (T) tableIf, Util.genIdByName(getQualifiedName(tableName)));
             }
         } else {
-            tableNameToId.put(tableName, tableId);
-            idToTbl.put(tableId, buildTableForInit(tableName, tableId, extCatalog));
+            if (!tableNameToId.containsKey(tableName)) {
+                tableNameToId.put(tableName, tableId);
+                idToTbl.put(tableId, buildTableForInit(tableName, tableId, extCatalog));
+            }
         }
         setLastUpdateTime(System.currentTimeMillis());
         return true;
+    }
+
+    public String getQualifiedName(String tblName) {
+        return String.join(".", extCatalog.getName(), name, tblName);
     }
 }

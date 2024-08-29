@@ -20,7 +20,6 @@ package org.apache.doris.datasource.property;
 import org.apache.doris.common.credentials.CloudCredential;
 import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InitCatalogLog.Type;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
@@ -250,13 +249,14 @@ public class PropertyConverter {
         return s3Properties;
     }
 
-    private static String checkRegion(String endpoint, String region, String regionKey) {
+    public static String checkRegion(String endpoint, String region, String regionKey) {
         if (Strings.isNullOrEmpty(region)) {
             region = S3Properties.getRegionOfEndpoint(endpoint);
         }
         if (Strings.isNullOrEmpty(region)) {
-            String errorMsg = String.format("Required property '%s' when region is not in endpoint.", regionKey);
-            Util.logAndThrowRuntimeException(LOG, errorMsg, new IllegalArgumentException(errorMsg));
+            String errorMsg = String.format("No '%s' info found, using SDK default region: us-east-1", regionKey);
+            LOG.warn(errorMsg);
+            return "us-east-1";
         }
         return region;
     }
@@ -311,7 +311,6 @@ public class PropertyConverter {
             endpoint = endpoint.replace(OssProperties.OSS_PREFIX, "");
         }
         ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ENDPOINT_KEY, endpoint);
-        ossProperties.put("fs.oss.impl.disable.cache", "true");
         ossProperties.put("fs.oss.impl", getHadoopFSImplByScheme("oss"));
         boolean hdfsEnabled = Boolean.parseBoolean(props.getOrDefault(OssProperties.OSS_HDFS_ENABLED, "false"));
         if (LocationPath.isHdfsOnOssEndpoint(endpoint) || hdfsEnabled) {

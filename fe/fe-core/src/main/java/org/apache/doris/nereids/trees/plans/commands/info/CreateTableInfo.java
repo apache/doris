@@ -194,6 +194,21 @@ public class CreateTableInfo {
         return ImmutableList.of(tableName);
     }
 
+    private void checkEngineWithCatalog() {
+        if (engineName.equals(ENGINE_OLAP)) {
+            if (!ctlName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+                throw new AnalysisException("Cannot create olap table out of internal catalog."
+                    + " Make sure 'engine' type is specified when use the catalog: " + ctlName);
+            }
+        }
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
+        if (catalog instanceof HMSExternalCatalog && !engineName.equals(ENGINE_HIVE)) {
+            throw new AnalysisException("Hms type catalog can only use `hive` engine.");
+        } else if (catalog instanceof IcebergExternalCatalog && !engineName.equals(ENGINE_ICEBERG)) {
+            throw new AnalysisException("Iceberg type catalog can only use `iceberg` engine.");
+        }
+    }
+
     /**
      * analyze create table info
      */
@@ -231,12 +246,7 @@ public class CreateTableInfo {
             throw new AnalysisException(e.getMessage(), e);
         }
 
-        if (engineName.equals(ENGINE_OLAP)) {
-            if (!ctlName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-                throw new AnalysisException("Cannot create olap table out of internal catalog."
-                    + " Make sure 'engine' type is specified when use the catalog: " + ctlName);
-            }
-        }
+        checkEngineWithCatalog();
 
         // analyze table name
         if (Strings.isNullOrEmpty(dbName)) {
@@ -262,6 +272,11 @@ public class CreateTableInfo {
 
         //check datev1 and decimalv2
         for (ColumnDefinition columnDef : columns) {
+            String columnNameUpperCase = columnDef.getName().toUpperCase();
+            if (columnNameUpperCase.startsWith("__DORIS_")) {
+                throw new AnalysisException(
+                        "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
+            }
             if (columnDef.getType().isDateType() && Config.disable_datev1) {
                 throw new AnalysisException(
                         "Disable to create table with `DATE` type columns, please use `DATEV2`.");
@@ -378,10 +393,8 @@ public class CreateTableInfo {
             }
 
             validateKeyColumns();
-            if (!clusterKeysColumnNames.isEmpty() && !isEnableMergeOnWrite) {
-                throw new AnalysisException(
-                        "Cluster keys only support unique keys table which enabled "
-                                + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+            if (!clusterKeysColumnNames.isEmpty()) {
+                throw new AnalysisException("Cluster key is not supported");
             }
             for (int i = 0; i < keys.size(); ++i) {
                 columns.get(i).setIsKey(true);
@@ -649,7 +662,7 @@ public class CreateTableInfo {
             if (!newProperties.containsKey(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE)) {
                 distributionDesc.updateBucketNum(FeConstants.default_bucket_num);
             } else {
-                long partitionSize = ParseUtil.analyzeDataVolumn(
+                long partitionSize = ParseUtil.analyzeDataVolume(
                         newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
                 distributionDesc.updateBucketNum(AutoBucketUtils.getBucketsNum(partitionSize,
                         Config.autobucket_min_buckets));
@@ -675,44 +688,7 @@ public class CreateTableInfo {
         }
 
         if (!clusterKeysColumnNames.isEmpty()) {
-            if (keysType != KeysType.UNIQUE_KEYS) {
-                throw new AnalysisException("Cluster keys only support unique keys table.");
-            }
-            clusterKeysColumnIds = Lists.newArrayList();
-            for (int i = 0; i < clusterKeysColumnNames.size(); ++i) {
-                String name = clusterKeysColumnNames.get(i);
-                // check if key is duplicate
-                for (int j = 0; j < i; j++) {
-                    if (clusterKeysColumnNames.get(j).equalsIgnoreCase(name)) {
-                        throw new AnalysisException("Duplicate cluster key column[" + name + "].");
-                    }
-                }
-                // check if key exists and generate key column ids
-                for (int j = 0; j < columns.size(); j++) {
-                    if (columns.get(j).getName().equalsIgnoreCase(name)) {
-                        columns.get(j).setClusterKeyId(clusterKeysColumnIds.size());
-                        clusterKeysColumnIds.add(j);
-                        break;
-                    }
-                    if (j == columns.size() - 1) {
-                        throw new AnalysisException(
-                                "Key cluster column[" + name + "] doesn't exist.");
-                    }
-                }
-            }
-
-            int minKeySize = keys.size() < clusterKeysColumnNames.size() ? keys.size()
-                    : clusterKeysColumnNames.size();
-            boolean sameKey = true;
-            for (int i = 0; i < minKeySize; ++i) {
-                if (!keys.get(i).equalsIgnoreCase(clusterKeysColumnNames.get(i))) {
-                    sameKey = false;
-                    break;
-                }
-            }
-            if (sameKey) {
-                throw new AnalysisException("Unique keys and cluster keys should be different.");
-            }
+            throw new AnalysisException("Cluster key is not supported");
         }
 
         for (int i = 0; i < keys.size(); ++i) {

@@ -21,6 +21,8 @@ import org.apache.doris.proto.Types.PStatus;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
+import org.apache.logging.log4j.message.ParameterizedMessage;
+
 public class Status {
     public static final Status OK = new Status();
     public static final Status CANCELLED = new Status(TStatusCode.CANCELLED, "Cancelled");
@@ -41,6 +43,11 @@ public class Status {
     public Status(TStatusCode code, final String errorMsg) {
         this.errorCode = code;
         this.errorMsg = errorMsg;
+    }
+
+    public Status(TStatusCode code, final String errorMsg, final Object...params) {
+        this.errorCode = code;
+        this.errorMsg = ParameterizedMessage.format(errorMsg, params);
     }
 
     public Status(final TStatus status) {

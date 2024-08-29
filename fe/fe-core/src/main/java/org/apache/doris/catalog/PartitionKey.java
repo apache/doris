@@ -376,7 +376,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         for (int i = 0; i < count; i++) {
             PrimitiveType type = types.get(i);
             if (keys.get(i).isNullLiteral()) {
-                Text.writeString(out, Type.NULL.toString());
+                Text.writeString(out, PrimitiveType.NULL_TYPE.toString());
             } else {
                 Text.writeString(out, type.toString());
             }

@@ -106,7 +106,7 @@ protected:
     void get_cast_types_for_variants() override;
     void _filter_and_collect_cast_type_for_variant(
             const VExpr* expr,
-            phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types);
+            phmap::flat_hash_map<std::string, std::vector<TypeDescriptor>>& colname_to_cast_types);
 
 private:
     Status _build_key_ranges_and_filters();
@@ -199,6 +199,7 @@ private:
 
     RuntimeProfile::Counter* _inverted_index_filter_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_filter_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_query_null_bitmap_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_cache_miss_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_timer = nullptr;
@@ -206,6 +207,8 @@ private:
     RuntimeProfile::Counter* _inverted_index_query_bitmap_op_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_open_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_search_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_searcher_cache_hit_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_searcher_cache_miss_counter = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 

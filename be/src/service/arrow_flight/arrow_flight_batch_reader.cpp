@@ -43,7 +43,7 @@ arrow::Result<std::shared_ptr<ArrowFlightBatchReader>> ArrowFlightBatchReader::C
     auto schema = ExecEnv::GetInstance()->result_mgr()->find_arrow_schema(statement_->query_id);
     if (schema == nullptr) {
         ARROW_RETURN_NOT_OK(arrow::Status::Invalid(fmt::format(
-                "not found arrow flight schema, maybe query has been canceled, queryid: {}",
+                "Client not found arrow flight schema, maybe query has been canceled, queryid: {}",
                 print_id(statement_->query_id))));
     }
     std::shared_ptr<ArrowFlightBatchReader> result(new ArrowFlightBatchReader(statement_, schema));

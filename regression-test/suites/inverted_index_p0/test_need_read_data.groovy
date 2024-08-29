@@ -110,4 +110,6 @@ suite("test_need_read_data", "p0"){
 
     qt_sql1 """ select  COUNT(1)  from  ${indexTbName2}  WHERE  a  >=  '2024-06-15  00:00:00'  AND  b  =  'tengxun2'  and    `b`  match  'tengxun2'  ; """
     qt_sql2 """ select  *  from  ${indexTbName2}  WHERE  a  >=  '2024-06-15  00:00:00'  AND  b  =  'tengxun2'  and    `b`  match  'tengxun2'  ; """
+    qt_sql3 """ select  COUNT(1)  from  ${indexTbName2}  WHERE  a  >=  '2024-06-15  00:00:00'  AND  b  like  '%tengxun%'  and    `b`  match  'tengxun2'  ; """
+    qt_sql4 """ select  *  from  ${indexTbName2}  WHERE  a  >=  '2024-06-15  00:00:00'  AND  b  like  '%tengxun%'  and    `b`  match  'tengxun2'  ; """
 }

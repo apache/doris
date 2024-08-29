@@ -80,6 +80,17 @@ suite("test_corr") {
     (5, 5, 10)
     """
     qt_sql "select corr(x,y) from test_corr"
+
+    qt_sql "select corr(cast(x as float),cast(y as float)) from test_corr"
     
-    sql """ DROP TABLE IF EXISTS test_corr """
+    qt_sql1 "select corr(non_nullable(x), non_nullable(y)) ans from test_corr group by id order by ans"
+    qt_sql2 "select corr(x, non_nullable(y)) ans from test_corr group by id order by ans"
+    qt_sql3 "select corr(non_nullable(x), y) ans from test_corr group by id order by ans"
+
+    qt_sql_const1 "select corr(x,1) from test_corr"
+    qt_sql_const2 "select corr(x,1e100) from test_corr"
+    qt_sql_const3 "select corr(x,1e-100) from test_corr"
+    qt_sql_const4 "select corr(1,y) from test_corr"
+    qt_sql_const5 "select corr(1e100,y) from test_corr"
+    qt_sql_const6 "select corr(1e-100,y) from test_corr"
 }

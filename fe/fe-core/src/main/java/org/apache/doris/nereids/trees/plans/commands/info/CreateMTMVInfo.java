@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
@@ -56,6 +57,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -63,9 +65,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.types.AggStateType;
+import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -141,7 +148,7 @@ public class CreateMTMVInfo {
     /**
      * analyze create table info
      */
-    public void analyze(ConnectContext ctx) {
+    public void analyze(ConnectContext ctx) throws Exception {
         // analyze table name
         mvName.analyze(ctx);
         try {
@@ -185,6 +192,7 @@ public class CreateMTMVInfo {
     }
 
     private void analyzeProperties() {
+        properties = PropertyAnalyzer.rewriteReplicaAllocationProperties(mvName.getCtl(), mvName.getDb(), properties);
         if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
             throw new AnalysisException("Not support dynamic partition properties on async materialized view");
         }
@@ -200,13 +208,15 @@ public class CreateMTMVInfo {
     /**
      * analyzeQuery
      */
-    public void analyzeQuery(ConnectContext ctx, Map<String, String> mvProperties) {
+    public void analyzeQuery(ConnectContext ctx, Map<String, String> mvProperties) throws Exception {
         // create table as select
         StatementContext statementContext = ctx.getStatementContext();
         NereidsPlanner planner = new NereidsPlanner(statementContext);
         // this is for expression column name infer when not use alias
         LogicalSink<Plan> logicalSink = new UnboundResultSink<>(logicalQuery);
-        Plan plan = planner.plan(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
+        // must disable constant folding by be, because be constant folding may return wrong type
+        ctx.getSessionVariable().disableConstantFoldingByBEOnce();
+        Plan plan = planner.planWithLock(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
         if (plan.anyMatch(node -> node instanceof OneRowRelation)) {
             throw new AnalysisException("at least contain one table");
         }
@@ -220,11 +230,12 @@ public class CreateMTMVInfo {
             throw new AnalysisException("can not contain invalid expression");
         }
         getRelation(planner);
-        getColumns(plan);
-        analyzeKeys();
         this.mvPartitionInfo = mvPartitionDefinition
                 .analyzeAndTransferToMTMVPartitionInfo(planner, ctx, logicalQuery);
         this.partitionDesc = generatePartitionDesc(ctx);
+        getColumns(plan, ctx, mvPartitionInfo.getPartitionCol(), distribution);
+        analyzeKeys();
+
     }
 
     private void analyzeKeys() {
@@ -277,7 +288,7 @@ public class CreateMTMVInfo {
         }
         Plan plan;
         try {
-            plan = planner.plan(logicalQuery, PhysicalProperties.ANY, ExplainLevel.NONE);
+            plan = planner.planWithLock(logicalQuery, PhysicalProperties.ANY, ExplainLevel.NONE);
         } finally {
             sessionVariable.setDisableNereidsRules(String.join(",", tempDisableRules));
             ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
@@ -353,7 +364,7 @@ public class CreateMTMVInfo {
         }
     }
 
-    private void getColumns(Plan plan) {
+    private void getColumns(Plan plan, ConnectContext ctx, String partitionCol, DistributionDescriptor distribution) {
         List<Slot> slots = plan.getOutput();
         if (slots.isEmpty()) {
             throw new AnalysisException("table should contain at least one column");
@@ -375,11 +386,11 @@ public class CreateMTMVInfo {
             } else {
                 colNames.add(colName);
             }
+            DataType dataType = getDataType(slots.get(i), i, ctx, partitionCol, distribution);
             // If datatype is AggStateType, AggregateType should be generic, or column definition check will fail
             columns.add(new ColumnDefinition(
                     colName,
-                    TypeCoercionUtils.replaceSpecifiedType(slots.get(i).getDataType(),
-                            NullType.class, TinyIntType.INSTANCE),
+                    dataType,
                     false,
                     slots.get(i).getDataType() instanceof AggStateType ? AggregateType.GENERIC : null,
                     slots.get(i).nullable(),
@@ -399,6 +410,42 @@ public class CreateMTMVInfo {
                 throw new AnalysisException(e.getMessage(), e.getCause());
             }
         }
+    }
+
+    private DataType getDataType(Slot s, int i, ConnectContext ctx, String partitionCol,
+            DistributionDescriptor distribution) {
+        DataType dataType = s.getDataType().conversion();
+        if (i == 0 && dataType.isStringType()) {
+            dataType = VarcharType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
+        } else {
+            dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                    NullType.class, TinyIntType.INSTANCE);
+            dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                    DecimalV2Type.class, DecimalV2Type.SYSTEM_DEFAULT);
+            if (s.isColumnFromTable()) {
+                if ((!((SlotReference) s).getTable().isPresent()
+                        || !((SlotReference) s).getTable().get().isManagedTable())) {
+                    if (s.getName().equals(partitionCol) || (distribution != null && distribution.inDistributionColumns(
+                            s.getName()))) {
+                        // String type can not be used in partition/distributed column
+                        // so we replace it to varchar
+                        dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                                CharacterType.class, VarcharType.MAX_VARCHAR_TYPE);
+                    } else {
+                        dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                                CharacterType.class, StringType.INSTANCE);
+                    }
+                }
+            } else {
+                if (ctx.getSessionVariable().useMaxLengthOfVarcharInCtas) {
+                    dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                            VarcharType.class, VarcharType.MAX_VARCHAR_TYPE);
+                    dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                            CharType.class, VarcharType.MAX_VARCHAR_TYPE);
+                }
+            }
+        }
+        return dataType;
     }
 
     /**

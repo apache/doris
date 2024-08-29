@@ -17,7 +17,7 @@
 version: "3"
 services:
   hive-krb:
-    image: ghcr.io/trinodb/testing/hdp3.1-hive-kerberized
+    image: doristhirdpartydocker/trinodb:hdp3.1-hive-kerberized_96
     container_name: doris--kerberos1
     volumes:
       - ./two-kerberos-hives:/keytabs
@@ -42,7 +42,7 @@ services:
         ipv4_address: 172.31.71.25
 
   hive-krb2:
-    image: ghcr.io/trinodb/testing/hdp3.1-hive-kerberized-2:96
+    image: doristhirdpartydocker/trinodb:hdp3.1-hive-kerberized-2_96
     container_name: doris--kerberos2
     hostname: hadoop-master-2
     volumes:

@@ -633,7 +633,7 @@ class Suite implements GroovyInterceptable {
         }
         if (cleanOperator==true){
             if (ObjectUtils.isEmpty(tbName)) throw new RuntimeException("tbName cloud not be null")
-            quickTest("", """ SELECT * FROM ${tbName}  """)
+            quickTest("", """ SELECT * FROM ${tbName}  """, true)
             sql """ DROP TABLE  ${tbName} """
         }
     }
@@ -642,8 +642,48 @@ class Suite implements GroovyInterceptable {
     void expectException(Closure userFunction, String errorMessage = null) {
         try {
             userFunction()
+        } catch (Exception | AssertionError e) {
+            if (e.getMessage() != errorMessage) {
+                throw e
+            }
+        }
+    }
+
+    void checkTableData(String tbName1 = null, String tbName2 = null, String fieldName = null, String orderByFieldName = null) {
+        String orderByName = ""
+        if (ObjectUtils.isEmpty(orderByFieldName)){
+            orderByName = fieldName;
+        }else {
+            orderByName = orderByFieldName;
+        }
+        def tb1Result = sql "select ${fieldName} FROM ${tbName1} order by ${orderByName}"
+        def tb2Result = sql "select ${fieldName} FROM ${tbName2} order by ${orderByName}"
+        List<Object> tbData1 = new ArrayList<Object>();
+        for (List<Object> items:tb1Result){
+            tbData1.add(items.get(0))
+        }
+        List<Object> tbData2 = new ArrayList<Object>();
+        for (List<Object> items:tb2Result){
+            tbData2.add(items.get(0))
+        }
+        for (int i =0; i<tbData1.size(); i++) {
+            if (ObjectUtils.notEqual(tbData1.get(i),tbData2.get(i)) ){
+                throw new RuntimeException("tbData should be same")
+            }
+        }
+    }
+
+    String getRandomBoolean() {
+        Random random = new Random()
+        boolean randomBoolean = random.nextBoolean()
+        return randomBoolean ? "true" : "false"
+    }
+
+    void expectExceptionLike(Closure userFunction, String errorMessage = null) {
+        try {
+            userFunction()
         } catch (Exception e) {
-            if (e.getMessage()!= errorMessage) {
+            if (!e.getMessage().contains(errorMessage)) {
                 throw e
             }
         }
@@ -710,6 +750,11 @@ class Suite implements GroovyInterceptable {
     boolean enableBrokerLoad() {
         String enableBrokerLoad = context.config.otherConfigs.get("enableBrokerLoad");
         return (enableBrokerLoad != null && enableBrokerLoad.equals("true"));
+    }
+
+    String getS3Provider() {
+        String s3Provider = context.config.otherConfigs.get("s3Provider");
+        return s3Provider
     }
 
     String getS3Region() {
@@ -790,6 +835,19 @@ class Suite implements GroovyInterceptable {
         }
         return;
     }
+
+    void getBackendIpHttpAndBrpcPort(Map<String, String> backendId_to_backendIP,
+        Map<String, String> backendId_to_backendHttpPort, Map<String, String> backendId_to_backendBrpcPort) {
+
+        List<List<Object>> backends = sql("show backends");
+        for (List<Object> backend : backends) {
+            backendId_to_backendIP.put(String.valueOf(backend[0]), String.valueOf(backend[1]));
+            backendId_to_backendHttpPort.put(String.valueOf(backend[0]), String.valueOf(backend[4]));
+            backendId_to_backendBrpcPort.put(String.valueOf(backend[0]), String.valueOf(backend[5]));
+        }
+        return;
+    }
+
 
     int getTotalLine(String filePath) {
         def file = new File(filePath)
@@ -1184,6 +1242,39 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    def getMVJobState = { tableName, limit  ->
+        def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC limit ${limit}"""
+        if (jobStateResult.size() != limit) {
+            logger.info("show alter table roll is empty" + jobStateResult)
+            return "NOT_READY"
+        }
+        for (int i = 0; i < jobStateResult.size(); i++) {
+            logger.info("getMVJobState is " + jobStateResult[i][8])
+            if (!jobStateResult[i][8].equals("FINISHED")) {
+                return "NOT_READY"
+            }
+        }
+        return "FINISHED";
+    }
+    def waitForRollUpJob =  (tbName, timeoutMillisecond, limit) -> {
+
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + timeoutMillisecond
+
+        String result
+        // time out or has run exceed 10 minute, then break
+        while (timeoutTimestamp > System.currentTimeMillis() && System.currentTimeMillis() - startTime < 600000){
+            result = getMVJobState(tbName, limit)
+            if (result == "FINISHED") {
+                sleep(200)
+                return
+            } else {
+                sleep(200)
+            }
+        }
+        Assert.assertEquals("FINISHED", result)
+    }
+
     String getJobName(String dbName, String mtmvName) {
         String showMTMV = "select JobName from mv_infos('database'='${dbName}') where Name = '${mtmvName}'";
 	    logger.info(showMTMV)
@@ -1293,6 +1384,29 @@ class Suite implements GroovyInterceptable {
             contains("${mv_name}(${mv_name})")
         }
     }
+
+    def check_mv_rewrite_success_without_check_chosen = { db, mv_sql, query_sql, mv_name ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+        explain {
+            sql("${query_sql}")
+            check {result ->
+                def splitResult = result.split("MaterializedViewRewriteFail")
+                splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
+            }
+        }
+    }
+
 
     def check_mv_rewrite_fail = { db, mv_sql, query_sql, mv_name ->
 

@@ -80,33 +80,20 @@ struct BasicSharedState {
 
     virtual ~BasicSharedState() = default;
 
-    Dependency* create_source_dependency(int operator_id, int node_id, std::string name,
-                                         QueryContext* ctx);
+    Dependency* create_source_dependency(int operator_id, int node_id, std::string name);
 
-    Dependency* create_sink_dependency(int dest_id, int node_id, std::string name,
-                                       QueryContext* ctx);
+    Dependency* create_sink_dependency(int dest_id, int node_id, std::string name);
 };
 
 class Dependency : public std::enable_shared_from_this<Dependency> {
 public:
     ENABLE_FACTORY_CREATOR(Dependency);
-    Dependency(int id, int node_id, std::string name, QueryContext* query_ctx)
-            : _id(id),
-              _node_id(node_id),
-              _name(std::move(name)),
-              _is_write_dependency(false),
-              _ready(false),
-              _query_ctx(query_ctx) {}
-    Dependency(int id, int node_id, std::string name, bool ready, QueryContext* query_ctx)
-            : _id(id),
-              _node_id(node_id),
-              _name(std::move(name)),
-              _is_write_dependency(true),
-              _ready(ready),
-              _query_ctx(query_ctx) {}
+    Dependency(int id, int node_id, std::string name)
+            : _id(id), _node_id(node_id), _name(std::move(name)), _ready(false) {}
+    Dependency(int id, int node_id, std::string name, bool ready)
+            : _id(id), _node_id(node_id), _name(std::move(name)), _ready(ready) {}
     virtual ~Dependency() = default;
 
-    bool is_write_dependency() const { return _is_write_dependency; }
     [[nodiscard]] int id() const { return _id; }
     [[nodiscard]] virtual std::string name() const { return _name; }
     BasicSharedState* shared_state() { return _shared_state; }
@@ -123,12 +110,10 @@ public:
     // Notify downstream pipeline tasks this dependency is ready.
     void set_ready();
     void set_ready_to_read() {
-        DCHECK(_is_write_dependency) << debug_string();
         DCHECK(_shared_state->source_deps.size() == 1) << debug_string();
         _shared_state->source_deps.front()->set_ready();
     }
     void set_block_to_read() {
-        DCHECK(_is_write_dependency) << debug_string();
         DCHECK(_shared_state->source_deps.size() == 1) << debug_string();
         _shared_state->source_deps.front()->block();
     }
@@ -167,14 +152,11 @@ public:
 
 protected:
     void _add_block_task(PipelineXTask* task);
-    bool _is_cancelled() const { return _query_ctx->is_cancelled(); }
 
     const int _id;
     const int _node_id;
     const std::string _name;
-    const bool _is_write_dependency;
     std::atomic<bool> _ready;
-    const QueryContext* _query_ctx = nullptr;
 
     BasicSharedState* _shared_state = nullptr;
     MonotonicStopWatch _watcher;
@@ -200,20 +182,11 @@ public:
     [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override { return nullptr; }
 };
 
-struct FinishDependency : public Dependency {
-public:
-    using SharedState = FakeSharedState;
-    FinishDependency(int id, int node_id, std::string name, QueryContext* query_ctx)
-            : Dependency(id, node_id, name, true, query_ctx) {}
-
-    [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override;
-};
-
 struct CountedFinishDependency final : public Dependency {
 public:
     using SharedState = FakeSharedState;
-    CountedFinishDependency(int id, int node_id, std::string name, QueryContext* query_ctx)
-            : Dependency(id, node_id, name, true, query_ctx) {}
+    CountedFinishDependency(int id, int node_id, std::string name)
+            : Dependency(id, node_id, name, true) {}
 
     void add() {
         std::unique_lock<std::mutex> l(_mtx);
@@ -309,9 +282,8 @@ struct RuntimeFilterTimerQueue {
 
 class RuntimeFilterDependency final : public Dependency {
 public:
-    RuntimeFilterDependency(int id, int node_id, std::string name, QueryContext* query_ctx,
-                            IRuntimeFilter* runtime_filter)
-            : Dependency(id, node_id, name, query_ctx), _runtime_filter(runtime_filter) {}
+    RuntimeFilterDependency(int id, int node_id, std::string name, IRuntimeFilter* runtime_filter)
+            : Dependency(id, node_id, name), _runtime_filter(runtime_filter) {}
     std::string debug_string(int indentation_level = 0) override;
 
     Dependency* is_blocked_by(PipelineXTask* task) override;
@@ -365,9 +337,8 @@ public:
     std::vector<size_t> make_nullable_keys;
 
     struct MemoryRecord {
-        MemoryRecord() : used_in_arena(0), used_in_state(0) {}
-        int64_t used_in_arena;
-        int64_t used_in_state;
+        int64_t used_in_arena {};
+        int64_t used_in_state {};
     };
     MemoryRecord mem_usage_record;
     bool agg_data_created_without_key = false;
@@ -622,8 +593,8 @@ class AsyncWriterDependency final : public Dependency {
 public:
     using SharedState = BasicSharedState;
     ENABLE_FACTORY_CREATOR(AsyncWriterDependency);
-    AsyncWriterDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "AsyncWriterDependency", true, query_ctx) {}
+    AsyncWriterDependency(int id, int node_id)
+            : Dependency(id, node_id, "AsyncWriterDependency", true) {}
     ~AsyncWriterDependency() override = default;
 };
 
@@ -701,10 +672,12 @@ public:
         // (select 0) intersect (select null) the build side hash table should not
         // ignore null value.
         std::vector<DataTypePtr> data_types;
+        int i = 0;
         for (const auto& ctx : child_exprs_lists[0]) {
-            data_types.emplace_back(build_not_ignore_null[0]
+            data_types.emplace_back(build_not_ignore_null[i]
                                             ? make_nullable(ctx->root()->data_type())
                                             : ctx->root()->data_type());
+            i++;
         }
         if (!try_get_hash_map_context_fixed<NormalHashMap, HashCRC32, RowRefListWithFlags>(
                     *hash_table_variants, data_types)) {
@@ -754,14 +727,9 @@ struct DataDistribution {
     DataDistribution(ExchangeType type) : distribution_type(type) {}
     DataDistribution(ExchangeType type, const std::vector<TExpr>& partition_exprs_)
             : distribution_type(type), partition_exprs(partition_exprs_) {}
-    DataDistribution(const DataDistribution& other)
-            : distribution_type(other.distribution_type), partition_exprs(other.partition_exprs) {}
+    DataDistribution(const DataDistribution& other) = default;
     bool need_local_exchange() const { return distribution_type != ExchangeType::NOOP; }
-    DataDistribution& operator=(const DataDistribution& other) {
-        distribution_type = other.distribution_type;
-        partition_exprs = other.partition_exprs;
-        return *this;
-    }
+    DataDistribution& operator=(const DataDistribution& other) = default;
     ExchangeType distribution_type;
     std::vector<TExpr> partition_exprs;
 };
@@ -774,12 +742,13 @@ public:
     LocalExchangeSharedState(int num_instances);
     std::unique_ptr<ExchangerBase> exchanger {};
     std::vector<MemTracker*> mem_trackers;
-    std::atomic<size_t> mem_usage = 0;
+    std::atomic<int64_t> mem_usage = 0;
+    // We need to make sure to add mem_usage first and then enqueue, otherwise sub mem_usage may cause negative mem_usage during concurrent dequeue.
     std::mutex le_lock;
-    void create_source_dependencies(int operator_id, int node_id, QueryContext* ctx) {
+    void create_source_dependencies(int operator_id, int node_id) {
         for (size_t i = 0; i < source_deps.size(); i++) {
-            source_deps[i] = std::make_shared<Dependency>(
-                    operator_id, node_id, "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY", ctx);
+            source_deps[i] = std::make_shared<Dependency>(operator_id, node_id,
+                                                          "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY");
             source_deps[i]->set_shared_state(this);
         }
     };
@@ -819,13 +788,13 @@ public:
     }
 
     void add_total_mem_usage(size_t delta) {
-        if (mem_usage.fetch_add(delta) > config::local_exchange_buffer_mem_limit) {
+        if (mem_usage.fetch_add(delta) + delta > config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->block();
         }
     }
 
     void sub_total_mem_usage(size_t delta) {
-        if (mem_usage.fetch_sub(delta) <= config::local_exchange_buffer_mem_limit) {
+        if (mem_usage.fetch_sub(delta) - delta <= config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->set_ready();
         }
     }

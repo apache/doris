@@ -149,8 +149,6 @@ Status PipelineXTask::_extract_dependencies() {
     {
         auto* local_state = _state->get_sink_local_state();
         write_dependencies = local_state->dependencies();
-        DCHECK(std::all_of(write_dependencies.begin(), write_dependencies.end(),
-                           [](auto* dep) { return dep->is_write_dependency(); }));
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
             finish_dependencies.push_back(fin_dep);
@@ -161,6 +159,9 @@ Status PipelineXTask::_extract_dependencies() {
         read_dependencies.swap(_read_dependencies);
         write_dependencies.swap(_write_dependencies);
         finish_dependencies.swap(_finish_dependencies);
+    }
+    if (query_context()->is_cancelled()) {
+        clear_blocking_state();
     }
     return Status::OK();
 }
@@ -369,7 +370,7 @@ bool PipelineXTask::should_revoke_memory(RuntimeState* state, int64_t revocable_
     } else if (is_wg_mem_low_water_mark) {
         int64_t query_weighted_limit = 0;
         int64_t query_weighted_consumption = 0;
-        query_ctx->get_weighted_mem_info(query_weighted_limit, query_weighted_consumption);
+        query_ctx->get_weighted_memory(query_weighted_limit, query_weighted_consumption);
         if (query_weighted_consumption < query_weighted_limit) {
             return false;
         }

@@ -46,9 +46,8 @@ import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.es.source.EsScanNode;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
@@ -189,6 +188,7 @@ import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.TableFunctionNode;
 import org.apache.doris.planner.UnionNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TFetchOption;
@@ -271,6 +271,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 scans.forEach(builder::append);
                 throw new AnalysisException("tables with unknown column stats: " + builder);
             }
+        }
+        for (ScanNode scanNode : context.getScanNodes()) {
+            Utils.execWithUncheckedException(scanNode::finalizeForNereids);
         }
         return rootFragment;
     }
@@ -570,10 +573,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             switch (((HMSExternalTable) table).getDlaType()) {
                 case ICEBERG:
                     scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
-                    IcebergScanNode icebergScanNode = (IcebergScanNode) scanNode;
-                    if (fileScan.getTableSnapshot().isPresent()) {
-                        icebergScanNode.setTableSnapshot(fileScan.getTableSnapshot().get());
-                    }
                     break;
                 case HIVE:
                     scanNode = new HiveScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
@@ -589,15 +588,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         } else if (table instanceof IcebergExternalTable) {
             scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
-            if (fileScan.getTableSnapshot().isPresent()) {
-                ((IcebergScanNode) scanNode).setTableSnapshot(fileScan.getTableSnapshot().get());
-            }
         } else if (table instanceof PaimonExternalTable) {
             scanNode = new PaimonScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         } else if (table instanceof MaxComputeExternalTable) {
             scanNode = new MaxComputeScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         } else {
             throw new RuntimeException("do not support table type " + table.getType());
+        }
+        if (fileScan.getTableSnapshot().isPresent() && scanNode instanceof FileQueryScanNode) {
+            ((FileQueryScanNode) scanNode).setQueryTableSnapshot(fileScan.getTableSnapshot().get());
         }
         return getPlanFragmentForPhysicalFileScan(fileScan, context, scanNode, table, tupleDescriptor);
     }
@@ -637,7 +636,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, esScanNode, context)
                 )
         );
-        Utils.execWithUncheckedException(esScanNode::finalizeForNereids);
         DataPartition dataPartition = DataPartition.RANDOM;
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), esScanNode, dataPartition);
         context.addPlanFragment(planFragment);
@@ -660,7 +658,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PhysicalHudiScan hudiScan = (PhysicalHudiScan) fileScan;
         ScanNode scanNode = new HudiScanNode(context.nextPlanNodeId(), tupleDescriptor, false,
                 hudiScan.getScanParams(), hudiScan.getIncrementalRelation());
-
+        if (fileScan.getTableSnapshot().isPresent()) {
+            ((FileQueryScanNode) scanNode).setQueryTableSnapshot(fileScan.getTableSnapshot().get());
+        }
         return getPlanFragmentForPhysicalFileScan(fileScan, context, scanNode, table, tupleDescriptor);
     }
 
@@ -687,7 +687,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, finalScanNode, context)
                 )
         );
-        Utils.execWithUncheckedException(scanNode::finalizeForNereids);
         // Create PlanFragment
         DataPartition dataPartition = DataPartition.RANDOM;
         PlanFragment planFragment = createPlanFragment(scanNode, dataPartition, fileScan);
@@ -712,7 +711,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, jdbcScanNode, context)
                 )
         );
-        Utils.execWithUncheckedException(jdbcScanNode::finalizeForNereids);
         DataPartition dataPartition = DataPartition.RANDOM;
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), jdbcScanNode, dataPartition);
         context.addPlanFragment(planFragment);
@@ -736,7 +734,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, odbcScanNode, context)
                 )
         );
-        Utils.execWithUncheckedException(odbcScanNode::finalizeForNereids);
         DataPartition dataPartition = DataPartition.RANDOM;
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), odbcScanNode, dataPartition);
         context.addPlanFragment(planFragment);
@@ -817,8 +814,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             olapScanNode.setUseTopnOpt(true);
             context.getTopnFilterContext().addLegacyTarget(olapScan, olapScanNode);
         }
-        // TODO: we need to remove all finalizeForNereids
-        olapScanNode.finalizeForNereids();
         // Create PlanFragment
         // TODO: use a util function to convert distribution to DataPartition
         DataPartition dataPartition = DataPartition.RANDOM;
@@ -908,7 +903,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                                 .translateRuntimeFilterTarget(expr, finalScanNode, context)
                 )
         );
-        Utils.execWithUncheckedException(scanNode::finalizeForNereids);
         context.addScanNode(scanNode);
         PlanFragment planFragment = createPlanFragment(scanNode, DataPartition.RANDOM, schemaScan);
         context.addPlanFragment(planFragment);
@@ -930,7 +924,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         .forEach(expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, scanNode, context)
                 )
         );
-        Utils.execWithUncheckedException(scanNode::finalizeForNereids);
         context.addScanNode(scanNode);
 
         // TODO: it is weird update label in this way
@@ -1044,9 +1037,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         //  generate physical aggregate plan.
         //  There is one exception, we use some precondition in optimizer, input to buffer always require any for input,
         //  so when agg mode is INPUT_TO_BUFFER, we do not forbid parallel scan
-        if (leftMostNode instanceof OlapScanNode
-                && inputPlanFragment.getDataPartition().getType() != TPartitionType.RANDOM
-                && aggregate.getAggregateParam().aggMode != AggMode.INPUT_TO_BUFFER) {
+        if (aggregate.getAggregateParam().aggMode != AggMode.INPUT_TO_BUFFER) {
             inputPlanFragment.setHasColocatePlanNode(true);
             // Set colocate info in agg node. This is a hint for local shuffling to decide which type of
             // local exchanger will be used.
@@ -1085,6 +1076,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             default:
                 throw new AnalysisException("Unsupported storage layer aggregate: "
                         + storageLayerAggregate.getAggOp());
+        }
+
+        if (storageLayerAggregate.getRelation() instanceof PhysicalFileScan
+                && pushAggOp.equals(TPushAggOp.COUNT)
+                && !ConnectContext.get().getSessionVariable().isEnableCountPushDownForExternalTable()) {
+            pushAggOp = TPushAggOp.NONE;
         }
 
         context.setRelationPushAggOp(
@@ -1176,12 +1173,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (Slot producerSlot : cteProducer.getOutput()) {
             SlotRef slotRef = context.findSlotRef(producerSlot.getExprId());
             tupleDescriptor = slotRef.getDesc().getParent();
-            Slot consumerSlot = cteConsumer.getProducerToConsumerSlotMap().get(producerSlot);
-            // consumerSlot could be null if we prune partial consumers' columns
-            if (consumerSlot == null) {
-                continue;
+            for (Slot consumerSlot : cteConsumer.getProducerToConsumerSlotMap().get(producerSlot)) {
+                context.addExprIdSlotRefPair(consumerSlot.getExprId(), slotRef);
             }
-            context.addExprIdSlotRefPair(consumerSlot.getExprId(), slotRef);
         }
         CTEScanNode cteScanNode = new CTEScanNode(tupleDescriptor);
         context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator ->
@@ -1972,6 +1966,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     }
                     requiredSlotIdSet.add(lastSlot.getId());
                 }
+                ((OlapScanNode) inputPlanNode).updateRequiredSlots(context, requiredByProjectSlotIdSet);
             }
             updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
                     requiredByProjectSlotIdSet, slotIdsByOrder, context);
@@ -2439,22 +2434,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (scanNode.getTupleDesc().getSlots().isEmpty()) {
             scanNode.getTupleDesc().getSlots().add(smallest);
         }
-        try {
-            if (context.getSessionVariable() != null
-                    && context.getSessionVariable().forbidUnknownColStats
-                    && !StatisticConstants.isSystemTable(scanNode.getTupleDesc().getTable())) {
-                for (SlotId slotId : requiredByProjectSlotIdSet) {
-                    if (context.isColumnStatsUnknown(scanNode, slotId)) {
-                        String colName = scanNode.getTupleDesc().getSlot(slotId.asInt()).getColumn().getName();
-                        throw new AnalysisException("meet unknown column stats: " + colName);
-                    }
+        if (context.getSessionVariable() != null
+                && context.getSessionVariable().forbidUnknownColStats
+                && !StatisticConstants.isSystemTable(scanNode.getTupleDesc().getTable())) {
+            for (SlotId slotId : requiredByProjectSlotIdSet) {
+                if (context.isColumnStatsUnknown(scanNode, slotId)) {
+                    String colName = scanNode.getTupleDesc().getSlot(slotId.asInt()).getColumn().getName();
+                    throw new AnalysisException("meet unknown column stats: " + colName);
                 }
-                context.removeScanFromStatsUnknownColumnsMap(scanNode);
             }
-            scanNode.updateRequiredSlots(context, requiredByProjectSlotIdSet);
-        } catch (UserException e) {
-            Util.logAndThrowRuntimeException(LOG,
-                    "User Exception while reset external file scan node contexts.", e);
+            context.removeScanFromStatsUnknownColumnsMap(scanNode);
         }
     }
 

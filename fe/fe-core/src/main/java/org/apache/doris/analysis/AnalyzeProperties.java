@@ -44,6 +44,7 @@ public class AnalyzeProperties {
     public static final String PROPERTY_PERIOD_SECONDS = "period.seconds";
     public static final String PROPERTY_FORCE_FULL = "force.full";
     public static final String PROPERTY_PARTITION_COLUMN_FROM_SQL = "partition.column.from.sql";
+    public static final String PROPERTY_USE_AUTO_ANALYZER = "use.auto.analyzer";
 
     public static final AnalyzeProperties DEFAULT_PROP = new AnalyzeProperties(new HashMap<String, String>() {
         {
@@ -72,6 +73,7 @@ public class AnalyzeProperties {
             .add(PROPERTY_PERIOD_CRON)
             .add(PROPERTY_FORCE_FULL)
             .add(PROPERTY_PARTITION_COLUMN_FROM_SQL)
+            .add(PROPERTY_USE_AUTO_ANALYZER)
             .build();
 
     public AnalyzeProperties(Map<String, String> properties) {

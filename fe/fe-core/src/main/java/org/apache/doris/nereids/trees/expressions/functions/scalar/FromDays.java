@@ -23,7 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.base.Preconditions;
@@ -38,7 +38,7 @@ public class FromDays extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateType.INSTANCE).args(IntegerType.INSTANCE)
+            FunctionSignature.ret(DateV2Type.INSTANCE).args(IntegerType.INSTANCE)
     );
 
     /**

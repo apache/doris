@@ -20,6 +20,8 @@
 
 #include "mem_info.h"
 
+#include "gutil/strings/split.h"
+
 #ifdef __APPLE__
 #include <sys/sysctl.h>
 #endif
@@ -34,11 +36,11 @@
 #include <boost/algorithm/string/trim.hpp>
 #include <fstream>
 #include <unordered_map>
-#include <vector>
 
+#include "common/cgroup_memory_ctl.h"
 #include "common/config.h"
 #include "common/status.h"
-#include "gutil/strings/split.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "util/cgroup_util.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
@@ -46,19 +48,34 @@
 
 namespace doris {
 
+static bvar::Adder<int64_t> memory_jemalloc_cache_bytes("memory_jemalloc_cache_bytes");
+static bvar::Adder<int64_t> memory_jemalloc_dirty_pages_bytes("memory_jemalloc_dirty_pages_bytes");
+static bvar::Adder<int64_t> memory_jemalloc_metadata_bytes("memory_jemalloc_metadata_bytes");
+static bvar::Adder<int64_t> memory_jemalloc_virtual_bytes("memory_jemalloc_virtual_bytes");
+static bvar::Adder<int64_t> memory_cgroup_usage_bytes("memory_cgroup_usage_bytes");
+static bvar::Adder<int64_t> memory_sys_available_bytes("memory_sys_available_bytes");
+static bvar::Adder<int64_t> memory_arbitrator_sys_available_bytes(
+        "memory_arbitrator_sys_available_bytes");
+static bvar::Adder<int64_t> memory_arbitrator_process_usage_bytes(
+        "memory_arbitrator_process_usage_bytes");
+static bvar::Adder<int64_t> memory_arbitrator_reserve_memory_bytes(
+        "memory_arbitrator_reserve_memory_bytes");
+static bvar::Adder<int64_t> memory_arbitrator_refresh_interval_growth_bytes(
+        "memory_arbitrator_refresh_interval_growth_bytes");
+
 bool MemInfo::_s_initialized = false;
 std::atomic<int64_t> MemInfo::_s_physical_mem = std::numeric_limits<int64_t>::max();
 std::atomic<int64_t> MemInfo::_s_mem_limit = std::numeric_limits<int64_t>::max();
 std::atomic<int64_t> MemInfo::_s_soft_mem_limit = std::numeric_limits<int64_t>::max();
 
 std::atomic<int64_t> MemInfo::_s_allocator_cache_mem = 0;
+std::atomic<int64_t> MemInfo::_s_allocator_metadata_mem = 0;
 std::atomic<int64_t> MemInfo::_s_je_dirty_pages_mem = std::numeric_limits<int64_t>::min();
 std::atomic<int64_t> MemInfo::_s_je_dirty_pages_mem_limit = std::numeric_limits<int64_t>::max();
 std::atomic<int64_t> MemInfo::_s_virtual_memory_used = 0;
 
 int64_t MemInfo::_s_cgroup_mem_limit = std::numeric_limits<int64_t>::max();
 int64_t MemInfo::_s_cgroup_mem_usage = std::numeric_limits<int64_t>::min();
-static std::unordered_map<std::string, int64_t> _s_cgroup_mem_info_bytes;
 bool MemInfo::_s_cgroup_mem_refresh_state = false;
 int64_t MemInfo::_s_cgroup_mem_refresh_wait_times = 0;
 
@@ -75,6 +92,10 @@ std::atomic<bool> MemInfo::je_purge_dirty_pages_notify {false};
 void MemInfo::refresh_allocator_mem() {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
 #elif defined(USE_JEMALLOC)
+    // jemalloc mallctl refer to : https://jemalloc.net/jemalloc.3.html
+    // https://www.bookstack.cn/read/aliyun-rds-core/4a0cdf677f62feb3.md
+    //  Check the Doris BE web page `http://ip:webserver_port/memz` to get the Jemalloc Profile.
+
     // 'epoch' is a special mallctl -- it updates the statistics. Without it, all
     // the following calls will return stale values. It increments and returns
     // the current epoch number, which might be useful to log as a sanity check.
@@ -82,14 +103,22 @@ void MemInfo::refresh_allocator_mem() {
     size_t sz = sizeof(epoch);
     jemallctl("epoch", &epoch, &sz, &epoch, sz);
 
-    // https://jemalloc.net/jemalloc.3.html
-    // https://www.bookstack.cn/read/aliyun-rds-core/4a0cdf677f62feb3.md
-    _s_allocator_cache_mem.store(get_je_all_arena_metrics("tcache_bytes") +
-                                         get_je_metrics("stats.metadata") +
-                                         get_je_all_arena_metrics("pdirty") * get_page_size(),
+    // Number of extents of the given type in this arena in the bucket corresponding to page size index.
+    // Large size class starts at 16384, the extents have three sizes before 16384: 4096, 8192, and 12288, so + 3
+    int64_t dirty_pages_bytes = 0;
+    for (unsigned i = 0; i < get_je_unsigned_metrics("arenas.nlextents") + 3; i++) {
+        dirty_pages_bytes += get_je_all_arena_extents_metrics(i, "dirty_bytes");
+    }
+    _s_je_dirty_pages_mem.store(dirty_pages_bytes, std::memory_order_relaxed);
+
+    // Doris uses Jemalloc as default Allocator, Jemalloc Cache consists of two parts:
+    // - Thread Cache, cache a specified number of Pages in Thread Cache.
+    // - Dirty Page, memory Page that can be reused in all Arenas.
+    _s_allocator_cache_mem.store(get_je_all_arena_metrics("tcache_bytes") + dirty_pages_bytes,
                                  std::memory_order_relaxed);
-    _s_je_dirty_pages_mem.store(get_je_all_arena_metrics("pdirty") * get_page_size(),
-                                std::memory_order_relaxed);
+    // Total number of bytes dedicated to metadata, which comprise base allocations used
+    // for bootstrap-sensitive allocator metadata structures.
+    _s_allocator_metadata_mem.store(get_je_metrics("stats.metadata"), std::memory_order_relaxed);
     _s_virtual_memory_used.store(get_je_metrics("stats.mapped"), std::memory_order_relaxed);
 #else
     _s_allocator_cache_mem.store(get_tc_metrics("tcmalloc.pageheap_free_bytes") +
@@ -101,6 +130,33 @@ void MemInfo::refresh_allocator_mem() {
                                          get_tc_metrics("tcmalloc.pageheap_unmapped_bytes"),
                                  std::memory_order_relaxed);
 #endif
+}
+
+void MemInfo::refresh_memory_bvar() {
+    memory_jemalloc_cache_bytes << MemInfo::allocator_cache_mem() -
+                                           memory_jemalloc_cache_bytes.get_value();
+    memory_jemalloc_dirty_pages_bytes
+            << MemInfo::je_dirty_pages_mem() - memory_jemalloc_dirty_pages_bytes.get_value();
+    memory_jemalloc_metadata_bytes
+            << MemInfo::allocator_metadata_mem() - memory_jemalloc_metadata_bytes.get_value();
+    memory_jemalloc_virtual_bytes << MemInfo::allocator_virtual_mem() -
+                                             memory_jemalloc_virtual_bytes.get_value();
+
+    memory_cgroup_usage_bytes << _s_cgroup_mem_usage - memory_cgroup_usage_bytes.get_value();
+    memory_sys_available_bytes << _s_sys_mem_available - memory_sys_available_bytes.get_value();
+
+    memory_arbitrator_sys_available_bytes
+            << GlobalMemoryArbitrator::sys_mem_available() -
+                       memory_arbitrator_sys_available_bytes.get_value();
+    memory_arbitrator_process_usage_bytes
+            << GlobalMemoryArbitrator::process_memory_usage() -
+                       memory_arbitrator_process_usage_bytes.get_value();
+    memory_arbitrator_reserve_memory_bytes
+            << GlobalMemoryArbitrator::process_reserved_memory() -
+                       memory_arbitrator_reserve_memory_bytes.get_value();
+    memory_arbitrator_refresh_interval_growth_bytes
+            << GlobalMemoryArbitrator::refresh_interval_memory_growth -
+                       memory_arbitrator_refresh_interval_growth_bytes.get_value();
 }
 
 #ifndef __APPLE__
@@ -123,7 +179,7 @@ void MemInfo::refresh_proc_meminfo() {
         if (result == StringParser::PARSE_SUCCESS) {
             if (fields.size() == 2) {
                 _mem_info_bytes[key] = mem_value;
-            } else if (fields[2].compare("kB") == 0) {
+            } else if (fields[2] == "kB") {
                 _mem_info_bytes[key] = mem_value * 1024L;
             }
         }
@@ -138,65 +194,28 @@ void MemInfo::refresh_proc_meminfo() {
         int64_t cgroup_mem_usage = -1;
         std::string cgroup_mem_info_file_path;
         _s_cgroup_mem_refresh_state = true;
-        Status status = CGroupUtil::find_cgroup_mem_limit(&cgroup_mem_limit);
-        if (!status.ok() || cgroup_mem_limit <= 0) {
+        Status status = CGroupMemoryCtl::find_cgroup_mem_limit(&cgroup_mem_limit);
+        if (!status.ok()) {
             _s_cgroup_mem_refresh_state = false;
         }
-        status = CGroupUtil::find_cgroup_mem_usage(&cgroup_mem_usage);
-        if (!status.ok() || cgroup_mem_usage <= 0) {
-            _s_cgroup_mem_refresh_state = false;
-        }
-        status = CGroupUtil::find_cgroup_mem_info(&cgroup_mem_info_file_path);
-        if (status.ok()) {
-            std::ifstream cgroup_meminfo(cgroup_mem_info_file_path, std::ios::in);
-            std::string line;
-
-            while (cgroup_meminfo.good() && !cgroup_meminfo.eof()) {
-                getline(cgroup_meminfo, line);
-                std::vector<std::string> fields =
-                        strings::Split(line, " ", strings::SkipWhitespace());
-                if (fields.size() < 2) {
-                    continue;
-                }
-                std::string key = fields[0].substr(0, fields[0].size());
-
-                StringParser::ParseResult result;
-                auto mem_value = StringParser::string_to_int<int64_t>(fields[1].data(),
-                                                                      fields[1].size(), &result);
-
-                if (result == StringParser::PARSE_SUCCESS) {
-                    if (fields.size() == 2) {
-                        _s_cgroup_mem_info_bytes[key] = mem_value;
-                    } else if (fields[2] == "kB") {
-                        _s_cgroup_mem_info_bytes[key] = mem_value * 1024L;
-                    }
-                }
-            }
-            if (cgroup_meminfo.is_open()) {
-                cgroup_meminfo.close();
-            }
-        } else {
+        status = CGroupMemoryCtl::find_cgroup_mem_usage(&cgroup_mem_usage);
+        if (!status.ok()) {
             _s_cgroup_mem_refresh_state = false;
         }
 
         if (_s_cgroup_mem_refresh_state) {
             _s_cgroup_mem_limit = cgroup_mem_limit;
-            // https://serverfault.com/questions/902009/the-memory-usage-reported-in-cgroup-differs-from-the-free-command
-            // memory.usage_in_bytes ~= free.used + free.(buff/cache) - (buff)
-            // so, memory.usage_in_bytes - memory.meminfo["Cached"]
-            _s_cgroup_mem_usage = cgroup_mem_usage - _s_cgroup_mem_info_bytes["cache"];
+            _s_cgroup_mem_usage = cgroup_mem_usage;
             // wait 10s, 100 * 100ms, avoid too frequently.
             _s_cgroup_mem_refresh_wait_times = -100;
             LOG(INFO) << "Refresh cgroup memory win, refresh again after 10s, cgroup mem limit: "
-                      << _s_cgroup_mem_limit << ", cgroup mem usage: " << _s_cgroup_mem_usage
-                      << ", cgroup mem info cached: " << _s_cgroup_mem_info_bytes["cache"];
+                      << _s_cgroup_mem_limit << ", cgroup mem usage: " << _s_cgroup_mem_usage;
         } else {
             // find cgroup failed, wait 300s, 1000 * 100ms.
             _s_cgroup_mem_refresh_wait_times = -3000;
             LOG(INFO)
                     << "Refresh cgroup memory failed, refresh again after 300s, cgroup mem limit: "
-                    << _s_cgroup_mem_limit << ", cgroup mem usage: " << _s_cgroup_mem_usage
-                    << ", cgroup mem info cached: " << _s_cgroup_mem_info_bytes["cache"];
+                    << _s_cgroup_mem_limit << ", cgroup mem usage: " << _s_cgroup_mem_usage;
         }
     } else {
         if (config::enable_use_cgroup_memory_info) {
@@ -379,7 +398,7 @@ std::string MemInfo::debug_string() {
     stream << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
            << std::endl;
     stream << "Memory Limt: " << PrettyPrinter::print(_s_mem_limit, TUnit::BYTES) << std::endl;
-    stream << "CGroup Info: " << doris::CGroupUtil::debug_string() << std::endl;
+    stream << "CGroup Info: " << doris::CGroupMemoryCtl::debug_string() << std::endl;
     return stream.str();
 }
 

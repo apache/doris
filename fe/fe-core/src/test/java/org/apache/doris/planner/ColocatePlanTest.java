@@ -160,7 +160,7 @@ public class ColocatePlanTest extends TestWithFeService {
         Assert.assertTrue(scanNodeList.get(0) instanceof OlapScanNode);
         OlapScanNode olapScanNode = (OlapScanNode) scanNodeList.get(0);
         Assert.assertEquals(olapScanNode.getSelectedPartitionIds().size(), 2);
-        long selectedTablet = Deencapsulation.getField(olapScanNode, "selectedTabletsNum");
+        long selectedTablet = Deencapsulation.getField(olapScanNode, "selectedSplitNum");
         Assert.assertEquals(selectedTablet, 2);
 
         List<QueryStatisticsItem.FragmentInstanceInfo> instanceInfo = coordinator.getFragmentInstanceInfos();

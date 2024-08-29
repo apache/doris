@@ -115,4 +115,27 @@ suite("test_in_expr", "query") {
     sql """DROP TABLE IF EXISTS ${nullTableName}"""
     sql """DROP TABLE IF EXISTS ${notNullTableName}"""
 
+    sql """DROP TABLE IF EXISTS table_with_null"""
+
+    sql """
+          CREATE TABLE IF NOT EXISTS table_with_null (
+              `id` INT ,
+              `c1` INT
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+            );
+    """
+
+    sql """ insert into table_with_null values(1, null); """
+
+    qt_select """ select 0 in (c1, null) from table_with_null;"""
+
+
+
+
+
 }

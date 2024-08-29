@@ -195,7 +195,7 @@ public:
     void check_cumulative_compaction_config();
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                  bool force);
+                                  bool force, bool eager = true);
     Status submit_seg_compaction_task(std::shared_ptr<SegcompactionWorker> worker,
                                       SegCompactionCandidatesSharedPtr segments);
 
@@ -255,6 +255,8 @@ private:
 
     void _clean_unused_pending_publish_info();
 
+    void _clean_unused_partial_update_info();
+
     Status _do_sweep(const std::string& scan_root, const time_t& local_tm_now,
                      const int32_t expire);
 
@@ -267,9 +269,6 @@ private:
 
     // delete tablet with io error process function
     void _disk_stat_monitor_thread_callback();
-
-    // clean file descriptors cache
-    void _cache_clean_callback();
 
     // path gc process function
     void _path_gc_thread_callback(DataDir* data_dir);
@@ -462,9 +461,6 @@ private:
     // aync publish for discontinuous versions of merge_on_write table
     scoped_refptr<Thread> _async_publish_thread;
     std::shared_mutex _async_publish_lock;
-
-    bool _clear_segment_cache = false;
-    bool _clear_page_cache = false;
 
     std::atomic<bool> _need_clean_trash {false};
 

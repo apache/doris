@@ -123,6 +123,8 @@ public:
 
         size_t get_dimensions() const { return least_common_type.get_dimensions(); }
 
+        void get(size_t n, Field& res) const;
+
         /// Checks the consistency of column's parts stored in @data.
         void checkTypes() const;
 
@@ -146,9 +148,6 @@ public:
         void finalize();
 
         bool check_if_sparse_column(size_t num_rows);
-
-        /// Returns last inserted field.
-        Field get_last_field() const;
 
         /// Returns single column if subcolumn in finalizes.
         /// Otherwise -- undefined behaviour.
@@ -287,8 +286,6 @@ public:
 
     DataTypePtr get_root_type() const;
 
-    bool is_variant() const override { return true; }
-
     // return null if not found
     const Subcolumn* get_subcolumn(const PathInData& key) const;
 
@@ -361,6 +358,8 @@ public:
 
     void clear() override;
 
+    void resize(size_t n) override;
+
     void clear_subcolumns_data();
 
     std::string get_name() const override {
@@ -408,9 +407,6 @@ public:
 
     void insert_default() override;
 
-    // Revise this column to specified num_rows
-    void revise_to(int num_rows);
-
     ColumnPtr replicate(const Offsets& offsets) const override;
 
     void pop_back(size_t length) override;
@@ -418,11 +414,6 @@ public:
     Field operator[](size_t n) const override;
 
     void get(size_t n, Field& res) const override;
-
-    Status try_insert_indices_from(const IColumn& src, const int* indices_begin,
-                                   const int* indices_end);
-
-    void for_each_imutable_subcolumn(ImutableColumnCallback callback) const;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
 
@@ -452,14 +443,10 @@ public:
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
-    // Extract path from root column and replace root with new extracted column,
-    // root must be jsonb type
-    Status extract_root(const PathInData& path);
+    void for_each_imutable_subcolumn(ImutableColumnCallback callback) const;
 
     // Extract path from root column and output to dst
     Status extract_root(const PathInData& path, MutableColumnPtr& dst) const;
-
-    void strip_outer_array();
 
     bool empty() const;
 

@@ -42,8 +42,7 @@ HashJoinBuildSinkLocalState::HashJoinBuildSinkLocalState(DataSinkOperatorXBase* 
                                                          RuntimeState* state)
         : JoinBuildSinkLocalState(parent, state) {
     _finish_dependency = std::make_shared<CountedFinishDependency>(
-            parent->operator_id(), parent->node_id(), parent->get_name() + "_FINISH_DEPENDENCY",
-            state->get_query_ctx());
+            parent->operator_id(), parent->node_id(), parent->get_name() + "_FINISH_DEPENDENCY");
 }
 
 Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
@@ -598,7 +597,11 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     } else if (!local_state._should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
-        CHECK(_shared_hash_table_context->signaled);
+        // the instance which is not build hash table, it's should wait the signal of hash table build finished.
+        // but if it's running and signaled == false, maybe the source operator have closed caused by some short circuit,
+        if (!_shared_hash_table_context->signaled) {
+            return Status::Error<ErrorCode::END_OF_FILE>("source have closed");
+        }
 
         if (!_shared_hash_table_context->status.ok()) {
             return _shared_hash_table_context->status;

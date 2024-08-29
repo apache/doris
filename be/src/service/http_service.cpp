@@ -51,6 +51,7 @@
 #include "http/action/report_action.h"
 #include "http/action/reset_rpc_channel_action.h"
 #include "http/action/restore_tablet_action.h"
+#include "http/action/show_nested_index_file_action.h"
 #include "http/action/snapshot_action.h"
 #include "http/action/stream_load.h"
 #include "http/action/stream_load_2pc.h"
@@ -180,10 +181,10 @@ Status HttpService::start() {
     HealthAction* health_action = _pool.add(new HealthAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/health", health_action);
 
-    // Dump all running pipeline tasks
-    ClearDataCacheAction* clear_data_cache_action = _pool.add(new ClearDataCacheAction());
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/clear_data_cache",
-                                      clear_data_cache_action);
+    // Clear cache action
+    ClearCacheAction* clear_cache_action = _pool.add(new ClearCacheAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/clear_cache/{type}",
+                                      clear_cache_action);
 
     // Dump all running pipeline tasks
     PipelineTaskAction* pipeline_task_action = _pool.add(new PipelineTaskAction());
@@ -330,6 +331,11 @@ Status HttpService::start() {
     CalcFileCrcAction* calc_crc_action =
             _pool.add(new CalcFileCrcAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/calc_crc", calc_crc_action);
+
+    ShowNestedIndexFileAction* show_nested_index_file_action = _pool.add(
+            new ShowNestedIndexFileAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/show_nested_index_file",
+                                      show_nested_index_file_action);
 
     ReportAction* report_task_action = _pool.add(
             new ReportAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_TASK"));

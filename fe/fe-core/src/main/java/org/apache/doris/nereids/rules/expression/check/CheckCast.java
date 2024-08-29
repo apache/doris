@@ -92,6 +92,9 @@ public class CheckCast implements ExpressionPatternRuleFactory {
             }
             return true;
         } else if (originalType instanceof JsonType || targetType instanceof JsonType) {
+            if (originalType.isComplexType() && !checkMapKeyIsStringLikeForJson(originalType)) {
+                return false;
+            }
             return true;
         } else {
             return checkPrimitiveType(originalType, targetType);
@@ -124,6 +127,25 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         if (targetType.isTimeLikeType() && !(originalType.isIntegralType()
                 || originalType.isStringLikeType() || originalType.isFloatLikeType())) {
             return false;
+        }
+        return true;
+    }
+
+    /**
+     * check if complexType type which contains map, make sure key is string like for json
+     *
+     * @param complexType need to check
+     * @return true if complexType can cast to json
+     */
+    public static boolean checkMapKeyIsStringLikeForJson(DataType complexType) {
+        if (complexType.isMapType()) {
+            return ((MapType) complexType).getKeyType().isStringLikeType();
+        } else if (complexType.isArrayType()) {
+            return checkMapKeyIsStringLikeForJson(((ArrayType) complexType).getItemType());
+        } else if (complexType.isStructType()) {
+            for (StructField f : ((StructType) complexType).getFields()) {
+                return checkMapKeyIsStringLikeForJson(f.getDataType());
+            }
         }
         return true;
     }

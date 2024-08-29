@@ -114,7 +114,7 @@ public:
                    context->get_arg_type(0)->type == PrimitiveType::TYPE_VARCHAR ||
                    context->get_arg_type(0)->type == PrimitiveType::TYPE_STRING) {
             // the StringValue's memory is held by FunctionContext, so we can use StringValueSet here directly
-            state->hybrid_set.reset(create_string_value_set((size_t)(context->get_num_args() - 1)));
+            state->hybrid_set.reset(create_string_value_set(get_size_with_out_null(context)));
         } else {
             state->hybrid_set.reset(
                     create_set(context->get_arg_type(0)->type, get_size_with_out_null(context)));
@@ -265,8 +265,9 @@ private:
                 continue;
             }
 
-            std::unique_ptr<HybridSetBase> hybrid_set(
-                    create_set(context->get_arg_type(0)->type, set_columns.size()));
+            std::vector<StringRef> set_datas;
+            // To comply with the SQL standard, IN() returns NULL not only if the expression on the left hand side is NULL,
+            // but also if no match is found in the list and one of the expressions in the list is NULL.
             bool null_in_set = false;
 
             for (const auto& set_column : set_columns) {
@@ -274,9 +275,15 @@ private:
                 if (set_data.data == nullptr) {
                     null_in_set = true;
                 } else {
-                    hybrid_set->insert((void*)(set_data.data), set_data.size);
+                    set_datas.push_back(set_data);
                 }
             }
+            std::unique_ptr<HybridSetBase> hybrid_set(
+                    create_set(context->get_arg_type(0)->type, set_datas.size()));
+            for (auto& set_data : set_datas) {
+                hybrid_set->insert((void*)(set_data.data), set_data.size);
+            }
+
             vec_res[i] = negative ^ hybrid_set->find((void*)ref_data.data, ref_data.size);
             if (null_in_set) {
                 vec_null_map_to[i] = negative == vec_res[i];

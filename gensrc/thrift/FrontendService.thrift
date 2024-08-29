@@ -30,6 +30,7 @@ include "RuntimeProfile.thrift"
 include "MasterService.thrift"
 include "AgentService.thrift"
 include "DataSinks.thrift"
+include "HeartbeatService.thrift"
 
 // These are supporting structs for JniFrontend.java, which serves as the glue
 // between our C++ execution environment and the Java frontend.
@@ -485,13 +486,43 @@ struct TReportExecStatusParams {
 
   26: optional list<DataSinks.THivePartitionUpdate> hive_partition_updates
 
-  27: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
+  28: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
 }
 
 struct TFeResult {
     1: required FrontendServiceVersion protocolVersion
     2: required Status.TStatus status
 }
+
+enum TSubTxnType {
+    INSERT = 0,
+    DELETE = 1
+}
+
+struct TSubTxnInfo {
+    1: optional i64 sub_txn_id
+    2: optional i64 table_id
+    3: optional list<Types.TTabletCommitInfo> tablet_commit_infos
+    4: optional TSubTxnType sub_txn_type
+}
+
+struct TTxnLoadInfo {
+    1: optional string label
+    2: optional i64 dbId
+    3: optional i64 txnId
+    4: optional i64 timeoutTimestamp
+    5: optional i64 allSubTxnNum
+    6: optional list<TSubTxnInfo> subTxnInfos
+}
+
+struct TGroupCommitInfo{
+    1: optional bool getGroupCommitLoadBeId
+    2: optional i64 groupCommitLoadTableId
+    5: optional bool updateLoadData
+    6: optional i64 tableId 
+    7: optional i64 receiveData
+}
+
 struct TMasterOpRequest {
     1: required string user
     2: required string db
@@ -523,6 +554,9 @@ struct TMasterOpRequest {
     26: optional string defaultDatabase
     27: optional bool cancel_qeury // if set to true, this request means to cancel one forwarded query, and query_id needs to be set
     28: optional map<string, Exprs.TExprNode> user_variables
+    // transaction load
+    29: optional TTxnLoadInfo txnLoadInfo
+    30: optional TGroupCommitInfo groupCommitInfo
 }
 
 struct TColumnDefinition {
@@ -550,6 +584,9 @@ struct TMasterOpResult {
     6: optional i32 statusCode;
     7: optional string errMessage;
     8: optional list<binary> queryResultBufList;
+    // transaction load
+    9: optional TTxnLoadInfo txnLoadInfo;
+    10: optional i64 groupCommitLoadBeId;
 }
 
 struct TUpdateExportTaskStatusRequest {
@@ -572,7 +609,7 @@ struct TLoadTxnBeginRequest {
     10: optional i64 timeout
     11: optional Types.TUniqueId request_id
     12: optional string token
-    13: optional i64 backend_id
+    15: optional i64 backend_id
 }
 
 struct TLoadTxnBeginResult {
@@ -750,6 +787,10 @@ struct TLoadTxnCommitRequest {
     14: optional i64 db_id
     15: optional list<string> tbls
     16: optional i64 table_id
+    17: optional string auth_code_uuid
+    18: optional bool groupCommit
+    19: optional i64 receiveBytes
+    20: optional i64 backendId 
 }
 
 struct TLoadTxnCommitResult {
@@ -913,6 +954,9 @@ enum TSchemaTableName {
   WORKLOAD_GROUPS = 3, // db information_schema's table
   ROUTINES_INFO = 4, // db information_schema's table
   WORKLOAD_SCHEDULE_POLICY = 5,
+  TABLE_OPTIONS = 6,
+  WORKLOAD_GROUP_PRIVILEGES = 7,
+  TABLE_PROPERTIES = 8,
 }
 
 struct TMetadataTableRequestParams {
@@ -926,12 +970,15 @@ struct TMetadataTableRequestParams {
   8: optional PlanNodes.TMaterializedViewsMetadataParams materialized_views_metadata_params
   9: optional PlanNodes.TJobsMetadataParams jobs_metadata_params
   10: optional PlanNodes.TTasksMetadataParams tasks_metadata_params
+  11: optional PlanNodes.TPartitionsMetadataParams partitions_metadata_params
 }
 
 struct TSchemaTableRequestParams {
     1: optional list<string> columns_name
     2: optional Types.TUserIdentity current_user_ident
     3: optional bool replay_to_other_fe
+    4: optional string catalog  // use for table specific queries
+    5: optional i64 dbId         // used for table specific queries
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -1152,6 +1199,8 @@ struct TRestoreSnapshotRequest {
     10: optional map<string, string> properties
     11: optional binary meta
     12: optional binary job_info
+    13: optional bool clean_tables
+    14: optional bool clean_partitions
 }
 
 struct TRestoreSnapshotResult {
@@ -1372,6 +1421,8 @@ struct TGetMetaDBMeta {
     1: optional i64 id
     2: optional string name
     3: optional list<TGetMetaTableMeta> tables
+    4: optional list<i64> dropped_partitions
+    5: optional list<i64> dropped_tables
 }
 
 struct TGetMetaResult {
@@ -1432,6 +1483,15 @@ struct TFetchSplitBatchRequest {
 
 struct TFetchSplitBatchResult {
     1: optional list<Planner.TScanRangeLocations> splits
+    2: optional Status.TStatus status
+}
+
+struct TFetchRunningQueriesResult {
+    1: optional Status.TStatus status
+    2: optional list<Types.TUniqueId> running_queries
+}
+
+struct TFetchRunningQueriesRequest {
 }
 
 service FrontendService {
@@ -1524,4 +1584,6 @@ service FrontendService {
     TShowProcessListResult showProcessList(1: TShowProcessListRequest request)
     TShowUserResult showUser(1: TShowUserRequest request)
     TFetchSplitBatchResult fetchSplitBatch(1: TFetchSplitBatchRequest request)
+
+    TFetchRunningQueriesResult fetchRunningQueries(1: TFetchRunningQueriesRequest request)
 }

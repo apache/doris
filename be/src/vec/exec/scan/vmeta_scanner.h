@@ -85,6 +85,8 @@ private:
                                             TFetchSchemaTableDataRequest* request);
     Status _build_materialized_views_metadata_request(const TMetaScanRange& meta_scan_range,
                                                       TFetchSchemaTableDataRequest* request);
+    Status _build_partitions_metadata_request(const TMetaScanRange& meta_scan_range,
+                                              TFetchSchemaTableDataRequest* request);
     Status _build_jobs_metadata_request(const TMetaScanRange& meta_scan_range,
                                         TFetchSchemaTableDataRequest* request);
     Status _build_tasks_metadata_request(const TMetaScanRange& meta_scan_range,

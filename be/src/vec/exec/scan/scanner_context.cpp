@@ -112,7 +112,8 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
         (_local_state && _local_state->should_run_serial())) {
         _max_thread_num = 1;
     }
-    _query_thread_context = {_query_id, _state->query_mem_tracker()};
+    _query_thread_context = {_query_id, _state->query_mem_tracker(),
+                             _state->get_query_ctx()->workload_group()};
 }
 
 ScannerContext::ScannerContext(doris::RuntimeState* state, doris::vectorized::VScanNode* parent,
@@ -254,7 +255,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
                                             bool* eos, int id, bool wait) {
     if (state->is_cancelled()) {
         _set_scanner_done();
-        return Status::Cancelled("Query cancelled in ScannerContext");
+        return Status::Cancelled(state->cancel_reason());
     }
     std::unique_lock l(_transfer_lock);
     // Wait for block from queue

@@ -26,6 +26,7 @@ suite("test_leading") {
     // setting planner to nereids
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=1'
+    sql 'set parallel_pipeline_task_num=1'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql 'set enable_nereids_planner=true'
     sql "set ignore_shape_nodes='PhysicalProject'"
@@ -999,7 +1000,7 @@ suite("test_leading") {
     qt_select94_2 """explain shape plan select /*+ leading(t2 shuffle {t3 t1}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
 
     // outer join
-    qt_select95_1 """explain shape plan select /*+ leading(t1 broadcast t2 t3) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
+    qt_select95_1 """explain shape plan select /*+ leading(t1 broadcast t2 broadcast t3) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
     explain {
         sql """shape plan select /*+ leading(t1 broadcast {t2 t3}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
         contains("UnUsed: leading(t1 broadcast { t2 t3 })")

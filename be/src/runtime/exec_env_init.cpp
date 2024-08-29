@@ -36,6 +36,7 @@
 #include "common/status.h"
 #include "io/cache/block/block_file_cache_factory.h"
 #include "io/fs/file_meta_cache.h"
+#include "io/fs/local_file_reader.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
@@ -93,6 +94,8 @@
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/timezone_utils.h"
+#include "vec/exec/format/orc/orc_memory_pool.h"
+#include "vec/exec/format/parquet/arrow_memory_pool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/delta_writer_v2_pool.h"
@@ -210,7 +213,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
     _runtime_query_statistics_mgr = new RuntimeQueryStatiticsMgr();
 
-    init_file_cache_factory();
+    std::vector<doris::CachePath> cache_paths;
+    init_file_cache_factory(cache_paths);
+    doris::io::BeConfDataDirReader::init_be_conf_data_dir(store_paths, spill_store_paths,
+                                                          cache_paths);
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _workload_group_manager = new WorkloadGroupMgr();
@@ -227,7 +233,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _load_stream_mgr = std::make_unique<LoadStreamMgr>(num_flush_threads);
     _new_load_stream_mgr = NewLoadStreamMgr::create_shared();
     _internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
-    _function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
+    _streaming_client_cache =
+            new BrpcClientCache<PBackendService_Stub>("baidu_std", "single", "streaming");
+    _function_client_cache =
+            new BrpcClientCache<PFunctionService_Stub>(config::function_service_protocol);
     _stream_load_executor = StreamLoadExecutor::create_shared(this);
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     RETURN_IF_ERROR(_routine_load_task_executor->init());
@@ -319,13 +328,12 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     return Status::OK();
 }
 
-void ExecEnv::init_file_cache_factory() {
+void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths) {
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
     if (doris::config::enable_file_cache) {
         _file_cache_factory = new io::FileCacheFactory();
         io::IFileCache::init();
         std::unordered_set<std::string> cache_path_set;
-        std::vector<doris::CachePath> cache_paths;
         Status olap_res =
                 doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
         if (!olap_res) {
@@ -449,21 +457,18 @@ Status ExecEnv::_init_mem_env() {
     // SegmentLoader caches segments in rowset granularity. So the size of
     // opened files will greater than segment_cache_capacity.
     int64_t segment_cache_capacity = config::segment_cache_capacity;
-    if (segment_cache_capacity < 0 || segment_cache_capacity > fd_number * 1 / 5) {
-        segment_cache_capacity = fd_number * 1 / 5;
+    int64_t segment_cache_fd_limit = fd_number / 100 * config::segment_cache_fd_percentage;
+    if (segment_cache_capacity < 0 || segment_cache_capacity > segment_cache_fd_limit) {
+        segment_cache_capacity = segment_cache_fd_limit;
     }
 
     int64_t segment_cache_mem_limit =
             MemInfo::mem_limit() / 100 * config::segment_cache_memory_percentage;
-    // config::segment_cache_memory_percentage;
-    int64_t min_segment_cache_mem_limit =
-            min(segment_cache_mem_limit, segment_cache_capacity *
-                                                 config::estimated_num_columns_per_segment *
-                                                 config::estimated_mem_per_column_reader);
-    _segment_loader = new SegmentLoader(min_segment_cache_mem_limit, segment_cache_capacity);
+
+    _segment_loader = new SegmentLoader(segment_cache_mem_limit, segment_cache_capacity);
     LOG(INFO) << "segment_cache_capacity <= fd_number * 1 / 5, fd_number: " << fd_number
               << " segment_cache_capacity: " << segment_cache_capacity
-              << " min_segment_cache_mem_limit " << min_segment_cache_mem_limit;
+              << " min_segment_cache_mem_limit " << segment_cache_mem_limit;
 
     _schema_cache = new SchemaCache(config::schema_cache_capacity);
 
@@ -501,6 +506,10 @@ Status ExecEnv::_init_mem_env() {
               << ", origin config value: " << config::inverted_index_query_cache_limit;
 
     RETURN_IF_ERROR(_block_spill_mgr->init());
+
+    // init orc memory pool
+    _orc_memory_pool = new doris::vectorized::ORCMemoryPool();
+    _arrow_memory_pool = new doris::vectorized::ArrowMemoryPool();
 
     return Status::OK();
 }
@@ -625,6 +634,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_routine_load_task_executor);
     // _stream_load_executor
     SAFE_DELETE(_function_client_cache);
+    SAFE_DELETE(_streaming_client_cache);
     SAFE_DELETE(_internal_client_cache);
 
     SAFE_DELETE(_bfd_parser);
@@ -671,6 +681,9 @@ void ExecEnv::destroy() {
 
     // We should free task scheduler finally because task queue / scheduler maybe used by pipelineX.
     SAFE_DELETE(_without_group_task_scheduler);
+
+    SAFE_DELETE(_arrow_memory_pool);
+    SAFE_DELETE(_orc_memory_pool);
 
     // dns cache is a global instance and need to be released at last
     SAFE_DELETE(_dns_cache);

@@ -97,17 +97,16 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                 LOG.debug("Nereids start to execute the create table command, query id: {}, tableName: {}",
                         ctx.queryId(), createTableInfo.getTableName());
             }
-            try {
-                Env.getCurrentEnv().createTable(createTableStmt);
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage(), e.getCause());
-            }
+
+            Env.getCurrentEnv().createTable(createTableStmt);
             return;
         }
         LogicalPlan query = ctasQuery.get();
         List<String> ctasCols = createTableInfo.getCtasColumns();
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        Plan plan = planner.plan(new UnboundResultSink<>(query), PhysicalProperties.ANY, ExplainLevel.NONE);
+        // must disable constant folding by be, because be constant folding may return wrong type
+        ctx.getSessionVariable().disableConstantFoldingByBEOnce();
+        Plan plan = planner.planWithLock(new UnboundResultSink<>(query), PhysicalProperties.ANY, ExplainLevel.NONE);
         if (ctasCols == null) {
             // we should analyze the plan firstly to get the columns' name.
             ctasCols = plan.getOutput().stream().map(NamedExpression::getName).collect(Collectors.toList());
@@ -121,6 +120,8 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
             Slot s = slots.get(i);
             DataType dataType = s.getDataType().conversion();
             if (i == 0 && dataType.isStringType()) {
+                // first column of olap table can not be string type.
+                // So change it to varchar type.
                 dataType = VarcharType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
             } else {
                 dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
@@ -133,13 +134,21 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                         if (createTableInfo.getPartitionTableInfo().inIdentifierPartitions(s.getName())
                                 || (createTableInfo.getDistribution() != null
                                 && createTableInfo.getDistribution().inDistributionColumns(s.getName()))) {
-                            // String type can not be used in partition/distributed column
+                            // String type can not be used in partition/distributed column,
                             // so we replace it to varchar
                             dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                                    StringType.class, VarcharType.MAX_VARCHAR_TYPE);
+                                    CharacterType.class, VarcharType.MAX_VARCHAR_TYPE);
                         } else {
-                            dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                                    CharacterType.class, StringType.INSTANCE);
+                            if (i == 0) {
+                                // first column of olap table can not be string type.
+                                // So change it to varchar type.
+                                dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                                        CharacterType.class, VarcharType.MAX_VARCHAR_TYPE);
+                            } else {
+                                // change varchar/char column from external table to string type
+                                dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                                        CharacterType.class, StringType.INSTANCE);
+                            }
                         }
                     }
                 } else {
@@ -173,7 +182,8 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
         try {
             if (!FeConstants.runningUnitTest) {
-                new InsertIntoTableCommand(query, Optional.empty(), Optional.empty()).run(ctx, executor);
+                new InsertIntoTableCommand(query, Optional.empty(), Optional.empty(), Optional.empty()).run(
+                        ctx, executor);
             }
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                 handleFallbackFailedCtas(ctx);
@@ -209,3 +219,4 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         return createTableInfo;
     }
 }
+

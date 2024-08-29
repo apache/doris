@@ -20,7 +20,6 @@ suite("test_create_table_like_nereids") {
     sql "SET enable_fallback_to_original_planner=false;"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
-
     sql "drop table if exists mal_test_create_table_like"
     sql """create table mal_test_create_table_like(pk int, a int, b int) distributed by hash(pk) buckets 10
     properties('replication_num' = '1');"""
@@ -28,9 +27,15 @@ suite("test_create_table_like_nereids") {
     ,(3,5,6),(3,5,null),(6,7,1),(2,1,7),(2,4,2),(2,3,9),(1,3,6),(3,5,8),(3,2,8);"""
     sql "sync"
     sql "alter table mal_test_create_table_like add rollup ru1(a,pk);"
-    sleep(2000)
-    sql "alter table mal_test_create_table_like add rollup ru2(b,pk);"
-    sleep(2000)
+    waitForSchemaChangeDone {
+        sql """show alter table rollup where tablename='mal_test_create_table_like' order by createtime desc limit 1"""
+        time 600
+    }
+    sql "alter table mal_test_create_table_like add rollup ru2(b,pk)"
+    waitForSchemaChangeDone {
+        sql """show alter table rollup where tablename='mal_test_create_table_like' order by createtime desc limit 1"""
+        time 600
+    }
 
     // no rollup
     sql "drop table if exists table_like"
@@ -43,6 +48,7 @@ suite("test_create_table_like_nereids") {
     // with all rollup
     sql "drop table if exists table_like_with_roll_up"
     sql "CREATE TABLE table_like_with_roll_up LIKE mal_test_create_table_like with rollup;"
+    waitForRollUpJob("mal_test_create_table_like", 5000, 2)
     explain {
         sql ("select sum(a) from table_like_with_roll_up group by a")
         contains "ru1"
@@ -55,6 +61,7 @@ suite("test_create_table_like_nereids") {
     // with partial rollup
     sql "drop table if exists table_like_with_partial_roll_up;"
     sql "CREATE TABLE table_like_with_partial_roll_up LIKE mal_test_create_table_like with rollup (ru1);"
+    waitForRollUpJob("mal_test_create_table_like", 5000, 2)
     sql "select * from table_like_with_partial_roll_up order by pk, a, b"
     explain {
         sql("select sum(a) from table_like_with_partial_roll_up group by a")
@@ -74,6 +81,7 @@ suite("test_create_table_like_nereids") {
     sql "drop table if exists table_like_with_partial_roll_up_exists"
     sql """CREATE TABLE if not exists table_like_with_partial_roll_up_exists
     LIKE mal_test_create_table_like with rollup (ru1);"""
+    waitForRollUpJob("mal_test_create_table_like", 5000, 2)
 
     sql "drop table if exists test_create_table_like_char_255"
     sql """
@@ -94,7 +102,7 @@ suite("test_create_table_like_nereids") {
         create table new_char_255 like test_create_table_like_char_255;
     """
     def res1 = sql "show create table new_char_255"
-    mustContain(res1[0][1], "CHARACTER(255)")
+    mustContain(res1[0][1], "character(255)")
 
     sql "insert into new_char_255 values(123,'abcdddddd')"
     qt_select "select * from new_char_255"

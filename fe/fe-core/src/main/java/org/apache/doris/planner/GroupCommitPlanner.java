@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FormatOptions;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
@@ -199,6 +200,15 @@ public class GroupCommitPlanner {
             expr.getChildren().forEach(child -> processExprVal(child, row));
         } else {
             row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValue()));
+        }
+    }
+
+    protected void selectBackends(ConnectContext ctx) throws DdlException {
+        try {
+            backend = Env.getCurrentEnv().getGroupCommitManager()
+                    .selectBackendForGroupCommit(this.table.getId(), ctx, false);
+        } catch (LoadException e) {
+            throw new DdlException("No suitable backend");
         }
     }
 

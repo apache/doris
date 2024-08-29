@@ -67,9 +67,7 @@ suite("test_select_mv") {
         );
     """
 
-    sql """
-        create materialized view dup1 as select key2, sum(value) from test_dup group by key2; 
-    """
+    createMV("create materialized view dup1 as select key2, sum(value) from test_dup group by key2;")
 
     sql """CREATE TABLE test_agg (
             key1 int NOT NULL,
@@ -83,10 +81,7 @@ suite("test_select_mv") {
         );
     """
 
-    sql """
-        create materialized view agg1 as select key2, sum(value) from test_agg group by key2; 
-    """
-    wait_mv_finish("test_select_mv")
+    createMV("create materialized view agg1 as select key2, sum(value) from test_agg group by key2;")
 
     sql """insert into test_dup values (1, 1, 1), (2, 2, 2)"""
     sql """insert into test_dup values (1, 1, 1), (2, 2, 2)"""

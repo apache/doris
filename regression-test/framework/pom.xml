@@ -74,7 +74,7 @@ under the License.
         <groovy.version>4.0.19</groovy.version>
         <antlr.version>4.9.3</antlr.version>
         <hadoop.version>2.8.0</hadoop.version>
-        <arrow.version>15.0.2</arrow.version>
+        <arrow.version>17.0.0</arrow.version>
     </properties>
     <build>
         <plugins>
@@ -285,6 +285,13 @@ under the License.
             <groupId>com.ibm.db2</groupId>
             <artifactId>jcc</artifactId>
             <version>11.5.8.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <version>4.2.1</version>
+            <!--Regression tests need to include this jar-->
+            <scope>compile</scope>
         </dependency>
     </dependencies>
 </project>

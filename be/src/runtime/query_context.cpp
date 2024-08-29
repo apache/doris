@@ -41,24 +41,42 @@ public:
     std::unique_ptr<ThreadPoolToken> token_;
 };
 
+const std::string toString(QuerySource queryType) {
+    switch (queryType) {
+    case QuerySource::INTERNAL_FRONTEND:
+        return "INTERNAL_FRONTEND";
+    case QuerySource::STREAM_LOAD:
+        return "STREAM_LOAD";
+    case QuerySource::GROUP_COMMIT_LOAD:
+        return "EXTERNAL_QUERY";
+    case QuerySource::ROUTINE_LOAD:
+        return "ROUTINE_LOAD";
+    case QuerySource::EXTERNAL_CONNECTOR:
+        return "EXTERNAL_CONNECTOR";
+    default:
+        return "UNKNOWN";
+    }
+}
+
 QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
                            const TQueryOptions& query_options, TNetworkAddress coord_addr,
-                           bool is_pipeline, bool is_nereids, TNetworkAddress current_connect_fe)
+                           bool is_pipeline, bool is_nereids, TNetworkAddress current_connect_fe,
+                           QuerySource query_source)
         : fragment_num(total_fragment_num),
           timeout_second(-1),
           _query_id(query_id),
           _exec_env(exec_env),
           _is_pipeline(is_pipeline),
           _is_nereids(is_nereids),
-          _query_options(query_options) {
+          _query_options(query_options),
+          _query_source(query_source) {
     _init_query_mem_tracker();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker);
 
     _start_time = VecDateTimeValue::local_time();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _shared_scanner_controller.reset(new vectorized::SharedScannerController());
-    _execution_dependency =
-            pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency", this);
+    _execution_dependency = pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency");
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
             TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker);
 
@@ -78,7 +96,7 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
                 !this->current_connect_fe.hostname.empty() && this->current_connect_fe.port != 0;
         DCHECK_EQ(is_report_fe_addr_valid, true);
     }
-
+    clock_gettime(CLOCK_MONOTONIC, &this->_query_arrival_timestamp);
     register_memory_statistics();
     register_cpu_statistics();
 }

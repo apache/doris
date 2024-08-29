@@ -23,7 +23,6 @@
 #include "exprs/runtime_filter.h"
 #include "olap/column_predicate.h"
 #include "olap/wrapper_field.h"
-#include "util/bitmap_value.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -68,7 +67,6 @@ public:
         CppType min_value = statistic.first->is_null() /* contains null values */
                                     ? 0
                                     : get_zone_map_value<T, CppType>(statistic.first->cell_ptr());
-        ;
         return _specific_filter->contains_any(min_value, max_value);
     }
 

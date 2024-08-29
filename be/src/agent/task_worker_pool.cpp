@@ -40,6 +40,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -96,6 +97,10 @@ std::mutex s_task_signatures_mtx;
 std::unordered_map<TTaskType::type, std::unordered_set<int64_t>> s_task_signatures;
 
 std::atomic_ulong s_report_version(time(nullptr) * 10000);
+
+void increase_report_version() {
+    s_report_version.fetch_add(1, std::memory_order_relaxed);
+}
 
 // FIXME(plat1ko): Paired register and remove task info
 bool register_task_info(const TTaskType::type task_type, int64_t signature) {
@@ -196,7 +201,7 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
     }
 
     if (status.ok()) {
-        s_report_version.fetch_add(1, std::memory_order_relaxed);
+        increase_report_version();
     }
 
     // Return result to fe
@@ -914,13 +919,6 @@ void report_task_callback(const TMasterInfo& master_info) {
 }
 
 void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info) {
-    // Random sleep 1~5 seconds before doing report.
-    // In order to avoid the problem that the FE receives many report requests at the same time
-    // and can not be processed.
-    if (config::report_random_wait) {
-        random_sleep(5);
-    }
-
     TReportRequest request;
     request.__set_backend(BackendOptions::get_local_backend());
     request.__isset.disks = true;
@@ -961,8 +959,16 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
     request.__set_backend(BackendOptions::get_local_backend());
     request.__isset.tablets = true;
 
-    uint64_t report_version = s_report_version;
-    engine.tablet_manager()->build_all_report_tablets_info(&request.tablets);
+    uint64_t report_version;
+    for (int i = 0; i < 5; i++) {
+        request.tablets.clear();
+        report_version = s_report_version;
+        engine.tablet_manager()->build_all_report_tablets_info(&request.tablets);
+        if (report_version == s_report_version) {
+            break;
+        }
+    }
+
     if (report_version < s_report_version) {
         // TODO llj This can only reduce the possibility for report error, but can't avoid it.
         // If FE create a tablet in FE meta and send CREATE task to this BE, the tablet may not be included in this
@@ -1362,7 +1368,9 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
             COUNTER_UPDATE(profile->total_time_counter(), elapsed_time);
             std::stringstream ss;
             profile->pretty_print(&ss);
-            LOG(WARNING) << "create tablet cost(s) " << elapsed_time / 1e9 << std::endl << ss.str();
+            LOG(WARNING) << "create tablet " << create_tablet_req.tablet_id << " cost(s) "
+                         << elapsed_time / 1e9 << std::endl
+                         << ss.str();
         }
     });
     DorisMetrics::instance()->create_tablet_requests_total->increment(1);
@@ -1378,7 +1386,7 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
                 .tag("tablet_id", create_tablet_req.tablet_id)
                 .error(status);
     } else {
-        s_report_version.fetch_add(1, std::memory_order_relaxed);
+        increase_report_version();
         // get path hash of the created tablet
         TabletSharedPtr tablet;
         {
@@ -1473,7 +1481,7 @@ void push_callback(const TAgentTaskRequest& req) {
                 .tag("signature", req.signature)
                 .tag("tablet_id", push_req.tablet_id)
                 .tag("push_type", push_req.push_type);
-        ++s_report_version;
+        increase_report_version();
         finish_task_request.__set_finish_tablet_infos(tablet_infos);
     } else {
         LOG_WARNING("failed to execute push task")
@@ -1586,7 +1594,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                         if (tablet->exceed_version_limit(config::max_tablet_version_num * 2 / 3) &&
                             published_count % 20 == 0) {
                             auto st = _engine.submit_compaction_task(
-                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true);
+                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true, false);
                             if (!st.ok()) [[unlikely]] {
                                 LOG(WARNING) << "trigger compaction failed, tablet_id=" << tablet_id
                                              << ", published=" << published_count << " : " << st;
@@ -1740,6 +1748,10 @@ void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
         LOG_INFO("successfully clone tablet")
                 .tag("signature", req.signature)
                 .tag("tablet_id", clone_req.tablet_id);
+        if (engine_task.is_new_tablet()) {
+            increase_report_version();
+            finish_task_request.__set_report_version(s_report_version);
+        }
         finish_task_request.__set_finish_tablet_infos(tablet_infos);
     }
 

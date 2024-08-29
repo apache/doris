@@ -96,7 +96,7 @@ Status MultiCastDataStreamerSourceOperator::get_block(RuntimeState* state, vecto
     if (!_output_expr_contexts.empty()) {
         output_block = &tmp_block;
     }
-    _multi_cast_data_streamer->pull(_consumer_id, output_block, &eos);
+    RETURN_IF_ERROR(_multi_cast_data_streamer->pull(_consumer_id, output_block, &eos));
 
     if (!_conjuncts.empty()) {
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
@@ -112,11 +112,6 @@ Status MultiCastDataStreamerSourceOperator::get_block(RuntimeState* state, vecto
         source_state = SourceState::FINISHED;
     }
     return Status::OK();
-}
-
-Status MultiCastDataStreamerSourceOperator::close(doris::RuntimeState* state) {
-    _multi_cast_data_streamer->close_sender(_consumer_id);
-    return OperatorBase::close(state);
 }
 
 RuntimeProfile* MultiCastDataStreamerSourceOperator::get_runtime_profile() const {
@@ -185,7 +180,8 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
     if (!local_state._output_expr_contexts.empty()) {
         output_block = &tmp_block;
     }
-    local_state._shared_state->multi_cast_data_streamer.pull(_consumer_id, output_block, eos);
+    RETURN_IF_ERROR(local_state._shared_state->multi_cast_data_streamer.pull(_consumer_id,
+                                                                             output_block, eos));
 
     if (!local_state._conjuncts.empty()) {
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,

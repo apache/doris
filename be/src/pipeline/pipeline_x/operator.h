@@ -365,6 +365,8 @@ protected:
 
     int64_t _limit; // -1: no limit
 
+    uint32_t _debug_point_count = 0;
+
     std::string _op_name;
     bool _ignore_data_distribution = false;
     int _parallel_tasks = 0;
@@ -869,9 +871,9 @@ public:
     using Base = PipelineXSinkLocalState<FakeSharedState>;
     AsyncWriterSink(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state), _async_writer_dependency(nullptr) {
-        _finish_dependency = std::make_shared<FinishDependency>(
-                parent->operator_id(), parent->node_id(), parent->get_name() + "_FINISH_DEPENDENCY",
-                state->get_query_ctx());
+        _finish_dependency =
+                std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                             parent->get_name() + "_FINISH_DEPENDENCY", true);
     }
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;

@@ -133,8 +133,9 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     if (_state == kOpened || _state == kFinished) {
         return Status::OK();
     }
-    LOG(INFO) << fmt::format("open tablets channel of index {}, tablets num: {} timeout(s): {}",
-                             _index_id, request.tablets().size(), request.load_channel_timeout_s());
+    LOG(INFO) << fmt::format("open tablets channel {}, tablets num: {} timeout(s): {}",
+                             _key.to_string(), request.tablets().size(),
+                             request.load_channel_timeout_s());
     _txn_id = request.txn_id();
     _index_id = request.index_id();
     _schema = std::make_shared<OlapTableSchemaParam>();
@@ -215,6 +216,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
     ss << "LocalTabletsChannel txn_id: " << _txn_id << " load_id: " << print_id(params.id())
        << " incremental open delta writer: ";
 
+    // every change will hold _lock. this find in under _lock too. so no need _tablet_writers_lock again.
     for (const auto& tablet : params.tablets()) {
         if (_tablet_writers.find(tablet.tablet_id()) != _tablet_writers.end()) {
             continue;
@@ -238,6 +240,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
                                                           _profile, _load_id);
         ss << "[" << tablet.tablet_id() << "]";
         {
+            // here we modify _tablet_writers. so need lock.
             std::lock_guard<SpinLock> l(_tablet_writers_lock);
             _tablet_writers.emplace(tablet.tablet_id(), std::move(delta_writer));
         }
@@ -479,6 +482,7 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
 #endif
 
     int tablet_cnt = 0;
+    // under _lock. no need _tablet_writers_lock again.
     for (const auto& tablet : request.tablets()) {
         if (_tablet_writers.find(tablet.tablet_id()) != _tablet_writers.end()) {
             continue;
@@ -578,6 +582,11 @@ Status BaseTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request
                                  std::function<Status(BaseDeltaWriter * writer)> write_func) {
         google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
                 response->mutable_tablet_errors();
+
+        // add_batch may concurrency with inc_open but not under _lock.
+        // so need to protect it with _tablet_writers_lock.
+        std::lock_guard<SpinLock> l(_tablet_writers_lock);
+
         auto tablet_writer_it = _tablet_writers.find(tablet_id);
         if (tablet_writer_it == _tablet_writers.end()) {
             return Status::InternalError("unknown tablet to append data, tablet={}", tablet_id);

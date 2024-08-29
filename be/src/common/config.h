@@ -108,6 +108,7 @@ DECLARE_mString(public_access_ip);
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
 DECLARE_Int32(brpc_num_threads);
+DECLARE_Int32(brpc_idle_timeout_sec);
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -179,13 +180,15 @@ DECLARE_mBool(enable_query_memory_overcommit);
 // default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DECLARE_mBool(disable_memory_gc);
 
-// Allocator check failed log stacktrace if not catch exception
-DECLARE_mBool(enable_stacktrace_in_allocator_check_failed);
-
-// malloc or new large memory larger than large_memory_check_bytes, default 2G,
-// will print a warning containing the stacktrace, but not prevent memory alloc.
-// If is -1, disable large memory check.
-DECLARE_mInt64(large_memory_check_bytes);
+// when alloc memory larger than stacktrace_in_alloc_large_memory_bytes, default 2G,
+// if alloc successful, will print a warning with stacktrace, but not prevent memory alloc.
+// if alloc failed using Doris Allocator, will print stacktrace in error log.
+// if is -1, disable print stacktrace when alloc large memory.
+DECLARE_mInt64(stacktrace_in_alloc_large_memory_bytes);
+// when alloc memory larger than crash_in_alloc_large_memory_bytes will crash, default -1 means disabled.
+// if you need a core dump to analyze large memory allocation,
+// modify this parameter to crash when large memory allocation occur will help
+DECLARE_mInt64(crash_in_alloc_large_memory_bytes);
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
 DECLARE_mBool(enable_memory_orphan_check);
@@ -288,6 +291,7 @@ DECLARE_mInt64(doris_blocking_priority_queue_wait_timeout_ms);
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DECLARE_mInt32(doris_scanner_thread_pool_thread_num);
+DECLARE_mInt32(doris_scanner_min_thread_pool_thread_num);
 // number of batch size to fetch the remote split source
 DECLARE_mInt32(remote_split_source_batch_size);
 // max number of remote scanner thread pool size
@@ -432,6 +436,7 @@ DECLARE_mInt32(max_single_replica_compaction_threads);
 
 DECLARE_Bool(enable_base_compaction_idle_sched);
 DECLARE_mInt64(base_compaction_min_rowset_num);
+DECLARE_mInt64(base_compaction_max_compaction_score);
 DECLARE_mDouble(base_compaction_min_data_ratio);
 DECLARE_mInt64(base_compaction_dup_key_max_file_size_mbytes);
 
@@ -462,6 +467,7 @@ DECLARE_mInt64(compaction_min_size_mbytes);
 // cumulative compaction policy: min and max delta file's number
 DECLARE_mInt64(cumulative_compaction_min_deltas);
 DECLARE_mInt64(cumulative_compaction_max_deltas);
+DECLARE_mInt32(cumulative_compaction_max_deltas_factor);
 
 // This config can be set to limit thread number in  multiget thread pool.
 DECLARE_mInt32(multi_get_max_threads);
@@ -519,6 +525,8 @@ DECLARE_mInt32(migration_remaining_size_threshold_mb);
 // If the task runs longer than this time, the task will be terminated, in seconds.
 // timeout = std::max(migration_task_timeout_secs,  tablet size / 1MB/s)
 DECLARE_mInt32(migration_task_timeout_secs);
+// timeout for try_lock migration lock
+DECLARE_Int64(migration_lock_timeout_ms);
 
 // Port to start debug webserver on
 DECLARE_Int32(webserver_port);
@@ -639,8 +647,8 @@ DECLARE_mInt32(memory_gc_sleep_time_ms);
 // Sleep time in milliseconds between memtbale flush mgr memory refresh iterations
 DECLARE_mInt64(memtable_mem_tracker_refresh_interval_ms);
 
-// Sleep time in milliseconds between refresh iterations of workload group memory statistics
-DECLARE_mInt64(wg_mem_refresh_interval_ms);
+// Sleep time in milliseconds between refresh iterations of workload group weighted memory ratio
+DECLARE_mInt64(wg_weighted_memory_ratio_refresh_interval_ms);
 
 // percent of (active memtables size / all memtables size) when reach hard limit
 DECLARE_mInt32(memtable_hard_limit_active_percent);
@@ -672,6 +680,9 @@ DECLARE_Int32(load_process_safe_mem_permit_percent);
 
 // result buffer cancelled time (unit: second)
 DECLARE_mInt32(result_buffer_cancelled_interval_time);
+
+// arrow flight result sink buffer rows size, default 4096 * 8
+DECLARE_mInt32(arrow_flight_result_sink_buffer_size_rows);
 
 // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 DECLARE_mInt32(priority_queue_remaining_tasks_increased_frequency);
@@ -1038,12 +1049,15 @@ DECLARE_Bool(enable_file_cache);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240,"normal_percent":85, "disposable_percent":10, "index_percent":5}]
 DECLARE_String(file_cache_path);
+DECLARE_Int64(async_file_cache_init_file_num_interval);
+DECLARE_Int64(async_file_cache_init_sleep_interval_ms);
 DECLARE_Int64(file_cache_min_file_segment_size);
 DECLARE_Int64(file_cache_max_file_segment_size);
 DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
 // only for debug, will be removed after finding out the root cause
 DECLARE_mInt32(file_cache_wait_sec_after_fail); // zero for no waiting and retrying
+DECLARE_mInt32(file_cache_max_evict_num_per_round);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1088,8 +1102,6 @@ DECLARE_mInt64(max_tablet_io_errors);
 DECLARE_Int32(tablet_path_check_interval_seconds);
 DECLARE_mInt32(tablet_path_check_batch_size);
 
-// Page size of row column, default 4KB
-DECLARE_mInt64(row_column_page_size);
 // it must be larger than or equal to 5MB
 DECLARE_mInt32(s3_write_buffer_size);
 // The timeout config for S3 buffer allocation
@@ -1103,10 +1115,10 @@ DECLARE_mInt32(schema_cache_capacity);
 DECLARE_mInt32(schema_cache_sweep_time_sec);
 
 // max number of segment cache
-DECLARE_mInt32(segment_cache_capacity);
-DECLARE_mInt32(estimated_num_columns_per_segment);
-DECLARE_mInt32(estimated_mem_per_column_reader);
+DECLARE_Int32(segment_cache_capacity);
+DECLARE_Int32(segment_cache_fd_percentage);
 DECLARE_Int32(segment_cache_memory_percentage);
+DECLARE_mInt32(estimated_mem_per_column_reader);
 
 // enable binlog
 DECLARE_Bool(enable_feature_binlog);
@@ -1166,6 +1178,8 @@ DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
 // Threshold to estimate a column is sparsed
 // Notice: TEST ONLY
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
+// Treat invalid json format str as string, instead of throwing exception if false
+DECLARE_mBool(variant_throw_exeception_on_invalid_json);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // rowid conversion correctness check when compaction for mow table
@@ -1337,7 +1351,19 @@ DECLARE_mInt64(fetch_remote_schema_rpc_timeout_ms);
 // The minimum row group size when exporting Parquet files.
 DECLARE_Int64(min_row_group_size);
 
+DECLARE_mInt64(compaction_memory_bytes_limit);
+
+DECLARE_mInt64(compaction_batch_size);
+
 DECLARE_mBool(enable_parquet_page_index);
+
+// Wheather to ignore not found file in external teble(eg, hive)
+// Default is true, if set to false, the not found file will result in query failure.
+DECLARE_mBool(ignore_not_found_file_in_external_table);
+
+DECLARE_mInt64(tablet_meta_serialize_size_limit);
+
+DECLARE_mInt64(pipeline_task_leakage_detect_period_secs);
 
 #ifdef BE_TEST
 // test s3

@@ -80,7 +80,7 @@ import java.util.stream.Collectors;
  */
 public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
     private UpdateMvByPartitionCommand(LogicalPlan logicalQuery) {
-        super(logicalQuery, Optional.empty());
+        super(logicalQuery, Optional.empty(), Optional.empty());
     }
 
     /**

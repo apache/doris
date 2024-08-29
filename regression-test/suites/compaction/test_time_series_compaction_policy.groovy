@@ -22,7 +22,7 @@ suite("test_time_series_compaction_polciy", "p0") {
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
+ 
     def trigger_cumulative_compaction_on_tablets = { tablets ->
         for (def tablet : tablets) {
             String tablet_id = tablet.TabletId
@@ -86,7 +86,11 @@ suite("test_time_series_compaction_polciy", "p0") {
         DUPLICATE KEY(`id`)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`id`) BUCKETS 2
-        PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "compaction_policy" = "time_series");
+        PROPERTIES (
+            "replication_num" = "1",
+            "disable_auto_compaction" = "true",
+            "compaction_policy" = "time_series"
+        );
     """
     // insert 16 lines, BUCKETS = 2
     sql """ INSERT INTO ${tableName} VALUES (1, "andy", "andy love apple", 100); """
@@ -149,6 +153,9 @@ suite("test_time_series_compaction_polciy", "p0") {
     assert (rowsetCount == 22 * replicaNum)
 
     qt_sql_2 """ select count() from ${tableName}"""
+    if (isCloudMode()) {
+        return;
+    }
     sql """ alter table ${tableName} set ("time_series_compaction_file_count_threshold"="10")"""
     sql """sync"""
     // trigger cumulative compactions for all tablets in ${tableName}

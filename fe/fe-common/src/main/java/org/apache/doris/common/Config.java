@@ -70,13 +70,13 @@ public class Config extends ConfigBase {
     @ConfField(description = {"FE 日志的级别", "The level of FE log"}, options = {"INFO", "WARN", "ERROR", "FATAL"})
     public static String sys_log_level = "INFO";
 
-    @ConfField(description = {"FE 日志的输出模式，其中 NORMAL 为默认的输出模式，日志同步输出且包含位置信息，"
-            + "BRIEF 模式是日志同步输出但不包含位置信息，ASYNC 模式是日志异步输出且不包含位置信息，三种日志输出模式的性能依次递增",
-            "The output mode of FE log, and NORMAL mode is the default output mode, which means the logs are "
-                    + "synchronized and contain location information. BRIEF mode is synchronized and does not contain"
-                    + " location information. ASYNC mode is asynchronous and does not contain location information."
-                    + " The performance of the three log output modes increases in sequence"},
-            options = {"NORMAL", "BRIEF", "ASYNC"})
+    @ConfField(description = {"FE 日志的输出模式，其中 NORMAL 模式是日志同步输出且包含位置信息；ASYNC 模式为默认模式，日志异步输出"
+            + "且包含位置信息；BRIEF 是日志异步输出但不包含位置信息，三种日志输出模式的性能依次递增",
+            "The output mode of FE log. NORMAL mode is synchronous output with location information; "
+                    + "ASYNC mode is the default mode, asynchronous output with location information; "
+                    + "BRIEF is asynchronous output without location information. "
+                    + "The performance of the three log output modes increases in turn"},
+            options = {"NORMAL", "ASYNC", "BRIEF"})
     public static String sys_log_mode = "NORMAL";
 
     @ConfField(description = {"FE 日志文件的最大数量。超过这个数量后，最老的日志文件会被删除",
@@ -1012,6 +1012,19 @@ public class Config extends ConfigBase {
     public static int tablet_further_repair_max_times = 5;
 
     /**
+     * if tablet loaded txn failed recently, it will get higher priority to repair.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long tablet_recent_load_failed_second = 30 * 60;
+
+    /**
+     * base time for higher tablet scheduler task,
+     * set this config value bigger if want the high priority effect last longer.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long tablet_schedule_high_priority_second = 30 * 60;
+
+    /**
      * the default slot number per path for hdd in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
@@ -1465,6 +1478,14 @@ public class Config extends ConfigBase {
     public static int grpc_threadmgr_threads_nums = 4096;
 
     /**
+     * sets the time without read activity before sending a keepalive ping
+     * the smaller the value, the sooner the channel is unavailable, but it will increase network io
+     */
+    @ConfField(description = { "设置grpc连接发送 keepalive ping 之前没有数据传输的时间。",
+            "The time without grpc read activity before sending a keepalive ping" })
+    public static int grpc_keep_alive_second = 10;
+
+    /**
      * Used to set minimal number of replication per tablet.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1761,6 +1782,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_cpu_hard_limit = false;
 
+    @ConfField(mutable = true, description = {
+            "当BE内存用量大于该值时，查询会进入排队逻辑，默认值为-1，代表该值不生效。取值范围0~1的小数",
+            "When be memory usage bigger than this value, query could queue, "
+                    + "default value is -1, means this value not work. Decimal value range from 0 to 1"})
+    public static double query_queue_by_be_used_memory = -1;
+
+    @ConfField(mutable = true, description = {"基于内存反压场景FE定时拉取BE内存用量的时间间隔",
+            "In the scenario of memory backpressure, "
+                    + "the time interval for obtaining BE memory usage at regular intervals"})
+    public static long get_be_resource_usage_interval_ms = 10000;
+
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
 
@@ -1808,7 +1840,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 4;
+    public static int max_be_exec_version = 5;
 
     /**
      * Min data version of backends serialize block.
@@ -1947,16 +1979,20 @@ public class Config extends ConfigBase {
      * Max cache num of hive partition.
      * Decrease this value if FE's memory is small
      */
-    @ConfField(mutable = false, masterOnly = false)
-    public static long max_hive_partition_cache_num = 100000;
+    @ConfField(description = {"Hive Metastore 表级别分区缓存的最大数量。",
+            "Max cache number of partition at table level in Hive Metastore."})
+    public static long max_hive_partition_cache_num = 10000;
 
-    @ConfField(mutable = false, masterOnly = false, description = {"Hive表名缓存的最大数量。",
-            "Max cache number of hive table name list."})
-    public static long max_hive_table_cache_num = 1000;
+    @ConfField(description = {"Hudi/Iceberg 表级别缓存的最大数量。",
+            "Max cache number of hudi/iceberg table."})
+    public static long max_external_table_cache_num = 1000;
 
-    @ConfField(mutable = false, masterOnly = false, description = {
-            "Hive分区表缓存的最大数量", "Max cache number of hive partition table"
-    })
+    @ConfField(description = {"External Catalog 中，Database 和 Table 的实例缓存的最大数量。",
+            "Max cache number of database and table instance in external catalog."})
+    public static long max_meta_object_cache_num = 1000;
+
+    @ConfField(description = {"Hive分区表缓存的最大数量",
+            "Max cache number of hive partition table"})
     public static long max_hive_partition_table_cache_num = 1000;
 
     @ConfField(mutable = false, masterOnly = false, description = {"获取Hive分区值时候的最大返回数量，-1代表没有限制。",
@@ -2247,6 +2283,12 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static long stats_cache_size = 50_0000;
+
+    /**
+     * This config used for ranger cache data mask/row policy
+     */
+    @ConfField
+    public static long ranger_cache_size = 10000;
 
     /**
      * This configuration is used to enable the statistics of query information, which will record
@@ -2620,6 +2662,15 @@ public class Config extends ConfigBase {
     })
     public static String inverted_index_storage_format = "V1";
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否在unique表mow上开启delete语句写delete predicate。若开启，会提升delete语句的性能，"
+                    + "但delete后进行部分列更新可能会出现部分数据错误的情况。若关闭，会降低delete语句的性能来保证正确性。",
+            "Enable the 'delete predicate' for DELETE statements. If enabled, it will enhance the performance of "
+                    + "DELETE statements, but partial column updates after a DELETE may result in erroneous data. "
+                    + "If disabled, it will reduce the performance of DELETE statements to ensure accuracy."
+    })
+    public static boolean enable_mow_light_delete = false;
+
     @ConfField(description = {
             "是否开启 Proxy Protocol 支持",
             "Whether to enable proxy protocol"
@@ -2697,9 +2748,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int cloud_cold_read_percent = 10; // 10%
 
-    @ConfField(mutable = true)
-    public static boolean enable_create_inverted_index_for_array = false;
-
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_create_bitmap_index_as_inverted_index = true;
 
@@ -2718,11 +2766,31 @@ public class Config extends ConfigBase {
     @ConfField
     public static String cloud_sql_server_cluster_id = "RESERVED_CLUSTER_ID_FOR_SQL_SERVER";
 
+    //* audit_event_log_queue_size = qps * query_audit_log_timeout_ms
+    @ConfField(mutable = true)
+    public static int audit_event_log_queue_size = 250000;
+
     @ConfField(description = {"Stream_Load 导入时，label 被限制的最大长度",
             "Stream_Load When importing, the maximum length of label is limited"})
     public static int label_regex_length = 128;
 
+    @ConfField(mutable = true)
+    public static boolean enable_cooldown_replica_affinity = true;
+
     //==========================================================================
     //                      end of cloud config
     //==========================================================================
+    //==========================================================================
+    //                      start of lock config
+    @ConfField(description = {"是否开启死锁检测",
+            "Whether to enable deadlock detection"})
+    public static boolean enable_deadlock_detection = false;
+
+    @ConfField(description = {"死锁检测间隔时间，单位分钟",
+            "Deadlock detection interval time, unit minute"})
+    public static long deadlock_detection_interval_minute = 5;
+
+    @ConfField(mutable = true, description = {"表示最大锁持有时间，超过该时间会打印告警日志，单位秒",
+            "Maximum lock hold time; logs a warning if exceeded"})
+    public static long  max_lock_hold_threshold_seconds = 10;
 }

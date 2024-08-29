@@ -78,10 +78,15 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
             return Status::InternalError("Missing data buffer sink.");
         }
 
+        int result_sink_buffer_size_rows = vectorized::RESULT_SINK_BUFFER_SIZE;
+        if (!thrift_sink.result_sink.__isset.type ||
+            thrift_sink.result_sink.type == TResultSinkType::ARROW_FLIGHT_PROTOCAL) {
+            result_sink_buffer_size_rows = config::arrow_flight_result_sink_buffer_size_rows;
+        }
+
         // TODO: figure out good buffer size based on size of output row
-        sink->reset(new doris::vectorized::VResultSink(row_desc, output_exprs,
-                                                       thrift_sink.result_sink,
-                                                       vectorized::RESULT_SINK_BUFFER_SIZE));
+        sink->reset(new doris::vectorized::VResultSink(
+                row_desc, output_exprs, thrift_sink.result_sink, result_sink_buffer_size_rows));
         break;
     }
     case TDataSinkType::RESULT_FILE_SINK: {
@@ -233,10 +238,15 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
             return Status::InternalError("Missing data buffer sink.");
         }
 
+        int result_sink_buffer_size_rows = vectorized::RESULT_SINK_BUFFER_SIZE;
+        if (!thrift_sink.result_sink.__isset.type ||
+            thrift_sink.result_sink.type == TResultSinkType::ARROW_FLIGHT_PROTOCAL) {
+            result_sink_buffer_size_rows = config::arrow_flight_result_sink_buffer_size_rows;
+        }
+
         // TODO: figure out good buffer size based on size of output row
-        sink->reset(new doris::vectorized::VResultSink(row_desc, output_exprs,
-                                                       thrift_sink.result_sink,
-                                                       vectorized::RESULT_SINK_BUFFER_SIZE));
+        sink->reset(new doris::vectorized::VResultSink(
+                row_desc, output_exprs, thrift_sink.result_sink, result_sink_buffer_size_rows));
         break;
     }
     case TDataSinkType::RESULT_FILE_SINK: {

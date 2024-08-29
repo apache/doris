@@ -20,6 +20,8 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Sets;
@@ -42,6 +44,7 @@ public class TabletTest {
     private Replica replica3;
 
     private TabletInvertedIndex invertedIndex;
+    private SystemInfoService  infoService;
 
     @Mocked
     private Env env;
@@ -49,6 +52,12 @@ public class TabletTest {
     @Before
     public void makeTablet() {
         invertedIndex = new TabletInvertedIndex();
+        infoService = new SystemInfoService();
+        for (long beId = 1L; beId <= 4L; beId++) {
+            Backend be = new Backend(beId, "127.0.0." + beId, 8030);
+            be.setAlive(true);
+            infoService.addBackend(be);
+        }
         new Expectations(env) {
             {
                 Env.getCurrentEnvJournalVersion();
@@ -58,6 +67,10 @@ public class TabletTest {
                 Env.getCurrentInvertedIndex();
                 minTimes = 0;
                 result = invertedIndex;
+
+                Env.getCurrentSystemInfo();
+                minTimes = 0;
+                result = infoService;
 
                 Env.isCheckpointThread();
                 minTimes = 0;
@@ -170,8 +183,8 @@ public class TabletTest {
             tablet.addReplica(new Replica(replicaId++, pair.first, versionAndSuccessVersion, 0,
                     200000L, 0, 3000L, ReplicaState.NORMAL, lastFailVersion, versionAndSuccessVersion));
         }
-        Assert.assertEquals(tablet.getColocateHealthStatus(100L, new ReplicaAllocation((short) 3),
-                Sets.newHashSet(1L, 2L, 3L)), exceptedTabletStatus);
+        Assert.assertEquals(tablet.getColocateHealth(100L, new ReplicaAllocation((short) 3),
+                Sets.newHashSet(1L, 2L, 3L)).status, exceptedTabletStatus);
     }
 
     @Test

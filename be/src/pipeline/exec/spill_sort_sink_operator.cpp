@@ -23,9 +23,9 @@
 namespace doris::pipeline {
 SpillSortSinkLocalState::SpillSortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
         : Base(parent, state) {
-    _finish_dependency = std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
-                                                      parent->get_name() + "_SPILL_DEPENDENCY",
-                                                      true, state->get_query_ctx());
+    _finish_dependency =
+            std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                         parent->get_name() + "_SPILL_DEPENDENCY", true);
 }
 
 Status SpillSortSinkLocalState::init(doris::RuntimeState* state,
@@ -296,7 +296,8 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
 
     auto exception_catch_func = [this, query_id, mem_tracker, shared_state_holder,
                                  execution_context, spill_func]() {
-        SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
+        QueryThreadContext query_thread_context {query_id, mem_tracker};
+        SCOPED_ATTACH_TASK(query_thread_context);
         std::shared_ptr<TaskExecutionContext> execution_context_lock;
         auto shared_state_sptr = shared_state_holder.lock();
         if (shared_state_sptr) {

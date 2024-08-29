@@ -49,6 +49,8 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
+import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -225,14 +227,15 @@ public abstract class ConnectProcessor {
         Exception nereidsParseException = null;
         long parseSqlStartTime = System.currentTimeMillis();
         List<StatementBase> cachedStmts = null;
-        // Currently we add a config to decide whether using PREPARED/EXECUTE command for nereids
-        // TODO: after implemented full prepared, we could remove this flag
-        boolean nereidsUseServerPrep = (sessionVariable.enableServeSidePreparedStatement
-                    && !sessionVariable.isEnableInsertGroupCommit())
-                        || mysqlCommand == MysqlCommand.COM_QUERY;
-        if (nereidsUseServerPrep && sessionVariable.isEnableNereidsPlanner()) {
+        CacheKeyType cacheKeyType = null;
+        if (!sessionVariable.isEnableInsertGroupCommit() && sessionVariable.isEnableNereidsPlanner()) {
             if (wantToParseSqlFromSqlCache) {
                 cachedStmts = parseFromSqlCache(originStmt);
+                Optional<SqlCacheContext> sqlCacheContext = ConnectContext.get()
+                        .getStatementContext().getSqlCacheContext();
+                if (sqlCacheContext.isPresent()) {
+                    cacheKeyType = sqlCacheContext.get().getCacheKeyType();
+                }
                 if (cachedStmts != null) {
                     stmts = cachedStmts;
                 }
@@ -303,12 +306,18 @@ public abstract class ConnectProcessor {
                 }
 
                 StatementBase parsedStmt = stmts.get(i);
-                parsedStmt.setOrigStmt(new OriginStatement(convertedStmt, i));
+                parsedStmt.setOrigStmt(new OriginStatement(auditStmt, usingOrigSingleStmt ? 0 : i));
                 parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
                 executor = new StmtExecutor(ctx, parsedStmt);
                 executor.getProfile().getSummaryProfile().setParseSqlStartTime(parseSqlStartTime);
                 executor.getProfile().getSummaryProfile().setParseSqlFinishTime(parseSqlFinishTime);
                 ctx.setExecutor(executor);
+
+                if (cacheKeyType != null) {
+                    SqlCacheContext sqlCacheContext =
+                            executor.getContext().getStatementContext().getSqlCacheContext().get();
+                    sqlCacheContext.setCacheKeyType(cacheKeyType);
+                }
 
                 try {
                     executor.execute();
@@ -320,7 +329,7 @@ public abstract class ConnectProcessor {
                                 // when client not request CLIENT_MULTI_STATEMENTS, mysql treat all query as
                                 // single statement. Doris treat it with multi statement, but only return
                                 // the last statement result.
-                                if (getConnectContext().getCapability().isClientMultiStatements()) {
+                                if (getConnectContext().getMysqlChannel().clientMultiStatements()) {
                                     finalizeCommand();
                                 }
                             }
@@ -387,6 +396,7 @@ public abstract class ConnectProcessor {
                 logicalPlanAdapter.setColLabels(
                         Lists.newArrayList(logicalSqlCache.getColumnLabels())
                 );
+                logicalPlanAdapter.setFieldInfos(Lists.newArrayList(logicalSqlCache.getFieldInfos()));
                 logicalPlanAdapter.setResultExprs(logicalSqlCache.getResultExprs());
                 logicalPlanAdapter.setOrigStmt(statementContext.getOriginStatement());
                 logicalPlanAdapter.setUserInfo(ctx.getCurrentUserIdentity());

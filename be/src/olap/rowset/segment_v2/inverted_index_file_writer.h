@@ -51,7 +51,7 @@ private:
     class FileInfo {
     public:
         std::string filename;
-        int32_t filesize;
+        int64_t filesize;
     };
 
     void sort_files(std::vector<FileInfo>& file_infos);

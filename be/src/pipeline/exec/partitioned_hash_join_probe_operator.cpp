@@ -205,13 +205,13 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
         VLOG_DEBUG << "query: " << print_id(query_id)
                    << " hash probe revoke done, node: " << p.node_id()
                    << ", task: " << state->task_id();
-        _dependency->set_ready();
         return Status::OK();
     };
 
     auto exception_catch_func = [query_id, mem_tracker, shared_state_holder, execution_context,
                                  spill_func, this]() {
-        SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
+        QueryThreadContext query_thread_context {query_id, mem_tracker};
+        SCOPED_ATTACH_TASK(query_thread_context);
         std::shared_ptr<TaskExecutionContext> execution_context_lock;
         auto shared_state_sptr = shared_state_holder.lock();
         if (shared_state_sptr) {
@@ -335,12 +335,12 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
                    << ", task id: " << state->task_id();
         ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(spilled_stream);
         shared_state_sptr->spilled_streams[partition_index].reset();
-        _dependency->set_ready();
     };
 
     auto exception_catch_func = [read_func, query_id, mem_tracker, shared_state_holder,
                                  execution_context, state, this]() {
-        SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
+        QueryThreadContext query_thread_context {query_id, mem_tracker};
+        SCOPED_ATTACH_TASK(query_thread_context);
         std::shared_ptr<TaskExecutionContext> execution_context_lock;
         auto shared_state_sptr = shared_state_holder.lock();
         if (shared_state_sptr) {
@@ -361,6 +361,7 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
             _spill_status_ok = false;
             _spill_status = std::move(status);
         }
+        _dependency->set_ready();
     };
 
     auto* spill_io_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
@@ -423,13 +424,12 @@ Status PartitionedHashJoinProbeLocalState::recovery_probe_blocks_from_disk(Runti
             ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(spilled_stream);
             spilled_stream.reset();
         }
-
-        _dependency->set_ready();
     };
 
     auto exception_catch_func = [read_func, mem_tracker, shared_state_holder, execution_context,
                                  query_id, this]() {
-        SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
+        QueryThreadContext query_thread_context {query_id, mem_tracker};
+        SCOPED_ATTACH_TASK(query_thread_context);
         std::shared_ptr<TaskExecutionContext> execution_context_lock;
         auto shared_state_sptr = shared_state_holder.lock();
         if (shared_state_sptr) {
@@ -450,6 +450,7 @@ Status PartitionedHashJoinProbeLocalState::recovery_probe_blocks_from_disk(Runti
             _spill_status_ok = false;
             _spill_status = std::move(status);
         }
+        _dependency->set_ready();
     };
 
     auto* spill_io_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();

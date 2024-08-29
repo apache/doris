@@ -234,6 +234,19 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                 + "       \"replication_num\" = \"1\"\n"
                 + ");\n"
         );
+        createTable("CREATE TABLE `test3` (\n"
+                + "  `id` VARCHAR(36) NOT NULL COMMENT 'id',\n"
+                + "  `created_time` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT ''\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`id`)\n"
+                + "COMMENT ''\n"
+                + "PARTITION BY RANGE(`created_time`)\n"
+                + "(PARTITION P_2024071713 VALUES [('2024-07-17 13:00:00'), ('2024-07-17 14:00:00')),\n"
+                + "PARTITION P_2024071714 VALUES [('2024-07-17 14:00:00'), ('2024-07-17 15:00:00')))\n"
+                + "DISTRIBUTED BY HASH(`id`) BUCKETS AUTO\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
+                + ");\n");
         // Should not make scan to empty relation when the table used by materialized view has no data
         connectContext.getSessionVariable().setDisableNereidsRules("OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION");
     }
@@ -806,6 +819,42 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                         nereidsPlanner -> {
                             Plan analyzedPlan = nereidsPlanner.getAnalyzedPlan();
                             Assertions.assertFalse(MaterializedViewUtils.containTableQueryOperator(analyzedPlan));
+                        });
+    }
+
+    @Test
+    public void getRelatedTableInfoWhenMultiPartitionExprs() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select  id, date_trunc(created_time, 'minute') as created_time_minute,"
+                                + "        min(created_time) as start_time,"
+                                + "        if(count(id) > 0, 1, 0) as status\n"
+                                + "        from test3 \n"
+                                + "        group by id, date_trunc(created_time, 'minute')",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("created_time_minute",
+                                            "day", rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "test3",
+                                    "created_time",
+                                    true);
+                        });
+        PlanChecker.from(connectContext)
+                .checkExplain("select  id, date_trunc(created_time, 'hour') as created_time_hour,"
+                                + "        min(created_time) as start_time\n"
+                                + "        from test3 \n"
+                                + "        group by id, date_trunc(created_time, 'minute'),"
+                                + "        date_trunc(created_time, 'hour');",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("created_time_hour",
+                                            "day", rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "test3",
+                                    "created_time",
+                                    true);
                         });
     }
 

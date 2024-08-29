@@ -72,7 +72,7 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
         if (quotaType == QuotaType.DATA) {
-            quota = ParseUtil.analyzeDataVolumn(quotaValue);
+            quota = ParseUtil.analyzeDataVolume(quotaValue);
         } else if (quotaType == QuotaType.REPLICA) {
             quota = ParseUtil.analyzeReplicaNumber(quotaValue);
         } else if (quotaType == QuotaType.TRANSACTION) {

@@ -73,6 +73,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -378,7 +379,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     .build()
                 : (List) unboundFunction.getArguments();
 
-        if (StringUtils.isEmpty(unboundFunction.getDbName())) {
+        String dbName = unboundFunction.getDbName();
+        if (StringUtils.isEmpty(dbName)) {
             // we will change arithmetic function like add(), subtract(), bitnot()
             // to the corresponding objects rather than BoundFunction.
             ArithmeticFunctionBinder functionBinder = new ArithmeticFunctionBinder();
@@ -390,8 +392,18 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
         String functionName = unboundFunction.getName();
         FunctionBuilder builder = functionRegistry.findFunctionBuilder(
-                unboundFunction.getDbName(), functionName, arguments);
+                dbName, functionName, arguments);
+        // for create view stmt
+        if (builder instanceof UdfBuilder) {
+            unboundFunction.getIndexInSqlString().ifPresent(index -> {
+                ConnectContext.get().getStatementContext().addIndexInSqlToString(index,
+                        Utils.qualifiedNameWithBackquote(ImmutableList.of(null == dbName
+                                ? ConnectContext.get().getDatabase() : dbName, functionName)));
+            });
+        }
+
         Pair<? extends Expression, ? extends BoundFunction> buildResult = builder.build(functionName, arguments);
+        buildResult.second.checkOrderExprIsValid();
         Optional<SqlCacheContext> sqlCacheContext = Optional.empty();
         if (wantToParseSqlFromSqlCache) {
             StatementContext statementContext = context.cascadesContext.getStatementContext();
@@ -662,10 +674,10 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                         case 1: // bound slot is `table`.`column`
                             return false;
                         case 2:// bound slot is `db`.`table`.`column`
-                            return compareDbName(qualifierStar.get(0), boundSlotQualifier.get(0))
+                            return compareDbNameIgnoreClusterName(qualifierStar.get(0), boundSlotQualifier.get(0))
                                     && qualifierStar.get(1).equalsIgnoreCase(boundSlotQualifier.get(1));
                         case 3:// bound slot is `catalog`.`db`.`table`.`column`
-                            return compareDbName(qualifierStar.get(0), boundSlotQualifier.get(1))
+                            return compareDbNameIgnoreClusterName(qualifierStar.get(0), boundSlotQualifier.get(1))
                                     && qualifierStar.get(1).equalsIgnoreCase(boundSlotQualifier.get(2));
                         default:
                             throw new AnalysisException("Not supported qualifier: "
@@ -681,7 +693,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                             return false;
                         case 3:// bound slot is `catalog`.`db`.`table`.`column`
                             return qualifierStar.get(0).equalsIgnoreCase(boundSlotQualifier.get(0))
-                                    && compareDbName(qualifierStar.get(1), boundSlotQualifier.get(1))
+                                    && compareDbNameIgnoreClusterName(qualifierStar.get(1), boundSlotQualifier.get(1))
                                     && qualifierStar.get(2).equalsIgnoreCase(boundSlotQualifier.get(2));
                         default:
                             throw new AnalysisException("Not supported qualifier: "
@@ -716,27 +728,40 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return !extractSlots.isEmpty() ? extractSlots : candidates;
     }
 
+    private List<Slot> addSqlIndexInfo(List<Slot> slots, Optional<Pair<Integer, Integer>> indexInSql) {
+        if (!indexInSql.isPresent()) {
+            return slots;
+        }
+        List<Slot> newSlots = new ArrayList<>();
+        for (Slot slot : slots) {
+            newSlots.add(slot.withIndexInSql(indexInSql.get()));
+        }
+        return newSlots;
+    }
+
     /** bindSlotByScope */
     public List<Slot> bindSlotByScope(UnboundSlot unboundSlot, Scope scope) {
         List<String> nameParts = unboundSlot.getNameParts();
+        Optional<Pair<Integer, Integer>> idxInSql = unboundSlot.getIndexInSqlString();
         int namePartSize = nameParts.size();
         switch (namePartSize) {
             // column
             case 1: {
-                return bindSingleSlotByName(nameParts.get(0), scope);
+                return addSqlIndexInfo(bindSingleSlotByName(nameParts.get(0), scope), idxInSql);
             }
             // table.column
             case 2: {
-                return bindSingleSlotByTable(nameParts.get(0), nameParts.get(1), scope);
+                return addSqlIndexInfo(bindSingleSlotByTable(nameParts.get(0), nameParts.get(1), scope), idxInSql);
             }
             // db.table.column
             case 3: {
-                return bindSingleSlotByDb(nameParts.get(0), nameParts.get(1), nameParts.get(2), scope);
+                return addSqlIndexInfo(bindSingleSlotByDb(nameParts.get(0), nameParts.get(1), nameParts.get(2), scope),
+                        idxInSql);
             }
             // catalog.db.table.column
             case 4: {
-                return bindSingleSlotByCatalog(
-                        nameParts.get(0), nameParts.get(1), nameParts.get(2), nameParts.get(3), scope);
+                return addSqlIndexInfo(bindSingleSlotByCatalog(
+                        nameParts.get(0), nameParts.get(1), nameParts.get(2), nameParts.get(3), scope), idxInSql);
             }
             default: {
                 throw new AnalysisException("Not supported name: " + StringUtils.join(nameParts, "."));
@@ -786,9 +811,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Lambda lambdaClosure = lambda.withLambdaFunctionArguments(lambdaFunction, arrayItemReferences);
 
         // We don't add the ArrayExpression in high order function at all
-        return unboundFunction.withChildren(ImmutableList.<Expression>builder()
-                .add(lambdaClosure)
-                .build());
+        return unboundFunction.withChildren(ImmutableList.of(lambdaClosure));
     }
 
     private boolean shouldBindSlotBy(int namePartSize, Slot boundSlot) {
@@ -836,7 +859,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             List<String> boundSlotQualifier = boundSlot.getQualifier();
             String boundSlotDb = boundSlotQualifier.get(boundSlotQualifier.size() - 2);
             String boundSlotTable = boundSlotQualifier.get(boundSlotQualifier.size() - 1);
-            if (!compareDbName(boundSlotDb, db) || !sameTableName(boundSlotTable, table)) {
+            if (!compareDbNameIgnoreClusterName(boundSlotDb, db) || !sameTableName(boundSlotTable, table)) {
                 continue;
             }
             // set sql case as alias
@@ -857,7 +880,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             String boundSlotDb = boundSlotQualifier.get(boundSlotQualifier.size() - 2);
             String boundSlotTable = boundSlotQualifier.get(boundSlotQualifier.size() - 1);
             if (!boundSlotCatalog.equalsIgnoreCase(catalog)
-                    || !compareDbName(boundSlotDb, db)
+                    || !compareDbNameIgnoreClusterName(boundSlotDb, db)
                     || !sameTableName(boundSlotTable, table)) {
                 continue;
             }
@@ -865,5 +888,23 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             usedSlots.add(boundSlot.withName(name));
         }
         return usedSlots.build();
+    }
+
+    /**compareDbNameIgnoreClusterName.*/
+    public static boolean compareDbNameIgnoreClusterName(String name1, String name2) {
+        if (name1.equalsIgnoreCase(name2)) {
+            return true;
+        }
+        String ignoreClusterName1 = name1;
+        int idx1 = name1.indexOf(":");
+        if (idx1 > -1) {
+            ignoreClusterName1 = name1.substring(idx1 + 1);
+        }
+        String ignoreClusterName2 = name2;
+        int idx2 = name2.indexOf(":");
+        if (idx2 > -1) {
+            ignoreClusterName2 = name2.substring(idx2 + 1);
+        }
+        return ignoreClusterName1.equalsIgnoreCase(ignoreClusterName2);
     }
 }

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 
 #include "common/status.h"
@@ -117,9 +118,15 @@ public:
     Version version;
     int64_t tablet_id = 0;
     // slots that cast may be eliminated in storage layer
-    std::map<std::string, PrimitiveType> target_cast_type_for_variants;
+    std::map<std::string, TypeDescriptor> target_cast_type_for_variants;
     RowRanges row_ranges;
     size_t topn_limit = 0;
+};
+
+struct CompactionSampleInfo {
+    int64_t bytes = 0;
+    int64_t rows = 0;
+    int64_t group_data_size;
 };
 
 class RowwiseIterator;
@@ -134,7 +141,13 @@ public:
     // Input options may contain scan range in which this scan.
     // Return Status::OK() if init successfully,
     // Return other error otherwise
-    virtual Status init(const StorageReadOptions& opts) = 0;
+    virtual Status init(const StorageReadOptions& opts) {
+        return Status::NotSupported("to be implemented");
+    }
+
+    virtual Status init(const StorageReadOptions& opts, CompactionSampleInfo* sample_info) {
+        return Status::NotSupported("to be implemented");
+    }
 
     // If there is any valid data, this function will load data
     // into input batch with Status::OK() returned

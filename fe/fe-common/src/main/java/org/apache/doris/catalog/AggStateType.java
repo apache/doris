@@ -76,17 +76,18 @@ public class AggStateType extends Type {
     @Override
     public String toSql(int depth) {
         StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("AGG_STATE<").append(functionName).append("(");
+        stringBuilder.append("agg_state<").append(functionName).append("(");
         for (int i = 0; i < subTypes.size(); i++) {
             if (i > 0) {
                 stringBuilder.append(", ");
             }
             stringBuilder.append(subTypes.get(i).toSql());
             if (subTypeNullables.get(i)) {
-                stringBuilder.append(" NULL");
+                stringBuilder.append(" null");
             }
         }
-        stringBuilder.append(")>");
+        stringBuilder.append(")");
+        stringBuilder.append(">");
         return stringBuilder.toString();
     }
 

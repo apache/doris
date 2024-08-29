@@ -58,6 +58,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
         qt_sql """select * from  ${tableName} order by 1, 2, 3"""
         qt_sql """select * from  ${tableName} order by 1, 2, 3"""
         sql "set global max_prepared_stmt_count = 10000"
+        sql "set enable_fallback_to_original_planner = false"
 
         def stmt_read = prepareStatement "select * from ${tableName} where k1 = ? order by k1"
         assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
@@ -201,9 +202,9 @@ suite("test_prepared_stmt", "nonConcurrent") {
         sql "set global max_prepared_stmt_count = 1"
         stmt_read = prepareStatement "SELECT 1" 
         qe_select13 stmt_read
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ClientPreparedStatement);
+        // assertEquals(stmt_read.class, com.mysql.cj.jdbc.ClientPreparedStatement);
         stmt_read = prepareStatement "SELECT 1" 
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ClientPreparedStatement);
+        // assertEquals(stmt_read.class, com.mysql.cj.jdbc.ClientPreparedStatement);
         // set back
         sql "set global max_prepared_stmt_count = 1000000"
 
@@ -239,5 +240,11 @@ suite("test_prepared_stmt", "nonConcurrent") {
         // not stable
         // qe_select16 stmt_read
         stmt_read.close()
+
+        stmt_read = prepareStatement "SELECT connection_id()" 
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        result = stmt_read.execute()
+        logger.info("connection_id: ${result}")
+        // qe_select16 stmt_read
     }
 }

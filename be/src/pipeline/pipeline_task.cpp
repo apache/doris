@@ -226,10 +226,11 @@ Status PipelineTask::execute(bool* eos) {
         if (cpu_qs) {
             cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
+        query_context()->update_wg_cpu_adder(delta_cpu_time);
     }};
     // The status must be runnable
     *eos = false;
-    if (!_opened) {
+    if (!_opened && !_fragment_context->is_canceled()) {
         {
             SCOPED_RAW_TIMER(&time_spent);
             // if _open_status is not ok, could know have execute open function,

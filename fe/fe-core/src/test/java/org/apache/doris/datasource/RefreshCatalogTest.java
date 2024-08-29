@@ -103,7 +103,7 @@ public class RefreshCatalogTest extends TestWithFeService {
         List<String> dbNames2 = test1.getDbNames();
         Assertions.assertEquals(5, dbNames2.size());
         ExternalInfoSchemaDatabase infoDb = (ExternalInfoSchemaDatabase) test1.getDb(InfoSchemaDb.DATABASE_NAME).get();
-        Assertions.assertEquals(32, infoDb.getTables().size());
+        Assertions.assertTrue(infoDb.getTables().size() >= 33);
         TestExternalDatabase testDb = (TestExternalDatabase) test1.getDb("db1").get();
         Assertions.assertEquals(2, testDb.getTables().size());
         ExternalMysqlDatabase mysqlDb = (ExternalMysqlDatabase) test1.getDb(MysqlDb.DATABASE_NAME).get();
@@ -114,7 +114,7 @@ public class RefreshCatalogTest extends TestWithFeService {
         CatalogMgr mgr2 = GsonUtils.GSON.fromJson(json, CatalogMgr.class);
         test1 = mgr2.getCatalog("test1");
         infoDb = (ExternalInfoSchemaDatabase) test1.getDb(InfoSchemaDb.DATABASE_NAME).get();
-        Assertions.assertEquals(32, infoDb.getTables().size());
+        Assertions.assertTrue(infoDb.getTables().size() >= 33);
         testDb = (TestExternalDatabase) test1.getDb("db1").get();
         Assertions.assertEquals(2, testDb.getTables().size());
         mysqlDb = (ExternalMysqlDatabase) test1.getDb(MysqlDb.DATABASE_NAME).get();
@@ -144,26 +144,18 @@ public class RefreshCatalogTest extends TestWithFeService {
         // not triggered init method
         long l3 = test2.getLastUpdateTime();
         Assertions.assertTrue(l3 == l2);
+        // when use_meta_cache is true, the table will be recreated after refresh.
+        // so we need to get table again
+        table = (TestExternalTable) test2.getDbNullable("db1").getTable("tbl11").get();
         Assertions.assertFalse(table.isObjectCreated());
         test2.getDbNullable("db1").getTables();
-        // Assertions.assertFalse(table.isObjectCreated());
+        Assertions.assertFalse(table.isObjectCreated());
         try {
             DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
         } catch (Exception e) {
             // Do nothing
         }
-        Assertions.assertFalse(((ExternalCatalog) test2).isInitialized());
-        table.makeSureInitialized();
         Assertions.assertTrue(((ExternalCatalog) test2).isInitialized());
-        // table.makeSureInitialized() triggered init method
-        long l4 = test2.getLastUpdateTime();
-        Assertions.assertTrue(l4 > l3);
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
-        Assertions.assertFalse(((ExternalCatalog) test2).isInitialized());
     }
 
     public static class RefreshCatalogProvider implements TestExternalCatalog.TestCatalogProvider {

@@ -714,7 +714,7 @@ public class CacheAnalyzer {
     private CacheTable buildCacheTableForHiveScanNode(HiveScanNode node) {
         CacheTable cacheTable = new CacheTable();
         cacheTable.table = node.getTargetTable();
-        cacheTable.partitionNum = node.getReadPartitionNum();
+        cacheTable.partitionNum = node.getSelectedPartitionNum();
         cacheTable.latestPartitionTime = cacheTable.table.getUpdateTime();
         TableIf tableIf = cacheTable.table;
         DatabaseIf database = tableIf.getDatabase();

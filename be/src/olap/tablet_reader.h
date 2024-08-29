@@ -136,7 +136,7 @@ public:
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
         // slots that cast may be eliminated in storage layer
-        std::map<std::string, PrimitiveType> target_cast_type_for_variants;
+        std::map<std::string, TypeDescriptor> target_cast_type_for_variants;
 
         std::vector<RowSetSplits> rs_splits;
         // For unique key table with merge-on-write
@@ -184,6 +184,8 @@ public:
         void check_validation() const;
 
         std::string to_string() const;
+
+        int64_t batch_size = -1;
     };
 
     TabletReader() = default;

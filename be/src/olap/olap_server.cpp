@@ -214,12 +214,6 @@ Status StorageEngine::start_bg_threads() {
             [this]() { this->_tablet_path_check_callback(); }, &_tablet_path_check_thread));
     LOG(INFO) << "tablet path check thread started";
 
-    // cache clean thread
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "cache_clean_thread", [this]() { this->_cache_clean_callback(); },
-            &_cache_clean_thread));
-    LOG(INFO) << "cache clean thread started";
-
     // path scan and gc thread
     if (config::path_gc_check) {
         for (auto data_dir : get_stores()) {
@@ -270,42 +264,6 @@ Status StorageEngine::start_bg_threads() {
 
     LOG(INFO) << "all storage engine's background threads are started.";
     return Status::OK();
-}
-
-void StorageEngine::_cache_clean_callback() {
-    int32_t interval = config::cache_periodic_prune_stale_sweep_sec;
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
-        if (interval <= 0) {
-            LOG(WARNING) << "config of cache clean interval is illegal: [" << interval
-                         << "], force set to 3600 ";
-            interval = 3600;
-        }
-        if (config::disable_memory_gc) {
-            continue;
-        }
-
-        CacheManager::instance()->for_each_cache_prune_stale();
-
-        // Dynamically modify the config to clear the cache, each time the disable cache will only be cleared once.
-        if (config::disable_segment_cache) {
-            if (!_clear_segment_cache) {
-                CacheManager::instance()->clear_once(CachePolicy::CacheType::SEGMENT_CACHE);
-                _clear_segment_cache = true;
-            }
-        } else {
-            _clear_segment_cache = false;
-        }
-        if (config::disable_storage_page_cache) {
-            if (!_clear_page_cache) {
-                CacheManager::instance()->clear_once(CachePolicy::CacheType::DATA_PAGE_CACHE);
-                CacheManager::instance()->clear_once(CachePolicy::CacheType::INDEXPAGE_CACHE);
-                CacheManager::instance()->clear_once(CachePolicy::CacheType::PK_INDEX_PAGE_CACHE);
-                _clear_page_cache = true;
-            }
-        } else {
-            _clear_page_cache = false;
-        }
-    }
 }
 
 void StorageEngine::_garbage_sweeper_thread_callback() {
@@ -854,12 +812,12 @@ int StorageEngine::_get_executing_compaction_num(
     return num;
 }
 
-bool need_generate_compaction_tasks(int count, int thread_per_disk, CompactionType compaction_type,
-                                    bool all_base) {
-    if (count >= thread_per_disk) {
+bool need_generate_compaction_tasks(int task_cnt_per_disk, int thread_per_disk,
+                                    CompactionType compaction_type, bool all_base) {
+    if (task_cnt_per_disk >= thread_per_disk) {
         // Return if no available slot
         return false;
-    } else if (count >= thread_per_disk - 1) {
+    } else if (task_cnt_per_disk >= thread_per_disk - 1) {
         // Only one slot left, check if it can be assigned to base compaction task.
         if (compaction_type == CompactionType::BASE_COMPACTION) {
             if (all_base) {
@@ -912,7 +870,7 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         copied_cumu_map = _tablet_submitted_cumu_compaction;
         copied_base_map = _tablet_submitted_base_compaction;
     }
-    for (auto data_dir : data_dirs) {
+    for (auto* data_dir : data_dirs) {
         bool need_pick_tablet = true;
         // We need to reserve at least one Slot for cumulative compaction.
         // So when there is only one Slot, we have to judge whether there is a cumulative compaction
@@ -1091,7 +1049,36 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
 }
 
 Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                             bool force) {
+                                             bool force, bool eager) {
+    if (!eager) {
+        DCHECK(compaction_type == CompactionType::BASE_COMPACTION ||
+               compaction_type == CompactionType::CUMULATIVE_COMPACTION);
+        std::map<DataDir*, std::unordered_set<TabletSharedPtr>> copied_cumu_map;
+        std::map<DataDir*, std::unordered_set<TabletSharedPtr>> copied_base_map;
+        {
+            std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
+            copied_cumu_map = _tablet_submitted_cumu_compaction;
+            copied_base_map = _tablet_submitted_base_compaction;
+        }
+        auto stores = get_stores();
+
+        auto busy_pred = [&copied_cumu_map, &copied_base_map, compaction_type,
+                          this](auto* data_dir) {
+            int count = _get_executing_compaction_num(copied_base_map[data_dir]) +
+                        _get_executing_compaction_num(copied_cumu_map[data_dir]);
+            int paral = data_dir->is_ssd_disk() ? config::compaction_task_num_per_fast_disk
+                                                : config::compaction_task_num_per_disk;
+            bool all_base = copied_cumu_map[data_dir].empty();
+            return need_generate_compaction_tasks(count, paral, compaction_type, all_base);
+        };
+
+        bool is_busy = std::none_of(stores.begin(), stores.end(), busy_pred);
+        if (is_busy) {
+            LOG_EVERY_N(WARNING, 100)
+                    << "Too busy to submit a compaction task, tablet=" << tablet->get_table_id();
+            return Status::OK();
+        }
+    }
     _update_cumulative_compaction_policy();
     // alter table tableName set ("compaction_policy"="time_series")
     // if atler table's compaction  policy, we need to modify tablet compaction policy shared ptr

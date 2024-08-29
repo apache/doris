@@ -48,6 +48,10 @@ suite("test_iceberg_table_stats", "p0,external,doris,external_docker,external_do
                     Thread.sleep(2000)
                     retry++
                 }
+                if (cnt != act) {
+                    def result2 = sql """select * from ${table_name} order by 1 limit 10;"""
+                    print result2
+                }
                 assertEquals(act, cnt)
             }
 

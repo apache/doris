@@ -92,6 +92,8 @@ public class TableProperty implements Writable {
 
     private boolean skipWriteIndexOnLoad = false;
 
+    private long rowStorePageSize = PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
+
     private String compactionPolicy = PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY;
 
     private long timeSeriesCompactionGoalSizeMbytes
@@ -236,6 +238,17 @@ public class TableProperty implements Writable {
 
     public boolean storeRowColumn() {
         return storeRowColumn;
+    }
+
+    public TableProperty buildRowStorePageSize() {
+        rowStorePageSize = Long.parseLong(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE,
+                                        Long.toString(PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long rowStorePageSize() {
+        return rowStorePageSize;
     }
 
     public TableProperty buildSkipWriteIndexOnLoad() {
@@ -532,6 +545,16 @@ public class TableProperty implements Writable {
                 PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
     }
 
+    public void setEnableMowLightDelete(boolean enable) {
+        properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE, Boolean.toString(enable));
+    }
+
+    public boolean getEnableMowLightDelete() {
+        return Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE,
+                Boolean.toString(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE_DEFAULT_VALUE)));
+    }
+
     public void setSequenceMapCol(String colName) {
         properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
                 + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL, colName);
@@ -596,6 +619,7 @@ public class TableProperty implements Writable {
                 .buildBinlogConfig()
                 .buildEnableLightSchemaChange()
                 .buildStoreRowColumn()
+                .buildRowStorePageSize()
                 .buildSkipWriteIndexOnLoad()
                 .buildCompactionPolicy()
                 .buildTimeSeriesCompactionGoalSizeMbytes()

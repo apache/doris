@@ -154,7 +154,10 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     // Make sure brpc stub is ready before execution.
     for (int i = 0; i < channels.size(); ++i) {
         RETURN_IF_ERROR(channels[i]->init_stub(state));
+        _wait_channel_timer.push_back(_profile->add_nonzero_counter(
+                fmt::format("WaitForLocalExchangeBuffer{}", i), TUnit ::TIME_NS, timer_name, 1));
     }
+    _wait_broadcast_buffer_timer = ADD_CHILD_TIMER(_profile, "WaitForBroadcastBuffer", timer_name);
     return Status::OK();
 }
 
@@ -188,24 +191,19 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
             id, p._dest_node_id, _sender_id, _state->be_number(), state, this);
 
     register_channels(_sink_buffer.get());
-    _queue_dependency =
-            Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                      "ExchangeSinkQueueDependency", true, state->get_query_ctx());
+    _queue_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                  "ExchangeSinkQueueDependency", true);
     _sink_buffer->set_dependency(_queue_dependency, _finish_dependency);
     if ((_part_type == TPartitionType::UNPARTITIONED || channels.size() == 1) &&
         !only_local_exchange) {
-        _broadcast_dependency =
-                Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                          "BroadcastDependency", true, state->get_query_ctx());
+        _broadcast_dependency = Dependency::create_shared(
+                _parent->operator_id(), _parent->node_id(), "BroadcastDependency", true);
         _sink_buffer->set_broadcast_dependency(_broadcast_dependency);
         _broadcast_pb_blocks =
                 vectorized::BroadcastPBlockHolderQueue::create_shared(_broadcast_dependency);
         for (int i = 0; i < config::num_broadcast_buffer; ++i) {
             _broadcast_pb_blocks->push(vectorized::BroadcastPBlockHolder::create_shared());
         }
-
-        _wait_broadcast_buffer_timer =
-                ADD_CHILD_TIMER(_profile, "WaitForBroadcastBuffer", timer_name);
     } else if (local_size > 0) {
         size_t dep_id = 0;
         for (auto* channel : channels) {
@@ -213,9 +211,6 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
                 if (auto dep = channel->get_local_channel_dependency()) {
                     _local_channels_dependency.push_back(dep);
                     DCHECK(_local_channels_dependency[dep_id] != nullptr);
-                    _wait_channel_timer.push_back(_profile->add_nonzero_counter(
-                            fmt::format("WaitForLocalExchangeBuffer{}", dep_id), TUnit ::TIME_NS,
-                            timer_name, 1));
                     dep_id++;
                 } else {
                     LOG(WARNING) << "local recvr is null: query id = "

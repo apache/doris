@@ -26,11 +26,11 @@ options { tokenVocab = DorisLexer; }
 }
 
 multiStatements
-    : (statement SEMICOLON*)+ EOF
+    : SEMICOLON* statement? (SEMICOLON+ statement)* SEMICOLON* EOF
     ;
 
 singleStatement
-    : statement SEMICOLON* EOF
+    : SEMICOLON* statement? SEMICOLON* EOF
     ;
 
 statement
@@ -68,7 +68,7 @@ statementBase
     | CREATE (EXTERNAL)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
       LIKE existedTable=multipartIdentifier
       (WITH ROLLUP (rollupNames=identifierList)?)?           #createTableLike
-    | explain? INSERT (INTO | OVERWRITE TABLE)
+    | explain? cte? INSERT (INTO | OVERWRITE TABLE)
         (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
         partitionSpec?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
@@ -347,7 +347,8 @@ query
 
 queryTerm
     : queryPrimary                                                         #queryTermDefault
-    | left=queryTerm operator=(UNION | EXCEPT | MINUS | INTERSECT)
+    | left=queryTerm operator=INTERSECT setQuantifier? right=queryTerm     #setOperation
+    | left=queryTerm operator=(UNION | EXCEPT | MINUS)
       setQuantifier? right=queryTerm                                       #setOperation
     ;
 
@@ -456,7 +457,7 @@ havingClause
     : HAVING booleanExpression
     ;
 
-selectHint: HINT_START hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
+selectHint: hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
 
 hintStatement
     : hintName=identifier (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?
@@ -464,6 +465,7 @@ hintStatement
 
 hintAssignment
     : key=identifierOrText (EQ (constantValue=constant | identifierValue=identifier))?
+    | constant
     ;
     
 updateAssignment
@@ -1047,6 +1049,7 @@ nonReserved
     | BUILD
     | BUILTIN
     | BULK
+    | CACHE
     | CACHED
     | CALL
     | CATALOG
@@ -1059,18 +1062,22 @@ nonReserved
     | CLUSTERS
     | COLLATION
     | COLLECT
+    | COLOCATE
     | COLUMNS
     | COMMENT
+    | COMMENT_START
     | COMMIT
     | COMMITTED
     | COMPACT
     | COMPLETE
+    | COMPRESS_TYPE
     | CONFIG
     | CONNECTION
     | CONNECTION_ID
     | CONSISTENT
     | CONSTRAINTS
     | CONVERT
+    | CONVERT_LSC
     | COPY
     | COUNT
     | CREATION
@@ -1141,9 +1148,12 @@ nonReserved
     | HASH
     | HDFS
     | HELP
+    | HINT_END
+    | HINT_START
     | HISTOGRAM
     | HLL_UNION
     | HOSTNAME
+    | HOTSPOT
     | HOUR
     | HUB
     | IDENTIFIED
@@ -1233,6 +1243,7 @@ nonReserved
     | PLUGIN
     | PLUGINS
     | POLICY
+    | PRIVILEGES
     | PROC
     | PROCESS
     | PROCESSLIST
@@ -1244,6 +1255,7 @@ nonReserved
     | QUERY
     | QUOTA
     | RANDOM
+    | RECENT
     | RECOVER
     | RECYCLE
     | REFRESH
@@ -1278,6 +1290,8 @@ nonReserved
     | SNAPSHOT
     | SONAME
     | SPLIT
+    | SQL
+    | STAGES
     | START
     | STARTS
     | STATS
@@ -1308,6 +1322,7 @@ nonReserved
     | TYPES
     | UNCOMMITTED
     | UNLOCK
+    | UP
     | USER
     | VALUE
     | VARCHAR
@@ -1316,6 +1331,7 @@ nonReserved
     | VERBOSE
     | VERSION
     | VIEW
+    | WARM
     | WARNINGS
     | WEEK
     | WORK

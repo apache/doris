@@ -26,10 +26,12 @@ import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.DoubleType;
 
 import java.math.BigInteger;
 import java.security.SecureRandom;
@@ -90,9 +92,17 @@ public class ExecutableFunctions {
         return new DecimalV3Literal(literal.getValue().abs());
     }
 
+    /**
+     * acos scalar function
+     */
     @ExecFunction(name = "acos", argTypes = {"DOUBLE"}, returnType = "DOUBLE")
     public static Expression acos(DoubleLiteral literal) {
-        return new DoubleLiteral(Math.acos(literal.getValue()));
+        double result = Math.acos(literal.getValue());
+        if (Double.isNaN(result)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        } else {
+            return new DoubleLiteral(result);
+        }
     }
 
     @ExecFunction(name = "append_trailing_char_if_absent", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")

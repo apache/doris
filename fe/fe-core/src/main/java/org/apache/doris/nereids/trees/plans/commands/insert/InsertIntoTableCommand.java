@@ -74,16 +74,18 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      */
     private long jobId;
     private Optional<InsertCommandContext> insertCtx;
+    private final Optional<LogicalPlan> cte;
 
     /**
      * constructor
      */
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
-                                  Optional<InsertCommandContext> insertCtx) {
+                                  Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
         this.logicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
         this.insertCtx = insertCtx;
+        this.cte = cte;
     }
 
     public Optional<String> getLabelName() {
@@ -135,12 +137,15 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     targetTableIf.getDatabase().getFullName() + "." + targetTableIf.getName());
         }
 
-        AbstractInsertExecutor insertExecutor;
+        AbstractInsertExecutor insertExecutor = null;
         // should lock target table until we begin transaction.
         targetTableIf.readLock();
         try {
             // 1. process inline table (default values, empty values)
             this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf);
+            if (cte.isPresent()) {
+                this.logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
+            }
 
             LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
@@ -191,11 +196,18 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 // TODO: support other table types
                 throw new AnalysisException("insert into command only support [olap, hive, iceberg] table");
             }
-
-            insertExecutor.beginTransaction();
-            insertExecutor.finalizeSink(planner.getFragments().get(0), sink, physicalSink);
-        } finally {
+            if (!insertExecutor.isEmptyInsert()) {
+                insertExecutor.beginTransaction();
+                insertExecutor.finalizeSink(planner.getFragments().get(0), sink, physicalSink);
+            }
             targetTableIf.readUnlock();
+        } catch (Throwable e) {
+            targetTableIf.readUnlock();
+            // the abortTxn in onFail need to acquire table write lock
+            if (insertExecutor != null) {
+                insertExecutor.onFail(e);
+            }
+            throw e;
         }
 
         executor.setProfileType(ProfileType.LOAD);

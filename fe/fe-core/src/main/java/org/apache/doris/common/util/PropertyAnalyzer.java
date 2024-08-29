@@ -90,6 +90,10 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_TIMEOUT = "timeout";
     public static final String PROPERTIES_COMPRESSION = "compression";
 
+    // row store page size, default 16KB
+    public static final String PROPERTIES_ROW_STORE_PAGE_SIZE = "row_store_page_size";
+    public static final long ROW_STORE_PAGE_SIZE_DEFAULT_VALUE = 16384;
+
     public static final String PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE = "light_schema_change";
 
     public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
@@ -197,6 +201,11 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_GROUP_COMMIT_DATA_BYTES = "group_commit_data_bytes";
     public static final int PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE
             = Config.group_commit_data_bytes_default_value;
+
+    public static final String PROPERTIES_ENABLE_MOW_LIGHT_DELETE =
+            "enable_mow_light_delete";
+    public static final boolean PROPERTIES_ENABLE_MOW_LIGHT_DELETE_DEFAULT_VALUE
+            = Config.enable_mow_light_delete;
 
     // compaction policy
     public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
@@ -882,6 +891,31 @@ public class PropertyAnalyzer {
         }
     }
 
+    public static long alignTo4K(long size) {
+        return (size + 4095) & ~4095;
+    }
+
+    // analyzeRowStorePageSize will parse the row_store_page_size from properties
+    public static long analyzeRowStorePageSize(Map<String, String> properties) throws AnalysisException {
+        long rowStorePageSize = ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_ROW_STORE_PAGE_SIZE)) {
+            String rowStorePageSizeStr = properties.get(PROPERTIES_ROW_STORE_PAGE_SIZE);
+            try {
+                rowStorePageSize = alignTo4K(Long.parseLong(rowStorePageSizeStr));
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid row store page size: " + rowStorePageSizeStr);
+            }
+
+            if (rowStorePageSize <= 0) {
+                throw new AnalysisException("Row store page size should larger than 0.");
+            }
+
+            properties.remove(PROPERTIES_ROW_STORE_PAGE_SIZE);
+        }
+
+        return rowStorePageSize;
+    }
+
     // analyzeStorageFormat will parse the storage format from properties
     // sql: alter table tablet_name set ("storage_format" = "v2")
     // Use this sql to convert all tablets(base and rollup index) to a new format segment
@@ -1275,6 +1309,25 @@ public class PropertyAnalyzer {
             return false;
         }
         throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " must be `true` or `false`");
+    }
+
+    public static boolean analyzeEnableDeleteOnDeletePredicate(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
+        if (value == null) {
+            return false;
+        }
+        properties.remove(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
+        if (value.equals("true")) {
+            return true;
+        } else if (value.equals("false")) {
+            return false;
+        }
+        throw new AnalysisException(
+                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE + " must be `true` or `false`");
     }
 
     /**

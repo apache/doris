@@ -142,6 +142,7 @@ public:
     size_t num_rows();
     int version_count() const;
     bool exceed_version_limit(int32_t limit) const override;
+    int stale_version_count() const;
     uint64_t segment_count() const;
     Version max_version() const;
     Version max_version_unlocked() const;
@@ -158,6 +159,7 @@ public:
     double bloom_filter_fpp() const;
     size_t next_unique_id() const;
     size_t row_size() const;
+    int64_t avg_rs_meta_serialize_size() const;
 
     // operation in rowsets
     Status add_rowset(RowsetSharedPtr rowset);
@@ -432,7 +434,7 @@ public:
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
-    Status lookup_row_key(const Slice& encoded_key, bool with_seq_col,
+    Status lookup_row_key(const Slice& encoded_key, TabletSchema* latest_schema, bool with_seq_col,
                           const std::vector<RowsetSharedPtr>& specified_rowsets,
                           RowLocation* row_location, uint32_t version,
                           std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
@@ -486,7 +488,8 @@ public:
                                 const std::vector<uint32_t> cids_to_read,
                                 const PartialUpdateReadPlan& read_plan,
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-                                vectorized::Block& block, std::map<uint32_t, uint32_t>* read_index);
+                                vectorized::Block& block, std::map<uint32_t, uint32_t>* read_index,
+                                const signed char* __restrict skip_map = nullptr);
     void prepare_to_read(const RowLocation& row_location, size_t pos,
                          PartialUpdateReadPlan* read_plan);
     Status generate_new_block_for_partial_update(
@@ -605,6 +608,7 @@ public:
     void clear_cache();
     Status calc_local_file_crc(uint32_t* crc_value, int64_t start_version, int64_t end_version,
                                int32_t* rowset_count, int64_t* file_count);
+    Status show_nested_index_file(std::string* json_meta);
 
 private:
     Status _init_once_action();
@@ -825,6 +829,11 @@ inline int Tablet::version_count() const {
     return _tablet_meta->version_count();
 }
 
+inline int Tablet::stale_version_count() const {
+    std::shared_lock rdlock(_meta_lock);
+    return _tablet_meta->stale_version_count();
+}
+
 inline Version Tablet::max_version() const {
     std::shared_lock rdlock(_meta_lock);
     return _tablet_meta->max_version();
@@ -881,6 +890,10 @@ inline size_t Tablet::next_unique_id() const {
 
 inline size_t Tablet::row_size() const {
     return _tablet_meta->tablet_schema()->row_size();
+}
+
+inline int64_t Tablet::avg_rs_meta_serialize_size() const {
+    return _tablet_meta->avg_rs_meta_serialize_size();
 }
 
 } // namespace doris

@@ -112,7 +112,7 @@ PipelineXFragmentContext::PipelineXFragmentContext(
 
 PipelineXFragmentContext::~PipelineXFragmentContext() {
     // The memory released by the query end is recorded in the query mem tracker.
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker);
     auto st = _query_ctx->exec_status();
     _tasks.clear();
     if (!_task_runtime_states.empty()) {
@@ -147,6 +147,14 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         LOG(WARNING) << "PipelineXFragmentContext is cancelled due to timeout : " << debug_string();
     }
     _query_ctx->cancel(msg, Status::Cancelled(msg), _fragment_id);
+
+    if (reason == PPlanFragmentCancelReason::INTERNAL_ERROR && !msg.empty()) {
+        if (msg.find("Pipeline task leak.") != std::string::npos) {
+            LOG_WARNING("PipelineFragmentContext is cancelled due to illegal state : {}",
+                        this->debug_string());
+        }
+    }
+
     if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
         _is_report_on_cancel = false;
     } else {
@@ -177,6 +185,9 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
 Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& request) {
     if (_prepared) {
         return Status::InternalError("Already prepared");
+    }
+    if (request.__isset.query_options && request.query_options.__isset.execution_timeout) {
+        _timeout = request.query_options.execution_timeout;
     }
     _num_instances = request.local_params.size();
     _total_instances = request.__isset.total_instances ? request.total_instances : _num_instances;
@@ -298,8 +309,12 @@ Status PipelineXFragmentContext::_plan_local_exchange(
             }
         }
 
+        // if 'num_buckets == 0' means the fragment is colocated by exchange node not the
+        // scan node. so here use `_num_instance` to replace the `num_buckets` to prevent dividing 0
+        // still keep colocate plan after local shuffle
         RETURN_IF_ERROR(_plan_local_exchange(
-                _pipelines[pip_idx]->operator_xs().front()->ignore_data_hash_distribution()
+                _pipelines[pip_idx]->operator_xs().front()->ignore_data_hash_distribution() ||
+                                num_buckets == 0
                         ? _num_instances
                         : num_buckets,
                 pip_idx, _pipelines[pip_idx], bucket_seq_to_instance_idx,
@@ -847,8 +862,7 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
                                      std::to_string((int)data_distribution.distribution_type));
     }
     auto sink_dep = std::make_shared<Dependency>(sink_id, local_exchange_id,
-                                                 "LOCAL_EXCHANGE_SINK_DEPENDENCY", true,
-                                                 _runtime_state->get_query_ctx());
+                                                 "LOCAL_EXCHANGE_SINK_DEPENDENCY", true);
     sink_dep->set_shared_state(shared_state.get());
     shared_state->sink_deps.push_back(sink_dep);
     _op_id_to_le_state.insert({local_exchange_id, {shared_state, sink_dep}});
@@ -873,8 +887,7 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
     }
     operator_xs.insert(operator_xs.begin(), source_op);
 
-    shared_state->create_source_dependencies(source_op->operator_id(), source_op->node_id(),
-                                             _query_ctx.get());
+    shared_state->create_source_dependencies(source_op->operator_id(), source_op->node_id());
 
     // 5. Set children for two pipelines separately.
     std::vector<std::shared_ptr<Pipeline>> new_children;

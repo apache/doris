@@ -174,6 +174,8 @@ Status NewOlapScanNode::_init_profile() {
     _inverted_index_query_cache_miss_counter =
             ADD_COUNTER(_segment_profile, "InvertedIndexQueryCacheMiss", TUnit::UNIT);
     _inverted_index_query_timer = ADD_TIMER(_segment_profile, "InvertedIndexQueryTime");
+    _inverted_index_query_null_bitmap_timer =
+            ADD_TIMER(_segment_profile, "InvertedIndexQueryNullBitmapTime");
     _inverted_index_query_bitmap_copy_timer =
             ADD_TIMER(_segment_profile, "InvertedIndexQueryBitmapCopyTime");
     _inverted_index_query_bitmap_op_timer =
@@ -182,6 +184,10 @@ Status NewOlapScanNode::_init_profile() {
             ADD_TIMER(_segment_profile, "InvertedIndexSearcherOpenTime");
     _inverted_index_searcher_search_timer =
             ADD_TIMER(_segment_profile, "InvertedIndexSearcherSearchTime");
+    _inverted_index_searcher_cache_hit_counter =
+            ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheHit", TUnit::UNIT);
+    _inverted_index_searcher_cache_miss_counter =
+            ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheMiss", TUnit::UNIT);
 
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTimer");
 
@@ -417,7 +423,7 @@ std::string NewOlapScanNode::get_name() {
 
 void NewOlapScanNode::_filter_and_collect_cast_type_for_variant(
         const VExpr* expr,
-        phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types) {
+        phmap::flat_hash_map<std::string, std::vector<TypeDescriptor>>& colname_to_cast_types) {
     auto* cast_expr = dynamic_cast<const VCastExpr*>(expr);
     if (cast_expr != nullptr) {
         auto* src_slot = cast_expr->get_child(0)->node_type() == TExprNodeType::SLOT_REF
@@ -440,7 +446,7 @@ void NewOlapScanNode::_filter_and_collect_cast_type_for_variant(
 }
 
 void NewOlapScanNode::get_cast_types_for_variants() {
-    phmap::flat_hash_map<std::string, std::vector<PrimitiveType>> colname_to_cast_types;
+    phmap::flat_hash_map<std::string, std::vector<TypeDescriptor>> colname_to_cast_types;
     for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
         auto& conjunct = *it;
         if (conjunct->root()) {

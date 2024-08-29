@@ -35,7 +35,7 @@ namespace doris {
 // common use cases (in particular, resize() will fill with uninitialized data
 // instead of memsetting to \0)
 // only build() can transfer data to the outside.
-class faststring : private Allocator<false, false, false> {
+class faststring : private Allocator<false, false, false, DefaultMemoryAllocator> {
 public:
     enum { kInitialCapacity = 32 };
 

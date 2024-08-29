@@ -40,6 +40,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "config.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "util/cpu_info.h"
@@ -67,6 +68,9 @@ DEFINE_mString(public_access_ip, "");
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
 DEFINE_Int32(brpc_num_threads, "256");
+// the time of brpc server keep idle connection, setting this value too small may cause rpc between backends to fail,
+// the default value is set to -1, which means never close idle connection.
+DEFINE_Int32(brpc_idle_timeout_sec, "-1");
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -118,8 +122,8 @@ DEFINE_Int64(max_sys_mem_available_low_water_mark_bytes, "6871947673");
 DEFINE_Int64(memtable_limiter_reserved_memory_bytes, "838860800");
 
 // The size of the memory that gc wants to release each time, as a percentage of the mem limit.
-DEFINE_mString(process_minor_gc_size, "10%");
-DEFINE_mString(process_full_gc_size, "20%");
+DEFINE_mString(process_minor_gc_size, "5%");
+DEFINE_mString(process_full_gc_size, "10%");
 
 // If true, when the process does not exceed the soft mem limit, the query memory will not be limited;
 // when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
@@ -129,9 +133,9 @@ DEFINE_mBool(enable_query_memory_overcommit, "true");
 
 DEFINE_mBool(disable_memory_gc, "false");
 
-DEFINE_mBool(enable_stacktrace_in_allocator_check_failed, "false");
+DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
 
-DEFINE_mInt64(large_memory_check_bytes, "2147483648");
+DEFINE_mInt64(crash_in_alloc_large_memory_bytes, "-1");
 
 DEFINE_mBool(enable_memory_orphan_check, "true");
 
@@ -238,6 +242,7 @@ DEFINE_Validator(doris_scanner_thread_pool_thread_num, [](const int config) -> b
     }
     return true;
 });
+DEFINE_Int32(doris_scanner_min_thread_pool_thread_num, "8");
 DEFINE_Int32(remote_split_source_batch_size, "10240");
 DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
 // number of olap scanner thread pool queue size
@@ -374,6 +379,7 @@ DEFINE_mInt32(max_single_replica_compaction_threads, "-1");
 
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");
+DEFINE_mInt64(base_compaction_max_compaction_score, "20");
 DEFINE_mDouble(base_compaction_min_data_ratio, "0.3");
 DEFINE_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
@@ -404,6 +410,7 @@ DEFINE_mInt64(compaction_min_size_mbytes, "64");
 // cumulative compaction policy: min and max delta file's number
 DEFINE_mInt64(cumulative_compaction_min_deltas, "5");
 DEFINE_mInt64(cumulative_compaction_max_deltas, "1000");
+DEFINE_mInt32(cumulative_compaction_max_deltas_factor, "10");
 
 // This config can be set to limit thread number in  multiget thread pool.
 DEFINE_mInt32(multi_get_max_threads, "10");
@@ -468,6 +475,8 @@ DEFINE_mInt32(migration_remaining_size_threshold_mb, "10");
 // If the task runs longer than this time, the task will be terminated, in seconds.
 // timeout = std::max(migration_task_timeout_secs,  tablet size / 1MB/s)
 DEFINE_mInt32(migration_task_timeout_secs, "300");
+// timeout for try_lock migration lock
+DEFINE_Int64(migration_lock_timeout_ms, "1000");
 
 // Port to start debug webserver on
 DEFINE_Int32(webserver_port, "8040");
@@ -574,13 +583,12 @@ DEFINE_mInt32(memory_maintenance_sleep_time_ms, "100");
 
 // After full gc, no longer full gc and minor gc during sleep.
 // After minor gc, no minor gc during sleep, but full gc is possible.
-DEFINE_mInt32(memory_gc_sleep_time_ms, "1000");
+DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
 
 // Sleep time in milliseconds between memtbale flush mgr refresh iterations
 DEFINE_mInt64(memtable_mem_tracker_refresh_interval_ms, "5");
 
-// Sleep time in milliseconds between refresh iterations of workload group memory statistics
-DEFINE_mInt64(wg_mem_refresh_interval_ms, "50");
+DEFINE_mInt64(wg_weighted_memory_ratio_refresh_interval_ms, "50");
 
 // percent of (active memtables size / all memtables size) when reach hard limit
 DEFINE_mInt32(memtable_hard_limit_active_percent, "50");
@@ -612,6 +620,8 @@ DEFINE_Int32(load_process_safe_mem_permit_percent, "5");
 
 // result buffer cancelled time (unit: second)
 DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
+
+DEFINE_mInt32(arrow_flight_result_sink_buffer_size_rows, "32768");
 
 // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
@@ -979,12 +989,16 @@ DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 DEFINE_mBool(variant_enable_flatten_nested, "false");
 DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "1000");
+DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 DEFINE_String(file_cache_path, "");
+// thread will sleep 10ms per scan file num to limit IO
+DEFINE_Int64(async_file_cache_init_file_num_interval, "1000");
+DEFINE_Int64(async_file_cache_init_sleep_interval_ms, "20");
 DEFINE_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
 // 4KB <= file_cache_max_file_segment_size <= 256MB
 DEFINE_Validator(file_cache_max_file_segment_size, [](const int64_t config) -> bool {
@@ -999,6 +1013,7 @@ DEFINE_Validator(file_cache_min_file_segment_size, [](const int64_t config) -> b
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
 DEFINE_mInt32(file_cache_wait_sec_after_fail, "0"); // // zero for no waiting and retrying
+DEFINE_mInt32(file_cache_max_evict_num_per_round, "5000");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1024,11 +1039,11 @@ DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
-DEFINE_mBool(inverted_index_compaction_enable, "false");
+DEFINE_mBool(inverted_index_compaction_enable, "true");
 // Only for debug, do not use in production
 DEFINE_mBool(debug_inverted_index_compaction, "false");
 // index by RAM directory
-DEFINE_mBool(inverted_index_ram_dir_enable, "false");
+DEFINE_mBool(inverted_index_ram_dir_enable, "true");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 
@@ -1042,8 +1057,6 @@ DEFINE_mInt64(max_tablet_io_errors, "-1");
 DEFINE_Int32(tablet_path_check_interval_seconds, "-1");
 DEFINE_mInt32(tablet_path_check_batch_size, "1000");
 
-// Page size of row column, default 4KB
-DEFINE_mInt64(row_column_page_size, "4096");
 // it must be larger than or equal to 5MB
 DEFINE_mInt32(s3_write_buffer_size, "5242880");
 // The timeout config for S3 buffer allocation
@@ -1056,11 +1069,10 @@ DEFINE_mInt32(schema_cache_capacity, "1024");
 DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
 // max number of segment cache, default -1 for backward compatibility fd_number*2/5
-DEFINE_mInt32(segment_cache_capacity, "-1");
-DEFINE_mInt32(estimated_num_columns_per_segment, "200");
+DEFINE_Int32(segment_cache_capacity, "-1");
+DEFINE_Int32(segment_cache_fd_percentage, "40");
 DEFINE_mInt32(estimated_mem_per_column_reader, "1024");
-// The value is calculate by storage_page_cache_limit * index_page_cache_percentage
-DEFINE_mInt32(segment_cache_memory_percentage, "2");
+DEFINE_Int32(segment_cache_memory_percentage, "2");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
@@ -1248,10 +1260,25 @@ DEFINE_Int64(min_row_group_size, "134217728");
 // The time out milliseconds for remote fetch schema RPC, default 60s
 DEFINE_mInt64(fetch_remote_schema_rpc_timeout_ms, "60000");
 
+DEFINE_mInt64(compaction_memory_bytes_limit, "1073741824");
+
+DEFINE_mInt64(compaction_batch_size, "-1");
+
 // If set to false, the parquet reader will not use page index to filter data.
 // This is only for debug purpose, in case sometimes the page index
 // filter wrong data.
-DEFINE_mBool(enable_parquet_page_index, "true");
+DEFINE_mBool(enable_parquet_page_index, "false");
+
+DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
+
+// Tablet meta size limit after serialization, 1.5GB
+DEFINE_mInt64(tablet_meta_serialize_size_limit, "1610612736");
+// Protobuf supports a maximum of 2GB, so the size of the tablet meta after serialization must be less than 2GB
+// 1717986918 = 2GB * 0.8
+DEFINE_Validator(tablet_meta_serialize_size_limit,
+                 [](const int64_t config) -> bool { return config < 1717986918; });
+
+DEFINE_mInt64(pipeline_task_leakage_detect_period_secs, "60");
 
 // clang-format off
 #ifdef BE_TEST

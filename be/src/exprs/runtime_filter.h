@@ -65,7 +65,7 @@ class TQueryOptions;
 namespace vectorized {
 class VExpr;
 class VExprContext;
-struct SharedRuntimeFilterContext;
+struct RuntimeFilterContextSPtr;
 } // namespace vectorized
 
 namespace pipeline {
@@ -128,6 +128,8 @@ struct RuntimeFilterParams {
     // used in bloom filter
     int64_t bloom_filter_size;
     int32_t max_in_num;
+    int64_t runtime_bloom_filter_min_size;
+    int64_t runtime_bloom_filter_max_size;
     int32_t filter_id;
     bool bitmap_filter_not_in;
     bool build_bf_exactly;
@@ -221,7 +223,7 @@ public:
                          const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
                          bool build_bf_exactly = false, bool need_local_merge = false);
 
-    SharedRuntimeFilterContext& get_shared_context_ref();
+    RuntimeFilterContextSPtr& get_shared_context_ref();
 
     // insert data to build filter
     void insert_batch(vectorized::ColumnPtr column, size_t start);

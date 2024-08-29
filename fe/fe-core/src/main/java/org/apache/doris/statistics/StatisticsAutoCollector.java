@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -41,7 +40,6 @@ import org.apache.logging.log4j.Logger;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.StringJoiner;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -181,6 +179,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
             List<AnalysisInfo> analysisInfos, TableIf table) {
         AnalysisMethod analysisMethod = table.getDataSize(true) >= StatisticsUtil.getHugeTableLowerBoundSizeInBytes()
                 ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
+        long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 : table.getRowCount();
         AnalysisInfo jobInfo = new AnalysisInfoBuilder()
                 .setJobId(Env.getCurrentEnv().getNextId())
                 .setCatalogId(db.getCatalog().getId())
@@ -200,6 +199,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 .setTblUpdateTime(table.getUpdateTime())
                 .setEmptyJob(table instanceof OlapTable && table.getRowCount() == 0
                     && analysisMethod.equals(AnalysisMethod.SAMPLE))
+                .setRowCount(rowCount)
                 .build();
         analysisInfos.add(jobInfo);
     }
@@ -219,11 +219,6 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         if (table.needReAnalyzeTable(tblStats)) {
             needRunColumns = table.getColumnIndexPairs(table.getSchemaAllIndexes(false)
                 .stream().map(Column::getName).collect(Collectors.toSet()));
-        } else if (table instanceof OlapTable && tblStats.newPartitionLoaded.get()) {
-            OlapTable olapTable = (OlapTable) table;
-            Set<String> partitionNames = olapTable.getAllPartitions().stream()
-                    .map(Partition::getName).collect(Collectors.toSet());
-            needRunColumns = olapTable.getColumnIndexPairs(partitionNames);
         }
 
         if (needRunColumns == null || needRunColumns.isEmpty()) {

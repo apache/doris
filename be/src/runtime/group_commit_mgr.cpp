@@ -35,6 +35,8 @@ namespace doris {
 
 Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
                                  std::shared_ptr<vectorized::Block> block, bool write_wal) {
+    DBUG_EXECUTE_IF("LoadBlockQueue.add_block.failed",
+                    { return Status::InternalError("LoadBlockQueue.add_block.failed"); });
     std::unique_lock l(mutex);
     RETURN_IF_ERROR(status);
     auto start = std::chrono::steady_clock::now();
@@ -130,16 +132,23 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
             }
         } else {
             if (duration >= 10 * _group_commit_interval_ms) {
-                std::stringstream ss;
-                ss << "[";
-                for (auto& id : _load_ids) {
-                    ss << id.to_string() << ", ";
+                auto last_print_duration =
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - _last_print_time)
+                                .count();
+                if (last_print_duration >= 10000) {
+                    _last_print_time = std::chrono::steady_clock::now();
+                    std::stringstream ss;
+                    ss << "[";
+                    for (auto& id : _load_ids) {
+                        ss << id.to_string() << ", ";
+                    }
+                    ss << "]";
+                    LOG(INFO) << "find one group_commit need to commit, txn_id=" << txn_id
+                              << ", label=" << label << ", instance_id=" << load_instance_id
+                              << ", duration=" << duration << ", load_ids=" << ss.str()
+                              << ", runtime_state=" << runtime_state;
                 }
-                ss << "]";
-                LOG(INFO) << "find one group_commit need to commit, txn_id=" << txn_id
-                          << ", label=" << label << ", instance_id=" << load_instance_id
-                          << ", duration=" << duration << ", load_ids=" << ss.str()
-                          << ", runtime_state=" << runtime_state;
             }
         }
         _get_cond.wait_for(l, std::chrono::milliseconds(
@@ -390,13 +399,25 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     Status result_status;
     DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status",
                     { status = Status::InternalError(""); });
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.load_error",
+                    { status = Status::InternalError("load_error"); });
     if (status.ok()) {
+        DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.commit_error",
+                        { status = Status::InternalError(""); });
         // commit txn
         TLoadTxnCommitRequest request;
         request.__set_auth_code(0); // this is a fake, fe not check it now
         request.__set_db_id(db_id);
         request.__set_table_id(table_id);
         request.__set_txnId(txn_id);
+        request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
+        request.__set_groupCommit(true);
+        request.__set_receiveBytes(state->num_bytes_load_total());
+        if (_exec_env->master_info()->__isset.backend_id) {
+            request.__set_backendId(_exec_env->master_info()->backend_id);
+        } else {
+            LOG(WARNING) << "_exec_env->master_info not set backend_id";
+        }
         if (state) {
             request.__set_commitInfos(state->tablet_commit_infos());
         }
@@ -407,8 +428,10 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                 [&request, &result](FrontendServiceConnection& client) {
                     client->loadTxnCommit(result, request);
                 },
-                10000L);
+                config::txn_commit_rpc_timeout_ms);
         result_status = Status::create(result.status);
+        DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.commit_success_and_rpc_error",
+                        { result_status = Status::InternalError("commit_success_and_rpc_error"); });
     } else {
         // abort txn
         TLoadTxnRollbackRequest request;
@@ -422,8 +445,7 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                 master_addr.hostname, master_addr.port,
                 [&request, &result](FrontendServiceConnection& client) {
                     client->loadTxnRollback(result, request);
-                },
-                10000L);
+                });
         result_status = Status::create<false>(result.status);
         DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status", {
             std ::string msg = "abort txn";
@@ -489,10 +511,12 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     }
     LOG(INFO) << ss.str();
     DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg", {
-        std ::string msg = _exec_env->wal_mgr()->get_wal_dirs_info_string();
-        LOG(INFO) << "debug promise set: " << msg;
-        ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.set_value(
-                Status ::InternalError(msg));
+        if (dp->param<int64_t>("table_id", -1) == table_id) {
+            std ::string msg = _exec_env->wal_mgr()->get_wal_dirs_info_string();
+            LOG(INFO) << "table_id" << std::to_string(table_id) << " set debug promise: " << msg;
+            ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.set_value(
+                    Status ::InternalError(msg));
+        }
     };);
     return st;
 }
@@ -511,9 +535,11 @@ Status GroupCommitTable::_exec_plan_fragment(int64_t db_id, int64_t table_id,
         }
     };
     if (is_pipeline) {
-        return _exec_env->fragment_mgr()->exec_plan_fragment(pipeline_params, finish_cb);
+        return _exec_env->fragment_mgr()->exec_plan_fragment(
+                pipeline_params, QuerySource::GROUP_COMMIT_LOAD, finish_cb);
     } else {
-        return _exec_env->fragment_mgr()->exec_plan_fragment(params, finish_cb);
+        return _exec_env->fragment_mgr()->exec_plan_fragment(params, QuerySource::GROUP_COMMIT_LOAD,
+                                                             finish_cb);
     }
 }
 

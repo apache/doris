@@ -69,7 +69,7 @@ public class DropMTMVInfo {
      */
     public DropTableStmt translateToLegacyStmt() {
         TableName tableName = mvName.transferToTableName();
-        DropTableStmt dropTableStmt = new DropTableStmt(ifExists, tableName, false);
+        DropTableStmt dropTableStmt = new DropTableStmt(ifExists, tableName, true);
         dropTableStmt.setMaterializedView(true);
         return dropTableStmt;
     }

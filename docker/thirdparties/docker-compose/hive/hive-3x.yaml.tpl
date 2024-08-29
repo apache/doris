@@ -53,7 +53,7 @@ services:
     network_mode: "host"
 
   hive-server:
-    image: lishizhen/hive:3.1.2-postgresql-metastore
+    image: doristhirdpartydocker/hive:3.1.2-postgresql-metastore
     env_file:
       - ./hadoop-hive.env
     environment:
@@ -74,7 +74,7 @@ services:
 
 
   hive-metastore:
-    image: lishizhen/hive:3.1.2-postgresql-metastore
+    image: doristhirdpartydocker/hive:3.1.2-postgresql-metastore
     env_file:
       - ./hadoop-hive.env
     command: /bin/bash /mnt/scripts/hive-metastore.sh

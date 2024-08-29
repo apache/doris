@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_upgrade_downgrade_prepare_auth","p0,auth") {
+suite("test_upgrade_downgrade_prepare_auth","p0,auth,restart_fe") {
 
     String user1 = 'test_upgrade_downgrade_compatibility_auth_user1'
     String user2 = 'test_upgrade_downgrade_compatibility_auth_user2'
@@ -44,7 +44,6 @@ suite("test_upgrade_downgrade_prepare_auth","p0,auth") {
 
     sql """CREATE ROLE ${role1}"""
     sql """CREATE ROLE ${role2}"""
-
 
     try_sql """drop table if exists ${dbName}.${tableName1}"""
     sql """drop database if exists ${dbName}"""

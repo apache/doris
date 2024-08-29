@@ -44,6 +44,7 @@
 #include "vec/io/io_helper.h"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
+#include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -70,6 +71,8 @@ std::string cast_to_string(T value, int scale) {
         std::stringstream ss;
         ss << buf;
         return ss.str();
+    } else if constexpr (primitive_type == TYPE_TIMEV2) {
+        return TimeValue::to_string(value, scale);
     } else if constexpr (primitive_type == TYPE_IPV4) {
         return IPv4Value::to_string(value);
     } else if constexpr (primitive_type == TYPE_IPV6) {

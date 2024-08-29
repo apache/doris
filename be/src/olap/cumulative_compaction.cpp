@@ -82,8 +82,10 @@ Status CumulativeCompaction::execute_compact_impl() {
     _state = CompactionState::SUCCESS;
 
     // 5. set cumulative level
-    _tablet->cumulative_compaction_policy()->update_compaction_level(_tablet.get(), _input_rowsets,
-                                                                     _output_rowset);
+    if (_tablet->tablet_meta()->time_series_compaction_level_threshold() >= 2) {
+        _tablet->cumulative_compaction_policy()->update_compaction_level(
+                _tablet.get(), _input_rowsets, _output_rowset);
+    }
 
     // 6. set cumulative point
     _tablet->cumulative_compaction_policy()->update_cumulative_point(
@@ -109,18 +111,28 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
     std::vector<Version> missing_versions;
     RETURN_IF_ERROR(find_longest_consecutive_version(&candidate_rowsets, &missing_versions));
     if (!missing_versions.empty()) {
-        DCHECK(missing_versions.size() == 2);
+        DCHECK(missing_versions.size() % 2 == 0);
         LOG(WARNING) << "There are missed versions among rowsets. "
-                     << "prev rowset verison=" << missing_versions[0]
-                     << ", next rowset version=" << missing_versions[1]
+                     << "total missed version size: " << missing_versions.size() / 2
+                     << " first missed version prev rowset verison=" << missing_versions[0]
+                     << ", first missed version next rowset version=" << missing_versions[1]
                      << ", tablet=" << _tablet->tablet_id();
+    }
+
+    int64_t max_score = config::cumulative_compaction_max_deltas;
+    auto process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
+    bool memory_usage_high = process_memory_usage > MemInfo::soft_mem_limit() * 0.8;
+    if (_tablet->last_compaction_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>() || memory_usage_high) {
+        max_score = std::max(config::cumulative_compaction_max_deltas /
+                                     config::cumulative_compaction_max_deltas_factor,
+                             config::cumulative_compaction_min_deltas + 1);
     }
 
     size_t compaction_score = 0;
     _tablet->cumulative_compaction_policy()->pick_input_rowsets(
-            _tablet.get(), candidate_rowsets, config::cumulative_compaction_max_deltas,
-            config::cumulative_compaction_min_deltas, &_input_rowsets, &_last_delete_version,
-            &compaction_score, allow_delete_in_cumu_compaction());
+            _tablet.get(), candidate_rowsets, max_score, config::cumulative_compaction_min_deltas,
+            &_input_rowsets, &_last_delete_version, &compaction_score,
+            allow_delete_in_cumu_compaction());
 
     // Cumulative compaction will process with at least 1 rowset.
     // So when there is no rowset being chosen, we should return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>():

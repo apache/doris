@@ -591,6 +591,14 @@ public enum PrimitiveType {
         builder.put(VARIANT, STRING);
         builder.put(VARIANT, JSONB);
 
+        // ipv4
+        builder.put(IPV4, VARCHAR);
+        builder.put(IPV4, STRING);
+
+        // ipv6
+        builder.put(IPV6, VARCHAR);
+        builder.put(IPV6, STRING);
+
         // HLL
         builder.put(HLL, HLL);
 

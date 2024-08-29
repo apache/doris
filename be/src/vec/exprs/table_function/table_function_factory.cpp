@@ -17,6 +17,10 @@
 
 #include "vec/exprs/table_function/table_function_factory.h"
 
+#include <gen_cpp/Types_types.h>
+
+#include <memory>
+#include <string_view>
 #include <utility>
 
 #include "common/object_pool.h"
@@ -24,6 +28,7 @@
 #include "vec/exprs/table_function/vexplode.h"
 #include "vec/exprs/table_function/vexplode_bitmap.h"
 #include "vec/exprs/table_function/vexplode_json_array.h"
+#include "vec/exprs/table_function/vexplode_json_object.h"
 #include "vec/exprs/table_function/vexplode_map.h"
 #include "vec/exprs/table_function/vexplode_numbers.h"
 #include "vec/exprs/table_function/vexplode_split.h"
@@ -36,33 +41,24 @@ struct TableFunctionCreator {
     std::unique_ptr<TableFunction> operator()() { return TableFunctionType::create_unique(); }
 };
 
-template <>
-struct TableFunctionCreator<VExplodeJsonArrayTableFunction> {
-    ExplodeJsonArrayType type;
-    std::unique_ptr<TableFunction> operator()() const {
-        return VExplodeJsonArrayTableFunction::create_unique(type);
+template <typename DataImpl>
+struct VExplodeJsonArrayCreator {
+    std::unique_ptr<TableFunction> operator()() {
+        return VExplodeJsonArrayTableFunction<DataImpl>::create_unique();
     }
 };
-
-inline auto VExplodeJsonArrayIntCreator =
-        TableFunctionCreator<VExplodeJsonArrayTableFunction> {ExplodeJsonArrayType::INT};
-inline auto VExplodeJsonArrayDoubleCreator =
-        TableFunctionCreator<VExplodeJsonArrayTableFunction> {ExplodeJsonArrayType::DOUBLE};
-inline auto VExplodeJsonArrayStringCreator =
-        TableFunctionCreator<VExplodeJsonArrayTableFunction> {ExplodeJsonArrayType::STRING};
-inline auto VExplodeJsonArrayJsonCreator =
-        TableFunctionCreator<VExplodeJsonArrayTableFunction> {ExplodeJsonArrayType::JSON};
 
 const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunction>()>>
         TableFunctionFactory::_function_map {
                 {"explode_split", TableFunctionCreator<VExplodeSplitTableFunction>()},
                 {"explode_numbers", TableFunctionCreator<VExplodeNumbersTableFunction>()},
-                {"explode_json_array_int", VExplodeJsonArrayIntCreator},
-                {"explode_json_array_double", VExplodeJsonArrayDoubleCreator},
-                {"explode_json_array_string", VExplodeJsonArrayStringCreator},
-                {"explode_json_array_json", VExplodeJsonArrayJsonCreator},
+                {"explode_json_array_int", VExplodeJsonArrayCreator<ParsedDataInt>()},
+                {"explode_json_array_double", VExplodeJsonArrayCreator<ParsedDataDouble>()},
+                {"explode_json_array_string", VExplodeJsonArrayCreator<ParsedDataString>()},
+                {"explode_json_array_json", VExplodeJsonArrayCreator<ParsedDataJSON>()},
                 {"explode_bitmap", TableFunctionCreator<VExplodeBitmapTableFunction>()},
                 {"explode_map", TableFunctionCreator<VExplodeMapTableFunction> {}},
+                {"explode_json_object", TableFunctionCreator<VExplodeJsonObjectTableFunction> {}},
                 {"explode", TableFunctionCreator<VExplodeTableFunction> {}}};
 
 Status TableFunctionFactory::get_fn(const std::string& fn_name_raw, ObjectPool* pool,

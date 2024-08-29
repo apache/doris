@@ -26,6 +26,7 @@ public abstract class AuthenticationConfig {
     public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
     public static String HIVE_KERBEROS_PRINCIPAL = "hive.metastore.kerberos.principal";
     public static String HIVE_KERBEROS_KEYTAB = "hive.metastore.kerberos.keytab.file";
+    public static String DORIS_KRB5_DEBUG = "doris.krb5.debug";
 
     /**
      * @return true if the config is valid, otherwise false.
@@ -57,6 +58,7 @@ public abstract class AuthenticationConfig {
             krbConfig.setKerberosPrincipal(conf.get(krbPrincipalKey));
             krbConfig.setKerberosKeytab(conf.get(krbKeytabKey));
             krbConfig.setConf(conf);
+            krbConfig.setPrintDebugLog(Boolean.parseBoolean(conf.get(DORIS_KRB5_DEBUG, "false")));
             return krbConfig;
         } else {
             // AuthType.SIMPLE

@@ -952,7 +952,7 @@ private:
     RuntimeFilterType _filter_type;
     int32_t _max_in_num = -1;
 
-    SharedRuntimeFilterContext _context;
+    RuntimeFilterContextSPtr _context;
     uint32_t _filter_id;
 };
 
@@ -965,7 +965,7 @@ Status IRuntimeFilter::create(RuntimeFilterParamsContext* state, ObjectPool* poo
     return (*res)->init_with_desc(desc, query_options, node_id, build_bf_exactly);
 }
 
-SharedRuntimeFilterContext& IRuntimeFilter::get_shared_context_ref() {
+RuntimeFilterContextSPtr& IRuntimeFilter::get_shared_context_ref() {
     return _wrapper->_context;
 }
 
@@ -1033,14 +1033,15 @@ Status IRuntimeFilter::publish(bool publish_local) {
 class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
                                                   DummyBrpcCallback<PSendFilterSizeResponse>> {
     std::shared_ptr<pipeline::Dependency> _dependency;
-    IRuntimeFilter* _filter;
+    RuntimeFilterContextSPtr _rf_context;
+    std::string _rf_debug_info;
     using Base =
             AutoReleaseClosure<PSendFilterSizeRequest, DummyBrpcCallback<PSendFilterSizeResponse>>;
     ENABLE_FACTORY_CREATOR(SyncSizeClosure);
 
     void _process_if_rpc_failed() override {
         ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
-        LOG(WARNING) << "sync filter size meet rpc error, filter=" << _filter->debug_string();
+        LOG(WARNING) << "sync filter size meet rpc error, filter=" << _rf_debug_info;
         Base::_process_if_rpc_failed();
     }
 
@@ -1048,10 +1049,9 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
         ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
         if (status.is<ErrorCode::END_OF_FILE>()) {
             // rf merger backend may finished before rf's send_filter_size, we just ignore filter in this case.
-            _filter->set_ignored();
+            _rf_context->ignored = true;
         } else {
-            LOG(WARNING) << "sync filter size meet error status, filter="
-                         << _filter->debug_string();
+            LOG(WARNING) << "sync filter size meet error status, filter=" << _rf_debug_info;
             Base::_process_if_meet_error_status(status);
         }
     }
@@ -1059,8 +1059,12 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
 public:
     SyncSizeClosure(std::shared_ptr<PSendFilterSizeRequest> req,
                     std::shared_ptr<DummyBrpcCallback<PSendFilterSizeResponse>> callback,
-                    std::shared_ptr<pipeline::Dependency> dependency, IRuntimeFilter* filter)
-            : Base(req, callback), _dependency(std::move(dependency)), _filter(filter) {}
+                    std::shared_ptr<pipeline::Dependency> dependency,
+                    RuntimeFilterContextSPtr rf_context, std::string_view rf_debug_info)
+            : Base(req, callback),
+              _dependency(std::move(dependency)),
+              _rf_context(rf_context),
+              _rf_debug_info(rf_debug_info) {}
 };
 
 Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filter_size) {
@@ -1103,7 +1107,10 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
 
     auto request = std::make_shared<PSendFilterSizeRequest>();
     auto callback = DummyBrpcCallback<PSendFilterSizeResponse>::create_shared();
-    auto closure = SyncSizeClosure::create_unique(request, callback, _dependency, this);
+    // IRuntimeFilter maybe deconstructed before the rpc finished, so that could not use
+    // a raw pointer in closure. Has to use the context's shared ptr.
+    auto closure = SyncSizeClosure::create_unique(request, callback, _dependency,
+                                                  _wrapper->_context, this->debug_string());
     auto* pquery_id = request->mutable_query_id();
     pquery_id->set_hi(_state->query_id.hi());
     pquery_id->set_lo(_state->query_id.lo());
@@ -1386,6 +1393,12 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     params.filter_type = _runtime_filter_type;
     params.column_return_type = build_ctx->root()->type().type;
     params.max_in_num = options->runtime_filter_max_in_num;
+    params.runtime_bloom_filter_min_size = options->__isset.runtime_bloom_filter_min_size
+                                                   ? options->runtime_bloom_filter_min_size
+                                                   : 0;
+    params.runtime_bloom_filter_max_size = options->__isset.runtime_bloom_filter_max_size
+                                                   ? options->runtime_bloom_filter_max_size
+                                                   : 0;
     // We build runtime filter by exact distinct count iff three conditions are met:
     // 1. Only 1 join key
     // 2. Do not have remote target (e.g. do not need to merge), or broadcast join
@@ -1745,8 +1758,8 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
 
     switch (_wrapper->column_type()) {
     case TYPE_BOOLEAN: {
-        filter->mutable_min_val()->set_boolval(*reinterpret_cast<const int32_t*>(min_data));
-        filter->mutable_max_val()->set_boolval(*reinterpret_cast<const int32_t*>(max_data));
+        filter->mutable_min_val()->set_boolval(*reinterpret_cast<const bool*>(min_data));
+        filter->mutable_max_val()->set_boolval(*reinterpret_cast<const bool*>(max_data));
         return;
     }
     case TYPE_TINYINT: {

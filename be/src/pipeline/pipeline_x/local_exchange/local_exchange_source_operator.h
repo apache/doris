@@ -35,7 +35,6 @@ public:
             : Base(state, parent) {}
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
-    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const override;
 
@@ -47,6 +46,8 @@ private:
     friend class BroadcastExchanger;
     friend class PassToOneExchanger;
     friend class AdaptivePassthroughExchanger;
+    template <typename BlockType>
+    friend class Exchanger;
 
     ExchangerBase* _exchanger = nullptr;
     int _channel_id;

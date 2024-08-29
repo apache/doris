@@ -48,22 +48,6 @@ lexer grammar DorisLexer;
   }
 
   /**
-   * This method will be called when we see '/*' and try to match it as a bracketed comment.
-   * If the next character is '+', it should be parsed as hint later, and we cannot match
-   * it as a bracketed comment.
-   *
-   * Returns true if the next character is '+'.
-   */
-  public boolean isHint() {
-    int nextChar = _input.LA(1);
-    if (nextChar == '+') {
-      return true;
-    } else {
-      return false;
-    }
-  }
-
-  /**
    * This method will be called when the character stream ends and try to find out the
    * unclosed bracketed comment.
    * If the method be called, it means the end of the entire character stream match,
@@ -139,6 +123,7 @@ BUILD: 'BUILD';
 BUILTIN: 'BUILTIN';
 BULK: 'BULK';
 BY: 'BY';
+CACHE: 'CACHE';
 CACHED: 'CACHED';
 CALL: 'CALL';
 CANCEL: 'CANCEL';
@@ -156,6 +141,7 @@ CLUSTERS: 'CLUSTERS';
 COLLATE: 'COLLATE';
 COLLATION: 'COLLATION';
 COLLECT: 'COLLECT';
+COLOCATE: 'COLOCATE';
 COLUMN: 'COLUMN';
 COLUMNS: 'COLUMNS';
 COMMENT: 'COMMENT';
@@ -163,6 +149,7 @@ COMMIT: 'COMMIT';
 COMMITTED: 'COMMITTED';
 COMPACT: 'COMPACT';
 COMPLETE: 'COMPLETE';
+COMPRESS_TYPE: 'COMPRESS_TYPE';
 CONFIG: 'CONFIG';
 CONNECTION: 'CONNECTION';
 CONNECTION_ID: 'CONNECTION_ID';
@@ -170,6 +157,7 @@ CONSISTENT: 'CONSISTENT';
 CONSTRAINT: 'CONSTRAINT';
 CONSTRAINTS: 'CONSTRAINTS';
 CONVERT: 'CONVERT';
+CONVERT_LSC: 'CONVERT_LSC';
 COPY: 'COPY';
 COUNT: 'COUNT';
 CREATE: 'CREATE';
@@ -288,6 +276,7 @@ HISTOGRAM: 'HISTOGRAM';
 HLL: 'HLL';
 HLL_UNION: 'HLL_UNION';
 HOSTNAME: 'HOSTNAME';
+HOTSPOT: 'HOTSPOT';
 HOUR: 'HOUR';
 HUB: 'HUB';
 IDENTIFIED: 'IDENTIFIED';
@@ -410,6 +399,7 @@ PERMISSIVE: 'PERMISSIVE';
 PHYSICAL: 'PHYSICAL';
 PLACEHOLDER: '?';
 PLAN: 'PLAN';
+PRIVILEGES: 'PRIVILEGES';
 PROCESS: 'PROCESS';
 PLUGIN: 'PLUGIN';
 PLUGINS: 'PLUGINS';
@@ -432,6 +422,7 @@ RANGE: 'RANGE';
 READ: 'READ';
 REAL: 'REAL';
 REBALANCE: 'REBALANCE';
+RECENT: 'RECENT';
 RECOVER: 'RECOVER';
 RECYCLE: 'RECYCLE';
 REFRESH: 'REFRESH';
@@ -485,7 +476,9 @@ SMALLINT: 'SMALLINT';
 SNAPSHOT: 'SNAPSHOT';
 SONAME: 'SONAME';
 SPLIT: 'SPLIT';
+SQL: 'SQL';
 SQL_BLOCK_RULE: 'SQL_BLOCK_RULE';
+STAGES: 'STAGES';
 START: 'START';
 STARTS: 'STARTS';
 STATS: 'STATS';
@@ -537,6 +530,7 @@ UNION: 'UNION';
 UNIQUE: 'UNIQUE';
 UNLOCK: 'UNLOCK';
 UNSIGNED: 'UNSIGNED';
+UP: 'UP';
 UPDATE: 'UPDATE';
 USE: 'USE';
 USER: 'USER';
@@ -549,6 +543,7 @@ VARIANT: 'VARIANT';
 VERBOSE: 'VERBOSE';
 VERSION: 'VERSION';
 VIEW: 'VIEW';
+WARM: 'WARM';
 WARNINGS: 'WARNINGS';
 WEEK: 'WEEK';
 WHEN: 'WHEN';
@@ -588,6 +583,7 @@ COLON: ':';
 ARROW: '->';
 HINT_START: '/*+';
 HINT_END: '*/';
+COMMENT_START: '/*';
 ATSIGN: '@';
 DOUBLEATSIGN: '@@';
 
@@ -667,8 +663,9 @@ SIMPLE_COMMENT
     ;
 
 BRACKETED_COMMENT
-    : '/*' {!isHint()}? ( BRACKETED_COMMENT | . )*? ('*/' | {markUnclosedComment();} EOF) -> channel(HIDDEN)
+    : COMMENT_START ( BRACKETED_COMMENT | . )*? ('*/' | {markUnclosedComment();} EOF) -> channel(2)
     ;
+
 
 FROM_DUAL
     : 'FROM' WS+ 'DUAL' -> channel(HIDDEN);

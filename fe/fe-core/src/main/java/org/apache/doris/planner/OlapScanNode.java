@@ -40,6 +40,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
@@ -164,10 +165,8 @@ public class OlapScanNode extends ScanNode {
     private boolean canTurnOnPreAggr = true;
     private boolean forceOpenPreAgg = false;
     private OlapTable olapTable = null;
-    private long selectedTabletsNum = 0;
     private long totalTabletsNum = 0;
     private long selectedIndexId = -1;
-    private int selectedPartitionNum = 0;
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
     private long totalBytes = 0;
 
@@ -297,14 +296,6 @@ public class OlapScanNode extends ScanNode {
 
     public void setForceOpenPreAgg(boolean forceOpenPreAgg) {
         this.forceOpenPreAgg = forceOpenPreAgg;
-    }
-
-    public Integer getSelectedPartitionNum() {
-        return selectedPartitionNum;
-    }
-
-    public Long getSelectedTabletsNum() {
-        return selectedTabletsNum;
     }
 
     public SortInfo getSortInfo() {
@@ -742,7 +733,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     private void addScanRangeLocations(Partition partition,
-            List<Tablet> tablets) throws UserException {
+            List<Tablet> tablets, Map<Long, Set<Long>> backendAlivePathHashs) throws UserException {
         long visibleVersion = partition.getVisibleVersion();
         String visibleVersionStr = String.valueOf(visibleVersion);
 
@@ -750,6 +741,7 @@ public class OlapScanNode extends ScanNode {
         int useFixReplica = -1;
         boolean needCheckTags = false;
         boolean skipMissingVersion = false;
+        Set<Long> userSetBackendBlacklist = null;
         if (ConnectContext.get() != null) {
             allowedTags = ConnectContext.get().getResourceTags();
             needCheckTags = ConnectContext.get().isResourceTagsSet();
@@ -760,6 +752,7 @@ public class OlapScanNode extends ScanNode {
                 LOG.debug("query id: {}, partition id:{} visibleVersion: {}",
                         DebugUtil.printId(ConnectContext.get().queryId()), partition.getId(), visibleVersion);
             }
+            userSetBackendBlacklist = ConnectContext.get().getSessionVariable().getQueryBackendBlacklist();
         }
         for (Tablet tablet : tablets) {
             long tabletId = tablet.getId();
@@ -786,7 +779,8 @@ public class OlapScanNode extends ScanNode {
             paloRange.setTabletId(tabletId);
 
             // random shuffle List && only collect one copy
-            List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion, skipMissingVersion);
+            List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion,
+                    backendAlivePathHashs, skipMissingVersion);
             if (replicas.isEmpty()) {
                 if (ConnectContext.get().getSessionVariable().skipBadTablet) {
                     continue;
@@ -836,27 +830,29 @@ public class OlapScanNode extends ScanNode {
                 }
             }
 
-            final long coolDownReplicaId = tablet.getCooldownReplicaId();
-            // we prefer to query using cooldown replica to make sure the cache is fully utilized
-            // for example: consider there are 3BEs(A,B,C) and each has one replica for tablet X. and X
-            // is now under cooldown
-            // first time we choose BE A, and A will download data into cache while the other two's cache is empty
-            // second time we choose BE B, this time B will be cached, C is still empty
-            // third time we choose BE C, after this time all replica is cached
-            // but it means we will do 3 S3 IO to get the data which will bring 3 slow query
-            if (-1L != coolDownReplicaId) {
-                final Optional<Replica> replicaOptional = replicas.stream()
-                        .filter(r -> r.getId() == coolDownReplicaId).findAny();
-                replicaOptional.ifPresent(
-                        r -> {
-                            Backend backend = Env.getCurrentSystemInfo()
-                                    .getBackend(r.getBackendId());
-                            if (backend != null && backend.isAlive()) {
-                                replicas.clear();
-                                replicas.add(r);
+            if (Config.enable_cooldown_replica_affinity) {
+                final long coolDownReplicaId = tablet.getCooldownReplicaId();
+                // we prefer to query using cooldown replica to make sure the cache is fully utilized
+                // for example: consider there are 3BEs(A,B,C) and each has one replica for tablet X. and X
+                // is now under cooldown
+                // first time we choose BE A, and A will download data into cache while the other two's cache is empty
+                // second time we choose BE B, this time B will be cached, C is still empty
+                // third time we choose BE C, after this time all replica is cached
+                // but it means we will do 3 S3 IO to get the data which will bring 3 slow query
+                if (-1L != coolDownReplicaId) {
+                    final Optional<Replica> replicaOptional = replicas.stream()
+                            .filter(r -> r.getId() == coolDownReplicaId).findAny();
+                    replicaOptional.ifPresent(
+                            r -> {
+                                Backend backend = Env.getCurrentSystemInfo()
+                                        .getBackend(r.getBackendId());
+                                if (backend != null && backend.isAlive()) {
+                                    replicas.clear();
+                                    replicas.add(r);
+                                }
                             }
-                        }
-                );
+                    );
+                }
             }
             boolean tabletIsNull = true;
             boolean collectedStat = false;
@@ -870,6 +866,16 @@ public class OlapScanNode extends ScanNode {
                     }
                     errs.add("replica " + replica.getId() + "'s backend " + replica.getBackendId()
                             + " does not exist or not alive");
+                    continue;
+                }
+                if (userSetBackendBlacklist != null && userSetBackendBlacklist.contains(backend.getId())) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("backend {} is in the blacklist that user set in session variable {}",
+                                replica.getBackendId(), replica.getId());
+                    }
+                    String err = "replica " + replica.getId() + "'s backend " + replica.getBackendId()
+                            + " in the blacklist that user set in session variable";
+                    errs.add(err);
                     continue;
                 }
                 if (!backend.isMixNode()) {
@@ -1133,6 +1139,12 @@ public class OlapScanNode extends ScanNode {
          */
         Preconditions.checkState(scanBackendIds.size() == 0);
         Preconditions.checkState(scanTabletIds.size() == 0);
+        Map<Long, Set<Long>> backendAlivePathHashs = Maps.newHashMap();
+        for (Backend backend : Env.getCurrentSystemInfo().getAllBackends()) {
+            backendAlivePathHashs.put(backend.getId(), backend.getDisks().values().stream()
+                    .filter(DiskInfo::isAlive).map(DiskInfo::getPathHash).collect(Collectors.toSet()));
+        }
+
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
@@ -1173,8 +1185,8 @@ public class OlapScanNode extends ScanNode {
             }
 
             totalTabletsNum += selectedTable.getTablets().size();
-            selectedTabletsNum += tablets.size();
-            addScanRangeLocations(partition, tablets);
+            selectedSplitNum += tablets.size();
+            addScanRangeLocations(partition, tablets, backendAlivePathHashs);
         }
     }
 
@@ -1335,7 +1347,7 @@ public class OlapScanNode extends ScanNode {
                 .collect(Collectors.joining(","));
         output.append(prefix).append(String.format("partitions=%s/%s (%s)", selectedPartitionNum,
                 olapTable.getPartitions().size(), selectedPartitions)).append("\n");
-        output.append(prefix).append(String.format("tablets=%s/%s", selectedTabletsNum, totalTabletsNum));
+        output.append(prefix).append(String.format("tablets=%s/%s", selectedSplitNum, totalTabletsNum));
         // We print up to 3 tablet, and we print "..." if the number is more than 3
         if (scanTabletIds.size() > 3) {
             List<Long> firstTenTabletIds = scanTabletIds.subList(0, 3);
@@ -1718,7 +1730,11 @@ public class OlapScanNode extends ScanNode {
                 : Sets.newTreeSet();
     }
 
-    @Override
+    /**
+     * Update required_slots in scan node contexts. This is called after Nereids planner do the projection.
+     * In the projection process, some slots may be removed. So call this to update the slots info.
+     * Currently, it is only used by ExternalFileScanNode, add the interface here to keep the Nereids code clean.
+     */
     public void updateRequiredSlots(PlanTranslatorContext context,
             Set<SlotId> requiredByProjectSlotIdSet) {
         outputColumnUniqueIds.clear();

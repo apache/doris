@@ -44,7 +44,8 @@ public:
         COMMON_OBJ_LRU_CACHE = 12,
         FOR_UT = 13,
         TABLET_SCHEMA_CACHE = 14,
-        CREATE_TABLET_RR_IDX_CACHE = 15
+        CREATE_TABLET_RR_IDX_CACHE = 15,
+        NONE = 16, // not be used
     };
 
     static std::string type_string(CacheType type) {
@@ -86,6 +87,32 @@ public:
         }
         LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
+    }
+
+    inline static std::unordered_map<std::string, CacheType> StringToType = {
+            {"DataPageCache", CacheType::DATA_PAGE_CACHE},
+            {"IndexPageCache", CacheType::INDEXPAGE_CACHE},
+            {"PKIndexPageCache", CacheType::PK_INDEX_PAGE_CACHE},
+            {"SchemaCache", CacheType::SCHEMA_CACHE},
+            {"SegmentCache", CacheType::SEGMENT_CACHE},
+            {"InvertedIndexSearcherCache", CacheType::INVERTEDINDEX_SEARCHER_CACHE},
+            {"InvertedIndexQueryCache", CacheType::INVERTEDINDEX_QUERY_CACHE},
+            {"PointQueryLookupConnectionCache", CacheType::LOOKUP_CONNECTION_CACHE},
+            {"PointQueryRowCache", CacheType::POINT_QUERY_ROW_CACHE},
+            {"MowDeleteBitmapAggCache", CacheType::DELETE_BITMAP_AGG_CACHE},
+            {"MowTabletVersionCache", CacheType::TABLET_VERSION_CACHE},
+            {"LastSuccessChannelCache", CacheType::LAST_SUCCESS_CHANNEL_CACHE},
+            {"CommonObjLRUCache", CacheType::COMMON_OBJ_LRU_CACHE},
+            {"ForUT", CacheType::FOR_UT},
+            {"TabletSchemaCache", CacheType::TABLET_SCHEMA_CACHE},
+            {"CreateTabletRRIdxCache", CacheType::CREATE_TABLET_RR_IDX_CACHE}};
+
+    static CacheType string_to_type(std::string type) {
+        if (StringToType.contains(type)) {
+            return StringToType[type];
+        } else {
+            return CacheType::NONE;
+        }
     }
 
     CachePolicy(CacheType type, uint32_t stale_sweep_time_s, bool enable_prune);

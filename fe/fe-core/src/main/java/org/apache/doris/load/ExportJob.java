@@ -273,7 +273,7 @@ public class ExportJob implements Writable {
                 if (exportTable.getType() == TableType.VIEW) {
                     // view table
                     generateViewOrExternalTableOutfile(qualifiedTableName);
-                } else if (exportTable.getType() == TableType.OLAP) {
+                } else if (exportTable.isManagedTable()) {
                     // olap table
                     generateOlapTableOutfile(qualifiedTableName);
                 } else {
@@ -634,9 +634,7 @@ public class ExportJob implements Writable {
         if (!maxFileSize.isEmpty()) {
             outfileProperties.put(OutFileClause.PROP_MAX_FILE_SIZE, maxFileSize);
         }
-        if (!deleteExistingFiles.isEmpty()) {
-            outfileProperties.put(OutFileClause.PROP_DELETE_EXISTING_FILES, deleteExistingFiles);
-        }
+
         outfileProperties.put(OutFileClause.PROP_WITH_BOM, withBom);
 
         // broker properties

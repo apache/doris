@@ -2444,7 +2444,6 @@ public class FunctionCallExpr extends Expr {
         int result = super.hashCode();
         result = 31 * result + Objects.hashCode(opcode);
         result = 31 * result + Objects.hashCode(fnName);
-        result = 31 * result + Objects.hashCode(fnParams);
         return result;
     }
 

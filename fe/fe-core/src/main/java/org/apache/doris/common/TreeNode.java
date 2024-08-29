@@ -31,7 +31,7 @@ import java.util.List;
  * Generic tree structure. Only concrete subclasses of this can be instantiated.
  */
 public class TreeNode<NodeType extends TreeNode<NodeType>> {
-    protected ArrayList<NodeType> children = Lists.newArrayList();
+    protected ArrayList<NodeType> children = Lists.newArrayListWithCapacity(2);
 
     public NodeType getChild(int i) {
         return hasChild(i) ? children.get(i) : null;

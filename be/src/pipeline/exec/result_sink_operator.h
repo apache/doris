@@ -82,6 +82,7 @@ private:
 
     Status _second_phase_fetch_data(RuntimeState* state, vectorized::Block* final_block);
     TResultSinkType::type _sink_type;
+    int _result_sink_buffer_size_rows;
     // set file options when sink type is FILE
     std::unique_ptr<vectorized::ResultFileOptions> _file_opts = nullptr;
 

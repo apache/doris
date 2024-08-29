@@ -1734,6 +1734,10 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
+    public Map<Long, IndexChangeJob> getIndexChangeJobs() {
+        return indexChangeJobs;
+    }
+
     public List<List<Comparable>> getAllIndexChangeJobInfos() {
         List<List<Comparable>> indexChangeJobInfos = new LinkedList<>();
         for (IndexChangeJob indexChangeJob : ImmutableList.copyOf(indexChangeJobs.values())) {
@@ -2211,11 +2215,6 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
         String storagePolicy = properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
-        if (enableUniqueKeyMergeOnWrite && !Strings.isNullOrEmpty(storagePolicy)) {
-            throw new UserException(
-                    "Can not set UNIQUE KEY table that enables Merge-On-write" + " with storage policy(" + storagePolicy
-                            + ")");
-        }
         long storagePolicyId = storagePolicyNameToId(storagePolicy);
 
         String compactionPolicy = properties.get(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY);
@@ -2263,6 +2262,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         if (isInMemory < 0 && storagePolicyId < 0 && compactionPolicy == null && timeSeriesCompactionConfig.isEmpty()
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)
@@ -2276,6 +2276,18 @@ public class SchemaChangeHandler extends AlterHandler {
         int enableSingleCompaction = -1; // < 0 means don't update
         if (singleCompaction != null) {
             enableSingleCompaction = Boolean.parseBoolean(singleCompaction) ? 1 : 0;
+        }
+
+        if (enableUniqueKeyMergeOnWrite && Boolean.parseBoolean(singleCompaction)) {
+            throw new UserException(
+                    "enable_single_replica_compaction property is not supported for merge-on-write table");
+        }
+
+        String enableMowLightDelete = properties.get(
+                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
+        if (enableMowLightDelete != null && !enableUniqueKeyMergeOnWrite) {
+            throw new UserException(
+                    "enable_mow_light_delete property is only supported for unique merge-on-write table");
         }
 
         String disableAutoCompactionBoolean = properties.get(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION);
@@ -2749,6 +2761,12 @@ public class SchemaChangeHandler extends AlterHandler {
                     LOG.debug("logModifyTableAddOrDropInvertedIndices info:{}", info);
                 }
                 Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropInvertedIndices(info);
+                // Drop table column stats after light schema change finished.
+                try {
+                    Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable);
+                } catch (Exception e) {
+                    LOG.info("Failed to drop stats after light schema change. Reason: {}", e.getMessage());
+                }
 
                 if (isDropIndex) {
                     // send drop rpc to be
@@ -2775,6 +2793,12 @@ public class SchemaChangeHandler extends AlterHandler {
                     LOG.debug("logModifyTableAddOrDropColumns info:{}", info);
                 }
                 Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropColumns(info);
+                // Drop table column stats after light schema change finished.
+                try {
+                    Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable);
+                } catch (Exception e) {
+                    LOG.info("Failed to drop stats after light schema change. Reason: {}", e.getMessage());
+                }
             }
             LOG.info("finished modify table's add or drop or modify columns. table: {}, job: {}, is replay: {}",
                     olapTable.getName(), jobId, isReplay);

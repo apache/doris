@@ -23,7 +23,9 @@
 
 #include "common/status.h"
 #include "io/io_common.h"
+#include "olap/iterators.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/simple_rowid_conversion.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 
@@ -62,7 +64,7 @@ public:
     static Status vertical_merge_rowsets(
             TabletSharedPtr tablet, ReaderType reader_type, TabletSchemaSPtr tablet_schema,
             const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
-            RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment,
+            RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment, int64_t merge_way_num,
             Statistics* stats_output);
 
 public:
@@ -75,7 +77,8 @@ public:
             vectorized::RowSourcesBuffer* row_source_buf,
             const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
             RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment, Statistics* stats_output,
-            std::vector<uint32_t> key_group_cluster_key_idxes);
+            std::vector<uint32_t> key_group_cluster_key_idxes, int64_t batch_size,
+            CompactionSampleInfo* sample_info);
 
     // for segcompaction
     static Status vertical_compact_one_group(TabletSharedPtr tablet, ReaderType reader_type,
@@ -84,8 +87,9 @@ public:
                                              vectorized::RowSourcesBuffer* row_source_buf,
                                              vectorized::VerticalBlockReader& src_block_reader,
                                              segment_v2::SegmentWriter& dst_segment_writer,
-                                             int64_t max_rows_per_segment, Statistics* stats_output,
-                                             uint64_t* index_size, KeyBoundsPB& key_bounds);
+                                             Statistics* stats_output, uint64_t* index_size,
+                                             KeyBoundsPB& key_bounds,
+                                             SimpleRowIdConversion* rowid_conversion);
 
     // for mow with cluster key table, the key group also contains cluster key columns.
     // the `key_group_cluster_key_idxes` marks the positions of cluster key columns in key group.

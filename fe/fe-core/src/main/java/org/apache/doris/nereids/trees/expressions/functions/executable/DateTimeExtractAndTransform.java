@@ -51,7 +51,9 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
 import java.time.format.TextStyle;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.WeekFields;
@@ -393,7 +395,7 @@ public class DateTimeExtractAndTransform {
     /**
      * from_days.
      */
-    @ExecFunction(name = "from_days", argTypes = {"INT"}, returnType = "DATE")
+    @ExecFunction(name = "from_days", argTypes = {"INT"}, returnType = "DATEV2")
     public static Expression fromDays(IntegerLiteral n) {
         // doris treat 0000AD as ordinary year but java LocalDateTime treat it as lunar year.
         LocalDateTime res = LocalDateTime.of(0, 1, 1, 0, 0, 0)
@@ -401,7 +403,7 @@ public class DateTimeExtractAndTransform {
         if (res.isBefore(LocalDateTime.of(0, 3, 1, 0, 0, 0))) {
             res = res.plusDays(-1);
         }
-        return DateLiteral.fromJavaDateType(res);
+        return DateV2Literal.fromJavaDateType(res);
     }
 
     @ExecFunction(name = "last_day", argTypes = {"DATE"}, returnType = "DATE")
@@ -645,12 +647,22 @@ public class DateTimeExtractAndTransform {
         return datetime;
     }
 
+    /**
+     * convert_tz
+     */
     @ExecFunction(name = "convert_tz", argTypes = {"DATETIMEV2", "VARCHAR", "VARCHAR"}, returnType = "DATETIMEV2")
     public static Expression convertTz(DateTimeV2Literal datetime, StringLikeLiteral fromTz, StringLikeLiteral toTz) {
+        DateTimeFormatter zoneFormatter = new DateTimeFormatterBuilder()
+                .parseCaseInsensitive()
+                .appendZoneOrOffsetId()
+                .toFormatter()
+                .withResolverStyle(ResolverStyle.STRICT);
+        ZoneId fromZone = ZoneId.from(zoneFormatter.parse(fromTz.getStringValue()));
+        ZoneId toZone = ZoneId.from(zoneFormatter.parse(toTz.getStringValue()));
+
         LocalDateTime localDateTime = datetime.toJavaDateType();
-        ZonedDateTime fromDateTime = localDateTime.atZone(ZoneId.of(fromTz.getStringValue()));
-        ZonedDateTime toDateTime = fromDateTime.withZoneSameInstant(ZoneId.of(toTz.getStringValue()));
-        return DateTimeV2Literal.fromJavaDateType(toDateTime.toLocalDateTime(), datetime.getDataType().getScale());
+        ZonedDateTime resultDateTime = localDateTime.atZone(fromZone).withZoneSameInstant(toZone);
+        return DateTimeV2Literal.fromJavaDateType(resultDateTime.toLocalDateTime(), datetime.getDataType().getScale());
     }
 
     @ExecFunction(name = "weekday", argTypes = {"DATE"}, returnType = "TINYINT")

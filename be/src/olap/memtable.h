@@ -129,7 +129,8 @@ private:
 
 class RowInBlockComparator {
 public:
-    RowInBlockComparator(const TabletSchema* tablet_schema) : _tablet_schema(tablet_schema) {}
+    RowInBlockComparator(std::shared_ptr<TabletSchema> tablet_schema)
+            : _tablet_schema(tablet_schema) {}
     // call set_block before operator().
     // only first time insert block to create _input_mutable_block,
     // so can not Comparator of construct to set pblock
@@ -137,7 +138,7 @@ public:
     int operator()(const RowInBlock* left, const RowInBlock* right) const;
 
 private:
-    const TabletSchema* _tablet_schema = nullptr;
+    std::shared_ptr<TabletSchema> _tablet_schema;
     vectorized::MutableBlock* _pblock = nullptr; //  corresponds to Memtable::_input_mutable_block
 };
 
@@ -168,7 +169,7 @@ public:
 
 class MemTable {
 public:
-    MemTable(int64_t tablet_id, const TabletSchema* tablet_schema,
+    MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
              bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
              const std::shared_ptr<MemTracker>& insert_mem_tracker,
@@ -209,7 +210,7 @@ private:
     bool _enable_unique_key_mow = false;
     bool _is_partial_update = false;
     const KeysType _keys_type;
-    const TabletSchema* _tablet_schema = nullptr;
+    std::shared_ptr<TabletSchema> _tablet_schema;
 
     std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
 

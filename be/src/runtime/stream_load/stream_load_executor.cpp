@@ -90,9 +90,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
             // some users may rely on this error message.
             *status = Status::DataQualityError("too many filtered rows");
         }
-        if (ctx->number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
-            ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
-        }
+        ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
 
         if (status->ok()) {
             DorisMetrics::instance()->stream_receive_bytes_total->increment(ctx->receive_bytes);
@@ -145,10 +143,11 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
     };
 
     if (ctx->put_result.__isset.params) {
-        st = _exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.params, exec_fragment);
+        st = _exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.params,
+                                                           QuerySource::STREAM_LOAD, exec_fragment);
     } else {
         st = _exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.pipeline_params,
-                                                           exec_fragment);
+                                                           QuerySource::STREAM_LOAD, exec_fragment);
     }
 
     if (!st.ok()) {

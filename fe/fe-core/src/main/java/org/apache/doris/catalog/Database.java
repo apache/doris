@@ -28,6 +28,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogIf;
@@ -58,7 +59,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
@@ -83,7 +83,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     private long id;
     @SerializedName(value = "fullQualifiedName")
     private volatile String fullQualifiedName;
-    private final ReentrantReadWriteLock rwLock;
+
+    private MonitoredReentrantReadWriteLock rwLock;
 
     // table family group map
     private final Map<Long, Table> idToTable;
@@ -133,7 +134,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         if (this.fullQualifiedName == null) {
             this.fullQualifiedName = "";
         }
-        this.rwLock = new ReentrantReadWriteLock(true);
+        this.rwLock = new MonitoredReentrantReadWriteLock(true);
         this.idToTable = Maps.newConcurrentMap();
         this.nameToTable = Maps.newConcurrentMap();
         this.lowerCaseToTableName = Maps.newConcurrentMap();
@@ -286,7 +287,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
 
         for (Table table : tables) {
-            if (table.getType() != TableType.OLAP) {
+            if (!table.isManagedTable()) {
                 continue;
             }
 
@@ -307,7 +308,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         try {
             long usedReplicaCount = 0;
             for (Table table : this.idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
 
@@ -545,7 +546,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         readLock();
         try {
             for (Table table : idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
@@ -866,7 +867,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             if (newBinlogConfig.isEnable() && !oldBinlogConfig.isEnable()) {
                 // check all tables binlog enable is true
                 for (Table table : idToTable.values()) {
-                    if (table.getType() != TableType.OLAP) {
+                    if (!table.isManagedTable()) {
                         continue;
                     }
 

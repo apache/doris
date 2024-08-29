@@ -25,7 +25,6 @@ import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.resource.workloadgroup.QueueToken.TokenState;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
@@ -99,10 +98,11 @@ public final class QeProcessorImpl implements QeProcessor {
         if (result != null) {
             throw new UserException("queryId " + queryId + " already exists");
         }
-
         // Should add the execution profile to profile manager, BE will report the profile to FE and FE
         // will update it in ProfileManager
-        ProfileManager.getInstance().addExecutionProfile(info.getCoord().getExecutionProfile());
+        if (info.coord.getQueryOptions().enable_profile) {
+            ProfileManager.getInstance().addExecutionProfile(info.getCoord().getExecutionProfile());
+        }
     }
 
     @Override
@@ -332,11 +332,11 @@ public final class QeProcessorImpl implements QeProcessor {
             return -1;
         }
 
-        public TokenState getQueueStatus() {
+        public String getQueueStatus() {
             if (coord.getQueueToken() != null) {
-                return coord.getQueueToken().getTokenState();
+                return coord.getQueueToken().getQueueMsg();
             }
-            return null;
+            return "";
         }
     }
 }
