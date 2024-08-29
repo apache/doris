@@ -358,10 +358,6 @@ public:
         return *this;
     }
 
-    // disable copy constructor and copy assignment
-    OwnedSlice(const OwnedSlice&) = delete;
-    void operator=(const OwnedSlice&) = delete;
-
     ~OwnedSlice() { Allocator::free(_slice.data, _capacity); }
 
     const Slice& slice() const { return _slice; }
@@ -372,6 +368,11 @@ private:
 
     OwnedSlice(uint8_t* _data, size_t size, size_t capacity)
             : _slice(_data, size), _capacity(capacity) {}
+
+private:
+    // disable copy constructor and copy assignment
+    OwnedSlice(const OwnedSlice&) = delete;
+    void operator=(const OwnedSlice&) = delete;
 
     Slice _slice;
     size_t _capacity = 0;

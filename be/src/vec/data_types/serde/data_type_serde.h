@@ -266,10 +266,14 @@ public:
             const FormatOptions& options, int hive_text_complex_type_delimiter_level = 1) const {
         return deserialize_column_from_json_vector(column, slices, num_deserialized, options);
     };
-    virtual Status serialize_one_cell_to_hive_text(
+    virtual void serialize_one_cell_to_hive_text(
             const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
             int hive_text_complex_type_delimiter_level = 1) const {
-        return serialize_one_cell_to_json(column, row_num, bw, options);
+        Status st = serialize_one_cell_to_json(column, row_num, bw, options);
+        if (!st.ok()) {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "serialize_one_cell_to_json error: {}", st.to_string());
+        }
     }
 
     // Protobuf serializer and deserializer
