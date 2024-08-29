@@ -180,6 +180,10 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             task->clear_blocking_state();
         }
     }
+
+    for (const auto& instance_id : _fragment_instance_ids) {
+        ExecEnv::GetInstance()->result_mgr()->cancel(instance_id);
+    }
 }
 
 Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& request) {
