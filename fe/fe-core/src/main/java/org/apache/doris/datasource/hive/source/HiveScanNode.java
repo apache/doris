@@ -465,11 +465,11 @@ public class HiveScanNode extends FileQueryScanNode {
 
         // 6. set escape delimiter
         Optional<String> escapeDelim = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
-            PROP_ESCAPE_DELIMITER);
+                PROP_ESCAPE_DELIMITER);
         textParams
-                .setEscapeChar(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                        DEFAULT_ESCAPE_DELIMIER, escapeDelim)));
-        // 6. set null format
+                .setEscape(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                        DEFAULT_ESCAPE_DELIMIER, escapeDelim)).getBytes()[0]);
+        // 7. set null format
         Optional<String> nullFormat = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
                 PROP_NULL_FORMAT);
         textParams.setNullFormat(HiveMetaStoreClientHelper.firstPresentOrDefault(
