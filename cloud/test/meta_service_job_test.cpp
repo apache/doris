@@ -60,9 +60,10 @@ void start_compaction_job(MetaService* meta_service, int64_t tablet_id, const st
     long now = time(nullptr);
     compaction->set_expiration(now + 12);
     compaction->set_lease(now + 3);
-    if (input_version.first > 0 && input_version.second > 0) {
+    if (input_version.second > 0) {
         compaction->add_input_versions(input_version.first);
         compaction->add_input_versions(input_version.second);
+        compaction->set_check_input_versions_range(true);
     }
     meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
 };
@@ -191,15 +192,18 @@ void create_tablet(MetaService* meta_service, int64_t table_id, int64_t index_id
 
 void start_schema_change_job(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
                              int64_t partition_id, int64_t tablet_id, int64_t new_tablet_id,
-                             const std::string& job_id, const std::string& initiator) {
+                             const std::string& job_id, const std::string& initiator,
+                             StartTabletJobResponse& res, int64_t alter_version = -1) {
     brpc::Controller cntl;
     StartTabletJobRequest req;
-    StartTabletJobResponse res;
     req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
     auto sc = req.mutable_job()->mutable_schema_change();
     sc->set_id(job_id);
     sc->set_initiator(initiator);
     sc->mutable_new_tablet_idx()->set_tablet_id(new_tablet_id);
+    if (alter_version != -1) {
+        sc->set_alter_version(alter_version);
+    }
     long now = time(nullptr);
     sc->set_expiration(now + 12);
     meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
@@ -217,13 +221,14 @@ void start_schema_change_job(MetaServiceProxy* meta_service, int64_t table_id, i
     EXPECT_EQ(job_pb.schema_change().id(), job_id) << ' ' << initiator;
 };
 
-void finish_schema_change_job(MetaService* meta_service, int64_t tablet_id, int64_t new_tablet_id,
-                              const std::string& job_id, const std::string& initiator,
-                              const std::vector<doris::RowsetMetaCloudPB>& output_rowsets,
-                              FinishTabletJobResponse& res) {
+void finish_schema_change_job(
+        MetaService* meta_service, int64_t tablet_id, int64_t new_tablet_id,
+        const std::string& job_id, const std::string& initiator,
+        const std::vector<doris::RowsetMetaCloudPB>& output_rowsets, FinishTabletJobResponse& res,
+        FinishTabletJobRequest_Action action = FinishTabletJobRequest::COMMIT) {
     brpc::Controller cntl;
     FinishTabletJobRequest req;
-    req.set_action(FinishTabletJobRequest::COMMIT);
+    req.set_action(action);
     req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
     auto sc = req.mutable_job()->mutable_schema_change();
     sc->mutable_new_tablet_idx()->set_tablet_id(new_tablet_id);
@@ -682,8 +687,11 @@ TEST(MetaServiceJobTest, ProcessSchemaChangeArguments) {
     recorded_sc->set_id("sc1");
     recorded_sc->set_initiator("BE1");
     job_val = recorded_job.SerializeAsString();
+    auto new_job_key =
+            job_tablet_key({instance_id, table_id, new_index_id, partition_id, new_tablet_id});
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     txn->put(job_key, job_val);
+    txn->put(new_job_key, job_val);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
@@ -1332,9 +1340,10 @@ TEST(MetaServiceJobTest, SchemaChangeJobTest) {
         int64_t new_tablet_id = 14;
         ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
                                               new_tablet_id, false, true));
+        StartTabletJobResponse sc_res;
         ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
                                                         partition_id, tablet_id, new_tablet_id,
-                                                        "job1", "be1"));
+                                                        "job1", "be1", sc_res));
         FinishTabletJobResponse res;
         finish_schema_change_job(meta_service.get(), tablet_id, new_tablet_id, "job2", "be1", {},
                                  res);
@@ -1360,9 +1369,10 @@ TEST(MetaServiceJobTest, SchemaChangeJobTest) {
         int64_t new_tablet_id = 24;
         ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
                                               new_tablet_id, false, true));
+        StartTabletJobResponse sc_res;
         ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
                                                         partition_id, tablet_id, new_tablet_id,
-                                                        "job2", "be1"));
+                                                        "job2", "be1", sc_res));
 
         std::vector<doris::RowsetMetaCloudPB> output_rowsets;
         for (int64_t i = 0; i < 5; ++i) {
@@ -1423,9 +1433,10 @@ TEST(MetaServiceJobTest, SchemaChangeJobTest) {
         int64_t new_tablet_id = 34;
         ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
                                               new_tablet_id, false, true));
+        StartTabletJobResponse sc_res;
         ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
                                                         partition_id, tablet_id, new_tablet_id,
-                                                        "job3", "be1"));
+                                                        "job3", "be1", sc_res));
         // provide existed rowsets
         std::vector<doris::RowsetMetaCloudPB> existed_rowsets;
         for (int i = 0; i < 5; ++i) {
@@ -1543,9 +1554,10 @@ TEST(MetaServiceJobTest, RetrySchemaChangeJobTest) {
     // start "job1" on BE1
     ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
                                           new_tablet_id, false, true));
+    StartTabletJobResponse sc_res;
     ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
                                                     partition_id, tablet_id, new_tablet_id, "job1",
-                                                    "be1"));
+                                                    "be1", sc_res));
     // provide existed rowsets
     std::vector<doris::RowsetMetaCloudPB> existed_rowsets;
     for (int i = 0; i < 5; ++i) {
@@ -1553,15 +1565,16 @@ TEST(MetaServiceJobTest, RetrySchemaChangeJobTest) {
     }
     ASSERT_NO_FATAL_FAILURE(insert_rowsets(meta_service->txn_kv().get(), table_id, index_id,
                                            partition_id, new_tablet_id, existed_rowsets));
-
+    sc_res.Clear();
     // FE canceled "job1" and starts "job2" on BE1, should preempt previous "job1"
     ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
                                                     partition_id, tablet_id, new_tablet_id, "job2",
-                                                    "be1"));
+                                                    "be1", sc_res));
+    sc_res.Clear();
     // retry "job2" on BE1
     ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
                                                     partition_id, tablet_id, new_tablet_id, "job2",
-                                                    "be1"));
+                                                    "be1", sc_res));
     // BE1 output_versions=[2-8][9-9][10-10][11-11]
     std::vector<doris::RowsetMetaCloudPB> be1_output_rowsets;
     be1_output_rowsets.push_back(create_rowset(new_tablet_id, 2, 8));
@@ -1573,11 +1586,11 @@ TEST(MetaServiceJobTest, RetrySchemaChangeJobTest) {
         commit_rowset(meta_service.get(), rs, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << rs.end_version();
     }
-
+    sc_res.Clear();
     // FE thinks BE1 is not alive and retries "job2" on BE2, should preempt "job2" created by BE1
     ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
                                                     partition_id, tablet_id, new_tablet_id, "job2",
-                                                    "be2"));
+                                                    "be2", sc_res));
     // BE2 output_versions=[2-8][9-12][13-13]
     std::vector<doris::RowsetMetaCloudPB> be2_output_rowsets;
     {
@@ -1703,9 +1716,10 @@ TEST(MetaServiceJobTest, SchemaChangeJobWithMoWTest) {
         int64_t new_tablet_id = 14;
         ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
                                               new_tablet_id, true, true));
+        StartTabletJobResponse sc_res;
         ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
                                                         partition_id, tablet_id, new_tablet_id,
-                                                        "job1", "be1"));
+                                                        "job1", "be1", sc_res));
         std::vector<doris::RowsetMetaCloudPB> output_rowsets;
         for (int64_t i = 0; i < 5; ++i) {
             output_rowsets.push_back(create_rowset(new_tablet_id, i + 2, i + 2));
@@ -1750,9 +1764,10 @@ TEST(MetaServiceJobTest, SchemaChangeJobWithMoWTest) {
         int64_t new_tablet_id = 15;
         ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
                                               new_tablet_id, true, true));
+        StartTabletJobResponse sc_res;
         ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
                                                         partition_id, tablet_id, new_tablet_id,
-                                                        "job2", "be1"));
+                                                        "job2", "be1", sc_res));
         std::vector<doris::RowsetMetaCloudPB> output_rowsets;
         for (int64_t i = 0; i < 5; ++i) {
             output_rowsets.push_back(create_rowset(new_tablet_id, i + 2, i + 2));
@@ -2272,9 +2287,10 @@ TEST(MetaServiceJobTest, SchemaChangeJobPersistTest) {
     int64_t new_tablet_id = 11;
     ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
                                           new_tablet_id, false, true));
+    StartTabletJobResponse sc_res;
     ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
                                                     partition_id, tablet_id, new_tablet_id, "job2",
-                                                    "BE1"));
+                                                    "BE1", sc_res));
 
     long now = time(nullptr);
     FinishTabletJobRequest req;
@@ -2292,6 +2308,214 @@ TEST(MetaServiceJobTest, SchemaChangeJobPersistTest) {
     finish_schema_change_job(meta_service.get(), tablet_id, new_tablet_id, "job1", "BE1", {},
                              finish_res);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+}
+
+TEST(MetaServiceJobTest, DoCompactionWhenSC) {
+    auto meta_service = get_meta_service();
+
+    auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    brpc::Controller cntl;
+
+    int64_t table_id = 5421;
+    int64_t index_id = 5422;
+    int64_t partition_id = 5423;
+    int64_t tablet_id = 5424;
+    int64_t new_tablet_id = 54211;
+
+    ASSERT_NO_FATAL_FAILURE(
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, false));
+
+    ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
+                                          new_tablet_id, false, true));
+
+    StartTabletJobResponse sc_res;
+    ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
+                                                    partition_id, tablet_id, new_tablet_id,
+                                                    "job_sc", "BE1", sc_res, 8));
+
+    StartTabletJobResponse res;
+    start_compaction_job(meta_service.get(), tablet_id, "job1", "BE1", 0, 7,
+                         TabletCompactionJobPB::CUMULATIVE, res, {7, 10});
+    ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_CHECK_ALTER_VERSION);
+    res.Clear();
+
+    start_compaction_job(meta_service.get(), tablet_id, "job1", "BE1", 0, 7,
+                         TabletCompactionJobPB::BASE, res, {0, 10});
+    ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_CHECK_ALTER_VERSION);
+    res.Clear();
+
+    start_compaction_job(meta_service.get(), tablet_id, "job1", "BE1", 0, 7,
+                         TabletCompactionJobPB::BASE, res, {0, 7});
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    res.Clear();
+
+    start_compaction_job(meta_service.get(), new_tablet_id, "job2", "BE1", 0, 7,
+                         TabletCompactionJobPB::CUMULATIVE, res, {9, 10});
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    res.Clear();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string job_key =
+            job_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    std::string job_val;
+    TabletJobInfoPB job_pb;
+    ASSERT_EQ(txn->get(job_key, &job_val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(job_pb.ParseFromString(job_val));
+    ASSERT_EQ(job_pb.compaction_size(), 1);
+    ASSERT_EQ(job_pb.compaction(0).id(), "job1");
+    ASSERT_EQ(job_pb.compaction(0).initiator(), "BE1");
+    ASSERT_EQ(job_pb.compaction(0).input_versions(0), 0);
+    ASSERT_EQ(job_pb.compaction(0).input_versions(1), 7);
+    ASSERT_EQ(job_pb.schema_change().alter_version(), 8);
+
+    std::string new_job_key =
+            job_tablet_key({instance_id, table_id, index_id, partition_id, new_tablet_id});
+    std::string new_job_val;
+    TabletJobInfoPB new_job_pb;
+    ASSERT_EQ(txn->get(new_job_key, &new_job_val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(new_job_pb.ParseFromString(new_job_val));
+    ASSERT_EQ(new_job_pb.compaction_size(), 1);
+    ASSERT_EQ(new_job_pb.compaction(0).id(), "job2");
+    ASSERT_EQ(new_job_pb.compaction(0).initiator(), "BE1");
+    ASSERT_EQ(new_job_pb.compaction(0).input_versions(0), 9);
+    ASSERT_EQ(new_job_pb.compaction(0).input_versions(1), 10);
+    ASSERT_EQ(new_job_pb.schema_change().alter_version(), 8);
+
+    FinishTabletJobResponse finish_res;
+    finish_schema_change_job(meta_service.get(), tablet_id, new_tablet_id, "job_sc", "BE1", {},
+                             finish_res);
+    ASSERT_EQ(finish_res.status().code(), MetaServiceCode::OK);
+}
+
+TEST(MetaServiceJobTest, ReStartSC) {
+    auto meta_service = get_meta_service();
+
+    auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    bool use_origin_job = false;
+    sp->set_call_back("restart_compaction_job", [&](auto&&) { use_origin_job = true; });
+    sp->enable_processing();
+
+    brpc::Controller cntl;
+
+    int64_t table_id = 5331;
+    int64_t index_id = 5332;
+    int64_t partition_id = 5333;
+    int64_t tablet_id = 5334;
+    int64_t new_tablet_id = 53311;
+
+    ASSERT_NO_FATAL_FAILURE(
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, false));
+
+    ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
+                                          new_tablet_id, false, true));
+
+    StartTabletJobResponse sc_res;
+    ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
+                                                    partition_id, tablet_id, new_tablet_id,
+                                                    "job_sc", "BE1", sc_res, 8));
+    sc_res.Clear();
+    ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
+                                                    partition_id, tablet_id, new_tablet_id,
+                                                    "job_sc", "BE1", sc_res, 8));
+    ASSERT_TRUE(use_origin_job);
+    ASSERT_EQ(sc_res.alter_version(), 8);
+    FinishTabletJobResponse finish_res;
+    finish_schema_change_job(meta_service.get(), tablet_id, new_tablet_id, "job_sc", "BE1", {},
+                             finish_res);
+    ASSERT_EQ(finish_res.status().code(), MetaServiceCode::OK);
+}
+
+TEST(MetaServiceJobTest, CancelSC) {
+    auto meta_service = get_meta_service();
+
+    auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    brpc::Controller cntl;
+
+    int64_t table_id = 5731;
+    int64_t index_id = 5732;
+    int64_t partition_id = 5733;
+    int64_t tablet_id = 5734;
+    int64_t new_tablet_id = 57311;
+    int64_t new_tablet_id1 = 57322;
+
+    ASSERT_NO_FATAL_FAILURE(
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, false));
+
+    ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
+                                          new_tablet_id, false, true));
+
+    ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
+                                          new_tablet_id1, false, true));
+
+    StartTabletJobResponse sc_res;
+    ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
+                                                    partition_id, tablet_id, new_tablet_id,
+                                                    "job_sc", "BE1", sc_res, 8));
+    {
+        FinishTabletJobResponse finish_res;
+        finish_schema_change_job(meta_service.get(), tablet_id, new_tablet_id, "job_sc", "BE1", {},
+                                 finish_res, FinishTabletJobRequest::ABORT);
+        ASSERT_EQ(finish_res.status().code(), MetaServiceCode::OK);
+    }
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string job_key =
+                job_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        std::string job_val;
+        TabletJobInfoPB job_pb;
+        ASSERT_EQ(txn->get(job_key, &job_val), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(job_pb.ParseFromString(job_val));
+        ASSERT_FALSE(job_pb.has_schema_change());
+    }
+    sc_res.Clear();
+    ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
+                                                    partition_id, tablet_id, new_tablet_id1,
+                                                    "job_sc1", "BE1", sc_res, 8));
+    {
+        FinishTabletJobResponse finish_res;
+        finish_schema_change_job(meta_service.get(), tablet_id, new_tablet_id, "job_sc", "BE1", {},
+                                 finish_res, FinishTabletJobRequest::ABORT);
+        ASSERT_NE(finish_res.status().msg().find("unmatched job id or initiator"),
+                  std::string::npos);
+    }
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string job_key =
+                job_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        std::string job_val;
+        TabletJobInfoPB job_pb;
+        ASSERT_EQ(txn->get(job_key, &job_val), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(job_pb.ParseFromString(job_val));
+        ASSERT_TRUE(job_pb.has_schema_change());
+    }
 }
 
 } // namespace doris::cloud

@@ -388,7 +388,6 @@ suite("test_unique_table_auto_inc") {
 
     sql 'set enable_nereids_planner=false'
     sql "set experimental_enable_nereids_planner=false;"
-    sql 'set enable_nereids_dml=false'
     sql "update ${table11} set r_comment = 'barfoo' where  r_regionkey <= 10;"
     qt_sql "select * from ${table11} order by r_regionkey;"
     sql "drop table if exists ${table11};"
@@ -421,7 +420,6 @@ suite("test_unique_table_auto_inc") {
     qt_sql "select * from ${table12} order by r_regionkey;"
     sql 'set enable_nereids_planner=false'
     sql "set experimental_enable_nereids_planner=false;"
-    sql 'set enable_nereids_dml=false'
     sql """insert into ${table12} select r_regionkey, "test3", "test4" from ${table12} where r_regionkey=4;"""
     qt_sql "select * from ${table12} order by r_regionkey;"
     sql "drop table if exists ${table12};"

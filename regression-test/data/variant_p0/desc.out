@@ -122,7 +122,7 @@ k	bigint	Yes	true	\N
 v	variant	Yes	false	\N	NONE
 v.k1	tinyint	Yes	false	\N	NONE
 v.k2	text	Yes	false	\N	NONE
-v.k3	array<smallint>	Yes	false	[]	NONE
+v.k3	array<smallint>	Yes	false	\N	NONE
 v.k4	double	Yes	false	\N	NONE
 v.k5	json	Yes	false	\N	NONE
 
@@ -136,7 +136,7 @@ v.c.c	smallint	Yes	false	\N	NONE
 v.c.e	double	Yes	false	\N	NONE
 v.k1	tinyint	Yes	false	\N	NONE
 v.k2	text	Yes	false	\N	NONE
-v.k3	array<smallint>	Yes	false	[]	NONE
+v.k3	array<smallint>	Yes	false	\N	NONE
 v.k4	double	Yes	false	\N	NONE
 v.k5	json	Yes	false	\N	NONE
 v.oooo.xxxx.xxx	tinyint	Yes	false	\N	NONE
@@ -155,7 +155,7 @@ v.c.c	smallint	Yes	false	\N	NONE
 v.c.e	double	Yes	false	\N	NONE
 v.k1	tinyint	Yes	false	\N	NONE
 v.k2	text	Yes	false	\N	NONE
-v.k3	array<smallint>	Yes	false	[]	NONE
+v.k3	array<smallint>	Yes	false	\N	NONE
 v.k4	double	Yes	false	\N	NONE
 v.k5	json	Yes	false	\N	NONE
 v.oooo.xxxx.xxx	tinyint	Yes	false	\N	NONE
@@ -175,7 +175,7 @@ v.c.c	smallint	Yes	false	\N	NONE
 v.c.e	double	Yes	false	\N	NONE
 v.k1	tinyint	Yes	false	\N	NONE
 v.k2	text	Yes	false	\N	NONE
-v.k3	array<smallint>	Yes	false	[]	NONE
+v.k3	array<smallint>	Yes	false	\N	NONE
 v.k4	double	Yes	false	\N	NONE
 v.k5	json	Yes	false	\N	NONE
 v.oooo.xxxx.xxx	tinyint	Yes	false	\N	NONE

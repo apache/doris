@@ -104,7 +104,7 @@ public interface MTMVHookService {
      *
      * @param table
      */
-    void alterTable(Table table);
+    void alterTable(Table table, String oldTableName);
 
     /**
      * Triggered when pause mtmv

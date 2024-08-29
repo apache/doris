@@ -42,7 +42,7 @@ struct IteratorRowRef;
 };
 
 namespace segment_v2 {
-struct StreamReader;
+struct SubstreamIterator;
 }
 
 class StorageReadOptions {
@@ -117,7 +117,7 @@ public:
     Version version;
     int64_t tablet_id = 0;
     // slots that cast may be eliminated in storage layer
-    std::map<std::string, PrimitiveType> target_cast_type_for_variants;
+    std::map<std::string, TypeDescriptor> target_cast_type_for_variants;
     RowRanges row_ranges;
     size_t topn_limit = 0;
 };

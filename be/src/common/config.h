@@ -191,8 +191,15 @@ DECLARE_mBool(enable_stacktrace);
 // if alloc failed using Doris Allocator, will print stacktrace in error log.
 // if is -1, disable print stacktrace when alloc large memory.
 DECLARE_mInt64(stacktrace_in_alloc_large_memory_bytes);
+// when alloc memory larger than crash_in_alloc_large_memory_bytes will crash, default -1 means disabled.
+// if you need a core dump to analyze large memory allocation,
+// modify this parameter to crash when large memory allocation occur will help
+DECLARE_mInt64(crash_in_alloc_large_memory_bytes);
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
+// !! not modify the default value of this conf!! otherwise memory errors cannot be detected in time.
+// allocator free memory not need to check, because when the thread memory tracker label is Orphan,
+// use the tracker saved in Allocator.
 DECLARE_mBool(enable_memory_orphan_check);
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
@@ -252,8 +259,6 @@ DECLARE_Int32(release_snapshot_worker_count);
 DECLARE_mBool(report_random_wait);
 // the interval time(seconds) for agent report tasks signature to FE
 DECLARE_mInt32(report_task_interval_seconds);
-// the interval time(seconds) for refresh storage policy from FE
-DECLARE_mInt32(storage_refresh_storage_policy_task_interval_seconds);
 // the interval time(seconds) for agent report disk state to FE
 DECLARE_mInt32(report_disk_state_interval_seconds);
 // the interval time(seconds) for agent report olap table to FE
@@ -288,12 +293,7 @@ DECLARE_String(log_buffer_level);
 DECLARE_Int32(be_service_threads);
 
 // interval between profile reports; in seconds
-DECLARE_mInt32(status_report_interval);
 DECLARE_mInt32(pipeline_status_report_interval);
-// if true, each disk will have a separate thread pool for scanner
-DECLARE_Bool(doris_enable_scanner_thread_pool_per_disk);
-// the timeout of a work thread to wait the blocking priority queue to get a task
-DECLARE_mInt64(doris_blocking_priority_queue_wait_timeout_ms);
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DECLARE_mInt32(doris_scanner_thread_pool_thread_num);
@@ -313,26 +313,18 @@ DECLARE_mInt64(thrift_client_retry_interval_ms);
 // max message size of thrift request
 // default: 100 * 1024 * 1024
 DECLARE_mInt64(thrift_max_message_size);
-// max row count number for single scan range, used in segmentv1
-DECLARE_mInt32(doris_scan_range_row_count);
 // max bytes number for single scan range, used in segmentv2
 DECLARE_mInt32(doris_scan_range_max_mb);
-// max bytes number for single scan block, used in segmentv2
-DECLARE_mInt32(doris_scan_block_max_mb);
 // single read execute fragment row number
 DECLARE_mInt32(doris_scanner_row_num);
 // single read execute fragment row bytes
 DECLARE_mInt32(doris_scanner_row_bytes);
-DECLARE_mInt32(min_bytes_in_scanner_queue);
 // (Advanced) Maximum size of per-query receive-side buffer
 DECLARE_mInt32(exchg_node_buffer_size_bytes);
 DECLARE_mInt32(exchg_buffer_queue_capacity_factor);
 
-DECLARE_mInt64(column_dictionary_key_ratio_threshold);
-DECLARE_mInt64(column_dictionary_key_size_threshold);
 // memory_limitation_per_thread_for_schema_change_bytes unit bytes
 DECLARE_mInt64(memory_limitation_per_thread_for_schema_change_bytes);
-DECLARE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes);
 
 // all cache prune interval, used by GC and periodic thread.
 DECLARE_mInt32(cache_prune_interval_sec);
@@ -391,7 +383,6 @@ DECLARE_Bool(disable_storage_page_cache);
 DECLARE_mBool(disable_storage_row_cache);
 // whether to disable pk page cache feature in storage
 DECLARE_Bool(disable_pk_storage_page_cache);
-DECLARE_Bool(enable_non_pipeline);
 
 // Cache for mow primary key storage page size, it's seperated from
 // storage_page_cache_limit
@@ -607,8 +598,6 @@ DECLARE_Int32(fragment_mgr_asynic_work_pool_queue_size);
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DECLARE_Int32(num_disks);
-// The maximum number of the threads per disk is also the max queue depth per disk.
-DECLARE_Int32(num_threads_per_disk);
 // The read size is the size of the reads sent to os.
 // There is a trade off of latency and throughout, trying to keep disks busy but
 // not introduce seeks.  The literature seems to agree that with 8 MB reads, random
@@ -943,13 +932,9 @@ DECLARE_String(rpc_load_balancer);
 // so we set a soft limit, default is 1MB
 DECLARE_mInt32(string_type_length_soft_limit_bytes);
 
-DECLARE_mInt32(jsonb_type_length_soft_limit_bytes);
-
 // Threshold fo reading a small file into memory
 DECLARE_mInt32(in_memory_file_size);
 
-// ParquetReaderWrap prefetch buffer size
-DECLARE_Int32(parquet_reader_max_buffer_size);
 // Max size of parquet page header in bytes
 DECLARE_mInt32(parquet_header_max_size_mb);
 // Max buffer size for parquet row group
@@ -1070,8 +1055,6 @@ DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);
 DECLARE_mInt32(inverted_index_cache_stale_sweep_time_sec);
 // inverted index searcher cache size
 DECLARE_String(inverted_index_searcher_cache_limit);
-// set `true` to enable insert searcher into cache when write inverted index data
-DECLARE_Bool(enable_write_index_searcher_cache);
 DECLARE_Bool(enable_inverted_index_cache_check_timestamp);
 DECLARE_Int32(inverted_index_fd_number_limit_percent); // 50%
 DECLARE_Int32(inverted_index_query_cache_shards);
@@ -1120,10 +1103,10 @@ DECLARE_mInt32(schema_cache_capacity);
 DECLARE_mInt32(schema_cache_sweep_time_sec);
 
 // max number of segment cache
-DECLARE_mInt32(segment_cache_capacity);
-DECLARE_mInt32(estimated_num_columns_per_segment);
-DECLARE_mInt32(estimated_mem_per_column_reader);
+DECLARE_Int32(segment_cache_capacity);
+DECLARE_Int32(segment_cache_fd_percentage);
 DECLARE_Int32(segment_cache_memory_percentage);
+DECLARE_mInt32(estimated_mem_per_column_reader);
 
 // enable binlog
 DECLARE_Bool(enable_feature_binlog);
@@ -1175,9 +1158,6 @@ DECLARE_mInt64(lookup_connection_cache_capacity);
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
-// Whether flatten nested arrays in variant column
-// Notice: TEST ONLY
-DECLARE_mBool(variant_enable_flatten_nested);
 // Threshold of a column as sparse column
 // Notice: TEST ONLY
 DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
@@ -1427,7 +1407,12 @@ DECLARE_mBool(enable_hdfs_mem_limiter);
 // we should do agg limit opt
 DECLARE_mInt16(topn_agg_limit_multiplier);
 
+DECLARE_mInt64(tablet_meta_serialize_size_limit);
+
 DECLARE_mInt64(pipeline_task_leakage_detect_period_secs);
+// To be compatible with hadoop's block compression
+DECLARE_mInt32(snappy_compression_block_size);
+DECLARE_mInt32(lz4_compression_block_size);
 
 #ifdef BE_TEST
 // test s3

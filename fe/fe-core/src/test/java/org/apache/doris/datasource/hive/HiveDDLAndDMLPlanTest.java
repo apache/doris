@@ -87,7 +87,6 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         connectContext.getSessionVariable().enableFallbackToOriginalPlanner = false;
-        connectContext.getSessionVariable().enableNereidsDML = true;
         Config.enable_query_hive_views = false;
         // create test internal table
         createDatabase(mockedDbName);

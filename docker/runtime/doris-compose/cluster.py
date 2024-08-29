@@ -56,6 +56,15 @@ def get_cluster_path(cluster_name):
     return os.path.join(LOCAL_DORIS_PATH, cluster_name)
 
 
+def get_node_name(node_type, id):
+    return "{}-{}".format(node_type, id)
+
+
+def get_node_path(cluster_name, node_type, id):
+    return os.path.join(get_cluster_path(cluster_name),
+                        get_node_name(node_type, id))
+
+
 def get_compose_file(cluster_name):
     return os.path.join(get_cluster_path(cluster_name), "docker-compose.yml")
 
@@ -246,11 +255,10 @@ class Node(object):
         return ["conf", "log"]
 
     def get_name(self):
-        return "{}-{}".format(self.node_type(), self.id)
+        return get_node_name(self.node_type(), self.id)
 
     def get_path(self):
-        return os.path.join(get_cluster_path(self.cluster.name),
-                            self.get_name())
+        return get_node_path(self.cluster.name, self.node_type(), self.id)
 
     def get_image(self):
         return self.meta.image
@@ -334,9 +342,15 @@ class Node(object):
             for path in ("/etc/localtime", "/etc/timezone",
                          "/usr/share/zoneinfo") if os.path.exists(path)
         ]
+
         if self.cluster.coverage_dir:
             volumes.append("{}:{}/coverage".format(self.cluster.coverage_dir,
                                                    DOCKER_DORIS_PATH))
+
+        extra_hosts = [
+            "{}:{}".format(node.get_name(), node.get_ip())
+            for node in self.cluster.get_all_nodes()
+        ]
 
         content = {
             "cap_add": ["SYS_PTRACE"],
@@ -349,6 +363,7 @@ class Node(object):
                     "ipv4_address": self.get_ip(),
                 }
             },
+            "extra_hosts": extra_hosts,
             "ports": self.docker_ports(),
             "ulimits": {
                 "core": -1
@@ -627,7 +642,8 @@ class Cluster(object):
             os.chmod(LOCAL_DORIS_PATH, 0o777)
         lock_file = os.path.join(LOCAL_DORIS_PATH, "lock")
         with filelock.FileLock(lock_file):
-            os.chmod(lock_file, 0o666)
+            if os.getuid() == utils.get_path_uid(lock_file):
+                os.chmod(lock_file, 0o666)
             subnet = gen_subnet_prefix16()
             cluster = Cluster(name, subnet, image, is_cloud, fe_config,
                               be_config, ms_config, recycle_config, be_disks,
@@ -690,7 +706,14 @@ class Cluster(object):
             raise Exception("No found {} with id {}".format(node_type, id))
         return Node.new(self, node_type, id, meta)
 
-    def get_all_nodes(self, node_type):
+    def get_all_nodes(self, node_type=None):
+        if node_type is None:
+            nodes = []
+            for nt, group in self.groups.items():
+                for id, meta in group.get_all_nodes().items():
+                    nodes.append(Node.new(self, nt, id, meta))
+            return nodes
+
         group = self.groups.get(node_type, None)
         if not group:
             raise Exception("Unknown node_type: {}".format(node_type))

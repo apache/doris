@@ -994,9 +994,6 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
                 db.getId(), table.getId());
-
-        Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
-
         DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, -1L, forceDrop, recycleTime);
         Env.getCurrentEnv().getEditLog().logDropTable(info);
         Env.getCurrentEnv().getMtmvService().dropTable(table);
@@ -1026,7 +1023,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (table.getType() == TableType.MATERIALIZED_VIEW) {
             Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) table);
         }
-
+        Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         db.unregisterTable(table.getName());
         StopWatch watch = StopWatch.createStarted();
         Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, isForceDrop, recycleTime);
@@ -1044,7 +1041,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), tableId);
-            Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         } finally {
             table.writeUnlock();
             db.writeUnlock();
@@ -1136,7 +1132,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         Tablet tablet = materializedIndex.getTablet(info.getTabletId());
         Replica replica = tablet.getReplicaById(info.getReplicaId());
         Preconditions.checkNotNull(replica, info);
-        replica.updateVersion(info.getVersion());
+        replica.updateVersionWithFailed(info.getVersion(), info.getLastFailedVersion(),
+                info.getLastSuccessVersion());
         replica.setDataSize(info.getDataSize());
         replica.setRemoteDataSize(info.getRemoteDataSize());
         replica.setRowCount(info.getRowCount());
@@ -1371,8 +1368,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (resultExpr.getSrcSlotRef() != null
                             && resultExpr.getSrcSlotRef().getTable() != null
                             && !resultExpr.getSrcSlotRef().getTable().isManagedTable()) {
-                        if (createTableStmt.getPartitionDesc().inIdentifierPartitions(
-                                resultExpr.getSrcSlotRef().getColumnName())
+                        if ((createTableStmt.getPartitionDesc() != null
+                                && createTableStmt.getPartitionDesc().inIdentifierPartitions(
+                                resultExpr.getSrcSlotRef().getColumnName()))
                                 || (createTableStmt.getDistributionDesc() != null
                                 && createTableStmt.getDistributionDesc().inDistributionColumns(
                                         resultExpr.getSrcSlotRef().getColumnName()))) {
@@ -1614,6 +1612,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION,
                         olapTable.disableAutoCompaction().toString());
+            }
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
+                        olapTable.variantEnableFlattenNested().toString());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION,
@@ -2157,7 +2159,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.getTimeSeriesCompactionLevelThreshold(),
                             tbl.storeRowColumn(), binlogConfig,
                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                            objectPool, tbl.rowStorePageSize());
+                            objectPool, tbl.rowStorePageSize(),
+                            tbl.variantEnableFlattenNested());
 
                     task.setStorageFormat(tbl.getStorageFormat());
                     task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
@@ -2330,7 +2333,11 @@ public class InternalCatalog implements CatalogIf<Database> {
     private void checkLegalityofPartitionExprs(CreateTableStmt stmt, PartitionDesc partitionDesc)
             throws AnalysisException {
         for (Expr expr : partitionDesc.getPartitionExprs()) {
-            if (expr != null && expr instanceof FunctionCallExpr) { // test them
+            if (expr instanceof FunctionCallExpr) { // test them
+                if (!partitionDesc.isAutoCreatePartitions() || partitionDesc.getType() != PartitionType.RANGE) {
+                    throw new AnalysisException("only Auto Range Partition support FunctionCallExpr");
+                }
+
                 FunctionCallExpr func = (FunctionCallExpr) expr;
                 ArrayList<Expr> children = func.getChildren();
                 Type[] childTypes = new Type[children.size()];
@@ -2354,6 +2361,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (fn == null) {
                     throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
                 }
+            } else if (expr instanceof SlotRef) {
+                if (partitionDesc.isAutoCreatePartitions() && partitionDesc.getType() == PartitionType.RANGE) {
+                    throw new AnalysisException("Auto Range Partition need FunctionCallExpr");
+                }
+            } else {
+                throw new AnalysisException("partition expr " + expr.getExprName() + " is illegal!");
             }
         }
     }
@@ -2578,6 +2591,14 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException(e.getMessage());
         }
         olapTable.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionLevelThreshold);
+
+        boolean variantEnableFlattenNested  = false;
+        try {
+            variantEnableFlattenNested = PropertyAnalyzer.analyzeVariantFlattenNested(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.setVariantEnableFlattenNested(variantEnableFlattenNested);
 
         // get storage format
         TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2
@@ -3052,8 +3073,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                             .getDynamicPartitionProperty();
                     if (dynamicProperty.isExist() && dynamicProperty.getEnable()
                             && partitionDesc.isAutoCreatePartitions()) {
-                        throw new AnalysisException(
-                                "Can't use Dynamic Partition and Auto Partition at the same time");
+                        String dynamicUnit = dynamicProperty.getTimeUnit();
+                        ArrayList<Expr> autoExprs = partitionDesc.getPartitionExprs();
+                        // check same interval. fail will leading to AnalysisException
+                        DynamicPartitionUtil.partitionIntervalCompatible(dynamicUnit, autoExprs);
                     }
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());

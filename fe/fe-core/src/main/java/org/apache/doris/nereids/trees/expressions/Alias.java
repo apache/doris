@@ -60,6 +60,10 @@ public class Alias extends NamedExpression implements UnaryExpression {
         this(exprId, ImmutableList.of(child), name, ImmutableList.of(), false);
     }
 
+    public Alias(Expression child, String name, List<String> qualifier) {
+        this(StatementScopeIdGenerator.newExprId(), ImmutableList.of(child), name, qualifier, false);
+    }
+
     public Alias(ExprId exprId, Expression child, String name, boolean nameFromChild) {
         this(exprId, ImmutableList.of(child), name, ImmutableList.of(), nameFromChild);
     }

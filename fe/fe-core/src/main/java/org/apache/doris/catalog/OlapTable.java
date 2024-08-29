@@ -630,7 +630,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public Status resetIdsForRestore(Env env, Database db, ReplicaAllocation restoreReplicaAlloc,
-            boolean reserveReplica) {
+            boolean reserveReplica, String srcDbName) {
         // ATTN: The meta of the restore may come from different clusters, so the
         // original ID in the meta may conflict with the ID of the new cluster. For
         // example, if a newly allocated ID happens to be the same as an original ID,
@@ -656,7 +656,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 baseIndexId = newIdxId;
             }
             MaterializedIndexMeta indexMeta = origIdxIdToMeta.get(entry.getKey());
-            indexMeta.resetIndexIdForRestore(newIdxId);
+            indexMeta.resetIndexIdForRestore(newIdxId, srcDbName, db.getFullName());
             indexIdToMeta.put(newIdxId, indexMeta);
             indexNameToId.put(entry.getValue(), newIdxId);
         }
@@ -1598,7 +1598,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 LOG.warn("HACK: the index id {} in materialized index meta of {} is not equals"
                         + " to the index saved in table {} ({}), reset it to {}",
                         indexMeta.getIndexId(), indexName, name, id, indexId);
-                indexMeta.resetIndexIdForRestore(indexId);
+                indexMeta.resetIndexIdForRestore(indexId, null, null);
             }
         }
 
@@ -1708,7 +1708,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 LOG.warn("HACK: the index id {} in materialized index meta of {} is not equals"
                         + " to the index saved in table {} ({}), reset it to {}",
                         indexMeta.getIndexId(), indexNameToId.get(indexId), name, id, indexId);
-                indexMeta.resetIndexIdForRestore(indexId);
+                indexMeta.resetIndexIdForRestore(indexId, null, null);
             }
         }
 
@@ -2216,6 +2216,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public Boolean disableAutoCompaction() {
         if (tableProperty != null) {
             return tableProperty.disableAutoCompaction();
+        }
+        return false;
+    }
+
+    public void setVariantEnableFlattenNested(boolean flattenNested) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
+                Boolean.valueOf(flattenNested).toString());
+        tableProperty.buildVariantEnableFlattenNested();
+    }
+
+    public Boolean variantEnableFlattenNested() {
+        if (tableProperty != null) {
+            return tableProperty.variantEnableFlattenNested();
         }
         return false;
     }

@@ -19,7 +19,9 @@
 
 #include <chrono>
 #include <cstdint>
+#include <limits>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
 #include "meta-service/doris_txn.h"
@@ -684,16 +686,64 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
     std::string rl_progress_val;
     RLJobProgressKeyInfo rl_progress_key_info {instance_id, db_id, job_id};
     rl_job_progress_key_info(rl_progress_key_info, &rl_progress_key);
-    txn->remove(rl_progress_key);
+
+    if (request->partition_to_offset().size() == 0) {
+        txn->remove(rl_progress_key);
+    }
+
+    if (request->partition_to_offset().size() > 0) {
+        bool prev_progress_existed = true;
+        RoutineLoadProgressPB prev_progress_info;
+        TxnErrorCode err = txn->get(rl_progress_key, &rl_progress_val);
+        if (err != TxnErrorCode::TXN_OK) {
+            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                prev_progress_existed = false;
+            } else {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to get routine load progress, db_id=" << db_id << "job_id=" << job_id
+                   << " err=" << err;
+                msg = ss.str();
+                return;
+            }
+        }
+        if (prev_progress_existed) {
+            if (!prev_progress_info.ParseFromString(rl_progress_val)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                ss << "failed to parse routine load progress, db_id=" << db_id
+                   << "job_id=" << job_id;
+                msg = ss.str();
+                return;
+            }
+        }
+
+        std::string new_progress_val;
+        RoutineLoadProgressPB new_progress_info;
+        for (auto const& elem : request->partition_to_offset()) {
+            new_progress_info.mutable_partition_to_offset()->insert(elem);
+        }
+        if (request->partition_to_offset().size() > 0) {
+            for (auto const& elem : prev_progress_info.partition_to_offset()) {
+                auto it = new_progress_info.partition_to_offset().find(elem.first);
+                if (it == new_progress_info.partition_to_offset().end()) {
+                    new_progress_info.mutable_partition_to_offset()->insert(elem);
+                }
+            }
+        }
+
+        if (!new_progress_info.SerializeToString(&new_progress_val)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            ss << "failed to serialize new progress val"
+               << "db_id=" << db_id << "job_id=" << job_id;
+            msg = ss.str();
+            return;
+        }
+        txn->put(rl_progress_key, new_progress_val);
+    }
+
     err = txn->commit();
-    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        code = MetaServiceCode::ROUTINE_LOAD_PROGRESS_NOT_FOUND;
-        ss << "progress info not found, db_id=" << db_id << " job_id=" << job_id << " err=" << err;
-        msg = ss.str();
-        return;
-    } else if (err != TxnErrorCode::TXN_OK) {
+    if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
-        ss << "failed to remove progress info, db_id=" << db_id << " job_id=" << job_id
+        ss << "failed to commit progress info, db_id=" << db_id << " job_id=" << job_id
            << " err=" << err;
         msg = ss.str();
         return;
@@ -913,15 +963,18 @@ void commit_txn_immediately(
     }
 
     if (txn_info.status() == TxnStatusPB::TXN_STATUS_VISIBLE) {
-        code = MetaServiceCode::TXN_ALREADY_VISIBLE;
         if (request->has_is_2pc() && request->is_2pc()) {
+            code = MetaServiceCode::TXN_ALREADY_VISIBLE;
             ss << "transaction [" << txn_id << "] is already visible, not pre-committed.";
             msg = ss.str();
+            LOG(INFO) << msg;
             response->mutable_txn_info()->CopyFrom(txn_info);
             return;
         }
+        code = MetaServiceCode::OK;
         ss << "transaction is already visible: db_id=" << db_id << " txn_id=" << txn_id;
         msg = ss.str();
+        LOG(INFO) << msg;
         response->mutable_txn_info()->CopyFrom(txn_info);
         return;
     }
@@ -1262,18 +1315,34 @@ void commit_txn_immediately(
         if ((err == TxnErrorCode::TXN_VALUE_TOO_LARGE ||
              err == TxnErrorCode::TXN_BYTES_TOO_LARGE) &&
             !tmp_rowsets_meta.empty()) {
-            size_t max_size = 0, max_idx = 0;
+            size_t max_size = 0, max_idx = 0, max_num_segments = 0,
+                   min_num_segments = std::numeric_limits<size_t>::max(), avg_num_segments = 0;
             for (size_t i = 0; i < tmp_rowsets_meta.size(); i++) {
                 auto& [k, v] = tmp_rowsets_meta[i];
                 if (v.ByteSizeLong() > max_size) {
                     max_size = v.ByteSizeLong();
                     max_idx = i;
                 }
+                if (v.num_segments() > max_num_segments) {
+                    max_num_segments = v.num_segments();
+                }
+                if (v.num_segments() < min_num_segments) {
+                    min_num_segments = v.num_segments();
+                }
+                avg_num_segments += v.num_segments();
+            }
+            if (!tmp_rowsets_meta.empty()) {
+                avg_num_segments /= tmp_rowsets_meta.size();
             }
             LOG(WARNING) << "failed to commit kv txn"
-                         << ", txn_id=" << txn_id << ", rowset_size=" << max_size << ", err=" << err
-                         << ", rowset_key=" << hex(tmp_rowsets_meta[max_idx].first)
-                         << ", rowset_value="
+                         << ", err=" << err << ", txn_id=" << txn_id
+                         << ", total_rowsets=" << tmp_rowsets_meta.size()
+                         << ", avg_num_segments=" << avg_num_segments
+                         << ", min_num_segments=" << min_num_segments
+                         << ", max_num_segments=" << max_num_segments
+                         << ", largest_rowset_size=" << max_size
+                         << ", largest_rowset_key=" << hex(tmp_rowsets_meta[max_idx].first)
+                         << ", largest_rowset_value="
                          << tmp_rowsets_meta[max_idx].second.ShortDebugString();
         }
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -1482,9 +1551,10 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
     }
 
     if (txn_info.status() == TxnStatusPB::TXN_STATUS_VISIBLE) {
-        code = MetaServiceCode::TXN_ALREADY_VISIBLE;
+        code = MetaServiceCode::OK;
         ss << "transaction is already visible: db_id=" << db_id << " txn_id=" << txn_id;
         msg = ss.str();
+        LOG(INFO) << msg;
         response->mutable_txn_info()->CopyFrom(txn_info);
         return;
     }
@@ -1826,7 +1896,8 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         if (err == TxnErrorCode::TXN_VALUE_TOO_LARGE || err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
-            size_t max_size = 0;
+            size_t max_size = 0, max_num_segments = 0,
+                   min_num_segments = std::numeric_limits<size_t>::max(), avg_num_segments = 0;
             std::pair<std::string, RowsetMetaCloudPB>* max_rowset_meta = nullptr;
             for (auto& sub_txn : sub_txn_infos) {
                 auto it = sub_txn_to_tmp_rowsets_meta.find(sub_txn.sub_txn_id());
@@ -1838,13 +1909,29 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
                         max_size = rowset_meta.second.ByteSizeLong();
                         max_rowset_meta = &rowset_meta;
                     }
+                    if (rowset_meta.second.num_segments() > max_num_segments) {
+                        max_num_segments = rowset_meta.second.num_segments();
+                    }
+                    if (rowset_meta.second.num_segments() < min_num_segments) {
+                        min_num_segments = rowset_meta.second.num_segments();
+                    }
+                    avg_num_segments += rowset_meta.second.num_segments();
+                }
+                if (!it->second.empty()) {
+                    avg_num_segments /= it->second.size();
                 }
             }
             if (max_rowset_meta) {
                 LOG(WARNING) << "failed to commit kv txn with sub txn"
-                             << ", txn_id=" << txn_id << ", rowset_size=" << max_size
-                             << ", err=" << err << ", rowset_key=" << hex(max_rowset_meta->first)
-                             << ", rowset_value=" << max_rowset_meta->second.ShortDebugString();
+                             << ", err=" << err << ", txn_id=" << txn_id
+                             << ", total_rowsets=" << rowsets.size()
+                             << ", avg_num_segments=" << avg_num_segments
+                             << ", min_num_segments=" << min_num_segments
+                             << ", max_num_segments=" << max_num_segments
+                             << ", largest_rowset_size=" << max_size
+                             << ", largest_rowset_key=" << hex(max_rowset_meta->first)
+                             << ", largest_rowset_value="
+                             << max_rowset_meta->second.ShortDebugString();
             }
         }
         code = cast_as<ErrCategory::COMMIT>(err);

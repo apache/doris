@@ -283,8 +283,6 @@ public class Coordinator implements CoordInterface {
     public Map<RuntimeFilterId, Integer> ridToBuilderNum = Maps.newHashMap();
     private ConnectContext context;
 
-    private PointQueryExec pointExec = null;
-
     private StatsErrorEstimator statsErrorEstimator;
 
     // A countdown latch to mark the completion of each instance.
@@ -1337,10 +1335,6 @@ public class Coordinator implements CoordInterface {
         for (ResultReceiver receiver : receivers) {
             receiver.cancel(cancelReason);
         }
-        if (null != pointExec) {
-            pointExec.cancel();
-            return;
-        }
         cancelRemoteFragmentsAsync(cancelReason);
         cancelLatch();
     }
@@ -1907,7 +1901,7 @@ public class Coordinator implements CoordInterface {
                                 leftMostNode.getNumInstances());
                         boolean forceToLocalShuffle = context != null
                                 && context.getSessionVariable().isForceToLocalShuffle()
-                                && !fragment.hasNullAwareLeftAntiJoin();
+                                && !fragment.hasNullAwareLeftAntiJoin() && useNereids;
                         boolean ignoreStorageDataDistribution = forceToLocalShuffle || (node.isPresent()
                                 && node.get().ignoreStorageDataDistribution(context, addressToBackendID.size())
                                 && useNereids);
@@ -2735,7 +2729,7 @@ public class Coordinator implements CoordInterface {
          * 2. Use Nereids planner.
          */
         boolean forceToLocalShuffle = context != null
-                && context.getSessionVariable().isForceToLocalShuffle() && !hasNullAwareLeftAntiJoin;
+                && context.getSessionVariable().isForceToLocalShuffle() && !hasNullAwareLeftAntiJoin && useNereids;
         boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream()
                 .allMatch(node -> node.ignoreStorageDataDistribution(context,
                         addressToBackendID.size()))

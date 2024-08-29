@@ -27,7 +27,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Joiner;
 
-public class DropFunctionStmt extends DdlStmt {
+public class DropFunctionStmt extends DdlStmt implements NotFallbackInParser {
     private final boolean ifExists;
     private final FunctionName functionName;
     private final FunctionArgsDef argsDef;
