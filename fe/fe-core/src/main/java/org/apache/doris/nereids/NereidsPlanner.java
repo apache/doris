@@ -535,9 +535,10 @@ public class NereidsPlanner extends Planner {
         String plan = "";
         String mvSummary = "";
         if (this.getPhysicalPlan() != null && cascadesContext != null) {
-            mvSummary = "\n\n========== MATERIALIZATIONS ==========\n"
-                    + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
-                    this.getPhysicalPlan());
+            mvSummary = cascadesContext.getMaterializationContexts().isEmpty() ? "" :
+                    "\n\n========== MATERIALIZATIONS ==========\n"
+                            + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
+                            this.getPhysicalPlan());
         }
         switch (explainLevel) {
             case PARSED_PLAN:
