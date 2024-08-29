@@ -47,8 +47,6 @@ public interface RequireTrivialTypes {
 
     // todo: add JsonBType
     ImmutableList<DataType> trivialTypes = ImmutableList.of(
-            VarcharType.SYSTEM_DEFAULT,
-            StringType.INSTANCE,
             BooleanType.INSTANCE,
             TinyIntType.INSTANCE,
             SmallIntType.INSTANCE,
@@ -64,6 +62,8 @@ public interface RequireTrivialTypes {
             DateV2Type.INSTANCE,
             DateTimeV2Type.SYSTEM_DEFAULT,
             TimeType.INSTANCE,
-            TimeV2Type.INSTANCE
+            TimeV2Type.INSTANCE,
+            VarcharType.SYSTEM_DEFAULT,
+            StringType.INSTANCE
     );
 }
