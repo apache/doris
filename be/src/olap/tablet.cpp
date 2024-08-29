@@ -1017,7 +1017,8 @@ uint32_t Tablet::calc_compaction_score(
         // Need meta lock, because it will iterator "all_rs_metas" of tablet meta.
         std::shared_lock rdlock(_meta_lock);
         if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-            _cumu_compaction_score = _calc_cumulative_compaction_score(cumulative_compaction_policy);
+            _cumu_compaction_score =
+                    _calc_cumulative_compaction_score(cumulative_compaction_policy);
             _cumu_score_obsolete = false;
             return _cumu_compaction_score;
         } else {

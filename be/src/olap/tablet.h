@@ -481,13 +481,9 @@ public:
     inline bool is_full_compaction_running() const { return _is_full_compaction_running; }
     void clear_cache() override;
 
-    bool is_cumu_compaction_score_obsolete() const {
-        return _cumu_score_obsolete;
-    }
+    bool is_cumu_compaction_score_obsolete() const { return _cumu_score_obsolete; }
 
-    bool is_base_compaction_score_obsolete() const {
-        return _base_score_obsolete;
-    }
+    bool is_base_compaction_score_obsolete() const { return _base_score_obsolete; }
 
     void set_cumu_compaction_score_obsolete(int32_t compaction_score) {
         _cumu_score_obsolete = compaction_score;
@@ -497,17 +493,13 @@ public:
         _base_score_obsolete = compaction_score;
     }
 
-    int32_t get_cumu_compaction_score() const {
-        return _cumu_compaction_score;
-    }
+    int32_t get_cumu_compaction_score() const { return _cumu_compaction_score; }
 
     void set_cumu_compaction_score(int32_t compaction_score) {
         _cumu_compaction_score = compaction_score;
     }
 
-    int32_t get_base_compaction_score() const {
-        return _base_compaction_score;
-    }
+    int32_t get_base_compaction_score() const { return _base_compaction_score; }
 
     void set_base_compaction_score(int32_t compaction_score) {
         _base_compaction_score = compaction_score;
