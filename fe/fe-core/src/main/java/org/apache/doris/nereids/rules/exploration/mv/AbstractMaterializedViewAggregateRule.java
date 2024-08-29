@@ -24,6 +24,7 @@ import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.DataTrait;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.AggregateExpressionRewriteContext.ExpressionRewriteMode;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
@@ -563,7 +564,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     Rewriter.getCteChildrenRewriter(childContext,
                             ImmutableList.of(Rewriter.topDown(new EliminateGroupByKey()))).execute();
                     return childContext.getRewritePlan();
-                }, project, project);
+                }, project, project, ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT));
 
         Optional<LogicalAggregate<Plan>> aggreagateOptional =
                 rewrittenPlan.collectFirst(LogicalAggregate.class::isInstance);
