@@ -1559,14 +1559,6 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         tablet_info->__set_version_miss(cversion.second < max_version.second);
     }
 
-    DBUG_EXECUTE_IF("Tablet.build_tablet_report_info.version_miss", {
-        auto tablet_id = dp->param<int64>("tablet_id", -1);
-        if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
-            auto miss = dp->param<bool>("version_miss", true);
-            tablet_info->__set_version_miss(miss);
-        }
-    });
-
     // find rowset with max version
     auto iter = _rs_version_map.find(max_version);
     if (iter == _rs_version_map.end()) {
@@ -1609,19 +1601,6 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         tablet_info->__set_used(false);
     }
 
-    DBUG_EXECUTE_IF("Tablet.build_tablet_report_info.used", {
-        auto tablet_id = dp->param<int64>("tablet_id", -1);
-        if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
-            auto used = dp->param<bool>("used", true);
-            LOG_WARNING("Tablet.build_tablet_report_info.used")
-                    .tag("tablet id", tablet_id)
-                    .tag("used", used);
-            tablet_info->__set_used(used);
-        } else {
-            LOG_WARNING("Tablet.build_tablet_report_info.used").tag("tablet id", tablet_id);
-        }
-    });
-
     int64_t total_version_count = _tablet_meta->version_count();
 
     // For compatibility.
@@ -1651,6 +1630,21 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         // tablet may not have cooldowned data, but the storage policy is set
         tablet_info->__set_cooldown_term(_cooldown_conf.term);
     }
+
+    DBUG_EXECUTE_IF("Tablet.build_tablet_report_info", {
+        std::string prefix = "tablet_" + std::to_string(tablet_id()) + "_";
+        if (dp->param(prefix + "version_miss", false)) {
+            tablet_info->__set_version_miss(true);
+            LOG(INFO) << "report " << tablet_id() << " as version miss, due to debug point set it";
+        }
+        if (dp->param(prefix + "bad", false)) {
+            tablet_info->__set_used(false);
+            LOG(INFO) << "report " << tablet_id() << " as bad, due to debug point set it";
+        }
+        if (auto version = dp->param(prefix + "version", -1L); version != -1) {
+            tablet_info->__set_version(version);
+        }
+    });
 }
 
 Status Tablet::prepare_compaction_and_calculate_permits(

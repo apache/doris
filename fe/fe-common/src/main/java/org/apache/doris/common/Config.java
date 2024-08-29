@@ -1204,6 +1204,18 @@ public class Config extends ConfigBase {
     public static int report_queue_size = 100;
 
     /**
+     * When fe handle be's tablet reports, it will try to batch the repairing editlog.
+     * But writting a table's editlog need acquiring the table's write lock, othewise it may cause concurrent error.
+     * In order to increase the editlog batch's size, we can process multiple tables once.
+     * That is, after acquiring multiple table's write locks, batch their repair into one editlog.
+     * `handle_report_table_batch_size` is the num of tables for batching editlog.
+     * Increasing this parameter will reduce editlog cost, but it also cause holding tables' write lock longer.
+     * Not recommended to increase this parameter!
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int handle_report_table_batch_size = 1;
+
+    /**
      * If set to true, metric collector will be run as a daemon timer to collect metrics at fix interval
      */
     @ConfField public static boolean enable_metric_calculator = true;

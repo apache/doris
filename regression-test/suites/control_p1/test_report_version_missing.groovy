@@ -56,7 +56,7 @@ suite('test_report_version_missing', 'nonConcurrent,p1') {
             break
         }
 
-        GetDebugPoint().enableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss', [tablet_id:"${tabletId}", version_miss:true])
+        GetDebugPoint().enableDebugPointForAllBEs('Tablet.build_tablet_report_info', ["tablet_${tabletId}_version_miss" : true])
         boolean succ = false
 
         def backendId_to_backendIP = [:]
@@ -79,7 +79,7 @@ suite('test_report_version_missing', 'nonConcurrent,p1') {
         assertTrue(succ)
     } finally {
         setFeConfig('disable_tablet_scheduler', false)
-        GetDebugPoint().disableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss')
+        GetDebugPoint().disableDebugPointForAllBEs('Tablet.build_tablet_report_info')
         sql "DROP TABLE IF EXISTS ${tableName}"
     }
 }

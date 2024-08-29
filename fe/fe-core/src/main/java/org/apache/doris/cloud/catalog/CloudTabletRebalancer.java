@@ -292,13 +292,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         long oldSize = infos.size();
         infos = batchUpdateCloudReplicaInfoEditlogs(infos);
         LOG.info("collect to editlog partitions before size={} after size={} infos", oldSize, infos.size());
-        try {
-            Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
-        } catch (Exception e) {
-            LOG.warn("failed to update cloud replicas", e);
-            // edit log failed, try next time
-            return;
-        }
+        Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
 
         for (Map.Entry<Long, List<Tablet>> entry : beToTabletsGlobal.entrySet()) {
             LOG.info("after partition balance be {} tablet num {}", entry.getKey(), entry.getValue().size());
@@ -328,13 +322,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         long oldSize = infos.size();
         infos = batchUpdateCloudReplicaInfoEditlogs(infos);
         LOG.info("collect to editlog table before size={} after size={} infos", oldSize, infos.size());
-        try {
-            Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
-        } catch (Exception e) {
-            LOG.warn("failed to update cloud replicas", e);
-            // edit log failed, try next time
-            return;
-        }
+        Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
 
         for (Map.Entry<Long, List<Tablet>> entry : beToTabletsGlobal.entrySet()) {
             LOG.info("after table balance be {} tablet num {}", entry.getKey(), entry.getValue().size());
@@ -363,13 +351,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         long oldSize = infos.size();
         infos = batchUpdateCloudReplicaInfoEditlogs(infos);
         LOG.info("collect to editlog global before size={} after size={} infos", oldSize, infos.size());
-        try {
-            Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
-        } catch (Exception e) {
-            LOG.warn("failed to update cloud replicas", e);
-            // edit log failed, try next time
-            return;
-        }
+        Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
 
         for (Map.Entry<Long, List<Tablet>> entry : beToTabletsGlobal.entrySet()) {
             LOG.info("after global balance be {} tablet num {}", entry.getKey(), entry.getValue().size());
@@ -430,13 +412,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         long oldSize = infos.size();
         infos = batchUpdateCloudReplicaInfoEditlogs(infos);
         LOG.info("collect to editlog warmup before size={} after size={} infos", oldSize, infos.size());
-        try {
-            Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
-        } catch (Exception e) {
-            LOG.warn("failed to update cloud replicas", e);
-            // edit log failed, try next time
-            return;
-        }
+        Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
 
         // recalculate inflight beToTablets, just for print the log
         beToInfightTasks.clear();
@@ -577,17 +553,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
         LOG.info("collect to editlog route {} infos, error num {}", updateReplicaInfos.size(), assignedErrNum[0]);
 
-        if (updateReplicaInfos.isEmpty()) {
-            return true;
-        }
-
-        try {
-            Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(updateReplicaInfos);
-        } catch (Exception e) {
-            LOG.warn("failed to update cloud replicas", e);
-            // edit log failed, try next time
-            return false;
-        }
+        Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(updateReplicaInfos);
 
         return true;
     }
@@ -1087,13 +1053,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         long oldSize = infos.size();
         infos = batchUpdateCloudReplicaInfoEditlogs(infos);
         LOG.info("collect to editlog migrate before size={} after size={} infos", oldSize, infos.size());
-        try {
-            Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
-        } catch (Exception e) {
-            LOG.warn("update cloud replicas failed", e);
-            // edit log failed, try next time
-            throw new RuntimeException(e);
-        }
+        Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
 
         try {
             ((CloudEnv) Env.getCurrentEnv()).getCloudUpgradeMgr().registerWaterShedTxnId(srcBe);

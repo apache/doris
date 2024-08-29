@@ -1066,6 +1066,7 @@ void report_disk_callback(CloudStorageEngine& engine, const TMasterInfo& master_
 }
 
 void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_info) {
+    DBUG_EXECUTE_IF("task_worker_pool.report_tablet.stop", return);
     if (config::report_random_wait) {
         random_sleep(5);
     }

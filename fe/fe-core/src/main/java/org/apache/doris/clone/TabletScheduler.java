@@ -1270,7 +1270,7 @@ public class TabletScheduler extends MasterDaemon {
                 tabletCtx.getTabletId(),
                 replica.getBackendIdWithoutException());
 
-        Env.getCurrentEnv().getEditLog().logDeleteReplica(info);
+        Env.getCurrentEnv().getEditLog().logModifyReplica(info);
 
         LOG.info("delete replica. tablet id: {}, backend id: {}. reason: {}, force: {}",
                 tabletCtx.getTabletId(), replica.getBackendIdWithoutException(), reason, force);

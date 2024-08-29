@@ -247,12 +247,12 @@ public abstract class AlterHandler extends MasterDaemon {
             }
 
             if (versionChanged) {
-                ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(task.getDbId(), task.getTableId(),
+                ReplicaPersistInfo info = ReplicaPersistInfo.createForUpdate(task.getDbId(), task.getTableId(),
                         task.getPartitionId(), task.getIndexId(), task.getTabletId(), task.getBackendId(),
                         replica.getId(), replica.getVersion(), -1,
                         replica.getDataSize(), replica.getRemoteDataSize(), replica.getRowCount(),
-                        replica.getLastFailedVersion(), replica.getLastSuccessVersion());
-                Env.getCurrentEnv().getEditLog().logUpdateReplica(info);
+                        replica.getLastFailedVersion(), replica.getLastSuccessVersion(), replica.isBad());
+                Env.getCurrentEnv().getEditLog().logModifyReplica(info);
             }
 
             LOG.info("after handle alter task tablet: {}, replica: {}", task.getSignature(), replica);

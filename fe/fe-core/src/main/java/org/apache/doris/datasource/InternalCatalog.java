@@ -1139,12 +1139,15 @@ public class InternalCatalog implements CatalogIf<Database> {
         Tablet tablet = materializedIndex.getTablet(info.getTabletId());
         Replica replica = tablet.getReplicaById(info.getReplicaId());
         Preconditions.checkNotNull(replica, info);
+        replica.setBad(info.isBad());
+        if (info.isBad()) {
+            return;
+        }
         replica.updateVersionWithFailed(info.getVersion(), info.getLastFailedVersion(),
                 info.getLastSuccessVersion());
         replica.setDataSize(info.getDataSize());
         replica.setRemoteDataSize(info.getRemoteDataSize());
         replica.setRowCount(info.getRowCount());
-        replica.setBad(false);
     }
 
     public void replayAddReplica(ReplicaPersistInfo info) throws MetaNotFoundException {
@@ -1184,6 +1187,23 @@ public class InternalCatalog implements CatalogIf<Database> {
             unprotectDeleteReplica(olapTable, info);
         } finally {
             olapTable.writeUnlock();
+        }
+    }
+
+    public void replayModifyReplica(ReplicaPersistInfo replica) throws MetaNotFoundException {
+        switch (replica.getOpType()) {
+            case ADD:
+                replayAddReplica(replica);
+                break;
+            case DELETE:
+                replayDeleteReplica(replica);
+                break;
+            case UPDATE:
+                replayUpdateReplica(replica);
+                break;
+            default:
+                throw new MetaNotFoundException("not implement modify ReplicasPersistInfo's replay function "
+                    + "with operation type " + replica.getOpType());
         }
     }
 

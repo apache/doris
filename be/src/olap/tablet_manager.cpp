@@ -1056,6 +1056,11 @@ void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* 
     HistogramStat tablet_version_num_hist;
     auto local_cache = std::make_shared<std::vector<TTabletStat>>();
     auto handler = [&](const TabletSharedPtr& tablet) {
+        DBUG_EXECUTE_IF("Tablet.build_tablet_report_info", {
+            if (dp->param(fmt::format("tablet_{}_lost", tablet->tablet_id()), false)) {
+                return;
+            }
+        });
         auto& t_tablet = (*tablets_info)[tablet->tablet_id()];
         TTabletInfo& tablet_info = t_tablet.tablet_infos.emplace_back();
         tablet->build_tablet_report_info(&tablet_info, true, true);

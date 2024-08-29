@@ -109,10 +109,16 @@ public class OperationType {
     @Deprecated
     public static final short OP_FINISH_SYNC_DELETE = 40;
     public static final short OP_FINISH_DELETE = 41;
+    // use OP_MODIFY_REPLICA
+    @Deprecated
     public static final short OP_ADD_REPLICA = 42;
+    // use OP_MODIFY_REPLICA
+    @Deprecated
     public static final short OP_DELETE_REPLICA = 43;
     @Deprecated
     public static final short OP_FINISH_ASYNC_DELETE = 44;
+    // use OP_MODIFY_REPLICA
+    @Deprecated
     public static final short OP_UPDATE_REPLICA = 45;
     @Deprecated
     public static final short OP_BACKEND_TABLETS_INFO = 46;
@@ -216,6 +222,7 @@ public class OperationType {
     // modify database/table/tablet/replica meta
     public static final short OP_SET_REPLICA_VERSION = 141;
     public static final short OP_COLOCATE_MOD_REPLICA_ALLOC = 142;
+    public static final short OP_MODIFY_REPLICA = 143;
 
     // routine load 200
     public static final short OP_CREATE_ROUTINE_LOAD_JOB = 200;
