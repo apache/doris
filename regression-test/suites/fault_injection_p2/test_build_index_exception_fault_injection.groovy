@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_build_index_exception_fault_injection", "nonConcurrent, p2") {
+suite("test_build_index_exception_fault_injection", "nonConcurrent,p2") {
     if (isCloudMode()) {
         return
     }
