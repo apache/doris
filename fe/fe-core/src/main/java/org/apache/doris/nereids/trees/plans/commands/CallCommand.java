@@ -33,7 +33,7 @@ import java.util.Objects;
 /**
  * call func()
  */
-public class CallCommand extends Command implements ForwardWithSync {
+public class CallCommand extends Command implements ForwardWithSync, NotAllowFallback {
     public static final Logger LOG = LogManager.getLogger(CallCommand.class);
 
     private final UnboundFunction unboundFunction;
