@@ -182,12 +182,11 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescrip
     return DecimalType(value);
 }
 
-Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const TypeDescriptor& type,
-                                                 bool is_nullable, vectorized::ColumnPtr column,
-                                                 size_t slot_index, bool* stop_processing,
-                                                 fmt::memory_buffer& error_prefix,
-                                                 const uint32_t row_count,
-                                                 vectorized::IColumn::Permutation* rows) {
+Status OlapTableBlockConvertor::_internal_validate_column(
+        RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
+        vectorized::ColumnPtr column, size_t slot_index, bool* stop_processing,
+        fmt::memory_buffer& error_prefix, const uint32_t row_count,
+        vectorized::IColumn::Permutation* rows) {
     DCHECK((rows == nullptr) || (rows->size() == row_count));
     fmt::memory_buffer error_msg;
     auto set_invalid_and_append_error_msg = [&](int row) {
