@@ -298,10 +298,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept()),
                         bottomUp(new PushProjectIntoOneRowRelation()),
                         topDown(new MergeOneRowRelationIntoUnion()),
-                        topDown(new PushProjectIntoUnion()),
                         costBased(topDown(new InferSetOperatorDistinct())),
                         topDown(new BuildAggForUnion()),
                         bottomUp(new EliminateEmptyRelation()),
+                        // when union has empty relation child and constantExprsList is not empty,
+                        // after EliminateEmptyRelation, project can be pushed into union
                         topDown(new PushProjectIntoUnion())
                 ),
                 topic("Column pruning and infer predicate",

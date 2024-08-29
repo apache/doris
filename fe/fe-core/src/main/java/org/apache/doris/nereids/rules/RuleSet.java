@@ -157,6 +157,9 @@ public class RuleSet {
             new PushDownFilterThroughWindow(),
             new PushDownFilterThroughPartitionTopN(),
             new ExpressionOptimization(),
+            // some useless predicates(e.g. 1=1) can be inferred by InferPredicates,
+            // the FoldConstantRule in ExpressionNormalization can fold 1=1 to true
+            // and EliminateFilter can eliminate the useless filter
             new ExpressionNormalization(),
             new EliminateFilter()
     );
