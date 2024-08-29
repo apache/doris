@@ -60,6 +60,7 @@
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
+#include "gutil/integral_types.h"
 #include "gutil/ref_counted.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
@@ -988,13 +989,43 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
 uint32_t Tablet::calc_compaction_score(
         CompactionType compaction_type,
         std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
-    // Need meta lock, because it will iterator "all_rs_metas" of tablet meta.
-    std::shared_lock rdlock(_meta_lock);
-    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-        return _calc_cumulative_compaction_score(cumulative_compaction_policy);
-    } else {
-        DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
-        return _calc_base_compaction_score();
+    if (cumulative_compaction_policy->name() == CUMULATIVE_SIZE_BASED_POLICY) {
+        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+            if (_cumu_compaction_score > 0) {
+                return _cumu_compaction_score;
+            }
+        } else {
+            if (_base_compaction_score > 0) {
+                return _base_compaction_score;
+            }
+        }
+    }
+
+    if (cumulative_compaction_policy->name() == CUMULATIVE_TIME_SERIES_POLICY) {
+        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+            if (!_cumu_score_obsolete) {
+                return _cumu_compaction_score;
+            }
+        } else {
+            if (!_base_score_obsolete) {
+                return _base_compaction_score;
+            }
+        }
+    }
+
+    {
+        // Need meta lock, because it will iterator "all_rs_metas" of tablet meta.
+        std::shared_lock rdlock(_meta_lock);
+        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+            _cumu_compaction_score = _calc_cumulative_compaction_score(cumulative_compaction_policy);
+            _cumu_score_obsolete = false;
+            return _cumu_compaction_score;
+        } else {
+            DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
+            _base_compaction_score = _calc_base_compaction_score();
+            _base_score_obsolete = false;
+            return _base_compaction_score;
+        }
     }
 }
 

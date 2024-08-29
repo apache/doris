@@ -39,6 +39,7 @@
 #include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
 #include "olap/rowset/pending_rowset_helper.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/schema_change.h"
@@ -434,6 +435,15 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                     << ", rowsetid: " << rowset_ptr->rowset_id()
                     << ", version: " << rowset_ptr->version().first;
     }
+
+    {
+        int64_t score = rowset_ptr->rowset_meta()->get_compaction_score();
+        if (tablet->get_cumu_compaction_score() > 0) {
+            tablet->set_cumu_compaction_score(score + tablet->get_cumu_compaction_score());
+        }
+        tablet->set_cumu_compaction_score_obsolete(true);
+    }
+
     return Status::OK();
 }
 

@@ -1095,6 +1095,12 @@ Status CompactionMixin::modify_rowsets() {
             LOG(WARNING) << "failed to remove old version delete bitmap, st: " << st;
         }
     }
+
+    tablet()->set_cumu_compaction_score(-1);
+    tablet()->set_base_compaction_score(-1);
+    tablet()->set_cumu_compaction_score_obsolete(true);
+    tablet()->set_base_compaction_score_obsolete(true);
+
     return Status::OK();
 }
 
