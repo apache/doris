@@ -45,6 +45,7 @@ import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.MultiPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionKeyDesc.PartitionKeyValueType;
 import org.apache.doris.analysis.PartitionNames;
@@ -3050,12 +3051,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 try {
                     DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
                             new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
-                    Map<String, String> propertiesCheck = new HashMap<>(properties);
-                    propertiesCheck.entrySet().removeIf(entry -> entry.getKey().contains("dynamic_partition"));
-                    if (propertiesCheck != null && !propertiesCheck.isEmpty()) {
-                        // here, all properties should be checked
-                        throw new DdlException("Unknown properties: " + propertiesCheck);
-                    }
+
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
                     olapTable.setStorageMedium(dataProperty.getStorageMedium());
@@ -3135,6 +3131,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                         olapTable.getIndexIdList(), true);
             } else {
                 throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());
+            }
+
+            if (partitionDesc != null && partitionDesc.isAutoCreatePartitions()) {
+                PartitionExprUtil.checkAndSetAutoPartitionProperty(olapTable, properties);
             }
 
             Pair<Boolean, Boolean> result = db.createTableWithLock(olapTable, false, stmt.isSetIfNotExists());

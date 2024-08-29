@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.thrift.TNullableStringLiteral;
 
 import com.google.common.collect.Maps;
@@ -42,6 +43,14 @@ public class PartitionExprUtil {
     public static final String DATETIME_NAME_FORMATTER = "%04d%02d%02d%02d%02d%02d";
     private static final Logger LOG = LogManager.getLogger(PartitionExprUtil.class);
     private static final PartitionExprUtil partitionExprUtil = new PartitionExprUtil();
+
+    /**
+     * properties should be checked before call this method
+     */
+    public static void checkAndSetAutoPartitionProperty(OlapTable olapTable, Map<String, String> properties) {
+        String useSimpleAutoPartitionName = properties.get(PropertyAnalyzer.PROPERTIES_USE_SIMPLE_AUTO_PARTITION_NAME);
+        olapTable.setUseSimpleAutoPartitionName(useSimpleAutoPartitionName);
+    }
 
     public static FunctionIntervalInfo getFunctionIntervalInfo(ArrayList<Expr> partitionExprs,
             PartitionType partitionType) throws AnalysisException {
@@ -90,7 +99,7 @@ public class PartitionExprUtil {
         return partitionExprUtil.new FunctionIntervalInfo(timeUnit, interval);
     }
 
-    public static DateLiteral getRangeEnd(DateLiteral beginTime, FunctionIntervalInfo intervalInfo)
+    private static DateLiteral getRangeEnd(DateLiteral beginTime, FunctionIntervalInfo intervalInfo)
             throws AnalysisException {
         String timeUnit = intervalInfo.timeUnit;
         long interval = intervalInfo.interval;
@@ -111,6 +120,35 @@ public class PartitionExprUtil {
                 return beginTime.plusMinutes(interval);
             case "second":
                 return beginTime.plusSeconds(interval);
+            default:
+                break;
+        }
+        return null;
+    }
+
+    private static String getSimpleRangePartitionName(DateLiteral beginTime, FunctionIntervalInfo intervalInfo)
+            throws AnalysisException {
+        String timeUnit = intervalInfo.timeUnit;
+        switch (timeUnit) {
+            case "year":
+                return String.format("%04d", beginTime.getYear());
+            case "quarter":
+                return String.format("%04d%02d", beginTime.getYear(), beginTime.getMonth());
+            case "month":
+                return String.format("%04d%02d", beginTime.getYear(), beginTime.getMonth());
+            case "week":
+                return String.format("%04d%02d%02d", beginTime.getYear(), beginTime.getMonth(), beginTime.getDay());
+            case "day":
+                return String.format("%04d%02d%02d", beginTime.getYear(), beginTime.getMonth(), beginTime.getDay());
+            case "hour":
+                return String.format("%04d%02d%02d%02d", beginTime.getYear(), beginTime.getMonth(), beginTime.getDay(),
+                        beginTime.getHour());
+            case "minute":
+                return String.format("%04d%02d%02d%02d%02d", beginTime.getYear(), beginTime.getMonth(),
+                        beginTime.getDay(), beginTime.getHour(), beginTime.getMinute());
+            case "second":
+                return String.format("%04d%02d%02d%02d%02d%02d", beginTime.getYear(), beginTime.getMonth(),
+                        beginTime.getDay(), beginTime.getHour(), beginTime.getMinute(), beginTime.getSecond());
             default:
                 break;
         }
@@ -154,9 +192,15 @@ public class PartitionExprUtil {
                 String beginTime = curPartitionValues.get(0); // have check range type size must be 1
                 Type partitionColumnType = partitionColumn.get(0).getType();
                 DateLiteral beginDateTime = new DateLiteral(beginTime, partitionColumnType);
-                partitionName += String.format(DATETIME_NAME_FORMATTER,
-                        beginDateTime.getYear(), beginDateTime.getMonth(), beginDateTime.getDay(),
-                        beginDateTime.getHour(), beginDateTime.getMinute(), beginDateTime.getSecond());
+
+                if (olapTable.useSimpleAutoPartitionName()) {
+                    partitionName += getSimpleRangePartitionName(beginDateTime, intervalInfo);
+                } else {
+                    partitionName += String.format(DATETIME_NAME_FORMATTER, beginDateTime.getYear(),
+                            beginDateTime.getMonth(), beginDateTime.getDay(), beginDateTime.getHour(),
+                            beginDateTime.getMinute(), beginDateTime.getSecond());
+                }
+
                 DateLiteral endDateTime = getRangeEnd(beginDateTime, intervalInfo);
                 partitionKeyDesc = createPartitionKeyDescWithRange(beginDateTime, endDateTime, partitionColumnType);
             } else if (partitionType == PartitionType.LIST) {
