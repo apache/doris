@@ -40,6 +40,7 @@ statement
     | DROP (PROCEDURE | PROC) (IF EXISTS)? name=multipartIdentifier #dropProcedure
     | SHOW PROCEDURE STATUS (LIKE pattern=valueExpression | whereClause)? #showProcedureStatus
     | SHOW CREATE PROCEDURE name=multipartIdentifier #showCreateProcedure
+    // FIXME: like should be wildWhere? FRONTEND should not contain FROM backendid
     | ADMIN? SHOW type=(FRONTEND | BACKEND) CONFIG (LIKE pattern=valueExpression)? (FROM backendId=INTEGER_VALUE)? #showConfig
     ;
 
@@ -65,6 +66,9 @@ unsupportedStatement
     | unsupportedDropStatement
     | unsupportedStatsStatement
     | unsupportedAlterStatement
+    | unsupportedGrantRevokeStatement
+    | unsupportedAdminStatement
+    | unsupportedTransactionStatement
     ;
 
 materailizedViewStatement
@@ -168,6 +172,71 @@ supportedDropStatement
     : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE #dropCatalogRecycleBin
     ;
 
+unsupportedAdminStatement
+    : ADMIN SHOW REPLICA STATUS FROM baseTableRef wildWhere?                        #adminShowReplicaStatus
+    | ADMIN SHOW REPLICA DISTRIBUTION FROM baseTableRef                             #adminShowReplicaDistribution
+    | ADMIN SET REPLICA STATUS PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN   #adminSetReplicaStatus
+    | ADMIN SET REPLICA VERSION PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN  #adminSetReplicaVersion
+    | ADMIN REPAIR TABLE baseTableRef                                               #adminRepairTable
+    | ADMIN CANCEL REPAIR TABLE baseTableRef                                        #adminCancelRepairTable
+    | ADMIN COMPACT TABLE baseTableRef wildWhere?                                   #adminCompactTable
+    | ADMIN SET (FRONTEND | (ALL FRONTENDS)) CONFIG
+        (LEFT_PAREN propertyItemList RIGHT_PAREN)? ALL?                             #adminSetFrontendConfig
+    | ADMIN CHECK tabletList properties=propertyClause?                             #adminCheckTablets
+    | ADMIN REBALANCE DISK (ON LEFT_PAREN backends+=STRING_LITERAL
+        (COMMA backends+=STRING_LITERAL) RIGHT_PAREN)?                              #adminRebalanceDisk
+    | ADMIN CANCEL REBALANCE DISK (ON LEFT_PAREN backends+=STRING_LITERAL
+        (COMMA backends+=STRING_LITERAL) RIGHT_PAREN)?                              #adminCancelRebalanceDisk
+    | ADMIN CLEAN TRASH (ON LEFT_PAREN backends+=STRING_LITERAL
+        (COMMA backends+=STRING_LITERAL) RIGHT_PAREN)?                              #adminCleanTrash
+    | ADMIN SET TABLE name=multipartIdentifier
+        PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
+    | ADMIN DIAGNOSE TABLET tabletId=INTEGER_VALUE                                  #adminDiagnoseTablet
+    | ADMIN SHOW TABLET STORAGE FORMAT VERBOSE?                                     #adminShowTabletStorageFormat
+    | ADMIN COPY TABLET tabletId=INTEGER_VALUE properties=propertyClause?           #adminCopyTablet
+    | ADMIN SET TABLE name=multipartIdentifier STATUS properties=propertyClause?    #adminSetTableStatus
+    ;
+
+baseTableRef
+    : multipartIdentifier optScanParams? tableSnapshot? specifiedPartition?
+        tabletList? tableAlias sample? relationHint?
+    ;
+
+wildWhere
+    : LIKE STRING_LITERAL
+    | WHERE expression
+    ;
+
+unsupportedTransactionStatement
+    : BEGIN (WITH LABEL identifier?)?                                               #transactionBegin
+    | COMMIT WORK? (AND NO? CHAIN)? (NO? RELEASE)?                                  #transcationCommit
+    | ROLLBACK WORK? (AND NO? CHAIN)? (NO? RELEASE)?                                #transactionRollback
+    ;
+
+unsupportedGrantRevokeStatement
+    : GRANT privilegeList ON multipartIdentifierOrAsterisk
+        TO (userIdentify | ROLE STRING_LITERAL)                                     #grantTablePrivilege
+    | GRANT privilegeList ON
+        (RESOURCE | CLUSTER | STAGE | STORAGE VAULT | WORKLOAD GROUP)
+        identifierOrTextOrAsterisk TO (userIdentify | ROLE STRING_LITERAL)          #grantResourcePrivilege
+    | GRANT roles+=STRING_LITERAL (COMMA roles+=STRING_LITERAL)* TO userIdentify    #grantRole
+    | REVOKE privilegeList ON multipartIdentifierOrAsterisk
+        FROM (userIdentify | ROLE STRING_LITERAL)                                   #grantTablePrivilege
+    | REVOKE privilegeList ON
+        (RESOURCE | CLUSTER | STAGE | STORAGE VAULT | WORKLOAD GROUP)
+        identifierOrTextOrAsterisk FROM (userIdentify | ROLE STRING_LITERAL)        #grantResourcePrivilege
+    | REVOKE roles+=STRING_LITERAL (COMMA roles+=STRING_LITERAL)* FROM userIdentify #grantRole
+    ;
+
+privilege
+    : name=identifier columns=identifierList?
+    | ALL
+    ;
+
+privilegeList
+    : privilege (COMMA privilege)*
+    ;
+
 unsupportedAlterStatement
     : ALTER TABLE tableName=multipartIdentifier
         alterTableClause (COMMA alterTableClause)*                                  #alterTable
@@ -188,14 +257,17 @@ unsupportedAlterStatement
     | ALTER RESOURCE name=identifierOrText properties=propertyClause?               #alterResource
     | ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #alterColocateGroup
-    | ALTER WORKLOAD GROUP name=identifierOrText properties=propertyClause?         #alterWorkloadGroup
-    | ALTER WORKLOAD POLICY name=identifierOrText properties=propertyClause?        #alterWorkloadPolicy
+    | ALTER WORKLOAD GROUP name=identifierOrText
+        properties=propertyClause?                                                  #alterWorkloadGroup
+    | ALTER WORKLOAD POLICY name=identifierOrText
+        properties=propertyClause?                                                  #alterWorkloadPolicy
     | ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
             (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?         #alterRoutineLoad
     | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?               #alterSqlBlockRule
     | ALTER TABLE name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #alterTableProperties
-    | ALTER STORAGE POLICY name=identifierOrText properties=propertyClause          #alterStoragePlicy
+    | ALTER STORAGE POLICY name=identifierOrText
+        properties=propertyClause                                                   #alterStoragePlicy
     | ALTER USER (IF EXISTS)? grantUserIdentify
         passwordOption (COMMENT STRING_LITERAL)?                                    #alterUser
     | ALTER REPOSITORY name=identifier properties=propertyClause?                   #alterRepository
@@ -428,14 +500,14 @@ functionArgument
 
 unsupportedSetStatement
     : SET (optionWithType | optionWithoutType)
-        (COMMA (optionWithType | optionWithoutType))*                     #setOptions
-    | SET identifier AS DEFAULT STORAGE VAULT                             #setDefaultStorageVault
-    | SET PROPERTY (FOR user=identifierOrText)? propertyItemList          #setUserProperties
+        (COMMA (optionWithType | optionWithoutType))*                   #setOptions
+    | SET identifier AS DEFAULT STORAGE VAULT                           #setDefaultStorageVault
+    | SET PROPERTY (FOR user=identifierOrText)? propertyItemList        #setUserProperties
     | SET (GLOBAL | LOCAL | SESSION)? TRANSACTION
         ( transactionAccessMode
         | isolationLevel
         | transactionAccessMode COMMA isolationLevel
-        | isolationLevel COMMA transactionAccessMode)                     #setTransaction
+        | isolationLevel COMMA transactionAccessMode)                   #setTransaction
     ;
 
 optionWithType
@@ -529,7 +601,7 @@ dataDesc
         (PARTITION partition=identifierList)?
         (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
         (LINES TERMINATED BY separator=STRING_LITERAL)?
-        (FORMAT AS format=identifierOrStringLiteral)?
+        (FORMAT AS format=identifierOrText)?
         (columns=identifierList)?
         (columnsFromPath=colFromPath)?
         (columnMapping=colMappingList)?
@@ -571,19 +643,29 @@ mvPartition
     | partitionExpr = functionCallExpression
     ;
 
-identifierOrStringLiteral
+identifierOrText
     : identifier
     | STRING_LITERAL
     ;
 
-identifierOrText
-    : errorCapturingIdentifier
+identifierOrTextOrAsterisk
+    : identifier
     | STRING_LITERAL
-    | LEADING_STRING
+    | ASTERISK
+    ;
+
+multipartIdentifierOrAsterisk
+    : parts+=identifierOrAsterisk (DOT parts+=identifierOrAsterisk)*
+    ;
+
+identifierOrAsterisk
+    : identifierOrText
+    | ASTERISK
     ;
 
 userIdentify
-    : user=identifierOrText (ATSIGN (host=identifierOrText | LEFT_PAREN host=identifierOrText RIGHT_PAREN))?
+    : user=identifierOrText (ATSIGN (host=identifierOrText
+        | LEFT_PAREN host=identifierOrText RIGHT_PAREN))?
     ;
 
 grantUserIdentify
@@ -880,8 +962,8 @@ optScanParams
     ;
 
 relationPrimary
-    : multipartIdentifier optScanParams? materializedViewName? specifiedPartition?
-       tabletList? tableAlias sample? tableSnapshot? relationHint? lateralView*           #tableName
+    : multipartIdentifier optScanParams? materializedViewName? tableSnapshot? specifiedPartition?
+       tabletList? tableAlias sample? relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                 #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?

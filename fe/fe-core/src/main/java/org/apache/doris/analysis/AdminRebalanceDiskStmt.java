@@ -35,7 +35,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class AdminRebalanceDiskStmt extends DdlStmt {
+public class AdminRebalanceDiskStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(AdminRebalanceDiskStmt.class);
     private List<Backend> backends = Lists.newArrayList();
     private long timeoutS = 0;
