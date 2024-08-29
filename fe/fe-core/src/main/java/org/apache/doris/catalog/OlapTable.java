@@ -631,7 +631,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public void resetVersionForRestore() {
         for (Partition partition : idToPartition.values()) {
-            partition.setNextVersion(partition.getVisibleVersion());
+            partition.setNextVersion(partition.getVisibleVersion() + 1);
         }
     }
 
