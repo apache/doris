@@ -17,8 +17,8 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Doris+DeltaLake+Kudu+MINIO Environments
-Launch spark/doris/hive/deltalake/kudu/minio test environments, and give examples to query deltalake and kudu in Doris.
+# Doris + DeltaLake + Kudu + MINIO Environments
+Launch spark / doris / hive / deltalake / kudu /minio test environments, and give examples to query deltalake and kudu tables in Doris.
 
 ## Launch Docker Compose
 **Create Network**
@@ -27,156 +27,121 @@ sudo docker network create -d bridge trinoconnector-net
 ```
 **Launch all components in docker**
 ```shell
-sudo ./start-trinoconnector-compose.sh
+sudo sh start-trinoconnector-compose.sh
 ```
 **Login into Spark**
 ```shell
-sudo ./login-spark.sh
+sudo sh login-spark.sh
 ```
 **Login into Doris**
 ```shell
-sudo ./login-doris.sh
+sudo sh login-doris.sh
 ```
 
 ## Prepare DeltaLake Data
-There's already a deltalake table named `customer` in default database. Create a hudi table from the hive table:
+There's already a deltalake table named `customer` in default database.
 
+## Create Catalog
+The Doris Cluster has created two catalogs called `delta_lake` and `kudu_catalog`. You can view both of them by using the `SHOW CATALOGS` command or the `SHOW CREATE CATALOG ${catalog_name}` command after you log in to the Doris. Here are the creation statements for the two catalogs:
 
-## Query Data
-Doris refresh hive catalog in [10min in default](https://doris.apache.org/docs/lakehouse/datalake-analytics/hive/#metadata-cache--refresh),
-users can refresh directly to access the hudi table in Doris by `doris> refresh catalog hive;`
+```sql
+-- The catalog has been created, and no further action is required.
+create catalog delta_lake properties (
+  "type"="trino-connector",
+  "trino.connector.name"="delta_lake",
+  "trino.hive.metastore.uri"="thrift://hive-metastore:9083",
+  "trino.hive.s3.endpoint"="http://minio:9000",
+  "trino.hive.s3.region"="us-east-1",
+  "trino.hive.s3.aws-access-key"="minio",
+  "trino.hive.s3.aws-secret-key"="minio123",
+  "trino.hive.s3.path-style-access"="true"
+);
 
-After hudi table is ready in Doris, all operations in hudi table will be detected by Doris, and there's no need to refresh catalog or tables.
-
-Insert new data into hudi tables in spark-sql:
-```sql
-spark-sql> insert into customer_cow values (100, "Customer#000000100", "jD2xZzi", "25-430-914-2194", 3471.59, "BUILDING", "cial ideas. final, furious requests", 25);
-spark-sql> insert into customer_mor values (100, "Customer#000000100", "jD2xZzi", "25-430-914-2194", 3471.59, "BUILDING", "cial ideas. final, furious requests", 25);
-```
-`c_nationkey=25` is a new partition, doris can query the new data at once without refresh:
-```sql
-doris> use hive.default;
-doris> select * from customer_cow where c_custkey = 100;
-doris> select * from customer_mor where c_custkey = 100;
-```
-Insert a record with `c_custkey=32`(primary key, already in table) will remove the old record:
-```sql
-spark-sql> insert into customer_cow values (32, "Customer#000000032_update", "jD2xZzi", "25-430-914-2194", 3471.59, "BUILDING", "cial ideas. final, furious requests", 15);
-spark-sql> insert into customer_mor values (32, "Customer#000000032_update", "jD2xZzi", "25-430-914-2194", 3471.59, "BUILDING", "cial ideas. final, furious requests", 15);
-```
-Query the updated data at once in doris:
-```sql
-doris> select * from customer_cow where c_custkey = 32;
-+-----------+---------------------------+-----------+-----------------+-----------+--------------+-------------------------------------+-------------+
-| c_custkey | c_name                    | c_address | c_phone         | c_acctbal | c_mktsegment | c_comment                           | c_nationkey |
-+-----------+---------------------------+-----------+-----------------+-----------+--------------+-------------------------------------+-------------+
-|        32 | Customer#000000032_update | jD2xZzi   | 25-430-914-2194 |   3471.59 | BUILDING     | cial ideas. final, furious requests |          15 |
-+-----------+---------------------------+-----------+-----------------+-----------+--------------+-------------------------------------+-------------+
-doris> select * from customer_mor where c_custkey = 32;
-+-----------+---------------------------+-----------+-----------------+-----------+--------------+-------------------------------------+-------------+
-| c_custkey | c_name                    | c_address | c_phone         | c_acctbal | c_mktsegment | c_comment                           | c_nationkey |
-+-----------+---------------------------+-----------+-----------------+-----------+--------------+-------------------------------------+-------------+
-|        32 | Customer#000000032_update | jD2xZzi   | 25-430-914-2194 |   3471.59 | BUILDING     | cial ideas. final, furious requests |          15 |
-+-----------+---------------------------+-----------+-----------------+-----------+--------------+-------------------------------------+-------------+
+-- The catalog has been created, and no further action is required.
+CREATE CATALOG `kudu_catalog` PROPERTIES (
+    "type" = "trino-connector",
+    "trino.connector.name" = "kudu",
+    "trino.kudu.authentication.type" = "NONE",
+    "trino.kudu.client.master-addresses" = "kudu-master-1:7051,kudu-master-2:7151,kudu-master-3:7251"
+);
 ```
 
-## Query Optimization
-Doris uses native reader(c++) to read the data files of the **COW** table, and uses the Java SDK (By calling hudi-bundle through JNI) to read the data files of the **MOR** table. In upsert scenario, there may still remains base files that have not been updated in the MOR table, which can be read through the native reader. Users can view the execution plan of hudi scan through the explain command, where `hudiNativeReadSplits` indicates how many split files are read through the native reader.
+## Query Catalog Data
+The data of `Delta Lake` and `Kudu` have been prepared in Doris Cluster. You can select these data directly in Doris.
+
+- select Delta Lake data
+
 ```sql
--- COW table is read natively
-doris> explain select * from customer_cow where c_custkey = 32;
-|   0:VHUDI_SCAN_NODE(68)                                        |
-|      table: customer_cow                                       |
-|      predicates: (c_custkey[#5] = 32)                          |
-|      inputSplitNum=101, totalFileSize=45338886, scanRanges=101 |
-|      partition=26/26                                           |
-|      cardinality=1, numNodes=1                                 |
-|      pushdown agg=NONE                                         |
-|      hudiNativeReadSplits=101/101                              |
+mysql> switch delta_lake;
+Query OK, 0 rows affected (0.00 sec)
 
--- MOR table: because only the base file contains `c_custkey = 32` that is updated, 100 splits are read natively, while the split with log file is read by JNI.
-doris> explain select * from customer_mor where c_custkey = 32;
-|   0:VHUDI_SCAN_NODE(68)                                        |
-|      table: customer_mor                                       |
-|      predicates: (c_custkey[#5] = 32)                          |
-|      inputSplitNum=101, totalFileSize=45340731, scanRanges=101 |
-|      partition=26/26                                           |
-|      cardinality=1, numNodes=1                                 |
-|      pushdown agg=NONE                                         |
-|      hudiNativeReadSplits=100/101                              |
+mysql> use default;
+Reading table information for completion of table and column names
+You can turn off this feature to get a quicker startup with -A
 
--- Use delete statement to see more differences
-spark-sql> delete from customer_cow where c_custkey = 64;
-doris> explain select * from customer_cow where c_custkey = 64;
-
-spark-sql> delete from customer_mor where c_custkey = 64;
-doris> explain select * from customer_mor where c_custkey = 64;
-
--- customer_xxx is partitioned by c_nationkey, we can use the partition column to prune data
-doris> explain select * from customer_mor where c_custkey = 64 and c_nationkey = 15;
-|   0:VHUDI_SCAN_NODE(68)                                        |
-|      table: customer_mor                                       |
-|      predicates: (c_custkey[#5] = 64), (c_nationkey[#12] = 15) |
-|      inputSplitNum=4, totalFileSize=1798186, scanRanges=4      |
-|      partition=1/26                                            |
-|      cardinality=1, numNodes=1                                 |
-|      pushdown agg=NONE                                         |
-|      hudiNativeReadSplits=3/4                                  |
+Database changed
+mysql> select * from customer limit 10;
++-----------+--------------------+------------------------------------+-------------+-----------------+-----------+--------------+---------------------------------------------------------------------------------------------------------------+
+| c_custkey | c_name             | c_address                          | c_nationkey | c_phone         | c_acctbal | c_mktsegment | c_comment                                                                                                     |
++-----------+--------------------+------------------------------------+-------------+-----------------+-----------+--------------+---------------------------------------------------------------------------------------------------------------+
+|         2 | Customer#000000002 | XSTf4,NCwDVaWNe6tEgvwfmRchLXak     |          13 | 23-768-687-3665 |    121.65 | AUTOMOBILE   | l accounts. blithely ironic theodolites integrate boldly: caref                                               |
+|        34 | Customer#000000034 | Q6G9wZ6dnczmtOx509xgE,M2KV         |          15 | 25-344-968-5422 |   8589.70 | HOUSEHOLD    | nder against the even, pending accounts. even                                                                 |
+|        66 | Customer#000000066 | XbsEqXH1ETbJYYtA1A                 |          22 | 32-213-373-5094 |    242.77 | HOUSEHOLD    | le slyly accounts. carefully silent packages benea                                                            |
+|        98 | Customer#000000098 | 7yiheXNSpuEAwbswDW                 |          12 | 22-885-845-6889 |   -551.37 | BUILDING     | ages. furiously pending accounts are quickly carefully final foxes: busily pe                                 |
+|       130 | Customer#000000130 | RKPx2OfZy0Vn 8wGWZ7F2EAvmMORl1k8iH |           9 | 19-190-993-9281 |   5073.58 | HOUSEHOLD    | ix slowly. express packages along the furiously ironic requests integrate daringly deposits. fur              |
+|       162 | Customer#000000162 | JE398sXZt2QuKXfJd7poNpyQFLFtth     |           8 | 18-131-101-2267 |   6268.99 | MACHINERY    | accounts along the doggedly special asymptotes boost blithely during the quickly regular theodolites. slyly   |
+|       194 | Customer#000000194 | mksKhdWuQ1pjbc4yffHp8rRmLOMcJ      |          16 | 26-597-636-3003 |   6696.49 | HOUSEHOLD    | quickly across the fluffily dogged requests. regular platelets around the ironic, even requests cajole quickl |
+|       226 | Customer#000000226 | ToEmqB90fM TkLqyEgX8MJ8T8NkK       |           3 | 13-452-318-7709 |   9008.61 | AUTOMOBILE   | ic packages. ideas cajole furiously slyly special theodolites: carefully express pinto beans acco             |
+|       258 | Customer#000000258 | 7VbADek8qYezQYotxNUmnNI            |          12 | 22-278-425-9944 |   6022.27 | MACHINERY    | about the regular, bold accounts; pending packages use furiously stealthy warhorses. bold accounts sleep fur  |
+|       290 | Customer#000000290 | 8OlPT9G 8UqVXmVZNbmxVTPO8          |           4 | 14-458-625-5633 |   1811.35 | MACHINERY    | sts. blithely pending requests sleep fluffily on the regular excuses. carefully expre                         |
++-----------+--------------------+------------------------------------+-------------+-----------------+-----------+--------------+---------------------------------------------------------------------------------------------------------------+
+10 rows in set (0.12 sec)
 ```
 
-## TimeTravel
-See the commit metadata in spark-sql:
-```sql
-spark-sql> call show_commits(table => 'customer_cow', limit => 10);
-20240603033556094	20240603033558249	commit	448833	0	1	1	183	0	0
-20240603015444737	20240603015446588	commit	450238	0	1	1	202	1	0
-20240603015018572	20240603015020503	commit	436692	1	0	1	1	0	0
-20240603013858098	20240603013907467	commit	44902033	100	0	25	18751	0	0
+- select Kudu data
 
-spark-sql> call show_commits(table => 'customer_mor', limit => 10);
-20240603033745977	20240603033748021	deltacommit	1240	0	1	1	0	0	0
-20240603015451860	20240603015453539	deltacommit	1434	0	1	1	1	1	0
-20240603015058442	20240603015100120	deltacommit	436691	1	0	1	1	0	0
-20240603013918515	20240603013922961	deltacommit	44904040	100	0	25	18751	0	0
-```
-Let's travel to the commit we insert `c_custkey=100` in doris where `c_custkey=32` is not updated:
 ```sql
-doris> select * from customer_cow for time as of '20240603015018572' where c_custkey = 32 or c_custkey = 100;
-+-----------+--------------------+---------------------------------------+-----------------+-----------+--------------+--------------------------------------------------+-------------+
-| c_custkey | c_name             | c_address                             | c_phone         | c_acctbal | c_mktsegment | c_comment                                        | c_nationkey |
-+-----------+--------------------+---------------------------------------+-----------------+-----------+--------------+--------------------------------------------------+-------------+
-|        32 | Customer#000000032 | jD2xZzi UmId,DCtNBLXKj9q0Tlp2iQ6ZcO3J | 25-430-914-2194 |   3471.53 | BUILDING     | cial ideas. final, furious requests across the e |          15 |
-|       100 | Customer#000000100 | jD2xZzi                               | 25-430-914-2194 |   3471.59 | BUILDING     | cial ideas. final, furious requests              |          25 |
-+-----------+--------------------+---------------------------------------+-----------------+-----------+--------------+--------------------------------------------------+-------------+
--- compare with spark-sql
-spark-sql> select * from customer_mor timestamp as of '20240603015018572' where c_custkey = 32 or c_custkey = 100;
+mysql> switch kudu_catalog;
+Query OK, 0 rows affected (0.00 sec)
 
-doris> select * from customer_mor for time as of '20240603015058442' where c_custkey = 32 or c_custkey = 100;
-+-----------+--------------------+---------------------------------------+-----------------+-----------+--------------+--------------------------------------------------+-------------+
-| c_custkey | c_name             | c_address                             | c_phone         | c_acctbal | c_mktsegment | c_comment                                        | c_nationkey |
-+-----------+--------------------+---------------------------------------+-----------------+-----------+--------------+--------------------------------------------------+-------------+
-|       100 | Customer#000000100 | jD2xZzi                               | 25-430-914-2194 |   3471.59 | BUILDING     | cial ideas. final, furious requests              |          25 |
-|        32 | Customer#000000032 | jD2xZzi UmId,DCtNBLXKj9q0Tlp2iQ6ZcO3J | 25-430-914-2194 |   3471.53 | BUILDING     | cial ideas. final, furious requests across the e |          15 |
-+-----------+--------------------+---------------------------------------+-----------------+-----------+--------------+--------------------------------------------------+-------------+
-spark-sql> select * from customer_mor timestamp as of '20240603015058442' where c_custkey = 32 or c_custkey = 100;
+mysql> use default;
+Reading table information for completion of table and column names
+You can turn off this feature to get a quicker startup with -A
+
+Database changed
+
+mysql> select * from test_table limit 10;
++------+----------+--------+
+| key  | value    | added  |
++------+----------+--------+
+|    0 | NULL     | 12.345 |
+|    4 | NULL     | 12.345 |
+|   20 | NULL     | 12.345 |
+|   26 | NULL     | 12.345 |
+|   29 | value 29 | 12.345 |
+|   42 | NULL     | 12.345 |
+|   50 | NULL     | 12.345 |
+|   56 | NULL     | 12.345 |
+|   66 | NULL     | 12.345 |
+|   74 | NULL     | 12.345 |
++------+----------+--------+
+10 rows in set (1.49 sec)
 ```
 
-## Incremental Read
-Seed the data changed between after inserting `c_custkey=100`
-```sql
-doris> select * from customer_cow@incr('beginTime'='20240603015018572');
-+-----------+---------------------------+-----------+-----------------+-----------+--------------+-------------------------------------+-------------+
-| c_custkey | c_name                    | c_address | c_phone         | c_acctbal | c_mktsegment | c_comment                           | c_nationkey |
-+-----------+---------------------------+-----------+-----------------+-----------+--------------+-------------------------------------+-------------+
-|        32 | Customer#000000032_update | jD2xZzi   | 25-430-914-2194 |   3471.59 | BUILDING     | cial ideas. final, furious requests |          15 |
-+-----------+---------------------------+-----------+-----------------+-----------+--------------+-------------------------------------+-------------+
-spark-sql> select * from hudi_table_changes('customer_cow', 'latest_state', '20240603015018572');
+- federation query
 
-doris> select * from customer_mor@incr('beginTime'='20240603015058442');
-+-----------+---------------------------+-----------+-----------------+-----------+--------------+-------------------------------------+-------------+
-| c_custkey | c_name                    | c_address | c_phone         | c_acctbal | c_mktsegment | c_comment                           | c_nationkey |
-+-----------+---------------------------+-----------+-----------------+-----------+--------------+-------------------------------------+-------------+
-|        32 | Customer#000000032_update | jD2xZzi   | 25-430-914-2194 |   3471.59 | BUILDING     | cial ideas. final, furious requests |          15 |
-+-----------+---------------------------+-----------+-----------------+-----------+--------------+-------------------------------------+-------------+
-spark-sql> select * from hudi_table_changes('customer_mor', 'latest_state', '20240603015058442');
+```sql
+mysql> select * from delta_lake.`default`.customer c join kudu_catalog.`default`.test_table t on c.c_custkey = t.`key` where c.c_custkey < 50;
++-----------+--------------------+---------------------------------------+-------------+-----------------+-----------+--------------+--------------------------------------------------------------------------------------------------------+------+----------+--------+
+| c_custkey | c_name             | c_address                             | c_nationkey | c_phone         | c_acctbal | c_mktsegment | c_comment                                                                                              | key  | value    | added  |
++-----------+--------------------+---------------------------------------+-------------+-----------------+-----------+--------------+--------------------------------------------------------------------------------------------------------+------+----------+--------+
+|         1 | Customer#000000001 | IVhzIApeRb ot,c,E                     |          15 | 25-989-741-2988 |    711.56 | BUILDING     | to the even, regular platelets. regular, ironic epitaphs nag e                                         |    1 | value 1  | 12.345 |
+|        33 | Customer#000000033 | qFSlMuLucBmx9xnn5ib2csWUweg D         |          17 | 27-375-391-1280 |    -78.56 | AUTOMOBILE   | s. slyly regular accounts are furiously. carefully pending requests                                    |   33 | value 33 | 12.345 |
+|         3 | Customer#000000003 | MG9kdTD2WBHm                          |           1 | 11-719-748-3364 |   7498.12 | AUTOMOBILE   |  deposits eat slyly ironic, even instructions. express foxes detect slyly. blithely even accounts abov |    3 | value 3  | 12.345 |
+|        35 | Customer#000000035 | TEjWGE4nBzJL2                         |          17 | 27-566-888-7431 |   1228.24 | HOUSEHOLD    | requests. special, express requests nag slyly furiousl                                                 |   35 | value 35 | 12.345 |
+|         2 | Customer#000000002 | XSTf4,NCwDVaWNe6tEgvwfmRchLXak        |          13 | 23-768-687-3665 |    121.65 | AUTOMOBILE   | l accounts. blithely ironic theodolites integrate boldly: caref                                        |    2 | NULL     | 12.345 |
+|        34 | Customer#000000034 | Q6G9wZ6dnczmtOx509xgE,M2KV            |          15 | 25-344-968-5422 |   8589.70 | HOUSEHOLD    | nder against the even, pending accounts. even                                                          |   34 | NULL     | 12.345 |
+|        32 | Customer#000000032 | jD2xZzi UmId,DCtNBLXKj9q0Tlp2iQ6ZcO3J |          15 | 25-430-914-2194 |   3471.53 | BUILDING     | cial ideas. final, furious requests across the e                                                       |   32 | NULL     | 12.345 |
++-----------+--------------------+---------------------------------------+-------------+-----------------+-----------+--------------+--------------------------------------------------------------------------------------------------------+------+----------+--------+
+7 rows in set (0.13 sec)
 ```
