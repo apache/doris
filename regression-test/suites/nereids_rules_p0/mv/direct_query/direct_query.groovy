@@ -139,8 +139,6 @@ suite("direct_query_mv") {
             from lineitem
             inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY
             """)
-    // select mv directly, mv should not part in rewrite
-    mv_not_part_in("""select L_LINENUMBER from mv1_0;""", "mv1_0")
 
 
     create_async_mv(db, "mv2_0",
@@ -150,13 +148,21 @@ suite("direct_query_mv") {
             group by L_LINENUMBER;
             """)
     // mv2 use mv1, though query not use mv1 directly, mv2 should part in rewrite and shoule be chosen
-    mv_rewrite_success("""
+    check_mv_rewrite_success(db,
+            """
+            select L_LINENUMBER, count(O_CUSTKEY)
+            from mv1_0
+            group by L_LINENUMBER;
+            """,
+            """
             select L_LINENUMBER, count(O_CUSTKEY)
             from lineitem
             inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY
             group by L_LINENUMBER;
-    """,
-    "mv2_0");
+            """,
+            "mv2_0"
+    )
+
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
 }

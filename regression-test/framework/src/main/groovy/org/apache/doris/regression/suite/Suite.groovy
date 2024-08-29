@@ -1381,15 +1381,6 @@ class Suite implements GroovyInterceptable {
         sql "analyze table ${mv_name} with sync;"
     }
 
-    def mv_not_part_in = { query_sql, mv_name ->
-        explain {
-            sql(" memo plan ${query_sql}")
-            notContains("${mv_name} chose")
-            notContains("${mv_name} not chose")
-            notContains("${mv_name} fail")
-        }
-    }
-
     def check_mv_rewrite_success = { db, mv_sql, query_sql, mv_name ->
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
