@@ -30,6 +30,9 @@
 
 namespace doris {
 
+struct ByteBuffer;
+using ByteBufferPtr = std::shared_ptr<ByteBuffer>;
+
 struct ByteBuffer : private Allocator<false> {
     static Status allocate(const size_t size, ByteBufferPtr* ptr) {
         RETURN_IF_CATCH_EXCEPTION({ *ptr = ByteBufferPtr(new ByteBuffer(size)); });
@@ -71,5 +74,4 @@ private:
     }
 };
 
-using ByteBufferPtr = std::shared_ptr<ByteBuffer>;
 } // namespace doris
