@@ -47,7 +47,6 @@ Status ByteArrayDictDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t 
         total_length += l;
     }
 
-    _dict_value_to_code.reserve(num_values);
     // For insert_many_strings_overflow
     _dict_data.resize(total_length + ColumnString::MAX_STRINGS_OVERFLOW_SIZE);
     _max_value_length = 0;
@@ -58,7 +57,6 @@ Status ByteArrayDictDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t 
         offset_cursor += 4;
         memcpy(&_dict_data[offset], dict_item_address + offset_cursor, l);
         _dict_items.emplace_back(&_dict_data[offset], l);
-        _dict_value_to_code[StringRef(&_dict_data[offset], l)] = i;
         offset_cursor += l;
         offset += l;
         if (offset_cursor > length) {
@@ -77,15 +75,6 @@ Status ByteArrayDictDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t 
 Status ByteArrayDictDecoder::read_dict_values_to_column(MutableColumnPtr& doris_column) {
     doris_column->insert_many_strings_overflow(_dict_items.data(), _dict_items.size(),
                                                _max_value_length);
-    return Status::OK();
-}
-
-Status ByteArrayDictDecoder::get_dict_codes(const ColumnString* string_column,
-                                            std::vector<int32_t>* dict_codes) {
-    for (int i = 0; i < string_column->size(); ++i) {
-        StringRef dict_value = string_column->get_data_at(i);
-        dict_codes->emplace_back(_dict_value_to_code[dict_value]);
-    }
     return Status::OK();
 }
 
