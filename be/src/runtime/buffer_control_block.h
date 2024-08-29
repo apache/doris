@@ -77,7 +77,7 @@ public:
     Status init();
     // Only one fragment is written, so can_sink returns true, then the sink must be executed
     virtual bool can_sink();
-    virtual Status add_batch(std::unique_ptr<TFetchDataResult>& result);
+    virtual Status add_batch(std::unique_ptr<TFetchDataResult>& result, bool is_pipeline = false);
     virtual Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result);
 
     virtual void get_batch(GetResultBatchCtx* ctx);
@@ -144,7 +144,7 @@ public:
         return _get_batch_queue_empty() || _buffer_rows < _buffer_limit || _is_cancelled;
     }
 
-    Status add_batch(std::unique_ptr<TFetchDataResult>& result) override;
+    Status add_batch(std::unique_ptr<TFetchDataResult>& result, bool is_pipeline = true) override;
 
     Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result) override;
 
