@@ -52,6 +52,7 @@ import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -141,7 +142,7 @@ public class HiveMetaStoreCache {
                 OptionalLong.of(28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
                 Config.max_hive_partition_table_cache_num,
-                false,
+                true,
                 null);
         partitionValuesCache = partitionValuesCacheFactory.buildCache(key -> loadPartitionValues(key), null,
                 refreshExecutor);
@@ -150,7 +151,7 @@ public class HiveMetaStoreCache {
                 OptionalLong.of(28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
                 Config.max_hive_partition_cache_num,
-                false,
+                true,
                 null);
         partitionCache = partitionCacheFactory.buildCache(new CacheLoader<PartitionCacheKey, HivePartition>() {
             @Override
@@ -183,7 +184,7 @@ public class HiveMetaStoreCache {
                         ? fileMetaCacheTtlSecond : 28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
                 Config.max_external_file_cache_num,
-                false,
+                true,
                 null);
 
         CacheLoader<FileCacheKey, FileCacheValue> loader = new CacheBulkLoader<FileCacheKey, FileCacheValue>() {
@@ -1130,5 +1131,27 @@ public class HiveMetaStoreCache {
             }
             return copy;
         }
+    }
+
+    /**
+     * get cache stats
+     * @return <cache name -> <metric name -> metric value>>
+     */
+    public Map<String, Map<String, String>> getStats() {
+        Map<String, Map<String, String>> res = Maps.newHashMap();
+        res.put("hive_partition_values_cache", getCacheStats(partitionValuesCache.stats()));
+        res.put("hive_partition_cache", getCacheStats(partitionCache.stats()));
+        res.put("hive_file_cache", getCacheStats(fileCacheRef.get().stats()));
+        return res;
+    }
+
+    private Map<String, String> getCacheStats(CacheStats cacheStats) {
+        Map<String, String> stats = Maps.newHashMap();
+        stats.put("hit_ratio", String.valueOf(cacheStats.hitRate()));
+        stats.put("hit_count", String.valueOf(cacheStats.hitCount()));
+        stats.put("read_count", String.valueOf(cacheStats.hitCount() + cacheStats.missCount()));
+        stats.put("eviction_count", String.valueOf(cacheStats.evictionCount()));
+        stats.put("average_load_penalty", String.valueOf(cacheStats.averageLoadPenalty()));
+        return stats;
     }
 }
