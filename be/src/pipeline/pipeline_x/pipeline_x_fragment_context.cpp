@@ -1042,8 +1042,11 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             request.query_options.__isset.enable_distinct_streaming_aggregation &&
             request.query_options.enable_distinct_streaming_aggregation &&
             !tnode.agg_node.grouping_exprs.empty()) {
-            op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs));
+            op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs,
+                                                       _require_bucket_distribution));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
+            _require_bucket_distribution =
+                    _require_bucket_distribution || op->require_data_distribution();
         } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
                    tnode.agg_node.use_streaming_preaggregation &&
                    !tnode.agg_node.grouping_exprs.empty()) {
@@ -1067,14 +1070,18 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             DataSinkOperatorXPtr sink;
             if (_runtime_state->enable_agg_spill() && !tnode.agg_node.grouping_exprs.empty()) {
                 sink.reset(new PartitionedAggSinkOperatorX(pool, next_sink_operator_id(), tnode,
-                                                           descs));
+                                                           descs, _require_bucket_distribution));
             } else {
-                sink.reset(new AggSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+                sink.reset(new AggSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
+                                                _require_bucket_distribution));
             }
+            _require_bucket_distribution =
+                    _require_bucket_distribution || sink->require_data_distribution();
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
         }
+        _require_bucket_distribution = true;
         break;
     }
     case TPlanNodeType::HASH_JOIN_NODE: {
@@ -1139,6 +1146,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             _pipeline_parent_map.push(op->node_id(), cur_pipe);
             _pipeline_parent_map.push(op->node_id(), build_side_pipe);
         }
+        _require_bucket_distribution =
+                _require_bucket_distribution || op->require_data_distribution();
         break;
     }
     case TPlanNodeType::CROSS_JOIN_NODE: {
@@ -1201,10 +1210,14 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
 
         DataSinkOperatorXPtr sink;
         if (_runtime_state->enable_sort_spill()) {
-            sink.reset(new SpillSortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+            sink.reset(new SpillSortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
+                                                  _require_bucket_distribution));
         } else {
-            sink.reset(new SortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+            sink.reset(new SortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
+                                             _require_bucket_distribution));
         }
+        _require_bucket_distribution =
+                _require_bucket_distribution || sink->require_data_distribution();
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -1240,7 +1253,10 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
         DataSinkOperatorXPtr sink;
-        sink.reset(new AnalyticSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+        sink.reset(new AnalyticSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
+                                             _require_bucket_distribution));
+        _require_bucket_distribution =
+                _require_bucket_distribution || sink->require_data_distribution();
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -1279,6 +1295,10 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     case TPlanNodeType::DATA_GEN_SCAN_NODE: {
         op.reset(new DataGenSourceOperatorX(pool, tnode, next_operator_id(), descs));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        if (request.__isset.parallel_instances) {
+            cur_pipe->set_num_tasks(request.parallel_instances);
+            op->set_ignore_data_distribution();
+        }
         break;
     }
     case TPlanNodeType::SCHEMA_SCAN_NODE: {
@@ -1300,6 +1320,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         return Status::InternalError("Unsupported exec type in pipelineX: {}",
                                      print_plan_node_type(tnode.node_type));
     }
+
+    _require_bucket_distribution = true;
 
     return Status::OK();
 }

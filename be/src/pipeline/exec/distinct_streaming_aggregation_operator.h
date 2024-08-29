@@ -97,7 +97,7 @@ class DistinctStreamingAggOperatorX final
         : public StatefulOperatorX<DistinctStreamingAggLocalState> {
 public:
     DistinctStreamingAggOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                  const DescriptorTbl& descs);
+                                  const DescriptorTbl& descs, bool require_bucket_distribution);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
@@ -107,12 +107,14 @@ public:
 
     DataDistribution required_data_distribution() const override {
         if (_needs_finalize || (!_probe_expr_ctxs.empty() && !_is_streaming_preagg)) {
-            return _is_colocate
+            return _is_colocate && _require_bucket_distribution
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
         return StatefulOperatorX<DistinctStreamingAggLocalState>::required_data_distribution();
     }
+
+    bool require_data_distribution() const override { return _is_colocate; }
 
 private:
     friend class DistinctStreamingAggLocalState;
@@ -125,6 +127,7 @@ private:
     const bool _is_first_phase;
     const std::vector<TExpr> _partition_exprs;
     const bool _is_colocate;
+    const bool _require_bucket_distribution;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;

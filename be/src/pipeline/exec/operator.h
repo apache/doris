@@ -252,7 +252,8 @@ public:
 
     virtual size_t revocable_mem_size(RuntimeState* state) const { return 0; }
 
-    virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); };
+    virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); }
+    [[nodiscard]] virtual bool require_data_distribution() const { return false; }
 
 protected:
     OperatorBuilderBase* _operator_builder = nullptr;
