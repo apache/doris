@@ -42,6 +42,8 @@
 
 #pragma once
 
+#include <pdqsort.h>
+
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -647,7 +649,7 @@ private:
     // when complete, _unprocessed will be empty and _processed will have at most _max_processed centroids
     void process() {
         CentroidComparator cc;
-        RadixSort<TDigestRadixSortTraits>::executeLSD(_unprocessed.data(), _unprocessed.size());
+        pdqsort(_unprocessed.begin(), _unprocessed.end(), cc);
         auto count = _unprocessed.size();
         _unprocessed.insert(_unprocessed.end(), _processed.cbegin(), _processed.cend());
         std::inplace_merge(_unprocessed.begin(), _unprocessed.begin() + count, _unprocessed.end(),
