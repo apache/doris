@@ -264,7 +264,7 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
                 ctx->status = process_put(req, ctx);
             }
         }
-        if (!st.ok() && !ctx->status.ok()) {
+        if (!st.ok()) {
             LOG(WARNING) << "append body content failed. errmsg=" << st << ", " << ctx->brief();
             ctx->status = st;
             return;
