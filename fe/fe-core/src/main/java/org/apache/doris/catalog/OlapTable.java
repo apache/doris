@@ -629,6 +629,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         setColocateGroup(null);
     }
 
+    public void resetVersionForRestore() {
+        for (Partition partition : idToPartition.values()) {
+            partition.setNextVersion(partition.getVisibleVersion());
+        }
+    }
+
     public Status resetIdsForRestore(Env env, Database db, ReplicaAllocation restoreReplicaAlloc,
             boolean reserveReplica) {
         // ATTN: The meta of the restore may come from different clusters, so the

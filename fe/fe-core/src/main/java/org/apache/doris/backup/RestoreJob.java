@@ -770,6 +770,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         return;
                     }
 
+                    // reset next version to visible version for all partitions
+                    remoteOlapTbl.resetVersionForRestore();
+
                     // Reset properties to correct values.
                     remoteOlapTbl.resetPropertiesForRestore(reserveDynamicPartitionEnable, reserveReplica,
                                                             replicaAlloc, isBeingSynced);
