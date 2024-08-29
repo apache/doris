@@ -330,9 +330,8 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
 
         RETURN_IF_ERROR(scanner_builder.build_scanners(*scanners));
         for (auto& scanner : *scanners) {
-            auto* olap_scanner = assert_cast<vectorized::NewOlapScanner*>(scanner.get());
-            RETURN_IF_ERROR(olap_scanner->prepare(state(), _conjuncts));
-            olap_scanner->set_compound_filters(_compound_filters);
+            RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
+            scanner->set_compound_filters(_compound_filters);
         }
         return Status::OK();
     }

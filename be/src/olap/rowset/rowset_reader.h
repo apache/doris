@@ -46,7 +46,7 @@ struct RowSetSplits {
     std::vector<RowRanges> segment_row_ranges;
 
     RowSetSplits(RowsetReaderSharedPtr rs_reader_)
-            : rs_reader(rs_reader_), segment_offsets({0, 0}) {}
+            : rs_reader(std::move(rs_reader_)), segment_offsets({0, 0}) {}
     RowSetSplits() = default;
 };
 

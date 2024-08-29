@@ -23,6 +23,7 @@
 #include "olap/rowset/beta_rowset.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "vec/exec/scan/new_olap_scanner.h"
+#include "vec/exec/scan/union_scanner.h"
 
 namespace doris {
 
@@ -41,6 +42,8 @@ Status ParallelScannerBuilder::build_scanners(std::list<VScannerSPtr>& scanners)
 Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>& scanners) {
     DCHECK_GE(_rows_per_scanner, _min_rows_per_scanner);
 
+    std::vector<std::shared_ptr<NewOlapScanner>> small_scanners;
+    std::vector<size_t> small_scanners_rows;
     for (auto&& [tablet, version] : _tablets) {
         DCHECK(_all_rowsets.contains(tablet->tablet_id()));
         auto& rowsets = _all_rowsets[tablet->tablet_id()];
@@ -156,10 +159,49 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
                           split.segment_offsets.second - split.segment_offsets.first);
             }
 #endif
-            scanners.emplace_back(
-                    _build_scanner(tablet, version, _key_ranges,
-                                   {std::move(read_source.rs_splits),
-                                    reade_source_with_delete_info.delete_predicates}));
+            auto scanner = _build_scanner(tablet, version, _key_ranges,
+                                          {std::move(read_source.rs_splits),
+                                           reade_source_with_delete_info.delete_predicates});
+            if (rows_collected < _rows_per_scanner * 0.5) {
+                small_scanners.emplace_back(std::move(scanner));
+                small_scanners_rows.emplace_back(rows_collected);
+            } else {
+                scanners.emplace_back(std::move(scanner));
+            }
+        }
+    }
+
+    if (!small_scanners.empty()) {
+        if ((scanners.size() + small_scanners.size()) >= _max_scanners_count) {
+            auto union_scanner =
+                    UnionScanner::create_shared(_state, _parent, _limit, _scanner_profile.get());
+            size_t rows_collected = 0;
+            for (size_t i = 0; i != small_scanners.size(); ++i) {
+                union_scanner->add_scanner(std::move(small_scanners[i]));
+                rows_collected += small_scanners_rows[i];
+
+                if (rows_collected >= _rows_per_scanner) {
+                    LOG(INFO) << "merge " << union_scanner->get_scanners_count()
+                              << " tablets' readers into one, contain rows: " << rows_collected;
+                    rows_collected = 0;
+                    scanners.emplace_back(std::move(union_scanner));
+                    union_scanner = UnionScanner::create_shared(_state, _parent, _limit,
+                                                                _scanner_profile.get());
+                }
+            }
+
+            const auto count = union_scanner->get_scanners_count();
+            if (count > 1) {
+                LOG(INFO) << "merge " << count
+                          << " tablets' readers into one, contain rows: " << rows_collected;
+                scanners.emplace_back(std::move(union_scanner));
+            } else if (count == 1) {
+                scanners.emplace_back(union_scanner->get_single_scanner());
+            }
+        } else {
+            for (auto& scanner : small_scanners) {
+                scanners.emplace_back(std::move(scanner));
+            }
         }
     }
 

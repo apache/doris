@@ -18,7 +18,6 @@
 #pragma once
 
 #include <gen_cpp/PaloInternalService_types.h>
-#include <stdint.h>
 
 #include <memory>
 #include <string>
@@ -51,6 +50,7 @@ struct FilterPredicates;
 namespace vectorized {
 
 class Block;
+class UnionScanner;
 
 class NewOlapScanner : public VScanner {
     ENABLE_FACTORY_CREATOR(NewOlapScanner);
@@ -75,11 +75,12 @@ public:
 
     Status close(RuntimeState* state) override;
 
-    void set_compound_filters(const std::vector<TCondition>& compound_filters);
+    void set_compound_filters(const std::vector<TCondition>& compound_filters) override;
 
     doris::TabletStorageType get_storage_type() override;
 
 protected:
+    friend class UnionScanner;
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
     void _collect_profile_before_close() override;
 
