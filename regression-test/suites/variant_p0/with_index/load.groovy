@@ -61,6 +61,7 @@ suite("regression_test_variant_with_index", "nonConcurrent"){
         properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
     sql """insert into var_with_index values(1, '{"a" : 0, "b": 3}', 'hello world'), (2, '{"a" : 123}', 'world'),(3, '{"a" : 123}', 'hello world')"""
+    sql """set enable_match_without_inverted_index = false""" 
     qt_sql_inv_1 """select v["a"] from var_with_index where inv match 'hello' order by k"""
     qt_sql_inv_2 """select v["a"] from var_with_index where inv match 'hello' and cast(v['a'] as int) > 0 order by k"""
     qt_sql_inv_3 """select * from var_with_index where inv match 'hello' and cast(v["a"] as int) > 0 order by k"""
