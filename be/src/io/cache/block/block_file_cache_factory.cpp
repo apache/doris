@@ -115,6 +115,9 @@ std::vector<IFileCache::QueryFileCacheContextHolderPtr> FileCacheFactory::get_qu
 }
 
 void FileCacheFactory::get_cache_stats_block(vectorized::Block* block) {
+    if (!config::enable_file_cache) {
+        return;
+    }
     // std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
     TBackend be = BackendOptions::get_local_backend();
     int64_t be_id = be.id;
