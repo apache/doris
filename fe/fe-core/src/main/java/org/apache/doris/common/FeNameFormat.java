@@ -30,6 +30,8 @@ import com.google.common.base.Strings;
 
 public class FeNameFormat {
     private static final String LABEL_REGEX = "^[-_A-Za-z0-9:]{1," + Config.label_regex_length + "}$";
+    // if modify the matching length of a regular expression,
+    // please modify error msg when FeNameFormat.checkCommonName throw exception in CreateRoutineLoadStmt
     private static final String COMMON_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9-_]{0,63}$";
     private static final String UNDERSCORE_COMMON_NAME_REGEX = "^[_a-zA-Z][a-zA-Z0-9-_]{0,63}$";
     private static final String TABLE_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9-_]*$";
