@@ -51,6 +51,9 @@ suite("test_ip_rf") {
 
         """
 
+    sql "ANALYZE TABLE ip_test WITH sync;"
+    sql "ANALYZE TABLE ip_test2 WITH sync;"
+
     sql "set runtime_filter_type=0;"
     qt_sql "select count(*) from ip_test a, ip_test2 b where a.ip_v4=b.ip_v4;"
     qt_sql "select count(*) from ip_test a, ip_test2 b where a.ip_v6=b.ip_v6;"
