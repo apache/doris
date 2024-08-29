@@ -17,15 +17,15 @@
 
 package org.apache.doris.mysql.authenticate.ldap;
 
-import org.apache.doris.common.ConfigBase;
-import org.apache.doris.common.LdapConfig;
 import org.apache.doris.mysql.authenticate.AuthenticatorFactory;
+
+import java.util.Properties;
 
 public class LdapAuthenticatorFactory implements AuthenticatorFactory {
 
 
     @Override
-    public LdapAuthenticator create(ConfigBase config) {
+    public LdapAuthenticator create(Properties initProps) {
         return new LdapAuthenticator();
     }
 
@@ -34,8 +34,4 @@ public class LdapAuthenticatorFactory implements AuthenticatorFactory {
         return "ldap";
     }
 
-    @Override
-    public LdapConfig getAuthenticatorConfig() {
-        return new LdapConfig();
-    }
 }

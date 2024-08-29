@@ -17,7 +17,7 @@
 
 package org.apache.doris.mysql.authenticate;
 
-import org.apache.doris.common.ConfigBase;
+import java.util.Properties;
 
 public interface AuthenticatorFactory {
     /**
@@ -25,7 +25,7 @@ public interface AuthenticatorFactory {
      *
      * @return an instance of Authenticator
      */
-    Authenticator create(ConfigBase config);
+    Authenticator create(Properties initProps);
 
     /**
      * Returns the identifier for the factory, such as "ldap" or "default".
@@ -33,17 +33,5 @@ public interface AuthenticatorFactory {
      * @return the factory identifier
      */
     String factoryIdentifier();
-
-    /**
-     * Retrieves the configuration template associated with this authenticator.
-     * <p>
-     * This method provides a default configuration template that can be used
-     * as a base for initializing the authenticator. The returned configuration
-     * can be modified as needed before passing it to the `create` method to
-     * instantiate an authenticator.
-     *
-     * @return the configuration template for the authenticator
-     */
-    ConfigBase getAuthenticatorConfig();
 }
 

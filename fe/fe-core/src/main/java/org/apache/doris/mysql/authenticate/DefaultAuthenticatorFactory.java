@@ -17,21 +17,16 @@
 
 package org.apache.doris.mysql.authenticate;
 
-import org.apache.doris.common.ConfigBase;
+import java.util.Properties;
 
 public class DefaultAuthenticatorFactory implements AuthenticatorFactory {
     @Override
-    public Authenticator create(ConfigBase config) {
+    public DefaultAuthenticator create(Properties initProps) {
         return new DefaultAuthenticator();
     }
 
     @Override
     public String factoryIdentifier() {
         return "default";
-    }
-
-    @Override
-    public ConfigBase getAuthenticatorConfig() {
-        return null;
     }
 }

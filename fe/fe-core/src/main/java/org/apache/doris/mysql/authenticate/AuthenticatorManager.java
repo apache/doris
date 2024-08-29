@@ -17,7 +17,6 @@
 
 package org.apache.doris.mysql.authenticate;
 
-import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.EnvUtils;
 import org.apache.doris.mysql.MysqlAuthPacket;
 import org.apache.doris.mysql.MysqlChannel;
@@ -32,43 +31,42 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.ServiceLoader;
 
 public class AuthenticatorManager {
     private static final Logger LOG = LogManager.getLogger(AuthenticatorManager.class);
 
-    private Authenticator defaultAuthenticator;
-    private Authenticator authTypeAuthenticator;
+    private static volatile Authenticator defaultAuthenticator = null;
+    private static volatile Authenticator authTypeAuthenticator = null;
 
     public AuthenticatorManager(String type) {
-        LOG.info("authenticate type: {}", type);
-        this.defaultAuthenticator = new DefaultAuthenticator();
-        AuthenticatorFactory authenticatorFactory = loadFactoriesByName(type);
-        //refactory is null when using default authenticator
-        if (type.equalsIgnoreCase(AuthenticateType.LDAP.name())
-                || type.equalsIgnoreCase(AuthenticateType.DEFAULT.name())) {
-            this.authTypeAuthenticator = authenticatorFactory.create(null);
-            return;
-        }
-        try {
-            //init config properties when using other authenticator
-            ConfigBase config = authenticatorFactory.getAuthenticatorConfig();
-            loadConfigFile(config);
-            authenticatorFactory.create(config);
-        } catch (Exception e) {
-            LOG.warn("init authenticator {} failed", e, type);
+        LOG.info("Authenticate type: {}", type);
+
+        if (authTypeAuthenticator == null) {
+            synchronized (AuthenticatorManager.class) {
+                if (authTypeAuthenticator == null) {
+                    try {
+                        authTypeAuthenticator = loadFactoriesByName(type);
+                    } catch (Exception e) {
+                        LOG.warn("Failed to load authenticator by name: {}, using default authenticator", type, e);
+                        authTypeAuthenticator = defaultAuthenticator;
+                    }
+                }
+            }
         }
     }
 
 
-    private AuthenticatorFactory loadFactoriesByName(String identifier) {
+    private Authenticator loadFactoriesByName(String identifier) throws Exception {
         ServiceLoader<AuthenticatorFactory> loader = ServiceLoader.load(AuthenticatorFactory.class);
         for (AuthenticatorFactory factory : loader) {
             LOG.info("Found Authenticator Plugin Factory: {}", factory.factoryIdentifier());
             if (factory.factoryIdentifier().equalsIgnoreCase(identifier)) {
-
-                return factory;
+                return factory.create(loadConfigFile());
             }
         }
         throw new RuntimeException("No AuthenticatorFactory found for identifier: " + identifier);
@@ -103,10 +101,14 @@ public class AuthenticatorManager {
         return authTypeAuthenticator.canDeal(userName) ? authTypeAuthenticator : defaultAuthenticator;
     }
 
-    private static void loadConfigFile(ConfigBase authenticateConfig) throws Exception {
-        String dorisHomeDir = EnvUtils.getDorisHome();
-        if (new File(dorisHomeDir + "/conf/authenticate.conf").exists()) {
-            authenticateConfig.init(dorisHomeDir + "/conf/ldap.conf");
+    private static Properties loadConfigFile() throws Exception {
+        String configFilePath = EnvUtils.getDorisHome() + "/conf/authenticate.conf";
+        if (new File(configFilePath).exists()) {
+            LOG.info("Loading authenticate configuration file: {}", configFilePath);
+            Properties properties = new Properties();
+            properties.load(Files.newInputStream(Paths.get(configFilePath)));
+            return properties;
         }
+        return new Properties();
     }
 }
