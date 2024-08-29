@@ -430,7 +430,10 @@ Status Merger::vertical_merge_rowsets(TabletSharedPtr tablet, ReaderType reader_
 
     vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
                                                  reader_type);
-    tablet->sample_infos.resize(column_groups.size(), {0, 0, 0});
+    {
+        std::unique_lock<std::mutex> lock(tablet->sample_info_lock);
+        tablet->sample_infos.resize(column_groups.size(), {0, 0, 0});
+    }
     // compact group one by one
     for (auto i = 0; i < column_groups.size(); ++i) {
         VLOG_NOTICE << "row source size: " << row_sources_buf.total_size();
@@ -438,10 +441,16 @@ Status Merger::vertical_merge_rowsets(TabletSharedPtr tablet, ReaderType reader_
         int64_t batch_size = config::compaction_batch_size != -1
                                      ? config::compaction_batch_size
                                      : estimate_batch_size(i, tablet, merge_way_num);
-        RETURN_IF_ERROR(vertical_compact_one_group(
+        CompactionSampleInfo sample_info;
+        Status st = vertical_compact_one_group(
                 tablet, reader_type, tablet_schema, is_key, column_groups[i], &row_sources_buf,
                 src_rowset_readers, dst_rowset_writer, max_rows_per_segment, stats_output,
-                key_group_cluster_key_idxes, batch_size, &(tablet->sample_infos[i])));
+                key_group_cluster_key_idxes, batch_size, &sample_info);
+        {
+            std::unique_lock<std::mutex> lock(tablet->sample_info_lock);
+            tablet->sample_infos[i] = sample_info;
+        }
+        RETURN_IF_ERROR(st);
         if (is_key) {
             RETURN_IF_ERROR(row_sources_buf.flush());
         }
