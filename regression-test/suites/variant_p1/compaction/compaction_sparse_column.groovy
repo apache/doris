@@ -16,6 +16,7 @@
 // under the License.
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.awaitility.Awaitility
 
 suite("test_compaction_sparse_column", "p1,nonConcurrent") {
     def tableName = "test_compaction"
@@ -125,9 +126,7 @@ suite("test_compaction_sparse_column", "p1,nonConcurrent") {
 
         // wait for all compactions done
         for (def tablet in tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(1000)
+            Awaitility.await().untilAsserted(() -> {
                 String tablet_id = tablet.TabletId
                 backend_id = tablet.BackendId
                 (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
@@ -135,8 +134,8 @@ suite("test_compaction_sparse_column", "p1,nonConcurrent") {
                 assertEquals(code, 0)
                 def compactionStatus = parseJson(out.trim())
                 assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
+                return compactionStatus.run_status;
+            });
         }
 
         int rowCount = 0
