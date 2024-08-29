@@ -730,7 +730,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
             sink_id, local_exchange_id,
             should_disable_bucket_shuffle ? _total_instances : _num_instances,
             data_distribution.partition_exprs, bucket_seq_to_instance_idx));
-    if (should_disable_bucket_shuffle &&
+    if (bucket_seq_to_instance_idx.empty() &&
         data_distribution.distribution_type == ExchangeType::BUCKET_HASH_SHUFFLE) {
         data_distribution.distribution_type = ExchangeType::HASH_SHUFFLE;
     }
