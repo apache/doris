@@ -118,6 +118,13 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------PhysicalStorageLayerAggregate[max_min_filter_push_down1]
 
+-- !depend_prune_column --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------filter((max_min_filter_push_down1.value1 < 10))
+--------PhysicalOlapScan[max_min_filter_push_down1]
+
 -- !scalar_agg_empty_table_res --
 
 -- !min_res --
@@ -186,6 +193,10 @@ PhysicalResultSink
 
 -- !max_equal_scalar_agg_res --
 73
+
+-- !depend_prune_column_res --
+10
+19
 
 -- !smallint --
 PhysicalResultSink

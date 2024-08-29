@@ -111,6 +111,11 @@ suite("max_min_filter_push_down") {
     select max(value1) from max_min_filter_push_down1 having max(value1) >=40;
     """
 
+    qt_depend_prune_column """
+    explain shape plan
+    select c1 from (select min(value1) c1,max(value2) from max_min_filter_push_down1 group by id having min(value1)<10) t
+    """
+
     qt_scalar_agg_empty_table_res """
     select min(value1) from max_min_filter_push_down_empty having min(value1) <40 and min(value1) <20;
     """
@@ -167,7 +172,9 @@ suite("max_min_filter_push_down") {
     qt_max_equal_scalar_agg_res """
     select max(value1) from max_min_filter_push_down1 having max(value1) >=40;
     """
-
+    qt_depend_prune_column_res """
+    select c1 from (select min(value1) c1,max(value2) from max_min_filter_push_down1 group by id having min(value1)<20) t order by c1
+    """
 
     sql "drop table if exists max_min_filter_push_down2"
     sql """create table max_min_filter_push_down2(d_int int, d_char100 char(100), d_smallint smallint, d_tinyint tinyint, d_char10 char(10),d_datetimev2 datetimev2, d_datev2 datev2)
