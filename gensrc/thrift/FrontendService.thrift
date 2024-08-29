@@ -1465,6 +1465,7 @@ struct TGetColumnInfoResult {
 
 struct TShowProcessListRequest {
     1: optional bool show_full_sql
+    2: optional Types.TUserIdentity current_user_ident
 }
 
 struct TShowProcessListResult {
