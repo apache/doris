@@ -145,6 +145,9 @@ public class CatalogMgrTest extends TestWithFeService {
         env.changeCatalog(rootCtx, switchHive.getCatalogName());
         CreateRoleStmt createRole2 = (CreateRoleStmt) parseAndAnalyzeStmt("create role role2;", rootCtx);
         auth.createRole(createRole2);
+        GrantStmt grantRole2 = (GrantStmt) parseAndAnalyzeStmt("grant grant_priv on hive.*.* to role 'role2';",
+                rootCtx);
+        auth.grant(grantRole2);
         auth.createUser((CreateUserStmt) parseAndAnalyzeStmt(
                 "create user 'user2'@'%' identified by 'pwd2' default role 'role2';", rootCtx));
         user2 = new UserIdentity("user2", "%");
