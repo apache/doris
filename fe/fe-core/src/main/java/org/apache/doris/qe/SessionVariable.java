@@ -712,7 +712,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableProfile = false;
 
     @VariableMgr.VarAttr(name = ENABLE_VERBOSE_PROFILE, needForward = true)
-    public boolean enableVerboseProfile = true;
+    public boolean enableVerboseProfile = false;
 
     @VariableMgr.VarAttr(name = RPC_VERBOSE_PROFILE_MAX_INSTANCE_COUNT, needForward = true)
     public int rpcVerboseProfileMaxInstanceCount = 5;
