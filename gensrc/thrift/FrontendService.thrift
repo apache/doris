@@ -545,7 +545,6 @@ struct TGroupCommitInfo{
     1: optional bool getGroupCommitLoadBeId
     2: optional i64 groupCommitLoadTableId
     3: optional string cluster
-    4: optional bool isCloud
     5: optional bool updateLoadData
     6: optional i64 tableId 
     7: optional i64 receiveData

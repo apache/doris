@@ -46,7 +46,7 @@ public class CloudGroupCommitPlanner extends GroupCommitPlanner {
     protected void selectBackends(ConnectContext ctx) throws DdlException {
         try {
             backend = Env.getCurrentEnv().getGroupCommitManager()
-                    .selectBackendForGroupCommit(this.table.getId(), ctx, true);
+                    .selectBackendForGroupCommit(this.table.getId(), ctx);
         } catch (LoadException e) {
             throw new DdlException("No suitable backend");
         }

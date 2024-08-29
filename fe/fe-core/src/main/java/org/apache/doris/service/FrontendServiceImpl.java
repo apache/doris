@@ -1041,7 +1041,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             final TMasterOpResult result = new TMasterOpResult();
             try {
                 result.setGroupCommitLoadBeId(Env.getCurrentEnv().getGroupCommitManager()
-                        .selectBackendForGroupCommitInternal(info.groupCommitLoadTableId, info.cluster, info.isCloud));
+                        .selectBackendForGroupCommitInternal(info.groupCommitLoadTableId, info.cluster));
             } catch (LoadException | DdlException e) {
                 throw new TException(e.getMessage());
             }
