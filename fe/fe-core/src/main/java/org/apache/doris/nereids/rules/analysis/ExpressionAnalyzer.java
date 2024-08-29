@@ -65,7 +65,6 @@ import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
@@ -177,11 +176,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 @Override
                 public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
                     Expression fold = super.visitBoundFunction(boundFunction, context);
-                    boolean unfold = fold instanceof Nondeterministic;
+                    boolean unfold = !fold.isDeterministic();
                     if (unfold) {
                         sqlCacheContext.setCannotProcessExpression(true);
                     }
-                    if (boundFunction instanceof Nondeterministic && !unfold) {
+                    if (!boundFunction.isDeterministic() && !unfold) {
                         sqlCacheContext.addFoldNondeterministicPair(boundFunction, fold);
                     }
                     return fold;
@@ -407,7 +406,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Optional<SqlCacheContext> sqlCacheContext = Optional.empty();
         if (wantToParseSqlFromSqlCache) {
             StatementContext statementContext = context.cascadesContext.getStatementContext();
-            if (buildResult.second instanceof Nondeterministic) {
+            if (!buildResult.second.isDeterministic()) {
                 hasNondeterministic = true;
             }
             sqlCacheContext = statementContext.getSqlCacheContext();
