@@ -33,13 +33,8 @@ struct ByteBuffer;
 using ByteBufferPtr = std::shared_ptr<ByteBuffer>;
 
 struct ByteBuffer : private Allocator<false> {
-    static ByteBufferPtr allocate(size_t size) {
-        ByteBufferPtr ptr(new ByteBuffer(size));
-        return ptr;
-    }
-
-    static Status create_and_allocate(ByteBufferPtr& ptr, size_t size) {
-        ptr = ByteBufferPtr(new ByteBuffer(size));
+    static Status allocate(const size_t size, ByteBufferPtr* ptr) {
+        RETURN_IF_CATCH_EXCEPTION({ *ptr = ByteBufferPtr(new ByteBuffer(size)); });
         return Status::OK();
     }
 
