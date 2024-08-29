@@ -45,6 +45,16 @@
 
 namespace doris::io {
 
+bvar::Window<bvar::Adder<int64_t>> g_num_read_blocks_5m(
+        _cache_base_path.c_str(), "file_cache_num_read_blocks_5m", _num_read_blocks.get(), 300);
+bvar::Window<bvar::Adder<int64_t>> g_num_read_blocks_1h(
+        _cache_base_path.c_str(), "file_cache_num_read_blocks_1h", _num_read_blocks.get(),
+        3600);
+bvar::Window<bvar::Adder<int64_t>> g_num_hit_blocks_5m(
+        _cache_base_path.c_str(), "file_cache_num_hit_blocks_5m", _num_hit_blocks.get(), 300);
+bvar::Window<bvar::Adder<int64_t>> g_num_hit_blocks_1h(
+        _cache_base_path.c_str(), "file_cache_num_hit_blocks_1h", _num_hit_blocks.get(), 3600);
+
 BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                const FileCacheSettings& cache_settings)
         : _cache_base_path(cache_base_path),
@@ -89,16 +99,6 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                                             "file_cache_num_hit_blocks");
     _num_removed_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                                 "file_cache_num_removed_blocks");
-
-    _num_read_blocks_5m = bvar::Window<bvar::Adder<int64_t>>(
-            _cache_base_path.c_str(), "file_cache_num_read_blocks_5m", _num_read_blocks.get(), 300);
-    _num_read_blocks_1h = bvar::Window<bvar::Adder<int64_t>>(
-            _cache_base_path.c_str(), "file_cache_num_read_blocks_1h", _num_read_blocks.get(),
-            3600);
-    _num_hit_blocks_5m = bvar::Window<bvar::Adder<int64_t>>(
-            _cache_base_path.c_str(), "file_cache_num_hit_blocks_5m", _num_hit_blocks.get(), 300);
-    _num_hit_blocks_1h = bvar::Window<bvar::Adder<int64_t>>(
-            _cache_base_path.c_str(), "file_cache_num_hit_blocks_1h", _num_hit_blocks.get(), 3600);
 
     _hit_ratio = std::make_shared<bvar::Status<double>>(_cache_base_path.c_str(),
                                                         "file_cache_hit_ratio", 0.0);
@@ -1629,13 +1629,13 @@ void BlockFileCache::run_background_operation() {
             _hit_ratio->set_value((double)_num_hit_blocks->get_value() /
                                   _num_read_blocks->get_value());
         }
-        if (_num_read_blocks_5m->get_value() > 0) {
-            _hit_ratio_5m->set_value((double)_num_hit_blocks_5m->get_value() /
-                                     _num_read_blocks_5m->get_value());
+        if (g_num_read_blocks_5m->get_value() > 0) {
+            _hit_ratio_5m->set_value((double)g_num_hit_blocks_5m.get_value() /
+                                     g_num_read_blocks_5m.get_value());
         }
-        if (_num_read_blocks_1h->get_value() > 0) {
-            _hit_ratio_1h->set_value((double)_num_hit_blocks_1h->get_value() /
-                                     _num_read_blocks_1h->get_value());
+        if (g_num_read_blocks_1h.get_value() > 0) {
+            _hit_ratio_1h->set_value((double)g_num_hit_blocks_1h.get_value() /
+                                     g_num_read_blocks_1h.get_value());
         }
     }
 }

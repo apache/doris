@@ -467,11 +467,6 @@ private:
     std::shared_ptr<bvar::Status<size_t>> _hit_ratio_5m_metrics;
     std::shared_ptr<bvar::Status<size_t>> _hit_ratio_1h_metrics;
 
-    bvar::Window<bvar::Adder<int64_t>> _num_read_blocks_5m;
-    bvar::Window<bvar::Adder<int64_t>> _num_read_blocks_1h;
-    bvar::Window<bvar::Adder<int64_t>> _num_hit_blocks_5m;
-    bvar::Window<bvar::Adder<int64_t>> _num_hit_blocks_1h;
-
     std::shared_ptr<bvar::Status<double>> _hit_ratio;
     std::shared_ptr<bvar::Status<double>> _hit_ratio_5m;
     std::shared_ptr<bvar::Status<double>> _hit_ratio_1h;
