@@ -31,6 +31,7 @@ suite("test_upgrade_downgrade_prepare_inverted_index","p0,inverted_index,restart
         )
         DUPLICATE KEY(a, b)
         PROPERTIES (
+            "replication_num" = "1",
             "inverted_index_storage_format" = "%s"
         );''', version, version)
         sql String.format('''insert into t_up_down_inverted_index%s_duplicate values
@@ -68,6 +69,7 @@ suite("test_upgrade_downgrade_prepare_inverted_index","p0,inverted_index,restart
         )
         DISTRIBUTED BY HASH(`a`) BUCKETS 2
         PROPERTIES (
+            "replication_num" = "1",
             "inverted_index_storage_format" = "%s"
         );''', version, version)
 
@@ -97,6 +99,7 @@ suite("test_upgrade_downgrade_prepare_inverted_index","p0,inverted_index,restart
         AGGREGATE KEY(a, b, c)
         DISTRIBUTED BY HASH(`a`) BUCKETS 3
         PROPERTIES (
+            "replication_num" = "1",
             "inverted_index_storage_format" = "%s"
         );''', version, version)
         def values = new ArrayList()
