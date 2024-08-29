@@ -26,7 +26,10 @@
 namespace doris {
 template <typename TAllocator>
 PageBase<TAllocator>::PageBase(size_t b, bool use_cache, segment_v2::PageTypePB page_type)
-        : LRUCacheValueBase(), _size(b), _capacity(b) {
+        : TAllocator(use_cache ? StoragePageCache::instance()->mem_tracker(page_type) : nullptr),
+          LRUCacheValueBase(),
+          _size(b),
+          _capacity(b) {
     if (use_cache) {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
                 StoragePageCache::instance()->mem_tracker(page_type));
