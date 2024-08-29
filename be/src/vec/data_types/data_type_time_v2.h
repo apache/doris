@@ -31,6 +31,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number_base.h"
@@ -161,11 +162,21 @@ public:
                                    node.date_literal.value);
         }
     }
+
     MutableColumnPtr create_column() const override;
 
     UInt32 get_scale() const override { return _scale; }
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
+
+    Field get_type_field(const IColumn& column, size_t row) const override {
+        const auto& column_data =
+                assert_cast<const ColumnUInt64&, TypeCheckOnRelease::DISABLE>(column);
+        Field field;
+        column_data.get(row, field);
+        field.set_type_info(get_type_id(), 0, static_cast<int>(get_scale()));
+        return field;
+    }
 
     static void cast_to_date(const UInt64 from, Int64& to);
     static void cast_to_date_time(const UInt64 from, Int64& to);

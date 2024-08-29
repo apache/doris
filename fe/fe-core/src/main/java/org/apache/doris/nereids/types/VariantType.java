@@ -18,26 +18,62 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
+import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * Variant type in Nereids.
  * Why Variant is not complex type? Since it's nested structure is not pre-defined, then using
  * primitive type will be easy to handle meta info in FE.
+ * Also, could predefine some fields of nested columns.
+ * Example: VARIANT <`a.b`:INT, a.c:DATETIMEV2>
+ *
  */
-@Developing
 public class VariantType extends PrimitiveType {
 
     public static final VariantType INSTANCE = new VariantType();
 
     public static final int WIDTH = 24;
 
+    private final List<StructField> predefinedFields;
+    private final Supplier<Map<String, StructField>> pathToFields;
+
+    // No predefined fields
+    public VariantType() {
+        predefinedFields = Lists.newArrayList();
+        pathToFields = Suppliers.memoize(Maps::newTreeMap);
+    }
+
+    /**
+     *   Contains predefined fields like struct
+     */
+    public VariantType(List<StructField> fields) {
+        this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
+        this.pathToFields = Suppliers.memoize(() -> this.predefinedFields.stream().collect(ImmutableMap.toImmutableMap(
+                StructField::getName, f -> f, (f1, f2) -> {
+                    throw new AnalysisException("The name of the struct field cannot be repeated."
+                            + " same name fields are " + f1 + " and " + f2);
+                })));
+    }
+
     @Override
     public Type toCatalogDataType() {
-        return Type.VARIANT;
+        return new org.apache.doris.catalog.VariantType(predefinedFields.stream()
+                        .map(StructField::toCatalogDataType)
+                        .collect(Collectors.toCollection(ArrayList::new)));
     }
 
     @Override
@@ -46,8 +82,11 @@ public class VariantType extends PrimitiveType {
     }
 
     @Override
-    public String simpleString() {
-        return "variant";
+    public String toSql() {
+        if (predefinedFields.isEmpty()) {
+            return "VARIANT";
+        }
+        return "VARIANT<" + predefinedFields.stream().map(StructField::toSql).collect(Collectors.joining(",")) + ">";
     }
 
     @Override
@@ -69,11 +108,6 @@ public class VariantType extends PrimitiveType {
     @Override
     public int width() {
         return WIDTH;
-    }
-
-    @Override
-    public String toSql() {
-        return "VARIANT";
     }
 
     @Override

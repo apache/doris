@@ -640,6 +640,19 @@ public class ColumnDefinition {
                 }
                 break;
             }
+            case VARIANT:
+                ArrayList<org.apache.doris.catalog.StructField> predefinedFields =
+                        ((org.apache.doris.catalog.VariantType) scalarType).getPredefinedFields();
+                Set<String> fieldNames = new HashSet<>();
+                for (org.apache.doris.catalog.StructField field : predefinedFields) {
+                    Type fieldType = field.getType();
+                    validateNestedType(scalarType, fieldType);
+                    if (!fieldNames.add(field.getName())) {
+                        throw new AnalysisException("Duplicate field name " + field.getName()
+                                + " in struct " + scalarType.toSql());
+                    }
+                }
+                break;
             case INVALID_TYPE:
                 throw new AnalysisException("Invalid type.");
             default:

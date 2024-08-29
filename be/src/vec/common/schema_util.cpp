@@ -32,8 +32,10 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <ostream>
+#include <set>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -45,6 +47,7 @@
 #include "olap/tablet_schema.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "util/defer_op.h"
 #include "vec/columns/column.h"
@@ -156,7 +159,8 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     }
     Block tmp_block {arguments};
     size_t result_column = tmp_block.columns();
-    auto ctx = FunctionContext::create_context(nullptr, {}, {});
+    RuntimeState state;
+    auto ctx = FunctionContext::create_context(&state, {}, {});
 
     // To prevent from null info lost, we should not call function since the function framework will wrap
     // nullable to Variant instead of the root of Variant
@@ -186,8 +190,13 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     ctx->set_string_as_jsonb_string(true);
     ctx->set_jsonb_string_as_string(true);
     tmp_block.insert({nullptr, type, arg.name});
-    RETURN_IF_ERROR(
-            function->execute(ctx.get(), tmp_block, {0}, result_column, arg.column->size()));
+    if (!function->execute(ctx.get(), tmp_block, {0}, result_column, arg.column->size())) {
+        LOG_EVERY_N(WARNING, 100) << fmt::format("cast from {} to {}", arg.type->get_name(),
+                                                 type->get_name());
+        *result = type->create_column_const_with_default_value(arg.column->size())
+                          ->convert_to_full_column_if_const();
+        return Status::OK();
+    }
     *result = tmp_block.get_by_position(result_column).column->convert_to_full_column_if_const();
     VLOG_DEBUG << fmt::format("{} before convert {}, after convert {}", arg.name,
                               arg.column->get_name(), (*result)->get_name());
@@ -230,9 +239,15 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         column.set_length(data_type->get_size_of_value_in_memory());
         return;
     }
-    // TODO handle more types like struct/date/datetime/decimal...
-    LOG(FATAL) << "__builtin_unreachable";
-    __builtin_unreachable();
+    if (WhichDataType(*data_type).is_decimal()) {
+        column.set_precision_frac(data_type->get_precision(), data_type->get_scale());
+        column.set_is_decimal(true);
+        return;
+    }
+    if (WhichDataType(*data_type).is_date_time_v2()) {
+        column.set_precision_frac(-1, data_type->get_scale());
+        return;
+    }
 }
 
 TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
@@ -245,6 +260,7 @@ TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const 
 void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
                                   TabletSchemaSPtr& common_schema, bool update_sparse_column,
                                   int32_t variant_col_unique_id,
+                                  const std::map<std::string, TabletColumnPtr>& typed_columns,
                                   std::set<PathInData>* path_set = nullptr) {
     PathsInData tuple_paths;
     DataTypes tuple_types;
@@ -281,11 +297,21 @@ void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolu
     // Append all common type columns of this variant
     for (int i = 0; i < tuple_paths.size(); ++i) {
         TabletColumn common_column;
-        // const std::string& column_name = variant_col_name + "." + tuple_paths[i].get_path();
-        get_column_by_type(tuple_types[i], tuple_paths[i].get_path(), common_column,
-                           ExtraInfo {.unique_id = -1,
-                                      .parent_unique_id = variant_col_unique_id,
-                                      .path_info = tuple_paths[i]});
+        // typed path not contains root part
+        auto path_without_root = tuple_paths[i].copy_pop_front().get_path();
+        if (typed_columns.contains(path_without_root) && !tuple_paths[i].has_nested_part()) {
+            common_column = *typed_columns.at(path_without_root);
+            // parent unique id and path may not be init in write path
+            common_column.set_parent_unique_id(variant_col_unique_id);
+            common_column.set_path_info(tuple_paths[i]);
+            common_column.set_name(tuple_paths[i].get_path());
+        } else {
+            // const std::string& column_name = variant_col_name + "." + tuple_paths[i].get_path();
+            get_column_by_type(tuple_types[i], tuple_paths[i].get_path(), common_column,
+                               ExtraInfo {.unique_id = -1,
+                                          .parent_unique_id = variant_col_unique_id,
+                                          .path_info = tuple_paths[i]});
+        }
         if (update_sparse_column) {
             common_schema->mutable_column_by_uid(variant_col_unique_id)
                     .append_sparse_column(common_column);
@@ -301,6 +327,11 @@ void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolu
 void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                                 TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
                                 std::set<PathInData>* path_set) {
+    std::map<std::string, TabletColumnPtr> typed_columns;
+    for (const TabletColumnPtr& col :
+         common_schema->column_by_uid(variant_col_unique_id).get_sub_columns()) {
+        typed_columns[col->name()] = col;
+    }
     // Types of subcolumns by path from all tuples.
     std::map<PathInData, DataTypes> subcolumns_types;
     for (const TabletSchemaSPtr& schema : schemas) {
@@ -308,7 +339,7 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
             // Get subcolumns of this variant
             if (col->has_path_info() && col->parent_unique_id() > 0 &&
                 col->parent_unique_id() == variant_col_unique_id) {
-                subcolumns_types[*col->path_info_ptr()].push_back(
+                subcolumns_types[*col->path_info_ptr()].emplace_back(
                         DataTypeFactory::instance().create_data_type(*col, col->is_nullable()));
             }
         }
@@ -325,18 +356,23 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                 col->parent_unique_id() == variant_col_unique_id &&
                 // this column have been found in origin columns
                 subcolumns_types.find(*col->path_info_ptr()) != subcolumns_types.end()) {
-                subcolumns_types[*col->path_info_ptr()].push_back(
+                subcolumns_types[*col->path_info_ptr()].emplace_back(
                         DataTypeFactory::instance().create_data_type(*col, col->is_nullable()));
             }
         }
     }
     update_least_schema_internal(subcolumns_types, common_schema, false, variant_col_unique_id,
-                                 path_set);
+                                 typed_columns, path_set);
 }
 
 void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
                                 TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
                                 const std::set<PathInData>& path_set) {
+    std::map<std::string, TabletColumnPtr> typed_columns;
+    for (const TabletColumnPtr& col :
+         common_schema->column_by_uid(variant_col_unique_id).get_sub_columns()) {
+        typed_columns[col->name()] = col;
+    }
     // Types of subcolumns by path from all tuples.
     std::map<PathInData, DataTypes> subcolumns_types;
     for (const TabletSchemaSPtr& schema : schemas) {
@@ -350,12 +386,13 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
             if (col->has_path_info() && col->parent_unique_id() > 0 &&
                 col->parent_unique_id() == variant_col_unique_id &&
                 path_set.find(*col->path_info_ptr()) == path_set.end()) {
-                subcolumns_types[*col->path_info_ptr()].push_back(
+                subcolumns_types[*col->path_info_ptr()].emplace_back(
                         DataTypeFactory::instance().create_data_type(*col, col->is_nullable()));
             }
         }
     }
-    update_least_schema_internal(subcolumns_types, common_schema, true, variant_col_unique_id);
+    update_least_schema_internal(subcolumns_types, common_schema, true, variant_col_unique_id,
+                                 typed_columns);
 }
 
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,

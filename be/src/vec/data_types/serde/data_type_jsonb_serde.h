@@ -65,7 +65,7 @@ public:
                                std::vector<StringRef>& buffer_list) const override;
     Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                   rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                  int64_t row_num) const override;
+                                  int64_t row_num, const DataTypePtr& type) const override;
     Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
                               int64_t end) const override;

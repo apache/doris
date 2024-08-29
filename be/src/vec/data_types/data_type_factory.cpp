@@ -248,7 +248,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
     return nested;
 }
 
-DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool is_nullable) {
+DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool is_nullable,
+                                              int precision, int scale) {
     DataTypePtr nested = nullptr;
     switch (type_index) {
     case TypeIndex::UInt8:
@@ -297,7 +298,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
         nested = std::make_shared<vectorized::DataTypeDateV2>();
         break;
     case TypeIndex::DateTimeV2:
-        nested = std::make_shared<DataTypeDateTimeV2>();
+        nested = std::make_shared<DataTypeDateTimeV2>(scale > 0 ? scale : 0);
         break;
     case TypeIndex::DateTime:
         nested = std::make_shared<vectorized::DataTypeDateTime>();
@@ -309,22 +310,29 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
         nested = std::make_shared<vectorized::DataTypeObject>("", true);
         break;
     case TypeIndex::Decimal32:
-        nested = std::make_shared<DataTypeDecimal<Decimal32>>(BeConsts::MAX_DECIMAL32_PRECISION, 0);
+        nested = std::make_shared<DataTypeDecimal<Decimal32>>(
+                precision > 0 ? precision : BeConsts::MAX_DECIMAL32_PRECISION,
+                scale > 0 ? scale : 0);
         break;
     case TypeIndex::Decimal64:
-        nested = std::make_shared<DataTypeDecimal<Decimal64>>(BeConsts::MAX_DECIMAL64_PRECISION, 0);
+        nested = std::make_shared<DataTypeDecimal<Decimal64>>(
+                precision > 0 ? precision : BeConsts::MAX_DECIMAL64_PRECISION,
+                scale > 0 ? scale : 0);
         break;
     case TypeIndex::Decimal128V2:
-        nested = std::make_shared<DataTypeDecimal<Decimal128V2>>(BeConsts::MAX_DECIMALV2_PRECISION,
-                                                                 0);
+        nested = std::make_shared<DataTypeDecimal<Decimal128V2>>(
+                precision > 0 ? precision : BeConsts::MAX_DECIMALV2_PRECISION,
+                scale > 0 ? scale : 0);
         break;
     case TypeIndex::Decimal128V3:
-        nested = std::make_shared<DataTypeDecimal<Decimal128V3>>(BeConsts::MAX_DECIMAL128_PRECISION,
-                                                                 0);
+        nested = std::make_shared<DataTypeDecimal<Decimal128V3>>(
+                precision > 0 ? precision : BeConsts::MAX_DECIMAL128_PRECISION,
+                scale > 0 ? scale : 0);
         break;
     case TypeIndex::Decimal256:
-        nested = std::make_shared<DataTypeDecimal<Decimal256>>(BeConsts::MAX_DECIMAL256_PRECISION,
-                                                               0);
+        nested = std::make_shared<DataTypeDecimal<Decimal256>>(
+                precision > 0 ? precision : BeConsts::MAX_DECIMAL256_PRECISION,
+                scale > 0 ? scale : 0);
         break;
     case TypeIndex::JSONB:
         nested = std::make_shared<vectorized::DataTypeJsonb>();

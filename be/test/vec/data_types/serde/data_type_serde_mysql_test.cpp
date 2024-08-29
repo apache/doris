@@ -83,7 +83,7 @@ void serialize_and_deserialize_mysql_test() {
             {"k4", FieldType::OLAP_FIELD_TYPE_BOOL, 4, TYPE_BOOLEAN, false},
             {"k5", FieldType::OLAP_FIELD_TYPE_IPV4, 5, TYPE_IPV4, false},
             {"k6", FieldType::OLAP_FIELD_TYPE_IPV6, 6, TYPE_IPV6, false}};
-    int row_num = 7;
+    int64_t row_num = 7;
     // make desc and generate block
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
     _output_vexpr_ctxs.resize(cols.size());

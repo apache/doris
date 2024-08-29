@@ -1709,6 +1709,7 @@ dataType
     : complex=ARRAY LT dataType GT                                  #complexDataType
     | complex=MAP LT dataType COMMA dataType GT                     #complexDataType
     | complex=STRUCT LT complexColTypeList GT                       #complexDataType
+    | VARIANT LT variantSubColTypeList GT                           #variantPredefinedFields
     | AGG_STATE LT functionNameIdentifier
         LEFT_PAREN dataTypes+=dataTypeWithNullable
         (COMMA dataTypes+=dataTypeWithNullable)* RIGHT_PAREN GT     #aggStateDataType
@@ -1757,6 +1758,13 @@ complexColTypeList
 
 complexColType
     : identifier COLON dataType commentSpec?
+    ;
+
+variantSubColTypeList
+    : variantSubColType (COMMA variantSubColType)*
+    ;
+variantSubColType
+    : qualifiedName COLON dataType commentSpec?
     ;
 
 commentSpec

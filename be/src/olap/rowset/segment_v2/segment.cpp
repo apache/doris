@@ -1143,10 +1143,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         }
         RETURN_IF_ERROR(
                 iterator_hint->read_by_rowids(single_row_loc.data(), 1, file_storage_column));
-        // iterator_hint.reset(nullptr);
-        // Get it's inner field, for JSONB case
-        vectorized::Field field = remove_nullable(storage_type)->get_default();
-        file_storage_column->get(0, field);
+        vectorized::Field field = storage_type->get_type_field(*file_storage_column, 0);
         result->insert(field);
     } else {
         int index = (slot->col_unique_id() >= 0) ? schema.field_index(slot->col_unique_id())

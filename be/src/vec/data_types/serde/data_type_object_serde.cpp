@@ -197,6 +197,39 @@ Status DataTypeObjectSerDe::write_column_to_orc(const std::string& timezone, con
     return Status::OK();
 }
 
+Status DataTypeObjectSerDe::write_one_cell_to_json(
+        const IColumn& column, rapidjson::Value& result,
+        rapidjson::Document::AllocatorType& allocator, Arena& mem_pool, int64_t row_num,
+        const std::shared_ptr<const IDataType>& type) const {
+    const auto& var = assert_cast<const ColumnObject&>(column);
+    if (!var.is_finalized()) {
+        var.assume_mutable()->finalize();
+    }
+    result.SetObject();
+    // sort to make output stable, todo add a config
+    auto subcolumns = schema_util::get_sorted_subcolumns(var.get_subcolumns());
+    for (const auto& entry : subcolumns) {
+        const auto& subcolumn = entry->data.get_finalized_column();
+        const auto& subtype_serde = entry->data.get_least_common_type_serde();
+        const auto& subtype = entry->data.get_least_common_type();
+        if (subcolumn.is_null_at(row_num)) {
+            continue;
+        }
+        rapidjson::Value key;
+        key.SetString(entry->path.get_path().data(), (uint32_t)entry->path.get_path().size());
+        rapidjson::Value val;
+        RETURN_IF_ERROR(subtype_serde->write_one_cell_to_json(subcolumn, val, allocator, mem_pool,
+                                                              row_num, subtype));
+        if (val.IsNull() && entry->path.empty()) {
+            // skip null value with empty key, indicate the null json value of root in variant map,
+            // usally padding in nested arrays
+            continue;
+        }
+        result.AddMember(key, val, allocator);
+    }
+    return Status::OK();
+}
+
 } // namespace vectorized
 
 } // namespace doris

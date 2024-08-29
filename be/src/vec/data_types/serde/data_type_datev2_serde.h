@@ -80,6 +80,13 @@ public:
 
     void insert_column_last_value_multiple_times(IColumn& column, int times) const override;
 
+    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
+                                  int64_t row_num, const DataTypePtr& type) const override {
+        return DataTypeSerDe::write_one_cell_to_json(column, result, allocator, mem_pool, row_num,
+                                                     type);
+    }
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
