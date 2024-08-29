@@ -44,6 +44,18 @@ std::unordered_map<void*, size_t> RecordSizeMemoryAllocator::_allocated_sizes;
 std::mutex RecordSizeMemoryAllocator::_mutex;
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
+Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::Allocator(
+        const std::shared_ptr<doris::MemTrackerLimiter>& tracker) {
+    if (tracker) {
+        mem_tracker_ = tracker;
+    } else {
+        // Note that when constructing an object that inherits Allocator, the memory tracker may not be attached
+        // in tls. memory tracker may be attached in tls only when the memory is allocated for the first time.
+        mem_tracker_ = doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
+    }
+}
+
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_memory_check(
         size_t size) const {
 #ifdef BE_TEST
@@ -211,18 +223,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::consume_memory(
-        size_t size) {
-    // Usually, an object that inherits Allocator has the same TLS tracker for each alloc.
-    // If an object that inherits Allocator needs to be reused by multiple queries,
-    // it is necessary to switch the same tracker to TLS when calling alloc.
-    // However, in ORC Reader, ORC DataBuffer will be reused, but we cannot switch TLS tracker,
-    // so we update the Allocator tracker when the TLS tracker changes.
-    // note that the tracker in thread context when object that inherit Allocator is constructed may be
-    // no attach memory tracker in tls. usually the memory tracker is attached in tls only during the first alloc.
-    if (mem_tracker_ == nullptr ||
-        mem_tracker_->label() != doris::thread_context()->thread_mem_tracker()->label()) {
-        mem_tracker_ = doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
-    }
+        size_t size) const {
     CONSUME_THREAD_MEM_TRACKER(size);
 }
 
