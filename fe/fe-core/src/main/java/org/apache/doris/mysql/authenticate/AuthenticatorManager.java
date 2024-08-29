@@ -17,20 +17,23 @@
 
 package org.apache.doris.mysql.authenticate;
 
+import org.apache.doris.common.ConfigBase;
+import org.apache.doris.common.EnvUtils;
 import org.apache.doris.mysql.MysqlAuthPacket;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
-import org.apache.doris.mysql.authenticate.ldap.LdapAuthenticator;
 import org.apache.doris.mysql.authenticate.password.Password;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.Optional;
+import java.util.ServiceLoader;
 
 public class AuthenticatorManager {
     private static final Logger LOG = LogManager.getLogger(AuthenticatorManager.class);
@@ -38,26 +41,45 @@ public class AuthenticatorManager {
     private Authenticator defaultAuthenticator;
     private Authenticator authTypeAuthenticator;
 
-    public AuthenticatorManager(AuthenticateType type) {
+    public AuthenticatorManager(String type) {
         LOG.info("authenticate type: {}", type);
         this.defaultAuthenticator = new DefaultAuthenticator();
-        switch (type) {
-            case LDAP:
-                this.authTypeAuthenticator = new LdapAuthenticator();
-                break;
-            case DEFAULT:
-            default:
-                this.authTypeAuthenticator = defaultAuthenticator;
-                break;
+        AuthenticatorFactory authenticatorFactory = loadFactoriesByName(type);
+        //refactory is null when using default authenticator
+        if (type.equalsIgnoreCase(AuthenticateType.LDAP.name())
+                || type.equalsIgnoreCase(AuthenticateType.DEFAULT.name())) {
+            this.authTypeAuthenticator = authenticatorFactory.create(null);
+            return;
+        }
+        try {
+            //init config properties when using other authenticator
+            ConfigBase config = authenticatorFactory.getAuthenticatorConfig();
+            loadConfigFile(config);
+            authenticatorFactory.create(config);
+        } catch (Exception e) {
+            LOG.warn("init authenticator {} failed", e, type);
         }
     }
 
+
+    private AuthenticatorFactory loadFactoriesByName(String identifier) {
+        ServiceLoader<AuthenticatorFactory> loader = ServiceLoader.load(AuthenticatorFactory.class);
+        for (AuthenticatorFactory factory : loader) {
+            LOG.info("Found Authenticator Plugin Factory: {}", factory.factoryIdentifier());
+            if (factory.factoryIdentifier().equalsIgnoreCase(identifier)) {
+
+                return factory;
+            }
+        }
+        throw new RuntimeException("No AuthenticatorFactory found for identifier: " + identifier);
+    }
+
     public boolean authenticate(ConnectContext context,
-            String userName,
-            MysqlChannel channel,
-            MysqlSerializer serializer,
-            MysqlAuthPacket authPacket,
-            MysqlHandshakePacket handshakePacket) throws IOException {
+                                String userName,
+                                MysqlChannel channel,
+                                MysqlSerializer serializer,
+                                MysqlAuthPacket authPacket,
+                                MysqlHandshakePacket handshakePacket) throws IOException {
         Authenticator authenticator = chooseAuthenticator(userName);
         Optional<Password> password = authenticator.getPasswordResolver()
                 .resolvePassword(context, channel, serializer, authPacket, handshakePacket);
@@ -79,5 +101,12 @@ public class AuthenticatorManager {
 
     private Authenticator chooseAuthenticator(String userName) {
         return authTypeAuthenticator.canDeal(userName) ? authTypeAuthenticator : defaultAuthenticator;
+    }
+
+    private static void loadConfigFile(ConfigBase authenticateConfig) throws Exception {
+        String dorisHomeDir = EnvUtils.getDorisHome();
+        if (new File(dorisHomeDir + "/conf/authenticate.conf").exists()) {
+            authenticateConfig.init(dorisHomeDir + "/conf/ldap.conf");
+        }
     }
 }
