@@ -39,7 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-public class WarmUpClusterStmt extends StatementBase {
+public class WarmUpClusterStmt extends StatementBase implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(WarmUpClusterStmt.class);
     private List<Map<TableName, String>> tableList;
     private List<Triple<String, String, String>> tables = new ArrayList<>();
