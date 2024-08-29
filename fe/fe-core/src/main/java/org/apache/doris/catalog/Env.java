@@ -3709,6 +3709,12 @@ public class Env {
             sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicaAlloc));
         }
 
+        // use simple auto range partition name
+        if (olapTable.useSimpleAutoPartitionName()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_USE_SIMPLE_AUTO_PARTITION_NAME).append("\" = \"");
+            sb.append(olapTable.useSimpleAutoPartitionName()).append("\"");
+        }
+
         // only display z-order sort info
         if (olapTable.isZOrderSort()) {
             sb.append(olapTable.getDataSortInfo().toSql());
@@ -5647,7 +5653,8 @@ public class Env {
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
                 .buildTimeSeriesCompactionLevelThreshold()
                 .buildTTLSeconds()
-                .buildAutoAnalyzeProperty();
+                .buildAutoAnalyzeProperty()
+                .buildUseSimpleAutoPartitionName();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {

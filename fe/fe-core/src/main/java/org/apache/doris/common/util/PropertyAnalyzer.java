@@ -243,6 +243,8 @@ public class PropertyAnalyzer {
     public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
     public static final long TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE = 1;
 
+    public static final String PROPERTIES_USE_SIMPLE_AUTO_PARTITION_NAME = "use_simple_auto_partition_name";
+
     public enum RewriteType {
         PUT,      // always put property
         REPLACE,  // replace if exists property

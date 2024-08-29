@@ -54,6 +54,9 @@ import java.util.Map;
  * TableProperty includes properties to persistent the additional information
  * Different properties is recognized by prefix such as dynamic_partition
  * If there is different type properties is added, write a method such as buildDynamicProperty to build it.
+ * modify property:
+ *  1. call setXXX to olapTable to set TableProperty.properties
+ *  2. call TableProperty.buildXXX to set specific value of TableProperty
  */
 public class TableProperty implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(TableProperty.class);
@@ -78,6 +81,8 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     // which columns stored in RowStore column
     private List<String> rowStoreColumns;
+
+    private Boolean useSimpleAutoPartitionName = false;
 
     /*
      * the default storage format of this table.
@@ -169,6 +174,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
                 buildTimeSeriesCompactionLevelThreshold();
                 buildTTLSeconds();
                 buildAutoAnalyzeProperty();
+                buildUseSimpleAutoPartitionName();
                 break;
             default:
                 break;
@@ -196,6 +202,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
         return this;
     }
 
+    // make properties of dynamic partition go into dynamicPartitionProperty
     public TableProperty buildDynamicProperty() {
         executeBuildDynamicProperty();
         return this;
@@ -238,6 +245,12 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     public TableProperty clearInAtomicRestore() {
         properties.remove(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE);
+        return this;
+    }
+
+    public TableProperty buildUseSimpleAutoPartitionName() {
+        useSimpleAutoPartitionName = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_USE_SIMPLE_AUTO_PARTITION_NAME, "false"));
         return this;
     }
 
@@ -550,6 +563,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
         return this;
     }
 
+    // modify means update with argument. not clean others
     public void modifyTableProperties(Map<String, String> modifyProperties) {
         properties.putAll(modifyProperties);
         removeDuplicateReplicaNumProperty();
@@ -595,6 +609,10 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     public boolean isInMemory() {
         return isInMemory;
+    }
+
+    public boolean useSimpleAutoPartitionName() {
+        return useSimpleAutoPartitionName;
     }
 
     public boolean isAutoBucket() {
@@ -750,6 +768,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
         buildTimeSeriesCompactionEmptyRowsetsThreshold();
         buildTimeSeriesCompactionLevelThreshold();
         buildTTLSeconds();
+        buildUseSimpleAutoPartitionName();
         buildVariantEnableFlattenNested();
         buildInAtomicRestore();
 

@@ -243,4 +243,43 @@ suite("test_auto_range_partition") {
         sql "insert into awh_test_range_auto values (1,'20201212')"
         exception "date_trunc function time unit param only support argument is"
     }
+
+
+
+    // test simple range partition name.
+    def test_partition_name_length = { interval, length ->
+        def part = []
+        def part_names = []
+        sql "drop table if exists test_interval"
+        sql """
+            CREATE TABLE test_interval (
+                `TIME_STAMP` datetimev2 NOT NULL
+            )
+            auto partition by range (date_trunc(`TIME_STAMP`, '${interval}'))()
+            DISTRIBUTED BY HASH(`TIME_STAMP`) BUCKETS 10
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "use_simple_auto_partition_name" = "true"
+            );
+        """
+        sql " insert into test_interval values ('2022-12-14'), ('2022-01-15'), ('2022-07-26'), ('2000-02-29'), ('2015-09-18'); "
+        part = sql " show partitions from test_interval; "
+        part_names = part.collect{it[1]}.sort()
+        logger.info("${interval}: ${part_names}")
+    
+        part_names.each { element ->
+            assertEquals(element.size(), length)
+        }
+    }
+    test_partition_name_length("year", 5)
+    test_partition_name_length("quarter", 7)
+    test_partition_name_length("month", 7)
+    test_partition_name_length("week", 9)
+    test_partition_name_length("day", 9)
+    test_partition_name_length("hour", 11)
+    test_partition_name_length("minute", 13)
+    test_partition_name_length("second", 15)
+
+    show_result = (sql "show create table test_interval").toString()
+    assertTrue(show_result.contains("""\"use_simple_auto_partition_name\" = \"true\""""), show_result)
 }

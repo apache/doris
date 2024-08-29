@@ -221,6 +221,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     @SerializedName(value = "bid", alternate = {"baseIndexId"})
     private long baseIndexId = -1;
 
+    // to change, need setXXX then tableProperty.buildXXX. then could directly call getter of tableProperty
     @SerializedName(value = "tp", alternate = {"tableProperty"})
     private TableProperty tableProperty;
 
@@ -2465,6 +2466,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_INMEMORY,
                 Boolean.valueOf(isInMemory).toString());
         tableProperty.buildInMemory();
+    }
+
+    public Boolean useSimpleAutoPartitionName() {
+        if (tableProperty != null) {
+            return tableProperty.useSimpleAutoPartitionName();
+        }
+        return false;
+    }
+
+    public void setUseSimpleAutoPartitionName(String useSimpleAutoPartitionName) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_USE_SIMPLE_AUTO_PARTITION_NAME,
+                useSimpleAutoPartitionName);
+        tableProperty.buildUseSimpleAutoPartitionName();
     }
 
     public Boolean isAutoBucket() {
