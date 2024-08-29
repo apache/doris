@@ -79,10 +79,10 @@ suite("test_union_instance") {
                 INNER JOIN[shuffle] `t4` b ON `a`.`skc` = `b`.`skc_code`
                 GROUP BY 1, 2, 3;
                 """
-    	        contains "3:VNESTED LOOP JOIN"
-		contains "4:VEXCHANGE"
-		contains "8:VEXCHANGE"
-		contains "6:VEXCHANGE"
-		contains "11:VUNION"
+    	        contains "999:VNESTED LOOP JOIN"
+		contains "1005:VEXCHANGE"
+		contains "1015:VEXCHANGE"
+		contains "1025:VEXCHANGE"
+		contains "1040:VUNION"
         }
 }
