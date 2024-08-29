@@ -950,8 +950,9 @@ void FragmentMgr::cancel_worker() {
         timespec now;
         clock_gettime(CLOCK_MONOTONIC, &now);
 
-        if (now.tv_sec - check_invalid_query_last_timestamp.tv_sec >
-            config::pipeline_task_leakage_detect_period_secs) {
+        if (config::enable_pipeline_task_leakage_detect &&
+            now.tv_sec - check_invalid_query_last_timestamp.tv_sec >
+                    config::pipeline_task_leakage_detect_period_secs) {
             check_invalid_query_last_timestamp = now;
             running_queries_on_all_fes = _get_all_running_queries_from_fe();
         } else {
