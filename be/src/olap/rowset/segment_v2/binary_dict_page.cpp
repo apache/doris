@@ -142,7 +142,7 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
     }
 }
 
-OwnedSlice BinaryDictPageBuilder::finish() {
+Status BinaryDictPageBuilder::finish(OwnedSlice* slice) {
     if (VLOG_DEBUG_IS_ON && _encoding_type == DICT_ENCODING) {
         VLOG_DEBUG << "dict page size:" << _dict_builder->size();
     }
@@ -150,11 +150,14 @@ OwnedSlice BinaryDictPageBuilder::finish() {
     DCHECK(!_finished);
     _finished = true;
 
-    OwnedSlice data_slice = _data_page_builder->finish();
+    OwnedSlice data_slice;
+    RETURN_IF_ERROR(_data_page_builder->finish(&data_slice));
     // TODO(gaodayue) separate page header and content to avoid this copy
-    _buffer.append(data_slice.slice().data, data_slice.slice().size);
+    RETURN_IF_CATCH_EXCEPTION(
+            { _buffer.append(data_slice.slice().data, data_slice.slice().size); });
     encode_fixed32_le(&_buffer[0], _encoding_type);
-    return _buffer.build();
+    *slice = _buffer.build();
+    return Status::OK();
 }
 
 Status BinaryDictPageBuilder::reset() {
@@ -185,8 +188,7 @@ uint64_t BinaryDictPageBuilder::size() const {
 }
 
 Status BinaryDictPageBuilder::get_dictionary_page(OwnedSlice* dictionary_page) {
-    *dictionary_page = _dict_builder->finish();
-    return Status::OK();
+    return _dict_builder->finish(dictionary_page);
 }
 
 Status BinaryDictPageBuilder::get_first_value(void* value) const {

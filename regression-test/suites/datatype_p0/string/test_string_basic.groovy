@@ -376,5 +376,11 @@ suite("test_string_basic") {
     }
     assertEquals(table_too_long, "fail")
     sql "drop table if exists varchar_table_too_long;"
-}
 
+    //  calculations on the BE.
+    sql """ set debug_skip_fold_constant = true;"""
+    qt_cast_string_to_int""" select cast('3.123' as int),cast('3.000' as int) , cast('0000.0000' as int) , cast('0000' as int),  cast('3.123' as int),  cast('3.000 ' as int),  cast('3.' as int)"""
+    //  calculations on the FE.
+    sql """ set debug_skip_fold_constant = false;"""
+    qt_cast_string_to_int""" select cast('3.123' as int),cast('3.000' as int) , cast('0000.0000' as int) , cast('0000' as int),  cast('3.123' as int),  cast('3.000 ' as int),  cast('3.' as int)"""
+}

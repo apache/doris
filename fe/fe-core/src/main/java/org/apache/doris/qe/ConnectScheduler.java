@@ -163,7 +163,7 @@ public class ConnectScheduler {
         for (ConnectContext ctx : connectionMap.values()) {
             // Check auth
             if (!ctx.getQualifiedUser().equals(user) && !Env.getCurrentEnv().getAccessManager()
-                    .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+                    .checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
                 continue;
             }
 
@@ -193,5 +193,9 @@ public class ConnectScheduler {
 
     public Map<Integer, ConnectContext> getConnectionMap() {
         return connectionMap;
+    }
+
+    public Map<String, AtomicInteger> getUserConnectionMap() {
+        return connByUser;
     }
 }

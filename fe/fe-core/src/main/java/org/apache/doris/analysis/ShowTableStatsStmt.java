@@ -75,6 +75,7 @@ public class ShowTableStatsStmt extends ShowStmt {
             .add("table_name")
             .add("index_name")
             .add("row_count")
+            .add("update_time")
             .build();
 
     private static final ImmutableList<String> COLUMN_PARTITION_TITLE_NAMES =
@@ -88,18 +89,29 @@ public class ShowTableStatsStmt extends ShowStmt {
     private final TableName tableName;
     private final List<String> columnNames;
     private final PartitionNames partitionNames;
-    private final boolean cached;
     private final String indexName;
+    private final long tableId;
+    private final boolean useTableId;
 
     private TableIf table;
 
+    public ShowTableStatsStmt(long tableId) {
+        this.tableName = null;
+        this.columnNames = null;
+        this.partitionNames = null;
+        this.indexName = null;
+        this.tableId = tableId;
+        this.useTableId = true;
+    }
+
     public ShowTableStatsStmt(TableName tableName, List<String> columnNames,
-                              PartitionNames partitionNames, boolean cached, String indexName) {
+                              PartitionNames partitionNames, String indexName) {
         this.tableName = tableName;
         this.columnNames = columnNames;
         this.partitionNames = partitionNames;
-        this.cached = cached;
         this.indexName = indexName;
+        this.tableId = -1;
+        this.useTableId = false;
     }
 
     public TableName getTableName() {
@@ -109,6 +121,13 @@ public class ShowTableStatsStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+        if (useTableId) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.SHOW)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "Permission denied",
+                        ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP());
+            }
+            return;
+        }
         tableName.analyze(analyzer);
         if (partitionNames != null) {
             partitionNames.analyze(analyzer);
@@ -170,6 +189,14 @@ public class ShowTableStatsStmt extends ShowStmt {
         return table;
     }
 
+    public boolean isUseTableId() {
+        return useTableId;
+    }
+
+    public long getTableId() {
+        return tableId;
+    }
+
     public ShowResultSet constructResultSet(TableStatsMeta tableStatistic) {
         if (indexName != null) {
             return constructIndexResultSet(tableStatistic);
@@ -182,6 +209,10 @@ public class ShowTableStatsStmt extends ShowStmt {
         } else {
             return constructColumnPartitionResultSet(tableStatistic);
         }
+    }
+
+    public ShowResultSet constructEmptyResultSet() {
+        return new ShowResultSet(getMetaData(), new ArrayList<>());
     }
 
     public ShowResultSet constructResultSet(long rowCount) {
@@ -266,10 +297,12 @@ public class ShowTableStatsStmt extends ShowStmt {
         if (rowCount == -1) {
             return new ShowResultSet(getMetaData(), result);
         }
+        long updateTime = tableStatistic.getRowCountUpdateTime(olapTable.getIndexIdByName(indexName));
         List<String> row = Lists.newArrayList();
         row.add(table.getName());
         row.add(indexName);
         row.add(String.valueOf(rowCount));
+        row.add(String.valueOf(updateTime));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
     }
@@ -309,9 +342,5 @@ public class ShowTableStatsStmt extends ShowStmt {
             }
         }
         return new ShowResultSet(getMetaData(), result);
-    }
-
-    public boolean isCached() {
-        return cached;
     }
 }
