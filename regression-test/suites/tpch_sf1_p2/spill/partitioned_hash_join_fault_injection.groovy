@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("partitioned_hash_join_fault_injection", "nonConcurrent") {
+suite("partitioned_hash_join_fault_injection", "p2, nonConcurrent") {
     multi_sql """
     use regression_test_tpch_sf1_p2;
     set enable_force_spill=true;
