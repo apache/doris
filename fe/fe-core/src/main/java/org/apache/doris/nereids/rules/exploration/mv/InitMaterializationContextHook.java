@@ -79,7 +79,7 @@ public class InitMaterializationContextHook implements PlannerHook {
      */
     protected void doInitMaterializationContext(CascadesContext cascadesContext) {
         TableCollectorContext collectorContext = new TableCollectorContext(Sets.newHashSet(),
-                false, false);
+                false, true);
         try {
             Plan rewritePlan = cascadesContext.getRewritePlan();
             // Keep use one connection context when in query, if new connect context,

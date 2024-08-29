@@ -82,7 +82,8 @@ public class MTMVPlanUtil {
 
     public static MTMVRelation generateMTMVRelation(Plan plan) {
         return new MTMVRelation(getBaseTables(plan, true, true),
-                getBaseTables(plan, false, false), getBaseViews(plan));
+                getBaseTables(plan, false, true),
+                getBaseViews(plan, true, true));
     }
 
     private static Set<BaseTableInfo> getBaseTables(Plan plan,
@@ -97,11 +98,12 @@ public class MTMVPlanUtil {
         return transferTableIfToInfo(collectedTables);
     }
 
-    private static Set<BaseTableInfo> getBaseViews(Plan plan) {
+    private static Set<BaseTableInfo> getBaseViews(Plan plan, boolean expandMaterializedView,
+            boolean expandView) {
         TableCollectorContext collectorContext =
                 new TableCollector.TableCollectorContext(
                         com.google.common.collect.Sets
-                                .newHashSet(TableType.VIEW), true, true);
+                                .newHashSet(TableType.VIEW), expandMaterializedView, expandView);
         plan.accept(TableCollector.INSTANCE, collectorContext);
         Set<TableIf> collectedTables = collectorContext.getCollectedTables();
         return transferTableIfToInfo(collectedTables);
