@@ -333,11 +333,19 @@ public class Column implements GsonPostProcessable {
             column.addChildrenColumn(v);
         } else if (type.isStructType()) {
             ArrayList<StructField> fields = ((StructType) type).getFields();
-            for (StructField field : fields) {
-                Column c = new Column(field.getName(), field.getType());
-                c.setIsAllowNull(field.getContainsNull());
-                column.addChildrenColumn(c);
-            }
+            addChildren(column, fields);
+        } else if (type.isVariantType()) {
+            // variant may contain predefined structured fields
+            ArrayList<StructField> fields = ((VariantType) type).getPredefinedFields();
+            addChildren(column, fields);
+        }
+    }
+
+    private void addChildren(Column column, ArrayList<StructField> fields) {
+        for (StructField field : fields) {
+            Column c = new Column(field.getName(), field.getType());
+            c.setIsAllowNull(field.getContainsNull());
+            column.addChildrenColumn(c);
         }
     }
 
@@ -668,7 +676,8 @@ public class Column implements GsonPostProcessable {
             tColumn.setChildrenColumn(new ArrayList<>());
             setChildrenTColumn(k, tColumn);
             setChildrenTColumn(v, tColumn);
-        } else if (column.type.isStructType()) {
+        } else if (column.type.isStructType()
+                || (column.type.isVariantType() && !((VariantType) (column.type)).getPredefinedFields().isEmpty())) {
             List<Column> childrenColumns = column.getChildren();
             tColumn.setChildrenColumn(new ArrayList<>());
             for (Column children : childrenColumns) {
@@ -814,14 +823,21 @@ public class Column implements GsonPostProcessable {
             Column v = this.getChildren().get(1);
             builder.addChildrenColumns(v.toPb(Sets.newHashSet(), Lists.newArrayList()));
         } else if (this.type.isStructType()) {
-            List<Column> childrenColumns = this.getChildren();
-            for (Column c : childrenColumns) {
-                builder.addChildrenColumns(c.toPb(Sets.newHashSet(), Lists.newArrayList()));
-            }
+            addChildren(builder);
+        } else if (this.type.isVariantType()) {
+            // variant may contain predefined structured fields
+            addChildren(builder);
         }
 
         OlapFile.ColumnPB col = builder.build();
         return col;
+    }
+
+    private void addChildren(OlapFile.ColumnPB.Builder builder) throws DdlException {
+        List<Column> childrenColumns = this.getChildren();
+        for (Column c : childrenColumns) {
+            builder.addChildrenColumns(c.toPb(Sets.newHashSet(), Lists.newArrayList()));
+        }
     }
     // CLOUD_CODE_END
 

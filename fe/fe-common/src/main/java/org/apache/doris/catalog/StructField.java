@@ -42,11 +42,15 @@ public class StructField {
 
     public static final String DEFAULT_FIELD_NAME = "col";
 
-    public StructField(String name, Type type, String comment, boolean containsNull) {
-        this.name = name.toLowerCase();
+    public StructField(String name, Type type, String comment, boolean containsNull, boolean nameCaseSensitive) {
+        this.name = (nameCaseSensitive ? name : name.toLowerCase());
         this.type = type;
         this.comment = comment;
         this.containsNull = containsNull;
+    }
+
+    public StructField(String name, Type type, String comment, boolean containsNull) {
+        this(name, type, comment, containsNull, false);
     }
 
     public StructField(String name, Type type) {

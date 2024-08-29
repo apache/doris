@@ -339,6 +339,7 @@ private:
   * Used to represent a single value of one of several types in memory.
   * Warning! Prefer to use chunks of columns instead of single values. See Column.h
   */
+
 class Field {
 public:
     struct Types {
@@ -448,9 +449,15 @@ public:
     /** Despite the presence of a template constructor, this constructor is still needed,
       *  since, in its absence, the compiler will still generate the default constructor.
       */
-    Field(const Field& rhs) { create(rhs); }
+    Field(const Field& rhs) {
+        copy_type_info(rhs);
+        create(rhs);
+    }
 
-    Field(Field&& rhs) { create(std::move(rhs)); }
+    Field(Field&& rhs) {
+        copy_type_info(rhs);
+        create(std::move(rhs));
+    }
 
     template <typename T>
         requires(!std::is_same_v<std::decay_t<T>, Field>)
@@ -466,6 +473,16 @@ public:
         destroy();
         create(data, size);
     }
+
+    void set_type_info(TypeIndex type, int precision = -1, int scale = -1) {
+        this->type = type;
+        this->precision = precision;
+        this->scale = scale;
+    }
+
+    int get_precision() const { return precision; }
+    int get_scale() const { return scale; }
+    TypeIndex get_type_id() const { return type; }
 
     void assign_string(const unsigned char* data, size_t size) {
         destroy();
@@ -483,6 +500,7 @@ public:
     }
 
     Field& operator=(const Field& rhs) {
+        copy_type_info(rhs);
         if (this != &rhs) {
             if (which != rhs.which) {
                 destroy();
@@ -499,6 +517,7 @@ public:
     }
 
     Field& operator=(Field&& rhs) {
+        copy_type_info(rhs);
         if (this != &rhs) {
             if (which != rhs.which) {
                 destroy();
@@ -706,6 +725,11 @@ private:
             storage;
 
     Types::Which which;
+    // detailed_type_info is used to store the real type of the field, for example, the real type of a Int64 is DateTimeV2
+    // or real type of a Decimal32 is Decimal(27, 9)
+    TypeIndex type = TypeIndex::Nothing;
+    int scale = -1;
+    int precision = -1;
 
     /// Assuming there was no allocated state or it was deallocated (see destroy).
     template <typename T>
@@ -760,6 +784,12 @@ private:
     void create_jsonb(const char* data, size_t size) {
         new (&storage) JsonbField(data, size);
         which = Types::JSONB;
+    }
+
+    void copy_type_info(const Field& rhs) {
+        this->type = rhs.type;
+        this->precision = rhs.precision;
+        this->scale = rhs.scale;
     }
 
     void create_jsonb(const unsigned char* data, size_t size) {
