@@ -4040,6 +4040,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             runningQueries.add(coordinator.getQueryId());
         }
 
+        StringBuilder sb = new StringBuilder();
+        for (TUniqueId queryId : runningQueries) {
+            sb.append(queryId.toString()).append(",");
+        }
+        LOG.info("fetchRunningQueries: {}", sb.toString());
+
         result.setStatus(new TStatus(TStatusCode.OK));
         result.setRunningQueries(runningQueries);
         return result;
