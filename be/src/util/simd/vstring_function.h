@@ -187,6 +187,19 @@ public:
         return p;
     }
 
+    static inline std::pair<size_t, size_t> skip_leading_utf8(const char* begin, const char* end,
+                                                              size_t n) {
+        const char* p = begin;
+        int char_size = 0;
+
+        size_t i = 0;
+        for (; i < n && p < end; ++i, p += char_size) {
+            char_size = UTF8_BYTE_LENGTH[static_cast<uint8_t>(*p)];
+        }
+
+        return {p - begin, i};
+    }
+
     // Gcc will do auto simd in this function
     static bool is_ascii(const StringRef& str) {
 #ifdef __AVX2__
