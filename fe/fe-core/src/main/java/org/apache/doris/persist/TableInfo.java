@@ -85,6 +85,10 @@ public class TableInfo implements Writable {
         this.oldPartitionName = oldPartitionName;
     }
 
+    public static TableInfo createForTableRename(long dbId, long tableId, String newTableName) {
+        return new TableInfo(dbId, tableId, -1L, -1L, newTableName, "", "");
+    }
+
     public static TableInfo createForTableRename(long dbId, long tableId, String oldTableName, String newTableName) {
         return new TableInfo(dbId, tableId, -1L, -1L, newTableName, oldTableName, "", "", "", "");
     }
