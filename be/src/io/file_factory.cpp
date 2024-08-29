@@ -161,7 +161,8 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
     if (!stream_load_ctx) {
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
-    if (need_schema == true) {
+    if (need_schema) {
+        RETURN_IF_ERROR(stream_load_ctx->allocate_schema_buffer());
         // Here, a portion of the data is processed to parse column information
         auto pipe = std::make_shared<io::StreamLoadPipe>(
                 io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
