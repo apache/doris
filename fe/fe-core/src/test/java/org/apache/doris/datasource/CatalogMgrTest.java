@@ -145,7 +145,8 @@ public class CatalogMgrTest extends TestWithFeService {
         env.changeCatalog(rootCtx, switchHive.getCatalogName());
         CreateRoleStmt createRole2 = (CreateRoleStmt) parseAndAnalyzeStmt("create role role2;", rootCtx);
         auth.createRole(createRole2);
-        GrantStmt grantRole2 = (GrantStmt) parseAndAnalyzeStmt("grant grant_priv on hive.*.* to role 'role2';",
+        GrantStmt grantRole2 = (GrantStmt) parseAndAnalyzeStmt(
+                "grant grant_priv, select_priv on hive.*.* to role 'role2';",
                 rootCtx);
         auth.grant(grantRole2);
         auth.createUser((CreateUserStmt) parseAndAnalyzeStmt(
@@ -359,7 +360,7 @@ public class CatalogMgrTest extends TestWithFeService {
         Assert.assertEquals(user2Ctx.getDefaultCatalog(), "hive");
         // user2 can grant select_priv to tpch.customer
         GrantStmt user2GrantHiveTable = (GrantStmt) parseAndAnalyzeStmt(
-                "grant select_priv on tpch.customer to 'user2'@'%';", user2Ctx);
+                "grant select_priv on hive.*.* to 'user2'@'%';", user2Ctx);
         auth.grant(user2GrantHiveTable);
 
         showCatalogSql = "SHOW CATALOGS";
