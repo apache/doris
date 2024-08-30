@@ -103,6 +103,7 @@ public class StageTest extends TestWithFeService {
                 + "'prefix' = 'tmp_prefix', "
                 + "'provider' = 'abc', "
                 + "'ak'='tmp_ak', 'sk'='tmp_sk', 'access_type'='aksk');";
+        // S3 Provider will be converted to upper case.
         parseAndAnalyzeWithException(sql, "Property provider with invalid value ABC");
 
         // test getObjectInfoPB

@@ -527,6 +527,7 @@ public class LoadStmt extends DdlStmt {
         Map<String, String> properties = brokerDesc.getProperties();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().equalsIgnoreCase(S3Properties.PROVIDER)) {
+                // S3 Provider properties should be case insensitive.
                 return entry.getValue().toUpperCase();
             }
         }

@@ -205,6 +205,7 @@ public class CopyStmt extends DdlStmt {
         }
         brokerProperties.put(S3_BUCKET, objInfo.getBucket());
         brokerProperties.put(S3_PREFIX, objInfo.getPrefix());
+        // S3 Provider properties should be case insensitive.
         brokerProperties.put(S3Properties.PROVIDER, objInfo.getProvider().toString().toUpperCase());
         StageProperties stageProperties = new StageProperties(stagePB.getPropertiesMap());
         this.copyIntoProperties.mergeProperties(stageProperties);
