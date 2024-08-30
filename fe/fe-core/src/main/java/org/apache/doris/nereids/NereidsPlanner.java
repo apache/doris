@@ -98,17 +98,19 @@ import java.util.function.Function;
  */
 public class NereidsPlanner extends Planner {
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
+
+    protected Plan parsedPlan;
+    protected Plan analyzedPlan;
+    protected Plan rewrittenPlan;
+    protected Plan optimizedPlan;
+    protected PhysicalPlan physicalPlan;
+
     private CascadesContext cascadesContext;
     private final StatementContext statementContext;
     private final List<ScanNode> scanNodeList = Lists.newArrayList();
     private final List<PhysicalRelation> physicalRelations = Lists.newArrayList();
     private DescriptorTable descTable;
 
-    private Plan parsedPlan;
-    private Plan analyzedPlan;
-    private Plan rewrittenPlan;
-    private Plan optimizedPlan;
-    private PhysicalPlan physicalPlan;
     private FragmentIdMapping<DistributedPlan> distributedPlans;
     // The cost of optimized plan
     private double cost = 0;
@@ -552,7 +554,7 @@ public class NereidsPlanner extends Planner {
         return cascadesContext.getMemo().getRoot();
     }
 
-    private PhysicalPlan chooseNthPlan(Group rootGroup, PhysicalProperties physicalProperties, int nthPlan) {
+    protected PhysicalPlan chooseNthPlan(Group rootGroup, PhysicalProperties physicalProperties, int nthPlan) {
         if (nthPlan <= 1) {
             cost = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
                     () -> new AnalysisException("lowestCostPlans with physicalProperties("
@@ -881,7 +883,7 @@ public class NereidsPlanner extends Planner {
         return explainOptions != null && explainOptions.showPlanProcess();
     }
 
-    private void keepOrShowPlanProcess(boolean showPlanProcess, Runnable task) {
+    protected void keepOrShowPlanProcess(boolean showPlanProcess, Runnable task) {
         if (showPlanProcess) {
             cascadesContext.withPlanProcess(showPlanProcess, task);
         } else {

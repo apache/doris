@@ -27,6 +27,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.MappingSlot;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundInlineTable;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -66,6 +67,7 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -74,7 +76,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
-import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
@@ -195,7 +196,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 logicalQualify(logicalHaving()).thenApply(this::bindQualifyHaving)
             ),
             RuleType.BINDING_INLINE_TABLE_SLOT.build(
-                logicalInlineTable().thenApply(this::bindInlineTable)
+                inlineTable().thenApply(this::bindInlineTable)
             ),
             RuleType.BINDING_ONE_ROW_RELATION_SLOT.build(
                 // we should bind UnboundAlias in the UnboundOneRowRelation
@@ -349,24 +350,24 @@ public class BindExpression implements AnalysisRuleFactory {
         return new LogicalOneRowRelation(oneRowRelation.getRelationId(), projects);
     }
 
-    private LogicalPlan bindInlineTable(MatchingContext<LogicalInlineTable> ctx) {
-        LogicalInlineTable logicalInlineTable = ctx.root;
+    private LogicalPlan bindInlineTable(MatchingContext<InlineTable> ctx) {
+        InlineTable inlineTable = ctx.root;
         // ensure all expressions are valid.
+        List<List<NamedExpression>> constantExprsList = inlineTable.getConstantExprsList();
         List<LogicalPlan> relations
-                = Lists.newArrayListWithCapacity(logicalInlineTable.getConstantExprsList().size());
-        for (int i = 0; i < logicalInlineTable.getConstantExprsList().size(); i++) {
-            for (NamedExpression constantExpr : logicalInlineTable.getConstantExprsList().get(i)) {
+                = Lists.newArrayListWithCapacity(constantExprsList.size());
+        for (int i = 0; i < constantExprsList.size(); i++) {
+            List<NamedExpression> row = constantExprsList.get(i);
+            for (NamedExpression constantExpr : row) {
                 if (constantExpr instanceof DefaultValueSlot) {
                     throw new AnalysisException("Default expression"
                             + " can't exist in SELECT statement at row " + (i + 1));
                 }
             }
-            relations.add(new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(),
-                    logicalInlineTable.getConstantExprsList().get(i)));
+            relations.add(new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(), row));
         }
         // construct union all tree
-        return LogicalPlanBuilder.reduceToLogicalPlanTree(0, relations.size() - 1,
-                relations, Qualifier.ALL);
+        return LogicalPlanBuilder.reduceToLogicalPlanTree(0, relations.size() - 1, relations, Qualifier.ALL);
     }
 
     private LogicalHaving<Plan> bindHaving(MatchingContext<LogicalHaving<Plan>> ctx) {

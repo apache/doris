@@ -78,7 +78,7 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) throws Exception {
-        return InsertUtils.getPlanForExplain(ctx, this.logicalQuery);
+        return InsertUtils.getPlanForExplain(ctx, Optional.empty(), this.logicalQuery);
     }
 
     @Override
@@ -98,7 +98,9 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
         TableIf targetTableIf = InsertUtils.getTargetTable(logicalQuery, ctx);
         targetTableIf.readLock();
         try {
-            this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf, Optional.empty());
+            this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(
+                logicalQuery, targetTableIf, Optional.empty(), Optional.empty()
+            );
             LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
             planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());

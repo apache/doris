@@ -366,6 +366,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SINGLE_REPLICA_INSERT = "enable_single_replica_insert";
 
+    public static final String ENABLE_FAST_ANALYZE_INSERT_INTO_VALUES = "enable_fast_analyze_into_values";
+
     public static final String ENABLE_FUNCTION_PUSHDOWN = "enable_function_pushdown";
 
     public static final String ENABLE_EXT_FUNC_PRED_PUSHDOWN = "enable_ext_func_pred_pushdown";
@@ -1494,6 +1496,15 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SINGLE_REPLICA_INSERT,
             needForward = true, varType = VariableAnnotation.EXPERIMENTAL)
     public boolean enableSingleReplicaInsert = false;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_FAST_ANALYZE_INSERT_INTO_VALUES, fuzzy = true,
+            description = {
+                    "跳过大部分的优化规则，快速分析insert into values语句",
+                    "Skip most optimization rules and quickly analyze insert into values statements"
+            }
+    )
+    private boolean enableFastAnalyzeInsertIntoValues = true;
 
     @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN, fuzzy = true)
     public boolean enableFunctionPushdown = false;
@@ -3640,14 +3651,20 @@ public class SessionVariable implements Serializable, Writable {
         return enableExprTrace;
     }
 
-
-
     public boolean isEnableSingleReplicaInsert() {
         return enableSingleReplicaInsert;
     }
 
     public void setEnableSingleReplicaInsert(boolean enableSingleReplicaInsert) {
         this.enableSingleReplicaInsert = enableSingleReplicaInsert;
+    }
+
+    public boolean isEnableFastAnalyzeInsertIntoValues() {
+        return enableFastAnalyzeInsertIntoValues;
+    }
+
+    public void setEnableFastAnalyzeInsertIntoValues(boolean enableFastAnalyzeInsertIntoValues) {
+        this.enableFastAnalyzeInsertIntoValues = enableFastAnalyzeInsertIntoValues;
     }
 
     public boolean isEnableMemtableOnSinkNode() {
