@@ -122,6 +122,11 @@ public:
 
     DataTypePtr get_serialized_type() const { return _agg_serialized_type; }
 
+    void check_agg_state_compatibility(int read_be_exec_version) const {
+        BeExecVersionManager::check_agg_state_compatibility(read_be_exec_version, _be_exec_version,
+                                                            get_nested_function()->get_name());
+    }
+
 private:
     std::string get_types_string() const {
         std::string types;
