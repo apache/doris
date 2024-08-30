@@ -741,13 +741,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return res;
     }
 
-    private HiveMetaStoreCache.HivePartitionValues getHivePartitionValues() {
-        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) getCatalog());
-        return cache.getPartitionValues(
-                getDbName(), getName(), getPartitionColumnTypes());
-    }
-
     @Override
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context)
             throws AnalysisException {
@@ -778,27 +771,20 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private HivePartition getPartitionByName(String partitionName) throws AnalysisException {
-        PartitionItem item = getAndCopyPartitionItems().get(partitionName);
-        List<List<String>> partitionValuesList = transferPartitionItemToPartitionValues(item);
-        List<HivePartition> partitions = getPartitionsByPartitionValues(partitionValuesList);
-        if (partitions.size() != 1) {
-            throw new AnalysisException("partition not normal, size: " + partitions.size());
-        }
-        return partitions.get(0);
-    }
-
-    private List<HivePartition> getPartitionsByPartitionValues(List<List<String>> partitionValuesList) {
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) getCatalog());
-        return cache.getAllPartitionsWithCache(getDbName(), getName(),
-                partitionValuesList);
-    }
-
-    private List<List<String>> transferPartitionItemToPartitionValues(PartitionItem item) {
-        List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(1);
-        partitionValuesList.add(
-                ((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringListForHive());
-        return partitionValuesList;
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
+                getDbName(), getName(), getPartitionColumnTypes());
+        Long partitionId = hivePartitionValues.getPartitionNameToIdMap().get(partitionName);
+        if (partitionId == null) {
+            throw new AnalysisException("can not find partition: " + partitionName);
+        }
+        List<String> values = hivePartitionValues.getPartitionValuesMap().get(partitionId);
+        HivePartition partition = cache.getHivePartition(getDbName(), getName(), values);
+        if (partition == null) {
+            throw new AnalysisException("can not find partition: " + partitionName);
+        }
+        return partition;
     }
 
     @Override
