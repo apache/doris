@@ -1314,11 +1314,11 @@ public class PropertyAnalyzer {
     public static boolean analyzeEnableDeleteOnDeletePredicate(Map<String, String> properties)
             throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
-            return false;
+            return Config.enable_mow_light_delete;
         }
         String value = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
         if (value == null) {
-            return false;
+            return Config.enable_mow_light_delete;
         }
         properties.remove(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
         if (value.equals("true")) {
