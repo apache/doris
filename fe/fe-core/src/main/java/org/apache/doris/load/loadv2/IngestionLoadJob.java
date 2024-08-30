@@ -88,13 +88,13 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TabletQuorumFailedException;
 import org.apache.doris.transaction.TransactionState;
 
-import cfjd.com.google.gson.annotations.SerializedName;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
 import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
