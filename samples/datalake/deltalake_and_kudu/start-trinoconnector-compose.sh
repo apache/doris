@@ -30,6 +30,8 @@ delta_storage="a83011a52c66e081d4f53a7dc5c9708a"
 antlr4_runtime="718f199bafa6574ffa1111fa3e10276a"
 kudu_plugin="2d58bfcac5b84218c5d1055af189e30c"
 delta_plugin="6b33448ce42d3d05e7b500ccafbe9698"
+hdfs_plugin="ff4a3e3b32dcce27f4df58f17938abde"
+kudu_java_example="1afe0a890785e8d0011ea7342ae5e43d"
 
 
 download_source_file() {
@@ -74,6 +76,8 @@ download_source_file "delta-storage-2.4.0.jar" "${delta_storage}" "https://repo1
 download_source_file "antlr4-runtime-4.9.3.jar" "${antlr4_runtime}" "https://repo1.maven.org/maven2/org/antlr/antlr4-runtime/4.9.3"
 download_source_file "trino-delta-lake-435-20240724.tar.gz" "${delta_plugin}" "https://github.com/apache/doris-thirdparty/releases/download/trino-435-20240724"
 download_source_file "trino-kudu-435-20240724.tar.gz" "${kudu_plugin}" "https://github.com/apache/doris-thirdparty/releases/download/trino-435-20240724"
+download_source_file "trino-hdfs-435-20240724.tar.gz" "${hdfs_plugin}" "https://github.com/apache/doris-thirdparty/releases/download/trino-435-20240724"
+download_source_file "kudu-java-example-1.0-SNAPSHOT.jar" "${kudu_java_example}" "https://github.com/apache/doris-thirdparty/releases/download/trino-435-20240724"
 
 
 
@@ -140,6 +144,17 @@ if [[ ! -f "connectors/trino-kudu-435/SUCCESS" ]]; then
     touch connectors/trino-kudu-435/SUCCESS
 fi
 
+if [[ ! -f "connectors/trino-delta-lake-435/hdfs/SUCCESS" ]]; then
+    echo "Prepare hdfs plugin"
+    if [[ -d "connectors/trino-delta-lake-435/hdfs" ]]; then
+        echo "Remove broken connectors/trino-delta-lake-435/hdfs"
+        rm -rf connectors/trino-delta-lake-435/hdfs
+    fi
+    echo "Unpackage trino-delta-lake-435/hdfs"
+    tar xzf trino-hdfs-435-20240724.tar.gz
+    mv hdfs connectors/trino-delta-lake-435/hdfs
+    touch connectors/trino-delta-lake-435/hdfs/SUCCESS
+fi
 
 
 cd ../
