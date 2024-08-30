@@ -132,4 +132,21 @@ suite("test_encryption_function") {
     qt_sql "SELECT SM3(\"abc\");"
     qt_sql "select sm3(\"abcd\");"
     qt_sql "select sm3sum(\"ab\",\"cd\");"
+    sql "DROP TABLE IF EXISTS quantile_table"
+    sql"""
+        CREATE TABLE quantile_table
+        (
+            id int,
+            k string
+        )
+        ENGINE=OLAP
+        UNIQUE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 4
+        PROPERTIES (
+        "enable_unique_key_merge_on_write" = "true",
+        "replication_num" = "1"
+        );
+    """
+    sql""" insert into quantile_table values(1,"aaaaaa");"""
+    qt_sql """ select sm4_decrypt(sm4_encrypt(k,"doris","0123456789abcdef"),"doris","0123456789abcdef") from quantile_table; """
 }
