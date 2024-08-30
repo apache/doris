@@ -21,6 +21,7 @@ import java.util.Map;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.cdcloader.mysql.constants.LoadConstants;
+import org.apache.doris.cdcloader.mysql.rest.model.JobConfig;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfigFactory;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceOptions;
@@ -30,7 +31,8 @@ import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
 
 public class ConfigUtil {
 
-    public static MySqlSourceConfig generateMySqlConfig(Map<String, String> cdcConfig) {
+    public static MySqlSourceConfig generateMySqlConfig(JobConfig config) {
+        Map<String, String> cdcConfig = config.getConfig();
         MySqlSourceConfigFactory configFactory = new MySqlSourceConfigFactory();
         configFactory.hostname(cdcConfig.get(LoadConstants.HOST));
         configFactory.port(Integer.valueOf(cdcConfig.get(LoadConstants.PORT)));
@@ -39,6 +41,7 @@ public class ConfigUtil {
 
         String databaseName = cdcConfig.get(LoadConstants.DATABASE_NAME);
         configFactory.databaseList(databaseName);
+        configFactory.serverId(String.valueOf(Math.abs(config.getJobId().hashCode())));
 
         configFactory.includeSchemaChanges(Boolean.parseBoolean(cdcConfig.get(LoadConstants.INCLUDE_SCHEMA_CHANGES)));
 

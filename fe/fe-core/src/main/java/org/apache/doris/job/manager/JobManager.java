@@ -198,7 +198,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
                 try {
                     alterJobStatus(a.getJobId(), jobStatus);
                 } catch (JobException e) {
-                    throw new JobException("unregister job error, jobName:" + jobName);
+                    throw new JobException("alter job status error, jobName:" + jobName + ", cause:" + e.getMessage());
                 }
             }
         }

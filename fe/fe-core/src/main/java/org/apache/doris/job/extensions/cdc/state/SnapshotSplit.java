@@ -87,4 +87,15 @@ public class SnapshotSplit extends AbstractSourceSplit {
         this.highWatermark = highWatermark;
     }
 
+    @Override
+    public String toString() {
+        return "SnapshotSplit{" +
+                "tableId='" + tableId + '\'' +
+                ", splitKey='" + splitKey + '\'' +
+                ", splitStart='" + splitStart + '\'' +
+                ", splitEnd='" + splitEnd + '\'' +
+                ", highWatermark=" + highWatermark +
+                ", splitId='" + splitId + '\'' +
+                '}';
+    }
 }

@@ -78,6 +78,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
@@ -110,9 +111,9 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
     @SerializedName("rs")
     List<SnapshotSplit> remainingSplits = new CopyOnWriteArrayList<>();
     @SerializedName("as")
-    Map<String, SnapshotSplit> assignedSplits = new HashMap<>();
+    Map<String, SnapshotSplit> assignedSplits = new ConcurrentHashMap<>();
     @SerializedName("sfo")
-    Map<String, Map<String, String>> splitFinishedOffsets = new HashMap<>();
+    Map<String, Map<String, String>> splitFinishedOffsets = new ConcurrentHashMap<>();
     @SerializedName("retbl")
     List<String> remainingTables;
     @SerializedName("ibsa")
@@ -229,18 +230,30 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
         executor.submit(() -> {
             // reset failMsg
             splitFailMsg = null;
-            for (String splitTbl : remainingTables) {
-                splitTable(backend, splitTbl);
-                if (StringUtils.isNotEmpty(splitFailMsg)) {
-                    break;
+            try{
+                remainingTables = new CopyOnWriteArrayList<>(remainingTables);
+                for (String splitTbl : remainingTables) {
+                    splitTable(backend, splitTbl);
+                    if (StringUtils.isNotEmpty(splitFailMsg)) {
+                        break;
+                    }
+                    if (isBinlogSplitAssigned) {
+                        LOG.info("get binlog split {}", currentOffset);
+                        break;
+                    }
+                    LOG.info("table {} split finished", splitTbl);
+
                 }
-                if (isBinlogSplitAssigned) {
-                    LOG.info("get binlog split {}", currentOffset);
-                    break;
+                LOG.info("snapshot split finished");
+            } catch (Exception ex){
+                LOG.error("Split table error, ", ex);
+                splitFailMsg = ex.getMessage();
+                try {
+                    updateJobStatus(JobStatus.PAUSED);
+                } catch (JobException e) {
+                    LOG.error("Change job status to pause failed, jobId {}", getJobId(), e);
                 }
-                LOG.info("table {} split finished", splitTbl);
             }
-            LOG.info("snapshot split finished");
         });
     }
 
@@ -256,16 +269,11 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
             splits = requestTableSplits(backend);
         } catch (Exception ex) {
             LOG.error("Fail to get split, ", ex);
-            splitFailMsg = ex.getMessage();
+            throw new RuntimeException(ex);
         }
 
         if (splits.isEmpty()) {
-            try {
-                Env.getCurrentEnv().getJobManager().getJob(getJobId()).updateJobStatus(JobStatus.PAUSED);
-            } catch (JobException e) {
-                LOG.error("Change job status error, jobId {}", getJobId(), e);
-            }
-            return;
+            throw new RuntimeException("split is empty");
         }
 
         LOG.info("fetch splits {}", splits);
@@ -278,7 +286,7 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
             } else {
                 SnapshotSplit snapshotSplit = (SnapshotSplit) split;
                 remainingSplits.add(snapshotSplit);
-                System.out.println("add split " + snapshotSplit.getSplitId());
+                LOG.info("add split " + snapshotSplit.getSplitId());
             }
         }
         remainingTables.remove(splitTbl);
@@ -301,9 +309,11 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
             result = future.get();
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
+                LOG.error("Failed to get split from backend, {}", result.getStatus().getErrorMsgs(0));
                 throw new JobException("Failed to get split from backend," + result.getStatus().getErrorMsgs(0) + ", response: " + result.getResponse());
             }
         } catch (RpcException | ExecutionException | InterruptedException ex) {
+            LOG.error("Get splits error: ", ex);
             throw new JobException(ex);
         }
 
@@ -389,7 +399,7 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
                 || (!assignedSplits.isEmpty() && assignedSplits.size() == splitFinishedOffsets.size())) {
             return true;
         }
-        LOG.info("job not ready scheduling");
+        LOG.info("job {} not ready scheduling", getJobId());
         return false;
     }
 
@@ -423,7 +433,9 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
         super.onStatusChanged(oldStatus, newStatus);
         if (JobStatus.PAUSED.equals(oldStatus) && JobStatus.RUNNING.equals(newStatus)) {
             if (!remainingTables.isEmpty()) {
-                startSplitAsync(selectBackend(getJobId()));
+                Backend backend = selectBackend(getJobId());
+                startCdcScanner(backend);
+                startSplitAsync(backend);
             }
         }
 
@@ -451,9 +463,11 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
             result = future.get();
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
+                LOG.error("Failed to start cdc server on backend, {}", result.getStatus().getErrorMsgs(0));
                 throw new JobException("Failed to start cdc server on backend, " + result.getStatus().getErrorMsgs(0));
             }
         } catch (RpcException | ExecutionException | InterruptedException ex) {
+            LOG.error("Error to start cdc server on backend, ", ex);
             throw new JobException(ex);
         }
     }

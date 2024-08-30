@@ -991,7 +991,7 @@ void PInternalService::start_cdc_scanner(google::protobuf::RpcController* contro
         string cdc_jar_path = string(getenv("DORIS_HOME")) + "/lib/cdc-scanner.jar";
         string cdc_jar_port = "--server.port=" + std::to_string(doris::config::cdc_scanner_port);
         string cdc_jar_params = request->params();
-        string cdc_log_path = string(getenv("LOG_DIR")) + "/cdc.log";
+        string java_opts = "-Dlog.path=" + string(getenv("LOG_DIR"));
         //check cdc jar exists
         struct stat buffer;
         if(stat(cdc_jar_path.c_str(), &buffer) != 0){
@@ -1028,18 +1028,10 @@ void PInternalService::start_cdc_scanner(google::protobuf::RpcController* contro
             #ifndef __APPLE__
             prctl(PR_SET_PDEATHSIG,SIGKILL);
             #endif
-            int logFile = open(cdc_log_path.c_str(), O_RDWR | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
-            if (logFile < 0) {
-                std::cerr << "Can not open cdc log file: " << cdc_log_path << std::endl;
-                exit(1);
-            }
-            dup2(logFile, STDOUT_FILENO);
-            dup2(logFile, STDERR_FILENO);
-            close(logFile);
 
+            LOG(INFO) << "Cdc scanner child process ready to start, " << pid << ", response=" << std::endl;
             std::cout << "Cdc scanner child process ready to start." << std::endl;
-            execlp("java", "java", "-jar", cdc_jar_path.c_str(), cdc_jar_port.c_str(), cdc_jar_params.c_str(), (char *)NULL);
-            
+            execlp("java", "java", java_opts.c_str(), "-jar", cdc_jar_path.c_str(), cdc_jar_port.c_str(), cdc_jar_params.c_str(), (char *)NULL);
             std::cerr << "Cdc scanner child process error." << std::endl; ;
             exit(1);
         }else {

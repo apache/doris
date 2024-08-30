@@ -40,4 +40,12 @@ public class BinlogSplit extends AbstractSourceSplit {
     public void setOffset(Map<String, String> offset) {
         this.offset = offset;
     }
+
+    @Override
+    public String toString() {
+        return "BinlogSplit{" +
+                "offset=" + offset +
+                ", splitId='" + splitId + '\'' +
+                '}';
+    }
 }

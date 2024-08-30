@@ -72,7 +72,7 @@ public class RestService {
             params.put("jobId", jobId);
             params.put("fetchSize", 100);
             params.put("meta", meta);
-            params.put("schedule", true);
+            params.put("reload", false);
             params.put("config", config);
             String requestUrl = HttpUtils.concatUrl(ipPort, FETCH_RECORDS, empty);
             Map<String, String> header = new HashMap<>();

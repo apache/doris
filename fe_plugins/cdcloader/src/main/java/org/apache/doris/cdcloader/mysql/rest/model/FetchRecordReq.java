@@ -20,18 +20,18 @@ package org.apache.doris.cdcloader.mysql.rest.model;
 import java.util.Map;
 
 public class FetchRecordReq {
-    private boolean schedule;
+    private boolean reload;
     private int fetchSize;
     private long jobId;
     private Map<String, String> meta;
     private Map<String, String> config;
 
-    public boolean isSchedule() {
-        return schedule;
+    public boolean isReload() {
+        return reload;
     }
 
-    public void setSchedule(boolean schedule) {
-        this.schedule = schedule;
+    public void setReload(boolean reload) {
+        this.reload = reload;
     }
 
     public int getFetchSize() {
