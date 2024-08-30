@@ -371,11 +371,16 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                 logicalProperties, queryPlan.getLogicalProperties()));
                 continue;
             }
-            recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext, cascadesContext);
             trySetStatistics(materializationContext, cascadesContext);
             rewriteResults.add(rewrittenPlan);
             // if rewrite successfully, try to regenerate mv scan because it maybe used again
             materializationContext.tryReGenerateScanPlan(cascadesContext);
+            //  if rewrite successfully, try to get mv read lock to avoid data inconsistent
+            if (materializationContext instanceof AsyncMaterializationContext && !materializationContext.isSuccess()) {
+                cascadesContext.getStatementContext()
+                        .addTableReadLock(((AsyncMaterializationContext) materializationContext).getMtmv());
+            }
+            recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext, cascadesContext);
         }
         return rewriteResults;
     }
