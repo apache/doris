@@ -1360,6 +1360,8 @@ DEFINE_Validator(tablet_meta_serialize_size_limit,
 
 DEFINE_mInt64(pipeline_task_leakage_detect_period_secs, "60");
 
+DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
