@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_delete_with_sync_mv") {
+suite("test_partial_update_mow_with_sync_mv") {
 
-    sql """drop table if exists test_delete_with_sync_mv"""
+    sql """drop table if exists test_partial_update_mow_with_sync_mv"""
 
     sql """
-        CREATE TABLE `test_delete_with_sync_mv` (
+        CREATE TABLE `test_partial_update_mow_with_sync_mv` (
           `l_orderkey` BIGINT NULL,
           `l_linenumber` INT NULL,
           `l_partkey` INT NULL,
@@ -47,7 +47,7 @@ suite("test_delete_with_sync_mv") {
     """
 
     sql """
-        insert into test_delete_with_sync_mv values 
+        insert into test_partial_update_mow_with_sync_mv values 
         (null, 1, 2, 3, '2023-10-17', 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
         (1, null, 3, 1, '2023-10-17', 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy'),
         (3, 3, null, 2, '2023-10-19', 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx'),
@@ -69,12 +69,44 @@ suite("test_delete_with_sync_mv") {
         AS
                 select l_orderkey, l_linenumber, l_partkey, l_suppkey, l_shipdate,
             substring(concat(l_returnflag, l_linestatus), 1)
-            from test_delete_with_sync_mv;
+            from test_partial_update_mow_with_sync_mv;
     """)
 
-    explain {
-        sql """delete from test_delete_with_sync_mv where l_orderkey = 2"""
-        contains "IS_PARTIAL_UPDATE: false" 
+    for (def use_nereids : [true, false]) {
+        if (use_nereids) {
+            sql "set enable_nereids_planner=true"
+            sql "set enable_fallback_to_original_planner=false"
+        } else {
+            sql "set enable_nereids_planner=false"
+        }
+
+        sql "set enable_unique_key_partial_update=true;"
+        sql "sync;"
+
+        test {
+            sql """insert into test_partial_update_mow_with_sync_mv(l_orderkey, l_linenumber, l_partkey, l_suppkey, l_shipdate, l_returnflag) values
+            (2, 3, 2, 1, '2023-10-18', 'k'); """
+            exception "Can't do partial update on merge-on-write Unique table with sync materialized view."
+        }
     }
-    sql """delete from test_delete_with_sync_mv where l_orderkey = 2"""
+
+    streamLoad {
+        table "test_partial_update_mow_with_sync_mv"
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'partial_columns', 'true'
+        set 'columns', 'l_orderkey, l_linenumber, l_partkey, l_suppkey, l_shipdate, l_returnflag'
+
+        file 'test_partial_update_mow_with_sync_mv.csv'
+        time 10000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertTrue(json.Message.contains("Can't do partial update on merge-on-write Unique table with sync materialized view."))
+        }
+    }
 }

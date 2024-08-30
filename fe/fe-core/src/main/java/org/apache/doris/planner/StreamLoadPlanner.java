@@ -154,6 +154,15 @@ public class StreamLoadPlanner {
             isPartialUpdate = false;
         }
 
+        if (isPartialUpdate) {
+            boolean hasSyncMaterializedView = destTable.getFullSchema().stream()
+                    .anyMatch(col -> col.isMaterializedViewColumn());
+            if (hasSyncMaterializedView) {
+                throw new DdlException("Can't do partial update on merge-on-write Unique table"
+                        + " with sync materialized view.");
+            }
+        }
+
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
         if (isPartialUpdate) {
             for (Column col : destTable.getFullSchema()) {
