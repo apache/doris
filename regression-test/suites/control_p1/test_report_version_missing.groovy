@@ -56,6 +56,9 @@ suite('test_report_version_missing', "nonConcurrent") {
         break
     }
 
+        GetDebugPoint().enableDebugPointForAllBEs("Tablet.build_tablet_report_info.version_miss", [tablet_id:"${tabletId}",version_miss:true])
+        boolean succ = false
+
         def backendId_to_backendIP = [:]
         def backendId_to_backendHttpPort = [:]
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
@@ -64,9 +67,6 @@ suite('test_report_version_missing', "nonConcurrent") {
             def port = backendId_to_backendHttpPort.get(beId) as int
             be_report_tablet(beIp, port)
         }
-
-        GetDebugPoint().enableDebugPointForAllBEs("Tablet.build_tablet_report_info.version_miss", [tablet_id:"${tabletId}",version_miss:true])
-        boolean succ = false
 
         Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).await().until({
             def tablets = sql_return_maparray """show tablets from ${tableName}"""
