@@ -1365,6 +1365,8 @@ DECLARE_mInt64(tablet_meta_serialize_size_limit);
 
 DECLARE_mInt64(pipeline_task_leakage_detect_period_secs);
 
+DECLARE_mBool(enable_pipeline_task_leakage_detect);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
