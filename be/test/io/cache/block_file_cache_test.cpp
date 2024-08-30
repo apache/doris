@@ -3466,7 +3466,7 @@ TEST_F(BlockFileCacheTest, test_lazy_load_with_error_file_1) {
         ASSERT_TRUE(writer->append(Slice("111", 3)).ok());
         ASSERT_TRUE(writer->close().ok());
     });
-    sp->set_call_back("BlockFileCache::REMOVE_FILE_2", [&](auto&& args) {
+    sp->set_call_back("BlockFileCache::REMOVE_FILE", [&](auto&& args) {
         if (*try_any_cast<std::string*>(args[0]) == "30086_idx") {
             static_cast<void>(global_local_filesystem()->delete_file(dir / "30086_idx"));
         }
@@ -3538,7 +3538,7 @@ TEST_F(BlockFileCacheTest, test_lazy_load_with_error_file_2) {
         while (!flag1) {
         }
     });
-    sp->set_call_back("BlockFileCache::REMOVE_FILE_1", [&](auto&& args) {
+    sp->set_call_back("BlockFileCache::REMOVE_FILE", [&](auto&& args) {
         if (*try_any_cast<std::string*>(args[0]) == "30086_idx") {
             static_cast<void>(global_local_filesystem()->delete_file(dir / "30086_idx"));
         }

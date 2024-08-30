@@ -338,6 +338,71 @@ std::string FSFileCacheStorage::get_version_path() const {
     return Path(_cache_base_path) / "version";
 }
 
+Status parse_filename_sufix_to_cache_type(const std::shared_ptr<LocalFileSystem>& fs,
+                                          const Path& file_path, long expiration_time, size_t size,
+                                          size_t* offset, bool* is_tmp, FileCacheType* cache_type) {
+    std::error_code ec;
+    std::string offset_with_suffix = file_path.native();
+    auto delim_pos1 = offset_with_suffix.find('_');
+    bool parsed = true;
+
+    try {
+        if (delim_pos1 == std::string::npos) {
+            // same as type "normal"
+            *offset = stoull(offset_with_suffix);
+        } else {
+            *offset = stoull(offset_with_suffix.substr(0, delim_pos1));
+            std::string suffix = offset_with_suffix.substr(delim_pos1 + 1);
+            // not need persistent anymore
+            // if suffix is equals to "tmp", it should be removed too.
+            if (suffix == "tmp") [[unlikely]] {
+                *is_tmp = true;
+            } else {
+                *cache_type = BlockFileCache::string_to_cache_type(suffix);
+            }
+        }
+    } catch (...) {
+        parsed = false;
+    }
+
+    // File in dir with expiration time > 0 should all be TTL type
+    // while expiration time == 0 should all be NORMAL type but
+    // in old days, bug happens, thus break such consistency, e.g.
+    // BEs shut down during cache type transition.
+    // Nowadays, we only use expiration time to decide the type,
+    // i.e. whenever expiration time > 0, it IS TTL, otherwise
+    // it is NORMAL or INDEX depending on its suffix.
+    // From now on, the ttl type encoding in file name is only for
+    // compatibility and will be ignored. And we won't produce ttl
+    // prefix no more in new version.
+    if (expiration_time > 0) {
+        *cache_type = FileCacheType::TTL;
+    } else if (*cache_type == FileCacheType::TTL && expiration_time == 0) {
+        *cache_type = FileCacheType::NORMAL;
+    }
+
+    if (!parsed) {
+        LOG(WARNING) << "parse offset err, path=" << file_path.native();
+        return Status::InternalError("parse offset err, path={}", file_path.native());
+    }
+    TEST_SYNC_POINT_CALLBACK("BlockFileCache::REMOVE_FILE", &offset_with_suffix);
+
+    if (ec) {
+        LOG(WARNING) << "failed to file_size: file_name=" << offset_with_suffix
+                     << "error=" << ec.message();
+        return Status::InternalError("failed to file_size: file_name={}, error={}",
+                                     offset_with_suffix, ec.message());
+    }
+
+    if (size == 0 && !(*is_tmp)) {
+        auto st = fs->delete_file(file_path);
+        if (!st.ok()) {
+            LOG_WARNING("delete file {} error", file_path.native()).error(st);
+        }
+        return Status::InternalError("file size is 0, file_name={}", offset_with_suffix);
+    }
+}
+
 void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const {
     int scan_length = 10000;
     std::vector<BatchLoadArgs> batch_load_buffer;
@@ -353,7 +418,6 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
                 if (file_block->expiration_time() != args.ctx.expiration_time ||
                     file_block->cache_type() != args.ctx.cache_type) [[unlikely]] {
                     LOG(WARNING) << "duplicate hash with different expiration_time or cache_type"
-                                 << ", this will cause unremovable cache files"
                                  << " hash=" << args.hash.to_string() << " offset=" << args.offset
                                  << " existing expiration_time=" << args.ctx.expiration_time
                                  << " existing cache_type="
@@ -398,50 +462,16 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
             }
             CacheContext context;
             context.query_id = TUniqueId();
-            context.expiration_time = std::stoul(expiration_time_str);
+            long expiration_time = std::stoul(expiration_time_str);
+            context.expiration_time = expiration_time;
             for (; offset_it != std::filesystem::directory_iterator(); ++offset_it) {
-                std::string offset_with_suffix = offset_it->path().filename().native();
-                auto delim_pos1 = offset_with_suffix.find('_');
-                FileCacheType cache_type = FileCacheType::NORMAL;
-                bool parsed = true;
-                bool is_tmp = false;
-                size_t offset = 0;
-                try {
-                    if (delim_pos1 == std::string::npos) {
-                        // same as type "normal"
-                        offset = stoull(offset_with_suffix);
-                    } else {
-                        offset = stoull(offset_with_suffix.substr(0, delim_pos1));
-                        std::string suffix = offset_with_suffix.substr(delim_pos1 + 1);
-                        // not need persistent anymore
-                        // if suffix is equals to "tmp", it should be removed too.
-                        if (suffix == "tmp") [[unlikely]] {
-                            is_tmp = true;
-                        } else {
-                            cache_type = BlockFileCache::string_to_cache_type(suffix);
-                        }
-                    }
-                } catch (...) {
-                    parsed = false;
-                }
-
-                if (!parsed) {
-                    LOG(WARNING) << "parse offset err, path=" << offset_it->path().native();
-                    continue;
-                }
-                TEST_SYNC_POINT_CALLBACK("BlockFileCache::REMOVE_FILE_2", &offset_with_suffix);
                 size_t size = offset_it->file_size(ec);
-                if (ec) {
-                    LOG(WARNING) << "failed to file_size: file_name=" << offset_with_suffix
-                                 << "error=" << ec.message();
-                    continue;
-                }
-
-                if (size == 0 && !is_tmp) {
-                    auto st = fs->delete_file(offset_it->path());
-                    if (!st.ok()) {
-                        LOG_WARNING("delete file {} error", offset_it->path().native()).error(st);
-                    }
+                size_t offset = 0;
+                bool is_tmp = false;
+                FileCacheType cache_type = FileCacheType::NORMAL;
+                if (!parse_filename_sufix_to_cache_type(fs, offset_it->path().filename().native(),
+                                                        expiration_time, size, &offset, &is_tmp,
+                                                        &cache_type)) {
                     continue;
                 }
                 context.cache_type = cache_type;
@@ -531,46 +561,13 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
         return;
     }
     for (; check_it != std::filesystem::directory_iterator(); ++check_it) {
-        uint64_t offset = 0;
-        std::string offset_with_suffix = check_it->path().filename().native();
-        auto delim_pos1 = offset_with_suffix.find('_');
-        FileCacheType cache_type = FileCacheType::NORMAL;
-        bool parsed = true;
-        bool is_tmp = false;
-        try {
-            if (delim_pos1 == std::string::npos) {
-                // same as type "normal"
-                offset = stoull(offset_with_suffix);
-            } else {
-                offset = stoull(offset_with_suffix.substr(0, delim_pos1));
-                std::string suffix = offset_with_suffix.substr(delim_pos1 + 1);
-                if (suffix == "tmp") [[unlikely]] {
-                    is_tmp = true;
-                } else {
-                    cache_type = BlockFileCache::string_to_cache_type(suffix);
-                }
-            }
-        } catch (...) {
-            parsed = false;
-        }
-
-        if (!parsed) [[unlikely]] {
-            LOG(WARNING) << "parse offset err, path=" << offset_with_suffix;
-            continue;
-        }
-
-        TEST_SYNC_POINT_CALLBACK("BlockFileCache::REMOVE_FILE_1", &offset_with_suffix);
-        std::error_code ec;
         size_t size = check_it->file_size(ec);
-        if (ec) {
-            LOG(WARNING) << "failed to file_size: error=" << ec.message();
-            continue;
-        }
-        if (size == 0 && !is_tmp) [[unlikely]] {
-            auto st = fs->delete_file(check_it->path());
-            if (!st.ok()) {
-                LOG_WARNING("Failed to delete file {}", check_it->path().native()).error(st);
-            }
+        size_t offset = 0;
+        bool is_tmp = false;
+        FileCacheType cache_type = FileCacheType::NORMAL;
+        if (!parse_filename_sufix_to_cache_type(fs, check_it->path().filename().native(),
+                                                context_original.expiration_time, size, &offset,
+                                                &is_tmp, &cache_type)) {
             continue;
         }
         if (!mgr->_files.contains(key.hash) || !mgr->_files[key.hash].contains(offset)) {
