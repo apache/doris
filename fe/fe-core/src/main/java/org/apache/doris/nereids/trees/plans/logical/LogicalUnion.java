@@ -205,6 +205,14 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
         // don't propagate uniform slots
     }
 
+    @Override
+    public boolean hasUnboundExpression() {
+        if (!constantExprsList.isEmpty() && children.isEmpty()) {
+            return false;
+        }
+        return super.hasUnboundExpression();
+    }
+
     private List<BitSet> mapSlotToIndex(Plan plan, List<Set<Slot>> equalSlotsList) {
         Map<Slot, Integer> slotToIndex = new HashMap<>();
         for (int i = 0; i < plan.getOutput().size(); i++) {

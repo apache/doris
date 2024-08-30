@@ -122,7 +122,8 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         if (targetTableIf instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ctx)) {
             throw new AnalysisException("Not allowed to perform current operation on async materialized view");
         }
-        this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf, Optional.empty());
+        this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(
+            logicalQuery, targetTableIf, Optional.empty(), Optional.empty());
         if (cte.isPresent()) {
             this.logicalQuery = (LogicalPlan) logicalQuery.withChildren(cte.get().withChildren(
                     this.logicalQuery.child(0)));
@@ -362,7 +363,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
-        return InsertUtils.getPlanForExplain(ctx, this.logicalQuery);
+        return InsertUtils.getPlanForExplain(ctx, Optional.empty(), this.logicalQuery);
     }
 
     @Override

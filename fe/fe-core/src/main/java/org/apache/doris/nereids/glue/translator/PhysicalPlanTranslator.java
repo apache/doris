@@ -206,6 +206,7 @@ import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -2056,17 +2057,22 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         setOperationNode.setNereidsId(setOperation.getId());
 
-        setOperation.getRegularChildrenOutputs().stream()
-                .map(o -> o.stream()
-                        .map(e -> ExpressionTranslator.translate(e, context))
-                        .collect(ImmutableList.toImmutableList()))
-                .forEach(setOperationNode::addResultExprLists);
+        for (List<SlotReference> regularChildrenOutput : setOperation.getRegularChildrenOutputs()) {
+            Builder<Expr> translateOutputs = ImmutableList.builderWithExpectedSize(regularChildrenOutput.size());
+            for (SlotReference childOutput : regularChildrenOutput) {
+                translateOutputs.add(ExpressionTranslator.translate(childOutput, context));
+            }
+            setOperationNode.addResultExprLists(translateOutputs.build());
+        }
+
         if (setOperation instanceof PhysicalUnion) {
-            ((PhysicalUnion) setOperation).getConstantExprsList().stream()
-                    .map(l -> l.stream()
-                            .map(e -> ExpressionTranslator.translate(e, context))
-                            .collect(ImmutableList.toImmutableList()))
-                    .forEach(setOperationNode::addConstExprList);
+            for (List<NamedExpression> unionConsts : ((PhysicalUnion) setOperation).getConstantExprsList()) {
+                Builder<Expr> translateConsts = ImmutableList.builderWithExpectedSize(unionConsts.size());
+                for (NamedExpression unionConst : unionConsts) {
+                    translateConsts.add(ExpressionTranslator.translate(unionConst, context));
+                }
+                setOperationNode.addConstExprList(translateConsts.build());
+            }
         }
 
         for (PlanFragment childFragment : childrenFragments) {
