@@ -151,7 +151,16 @@ void CloudBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
 
 void CloudBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& response,
                                               const TWarmUpCacheAsyncRequest& request) {
-    std::string brpc_addr = fmt::format("{}:{}", request.host, request.brpc_port);
+    std::string host = request.host;
+    if (!is_valid_ip(request.host)) {
+        Status status = ExecEnv::GetInstance()->dns_cache()->get(request.host, &host);
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to get ip from host " << request.host << ": "
+                         << status.to_string();
+            return;
+        }
+    }
+    std::string brpc_addr = get_host_port(host, request.brpc_port);
     Status st = Status::OK();
     TStatus t_status;
     std::shared_ptr<PBackendService_Stub> brpc_stub =

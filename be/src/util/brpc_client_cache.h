@@ -93,10 +93,6 @@ public:
             }
         }
         std::string host_port = get_host_port(realhost, port);
-        return get_client(host_port);
-    }
-
-    std::shared_ptr<T> get_client(const std::string& host_port) {
         std::shared_ptr<T> stub_ptr;
         auto get_value = [&stub_ptr](const auto& v) { stub_ptr = v.second; };
         if (LIKELY(_stub_map.if_contains(host_port, get_value))) {
@@ -111,6 +107,19 @@ public:
                     host_port, [&stub](const auto& v) { stub = v.second; }, stub);
         }
         return stub;
+    }
+
+    std::shared_ptr<T> get_client(const std::string& host_port) {
+        int pos = host_port.rfind(':');
+        std::string host = host_port.substr(0, pos);
+        int port = 0;
+        try {
+            port = stoi(host_port.substr(pos + 1));
+        } catch (const std::exception& err) {
+            LOG(WARNING) << "failed to parse port from " << host_port << ": " << err.what();
+            return nullptr;
+        }
+        return get_client(host, port);
     }
 
     std::shared_ptr<T> get_new_client_no_cache(const std::string& host_port,

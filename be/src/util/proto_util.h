@@ -71,6 +71,15 @@ Status transmit_block_httpv2(ExecEnv* exec_env, std::unique_ptr<Closure> closure
                              TNetworkAddress brpc_dest_addr) {
     RETURN_IF_ERROR(request_embed_attachment_contain_blockv2(closure->request_.get(), closure));
 
+    std::string host = brpc_dest_addr.host;
+    if (!is_valid_ip(brpc_dest_addr.host)) {
+        Status status = ExecEnv::GetInstance()->dns_cache()->get(brpc_dest_addr.host, &host);
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to get ip from host " << brpc_dest_addr.host << ": "
+                         << status.to_string();
+            return Status::InternalError("failed to get ip from host {}", brpc_dest_addr.host);
+        }
+    }
     //format an ipv6 address
     std::string brpc_url = get_brpc_http_url(brpc_dest_addr.hostname, brpc_dest_addr.port);
 
