@@ -138,7 +138,7 @@ Status DataTypeMapSerDe::deserialize_column_from_hive_text_vector(
     return Status::OK();
 }
 
-Status DataTypeMapSerDe::serialize_one_cell_to_hive_text(
+void DataTypeMapSerDe::serialize_one_cell_to_hive_text(
         const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
         int hive_text_complex_type_delimiter_level) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -163,13 +163,12 @@ Status DataTypeMapSerDe::serialize_one_cell_to_hive_text(
         if (i != start) {
             bw.write(collection_delimiter);
         }
-        RETURN_IF_ERROR(key_serde->serialize_one_cell_to_hive_text(
-                nested_keys_column, i, bw, options, hive_text_complex_type_delimiter_level + 2));
+        key_serde->serialize_one_cell_to_hive_text(nested_keys_column, i, bw, options,
+                                                   hive_text_complex_type_delimiter_level + 2);
         bw.write(map_kv_delimiter);
-        RETURN_IF_ERROR(value_serde->serialize_one_cell_to_hive_text(
-                nested_values_column, i, bw, options, hive_text_complex_type_delimiter_level + 2));
+        value_serde->serialize_one_cell_to_hive_text(nested_values_column, i, bw, options,
+                                                     hive_text_complex_type_delimiter_level + 2);
     }
-    return Status::OK();
 }
 
 Status DataTypeMapSerDe::deserialize_column_from_json_vector(IColumn& column,

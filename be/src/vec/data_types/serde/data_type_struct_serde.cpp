@@ -272,7 +272,7 @@ Status DataTypeStructSerDe::deserialize_column_from_hive_text_vector(
     return Status::OK();
 }
 
-Status DataTypeStructSerDe::serialize_one_cell_to_hive_text(
+void DataTypeStructSerDe::serialize_one_cell_to_hive_text(
         const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
         int hive_text_complex_type_delimiter_level) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -287,11 +287,10 @@ Status DataTypeStructSerDe::serialize_one_cell_to_hive_text(
         if (i != 0) {
             bw.write(collection_delimiter);
         }
-        RETURN_IF_ERROR(elem_serdes_ptrs[i]->serialize_one_cell_to_hive_text(
+        elem_serdes_ptrs[i]->serialize_one_cell_to_hive_text(
                 struct_column.get_column(i), row_num, bw, options,
-                hive_text_complex_type_delimiter_level + 1));
+                hive_text_complex_type_delimiter_level + 1);
     }
-    return Status::OK();
 }
 
 void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {

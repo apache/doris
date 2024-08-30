@@ -1364,9 +1364,6 @@ DECLARE_mBool(ignore_not_found_file_in_external_table);
 DECLARE_mInt64(tablet_meta_serialize_size_limit);
 
 DECLARE_mInt64(pipeline_task_leakage_detect_period_secs);
-// To be compatible with hadoop's block compression
-DECLARE_mInt32(snappy_compression_block_size);
-DECLARE_mInt32(lz4_compression_block_size);
 
 #ifdef BE_TEST
 // test s3
