@@ -1353,6 +1353,11 @@ public class SessionVariable implements Serializable, Writable {
 
     public String ignoreRuntimeFilterIds = "";
 
+    @VariableMgr.VarAttr(name = "range_filter_lower_bound",
+            description = {"", ""})
+
+    public double rangeFilterLowerBound = 0.01;
+
     @VariableMgr.VarAttr(name = STATS_INSERT_MERGE_ITEM_COUNT, flag = VariableMgr.GLOBAL, description = {
             "控制统计信息相关INSERT攒批数量", "Controls the batch size for stats INSERT merging."
     }
