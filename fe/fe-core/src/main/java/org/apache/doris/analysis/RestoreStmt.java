@@ -33,7 +33,7 @@ import com.google.common.collect.Sets;
 import java.util.Map;
 import java.util.Set;
 
-public class RestoreStmt extends AbstractBackupStmt {
+public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInParser {
     private static final String PROP_ALLOW_LOAD = "allow_load";
     private static final String PROP_BACKUP_TIMESTAMP = "backup_timestamp";
     private static final String PROP_META_VERSION = "meta_version";
