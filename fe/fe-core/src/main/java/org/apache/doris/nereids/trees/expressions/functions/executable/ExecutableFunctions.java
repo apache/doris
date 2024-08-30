@@ -116,10 +116,11 @@ public class ExecutableFunctions {
 
     @ExecFunction(name = "split_part", argTypes = {"VARCHAR", "VARCHAR", "INT"}, returnType = "VARCHAR")
     public static Expression splitPart(StringLikeLiteral literal, StringLikeLiteral chr, IntegerLiteral number) {
-        if (literal.getValue().split(chr.getValue()).length < number.getValue()) {
+        String[] parts = literal.getValue().split(chr.getValue());
+        if (parts.length < number.getValue()) {
             return new NullLiteral();
         }
-        return new VarcharLiteral(literal.getValue().split(chr.getValue())[number.getValue() - 1]);
+        return new VarcharLiteral(parts[number.getValue() - 1]);
     }
 
     @ExecFunction(name = "e", argTypes = {}, returnType = "DOUBLE")
