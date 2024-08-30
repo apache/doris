@@ -184,17 +184,17 @@ suite("test_pull_up_predicate_set_op") {
 
     qt_union_child_and_const_exprs """
     explain shape plan
-    select t.a,t3.b from      (select a,b from test_like1 where a in (1,2) union select a,b from test_like2 where a in (1,2) union select 2,2 union select 2,2) t inner join test_like3 t3
+    select t.a,t3.b from      (select a,b from test_pull_up_predicate_set_op1 where a in (1,2) union select a,b from test_pull_up_predicate_set_op2 where a in (1,2) union select 2,2 union select 2,2) t inner join test_pull_up_predicate_set_op3 t3
     on t3.a=t.a and t3.b=t.b;
     """
     qt_union_child_and_const_exprs_andpredicates """
     explain shape plan
-    select t.a,t3.b from      (select a,b from test_like1 where a in (1,2) and b in ('2d','3') union select 2,'2d' union select 2,'3') t inner join test_like3 t3
+    select t.a,t3.b from      (select a,b from test_pull_up_predicate_set_op1 where a in (1,2) and b in ('2d','3') union select 2,'2d' union select 2,'3') t inner join test_pull_up_predicate_set_op3 t3
     on t3.a=t.a and t3.b=t.b;
     """
     qt_union_child_and_const_exprs_orpredicates """
     explain shape plan
-    select t.a,t3.b from      (select a,b from test_like1 where a in (1,2) or b in ('2d','3') union select 2,'2d' union select 2,'3') t inner join test_like3 t3
+    select t.a,t3.b from      (select a,b from test_pull_up_predicate_set_op1 where a in (1,2) or b in ('2d','3') union select 2,'2d' union select 2,'3') t inner join test_pull_up_predicate_set_op3 t3
     on t3.a=t.a and t3.b=t.b;"""
 
     // test_different join type
@@ -456,14 +456,14 @@ suite("test_pull_up_predicate_set_op") {
     qt_union_and_const_res """select c2 from (select 2 id,'abc' c2  union  select 1 ,'abbbb' c4  ) t inner join test_pull_up_predicate_set_op3 t2 on t.id=t2.a  order by 1"""
 
     qt_union_child_and_const_exprs_res """
-    select t.a,t3.b from      (select a,b from test_like1 where a in (1,2) union select a,b from test_like2 where a in (1,2) union select 2,2 union select 2,2) t inner join test_like3 t3
+    select t.a,t3.b from      (select a,b from test_pull_up_predicate_set_op1 where a in (1,2) union select a,b from test_pull_up_predicate_set_op2 where a in (1,2) union select 2,2 union select 2,2) t inner join test_pull_up_predicate_set_op3 t3
     on t3.a=t.a and t3.b=t.b order by 1,2;
     """
     qt_union_child_and_const_exprs_andpredicates_res """
-    select t.a,t3.b from      (select a,b from test_like1 where a in (1,2) and b in ('2d','3') union select 2,'2d' union select 2,'3') t inner join test_like3 t3
+    select t.a,t3.b from      (select a,b from test_pull_up_predicate_set_op1 where a in (1,2) and b in ('2d','3') union select 2,'2d' union select 2,'3') t inner join test_pull_up_predicate_set_op3 t3
     on t3.a=t.a and t3.b=t.b order by 1,2;
     """
     qt_union_child_and_const_exprs_orpredicates_res """
-    select t.a,t3.b from      (select a,b from test_like1 where a in (1,2) or b in ('2d','3') union select 2,'2d' union select 2,'3') t inner join test_like3 t3
+    select t.a,t3.b from      (select a,b from test_pull_up_predicate_set_op1 where a in (1,2) or b in ('2d','3') union select 2,'2d' union select 2,'3') t inner join test_pull_up_predicate_set_op3 t3
     on t3.a=t.a and t3.b=t.b order by 1,2;"""
 }

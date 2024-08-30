@@ -179,11 +179,11 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------PhysicalUnion
 ----------filter(a IN (1, 2))
-------------PhysicalOlapScan[test_like1]
+------------PhysicalOlapScan[test_pull_up_predicate_set_op1]
 ----------filter(a IN (1, 2))
-------------PhysicalOlapScan[test_like2]
+------------PhysicalOlapScan[test_pull_up_predicate_set_op2]
 ----filter(a IN (1, 2))
-------PhysicalOlapScan[test_like3]
+------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
 -- !union_child_and_const_exprs_andpredicates --
 PhysicalResultSink
@@ -192,9 +192,9 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------PhysicalUnion
 ----------filter(a IN (1, 2) and b IN ('2d', '3'))
-------------PhysicalOlapScan[test_like1]
+------------PhysicalOlapScan[test_pull_up_predicate_set_op1]
 ----filter(a IN (1, 2) and b IN ('2d', '3'))
-------PhysicalOlapScan[test_like3]
+------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
 -- !union_child_and_const_exprs_orpredicates --
 PhysicalResultSink
@@ -203,8 +203,8 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------PhysicalUnion
 ----------filter((a IN (1, 2) OR b IN ('2d', '3')))
-------------PhysicalOlapScan[test_like1]
-----PhysicalOlapScan[test_like3]
+------------PhysicalOlapScan[test_pull_up_predicate_set_op1]
+----PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
 -- !intersect_one_side_constant_one_side_column_left_join --
 PhysicalResultSink
