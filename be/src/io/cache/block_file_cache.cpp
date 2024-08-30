@@ -261,7 +261,7 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
     /// find list [block1, ..., blockN] of blocks which intersect with given range.
     auto it = _files.find(hash);
     if (it == _files.end()) {
-        if (_lazy_open_done) {
+        if (_async_open_done) {
             return {};
         }
         FileCacheKey key;
@@ -309,6 +309,7 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
         _time_to_key.insert(std::make_pair(context.expiration_time, hash));
     }
     if (auto iter = _key_to_time.find(hash);
+        // TODO(zhengyu): Why the hell the type is NORMAL while context set expiration_time?
         (context.cache_type == FileCacheType::NORMAL || context.cache_type == FileCacheType::TTL) &&
         iter != _key_to_time.end() && iter->second != context.expiration_time) {
         // remove from _time_to_key
@@ -912,8 +913,8 @@ bool BlockFileCache::try_reserve_for_ttl(size_t size, std::lock_guard<std::mutex
 bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext& context,
                                  size_t offset, size_t size,
                                  std::lock_guard<std::mutex>& cache_lock) {
-    if (!_lazy_open_done) {
-        return try_reserve_for_lazy_load(size, cache_lock);
+    if (!_async_open_done) {
+        return try_reserve_during_async_load(size, cache_lock);
     }
 
     // use this strategy in scenarios where there is insufficient disk capacity or insufficient number of inodes remaining
@@ -1672,8 +1673,8 @@ BlockFileCache::get_hot_blocks_meta(const UInt128Wrapper& hash) const {
     return blocks_meta;
 }
 
-bool BlockFileCache::try_reserve_for_lazy_load(size_t size,
-                                               std::lock_guard<std::mutex>& cache_lock) {
+bool BlockFileCache::try_reserve_during_async_load(size_t size,
+                                                   std::lock_guard<std::mutex>& cache_lock) {
     size_t removed_size = 0;
     size_t normal_queue_size = _normal_queue.get_capacity(cache_lock);
     size_t disposable_queue_size = _disposable_queue.get_capacity(cache_lock);

@@ -77,7 +77,7 @@ public:
                                                       uint64_t expiration_time) const;
 
 private:
-    Status rebuild_data_structure() const;
+    Status upgrade_cache_dir_if_necessary() const;
 
     Status read_file_cache_version(std::string* buffer) const;
 

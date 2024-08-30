@@ -100,10 +100,10 @@ size_t FDCache::file_reader_cache_size() {
 
 Status FSFileCacheStorage::init(BlockFileCache* _mgr) {
     _cache_base_path = _mgr->_cache_base_path;
-    RETURN_IF_ERROR(rebuild_data_structure());
+    RETURN_IF_ERROR(upgrade_cache_dir_if_necessary());
     _cache_background_load_thread = std::thread([this, mgr = _mgr]() {
         load_cache_info_into_memory(mgr);
-        mgr->_lazy_open_done = true;
+        mgr->_async_open_done = true;
         LOG_INFO("FileCache {} lazy load done.", _cache_base_path);
     });
     return Status::OK();
@@ -227,7 +227,7 @@ std::string FSFileCacheStorage::get_path_in_local_cache(const UInt128Wrapper& va
     }
 }
 
-Status FSFileCacheStorage::rebuild_data_structure() const {
+Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
     /// version 1.0: cache_base_path / key / offset
     /// version 2.0: cache_base_path / key_prefix / key / offset
     std::string version;
@@ -347,6 +347,21 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.
             if (_mgr->_files.contains(args.hash) && _mgr->_files[args.hash].contains(args.offset)) {
+                BlockFileCache::FileBlockCell* cell =
+                        _mgr->get_cell(args.hash, args.offset, cache_lock);
+                FileBlockSPtr file_block = cell->file_block;
+                if (file_block->expiration_time() != args.ctx.expiration_time ||
+                    file_block->cache_type() != args.ctx.cache_type) [[unlikely]] {
+                    LOG(WARNING) << "duplicate hash with different expiration_time or cache_type"
+                                 << ", this will cause unremovable cache files"
+                                 << " hash=" << args.hash.to_string() << " offset=" << args.offset
+                                 << " existing expiration_time=" << args.ctx.expiration_time
+                                 << " existing cache_type="
+                                 << BlockFileCache::cache_type_to_string(args.ctx.cache_type)
+                                 << " new expiration_time=" << file_block->expiration_time()
+                                 << " new cache_type="
+                                 << BlockFileCache::cache_type_to_string(file_block->cache_type());
+                }
                 return;
             }
             // if the file is tmp, it means it is the old file and it should be removed
@@ -457,7 +472,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
         }
         for (; key_prefix_it != std::filesystem::directory_iterator(); ++key_prefix_it) {
             if (!key_prefix_it->is_directory()) {
-                // maybe version hits file
+                // skip version file
                 continue;
             }
             if (key_prefix_it->path().filename().native().size() != KEY_PREFIX_LENGTH) {
