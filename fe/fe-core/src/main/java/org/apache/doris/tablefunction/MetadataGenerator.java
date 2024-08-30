@@ -216,9 +216,6 @@ public class MetadataGenerator {
             case TASKS:
                 result = taskMetadataResult(params);
                 break;
-            case META_CACHE_STATS:
-                result = metaCacheStatsMetadataResult(params);
-                break;
             default:
                 return errorResult("Metadata table params is not set.");
         }
@@ -267,6 +264,10 @@ public class MetadataGenerator {
             case TABLE_PROPERTIES:
                 result = tablePropertiesMetadataResult(schemaTableParams);
                 columnIndex = TABLE_PROPERTIES_COLUMN_TO_INDEX;
+                break;
+            case CATALOG_META_CACHE_STATS:
+                result = metaCacheStatsMetadataResult(schemaTableParams);
+                columnIndex = META_CACHE_STATS_COLUMN_TO_INDEX;
                 break;
             default:
                 return errorResult("invalid schema table name.");
@@ -1264,11 +1265,7 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static TFetchSchemaTableDataResult metaCacheStatsMetadataResult(TMetadataTableRequestParams params) {
-        if (!params.isSetMetaCacheStatsParams()) {
-            return errorResult("meta cache stats params is not set.");
-        }
-
+    private static TFetchSchemaTableDataResult metaCacheStatsMetadataResult(TSchemaTableRequestParams params) {
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         for (CatalogIf catalogIf : Env.getCurrentEnv().getCatalogMgr().getCopyOfCatalog()) {
