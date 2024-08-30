@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
@@ -62,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -404,31 +406,70 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         Optional<MarkJoinSlotReference> markJoinSlot = subqueryToMarkJoinSlot.get(subquery);
         boolean needAddScalarSubqueryOutputToProjects = isConjunctContainsScalarSubqueryOutput(
                 subquery, conjunct, isProject, singleSubquery);
-        boolean useNewSubquery = false;
+        boolean needRuntimeAssertCount = false;
         NamedExpression oldSubqueryOutput = subquery.getQueryPlan().getOutput().get(0);
         Slot countSlot = null;
         Slot anyValueSlot = null;
         Optional<Expression> newConjunct = conjunct;
         if (needAddScalarSubqueryOutputToProjects && subquery instanceof ScalarSubquery
-                && !subquery.getCorrelateSlots().isEmpty()
-                && !((ScalarSubquery) subquery).hasTopLevelScalarAgg()) {
-            // if scalar subquery doesn't have top level scalar agg we will create one, for example
-            // select (select t2.c1 from t2 where t2.c2 = t1.c2) from t1;
-            // the original output of the correlate subquery is t2.c1, after adding a scalar agg, it will be
-            // select (select count(*), any_value(t2.c1) from t2 where t2.c2 = t1.c2) from t1;
-            Alias countAlias = new Alias(new Count());
-            Alias anyValueAlias = new Alias(new AnyValue(oldSubqueryOutput));
-            LogicalAggregate<Plan> aggregate = new LogicalAggregate<>(ImmutableList.of(),
-                    ImmutableList.of(countAlias, anyValueAlias), subquery.getQueryPlan());
-            countSlot = countAlias.toSlot();
-            anyValueSlot = anyValueAlias.toSlot();
-            subquery = subquery.withSubquery(aggregate);
-            if (conjunct.isPresent()) {
-                Map<Expression, Expression> replaceMap = new HashMap<>();
-                replaceMap.put(oldSubqueryOutput, anyValueSlot);
-                newConjunct = Optional.of(ExpressionUtils.replace(conjunct.get(), replaceMap));
+                && !subquery.getCorrelateSlots().isEmpty()) {
+            if (((ScalarSubquery) subquery).hasTopLevelScalarAgg()) {
+                // consider sql: SELECT * FROM t1 WHERE t1.a <= (SELECT COUNT(t2.a) FROM t2 WHERE (t1.b = t2.b));
+                // when unnest correlated subquery, we create a left join node.
+                // outer query is left table and subquery is right one
+                // if there is no match, the row from right table is filled with nulls
+                // but COUNT function is always not nullable.
+                // so wrap COUNT with Nvl to ensure its result is 0 instead of null to get the correct result
+                if (conjunct.isPresent()) {
+                    Map<Expression, Expression> replaceMap = new HashMap<>();
+                    NamedExpression agg = ((ScalarSubquery) subquery).getTopLevelScalarAggFunction().get();
+                    if (agg instanceof Alias) {
+                        if (((Alias) agg).child() instanceof AlwaysNotNullable) {
+                            AlwaysNotNullable notNullableAggFunc =
+                                    (AlwaysNotNullable) ((Alias) agg).child();
+                            if (subquery.getQueryPlan() instanceof LogicalProject) {
+                                LogicalProject logicalProject =
+                                        (LogicalProject) subquery.getQueryPlan();
+                                Preconditions.checkState(logicalProject.getOutputs().size() == 1,
+                                        "Scalar subuqery's should only output 1 column");
+                                Slot aggSlot = agg.toSlot();
+                                replaceMap.put(aggSlot, new Alias(new Nvl(aggSlot,
+                                        notNullableAggFunc.resultForEmptyInput())));
+                                NamedExpression newOutput = (NamedExpression) ExpressionUtils
+                                        .replace((NamedExpression) logicalProject.getProjects().get(0), replaceMap);
+                                replaceMap.clear();
+                                replaceMap.put(oldSubqueryOutput, newOutput.toSlot());
+                                oldSubqueryOutput = newOutput;
+                                subquery = subquery.withSubquery((LogicalPlan) logicalProject.child());
+                            } else {
+                                replaceMap.put(oldSubqueryOutput, new Nvl(oldSubqueryOutput,
+                                        notNullableAggFunc.resultForEmptyInput()));
+                            }
+                        }
+                        if (!replaceMap.isEmpty()) {
+                            newConjunct = Optional.of(ExpressionUtils.replace(conjunct.get(), replaceMap));
+                        }
+                    }
+                }
+            } else {
+                // if scalar subquery doesn't have top level scalar agg we will create one, for example
+                // select (select t2.c1 from t2 where t2.c2 = t1.c2) from t1;
+                // the original output of the correlate subquery is t2.c1, after adding a scalar agg, it will be
+                // select (select count(*), any_value(t2.c1) from t2 where t2.c2 = t1.c2) from t1;
+                Alias countAlias = new Alias(new Count());
+                Alias anyValueAlias = new Alias(new AnyValue(oldSubqueryOutput));
+                LogicalAggregate<Plan> aggregate = new LogicalAggregate<>(ImmutableList.of(),
+                        ImmutableList.of(countAlias, anyValueAlias), subquery.getQueryPlan());
+                countSlot = countAlias.toSlot();
+                anyValueSlot = anyValueAlias.toSlot();
+                subquery = subquery.withSubquery(aggregate);
+                if (conjunct.isPresent()) {
+                    Map<Expression, Expression> replaceMap = new HashMap<>();
+                    replaceMap.put(oldSubqueryOutput, anyValueSlot);
+                    newConjunct = Optional.of(ExpressionUtils.replace(conjunct.get(), replaceMap));
+                }
+                needRuntimeAssertCount = true;
             }
-            useNewSubquery = true;
         }
         LogicalApply newApply = new LogicalApply(
                 subquery.getCorrelateSlots(),
@@ -437,13 +478,14 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 needAddScalarSubqueryOutputToProjects, isProject, isMarkJoinSlotNotNull,
                 childPlan, subquery.getQueryPlan());
 
-        ImmutableList.Builder<NamedExpression> projects = ImmutableList.builder();
+        ImmutableList.Builder<NamedExpression> projects =
+                ImmutableList.builderWithExpectedSize(childPlan.getOutput().size() + 3);
         // left child
         projects.addAll(childPlan.getOutput());
         // markJoinSlotReference
-        projects.addAll(markJoinSlot.isPresent() ? ImmutableList.of(markJoinSlot.get()) : ImmutableList.of());
+        markJoinSlot.map(projects::add);
         if (needAddScalarSubqueryOutputToProjects) {
-            if (useNewSubquery) {
+            if (needRuntimeAssertCount) {
                 // if we create a new subquery in previous step, we need add the any_value() and assert_true()
                 // into the project list. So BE will use assert_true to check if the subquery return only 1 row
                 projects.add(anyValueSlot);

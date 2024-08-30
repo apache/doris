@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
@@ -319,10 +318,8 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         if (originOutput.isEmpty()) {
             return plan;
         }
-        // keep NoneMovableFunction for later use
-        List<NamedExpression> prunedOutputs = Utils.filterImmutableList(originOutput,
-                output -> output.containsType(NoneMovableFunction.class)
-                        || context.requiredSlots.contains(output.toSlot()));
+        List<NamedExpression> prunedOutputs =
+                Utils.filterImmutableList(originOutput, output -> context.requiredSlots.contains(output.toSlot()));
 
         if (prunedOutputs.isEmpty()) {
             List<NamedExpression> candidates = Lists.newArrayList(originOutput);
@@ -412,14 +409,6 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             for (Slot childOutput : childOutputs) {
                 if (childrenRequiredSlots.contains(childOutput)) {
                     childRequiredSlotBuilder.add(childOutput);
-                }
-            }
-            if (child instanceof LogicalProject) {
-                // keep NoneMovableFunction for later use
-                for (NamedExpression output : ((LogicalProject<?>) child).getOutputs()) {
-                    if (output.containsType(NoneMovableFunction.class)) {
-                        childRequiredSlotBuilder.add(output.toSlot());
-                    }
                 }
             }
             childRequiredSlots = childRequiredSlotBuilder.build();

@@ -26,6 +26,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.base.Preconditions;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -60,7 +62,11 @@ public class PullUpProjectUnderApply extends OneRewriteRuleFactory {
                     List<NamedExpression> newProjects = new ArrayList<>(apply.left().getOutput());
                     if (apply.getSubqueryExpr() instanceof ScalarSubquery) {
                         // unnest correlated scalar subquery may add count(*) and any_value() to project list
-                        // then there may be more than one expr, so we add all project exprs here
+                        // the previous SubqueryToApply rule will make sure of it. So the output column
+                        // may be 1 or 2, we add a check here.
+                        int size = project.getProjects().size();
+                        Preconditions.checkState(size == 1 || size == 2,
+                                "ScalarSubquery should only have one or two output column");
                         newProjects.addAll(project.getProjects());
                     }
                     if (apply.isMarkJoin()) {

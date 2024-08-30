@@ -40,46 +40,37 @@ public class ScalarSubquery extends SubqueryExpr {
     private final boolean hasTopLevelScalarAgg;
 
     public ScalarSubquery(LogicalPlan subquery) {
-        this(Objects.requireNonNull(subquery, "subquery can not be null"), ImmutableList.of());
+        this(subquery, ImmutableList.of());
     }
 
     public ScalarSubquery(LogicalPlan subquery, List<Slot> correlateSlots) {
-        this(Objects.requireNonNull(subquery, "subquery can not be null"),
-                Objects.requireNonNull(correlateSlots, "correlateSlots can not be null"),
-                Optional.empty());
+        this(subquery, correlateSlots, Optional.empty());
     }
 
     public ScalarSubquery(LogicalPlan subquery, List<Slot> correlateSlots, Optional<Expression> typeCoercionExpr) {
         super(Objects.requireNonNull(subquery, "subquery can not be null"),
                 Objects.requireNonNull(correlateSlots, "correlateSlots can not be null"),
                 typeCoercionExpr);
-        hasTopLevelScalarAgg = findTopLevelScalarAgg(subquery);
-    }
-
-    // check if the query has top level scalar agg
-    // if the correlated subquery doesn't have top level scalar agg
-    // we need create one in subquery unnesting step
-    private static boolean findTopLevelScalarAgg(Plan plan) {
-        if (plan instanceof LogicalAggregate) {
-            if (((LogicalAggregate<?>) plan).getGroupByExpressions().isEmpty()) {
-                return true;
-            } else {
-                return false;
-            }
-        } else if (plan instanceof LogicalJoin) {
-            return false;
-        } else {
-            for (Plan child : plan.children()) {
-                if (findTopLevelScalarAgg(child)) {
-                    return true;
-                }
-            }
-            return false;
-        }
+        hasTopLevelScalarAgg = findTopLevelScalarAgg(subquery) != null;
     }
 
     public boolean hasTopLevelScalarAgg() {
         return hasTopLevelScalarAgg;
+    }
+
+    /**
+    * getTopLevelScalarAggFunction
+    */
+    public Optional<NamedExpression> getTopLevelScalarAggFunction() {
+        Plan plan = findTopLevelScalarAgg(queryPlan);
+        if (plan != null) {
+            LogicalAggregate aggregate = (LogicalAggregate) plan;
+            Preconditions.checkState(aggregate.getAggregateFunctions().size() == 1,
+                    "agg is not a scalar agg, it's output is ", aggregate.getOutputExpressions());
+            return Optional.of((NamedExpression) aggregate.getOutputExpressions().get(0));
+        } else {
+            return Optional.empty();
+        }
     }
 
     @Override
@@ -113,5 +104,25 @@ public class ScalarSubquery extends SubqueryExpr {
     @Override
     public ScalarSubquery withSubquery(LogicalPlan subquery) {
         return new ScalarSubquery(subquery, correlateSlots, typeCoercionExpr);
+    }
+
+    private static Plan findTopLevelScalarAgg(Plan plan) {
+        if (plan instanceof LogicalAggregate) {
+            if (((LogicalAggregate<?>) plan).getGroupByExpressions().isEmpty()) {
+                return plan;
+            } else {
+                return null;
+            }
+        } else if (plan instanceof LogicalJoin) {
+            return null;
+        } else {
+            for (Plan child : plan.children()) {
+                Plan result = findTopLevelScalarAgg(child);
+                if (result != null) {
+                    return result;
+                }
+            }
+            return null;
+        }
     }
 }

@@ -33,20 +33,26 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Use the visitor to iterate sub expression.
@@ -114,42 +120,58 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
     @Override
     public Expression visitScalarSubquery(ScalarSubquery scalar, T context) {
         AnalyzedResult analyzedResult = analyzeSubquery(scalar);
-
+        boolean isCorrelated = analyzedResult.isCorrelated();
+        if (isCorrelated) {
+            if (scalar.getQueryPlan() instanceof LogicalLimit) {
+                throw new AnalysisException("limit is not supported in correlated subquery "
+                        + analyzedResult.getLogicalPlan());
+            }
+            LogicalPlan rootPlan = scalar.getQueryPlan();
+            if (rootPlan instanceof LogicalSort) {
+                // skip useless sort node
+                rootPlan = ((LogicalSort<LogicalPlan>) rootPlan).child();
+            }
+            analyzedResult = analyzeSubquery(scalar.withSubquery(rootPlan));
+        }
         checkOutputColumn(analyzedResult.getLogicalPlan());
         checkHasNoGroupBy(analyzedResult);
+        checkNoCorrelatedSlotsInAgg(analyzedResult);
+        checkNoCorrelatedSlotsUnderJoin(analyzedResult);
 
-        // if scalar subquery is like select '2024-02-02 00:00:00'
-        // we can just return the constant expr '2024-02-02 00:00:00'
+        LogicalPlan subqueryPlan = analyzedResult.getLogicalPlan();
         if (analyzedResult.getLogicalPlan() instanceof LogicalProject) {
             LogicalProject project = (LogicalProject) analyzedResult.getLogicalPlan();
             if (project.child() instanceof LogicalOneRowRelation
                     && project.getProjects().size() == 1
                     && project.getProjects().get(0) instanceof Alias) {
+                // if scalar subquery is like select '2024-02-02 00:00:00'
+                // we can just return the constant expr '2024-02-02 00:00:00'
                 Alias alias = (Alias) project.getProjects().get(0);
                 if (alias.isConstant()) {
                     return alias.child();
                 }
+            } else if (isCorrelated) {
+                if (ExpressionUtils.containsWindowExpression(project.getProjects())) {
+                    throw new AnalysisException("window function is not supported in correlated subquery's output  "
+                            + analyzedResult.getLogicalPlan());
+                }
+                Set<Slot> correlatedSlots = new HashSet<>(analyzedResult.getCorrelatedSlots());
+                if (!Sets.intersection(ExpressionUtils.getInputSlotSet(project.getProjects()),
+                        correlatedSlots).isEmpty()) {
+                    throw new AnalysisException(
+                            "outer query's column is not supported in subquery's output "
+                                    + analyzedResult.getLogicalPlan());
+                }
             }
         }
 
-        return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots());
+        return new ScalarSubquery(subqueryPlan, analyzedResult.getCorrelatedSlots());
     }
 
     private void checkOutputColumn(LogicalPlan plan) {
         if (plan.getOutput().size() != 1) {
             throw new AnalysisException("Multiple columns returned by subquery are not yet supported. Found "
                     + plan.getOutput().size());
-        }
-    }
-
-    private void checkHasAgg(AnalyzedResult analyzedResult) {
-        if (!analyzedResult.isCorrelated()) {
-            return;
-        }
-        if (!analyzedResult.hasAgg()) {
-            throw new AnalysisException("The select item in correlated subquery of binary predicate "
-                    + "should only be sum, min, max, avg and count. Current subquery: "
-                    + analyzedResult.getLogicalPlan());
         }
     }
 
@@ -168,6 +190,22 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             throw new AnalysisException(
                     "Unsupported correlated subquery with grouping and/or aggregation "
                             + analyzedResult.getLogicalPlan());
+        }
+    }
+
+    private void checkNoCorrelatedSlotsUnderJoin(AnalyzedResult analyzedResult) {
+        if (analyzedResult.hasCorrelatedSlotsUnderJoin()) {
+            throw new AnalysisException(
+                    String.format("Unsupported accesss outer join's column under join operator : %s",
+                    analyzedResult.getCorrelatedSlots()));
+        }
+    }
+
+    private void checkNoCorrelatedSlotsInAgg(AnalyzedResult analyzedResult) {
+        if (analyzedResult.hasCorrelatedSlotsInAgg()) {
+            throw new AnalysisException(String.format(
+                    "outer query's column is not supported in subquery's aggregation operator : %s",
+                    analyzedResult.getCorrelatedSlots()));
         }
     }
 
@@ -244,15 +282,51 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
 
         public boolean hasCorrelatedSlotsUnderAgg() {
             return correlatedSlots.isEmpty() ? false
-                    : findAggContainsCorrelatedSlots(logicalPlan, ImmutableSet.copyOf(correlatedSlots));
+                    : findCorrelatedSlotsUnderNode(logicalPlan,
+                            ImmutableSet.copyOf(correlatedSlots), LogicalAggregate.class);
         }
 
-        private boolean findAggContainsCorrelatedSlots(Plan rootPlan, ImmutableSet<Slot> slots) {
+        public boolean hasCorrelatedSlotsUnderJoin() {
+            return correlatedSlots.isEmpty() ? false
+                    : findCorrelatedSlotsUnderNode(logicalPlan,
+                            ImmutableSet.copyOf(correlatedSlots), LogicalJoin.class);
+        }
+
+        public boolean hasCorrelatedSlotsInAgg() {
+            return correlatedSlots.isEmpty() ? false
+                    : findCorrelatedSlotsInNode(logicalPlan, ImmutableSet.copyOf(correlatedSlots),
+                            LogicalAggregate.class);
+        }
+
+        private static <T> boolean findCorrelatedSlotsInNode(Plan rootPlan,
+                ImmutableSet<Slot> slots, Class<T> clazz) {
             ArrayDeque<Plan> planQueue = new ArrayDeque<>();
             planQueue.add(rootPlan);
             while (!planQueue.isEmpty()) {
                 Plan plan = planQueue.poll();
-                if (plan instanceof LogicalAggregate) {
+                if (plan.getClass().equals(clazz)) {
+                    if (!Sets
+                            .intersection(slots,
+                                    ExpressionUtils.getInputSlotSet(plan.getExpressions()))
+                            .isEmpty()) {
+                        return true;
+                    }
+                } else {
+                    for (Plan child : plan.children()) {
+                        planQueue.add(child);
+                    }
+                }
+            }
+            return false;
+        }
+
+        private static <T> boolean findCorrelatedSlotsUnderNode(Plan rootPlan,
+                ImmutableSet<Slot> slots, Class<T> clazz) {
+            ArrayDeque<Plan> planQueue = new ArrayDeque<>();
+            planQueue.add(rootPlan);
+            while (!planQueue.isEmpty()) {
+                Plan plan = planQueue.poll();
+                if (plan.getClass().equals(clazz)) {
                     if (plan.containsSlots(slots)) {
                         return true;
                     }
