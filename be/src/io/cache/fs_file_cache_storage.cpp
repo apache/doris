@@ -32,6 +32,7 @@
 #include "io/fs/local_file_writer.h"
 #include "runtime/exec_env.h"
 #include "vec/common/hex.h"
+#include "io/fs/file_system.h"
 
 namespace doris::io {
 
@@ -204,8 +205,21 @@ Status FSFileCacheStorage::change_key_meta(const FileCacheKey& key, const KeyMet
 
 std::string FSFileCacheStorage::get_path_in_local_cache(const std::string& dir, size_t offset,
                                                         FileCacheType type, bool is_tmp) {
-    return Path(dir) / (std::to_string(offset) +
-                        (is_tmp ? "_tmp" : BlockFileCache::cache_type_to_string(type)));
+    if (is_tmp) {
+        return Path(dir) / (std::to_string(offset) + "_tmp");
+    } else if (type == FileCacheType::TTL) {
+        // TTL maybe end up with '_ttl' (old format) or without (new format)
+        std::string path = Path(dir) / std::to_string(offset);
+        std::error_code ec;
+        bool exists = std::filesystem::exists(path, ec);
+        if (exists && !ec) {
+            return path;
+        } else {
+            return path + "_ttl";
+        }
+    } else {
+        return Path(dir) / (std::to_string(offset) + BlockFileCache::cache_type_to_string(type));
+    }
 }
 
 std::string FSFileCacheStorage::get_path_in_local_cache(const UInt128Wrapper& value,
@@ -338,7 +352,7 @@ std::string FSFileCacheStorage::get_version_path() const {
     return Path(_cache_base_path) / "version";
 }
 
-Status parse_filename_sufix_to_cache_type(const std::shared_ptr<LocalFileSystem>& fs,
+Status parse_filename_suffix_to_cache_type(const std::shared_ptr<LocalFileSystem>& fs,
                                           const Path& file_path, long expiration_time, size_t size,
                                           size_t* offset, bool* is_tmp, FileCacheType* cache_type) {
     std::error_code ec;
@@ -373,8 +387,8 @@ Status parse_filename_sufix_to_cache_type(const std::shared_ptr<LocalFileSystem>
     // i.e. whenever expiration time > 0, it IS TTL, otherwise
     // it is NORMAL or INDEX depending on its suffix.
     // From now on, the ttl type encoding in file name is only for
-    // compatibility and will be ignored. And we won't produce ttl
-    // prefix no more in new version.
+    // compatibility. It won't be build into the filename, and existing
+    // ones will be ignored.
     if (expiration_time > 0) {
         *cache_type = FileCacheType::TTL;
     } else if (*cache_type == FileCacheType::TTL && expiration_time == 0) {
@@ -469,7 +483,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
                 size_t offset = 0;
                 bool is_tmp = false;
                 FileCacheType cache_type = FileCacheType::NORMAL;
-                if (!parse_filename_sufix_to_cache_type(fs, offset_it->path().filename().native(),
+                if (!parse_filename_suffix_to_cache_type(fs, offset_it->path().filename().native(),
                                                         expiration_time, size, &offset, &is_tmp,
                                                         &cache_type)) {
                     continue;
@@ -565,7 +579,7 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
         size_t offset = 0;
         bool is_tmp = false;
         FileCacheType cache_type = FileCacheType::NORMAL;
-        if (!parse_filename_sufix_to_cache_type(fs, check_it->path().filename().native(),
+        if (!parse_filename_suffix_to_cache_type(fs, check_it->path().filename().native(),
                                                 context_original.expiration_time, size, &offset,
                                                 &is_tmp, &cache_type)) {
             continue;

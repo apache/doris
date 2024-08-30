@@ -81,7 +81,7 @@ private:
 
     Status read_file_cache_version(std::string* buffer) const;
 
-    Status parse_filename_sufix_to_cache_type(const std::shared_ptr<LocalFileSystem>& fs,
+    Status parse_filename_suffix_to_cache_type(const std::shared_ptr<LocalFileSystem>& fs,
                                               const Path& file_path, long expiration_time,
                                               size_t size, size_t* offset, bool* is_tmp,
                                               FileCacheType* cache_type) const;
