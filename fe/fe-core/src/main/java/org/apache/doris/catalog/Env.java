@@ -1685,6 +1685,8 @@ public class Env {
         if ((1L << 63) - nextId < (1L << 33)) {
             LOG.warn("nextId is too large: {}, it may be a bug and consider backup and migration", nextId);
         } else {
+            // Keep compatible with previous impl, the previous impl may result in extreme large nextId,
+            // and guess there are no more than 1L<<32 (~4e9) ids used since last reboot
             nextId = (currentId + 1) < currentMill ? currentMill : currentId + (1L << 32);
         }
 
