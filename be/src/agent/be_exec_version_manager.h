@@ -20,9 +20,19 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
+#include "common/exception.h"
 #include "common/status.h"
 
 namespace doris {
+
+/// functional
+constexpr inline int BITMAP_SERDE = 3;
+constexpr inline int USE_NEW_SERDE = 4;         // release on DORIS version 2.1
+constexpr inline int OLD_WAL_SERDE = 3;         // use to solve compatibility issues, see pr #32299
+constexpr inline int AGG_FUNCTION_NULLABLE = 5; // change some agg nullable property: PR #37215
+constexpr inline int VARIANT_SERDE = 6;         // change variant serde to fix PR #38413
+constexpr inline int PERCENTILE_CHANGE_VERSION =
+        5; // percentile changed the data format in this version
 
 class BeExecVersionManager {
 public:
@@ -37,6 +47,18 @@ public:
                     be_exec_version, min_be_exec_version, max_be_exec_version);
         }
         return Status::OK();
+    }
+
+    static void check_agg_state_compatibility(int current_be_exec_version, int data_be_exec_version,
+                                              std::string function_name) {
+        if (function_name == "percentile" && current_be_exec_version >= PERCENTILE_CHANGE_VERSION &&
+            data_be_exec_version < PERCENTILE_CHANGE_VERSION) {
+            throw Exception(Status::InternalError(
+                    "agg state data with percentile is not supported,"
+                    "current_be_exec_version={}, data_be_exec_version={}, need to rebuild the data "
+                    "or set the be_exec_version={} in fe.conf",
+                    current_be_exec_version, data_be_exec_version, PERCENTILE_CHANGE_VERSION - 1));
+        }
     }
 
     static int get_newest_version() { return max_be_exec_version; }
@@ -84,12 +106,5 @@ private:
  */
 constexpr inline int BeExecVersionManager::max_be_exec_version = 7;
 constexpr inline int BeExecVersionManager::min_be_exec_version = 0;
-
-/// functional
-constexpr inline int BITMAP_SERDE = 3;
-constexpr inline int USE_NEW_SERDE = 4;         // release on DORIS version 2.1
-constexpr inline int OLD_WAL_SERDE = 3;         // use to solve compatibility issues, see pr #32299
-constexpr inline int AGG_FUNCTION_NULLABLE = 5; // change some agg nullable property: PR #37215
-constexpr inline int VARIANT_SERDE = 6;         // change variant serde to fix PR #38413
 
 } // namespace doris
