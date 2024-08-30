@@ -322,6 +322,7 @@ struct TQueryOptions {
 
   126: optional i32 runtime_bloom_filter_max_size = 16777216;
 
+  127: optional i32 in_list_value_count_threshold = 10;
   128: optional bool enable_verbose_profile = false;
   129: optional i32 rpc_verbose_profile_max_instance_count = 0;
 

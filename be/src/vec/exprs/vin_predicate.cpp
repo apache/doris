@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -79,6 +80,7 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     VExpr::register_function_context(state, context);
     _prepare_finished = true;
     _can_fast_execute = can_fast_execute();
+    _in_list_value_count_threshold = state->query_options().in_list_value_count_threshold;
     return Status::OK();
 }
 

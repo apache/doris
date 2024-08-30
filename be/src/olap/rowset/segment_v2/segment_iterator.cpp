@@ -917,10 +917,17 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
         return false;
     }
 
-    if ((pred->type() == PredicateType::IN_LIST || pred->type() == PredicateType::NOT_IN_LIST) &&
-        pred->predicate_params()->marked_by_runtime_filter) {
+    if (pred->type() == PredicateType::IN_LIST || pred->type() == PredicateType::NOT_IN_LIST) {
+        auto predicate_param = pred->predicate_params();
         // in_list or not_in_list predicate produced by runtime filter
-        return false;
+        if (predicate_param->marked_by_runtime_filter) {
+            return false;
+        }
+        // the in_list or not_in_list value count cannot be greater than threshold
+        int32_t threshold = _opts.runtime_state->query_options().in_list_value_count_threshold;
+        if (pred_in_compound && predicate_param->values.size() > threshold) {
+            return false;
+        }
     }
 
     // UNTOKENIZED strings exceed ignore_above, they are written as null, causing range query errors
