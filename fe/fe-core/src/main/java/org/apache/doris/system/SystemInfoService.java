@@ -642,13 +642,16 @@ public class SystemInfoService {
         }
     }
 
-    public void updateBackendReportVersion(long backendId, long newReportVersion, long dbId, long tableId) {
+    public void updateBackendReportVersion(long backendId, long newReportVersion, long dbId, long tableId,
+            boolean checkDbExist) {
         AtomicLong atomicLong;
         if ((atomicLong = idToReportVersionRef.get(backendId)) != null) {
-            Database db = (Database) Env.getCurrentInternalCatalog().getDbNullable(dbId);
-            if (db == null) {
-                LOG.warn("failed to update backend report version, db {} does not exist", dbId);
-                return;
+            if (checkDbExist) {
+                Database db = (Database) Env.getCurrentInternalCatalog().getDbNullable(dbId);
+                if (db == null) {
+                    LOG.warn("failed to update backend report version, db {} does not exist", dbId);
+                    return;
+                }
             }
             atomicLong.set(newReportVersion);
             if (LOG.isDebugEnabled()) {
