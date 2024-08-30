@@ -67,6 +67,9 @@ import java.util.Set;
  */
 public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationContext> {
     public static final double DEFAULT_INEQUALITY_COEFFICIENT = 0.5;
+    // "Range selectivity is prone to producing outliers, so we add this threshold limit.
+    // The threshold estimation is calculated based on selecting one month out of fifty years."
+    public static final double RANGE_SELECTIVITY_THRESHOLD = 0.0016;
     public static final double DEFAULT_IN_COEFFICIENT = 1.0 / 3.0;
 
     public static final double DEFAULT_LIKE_COMPARISON_SELECTIVITY = 0.2;
@@ -600,6 +603,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             double sel = leftRange.overlapPercentWith(rightRange);
             if (!(dataType instanceof RangeScalable) && (sel != 0.0 && sel != 1.0)) {
                 sel = DEFAULT_INEQUALITY_COEFFICIENT;
+            } else if (sel < RANGE_SELECTIVITY_THRESHOLD) {
+                sel = RANGE_SELECTIVITY_THRESHOLD;
             }
             sel = getNotNullSelectivity(leftStats, sel);
             updatedStatistics = context.statistics.withSel(sel);

@@ -145,12 +145,13 @@ private:
     Status _create_tree_helper(ObjectPool* pool, const std::vector<TPlanNode>& tnodes,
                                const doris::TPipelineFragmentParams& request,
                                const DescriptorTbl& descs, OperatorXPtr parent, int* node_idx,
-                               OperatorXPtr* root, PipelinePtr& cur_pipe, int child_idx);
+                               OperatorXPtr* root, PipelinePtr& cur_pipe, int child_idx,
+                               const bool followed_by_shuffled_join);
 
     Status _create_operator(ObjectPool* pool, const TPlanNode& tnode,
                             const doris::TPipelineFragmentParams& request,
                             const DescriptorTbl& descs, OperatorXPtr& op, PipelinePtr& cur_pipe,
-                            int parent_idx, int child_idx);
+                            int parent_idx, int child_idx, const bool followed_by_shuffled_join);
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ObjectPool* pool, const TPlanNode& tnode,
                                                    const DescriptorTbl& descs, OperatorXPtr& op,

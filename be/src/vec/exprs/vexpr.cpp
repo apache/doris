@@ -31,6 +31,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -147,9 +148,17 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_STRING>(data, &node));
         break;
     }
+    case TYPE_IPV4: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV4>(data, &node));
+        break;
+    }
+    case TYPE_IPV6: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV6>(data, &node));
+        break;
+    }
     default:
-        DCHECK(false);
-        throw std::invalid_argument("Invalid type!");
+        throw Exception(ErrorCode::INTERNAL_ERROR, "runtime filter meet invalid type {}",
+                        int(type));
     }
     return node;
 }
@@ -652,6 +661,9 @@ std::string VExpr::gen_predicate_result_sign(Block& block, const ColumnNumbers& 
         pred_result_sign +=
                 BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_" + function_name + "_";
         if (function_name == "in" || function_name == "not_in") {
+            if (arguments.size() - 1 > _in_list_value_count_threshold) {
+                return pred_result_sign;
+            }
             // Generating 'result_sign' from 'inlist' requires sorting the values.
             std::set<std::string> values;
             for (size_t i = 1; i < arguments.size(); i++) {

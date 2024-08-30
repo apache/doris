@@ -110,7 +110,6 @@ import org.apache.doris.nereids.DorisParser.HintAssignmentContext;
 import org.apache.doris.nereids.DorisParser.HintStatementContext;
 import org.apache.doris.nereids.DorisParser.IdentifierContext;
 import org.apache.doris.nereids.DorisParser.IdentifierListContext;
-import org.apache.doris.nereids.DorisParser.IdentifierOrTextContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
 import org.apache.doris.nereids.DorisParser.InPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.IndexDefContext;
@@ -1130,7 +1129,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         : LoadTask.MergeType.valueOf(ddc.mergeType().getText());
 
             Optional<String> fileFormat = ddc.format == null ? Optional.empty()
-                    : Optional.of(visitIdentifierOrStringLiteral(ddc.format));
+                    : Optional.of(visitIdentifierOrText(ddc.format));
             Optional<String> separator = ddc.separator == null ? Optional.empty() : Optional.of(ddc.separator.getText()
                         .substring(1, ddc.separator.getText().length() - 1));
             Optional<String> comma = ddc.comma == null ? Optional.empty() : Optional.of(ddc.comma.getText()
@@ -1229,16 +1228,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public String visitIdentifierOrText(IdentifierOrTextContext ctx) {
-        if (ctx.STRING_LITERAL() != null) {
-            return ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1);
-        } else {
-            return ctx.errorCapturingIdentifier().getText();
-        }
-    }
-
-    @Override
-    public String visitIdentifierOrStringLiteral(DorisParser.IdentifierOrStringLiteralContext ctx) {
+    public String visitIdentifierOrText(DorisParser.IdentifierOrTextContext ctx) {
         if (ctx.STRING_LITERAL() != null) {
             return ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1);
         } else {
@@ -3197,7 +3187,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         hints.put(hintName, new SelectHintSetVar(hintName, parameters));
                         break;
                     case "leading":
-                        List<String> leadingParameters = new ArrayList<String>();
+                        List<String> leadingParameters = new ArrayList<>();
                         for (HintAssignmentContext kv : hintStatement.parameters) {
                             if (kv.key != null) {
                                 String parameterName = visitIdentifierOrText(kv.key);
@@ -3210,7 +3200,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         hints.put(hintName, new SelectHintOrdered(hintName));
                         break;
                     case "use_cbo_rule":
-                        List<String> useRuleParameters = new ArrayList<String>();
+                        List<String> useRuleParameters = new ArrayList<>();
                         for (HintAssignmentContext kv : hintStatement.parameters) {
                             if (kv.key != null) {
                                 String parameterName = visitIdentifierOrText(kv.key);
@@ -3220,7 +3210,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         hints.put(hintName, new SelectHintUseCboRule(hintName, useRuleParameters, false));
                         break;
                     case "no_use_cbo_rule":
-                        List<String> noUseRuleParameters = new ArrayList<String>();
+                        List<String> noUseRuleParameters = new ArrayList<>();
                         for (HintAssignmentContext kv : hintStatement.parameters) {
                             String parameterName = visitIdentifierOrText(kv.key);
                             if (kv.key != null) {
