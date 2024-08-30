@@ -76,8 +76,6 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
         connectContext.setDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         connectContext.getSessionVariable().setEnableFoldConstantByBe(true);
-        connectContext.getSessionVariable().setDebugSkipFoldConstant(false);
-        connectContext.getSessionVariable().setEnableExprTrace(true);
     }
 
     @Test
