@@ -616,8 +616,34 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
     std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
     std::vector<int> column_ids;
     vectorized::ColumnsWithTypeAndName arguments;
-
+    VExprSPtrs children_exprs;
     for (auto child : children()) {
+        if (child->node_type() == TExprNodeType::CAST_EXPR) {
+            auto* cast_expr = assert_cast<VCastExpr*>(child.get());
+            DCHECK_EQ(cast_expr->children().size(), 1);
+            if (cast_expr->get_child(0)->is_slot_ref()) {
+                auto* column_slot_ref = assert_cast<VSlotRef*>(cast_expr->get_child(0).get());
+                auto column_id = column_slot_ref->column_id();
+                const auto* storage_name_type =
+                        context->get_inverted_index_context()
+                                ->get_storage_name_and_type_by_column_id(column_id);
+                auto origin_primitive_type =
+                        storage_name_type->second->get_type_as_type_descriptor().type;
+                auto target_primitive_type =
+                        cast_expr->get_target_type()->get_type_as_type_descriptor().type;
+                if (origin_primitive_type != TYPE_VARIANT &&
+                    (origin_primitive_type == target_primitive_type ||
+                     (is_string_type(target_primitive_type) &&
+                      is_string_type(origin_primitive_type)))) {
+                    children_exprs.emplace_back(expr_without_cast(child));
+                }
+            }
+        } else {
+            children_exprs.emplace_back(child);
+        }
+    }
+
+    for (auto child : children_exprs) {
         if (child->is_slot_ref()) {
             auto* column_slot_ref = assert_cast<VSlotRef*>(child.get());
             auto column_id = column_slot_ref->column_id();
