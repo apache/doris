@@ -134,7 +134,11 @@ Status SchemaScanner::get_next_block_async(RuntimeState* state) {
                     _opened = true;
                 }
                 bool eos = false;
-                _scanner_status.update(get_next_block_internal(_data_block.get(), &eos));
+                auto call_next_block_internal = [&]() -> Status {
+                    RETURN_IF_CATCH_EXCEPTION(
+                            { return get_next_block_internal(_data_block.get(), &eos); });
+                };
+                _scanner_status.update(call_next_block_internal());
                 _eos = eos;
                 _async_thread_running = false;
                 _dependency->set_ready();
