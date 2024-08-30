@@ -596,7 +596,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             }
         }
         return orderedMvs.get(0);
-
     }
 
     public List<MaterializedIndex> getVisibleIndex() {

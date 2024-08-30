@@ -55,11 +55,11 @@ suite("test_use_mv") {
     Thread.sleep(1000)
     explain {
         sql """select k1 from t1;"""
-        contains("mv_k1")
+        contains("t1(r1)")
     }
     explain {
         sql """select /*+ no_use_mv */ k1 from t1;"""
-        notContains("mv_k1")
+        notContains("t1(r1)")
     }
     explain {
         sql """select /*+ no_use_mv(t1) */ k1 from t1;"""
@@ -71,7 +71,7 @@ suite("test_use_mv") {
     }
     explain {
         sql """select /*+ no_use_index(t1.r2) */ k1 from t1;"""
-        contains("mv_k1")
+        contains("t1(r1)")
     }
     sql """drop table if exists t1;"""
 }
