@@ -165,7 +165,6 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
     }
 
     private void extractIndex(SelectHintUseMv selectHint, StatementContext statementContext) {
-        // todo: use index hint need added to current scope, where should it be visible?
         boolean isAllMv = selectHint.getParameters().isEmpty();
         UseMvHint useMvHint = new UseMvHint(selectHint.getHintName(), selectHint.getParameters(),
                 selectHint.isUseMv(), isAllMv);
@@ -176,6 +175,9 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                 useMvHint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
                 useMvHint.setErrorMessage("only one " + selectHint.getHintName() + " hint is allowed");
             }
+        }
+        if (!useMvHint.isSyntaxError()) {
+            ConnectContext.get().getSessionVariable().setEnableSyncMvCostBasedRewrite(false);
         }
         statementContext.addHint(useMvHint);
     }

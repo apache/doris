@@ -33,7 +33,6 @@ suite("test_use_mv") {
     sql "set ignore_shape_nodes='PhysicalProject'"
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set runtime_filter_mode=OFF'
-    sql 'set enable_sync_mv_cost_based_rewrite = false'
 
     // create tables
     sql """
