@@ -377,6 +377,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             materializationContext.tryReGenerateScanPlan(cascadesContext);
             //  if rewrite successfully, try to get mv read lock to avoid data inconsistent
             if (materializationContext instanceof AsyncMaterializationContext && !materializationContext.isSuccess()) {
+                // Need get mtmv read lock, to avoid the data of plan which use mv is wrong
                 cascadesContext.getStatementContext()
                         .addTableReadLock(((AsyncMaterializationContext) materializationContext).getMtmv());
             }
