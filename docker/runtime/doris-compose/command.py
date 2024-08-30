@@ -297,6 +297,11 @@ class UpCommand(Command):
                             default="",
                             help="Set code coverage output directory")
 
+        parser.add_argument("--sql-mode-node-mgr",
+                            default=False,
+                            action=self._get_parser_bool_action(True),
+                            help="Manager fe be via sql instead of http")
+
         parser.add_argument(
             "--fdb-version",
             type=str,
@@ -394,7 +399,7 @@ class UpCommand(Command):
                 args.NAME, args.IMAGE, args.cloud, args.fe_config,
                 args.be_config, args.ms_config, args.recycle_config,
                 args.fe_follower, args.be_disks, args.be_cluster, args.reg_be,
-                args.coverage_dir, cloud_store_config)
+                args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
 

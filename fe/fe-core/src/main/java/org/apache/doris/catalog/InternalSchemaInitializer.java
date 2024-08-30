@@ -34,6 +34,7 @@ import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
@@ -186,6 +187,22 @@ public class InternalSchemaInitializer extends Thread {
         }
     }
 
+    private static void trySetStorageVault(Map<String, String> properties) throws UserException {
+        CloudEnv cloudEnv = (CloudEnv) Env.getCurrentEnv();
+        if (Config.isCloudMode() && cloudEnv.getEnableStorageVault()) {
+            String storageVaultName;
+            Pair<String, String> info = cloudEnv.getStorageVaultMgr().getDefaultStorageVaultInfo();
+            if (info != null) {
+                storageVaultName = info.first;
+            } else {
+                throw new UserException("No default storage vault."
+                        + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
+                        + " and pick one set default vault with `SET <vault_name> AS DEFAULT STORAGE VAULT`");
+            }
+            properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, storageVaultName);
+        }
+    }
+
     private static CreateTableStmt buildStatisticsTblStmt(String statsTableName, List<String> uniqueKeys)
             throws UserException {
         TableName tableName = new TableName("", FeConstants.INTERNAL_DB_NAME, statsTableName);
@@ -200,9 +217,7 @@ public class InternalSchemaInitializer extends Thread {
             }
         };
 
-        if (Config.isCloudMode() && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
-            properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, FeConstants.BUILT_IN_STORAGE_VAULT_NAME);
-        }
+        trySetStorageVault(properties);
 
         PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
@@ -238,9 +253,7 @@ public class InternalSchemaInitializer extends Thread {
             }
         };
 
-        if (Config.isCloudMode() && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
-            properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, FeConstants.BUILT_IN_STORAGE_VAULT_NAME);
-        }
+        trySetStorageVault(properties);
 
         PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,

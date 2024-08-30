@@ -19,8 +19,9 @@
 
 namespace doris::config {
 
-DEFINE_String(cloud_unique_id, "");
-DEFINE_String(meta_service_endpoint, "");
+DEFINE_mString(cloud_instance_id, "");
+DEFINE_mString(cloud_unique_id, "");
+DEFINE_mString(meta_service_endpoint, "");
 DEFINE_Bool(meta_service_use_load_balancer, "false");
 DEFINE_mInt32(meta_service_rpc_timeout_ms, "10000");
 DEFINE_Bool(meta_service_connection_pooled, "true");

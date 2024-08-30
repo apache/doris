@@ -106,6 +106,7 @@ public class MetaServiceProxy {
         }
 
         String address = Config.meta_service_endpoint;
+        address = address.replaceAll("^[\"']|[\"']$", "");
         MetaServiceClient service = serviceMap.get(address);
         if (service != null && service.isNormalState()) {
             return service;
@@ -543,6 +544,15 @@ public class MetaServiceProxy {
         try {
             final MetaServiceClient client = getProxy();
             return client.abortTxnWithCoordinator(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
+    public Cloud.CreateInstanceResponse createInstance(Cloud.CreateInstanceRequest request) throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.createInstance(request);
         } catch (Exception e) {
             throw new RpcException("", e.getMessage(), e);
         }

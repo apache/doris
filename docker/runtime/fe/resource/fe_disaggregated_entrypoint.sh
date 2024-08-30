@@ -202,6 +202,12 @@ add_cluster_info_to_conf
 check_and_modify_fqdn_config
 link_config_files
 variables_inital
+if [[ "$SQL_MODE_NODE_MGR" == "1" ]]; then
+    log_stderr "[INFO] SQL_MODE_NODE_MGR is set to 1, skipping check_or_register_in_ms"
+else
+    check_or_register_in_ms
+fi
+
 check_or_register_in_ms
 /opt/apache-doris/fe/bin/start_fe.sh --console
 

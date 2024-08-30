@@ -26,6 +26,7 @@
 #include <ostream>
 #include <string>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "olap/storage_engine.h"
@@ -242,6 +243,18 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     if (need_report) {
         LOG(INFO) << "Master FE is changed or restarted. report tablet and disk info immediately";
         _engine.notify_listeners();
+    }
+
+    if (master_info.__isset.meta_service_endpoint && config::meta_service_endpoint.empty()) {
+        auto st = config::set_config("meta_service_endpoint", master_info.meta_service_endpoint,
+                                     true);
+        LOG(INFO) << "set config meta_service_endpoing " << st;
+    }
+
+    if (master_info.__isset.cloud_instance_id && config::cloud_instance_id.empty()) {
+        auto st = config::set_config("cloud_instance_id", master_info.cloud_instance_id, true);
+        LOG(INFO) << "set config cloud_instance_id " << st;
+        config::set_cloud_unique_id();
     }
 
     return Status::OK();

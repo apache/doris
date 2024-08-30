@@ -88,6 +88,12 @@ start_cloud_fe() {
         return
     fi
 
+    # Check if SQL_MODE_NODE_MGR is set to 1
+    if [ "${SQL_MODE_NODE_MGR}" = "1" ]; then
+        health_log "SQL_MODE_NODE_MGR is set to 1. Skipping add FE."
+        return
+    fi
+
     wait_create_instance
 
     action=add_cluster

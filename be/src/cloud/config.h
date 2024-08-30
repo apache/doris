@@ -21,10 +21,20 @@
 
 namespace doris::config {
 
-DECLARE_String(cloud_unique_id);
+DECLARE_mString(cloud_instance_id);
+
+DECLARE_mString(cloud_unique_id);
 
 static inline bool is_cloud_mode() {
-    return !cloud_unique_id.empty();
+    return !cloud_unique_id.empty() || !cloud_instance_id.empty();
+}
+
+static inline void set_cloud_unique_id() {
+    if (cloud_unique_id.empty()) {
+        if (!cloud_instance_id.empty()) {
+            cloud_unique_id = "1:" + cloud_instance_id + ":compute";
+        }
+    }
 }
 
 // Set the endpoint of meta service.
@@ -40,7 +50,7 @@ static inline bool is_cloud_mode() {
 // If you want to access a group of meta services directly, set the addresses of meta services to this config,
 // separated by a comma, like "host:port,host:port,host:port", then BE will choose a server to connect in randomly.
 // In this mode, The config meta_service_connection_pooled is still useful, but the other two configs will be ignored.
-DECLARE_String(meta_service_endpoint);
+DECLARE_mString(meta_service_endpoint);
 // Set the underlying connection type to pooled.
 DECLARE_Bool(meta_service_connection_pooled);
 DECLARE_mInt64(meta_service_connection_pool_size);

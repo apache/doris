@@ -95,6 +95,8 @@ public class HeartbeatMgr extends MasterDaemon {
         tMasterInfo.setHttpPort(Config.http_port);
         long flags = heartbeatFlags.getHeartbeatFlags();
         tMasterInfo.setHeartbeatFlags(flags);
+        tMasterInfo.setCloudInstanceId(Config.cloud_instance_id);
+        tMasterInfo.setMetaServiceEndpoint(Config.meta_service_endpoint);
         masterInfo.set(tMasterInfo);
     }
 

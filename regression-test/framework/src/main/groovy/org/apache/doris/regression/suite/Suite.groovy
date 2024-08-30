@@ -309,6 +309,7 @@ class Suite implements GroovyInterceptable {
                 Thread.sleep(1000)
             }
 
+            logger.info("get fe {}", fe)
             assertNotNull(fe)
             if (!dockerIsCloud) {
                 for (def be : cluster.getAllBackends()) {

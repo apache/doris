@@ -144,9 +144,10 @@ class DBManager(object):
         fe_states = {}
         alive_master_fe_port = None
         for record in self._exec_query('''
-            select Host, IsMaster, Alive, LastHeartbeat, ErrMsg
-            from frontends()'''):
-            ip, is_master, alive, last_heartbeat, err_msg = record
+            show frontends '''):
+
+            # Unpack the record into individual columns
+            name, ip, editlogPort, httpPort, queryPort, rpcPort, arrowFlightSqlPort, role, is_master, clusterId, join, alive, replayedJournalId, lastStartTime, lastHeartbeat, isHelper, errMsg, version, currentConnected = record
             is_master = utils.is_true(is_master)
             alive = utils.is_true(alive)
             id = CLUSTER.Node.get_id_from_ip(ip)

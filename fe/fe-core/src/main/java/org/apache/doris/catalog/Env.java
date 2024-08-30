@@ -424,7 +424,7 @@ public class Env {
     // node name is used for bdbje NodeName.
     protected String nodeName;
     protected FrontendNodeType role;
-    private FrontendNodeType feType;
+    protected FrontendNodeType feType;
     // replica and observer use this value to decide provide read service or not
     private long synchronizedTimeMs;
     private MasterInfo masterInfo;
@@ -2983,21 +2983,25 @@ public class Env {
         };
     }
 
+    public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
+        addFrontend(role, host, editLogPort, "");
+    }
+
     public void addFrontend(FrontendNodeType role, String host, int editLogPort, String nodeName) throws DdlException {
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire env lock. Try again");
         }
         try {
+            if (Strings.isNullOrEmpty(nodeName)) {
+                nodeName = genFeNodeName(host, editLogPort, true /* new name style */);
+            }
+
             Frontend fe = checkFeExist(host, editLogPort);
             if (fe != null) {
                 throw new DdlException("frontend already exists " + fe);
             }
             if (Config.enable_fqdn_mode && StringUtils.isEmpty(host)) {
                 throw new DdlException("frontend's hostName should not be empty while enable_fqdn_mode is true");
-            }
-
-            if (Strings.isNullOrEmpty(nodeName)) {
-                nodeName = genFeNodeName(host, editLogPort, false /* new name style */);
             }
 
             if (removedFrontends.contains(nodeName)) {
@@ -3032,7 +3036,7 @@ public class Env {
         modifyFrontendHost(fe.getNodeName(), destHost);
     }
 
-    public void modifyFrontendHost(String nodeName, String destHost) throws DdlException {
+    private void modifyFrontendHost(String nodeName, String destHost) throws DdlException {
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire env lock. Try again");
         }
@@ -4309,8 +4313,8 @@ public class Env {
         return cooldownConfHandler;
     }
 
-    public SystemHandler getClusterHandler() {
-        return (SystemHandler) this.alter.getClusterHandler();
+    public SystemHandler getSystemHandler() {
+        return (SystemHandler) this.alter.getSystemHandler();
     }
 
     public BackupHandler getBackupHandler() {
@@ -5466,15 +5470,15 @@ public class Env {
     }
 
     /*
-     * used for handling AlterClusterStmt
-     * (for client is the ALTER CLUSTER command).
+     * used for handling AlterSystemStmt
+     * (for client is the ALTER SYSTEM command).
      */
-    public void alterCluster(AlterSystemStmt stmt) throws DdlException, UserException {
-        this.alter.processAlterCluster(stmt);
+    public void alterSystem(AlterSystemStmt stmt) throws DdlException, UserException {
+        this.alter.processAlterSystem(stmt);
     }
 
-    public void cancelAlterCluster(CancelAlterSystemStmt stmt) throws DdlException {
-        this.alter.getClusterHandler().cancel(stmt);
+    public void cancelAlterSystem(CancelAlterSystemStmt stmt) throws DdlException {
+        this.alter.getSystemHandler().cancel(stmt);
     }
 
     // Switch catalog of this session

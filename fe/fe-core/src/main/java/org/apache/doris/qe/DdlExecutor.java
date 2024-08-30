@@ -263,10 +263,10 @@ public class DdlExecutor {
             env.getAuth().updateUserProperty((SetUserPropertyStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterSystemStmt) {
             AlterSystemStmt stmt = (AlterSystemStmt) ddlStmt;
-            env.alterCluster(stmt);
+            env.alterSystem(stmt);
         } else if (ddlStmt instanceof CancelAlterSystemStmt) {
             CancelAlterSystemStmt stmt = (CancelAlterSystemStmt) ddlStmt;
-            env.cancelAlterCluster(stmt);
+            env.cancelAlterSystem(stmt);
         } else if (ddlStmt instanceof AlterDatabaseQuotaStmt) {
             env.alterDatabaseQuota((AlterDatabaseQuotaStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterDatabaseRename) {
@@ -564,8 +564,7 @@ public class DdlExecutor {
                 || ddlStmt instanceof AdminRebalanceDiskStmt
                 || ddlStmt instanceof AdminCancelRebalanceDiskStmt
                 || ddlStmt instanceof AlterResourceStmt
-                || ddlStmt instanceof AlterPolicyStmt
-                || ddlStmt instanceof AlterSystemStmt) {
+                || ddlStmt instanceof AlterPolicyStmt) {
             LOG.info("stmt={}, not supported in cloud mode", ddlStmt.toString());
             throw new DdlException("Unsupported operation");
         }

@@ -1831,7 +1831,7 @@ public class Config extends ConfigBase {
     public static boolean enable_date_conversion = true;
 
     @ConfField(mutable = false, masterOnly = true)
-    public static boolean enable_multi_tags = false;
+    public static boolean enable_multi_tags = true;
 
     /**
      * If set to TRUE, FE will convert DecimalV2 to DecimalV3 automatically.
@@ -2799,15 +2799,21 @@ public class Config extends ConfigBase {
     @ConfField public static int warn_sys_accumulated_file_size = 2;
     @ConfField public static int audit_sys_accumulated_file_size = 4;
 
+    // compatibily with elder version.
+    // cloud_unique_id is introduced before cloud_instance_id, so it has higher priority.
     @ConfField
     public static String cloud_unique_id = "";
 
+    // If cloud_unique_id is empty, cloud_instance_id works, otherwise cloud_unique_id works.
+    @ConfField
+    public static String cloud_instance_id = "";
+
     public static boolean isCloudMode() {
-        return !cloud_unique_id.isEmpty();
+        return !cloud_unique_id.isEmpty() || !cloud_instance_id.isEmpty();
     }
 
     public static boolean isNotCloudMode() {
-        return cloud_unique_id.isEmpty();
+        return !isCloudMode();
     }
 
     /**

@@ -35,6 +35,10 @@ class ClusterOptions {
     int feNum = 1
     int beNum = 3
 
+    Boolean sqlModeNodeMgr = false
+
+    int waitTimeout = 180
+
     List<String> feConfigs = [
         'heartbeat_interval_second=5',
     ]
@@ -303,6 +307,10 @@ class SuiteCluster {
         }
 
         cmd += ['--wait-timeout', String.valueOf(180)]
+        if (options.sqlModeNodeMgr) {
+            cmd += ['--sql-mode-node-mgr']
+        }
+        cmd += ['--wait-timeout', String.valueOf(options.waitTimeout)]
 
         runCmd(cmd.join(' '), -1)
 
