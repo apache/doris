@@ -728,6 +728,9 @@ public class RestoreJob extends AbstractJob {
                         return;
                     }
 
+                    // reset next version to visible version + 1 for all partitions
+                    remoteOlapTbl.resetVersionForRestore();
+
                     // Reset properties to correct values.
                     remoteOlapTbl.resetPropertiesForRestore(reserveDynamicPartitionEnable, reserveReplica,
                                                             replicaAlloc, isBeingSynced);
