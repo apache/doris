@@ -235,8 +235,6 @@ public class ExecutionProfile {
             List<TDetailedReportParams> fragmentProfile = entry.getValue();
             int pipelineIdx = 0;
             List<RuntimeProfile> taskProfile = Lists.newArrayList();
-            // The naming rule must be same with the one in updateProfile(TReportExecStatusParams params)
-            // Because we relay on the name of RuntimeProfile to eliminate the duplicate profile
             String suffix = " (host=" + backendHBAddress + ")";
             for (TDetailedReportParams pipelineProfile : fragmentProfile) {
                 String name = "";
@@ -246,6 +244,7 @@ public class ExecutionProfile {
                     name = "Pipeline :" + pipelineIdx + " " + suffix;
                     pipelineIdx++;
                 }
+
                 RuntimeProfile profileNode = new RuntimeProfile(name);
                 // The taskprofile is used to save the profile of the pipeline, without
                 // considering the FragmentLevel.
@@ -271,54 +270,6 @@ public class ExecutionProfile {
         }
 
         return new Status(TStatusCode.OK, "Success");
-    }
-
-    public void updateProfile(TReportExecStatusParams params) {
-        Backend backend  = null;
-        if (params.isSetBackendId()) {
-            backend = Env.getCurrentSystemInfo().getBackend(params.getBackendId());
-            if (backend == null) {
-                LOG.warn("could not find backend with id {}", params.getBackendId());
-                return;
-            }
-        } else {
-            LOG.warn("backend id is not set in report profile request, bad message");
-            return;
-        }
-
-        int pipelineIdx = 0;
-        List<RuntimeProfile> taskProfile = Lists.newArrayList();
-        String suffix = " (host=" + backend.getHeartbeatAddress() + ")";
-        // Each datailed report params is a fragment level profile or a pipeline profile
-        for (TDetailedReportParams param : params.detailed_report) {
-            String name = "";
-            if (param.isSetIsFragmentLevel() && param.is_fragment_level) {
-                name = "Fragment Level Profile: " + suffix;
-            } else {
-                name = "Pipeline :" + pipelineIdx + " " + suffix;
-                pipelineIdx++;
-            }
-            RuntimeProfile profile = new RuntimeProfile(name);
-            // The taskprofile is used to save the profile of the pipeline, without
-            // considering the FragmentLevel.
-            if (!(param.isSetIsFragmentLevel() && param.is_fragment_level)) {
-                taskProfile.add(profile);
-            }
-            if (param.isSetProfile()) {
-                profile.update(param.profile);
-            }
-            if (params.done) {
-                profile.setIsDone(true);
-            }
-            profile.sortChildren();
-            fragmentProfiles.get(params.fragment_id).addChild(profile);
-        }
-        // TODO ygl: is this right? there maybe multi Backends, what does
-        // update load profile do???
-        if (params.isSetLoadChannelProfile()) {
-            loadChannelProfile.update(params.loadChannelProfile);
-        }
-        setMultiBeProfile(params.fragment_id, backend.getHeartbeatAddress(), taskProfile);
     }
 
     public synchronized void addFragmentBackend(PlanFragmentId fragmentId, Long backendId) {
