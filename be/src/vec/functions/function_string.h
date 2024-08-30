@@ -1587,7 +1587,8 @@ public:
         }
 
         fmt::memory_buffer buffer;
-        res_chars.reserve(strcol_chars.size());
+        buffer.reserve(strcol_chars.size());
+        size_t buffer_len = 0;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if constexpr (!pad_const) {
@@ -1598,7 +1599,7 @@ public:
             if (len < 0) {
                 // return NULL when input length is invalid number
                 null_map_data[i] = true;
-                StringOP::push_empty_string(i, res_chars, res_offsets);
+                res_offsets[i] = buffer_len;
             } else {
                 const auto str_idx = index_check_const<str_const>(i);
                 const int str_len = strcol_offsets[str_idx] - strcol_offsets[str_idx - 1];
@@ -1610,9 +1611,10 @@ public:
                 auto [real_len, skip_chars] = simd::VStringFunctions::skip_leading_utf8(
                         (const char*)str_data, (const char*)str_data + str_len, len);
                 if (len <= skip_chars) {
-                    buffer.append(str_data, str_data + real_len);
-                    StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
-                                                res_chars, res_offsets);
+                    buffer.reserve(buffer_len + real_len);
+                    memcpy(buffer.data() + buffer_len, str_data, real_len);
+                    buffer_len += real_len;
+                    res_offsets[i] = buffer_len;
                     continue;
                 }
                 size_t pad_char_size;
@@ -1625,7 +1627,7 @@ public:
 
                 // make compatible with mysql. return empty string if pad is empty
                 if (pad_char_size == 0) {
-                    StringOP::push_empty_string(i, res_chars, res_offsets);
+                    res_offsets[i] = buffer_len;
                     continue;
                 }
                 const size_t str_char_size = skip_chars;
@@ -1633,11 +1635,9 @@ public:
                 const size_t pad_remainder_len = pad_index[(len - str_char_size) % pad_char_size];
                 const size_t new_capacity = str_len + size_t(pad_times + 1) * pad_len;
                 ColumnString::check_chars_length(new_capacity, 0);
-                buffer.reserve(new_capacity);
-                auto* buffer_data = buffer.data();
-                int32_t buffer_len = 0;
+                buffer.reserve(buffer_len + new_capacity);
                 if constexpr (!Impl::is_lpad) {
-                    memcpy(buffer_data, str_data, str_len);
+                    memcpy(buffer.data() + buffer_len, str_data, str_len);
                     buffer_len += str_len;
                 }
                 // Prepend chars of pad.
@@ -1645,17 +1645,17 @@ public:
                                       pad_times);
                 buffer_len += pad_times * pad_len;
 
-                memcpy(buffer_data + buffer_len, pad_data, pad_remainder_len);
+                memcpy(buffer.data() + buffer_len, pad_data, pad_remainder_len);
                 buffer_len += pad_remainder_len;
 
                 if constexpr (Impl::is_lpad) {
-                    memcpy(buffer_data + buffer_len, str_data, str_len);
+                    memcpy(buffer.data() + buffer_len, str_data, str_len);
                     buffer_len += str_len;
                 }
-                StringOP::push_value_string(std::string_view(buffer_data, buffer_len), i, res_chars,
-                                            res_offsets);
+                res_offsets[i] = buffer_len;
             }
         }
+        res_chars.insert(buffer.data(), buffer.data() + buffer_len);
     }
 };
 
