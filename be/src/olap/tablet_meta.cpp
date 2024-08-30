@@ -30,6 +30,8 @@
 #include <set>
 #include <utility>
 
+#include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "gutil/integral_types.h"
@@ -1163,6 +1165,36 @@ void DeleteBitmap::merge(const DeleteBitmap& other) {
     for (auto& i : other.delete_bitmap) {
         auto [j, succ] = this->delete_bitmap.insert(i);
         if (!succ) j->second |= i.second;
+    }
+}
+
+void DeleteBitmap::add_to_remove_queue(
+        const std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>& tuple,
+        int64_t time_stamp) {
+    std::shared_lock l(stale_delete_bitmap_lock);
+    _stale_delete_bitmap.emplace(tuple, time_stamp);
+}
+
+void DeleteBitmap::remove_stale_delete_bitmap_from_queue() {
+    std::shared_lock l(stale_delete_bitmap_lock);
+    auto now = UnixMillis();
+    auto it = _stale_delete_bitmap.begin();
+    while (it != _stale_delete_bitmap.end()) {
+        if (now - it->second > config::tablet_rowset_stale_sweep_time_sec * 1000) {
+            auto tablet_id = std::get<0>(it->first);
+            auto start_bmk = std::get<1>(it->first);
+            auto end_bmk = std::get<2>(it->first);
+            remove(start_bmk, end_bmk);
+
+            std::vector<std::string> pre_rowset_ids {};
+            pre_rowset_ids.emplace_back(std::get<0>(start_bmk).to_string());
+            CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
+            auto st = engine.meta_mgr().remove_old_version_delete_bitmap(tablet_id, pre_rowset_ids,
+                                                                          0, std::get<2>(end_bmk));
+            it = _stale_delete_bitmap.erase(it);
+        } else {
+            it++;
+        }
     }
 }
 

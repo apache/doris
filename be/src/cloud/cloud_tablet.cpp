@@ -396,6 +396,7 @@ int CloudTablet::delete_expired_stale_rowsets() {
         }
         _reconstruct_version_tracker_if_necessary();
     }
+    _tablet_meta->delete_bitmap().remove_stale_delete_bitmap_from_queue();
     recycle_cached_data(expired_rowsets);
     return expired_rowsets.size();
 }

@@ -98,6 +98,13 @@ public:
     Status get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
                                          int64_t initiator);
 
+    Status remove_old_version_delete_bitmap(int64_t tablet_id,
+                                            std::vector<std::string>& pre_rowset_ids,
+                                            int64_t start_version, int64_t end_version);
+
+    Status remove_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
+                                            int64_t initiator);
+
 private:
     bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,
                                             std::ranges::range auto&& rs_metas,

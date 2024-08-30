@@ -371,6 +371,7 @@ private:
 class DeleteBitmap {
 public:
     mutable std::shared_mutex lock;
+    mutable std::shared_mutex stale_delete_bitmap_lock;
     using SegmentId = uint32_t;
     using Version = uint64_t;
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
@@ -520,6 +521,12 @@ public:
 
     void remove_sentinel_marks();
 
+    void add_to_remove_queue(
+            const std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>& tuple,
+            int64_t time_stamp);
+
+    void remove_stale_delete_bitmap_from_queue();
+
     class AggCachePolicy : public LRUCachePolicy {
     public:
         AggCachePolicy(size_t capacity)
@@ -553,6 +560,8 @@ public:
 private:
     mutable std::shared_ptr<AggCache> _agg_cache;
     int64_t _tablet_id;
+    std::map<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>, int64_t>
+            _stale_delete_bitmap;
 };
 
 static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";

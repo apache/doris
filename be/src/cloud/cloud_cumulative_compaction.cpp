@@ -254,10 +254,10 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     compaction_job->add_output_rowset_ids(_output_rowset->rowset_id().to_string());
 
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
+    int64_t initiator =
+            HashUtil::hash64(_uuid.data(), _uuid.size(), 0) & std::numeric_limits<int64_t>::max();
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        int64_t initiator = HashUtil::hash64(_uuid.data(), _uuid.size(), 0) &
-                            std::numeric_limits<int64_t>::max();
         RETURN_IF_ERROR(cloud_tablet()->calc_delete_bitmap_for_compaction(
                 _input_rowsets, _output_rowset, _rowid_conversion, compaction_type(),
                 _stats.merged_rows, initiator, output_rowset_delete_bitmap,
@@ -338,6 +338,56 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         if (stats.base_compaction_cnt() >= cloud_tablet()->base_compaction_cnt()) {
             cloud_tablet()->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                                     stats.num_rows(), stats.data_size());
+        }
+    }
+
+    if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+        _tablet->enable_unique_key_merge_on_write()) {
+        // agg previously rowset old version delete bitmap
+        std::vector<RowsetSharedPtr> pre_rowsets {};
+        std::vector<std::string> pre_rowset_ids {};
+        for (const auto& it : cloud_tablet()->rowset_map()) {
+            if (it.first.second < _input_rowsets.front()->start_version()) {
+                pre_rowsets.emplace_back(it.second);
+                pre_rowset_ids.emplace_back(it.second->rowset_id().to_string());
+            }
+        }
+        std::sort(pre_rowsets.begin(), pre_rowsets.end(), Rowset::comparator);
+        pre_rowsets.erase(pre_rowsets.begin());
+        if (!pre_rowsets.empty()) {
+            auto pre_max_version = _output_rowset->version().second;
+            DeleteBitmapPtr new_delete_bitmap =
+                    std::make_shared<DeleteBitmap>(_tablet->tablet_meta()->tablet_id());
+            for (auto& rowset : pre_rowsets) {
+                for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
+                    rowset->rowset_id().to_string();
+                    DeleteBitmap::BitmapKey start {rowset->rowset_id(), seg_id, 0};
+                    DeleteBitmap::BitmapKey end {rowset->rowset_id(), seg_id, pre_max_version};
+                    DeleteBitmap::BitmapKey pre_end {rowset->rowset_id(), seg_id,
+                                                     pre_max_version - 1};
+                    auto d = _tablet->tablet_meta()->delete_bitmap().get_agg(
+                            {rowset->rowset_id(), seg_id, pre_max_version});
+                    _tablet->tablet_meta()->delete_bitmap().add_to_remove_queue(
+                            std::make_tuple(_tablet->tablet_id(), start, pre_end), UnixMillis());
+                    if (d->isEmpty()) {
+                        continue;
+                    }
+                    _tablet->tablet_meta()->delete_bitmap().set(end, *d);
+                    new_delete_bitmap->set(end, *d);
+                }
+            }
+            if (!new_delete_bitmap->empty()) {
+                // store agg delete bitmap
+                initiator = boost::hash_range(_uuid.begin(), _uuid.end()) &
+                            std::numeric_limits<int64_t>::max();
+                RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_update_lock(*cloud_tablet(),
+                                                                                 -1, initiator));
+                RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
+                        *cloud_tablet(), -1, initiator, new_delete_bitmap.get()));
+
+                RETURN_IF_ERROR(_engine.meta_mgr().remove_delete_bitmap_update_lock(*cloud_tablet(),
+                                                                                    -1, initiator));
+            }
         }
     }
     return Status::OK();
