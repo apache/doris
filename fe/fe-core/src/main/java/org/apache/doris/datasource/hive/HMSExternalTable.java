@@ -53,6 +53,7 @@ import com.google.common.collect.BiMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
@@ -571,9 +572,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             case ICEBERG:
                 if (GlobalVariable.enableFetchIcebergStats) {
                     return StatisticsUtil.getIcebergColumnStats(colName,
-                        Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(
-                            catalog, dbName, name
-                        ));
+                            Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(
+                                    catalog, dbName, name
+                            ));
                 } else {
                     break;
                 }
@@ -753,36 +754,61 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (getPartitionType() == PartitionType.UNPARTITIONED) {
             return new MTMVMaxTimestampSnapshot(getName(), getLastDdlTime());
         }
-        String partitionName = "";
+        Long maxPartitionId = 0L;
         long maxVersionTime = 0L;
         long visibleVersionTime;
-        for (Entry<String, PartitionItem> entry : getAndCopyPartitionItems().entrySet()) {
-            visibleVersionTime = getPartitionLastModifyTime(entry.getKey());
-            if (visibleVersionTime > maxVersionTime) {
-                maxVersionTime = visibleVersionTime;
-                partitionName = entry.getKey();
-            }
-        }
-        return new MTMVMaxTimestampSnapshot(partitionName, maxVersionTime);
-    }
-
-    private long getPartitionLastModifyTime(String partitionName) throws AnalysisException {
-        return getPartitionByName(partitionName).getLastModifiedTime();
-    }
-
-    private HivePartition getPartitionByName(String partitionName) throws AnalysisException {
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) getCatalog());
         HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
                 getDbName(), getName(), getPartitionColumnTypes());
+        BiMap<Long, String> idToName = hivePartitionValues.getPartitionNameToIdMap().inverse();
+        if (MapUtils.isEmpty(idToName)) {
+            throw new AnalysisException("partitions is empty for : " + getName());
+        }
+        for (Long partitionId : idToName.keySet()) {
+            visibleVersionTime = getHivePartitionByIdOrAnalysisException(partitionId, hivePartitionValues,
+                    cache).getLastModifiedTime();
+            if (visibleVersionTime > maxVersionTime) {
+                maxVersionTime = visibleVersionTime;
+                maxPartitionId = partitionId;
+            }
+        }
+        return new MTMVMaxTimestampSnapshot(idToName.get(maxPartitionId), maxVersionTime);
+    }
+
+    private long getPartitionLastModifyTime(String partitionName) throws AnalysisException {
+        return getHivePartitionByNameOrAnalysisException(partitionName).getLastModifiedTime();
+    }
+
+    private HivePartition getHivePartitionByNameOrAnalysisException(String partitionName) throws AnalysisException {
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) getCatalog());
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
+                getDbName(), getName(), getPartitionColumnTypes());
+        Long partitionId = getPartitionIdByNameOrAnalysisException(partitionName, hivePartitionValues);
+        return getHivePartitionByIdOrAnalysisException(partitionId, hivePartitionValues, cache);
+    }
+
+    private Long getPartitionIdByNameOrAnalysisException(String partitionName,
+            HiveMetaStoreCache.HivePartitionValues hivePartitionValues)
+            throws AnalysisException {
         Long partitionId = hivePartitionValues.getPartitionNameToIdMap().get(partitionName);
         if (partitionId == null) {
             throw new AnalysisException("can not find partition: " + partitionName);
         }
-        List<String> values = hivePartitionValues.getPartitionValuesMap().get(partitionId);
-        HivePartition partition = cache.getHivePartition(getDbName(), getName(), values);
+        return partitionId;
+    }
+
+    private HivePartition getHivePartitionByIdOrAnalysisException(Long partitionId,
+            HiveMetaStoreCache.HivePartitionValues hivePartitionValues,
+            HiveMetaStoreCache cache) throws AnalysisException {
+        List<String> partitionValues = hivePartitionValues.getPartitionValuesMap().get(partitionId);
+        if (CollectionUtils.isEmpty(partitionValues)) {
+            throw new AnalysisException("can not find partitionValues: " + partitionId);
+        }
+        HivePartition partition = cache.getHivePartition(getDbName(), getName(), partitionValues);
         if (partition == null) {
-            throw new AnalysisException("can not find partition: " + partitionName);
+            throw new AnalysisException("can not find partition: " + partitionId);
         }
         return partition;
     }
