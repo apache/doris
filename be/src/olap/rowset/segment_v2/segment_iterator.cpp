@@ -334,7 +334,12 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
         const Field* col = _schema->column(i);
         if (col) {
             auto storage_type = _segment->get_data_type_of(
-                    col->path(), col->is_nullable(),
+                    Segment::ColumnIdentifier {
+                            col->unique_id(),
+                            col->parent_unique_id(),
+                            col->path(),
+                            col->is_nullable(),
+                    },
                     _opts.io_ctx.reader_type != ReaderType::READER_QUERY);
             if (storage_type == nullptr) {
                 storage_type = vectorized::DataTypeFactory::instance().create_data_type(*col);
@@ -941,10 +946,17 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
         return false;
     }
 
-    if ((pred->type() == PredicateType::IN_LIST || pred->type() == PredicateType::NOT_IN_LIST) &&
-        pred->predicate_params()->marked_by_runtime_filter) {
+    if (pred->type() == PredicateType::IN_LIST || pred->type() == PredicateType::NOT_IN_LIST) {
+        auto predicate_param = pred->predicate_params();
         // in_list or not_in_list predicate produced by runtime filter
-        return false;
+        if (predicate_param->marked_by_runtime_filter) {
+            return false;
+        }
+        // the in_list or not_in_list value count cannot be greater than threshold
+        int32_t threshold = _opts.runtime_state->query_options().in_list_value_count_threshold;
+        if (pred_in_compound && predicate_param->values.size() > threshold) {
+            return false;
+        }
     }
 
     // UNTOKENIZED strings exceed ignore_above, they are written as null, causing range query errors
@@ -1483,10 +1495,15 @@ Status SegmentIterator::_init_inverted_index_iterators() {
     }
     for (auto cid : _schema->column_ids()) {
         if (_inverted_index_iterators[cid] == nullptr) {
+            // Not check type valid, since we need to get inverted index for related variant type when reading the segment.
+            // If check type valid, we can not get inverted index for variant type, and result nullptr.The result for calling
+            // get_inverted_index with variant suffix should return corresponding inverted index meta.
+            bool check_inverted_index_by_type = false;
             // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
             RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
                     _opts.tablet_schema->column(cid),
-                    _segment->_tablet_schema->get_inverted_index(_opts.tablet_schema->column(cid)),
+                    _segment->_tablet_schema->get_inverted_index(_opts.tablet_schema->column(cid),
+                                                                 check_inverted_index_by_type),
                     _opts, &_inverted_index_iterators[cid]));
         }
     }
@@ -3014,8 +3031,7 @@ bool SegmentIterator::_can_opt_topn_reads() {
     }
 
     bool all_true = std::ranges::all_of(_schema->column_ids(), [this](auto cid) {
-        if (cid == _opts.tablet_schema->delete_sign_idx() ||
-            _opts.tablet_schema->column(cid).is_key()) {
+        if (cid == _opts.tablet_schema->delete_sign_idx()) {
             return true;
         }
         if (_check_all_predicates_passed_inverted_index_for_column(cid, true)) {

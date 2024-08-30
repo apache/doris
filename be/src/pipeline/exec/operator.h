@@ -114,11 +114,17 @@ public:
     virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); }
     [[nodiscard]] virtual bool require_data_distribution() const { return false; }
     OperatorXPtr child_x() { return _child_x; }
+    [[nodiscard]] bool followed_by_shuffled_join() const { return _followed_by_shuffled_join; }
+    void set_followed_by_shuffled_join(bool followed_by_shuffled_join) {
+        _followed_by_shuffled_join = followed_by_shuffled_join;
+    }
+    [[nodiscard]] virtual bool require_shuffled_data_distribution() const { return false; }
 
 protected:
     OperatorXPtr _child_x = nullptr;
 
     bool _is_closed;
+    bool _followed_by_shuffled_join = false;
 };
 
 class PipelineXLocalStateBase {

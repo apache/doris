@@ -142,7 +142,11 @@ DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
 
 DEFINE_mInt64(crash_in_alloc_large_memory_bytes, "-1");
 
-DEFINE_mBool(enable_memory_orphan_check, "false");
+// default is true. if any memory tracking in Orphan mem tracker will report error.
+// !! not modify the default value of this conf!! otherwise memory errors cannot be detected in time.
+// allocator free memory not need to check, because when the thread memory tracker label is Orphan,
+// use the tracker saved in Allocator.
+DEFINE_mBool(enable_memory_orphan_check, "true");
 
 // The maximum time a thread waits for full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
@@ -966,7 +970,6 @@ DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 // Will remove after fully test.
 DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
-DEFINE_mBool(variant_enable_flatten_nested, "false");
 DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "1000");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
@@ -1314,6 +1317,10 @@ DEFINE_Validator(tablet_meta_serialize_size_limit,
                  [](const int64_t config) -> bool { return config < 1717986918; });
 
 DEFINE_mInt64(pipeline_task_leakage_detect_period_secs, "60");
+DEFINE_mInt32(snappy_compression_block_size, "262144");
+DEFINE_mInt32(lz4_compression_block_size, "262144");
+
+DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 
 // clang-format off
 #ifdef BE_TEST

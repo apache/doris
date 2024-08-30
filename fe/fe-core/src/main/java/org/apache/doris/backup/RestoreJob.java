@@ -771,6 +771,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         return;
                     }
 
+                    // reset next version to visible version + 1 for all partitions
+                    remoteOlapTbl.resetVersionForRestore();
+
                     // Reset properties to correct values.
                     remoteOlapTbl.resetPropertiesForRestore(reserveDynamicPartitionEnable, reserveReplica,
                                                             replicaAlloc, isBeingSynced);
@@ -1146,7 +1149,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             binlogConfig,
                             localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool,
-                            localTbl.rowStorePageSize());
+                            localTbl.rowStorePageSize(),
+                            localTbl.variantEnableFlattenNested());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);

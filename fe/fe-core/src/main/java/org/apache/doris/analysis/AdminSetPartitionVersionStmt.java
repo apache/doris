@@ -35,7 +35,7 @@ import java.util.Map;
  *      "partition_id" = "20010",
  *      "visible_version" = "101"
  */
-public class AdminSetPartitionVersionStmt extends DdlStmt {
+public class AdminSetPartitionVersionStmt extends DdlStmt implements NotFallbackInParser {
     private long partitionId = -1;
     private long visibleVersion = -1;
     private final TableName tableName;

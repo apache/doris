@@ -447,7 +447,7 @@ public class MysqlLoadManager {
     private String selectBackendForMySqlLoad(String database, String table) throws LoadException {
         Backend backend = null;
         if (Config.isCloudMode()) {
-            backend = StreamLoadHandler.selectBackend(ConnectContext.get().getCloudCluster(), false);
+            backend = StreamLoadHandler.selectBackend(ConnectContext.get().getCloudCluster());
         } else {
             BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
             List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);

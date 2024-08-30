@@ -1012,6 +1012,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
 
     _row_store_column_unique_ids.assign(schema.row_store_column_unique_ids().begin(),
                                         schema.row_store_column_unique_ids().end());
+    _variant_enable_flatten_nested = schema.variant_enable_flatten_nested();
 }
 
 void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
@@ -1063,6 +1064,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _sort_type = ori_tablet_schema.sort_type();
     _sort_col_num = ori_tablet_schema.sort_col_num();
     _row_store_page_size = ori_tablet_schema.row_store_page_size();
+    _variant_enable_flatten_nested = ori_tablet_schema.variant_flatten_nested();
 
     // copy from table_schema_param
     _schema_version = version;
@@ -1221,6 +1223,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
             _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());
+    tablet_schema_pb->set_variant_enable_flatten_nested(_variant_enable_flatten_nested);
 }
 
 size_t TabletSchema::row_size() const {
@@ -1542,6 +1545,7 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._store_row_column != b._store_row_column) return false;
     if (a._row_store_page_size != b._row_store_page_size) return false;
     if (a._skip_write_index_on_load != b._skip_write_index_on_load) return false;
+    if (a._variant_enable_flatten_nested != b._variant_enable_flatten_nested) return false;
     return true;
 }
 
