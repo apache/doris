@@ -69,6 +69,8 @@ unsupportedStatement
     | unsupportedGrantRevokeStatement
     | unsupportedAdminStatement
     | unsupportedTransactionStatement
+    | unsupportedRecoverStatement
+    | unsupportedOtherStatement
     ;
 
 materailizedViewStatement
@@ -170,6 +172,40 @@ supportedAlterStatement
 
 supportedDropStatement
     : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE #dropCatalogRecycleBin
+    ;
+
+unsupportedOtherStatement
+    : HELP mark=identifierOrText                                                    #help
+    | INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
+    | UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
+    | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables
+    | UNLOCK TABLES                                                                 #unlockTables
+    | WARM UP CLUSTER destination=identifier WITH
+        (CLUSTER source=identifier | (warmUpItem (COMMA warmUpItem)*)) FORCE?       #warmUpCluster
+    | BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
+        ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
+        properties=propertyClause?                                                  #backup
+    | RESTORE SNAPSHOT label=multipartIdentifier FROM repo=identifier
+        ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
+        properties=propertyClause?                                                  #restore
+    | START TRANSACTION (WITH CONSISTENT SNAPSHOT)?                                 #unsupportedStartTransaction
+    ;
+
+warmUpItem
+    : TABLE tableName=multipartIdentifier (PARTITION partitionName=identifier)?
+    ;
+
+lockTable
+    : name=multipartIdentifier (AS alias=identifierOrText)?
+        (READ (LOCAL)? | (LOW_PRIORITY)? WRITE)
+    ;
+
+unsupportedRecoverStatement
+    : RECOVER DATABASE name=identifier id=INTEGER_VALUE? (AS alias=identifier)?     #recoverDatabase
+    | RECOVER TABLE name=multipartIdentifier
+        id=INTEGER_VALUE? (AS alias=identifier)?                                    #recoverTable
+    | RECOVER PARTITION name=identifier id=INTEGER_VALUE? (AS alias=identifier)?
+        FROM tableName=multipartIdentifier                                          #recoverPartition
     ;
 
 unsupportedAdminStatement
@@ -551,7 +587,15 @@ unsupportedUseStatement
     ;
 
 unsupportedDmlStatement
-    : TRUNCATE TABLE multipartIdentifier specifiedPartition?   # truncateTable
+    : TRUNCATE TABLE multipartIdentifier specifiedPartition?                        #truncateTable
+    | COPY INTO selectHint? name=multipartIdentifier columns=identifierList FROM
+        (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
+            FROM stageAndPattern whereClause RIGHT_PAREN))
+        properties=propertyClause?                                                  #copyInto
+    ;
+
+stageAndPattern
+    : AT (stage=identifier | TILDE) (pattern=STRING_LITERAL)?
     ;
 
 unsupportedKillStatement
