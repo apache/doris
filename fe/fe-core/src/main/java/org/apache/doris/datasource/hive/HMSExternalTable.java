@@ -745,8 +745,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context)
             throws AnalysisException {
-        long partitionLastModifyTime = getPartitionLastModifyTime(partitionName);
-        return new MTMVTimestampSnapshot(partitionLastModifyTime);
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) getCatalog());
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
+                getDbName(), getName(), getPartitionColumnTypes());
+        Long partitionId = getPartitionIdByNameOrAnalysisException(partitionName, hivePartitionValues);
+        HivePartition hivePartition = getHivePartitionByIdOrAnalysisException(partitionId,
+                hivePartitionValues, cache);
+        return new MTMVTimestampSnapshot(hivePartition.getLastModifiedTime());
     }
 
     @Override
@@ -774,19 +780,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             }
         }
         return new MTMVMaxTimestampSnapshot(idToName.get(maxPartitionId), maxVersionTime);
-    }
-
-    private long getPartitionLastModifyTime(String partitionName) throws AnalysisException {
-        return getHivePartitionByNameOrAnalysisException(partitionName).getLastModifiedTime();
-    }
-
-    private HivePartition getHivePartitionByNameOrAnalysisException(String partitionName) throws AnalysisException {
-        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) getCatalog());
-        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
-                getDbName(), getName(), getPartitionColumnTypes());
-        Long partitionId = getPartitionIdByNameOrAnalysisException(partitionName, hivePartitionValues);
-        return getHivePartitionByIdOrAnalysisException(partitionId, hivePartitionValues, cache);
     }
 
     private Long getPartitionIdByNameOrAnalysisException(String partitionName,
