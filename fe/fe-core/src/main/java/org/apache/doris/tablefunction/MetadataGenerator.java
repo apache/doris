@@ -41,9 +41,12 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hudi.source.HudiCachedPartitionProcessor;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.job.common.JobType;
@@ -1268,34 +1271,46 @@ public class MetadataGenerator {
     private static TFetchSchemaTableDataResult metaCacheStatsMetadataResult(TSchemaTableRequestParams params) {
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        ExternalMetaCacheMgr mgr = Env.getCurrentEnv().getExtMetaCacheMgr();
         for (CatalogIf catalogIf : Env.getCurrentEnv().getCatalogMgr().getCopyOfCatalog()) {
-            if (!(catalogIf instanceof HMSExternalCatalog)) {
-                continue;
-            }
-            HMSExternalCatalog catalog = (HMSExternalCatalog) catalogIf;
-            HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                    .getMetaStoreCache(catalog);
-            if (cache != null) {
-                Map<String, Map<String, String>> stats = cache.getStats();
-                for (Map.Entry<String, Map<String, String>> entry : stats.entrySet()) {
-                    String cacheName = entry.getKey();
-                    Map<String, String> cacheStats = entry.getValue();
-                    for (Map.Entry<String, String> cacheStatsEntry : cacheStats.entrySet()) {
-                        String metricName = cacheStatsEntry.getKey();
-                        String metricValue = cacheStatsEntry.getValue();
-                        TRow trow = new TRow();
-                        trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // CATALOG_NAME
-                        trow.addToColumnValue(new TCell().setStringVal(cacheName)); // CACHE_NAME
-                        trow.addToColumnValue(new TCell().setStringVal(metricName)); // METRIC_NAME
-                        trow.addToColumnValue(new TCell().setStringVal(metricValue)); // METRIC_VALUE
-                        dataBatch.add(trow);
-                    }
+            if (catalogIf instanceof HMSExternalCatalog) {
+                HMSExternalCatalog catalog = (HMSExternalCatalog) catalogIf;
+                // 1. hive metastore cache
+                HiveMetaStoreCache cache = mgr.getMetaStoreCache(catalog);
+                if (cache != null) {
+                    fillBatch(dataBatch, cache.getStats(), catalog.getName());
                 }
+                // 2. hudi cache
+                HudiCachedPartitionProcessor processor
+                        = (HudiCachedPartitionProcessor) mgr.getHudiPartitionProcess(catalog);
+                fillBatch(dataBatch, processor.getCacheStats(), catalog.getName());
+            } else if (catalogIf instanceof IcebergExternalCatalog) {
+                // 3. iceberg cache
+                IcebergMetadataCache icebergCache = mgr.getIcebergMetadataCache();
+                fillBatch(dataBatch, icebergCache.getCacheStats(), catalogIf.getName());
             }
         }
 
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
+    }
+
+    private static void fillBatch(List<TRow> dataBatch, Map<String, Map<String, String>> stats,
+            String catalogName) {
+        for (Map.Entry<String, Map<String, String>> entry : stats.entrySet()) {
+            String cacheName = entry.getKey();
+            Map<String, String> cacheStats = entry.getValue();
+            for (Map.Entry<String, String> cacheStatsEntry : cacheStats.entrySet()) {
+                String metricName = cacheStatsEntry.getKey();
+                String metricValue = cacheStatsEntry.getValue();
+                TRow trow = new TRow();
+                trow.addToColumnValue(new TCell().setStringVal(catalogName)); // CATALOG_NAME
+                trow.addToColumnValue(new TCell().setStringVal(cacheName)); // CACHE_NAME
+                trow.addToColumnValue(new TCell().setStringVal(metricName)); // METRIC_NAME
+                trow.addToColumnValue(new TCell().setStringVal(metricValue)); // METRIC_VALUE
+                dataBatch.add(trow);
+            }
+        }
     }
 }

@@ -36,6 +36,7 @@ import org.apache.doris.common.util.CacheBulkLoader;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CacheException;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.FileSystemCache;
@@ -52,7 +53,6 @@ import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.LoadingCache;
-import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -1139,19 +1139,12 @@ public class HiveMetaStoreCache {
      */
     public Map<String, Map<String, String>> getStats() {
         Map<String, Map<String, String>> res = Maps.newHashMap();
-        res.put("hive_partition_values_cache", getCacheStats(partitionValuesCache.stats()));
-        res.put("hive_partition_cache", getCacheStats(partitionCache.stats()));
-        res.put("hive_file_cache", getCacheStats(fileCacheRef.get().stats()));
+        res.put("hive_partition_values_cache", ExternalMetaCacheMgr.getCacheStats(partitionValuesCache.stats(),
+                partitionCache.estimatedSize()));
+        res.put("hive_partition_cache",
+                ExternalMetaCacheMgr.getCacheStats(partitionCache.stats(), partitionCache.estimatedSize()));
+        res.put("hive_file_cache",
+                ExternalMetaCacheMgr.getCacheStats(fileCacheRef.get().stats(), fileCacheRef.get().estimatedSize()));
         return res;
-    }
-
-    private Map<String, String> getCacheStats(CacheStats cacheStats) {
-        Map<String, String> stats = Maps.newHashMap();
-        stats.put("hit_ratio", String.valueOf(cacheStats.hitRate()));
-        stats.put("hit_count", String.valueOf(cacheStats.hitCount()));
-        stats.put("read_count", String.valueOf(cacheStats.hitCount() + cacheStats.missCount()));
-        stats.put("eviction_count", String.valueOf(cacheStats.evictionCount()));
-        stats.put("average_load_penalty", String.valueOf(cacheStats.averageLoadPenalty()));
-        return stats;
     }
 }
