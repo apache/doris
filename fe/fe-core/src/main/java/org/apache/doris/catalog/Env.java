@@ -1681,8 +1681,8 @@ public class Env {
         long currentId = idGenerator.getBatchEndId();
         long currentMill = System.currentTimeMillis();
         long nextId = currentId + 1;
-        // Reserve at most 8 billion for use in case of bugs or frequent reboots (21 billion reboots)
-        if ((1L << 63) - nextId < (1L << 33)) {
+        // Reserve ~1 trillion for use in case of bugs or frequent reboots (~2 billion reboots)
+        if ((1L << 63) - nextId < (1L << 40)) {
             LOG.warn("nextId is too large: {}, it may be a bug and consider backup and migration", nextId);
         } else {
             // Keep compatible with previous impl, the previous impl may result in extreme large nextId,
