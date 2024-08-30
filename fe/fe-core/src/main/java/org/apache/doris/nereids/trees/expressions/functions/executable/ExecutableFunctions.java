@@ -116,6 +116,9 @@ public class ExecutableFunctions {
 
     @ExecFunction(name = "split_part", argTypes = {"VARCHAR", "VARCHAR", "INT"}, returnType = "VARCHAR")
     public static Expression splitPart(StringLikeLiteral literal, StringLikeLiteral chr, IntegerLiteral number) {
+        if (literal.getValue().split(chr.getValue()).length < number.getValue()) {
+            return new NullLiteral();
+        }
         return new VarcharLiteral(literal.getValue().split(chr.getValue())[number.getValue() - 1]);
     }
 

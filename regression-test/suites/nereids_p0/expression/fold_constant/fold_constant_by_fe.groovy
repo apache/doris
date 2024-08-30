@@ -166,4 +166,7 @@ suite("test_fold_constant_by_fe") {
     res = sql """explain select split_part('2024-04-17,2024-04-17', ',', 1) ;"""
     assertFalse(res.contains"split_part")
 
+    res = sql """explain select split_part('2024-04-17,2024-04-17', ',', 3) ;"""
+    assertTrue(res.contains"NULL")
+
 }
