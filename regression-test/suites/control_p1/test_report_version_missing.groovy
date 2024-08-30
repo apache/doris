@@ -18,6 +18,9 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
+
 suite('test_report_version_missing', "nonConcurrent") {
     if (isCloudMode()) {
         return
@@ -53,25 +56,26 @@ suite('test_report_version_missing', "nonConcurrent") {
         break
     }
 
+        def backendId_to_backendIP = [:]
+        def backendId_to_backendHttpPort = [:]
+        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
+
+        backendId_to_backendIP.each { beId, beIp ->
+            def port = backendId_to_backendHttpPort.get(beId) as int
+            be_report_tablet(beIp, port)
+        }
+
         GetDebugPoint().enableDebugPointForAllBEs("Tablet.build_tablet_report_info.version_miss", [tablet_id:"${tabletId}",version_miss:true])
         boolean succ = false
 
-        for (int i = 0; i < 3; ++i) {
-            result = sql_return_maparray """show tablets from ${tableName}"""
+        Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).await().until({
+            def tablets = sql_return_maparray """show tablets from ${tableName}"""
             logger.info("show tablets from ${result}, has after ${i} * 60 s")
-            assertNotNull(result)
-            // LstFailedVersion > 0, version missing
-            for (def res : result) {
-                if (res.TabletId.toLong() == tabletId.toLong() && res.LstFailedVersion.toLong() > 0) {
-                    succ = true
-                    break
-                }
-            }
-            if (succ) {
-                break
-            }
-            Thread.sleep(60000)
-        }
+            assertNotNull(tablets)
+            succ = tablets.any {it.TabletId.toLong() == tabletId.toLong() && it.LstFailedVersion.toLong() > 0)}
+            return succ
+        })
+
         assertTrue(succ)
         
     } finally {
