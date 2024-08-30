@@ -172,6 +172,40 @@ PhysicalResultSink
 ----filter(a IN (2, 3, 5))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
+-- !union_child_and_const_exprs --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
+----hashAgg[GLOBAL]
+------hashAgg[LOCAL]
+--------PhysicalUnion
+----------filter(a IN (1, 2))
+------------PhysicalOlapScan[test_like1]
+----------filter(a IN (1, 2))
+------------PhysicalOlapScan[test_like2]
+----filter(a IN (1, 2))
+------PhysicalOlapScan[test_like3]
+
+-- !union_child_and_const_exprs_andpredicates --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
+----hashAgg[GLOBAL]
+------hashAgg[LOCAL]
+--------PhysicalUnion
+----------filter(a IN (1, 2) and b IN ('2d', '3'))
+------------PhysicalOlapScan[test_like1]
+----filter(a IN (1, 2) and b IN ('2d', '3'))
+------PhysicalOlapScan[test_like3]
+
+-- !union_child_and_const_exprs_orpredicates --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
+----hashAgg[GLOBAL]
+------hashAgg[LOCAL]
+--------PhysicalUnion
+----------filter((a IN (1, 2) OR b IN ('2d', '3')))
+------------PhysicalOlapScan[test_like1]
+----PhysicalOlapScan[test_like3]
+
 -- !intersect_one_side_constant_one_side_column_left_join --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
@@ -518,4 +552,12 @@ PhysicalResultSink
 
 -- !union_and_const_res --
 abbbb
+
+-- !union_child_and_const_exprs_res --
+1	d2
+
+-- !union_child_and_const_exprs_andpredicates_res --
+
+-- !union_child_and_const_exprs_orpredicates_res --
+1	d2
 

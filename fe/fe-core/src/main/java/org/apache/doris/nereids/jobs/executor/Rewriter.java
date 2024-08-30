@@ -305,6 +305,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // after EliminateEmptyRelation, project can be pushed into union
                         topDown(new PushProjectIntoUnion())
                 ),
+                // putting the "Column pruning and infer predicate" topic behind the "Set operation optimization"
+                // is because that pulling up predicates from union needs EliminateEmptyRelation in union child
                 topic("Column pruning and infer predicate",
                         custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                         custom(RuleType.INFER_PREDICATES, InferPredicates::new),

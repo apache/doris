@@ -124,49 +124,18 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
     public ImmutableSet<Expression> visitLogicalUnion(LogicalUnion union, Void context) {
         return cacheOrElse(union, () -> {
             if (!union.getConstantExprsList().isEmpty() && union.arity() == 0) {
-                ImmutableSet.Builder<Expression> filters = ImmutableSet.builder();
-                List<List<NamedExpression>> constExprs = union.getConstantExprsList();
-                for (int col = 0; col < constExprs.get(0).size(); ++col) {
-                    Expression compareExpr = union.getOutput().get(col);
-                    Set<Expression> options = new HashSet<>();
-                    for (List<NamedExpression> constExpr : constExprs) {
-                        if (constExpr.get(col) instanceof Alias
-                                && ((Alias) constExpr.get(col)).child() instanceof Literal) {
-                            options.add(((Alias) constExpr.get(col)).child());
-                        } else {
-                            options.clear();
-                            break;
-                        }
-                    }
-                    options.removeIf(option -> option instanceof NullLiteral);
-                    if (options.size() > 1) {
-                        filters.add(new InPredicate(compareExpr, options));
-                    } else if (options.size() == 1) {
-                        filters.add(new EqualTo(compareExpr, options.iterator().next()));
-                    }
+                return getFiltersFromUnionConstExprs(union);
+            } else if (union.getConstantExprsList().isEmpty() && union.arity() != 0) {
+                return getFiltersFromUnionChild(union, context);
+            } else if (!union.getConstantExprsList().isEmpty() && union.arity() != 0) {
+                HashSet<Expression> fromChildFilters = new HashSet<>(getFiltersFromUnionChild(union, context));
+                if (fromChildFilters.isEmpty()) {
+                    return ImmutableSet.of();
                 }
-                return filters.build();
-            } else if (union.getConstantExprsList().isEmpty()) {
-                Set<Expression> filters = new HashSet<>();
-                for (int i = 0; i < union.getArity(); ++i) {
-                    Plan child = union.child(i);
-                    Set<Expression> childFilters = child.accept(this, context);
-                    if (childFilters.isEmpty()) {
-                        return ImmutableSet.of();
-                    }
-                    Map<Expression, Expression> replaceMap = new HashMap<>();
-                    for (int j = 0; j < union.getOutput().size(); ++j) {
-                        NamedExpression output = union.getOutput().get(j);
-                        replaceMap.put(union.getRegularChildOutput(i).get(j), output);
-                    }
-                    Set<Expression> unionFilters = ExpressionUtils.replace(childFilters, replaceMap);
-                    if (0 == i) {
-                        filters.addAll(unionFilters);
-                    } else {
-                        filters.retainAll(unionFilters);
-                    }
+                if (!ExpressionUtils.unionConstExprsSatisfyConjuncts(union, fromChildFilters)) {
+                    return ImmutableSet.of();
                 }
-                return ImmutableSet.copyOf(filters);
+                return ImmutableSet.copyOf(fromChildFilters);
             }
             return ImmutableSet.of();
         });
@@ -277,5 +246,56 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
 
     private boolean hasAgg(Expression expression) {
         return expression.anyMatch(AggregateFunction.class::isInstance);
+    }
+
+    private ImmutableSet<Expression> getFiltersFromUnionChild(LogicalUnion union, Void context) {
+        Set<Expression> filters = new HashSet<>();
+        for (int i = 0; i < union.getArity(); ++i) {
+            Plan child = union.child(i);
+            Set<Expression> childFilters = child.accept(this, context);
+            if (childFilters.isEmpty()) {
+                return ImmutableSet.of();
+            }
+            Map<Expression, Expression> replaceMap = new HashMap<>();
+            for (int j = 0; j < union.getOutput().size(); ++j) {
+                NamedExpression output = union.getOutput().get(j);
+                replaceMap.put(union.getRegularChildOutput(i).get(j), output);
+            }
+            Set<Expression> unionFilters = ExpressionUtils.replace(childFilters, replaceMap);
+            if (0 == i) {
+                filters.addAll(unionFilters);
+            } else {
+                filters.retainAll(unionFilters);
+            }
+            if (filters.isEmpty()) {
+                return ImmutableSet.of();
+            }
+        }
+        return ImmutableSet.copyOf(filters);
+    }
+
+    private ImmutableSet<Expression> getFiltersFromUnionConstExprs(LogicalUnion union) {
+        List<List<NamedExpression>> constExprs = union.getConstantExprsList();
+        ImmutableSet.Builder<Expression> filtersFromConstExprs = ImmutableSet.builder();
+        for (int col = 0; col < union.getOutput().size(); ++col) {
+            Expression compareExpr = union.getOutput().get(col);
+            Set<Expression> options = new HashSet<>();
+            for (List<NamedExpression> constExpr : constExprs) {
+                if (constExpr.get(col) instanceof Alias
+                        && ((Alias) constExpr.get(col)).child() instanceof Literal) {
+                    options.add(((Alias) constExpr.get(col)).child());
+                } else {
+                    options.clear();
+                    break;
+                }
+            }
+            options.removeIf(option -> option instanceof NullLiteral);
+            if (options.size() > 1) {
+                filtersFromConstExprs.add(new InPredicate(compareExpr, options));
+            } else if (options.size() == 1) {
+                filtersFromConstExprs.add(new EqualTo(compareExpr, options.iterator().next()));
+            }
+        }
+        return filtersFromConstExprs.build();
     }
 }
