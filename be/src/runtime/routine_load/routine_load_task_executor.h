@@ -86,6 +86,8 @@ private:
     // create a dummy StreamLoadContext for PKafkaMetaProxyRequest
     Status _prepare_ctx(const PKafkaMetaProxyRequest& request,
                         std::shared_ptr<StreamLoadContext> ctx);
+    // wz added: reduce wait time
+    Status _early_quit_for_task(std::shared_ptr<StreamLoadContext> ctx);
 
 private:
     ExecEnv* _exec_env = nullptr;
