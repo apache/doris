@@ -48,10 +48,6 @@ Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::Allocator(
         const std::shared_ptr<doris::MemTrackerLimiter>& tracker) {
     if (tracker) {
         mem_tracker_ = tracker;
-    } else {
-        // Note that when constructing an object that inherits Allocator, the memory tracker may not be attached
-        // in tls. memory tracker may be attached in tls only when the memory is allocated for the first time.
-        mem_tracker_ = doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
     }
 }
 
@@ -224,29 +220,21 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::consume_memory(
         size_t size) const {
-    CONSUME_THREAD_MEM_TRACKER(size);
+    if (mem_tracker_) {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker_);
+        CONSUME_THREAD_MEM_TRACKER(size);
+    } else {
+        CONSUME_THREAD_MEM_TRACKER(size);
+    }
 }
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::release_memory(
         size_t size) const {
-    doris::ThreadContext* thread_context = doris::thread_context(true);
-    if ((thread_context && thread_context->thread_mem_tracker()->label() != "Orphan") ||
-        mem_tracker_ == nullptr) {
-        // If thread_context exist and the label of thread_mem_tracker not equal to `Orphan`,
-        // this means that in the scope of SCOPED_ATTACH_TASK,
-        // so thread_mem_tracker should be used to release memory.
-        // If mem_tracker_ is nullptr there is a scenario where an object that inherits Allocator
-        // has never called alloc, but free memory.
-        // in phmap, the memory alloced by an object may be transferred to another object and then free.
-        // in this case, thread context must attach a memory tracker other than Orphan,
-        // otherwise memory tracking will be wrong.
+    if (mem_tracker_) {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker_);
         RELEASE_THREAD_MEM_TRACKER(size);
     } else {
-        // if thread_context does not exist or the label of thread_mem_tracker is equal to
-        // `Orphan`, it usually happens during object destruction. This means that
-        // the scope of SCOPED_ATTACH_TASK has been left,  so release memory using Allocator tracker.
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker_);
         RELEASE_THREAD_MEM_TRACKER(size);
     }
 }

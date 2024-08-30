@@ -452,8 +452,10 @@ public:
             const std::shared_ptr<doris::MemTrackerLimiter>& mem_tracker) {
         DCHECK(mem_tracker);
         doris::ThreadLocalHandle::create_thread_local_if_not_exits();
-        _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
-        thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker);
+        if (mem_tracker != thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()) {
+            _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
+            thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker);
+        }
     }
 
     explicit SwitchThreadMemTrackerLimiter(const doris::QueryThreadContext& query_thread_context) {
@@ -461,18 +463,23 @@ public:
         DCHECK(thread_context()->task_id() ==
                query_thread_context.query_id); // workload group alse not change
         DCHECK(query_thread_context.query_mem_tracker);
-        _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
-        thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(
-                query_thread_context.query_mem_tracker);
+        if (query_thread_context.query_mem_tracker !=
+            thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()) {
+            _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
+            thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(
+                    query_thread_context.query_mem_tracker);
+        }
     }
 
     ~SwitchThreadMemTrackerLimiter() {
-        thread_context()->thread_mem_tracker_mgr->detach_limiter_tracker(_old_mem_tracker);
+        if (_old_mem_tracker != nullptr) {
+            thread_context()->thread_mem_tracker_mgr->detach_limiter_tracker(_old_mem_tracker);
+        }
         doris::ThreadLocalHandle::del_thread_local_if_count_is_zero();
     }
 
 private:
-    std::shared_ptr<doris::MemTrackerLimiter> _old_mem_tracker;
+    std::shared_ptr<doris::MemTrackerLimiter> _old_mem_tracker {nullptr};
 };
 
 class AddThreadMemTrackerConsumer {

@@ -234,6 +234,13 @@ public:
     // alloc will continue to execute, so the consume memtracker is forced.
     void memory_check(size_t size) const;
     // Increases consumption of this tracker by 'bytes'.
+    // some special cases:
+    // 1. objects that inherit Allocator will not be shared by multiple queries.
+    //  non-compliant: page cache, ORC ByteBuffer.
+    // 2. objects that inherit Allocator will only free memory allocated by themselves.
+    //  non-compliant: phmap, the memory alloced by an object may be transferred to another object and then free.
+    // 3. the memory tracker in TLS is the same during the construction of objects that inherit Allocator
+    //  and during subsequent memory allocation.
     void consume_memory(size_t size) const;
     void release_memory(size_t size) const;
     void throw_bad_alloc(const std::string& err) const;
