@@ -562,6 +562,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                     }
                     Long choosedIndexId = indexNameToId.get(mvName);
                     if (orderedMvs.contains(choosedIndexId)) {
+                        hint.setStatus(Hint.HintStatus.SUCCESS);
                         return choosedIndexId;
                     }
                 }
