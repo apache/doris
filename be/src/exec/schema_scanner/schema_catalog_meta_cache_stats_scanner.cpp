@@ -69,7 +69,8 @@ Status SchemaCatalogMetaCacheStatsScanner::_get_meta_cache_from_fe() {
 
     Status status(Status::create(result.status));
     if (!status.ok()) {
-        LOG(WARNING) << "fetch catalog meta cache stats from FE(" << _fe_addr.hostname << ") failed, errmsg=" << status;
+        LOG(WARNING) << "fetch catalog meta cache stats from FE(" << _fe_addr.hostname
+                     << ") failed, errmsg=" << status;
         return status;
     }
     std::vector<TRow> result_data = result.data_batch;
@@ -103,7 +104,7 @@ Status SchemaCatalogMetaCacheStatsScanner::_get_meta_cache_from_fe() {
 }
 
 Status SchemaCatalogMetaCacheStatsScanner::get_next_block_internal(vectorized::Block* block,
-                                                                    bool* eos) {
+                                                                   bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
