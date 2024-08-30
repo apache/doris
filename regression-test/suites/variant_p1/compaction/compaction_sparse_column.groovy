@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.awaitility.Awaitility
 
-suite("test_compaction_sparse_column", "nonConcurrent") {
+suite("test_compaction_sparse_column", "p1,nonConcurrent") {
     def tableName = "test_compaction"
 
     try {
