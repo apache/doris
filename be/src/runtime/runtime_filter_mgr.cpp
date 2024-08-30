@@ -331,8 +331,8 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSiz
                     ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(addr));
             if (stub == nullptr) {
                 LOG(WARNING) << "Failed to init rpc to " << addr.hostname() << ":" << addr.port();
-                st = Status::InternalError("Failed to init rpc to {}:{}",
-                                           addr.hostname(), addr.port());
+                st = Status::InternalError("Failed to init rpc to {}:{}", addr.hostname(),
+                                           addr.port());
                 continue;
             }
 
