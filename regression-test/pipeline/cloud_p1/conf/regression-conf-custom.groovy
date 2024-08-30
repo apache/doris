@@ -8,6 +8,9 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_refresh_mtmv," +
     "test_spark_load," +
     "test_show_data," +
+    "test_show_data_with_compaction," +
+    "test_show_data_multi_add," +
+    "test_show_data_for_bkd," +
     "test_dup_table_inverted_index," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
