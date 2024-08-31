@@ -147,7 +147,7 @@ private:
     void handle_nullable_column(const ColumnPtr& column, PaddedPODArray<ResultType>& vec_res,
                                 size_t input_rows_count) const {
         if (column->is_nullable()) {
-            const auto* column_nullable = check_and_get_column<ColumnNullable>(column.get());
+            const auto* column_nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& null_map = column_nullable->get_null_map_data();
             for (size_t i = 0; i != input_rows_count; ++i) {
                 if (null_map[i] == 1) {
@@ -245,10 +245,7 @@ struct FunctionMultiMatchAnyImpl {
 
         multiregexps::Regexps* regexps = nullptr;
         multiregexps::ScratchPtr smart_scratch;
-        Status status = prepare_regexps_and_scratch(needles, regexps, smart_scratch);
-        if (!status.ok()) {
-            return status;
-        }
+        RETURN_IF_ERROR(prepare_regexps_and_scratch(needles, regexps, smart_scratch));
 
         const size_t haystack_offsets_size = haystack_offsets.size();
         UInt64 offset = 0;
@@ -313,10 +310,7 @@ struct FunctionMultiMatchAnyImpl {
 
             multiregexps::Regexps* regexps = nullptr;
             multiregexps::ScratchPtr smart_scratch;
-            Status status = prepare_regexps_and_scratch(needles, regexps, smart_scratch);
-            if (!status.ok()) {
-                return status;
-            }
+            RETURN_IF_ERROR(prepare_regexps_and_scratch(needles, regexps, smart_scratch));
 
             const size_t cur_haystack_length = haystack_offsets[i] - prev_haystack_offset;
 
