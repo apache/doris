@@ -180,7 +180,7 @@ suite("test_external_catalog_hive", "p0,external,hive,external_docker,external_d
         }
 
         // test catalog_meta_cache_statistics
-        sql """select * from information_schema.catalog_meta_cache_statistics;"""
-        sql """select * from information_schema.catalog_meta_cache_statistics where catalog_name="${catalog_name}";"""
+        sql """select * from internal.information_schema.catalog_meta_cache_statistics;"""
+        sql """select * from ${catalog_name}.information_schema.catalog_meta_cache_statistics where catalog_name="${catalog_name}";"""
     }
 }
