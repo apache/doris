@@ -729,7 +729,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
             sink_id, local_exchange_id,
             should_disable_bucket_shuffle ? _total_instances : _num_instances,
             data_distribution.partition_exprs, bucket_seq_to_instance_idx));
-    if (should_disable_bucket_shuffle &&
+    if (bucket_seq_to_instance_idx.empty() &&
         data_distribution.distribution_type == ExchangeType::BUCKET_HASH_SHUFFLE) {
         data_distribution.distribution_type = ExchangeType::HASH_SHUFFLE;
     }
@@ -1333,6 +1333,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
 
             _pipeline_parent_map.push(op->node_id(), cur_pipe);
             _pipeline_parent_map.push(op->node_id(), build_side_pipe);
+            sink->set_followed_by_shuffled_join(sink->is_shuffled_hash_join());
+            op->set_followed_by_shuffled_join(op->is_shuffled_hash_join());
         } else {
             op.reset(new HashJoinProbeOperatorX(pool, tnode, next_operator_id(), descs));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
@@ -1353,6 +1355,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
 
             _pipeline_parent_map.push(op->node_id(), cur_pipe);
             _pipeline_parent_map.push(op->node_id(), build_side_pipe);
+            sink->set_followed_by_shuffled_join(sink->is_shuffled_hash_join());
+            op->set_followed_by_shuffled_join(op->is_shuffled_hash_join());
         }
         _require_bucket_distribution =
                 _require_bucket_distribution || op->require_data_distribution();

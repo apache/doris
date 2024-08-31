@@ -144,6 +144,7 @@ suite("parse_sql_from_sql_cache") {
                 set "partitions", "p1"
                 inputIterator([[1, 3], [1, 4]].iterator())
             }
+            sql "sync"
 
             // stream load can not use cache
             sql "select * from test_use_plan_cache5"

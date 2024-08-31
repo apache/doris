@@ -534,7 +534,8 @@ Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     return Status::OK();
 }
 
-Status ScalarColumnWriter::append_data_in_current_page(const uint8_t* data, size_t* num_written) {
+Status ScalarColumnWriter::_internal_append_data_in_current_page(const uint8_t* data,
+                                                                 size_t* num_written) {
     RETURN_IF_ERROR(_page_builder->add(data, num_written));
     if (_opts.need_zone_map) {
         _zone_map_index_builder->add_values(data, *num_written);
