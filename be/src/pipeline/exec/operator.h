@@ -760,16 +760,18 @@ protected:
     ObjectPool* _pool = nullptr;
     std::vector<TupleId> _tuple_ids;
 
+private:
+    // The expr of operator set to private permissions, as cannot be executed concurrently,
+    // should use local state's expr.
     vectorized::VExprContextSPtrs _conjuncts;
-
-    RowDescriptor _row_descriptor;
-
-    std::unique_ptr<RowDescriptor> _output_row_descriptor = nullptr;
     vectorized::VExprContextSPtrs _projections;
-
-    std::vector<RowDescriptor> _intermediate_output_row_descriptor;
     // Used in common subexpression elimination to compute intermediate results.
     std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
+
+protected:
+    RowDescriptor _row_descriptor;
+    std::unique_ptr<RowDescriptor> _output_row_descriptor = nullptr;
+    std::vector<RowDescriptor> _intermediate_output_row_descriptor;
 
     /// Resource information sent from the frontend.
     const TBackendResourceProfile _resource_profile;
