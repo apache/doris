@@ -59,44 +59,48 @@ namespace doris::vectorized {
 void MergeSorterState::reset() {
     auto empty_queue = std::priority_queue<MergeSortCursor>();
     priority_queue_.swap(empty_queue);
-    std::vector<std::shared_ptr<MergeSortCursorImpl>> empty_cursors(0);
-    std::vector<std::shared_ptr<Block>> empty_blocks(0);
+    std::vector<MergeSortCursorImpl> empty_cursors(0);
+    cursors_.swap(empty_cursors);
+    std::vector<Block> empty_blocks(0);
     sorted_blocks_.swap(empty_blocks);
     unsorted_block_ = Block::create_unique(unsorted_block_->clone_empty());
     in_mem_sorted_bocks_size_ = 0;
 }
 
-void MergeSorterState::add_sorted_block(std::shared_ptr<Block> block) {
-    auto rows = block->rows();
+Status MergeSorterState::add_sorted_block(Block& block) {
+    auto rows = block.rows();
     if (0 == rows) {
-        return;
+        return Status::OK();
     }
-    in_mem_sorted_bocks_size_ += block->bytes();
-    sorted_blocks_.emplace_back(block);
+    in_mem_sorted_bocks_size_ += block.bytes();
+    sorted_blocks_.emplace_back(std::move(block));
     num_rows_ += rows;
+    return Status::OK();
 }
 
 Status MergeSorterState::build_merge_tree(const SortDescription& sort_description) {
     for (auto& block : sorted_blocks_) {
-        priority_queue_.emplace(
-                MergeSortCursorImpl::create_shared(std::move(block), sort_description));
+        cursors_.emplace_back(block, sort_description);
     }
 
-    sorted_blocks_.clear();
+    if (sorted_blocks_.size() > 1) {
+        for (auto& cursor : cursors_) {
+            priority_queue_.emplace(&cursor);
+        }
+    }
+
     return Status::OK();
 }
 
 Status MergeSorterState::merge_sort_read(doris::vectorized::Block* block, int batch_size,
                                          bool* eos) {
-    DCHECK(sorted_blocks_.empty());
-    DCHECK(unsorted_block_->empty());
-    if (priority_queue_.empty()) {
+    if (sorted_blocks_.empty()) {
         *eos = true;
-    } else if (priority_queue_.size() == 1) {
+    } else if (sorted_blocks_.size() == 1) {
         if (offset_ != 0) {
-            priority_queue_.top().impl->block->skip_num_rows(offset_);
+            sorted_blocks_[0].skip_num_rows(offset_);
         }
-        block->swap(*priority_queue_.top().impl->block);
+        block->swap(sorted_blocks_[0]);
         *eos = true;
     } else {
         RETURN_IF_ERROR(_merge_sort_read_impl(batch_size, block, eos));
@@ -106,14 +110,9 @@ Status MergeSorterState::merge_sort_read(doris::vectorized::Block* block, int ba
 
 Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized::Block* block,
                                                bool* eos) {
-    if (priority_queue_.empty()) {
-        *eos = true;
-        return Status::OK();
-    }
-    size_t num_columns = priority_queue_.top().impl->block->columns();
+    size_t num_columns = sorted_blocks_[0].columns();
 
-    MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(
-            block, *priority_queue_.top().impl->block);
+    MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(block, sorted_blocks_[0]);
     MutableColumns& merged_columns = m_block.mutable_columns();
 
     /// Take rows from queue in right order and push to 'merged'.
@@ -124,7 +123,7 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
 
         if (offset_ == 0) {
             for (size_t i = 0; i < num_columns; ++i)
-                merged_columns[i]->insert_from(*current->block->get_columns()[i], current->pos);
+                merged_columns[i]->insert_from(*current->all_columns[i], current->pos);
             ++merged_rows;
         } else {
             offset_--;
@@ -135,9 +134,7 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
             priority_queue_.push(current);
         }
 
-        if (merged_rows == batch_size) {
-            break;
-        }
+        if (merged_rows == batch_size) break;
     }
     block->set_columns(std::move(merged_columns));
 
@@ -264,22 +261,22 @@ Status FullSorter::_do_sort() {
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
         if (_state->num_rows() < _offset + _limit) {
-            _state->add_sorted_block(Block::create_shared(std::move(desc_block)));
-            _block_priority_queue.emplace(MergeSortCursorImpl::create_shared(
-                    _state->last_sorted_block(), _sort_description));
+            static_cast<void>(_state->add_sorted_block(desc_block));
+            _block_priority_queue.emplace(_pool->add(
+                    new MergeSortCursorImpl(_state->last_sorted_block(), _sort_description)));
         } else {
-            auto tmp_cursor_impl = MergeSortCursorImpl::create_shared(
-                    Block::create_shared(std::move(desc_block)), _sort_description);
-            MergeSortBlockCursor block_cursor(tmp_cursor_impl);
+            auto tmp_cursor_impl =
+                    std::make_unique<MergeSortCursorImpl>(desc_block, _sort_description);
+            MergeSortBlockCursor block_cursor(tmp_cursor_impl.get());
             if (!block_cursor.totally_greater(_block_priority_queue.top())) {
-                _state->add_sorted_block(tmp_cursor_impl->block);
-                _block_priority_queue.emplace(MergeSortCursorImpl::create_shared(
-                        _state->last_sorted_block(), _sort_description));
+                static_cast<void>(_state->add_sorted_block(desc_block));
+                _block_priority_queue.emplace(_pool->add(
+                        new MergeSortCursorImpl(_state->last_sorted_block(), _sort_description)));
             }
         }
     } else {
         // dispose normal sort logic
-        _state->add_sorted_block(Block::create_shared(std::move(desc_block)));
+        static_cast<void>(_state->add_sorted_block(desc_block));
     }
     return Status::OK();
 }
