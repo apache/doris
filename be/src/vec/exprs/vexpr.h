@@ -332,6 +332,7 @@ protected:
     bool _can_fast_execute = false;
     bool _enable_inverted_index_query = true;
     uint32_t _in_list_value_count_threshold = 10;
+    std::string result_column_name;
 };
 
 } // namespace vectorized

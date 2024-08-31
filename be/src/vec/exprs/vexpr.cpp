@@ -617,7 +617,14 @@ bool VExpr::fast_execute(Block& block, const ColumnNumbers& arguments, size_t re
         return false;
     }
 
-    std::string result_column_name = gen_predicate_result_sign(block, arguments, function_name);
+    // cache value is initialized only once.
+    if (result_column_name.empty()) {
+        static std::once_flag once_flag;
+        std::call_once(once_flag, [&]() {
+            result_column_name = gen_predicate_result_sign(block, arguments, function_name);
+        });
+    }
+
     if (!block.has(result_column_name)) {
         DBUG_EXECUTE_IF("segment_iterator.fast_execute", {
             auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
