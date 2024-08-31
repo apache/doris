@@ -134,9 +134,9 @@ echo "starts ${process} with args: $*"
 out_file=${DORIS_HOME}/log/${process}.out
 if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     # append 10 blank lines to ensure the following tail -n10 works correctly
-    printf "\n\n\n\n\n\n\n\n\n\n" >> "${out_file}"
-    echo "$(date +'%F %T') try to start ${process}" >> "${out_file}"
-    nohup "${bin}" "$@" >> "${out_file}" 2>&1 &
+    printf "\n\n\n\n\n\n\n\n\n\n" >>"${out_file}"
+    echo "$(date +'%F %T') try to start ${process}" >>"${out_file}"
+    nohup "${bin}" "$@" >>"${out_file}" 2>&1 &
     echo "wait and check ${process} start successfully"
     sleep 3
     tail -n10 "${out_file}" | grep 'successfully started brpc'
