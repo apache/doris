@@ -30,7 +30,9 @@
 #include "vec/core/sort_description.h"
 #include "vec/exprs/vexpr_fwd.h"
 
-namespace doris::vectorized {
+namespace doris {
+
+namespace vectorized {
 
 // VSortedRunMerger is used to merge multiple sorted runs of blocks. A run is a sorted
 // sequence of blocks, which are fetched from a BlockSupplier function object.
@@ -76,12 +78,14 @@ protected:
 
     bool _pipeline_engine_enabled = false;
 
-    std::vector<std::shared_ptr<BlockSupplierSortCursorImpl>> _cursors;
+    std::vector<BlockSupplierSortCursorImpl> _cursors;
     std::priority_queue<MergeSortCursor> _priority_queue;
 
     /// In pipeline engine, if a cursor needs to read one more block from supplier,
     /// we make it as a pending cursor until the supplier is readable.
-    std::shared_ptr<MergeSortCursorImpl> _pending_cursor = nullptr;
+    MergeSortCursorImpl* _pending_cursor = nullptr;
+
+    Block _empty_block;
 
     // Times calls to get_next().
     RuntimeProfile::Counter* _get_next_timer = nullptr;
@@ -101,4 +105,5 @@ private:
     bool has_next_block(MergeSortCursor& current);
 };
 
-} // namespace doris::vectorized
+} // namespace vectorized
+} // namespace doris
