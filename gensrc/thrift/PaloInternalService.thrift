@@ -263,8 +263,8 @@ struct TQueryOptions {
 
   116: optional bool enable_no_need_read_data_opt = true;
 
-  120: optional bool enable_match_without_inverted_index = true;
-  121: optional bool enable_fallback_on_missing_inverted_index = true;
+  119: optional bool enable_match_without_inverted_index = true;
+  120: optional bool enable_fallback_on_missing_inverted_index = true;
 }
 
 
