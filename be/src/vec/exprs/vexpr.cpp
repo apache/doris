@@ -34,6 +34,7 @@
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -618,6 +619,9 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
     vectorized::ColumnsWithTypeAndName arguments;
     VExprSPtrs children_exprs;
     for (auto child : children()) {
+        // if child is cast expr, we need to ensure target data type is the same with storage data type.
+        // or they are all string type
+        // and if data type is array, we need to get the nested data type to ensure that.
         if (child->node_type() == TExprNodeType::CAST_EXPR) {
             auto* cast_expr = assert_cast<VCastExpr*>(child.get());
             DCHECK_EQ(cast_expr->children().size(), 1);
@@ -627,10 +631,26 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                 const auto* storage_name_type =
                         context->get_inverted_index_context()
                                 ->get_storage_name_and_type_by_column_id(column_id);
-                auto origin_primitive_type =
-                        storage_name_type->second->get_type_as_type_descriptor().type;
-                auto target_primitive_type =
-                        cast_expr->get_target_type()->get_type_as_type_descriptor().type;
+                auto storage_type = remove_nullable(storage_name_type->second);
+                auto target_type = cast_expr->get_target_type();
+                auto origin_primitive_type = storage_type->get_type_as_type_descriptor().type;
+                auto target_primitive_type = target_type->get_type_as_type_descriptor().type;
+                if (is_complex_type(storage_type)) {
+                    if (is_array(storage_type) && is_array(target_type)) {
+                        auto nested_storage_type =
+                                (assert_cast<const DataTypeArray*>(storage_type.get()))
+                                        ->get_nested_type();
+                        origin_primitive_type =
+                                nested_storage_type->get_type_as_type_descriptor().type;
+                        auto nested_target_type =
+                                (assert_cast<const DataTypeArray*>(target_type.get()))
+                                        ->get_nested_type();
+                        target_primitive_type =
+                                nested_target_type->get_type_as_type_descriptor().type;
+                    } else {
+                        continue;
+                    }
+                }
                 if (origin_primitive_type != TYPE_VARIANT &&
                     (origin_primitive_type == target_primitive_type ||
                      (is_string_type(target_primitive_type) &&
