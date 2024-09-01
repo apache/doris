@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_show_data_skew") {
+    sql "DROP TABLE IF EXISTS test_show_data_skew"
     sql """
         CREATE TABLE test_show_data_skew (
             id int, 
