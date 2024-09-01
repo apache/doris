@@ -33,6 +33,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 
+import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Catalog;
@@ -42,6 +43,7 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.lang.reflect.UndeclaredThrowableException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -74,7 +76,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean tableExist(String dbName, String tblName) {
-        return catalog.tableExists(TableIdentifier.of(dbName, tblName));
+        try {
+            return catalog.tableExists(TableIdentifier.of(dbName, tblName));
+        } catch (UndeclaredThrowableException e) {
+            // avoid to miss exception when get table reflect call
+            if (e.getCause() instanceof NoSuchObjectException) {
+                return false;
+            } else {
+                throw e;
+            }
+        }
     }
 
     public boolean databaseExist(String dbName) {
@@ -83,7 +94,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     public List<String> listDatabaseNames() {
         return nsCatalog.listNamespaces().stream()
-                .map(e -> e.toString())
+                .map(Namespace::toString)
                 .collect(Collectors.toList());
     }
 

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.iceberg.dlf;
+package org.apache.doris.datasource.iceberg.hive;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
@@ -24,14 +24,14 @@ import org.apache.iceberg.hive.HiveTableOperations;
 import org.apache.iceberg.io.FileIO;
 import shade.doris.hive.org.apache.thrift.TException;
 
-public class DLFTableOperations extends HiveTableOperations {
+public class IcebergHiveTableOperations extends HiveTableOperations {
 
-    public DLFTableOperations(Configuration conf,
-                              ClientPool<IMetaStoreClient, TException> metaClients,
-                              FileIO fileIO,
-                              String catalogName,
-                              String database,
-                              String table) {
+    public IcebergHiveTableOperations(Configuration conf,
+                                      ClientPool<IMetaStoreClient, TException> metaClients,
+                                      FileIO fileIO,
+                                      String catalogName,
+                                      String database,
+                                      String table) {
         super(conf, metaClients, fileIO, catalogName, database, table);
     }
 }

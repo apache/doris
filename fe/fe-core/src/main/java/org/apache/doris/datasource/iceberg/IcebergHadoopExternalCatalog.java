@@ -21,6 +21,7 @@ import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.CatalogProperty;
+import org.apache.doris.datasource.iceberg.hadoop.IcebergHadoopCatalog;
 import org.apache.doris.datasource.property.PropertyConverter;
 
 import com.google.common.base.Preconditions;

@@ -15,10 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.iceberg;
+package org.apache.doris.datasource.iceberg.hadoop;
 
-import org.apache.doris.datasource.iceberg.hadoop.IcebergHadoopFileIO;
-import org.apache.doris.datasource.iceberg.hadoop.IcebergHadoopTableOperations;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import com.google.common.base.Joiner;
@@ -92,12 +90,7 @@ public class IcebergHadoopCatalog extends HadoopCatalog {
              * so HadoopFileIO is used in the superclass by default
              * we can add better implementations to derived class just like the implementation in DLFCatalog.
              */
-            FileIO io;
-            try {
-                io = new IcebergHadoopFileIO(hadoopConf, this.fs.rawFileSystem());
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
+            FileIO io = new IcebergHadoopFileIO(hadoopConf, this.fs);
             io.initialize(properties);
             return io;
         } else {

@@ -20,6 +20,46 @@ import org.junit.Assert;
 suite("test_two_iceberg_kerberos", "p0,external,kerberos,external_docker,external_docker_kerberos") {
     String enabled = context.config.otherConfigs.get("enableKerberosTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        // test iceberg hms catalog with kerberos
+        sql """
+            CREATE CATALOG IF NOT EXISTS test_krb_iceberg_ctl
+            PROPERTIES (
+                'type'='iceberg',
+                'iceberg.catalog.type'='hms',
+                "hive.metastore.uris" = "thrift://172.31.71.25:9083",
+                "fs.defaultFS" = "hdfs://hadoop-master:9000",
+                "hadoop.security.authentication" = "kerberos",
+                "hadoop.kerberos.min.seconds.before.relogin" = "5",
+                "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
+                "hadoop.kerberos.keytab" = "/keytabs/hive-presto-master.keytab",
+                "hive.metastore.sasl.enabled" = "true",
+                "hive.metastore.kerberos.principal" = "hive/_HOST@LABS.TERADATA.COM",
+                "hive.metastore.warehouse.dir"="hdfs://hadoop-master:9000/user/hive/warehouse",
+                "doris.krb5.debug" = "true"
+            );
+        """
+
+        // sql """
+        //     CREATE CATALOG IF NOT EXISTS other_test_krb_iceberg_ctl
+        //     PROPERTIES (
+        //         'type'='iceberg',
+        //         'iceberg.catalog.type'='hms',
+        //         "hive.metastore.uris" = "thrift://172.31.71.26:9083",
+        //         "fs.defaultFS" = "hdfs://hadoop-master-2:9000",
+        //         "hive.metastore.warehouse.dir"="hdfs://hadoop-master-2:9000/user/hive/warehouse",
+        //         "hadoop.security.authentication" = "kerberos",
+        //         "hadoop.kerberos.min.seconds.before.relogin" = "5",
+        //         "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@OTHERREALM.COM",
+        //         "hadoop.kerberos.keytab" = "/keytabs/other-hive-presto-master.keytab",
+        //         "hive.metastore.sasl.enabled" = "true",
+        //         "hive.metastore.kerberos.principal" = "hive/_HOST@OTHERREALM.COM",
+        //         "hadoop.security.auth_to_local" ="RULE:[2:\$1@\$0](.*@OTHERREALM.COM)s/@.*//
+        //                                           RULE:[2:\$1@\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
+        //                                           DEFAULT",
+        //         "doris.krb5.debug" = "true"
+        //     );
+        // """
+
         //  test iceberg hadoop catalog with kerberos
         sql """
             CREATE CATALOG IF NOT EXISTS test_krb_iceberg_ctl_hadoop
@@ -43,82 +83,43 @@ suite("test_two_iceberg_kerberos", "p0,external,kerberos,external_docker,externa
         sql """ INSERT INTO hadoop_test_krb_iceberg_tbl values(2, 'krb2', '2023-05-16') """
         sql """ INSERT INTO hadoop_test_krb_iceberg_tbl values(3, 'krb3', '2023-05-17') """
 
-        // order_qt_iceberg_q02 """ SELECT id,dd FROM test_krb_iceberg_ctl.test_krb_iceberg_db.test_krb_iceberg_tbl where dd >= '2023-05-16' """
+        sql """ SWITCH test_krb_iceberg_ctl; """
+        sql """ CREATE DATABASE IF NOT EXISTS `test_krb_iceberg_db`; """
+        sql """ USE `test_krb_iceberg_db`; """
+        sql """ CREATE TABLE IF NOT EXISTS test_krb_iceberg_tbl (id int, str string, dd date) engine = iceberg; """
+        sql """ INSERT INTO test_krb_iceberg_tbl values(1, 'krb1', '2023-05-14') """
+        sql """ INSERT INTO test_krb_iceberg_tbl values(2, 'krb2', '2023-05-16') """
+        sql """ INSERT INTO test_krb_iceberg_tbl values(3, 'krb3', '2023-05-17') """
+        order_qt_iceberg_q01 """ SELECT * FROM test_krb_iceberg_tbl """
+
+        // sql """ SWITCH other_test_krb_iceberg_ctl; """
+        // sql """ CREATE DATABASE IF NOT EXISTS `other_test_krb_iceberg_db`; """
+        // sql """ USE `other_test_krb_iceberg_db`; """
+        // sql """ CREATE TABLE IF NOT EXISTS other_test_krb_iceberg_tbl (id int, str string, dd date) engine = iceberg; """
+        // sql """ INSERT INTO other_test_krb_iceberg_tbl values(1, 'krb1', '2023-05-14') """
+        // sql """ INSERT INTO other_test_krb_iceberg_tbl values(2, 'krb2', '2023-05-16') """
+        // sql """ INSERT INTO other_test_krb_iceberg_tbl values(3, 'krb3', '2023-05-17') """
+//
+        order_qt_iceberg_q02 """ SELECT id,dd FROM test_krb_iceberg_ctl.test_krb_iceberg_db.test_krb_iceberg_tbl where dd >= '2023-05-16' """
         // order_qt_iceberg_q03 """ SELECT id,dd FROM other_test_krb_iceberg_ctl.other_test_krb_iceberg_db.other_test_krb_iceberg_tbl where dd <= '2023-05-16' """
 
         // cross catalog query test
-         order_qt_iceberg_q04 """ SELECT id,dd FROM hadoop_test_krb_iceberg_tbl where dd <= '2023-05-16' """
-        // order_qt_iceberg_q05 """ SELECT * FROM test_krb_iceberg_ctl.test_krb_iceberg_db.test_krb_iceberg_tbl """
+        sql """ SWITCH test_krb_iceberg_ctl_hadoop; """
+        order_qt_iceberg_q04 """ SELECT id,dd FROM hadoop_test_krb_iceberg_db.hadoop_test_krb_iceberg_tbl where dd <= '2023-05-16' """
+        order_qt_iceberg_q05 """ SELECT * FROM test_krb_iceberg_ctl.test_krb_iceberg_db.test_krb_iceberg_tbl """
         order_qt_iceberg_q06 """ SELECT * FROM test_krb_iceberg_ctl_hadoop.hadoop_test_krb_iceberg_db.hadoop_test_krb_iceberg_tbl """
         // order_qt_iceberg_q07 """ SELECT * FROM other_test_krb_iceberg_ctl.other_test_krb_iceberg_db.other_test_krb_iceberg_tbl """
 
-        // sql """ DROP TABLE IF EXISTS test_krb_iceberg_ctl.`test_krb_iceberg_db`.`test_krb_iceberg_tbl`; """
+        sql """ DROP TABLE IF EXISTS test_krb_iceberg_ctl.`test_krb_iceberg_db`.`test_krb_iceberg_tbl`; """
         // sql """ DROP TABLE IF EXISTS other_test_krb_iceberg_ctl.`other_test_krb_iceberg_db`.`other_test_krb_iceberg_tbl`; """
         sql """ DROP TABLE IF EXISTS test_krb_iceberg_ctl_hadoop.`hadoop_test_krb_iceberg_db`.`hadoop_test_krb_iceberg_tbl`; """
 
-        // sql """ DROP DATABASE IF EXISTS test_krb_iceberg_ctl.`test_krb_iceberg_db`; """
+        sql """ DROP DATABASE IF EXISTS test_krb_iceberg_ctl.`test_krb_iceberg_db`; """
         // sql """ DROP DATABASE IF EXISTS other_test_krb_iceberg_ctl.`other_test_krb_iceberg_db`; """
         sql """ DROP DATABASE IF EXISTS test_krb_iceberg_ctl_hadoop.`hadoop_test_krb_iceberg_db`; """
 
-        // sql """ DROP CATALOG test_krb_iceberg_ctl """
+        sql """ DROP CATALOG test_krb_iceberg_ctl """
         // sql """ DROP CATALOG other_test_krb_iceberg_ctl """
         sql """ DROP CATALOG test_krb_iceberg_ctl_hadoop """
-
-        //        // test iceberg hms catalog with kerberos
-        //        sql """
-        //            CREATE CATALOG IF NOT EXISTS test_krb_iceberg_ctl
-        //            PROPERTIES (
-        //                'type'='iceberg',
-        //                'iceberg.catalog.type'='hms',
-        //                "hive.metastore.uris" = "thrift://172.31.71.25:9083",
-        //                "fs.defaultFS" = "hdfs://hadoop-master:9000",
-        //                "hadoop.security.authentication" = "kerberos",
-        //                "hadoop.kerberos.min.seconds.before.relogin" = "5",
-        //                "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
-        //                "hadoop.kerberos.keytab" = "/keytabs/hive-presto-master.keytab",
-        //                "hive.metastore.sasl.enabled" = "true",
-        //                "hive.metastore.kerberos.principal" = "hive/_HOST@LABS.TERADATA.COM",
-        //                "hive.metastore.warehouse.dir"="hdfs://hadoop-master:9000/user/hive/warehouse",
-        //                "doris.krb5.debug" = "true"
-        //            );
-        //        """
-        //
-        //        sql """
-        //            CREATE CATALOG IF NOT EXISTS other_test_krb_iceberg_ctl
-        //            PROPERTIES (
-        //                'type'='iceberg',
-        //                'iceberg.catalog.type'='hms',
-        //                "hive.metastore.uris" = "thrift://172.31.71.26:9083",
-        //                "fs.defaultFS" = "hdfs://hadoop-master-2:9000",
-        //                "hive.metastore.warehouse.dir"="hdfs://hadoop-master-2:9000/user/hive/warehouse",
-        //                "hadoop.security.authentication" = "kerberos",
-        //                "hadoop.kerberos.min.seconds.before.relogin" = "5",
-        //                "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@OTHERREALM.COM",
-        //                "hadoop.kerberos.keytab" = "/keytabs/other-hive-presto-master.keytab",
-        //                "hive.metastore.sasl.enabled" = "true",
-        //                "hive.metastore.kerberos.principal" = "hive/_HOST@OTHERREALM.COM",
-        //                "hadoop.security.auth_to_local" ="RULE:[2:\$1@\$0](.*@OTHERREALM.COM)s/@.*//
-        //                                                  RULE:[2:\$1@\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
-        //                                                  DEFAULT",
-        //                "doris.krb5.debug" = "true"
-        //            );
-        //        """
-        //
-        //        sql """ SWITCH test_krb_iceberg_ctl; """
-        //        sql """ CREATE DATABASE IF NOT EXISTS `test_krb_iceberg_db`; """
-        //        sql """ USE `test_krb_iceberg_db`; """
-        //        sql """ CREATE TABLE IF NOT EXISTS test_krb_iceberg_tbl (id int, str string, dd date) engine = iceberg; """
-        //        sql """ INSERT INTO test_krb_iceberg_tbl values(1, 'krb1', '2023-05-14') """
-        //        sql """ INSERT INTO test_krb_iceberg_tbl values(2, 'krb2', '2023-05-16') """
-        //        sql """ INSERT INTO test_krb_iceberg_tbl values(3, 'krb3', '2023-05-17') """
-        //        order_qt_iceberg_q01 """ SELECT * FROM test_krb_iceberg_tbl """
-        //
-        //        sql """ SWITCH other_test_krb_iceberg_ctl; """
-        //        sql """ CREATE DATABASE IF NOT EXISTS `other_test_krb_iceberg_db`; """
-        //        sql """ USE `other_test_krb_iceberg_db`; """
-        //        sql """ CREATE TABLE IF NOT EXISTS other_test_krb_iceberg_tbl (id int, str string, dd date) engine = iceberg; """
-        //        sql """ INSERT INTO other_test_krb_iceberg_tbl values(1, 'krb1', '2023-05-14') """
-        //        sql """ INSERT INTO other_test_krb_iceberg_tbl values(2, 'krb2', '2023-05-16') """
-        //        sql """ INSERT INTO other_test_krb_iceberg_tbl values(3, 'krb3', '2023-05-17') """
     }
 }
