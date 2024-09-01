@@ -742,7 +742,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
 Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                     std::unique_ptr<ColumnIterator>* iter,
                                     const StorageReadOptions* opt) {
-    if (opt->runtime_state != nullptr) {
+    if (opt != nullptr && opt->runtime_state != nullptr) {
         _be_exec_version = opt->runtime_state->be_exec_version();
     }
     RETURN_IF_ERROR(_create_column_readers_once());
