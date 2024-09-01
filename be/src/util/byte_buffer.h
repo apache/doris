@@ -39,10 +39,7 @@ struct ByteBuffer : private Allocator<false> {
         return Status::OK();
     }
 
-    ~ByteBuffer() {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker_);
-        Allocator<false>::free(ptr, capacity);
-    }
+    ~ByteBuffer() { Allocator<false>::free(ptr, capacity); }
 
     void put_bytes(const char* data, size_t size) {
         memcpy(ptr + pos, data, size);
@@ -69,7 +66,11 @@ struct ByteBuffer : private Allocator<false> {
     size_t capacity;
 
 private:
-    ByteBuffer(size_t capacity_) : pos(0), limit(capacity_), capacity(capacity_) {
+    ByteBuffer(size_t capacity_)
+            : Allocator(doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()),
+              pos(0),
+              limit(capacity_),
+              capacity(capacity_) {
         ptr = reinterpret_cast<char*>(Allocator<false>::alloc(capacity_));
     }
 };
