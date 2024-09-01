@@ -472,7 +472,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 .setTxnId(transactionId)
                 .setIs2Pc(is2PC)
                 .setCloudUniqueId(Config.cloud_unique_id)
-                .addAllBaseTabletIds(getBaseTabletsFromTables(tableList, tabletCommitInfos));
+                .addAllBaseTabletIds(getBaseTabletsFromTables(tableList, tabletCommitInfos))
+                .setEnableTxnLazyCommit(Config.enable_cloud_txn_lazy_commit);
 
         // if tablet commit info is empty, no need to pass mowTableList to meta service.
         if (tabletCommitInfos != null && !tabletCommitInfos.isEmpty()) {
@@ -933,7 +934,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 .setTxnId(transactionId)
                 .setIs2Pc(false)
                 .setCloudUniqueId(Config.cloud_unique_id)
-                .setIsTxnLoad(true);
+                .setIsTxnLoad(true)
+                .setEnableTxnLazyCommit(Config.enable_cloud_txn_lazy_commit);
         // add sub txn infos
         for (SubTransactionState subTransactionState : subTransactionStates) {
             builder.addSubTxnInfos(SubTxnInfo.newBuilder().setSubTxnId(subTransactionState.getSubTransactionId())

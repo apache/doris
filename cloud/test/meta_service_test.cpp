@@ -163,7 +163,7 @@ static void commit_txn(MetaServiceProxy* meta_service, int64_t db_id, int64_t tx
 }
 
 static doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id,
-                                              int partition_id = 0, int64_t version = -1,
+                                              int partition_id = 10, int64_t version = -1,
                                               int num_rows = 100) {
     doris::RowsetMetaCloudPB rowset;
     rowset.set_rowset_id(0); // required
