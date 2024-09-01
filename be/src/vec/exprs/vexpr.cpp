@@ -31,6 +31,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -147,9 +148,17 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_STRING>(data, &node));
         break;
     }
+    case TYPE_IPV4: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV4>(data, &node));
+        break;
+    }
+    case TYPE_IPV6: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV6>(data, &node));
+        break;
+    }
     default:
-        DCHECK(false);
-        throw std::invalid_argument("Invalid type!");
+        throw Exception(ErrorCode::INTERNAL_ERROR, "runtime filter meet invalid type {}",
+                        int(type));
     }
     return node;
 }
@@ -210,6 +219,7 @@ Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprC
         RETURN_IF_ERROR(i->prepare(state, row_desc, context));
     }
     --context->_depth_num;
+    _enable_inverted_index_query = state->query_options().enable_inverted_index_query;
     return Status::OK();
 }
 
@@ -603,6 +613,10 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
 
 bool VExpr::fast_execute(Block& block, const ColumnNumbers& arguments, size_t result,
                          size_t input_rows_count, const std::string& function_name) {
+    if (!_enable_inverted_index_query) {
+        return false;
+    }
+
     std::string result_column_name = gen_predicate_result_sign(block, arguments, function_name);
     if (!block.has(result_column_name)) {
         DBUG_EXECUTE_IF("segment_iterator.fast_execute", {
@@ -647,15 +661,26 @@ std::string VExpr::gen_predicate_result_sign(Block& block, const ColumnNumbers& 
         pred_result_sign +=
                 BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_" + function_name + "_";
         if (function_name == "in" || function_name == "not_in") {
+            if (arguments.size() - 1 > _in_list_value_count_threshold) {
+                return pred_result_sign;
+            }
             // Generating 'result_sign' from 'inlist' requires sorting the values.
             std::set<std::string> values;
             for (size_t i = 1; i < arguments.size(); i++) {
                 const auto& entry = block.get_by_position(arguments[i]);
+                if (!is_column_const(*entry.column)) {
+                    return pred_result_sign;
+                }
                 values.insert(entry.type->to_string(*entry.column, 0));
             }
             pred_result_sign += boost::join(values, ",");
+        } else if (function_name == "collection_in" || function_name == "collection_not_in") {
+            return pred_result_sign;
         } else {
             const auto& entry = block.get_by_position(arguments[1]);
+            if (!is_column_const(*entry.column)) {
+                return pred_result_sign;
+            }
             pred_result_sign += entry.type->to_string(*entry.column, 0);
         }
     }

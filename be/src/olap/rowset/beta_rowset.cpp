@@ -83,6 +83,10 @@ Status BetaRowset::get_inverted_index_size(size_t* index_size) {
     if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
         auto indices = _schema->indexes();
         for (auto& index : indices) {
+            // only get file_size for inverted index
+            if (index.index_type() != IndexType::INVERTED) {
+                continue;
+            }
             for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
                 auto seg_path = DORIS_TRY(segment_path(seg_id));
                 int64_t file_size = 0;

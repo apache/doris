@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_compaction_extract_root", "nonConcurrent") {
+suite("test_compaction_extract_root", "p1,nonConcurrent") {
     def tableName = "test_t"
 
     def backendId_to_backendIP = [:]

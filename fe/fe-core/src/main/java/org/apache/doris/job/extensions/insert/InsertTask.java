@@ -58,6 +58,7 @@ public class InsertTask extends AbstractTask {
             new Column("Status", ScalarType.createStringType()),
             new Column("ErrorMsg", ScalarType.createStringType()),
             new Column("CreateTime", ScalarType.createStringType()),
+            new Column("StartTime", ScalarType.createStringType()),
             new Column("FinishTime", ScalarType.createStringType()),
             new Column("TrackingUrl", ScalarType.createStringType()),
             new Column("LoadStatistic", ScalarType.createStringType()),
@@ -246,6 +247,8 @@ public class InsertTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(errorMsg));
         // create time
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(null == getStartTimeMs() ? ""
+                : TimeUtils.longToTimeString(getStartTimeMs())));
         // load end time
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getFinishTimeMs())));
         // tracking url
@@ -273,7 +276,10 @@ public class InsertTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(getStatus().name()));
         trow.addToColumnValue(new TCell().setStringVal(""));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));
-        trow.addToColumnValue(new TCell().setStringVal(""));
+        trow.addToColumnValue(new TCell().setStringVal(null == getStartTimeMs() ? ""
+                : TimeUtils.longToTimeString(getStartTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(null == getFinishTimeMs() ? ""
+                : TimeUtils.longToTimeString(getFinishTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(""));
         trow.addToColumnValue(new TCell().setStringVal(""));
         trow.addToColumnValue(new TCell().setStringVal(userIdentity.getQualifiedUser()));
