@@ -29,13 +29,18 @@ import org.apache.doris.datasource.property.constants.MCProperties;
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
 import com.aliyun.odps.Partition;
+import com.aliyun.odps.Project;
 import com.aliyun.odps.account.Account;
 import com.aliyun.odps.account.AliyunAccount;
-import com.aliyun.odps.tunnel.TableTunnel;
+import com.aliyun.odps.security.SecurityManager;
+import com.aliyun.odps.table.enviroment.Credentials;
+import com.aliyun.odps.table.enviroment.EnvironmentSettings;
+import com.aliyun.odps.utils.StringUtils;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -45,48 +50,45 @@ import java.util.stream.Collectors;
 
 public class MaxComputeExternalCatalog extends ExternalCatalog {
     private Odps odps;
-    private TableTunnel tunnel;
-    @SerializedName(value = "region")
-    private String region;
+
     @SerializedName(value = "accessKey")
     private String accessKey;
     @SerializedName(value = "secretKey")
     private String secretKey;
-    @SerializedName(value = "publicAccess")
-    private boolean enablePublicAccess;
-    private static final String odpsUrlTemplate = "http://service.{}.maxcompute.aliyun-inc.com/api";
-    private static final String tunnelUrlTemplate = "http://dt.{}.maxcompute.aliyun-inc.com";
-    private static String odpsUrl;
-    private static String tunnelUrl;
+    private String endpoint;
+    private String catalogOwner = "";
+    private String defaultProject;
+    String quota;
+
+    public  EnvironmentSettings settings;
+
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
-            MCProperties.REGION,
-            MCProperties.PROJECT
+            MCProperties.PROJECT,
+            MCProperties.QUOTA,
+            MCProperties.ENDPOINT
     );
 
     public MaxComputeExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
                                      String comment) {
         super(catalogId, name, InitCatalogLog.Type.MAX_COMPUTE, comment);
         catalogProperty = new CatalogProperty(resource, props);
-        odpsUrl = props.getOrDefault(MCProperties.ODPS_ENDPOINT, "");
-        tunnelUrl = props.getOrDefault(MCProperties.TUNNEL_SDK_ENDPOINT, "");
     }
 
     @Override
     protected void initLocalObjectsImpl() {
         Map<String, String> props = catalogProperty.getProperties();
-        String region = props.get(MCProperties.REGION);
-        String defaultProject = props.get(MCProperties.PROJECT);
-        if (Strings.isNullOrEmpty(region)) {
-            throw new IllegalArgumentException("Missing required property '" + MCProperties.REGION + "'.");
-        }
+
+        defaultProject = props.get(MCProperties.PROJECT);
+        quota = props.get(MCProperties.QUOTA);
+        endpoint = props.getOrDefault(MCProperties.ENDPOINT, "");
+
         if (Strings.isNullOrEmpty(defaultProject)) {
             throw new IllegalArgumentException("Missing required property '" + MCProperties.PROJECT + "'.");
         }
-        if (region.startsWith("oss-")) {
-            // may use oss-cn-beijing, ensure compatible
-            region = region.replace("oss-", "");
+        if (Strings.isNullOrEmpty(quota)) {
+            throw new IllegalArgumentException("Missing required property '" + MCProperties.QUOTA + "'.");
         }
-        this.region = region;
+
         CloudCredential credential = MCProperties.getCredential(props);
         if (!credential.isWhole()) {
             throw new IllegalArgumentException("Max-Compute credential properties '"
@@ -94,38 +96,19 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         }
         accessKey = credential.getAccessKey();
         secretKey = credential.getSecretKey();
+
         Account account = new AliyunAccount(accessKey, secretKey);
         this.odps = new Odps(account);
-        enablePublicAccess = Boolean.parseBoolean(props.getOrDefault(MCProperties.PUBLIC_ACCESS, "false"));
-        setOdpsUrl(region);
         odps.setDefaultProject(defaultProject);
-        tunnel = new TableTunnel(odps);
-        setTunnelUrl(region);
-    }
+        odps.setEndpoint(endpoint);
+        Credentials credentials = Credentials.newBuilder().withAccount(odps.getAccount())
+                .withAppAccount(odps.getAppAccount()).build();
 
-    private void setOdpsUrl(String region) {
-        if (StringUtils.isEmpty(odpsUrl)) {
-            odpsUrl = odpsUrlTemplate.replace("{}", region);
-            if (enablePublicAccess) {
-                odpsUrl = odpsUrl.replace("-inc", "");
-            }
-        }
-        odps.setEndpoint(odpsUrl);
-    }
-
-    private void setTunnelUrl(String region) {
-        if (StringUtils.isEmpty(tunnelUrl)) {
-            tunnelUrl = tunnelUrlTemplate.replace("{}", region);
-            if (enablePublicAccess) {
-                tunnelUrl = tunnelUrl.replace("-inc", "");
-            }
-        }
-        tunnel.setEndpoint(tunnelUrl);
-    }
-
-    public TableTunnel getTableTunnel() {
-        makeSureInitialized();
-        return tunnel;
+        settings = EnvironmentSettings.newBuilder()
+                .withCredentials(credentials)
+                .withServiceEndpoint(odps.getEndpoint())
+                .withQuotaName(quota)
+                .build();
     }
 
     public Odps getClient() {
@@ -136,9 +119,19 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     protected List<String> listDatabaseNames() {
         List<String> result = new ArrayList<>();
         try {
-            // TODO: How to get all privileged project from max compute as databases?
-            // Now only have permission to show default project.
-            result.add(odps.projects().get(odps.getDefaultProject()).getName());
+            result.add(defaultProject);
+            if (StringUtils.isNullOrEmpty(catalogOwner)) {
+                SecurityManager sm = odps.projects().get().getSecurityManager();
+                String whoami = sm.runQuery("whoami", false);
+
+                JsonObject js = JsonParser.parseString(whoami).getAsJsonObject();
+                catalogOwner = js.get("DisplayName").getAsString();
+            }
+            Iterator<Project> iterator = odps.projects().iterator(catalogOwner);
+            while (iterator.hasNext()) {
+                Project project = iterator.next();
+                result.add(project.getName());
+            }
         } catch (OdpsException e) {
             throw new RuntimeException(e);
         }
@@ -149,7 +142,7 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
         try {
-            return odps.tables().exists(tblName);
+            return getClient().tables().exists(dbName, tblName);
         } catch (OdpsException e) {
             throw new RuntimeException(e);
         }
@@ -195,17 +188,8 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
         List<String> result = new ArrayList<>();
-        odps.tables().forEach(e -> result.add(e.getName()));
+        getClient().tables().forEach(e -> result.add(e.getName()));
         return result;
-    }
-
-    /**
-     * use region to create data tunnel url
-     * @return region, required by jni scanner.
-     */
-    public String getRegion() {
-        makeSureInitialized();
-        return region;
     }
 
     public String getAccessKey() {
@@ -218,9 +202,18 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         return secretKey;
     }
 
-    public boolean enablePublicAccess() {
+    public String getEndpoint() {
         makeSureInitialized();
-        return enablePublicAccess;
+        return endpoint;
+    }
+
+    public String getDefaultProject() {
+        makeSureInitialized();
+        return defaultProject;
+    }
+
+    public String getQuota() {
+        return quota;
     }
 
     @Override
@@ -231,13 +224,5 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
                 throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
         }
-    }
-
-    public String getOdpsUrl() {
-        return odpsUrl;
-    }
-
-    public String getTunnelUrl() {
-        return tunnelUrl;
     }
 }

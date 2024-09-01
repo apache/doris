@@ -18,7 +18,6 @@
 package org.apache.doris.maxcompute;
 
 import com.aliyun.odps.Column;
-import com.aliyun.odps.PartitionSpec;
 import com.aliyun.odps.TableSchema;
 import com.aliyun.odps.data.ArrowRecordReader;
 import com.aliyun.odps.tunnel.TableTunnel;
@@ -67,22 +66,6 @@ public class MaxComputeJniScannerTest {
             @Mock
             public TableSchema getSchema() {
                 return getTestSchema();
-            }
-        };
-        new MockUp<MaxComputeTableScan>(MaxComputeTableScan.class) {
-            @Mock
-            public TableSchema getSchema() {
-                return getTestSchema();
-            }
-
-            @Mock
-            public TableTunnel.DownloadSession openDownLoadSession() throws IOException {
-                return session;
-            }
-
-            @Mock
-            public TableTunnel.DownloadSession openDownLoadSession(PartitionSpec partitionSpec) throws IOException {
-                return session;
             }
         };
         new MockUp<TableTunnel.DownloadSession>(TableTunnel.DownloadSession.class) {

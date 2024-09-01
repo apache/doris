@@ -752,6 +752,9 @@ Status VFileScanner::_get_next_reader() {
                 range.table_format_params.table_format_type == "max_compute") {
                 const auto* mc_desc = static_cast<const MaxComputeTableDescriptor*>(
                         _real_tuple_desc->table_desc());
+                if (!mc_desc->init_status()) {
+                    return mc_desc->init_status();
+                }
                 std::unique_ptr<MaxComputeJniReader> mc_reader = MaxComputeJniReader::create_unique(
                         mc_desc, range.table_format_params.max_compute_params, _file_slot_descs,
                         range, _state, _profile);

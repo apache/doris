@@ -23,14 +23,16 @@ import org.apache.arrow.memory.ArrowBuf;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.BitVector;
 import org.apache.arrow.vector.DateDayVector;
-import org.apache.arrow.vector.DateMilliVector;
 import org.apache.arrow.vector.DecimalVector;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.Float4Vector;
 import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.SmallIntVector;
-import org.apache.arrow.vector.TimeStampNanoVector;
+import org.apache.arrow.vector.TimeStampMicroTZVector;
+import org.apache.arrow.vector.TimeStampMilliTZVector;
+import org.apache.arrow.vector.TimeStampNanoTZVector;
+import org.apache.arrow.vector.TimeStampSecTZVector;
 import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.ValueVector;
 import org.apache.arrow.vector.VarBinaryVector;
@@ -38,13 +40,16 @@ import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.complex.MapVector;
 import org.apache.arrow.vector.complex.StructVector;
+import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteOrder;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 /**
@@ -213,14 +218,36 @@ public class MaxComputeColumnValue implements ColumnValue {
     public LocalDateTime getDateTime() {
         skippedIfNull();
         LocalDateTime result;
-        if (column instanceof DateMilliVector) {
-            DateMilliVector datetimeCol = (DateMilliVector) column;
-            result = datetimeCol.getObject(idx++);
-        } else {
-            TimeStampNanoVector datetimeCol = (TimeStampNanoVector) column;
-            result = datetimeCol.getObject(idx++);
-        }
-        return result == null ? LocalDateTime.MIN : result;
+
+        ArrowType.Timestamp timestampType = ( ArrowType.Timestamp) column.getField().getFieldType().getType();
+        result = switch (timestampType.getUnit()) {
+            case MICROSECOND -> convertToLocalDateTime((TimeStampMicroTZVector) column, idx++);
+            case SECOND -> convertToLocalDateTime((TimeStampSecTZVector) column, idx++);
+            case MILLISECOND -> convertToLocalDateTime((TimeStampMilliTZVector) column, idx++);
+            case NANOSECOND -> convertToLocalDateTime((TimeStampNanoTZVector) column, idx++);
+        };
+
+        /*
+        Because :
+
+        MaxCompute type    => Doris Type
+        DATETIME TIMESTAMP => ScalarType.createDatetimeV2Type(3);
+
+        and TableBatchReadSession
+            .withArrowOptions (
+                ArrowOptions.newBuilder()
+                .withDatetimeUnit(TimestampUnit.MILLI)
+                .withTimestampUnit(TimestampUnit.NANO)
+                .build()
+            )
+
+        So:
+            case SECOND -> convertToLocalDateTime((TimeStampSecTZVector) column, idx++);
+            case MICROSECOND -> convertToLocalDateTime((TimeStampMicroTZVector) column, idx++);
+            may never be used.
+        */
+
+        return result;
     }
 
     @Override
@@ -270,5 +297,29 @@ public class MaxComputeColumnValue implements ColumnValue {
             values.add(val);
         }
         idx++;
+    }
+
+    public static LocalDateTime convertToLocalDateTime(TimeStampMilliTZVector milliTZVector, int index) {
+        long timestampMillis = milliTZVector.get(index);
+        return LocalDateTime.ofInstant(Instant.ofEpochMilli(timestampMillis), ZoneId.systemDefault());
+    }
+
+    public static LocalDateTime convertToLocalDateTime(TimeStampNanoTZVector nanoTZVector, int index) {
+        long timestampNanos = nanoTZVector.get(index);
+        return LocalDateTime.ofInstant(Instant.ofEpochSecond(timestampNanos / 1_000_000_000,
+                timestampNanos % 1_000_000_000), ZoneId.systemDefault());
+    }
+
+    public static LocalDateTime convertToLocalDateTime(TimeStampSecTZVector secTZVector, int index) {
+        long timestampSeconds = secTZVector.get(index);
+        return LocalDateTime.ofInstant(Instant.ofEpochSecond(timestampSeconds), ZoneId.systemDefault());
+    }
+
+    public static LocalDateTime convertToLocalDateTime(TimeStampMicroTZVector microTZVector, int index) {
+        long timestampMicros = microTZVector.get(index);
+        long seconds = timestampMicros / 1_000_000;
+        long nanos = (timestampMicros % 1_000_000) * 1_000;
+
+        return LocalDateTime.ofInstant(Instant.ofEpochSecond(seconds, nanos), ZoneId.systemDefault());
     }
 }

@@ -442,6 +442,7 @@ under the License.
         <dependency>
             <groupId>com.aliyun.odps</groupId>
             <artifactId>odps-sdk-core</artifactId>
+            <version>0.48.8-public</version>
             <exclusions>
                 <exclusion>
                     <artifactId>antlr-runtime</artifactId>
@@ -452,6 +453,11 @@ under the License.
                     <groupId>org.antlr</groupId>
                 </exclusion>
             </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.aliyun.odps</groupId>
+            <artifactId>odps-sdk-table-api</artifactId>
+            <version>0.48.8-public</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-web -->
         <dependency>
@@ -1196,6 +1202,10 @@ under the License.
                         </configuration>
                     </execution>
                 </executions>
+                <configuration>
+                    <source>14</source>
+                    <target>14</target>
+                </configuration>
             </plugin>
             <!-- add gensrc java build src dir -->
             <plugin>
