@@ -981,6 +981,7 @@ visible_functions = {
         [['date_format'], 'VARCHAR', ['DATETIME', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATE', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date', 'to_date'], 'DATE', ['DATETIME'], 'ALWAYS_NULLABLE'],
+        [['date', 'to_date'], 'DATE', ['DATETIME','VARCHAR'], 'ALWAYS_NULLABLE'],
 
         [['dayname'], 'VARCHAR', ['DATETIME'], 'ALWAYS_NULLABLE'],
         [['monthname'], 'VARCHAR', ['DATETIME'], 'ALWAYS_NULLABLE'],

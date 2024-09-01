@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -43,7 +44,9 @@ public class Date extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateV2Type.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DateType.INSTANCE).args(DateTimeType.INSTANCE)
+            FunctionSignature.ret(DateType.INSTANCE).args(DateTimeType.INSTANCE),
+            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DateType.INSTANCE).args(DateTimeType.INSTANCE, VarcharType.SYSTEM_DEFAULT)
     );
 
     /**
@@ -54,12 +57,24 @@ public class Date extends ScalarFunction
     }
 
     /**
+     * constructor with 1 argument.
+     */
+    public Date(Expression arg1, Expression arg2) {
+        super("date", arg1, arg2);
+    }
+
+    /**
      * withChildren.
      */
     @Override
     public Date withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new Date(children.get(0));
+        Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
+        if (children.size() == 1) {
+            return new Date(children.get(0));
+        } else {
+            return new Date(children.get(0), children.get(1));
+        }
+
     }
 
     @Override

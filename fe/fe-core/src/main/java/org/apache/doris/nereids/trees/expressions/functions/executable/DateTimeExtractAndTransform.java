@@ -331,6 +331,43 @@ public class DateTimeExtractAndTransform {
     }
 
     /**
+     * date
+     */
+    @ExecFunction(name = "date", argTypes = {"DATETIME", "VARCHAR"}, returnType = "DATE")
+    public static Expression date(DateTimeLiteral datetime, StringLikeLiteral toTz) {
+        DateTimeFormatter zoneFormatter = new DateTimeFormatterBuilder()
+                .parseCaseInsensitive()
+                .appendZoneOrOffsetId()
+                .toFormatter()
+                .withResolverStyle(ResolverStyle.STRICT);
+        ZoneId toZone = ZoneId.from(zoneFormatter.parse(toTz.getStringValue()));
+
+        LocalDateTime localDateTime = datetime.toJavaDateType();
+        ZonedDateTime resultDateTime = localDateTime.atZone(DateUtils.getTimeZone()).withZoneSameInstant(toZone);
+        localDateTime = resultDateTime.toLocalDateTime();
+        return new DateV2Literal(localDateTime.getYear(), localDateTime.getMonthValue(), localDateTime.getDayOfMonth());
+    }
+
+    /**
+     * date
+     */
+    @ExecFunction(name = "date", argTypes = {"DATETIMEV2", "VARCHAR"}, returnType = "DATEV2")
+    public static Expression date(DateTimeV2Literal datetime, StringLikeLiteral toTz) {
+        DateTimeFormatter zoneFormatter = new DateTimeFormatterBuilder()
+                .parseCaseInsensitive()
+                .appendZoneOrOffsetId()
+                .toFormatter()
+                .withResolverStyle(ResolverStyle.STRICT);
+        ZoneId toZone = ZoneId.from(zoneFormatter.parse(toTz.getStringValue()));
+
+        LocalDateTime localDateTime = datetime.toJavaDateType();
+        ZonedDateTime resultDateTime = localDateTime.atZone(DateUtils.getTimeZone()).withZoneSameInstant(toZone);
+        localDateTime = resultDateTime.toLocalDateTime();
+        return new DateV2Literal(localDateTime.getYear(), localDateTime.getMonthValue(), localDateTime.getDayOfMonth());
+    }
+
+
+    /**
      * datetime arithmetic function date-trunc
      */
     @ExecFunction(name = "date_trunc", argTypes = {"DATETIME", "VARCHAR"}, returnType = "DATETIME")

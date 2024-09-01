@@ -28,6 +28,11 @@ void register_function_convert_tz(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionConvertTZ<DataTypeDateTime>>();
     factory.register_function<FunctionConvertTZ<DataTypeDateV2>>();
     factory.register_function<FunctionConvertTZ<DataTypeDateTimeV2>>();
+
+    factory.register_function<FunctionDateTZ<DataTypeDate>>();
+    factory.register_function<FunctionDateTZ<DataTypeDateTime>>();
+    factory.register_function<FunctionDateTZ<DataTypeDateV2>>();
+    factory.register_function<FunctionDateTZ<DataTypeDateTimeV2>>();
 }
 
 } // namespace doris::vectorized
