@@ -685,6 +685,40 @@ public class DateTimeExtractAndTransform {
     }
 
     /**
+     * timestamp
+     */
+    @ExecFunction(name = "timestamp", argTypes = {"DATETIME", "VARCHAR"}, returnType = "DATETIME")
+    public static Expression timestamp(DateTimeLiteral datetime, StringLikeLiteral toTz) {
+        DateTimeFormatter zoneFormatter = new DateTimeFormatterBuilder()
+                .parseCaseInsensitive()
+                .appendZoneOrOffsetId()
+                .toFormatter()
+                .withResolverStyle(ResolverStyle.STRICT);
+        ZoneId toZone = ZoneId.from(zoneFormatter.parse(toTz.getStringValue()));
+
+        LocalDateTime localDateTime = datetime.toJavaDateType();
+        ZonedDateTime resultDateTime = localDateTime.atZone(DateUtils.getTimeZone()).withZoneSameInstant(toZone);
+        return DateTimeLiteral.fromJavaDateType(resultDateTime.toLocalDateTime());
+    }
+
+    /**
+     * timestamp
+     */
+    @ExecFunction(name = "timestamp", argTypes = {"DATETIMEV2", "VARCHAR"}, returnType = "DATETIMEV2")
+    public static Expression timestamp(DateTimeV2Literal datetime, StringLikeLiteral toTz) {
+        DateTimeFormatter zoneFormatter = new DateTimeFormatterBuilder()
+                .parseCaseInsensitive()
+                .appendZoneOrOffsetId()
+                .toFormatter()
+                .withResolverStyle(ResolverStyle.STRICT);
+        ZoneId toZone = ZoneId.from(zoneFormatter.parse(toTz.getStringValue()));
+
+        LocalDateTime localDateTime = datetime.toJavaDateType();
+        ZonedDateTime resultDateTime = localDateTime.atZone(DateUtils.getTimeZone()).withZoneSameInstant(toZone);
+        return DateTimeV2Literal.fromJavaDateType(resultDateTime.toLocalDateTime(), datetime.getDataType().getScale());
+    }
+
+    /**
      * convert_tz
      */
     @ExecFunction(name = "convert_tz", argTypes = {"DATETIMEV2", "VARCHAR", "VARCHAR"}, returnType = "DATETIMEV2")
