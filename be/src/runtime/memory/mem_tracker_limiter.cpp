@@ -143,10 +143,12 @@ MemTrackerLimiter::~MemTrackerLimiter() {
         _consumption->set(0);
 #ifndef NDEBUG
     } else if (!_address_sanitizers.empty()) {
-        LOG(INFO) << "[Address Sanitizer] consumption is 0, but address sanitizers not empty. "
-                  << ", mem tracker label: " << _label
-                  << ", peak consumption: " << _consumption->peak_value()
-                  << print_address_sanitizers(); // TODO
+        if (_type == Type::QUERY || (_type == Type::LOAD && !is_group_commit_load)) {
+            LOG(INFO) << "[Address Sanitizer] consumption is 0, but address sanitizers not empty. "
+                      << ", mem tracker label: " << _label
+                      << ", peak consumption: " << _consumption->peak_value()
+                      << print_address_sanitizers(); // TODO
+        }
 #endif
     }
     memory_memtrackerlimiter_cnt << -1;
