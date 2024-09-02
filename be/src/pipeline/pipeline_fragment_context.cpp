@@ -1182,8 +1182,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     }
     case TPlanNodeType::GROUP_COMMIT_SCAN_NODE: {
 #ifndef NDEBUG
-        DCHECK(state->get_query_ctx() != nullptr);
-        state->get_query_ctx()->query_mem_tracker->is_group_commit_load = true;
+        DCHECK(_query_ctx != nullptr);
+        _query_ctx->query_mem_tracker->is_group_commit_load = true;
 #endif
         op.reset(new GroupCommitOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
