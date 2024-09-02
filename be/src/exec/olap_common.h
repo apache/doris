@@ -200,10 +200,6 @@ public:
             if (is_fixed_value_range()) {
                 to_in_condition(filters, true);
             }
-
-            if (is_match_value_range()) {
-                to_match_condition(filters);
-            }
         } else if (_low_value < _high_value) {
             // 2. convert to min max filter condition
             TCondition null_pred;
@@ -304,32 +300,6 @@ public:
         }
     }
 
-    void to_match_condition(std::vector<TCondition>& filters) {
-        for (const auto& value : _match_values) {
-            TCondition condition;
-            condition.__set_column_name(_column_name);
-
-            if (value.first == MatchType::MATCH_ANY) {
-                condition.__set_condition_op("match_any");
-            } else if (value.first == MatchType::MATCH_ALL) {
-                condition.__set_condition_op("match_all");
-            } else if (value.first == MatchType::MATCH_PHRASE) {
-                condition.__set_condition_op("match_phrase");
-            } else if (value.first == MatchType::MATCH_PHRASE_PREFIX) {
-                condition.__set_condition_op("match_phrase_prefix");
-            } else if (value.first == MatchType::MATCH_REGEXP) {
-                condition.__set_condition_op("match_regexp");
-            } else if (value.first == MatchType::MATCH_PHRASE_EDGE) {
-                condition.__set_condition_op("match_phrase_edge");
-            }
-            condition.condition_values.push_back(
-                    cast_to_string<primitive_type, CppType>(value.second, _scale));
-            if (condition.condition_values.size() != 0) {
-                filters.push_back(std::move(condition));
-            }
-        }
-    }
-
     void set_whole_value_range() {
         _fixed_values.clear();
         _low_value = TYPE_MIN;
@@ -422,8 +392,7 @@ private:
     CppType _high_value;        // Column's high value, open interval at right
     SQLFilterOp _low_op;
     SQLFilterOp _high_op;
-    std::set<CppType> _fixed_values;                       // Column's fixed int value
-    std::set<std::pair<MatchType, CppType>> _match_values; // match value using in full-text search
+    std::set<CppType> _fixed_values; // Column's fixed int value
 
     bool _is_nullable_col;
     bool _contain_null;
@@ -603,18 +572,6 @@ Status ColumnValueRange<primitive_type>::add_compound_value(SQLFilterOp op, CppT
 }
 
 template <PrimitiveType primitive_type>
-Status ColumnValueRange<primitive_type>::add_match_value(MatchType match_type,
-                                                         const CppType& value) {
-    std::pair<MatchType, CppType> match_value(match_type, value);
-    _match_values.insert(match_value);
-    _contain_null = false;
-
-    // _high_value = TYPE_MIN;
-    // _low_value = TYPE_MAX;
-    return Status::OK();
-}
-
-template <PrimitiveType primitive_type>
 void ColumnValueRange<primitive_type>::remove_fixed_value(const CppType& value) {
     _fixed_values.erase(value);
 }
@@ -627,11 +584,6 @@ bool ColumnValueRange<primitive_type>::is_fixed_value_range() const {
 template <PrimitiveType primitive_type>
 bool ColumnValueRange<primitive_type>::is_in_compound_value_range() const {
     return _compound_values.size() != 0;
-}
-
-template <PrimitiveType primitive_type>
-bool ColumnValueRange<primitive_type>::is_match_value_range() const {
-    return _match_values.size() != 0;
 }
 
 template <PrimitiveType primitive_type>

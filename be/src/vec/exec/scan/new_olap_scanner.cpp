@@ -84,7 +84,6 @@ NewOlapScanner::NewOlapScanner(pipeline::ScanLocalStateBase* parent,
                   .bloom_filters {},
                   .bitmap_filters {},
                   .in_filters {},
-                  .conditions_except_leafnode_of_andnode {},
                   .function_filters {},
                   .delete_predicates {},
                   .target_cast_type_for_variants {},
@@ -245,10 +244,6 @@ Status NewOlapScanner::open(RuntimeState* state) {
     return Status::OK();
 }
 
-void NewOlapScanner::set_compound_filters(const std::vector<TCondition>& compound_filters) {
-    _compound_filters = compound_filters;
-}
-
 // it will be called under tablet read lock because capture rs readers need
 Status NewOlapScanner::_init_tablet_reader_params(
         const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
@@ -293,10 +288,6 @@ Status NewOlapScanner::_init_tablet_reader_params(
     for (auto& filter : filters) {
         _tablet_reader_params.conditions.push_back(filter);
     }
-
-    std::copy(_compound_filters.cbegin(), _compound_filters.cend(),
-              std::inserter(_tablet_reader_params.conditions_except_leafnode_of_andnode,
-                            _tablet_reader_params.conditions_except_leafnode_of_andnode.begin()));
 
     std::copy(filter_predicates.bloom_filters.cbegin(), filter_predicates.bloom_filters.cend(),
               std::inserter(_tablet_reader_params.bloom_filters,

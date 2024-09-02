@@ -297,17 +297,6 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     // Read options will not change, so that just resize here
     _block_rowids.resize(_opts.block_row_max);
 
-    // compound predicates
-    //TODO: need to check can_apply_predicate_safely in expr
-    /*_col_preds_except_leafnode_of_andnode.clear();
-    for (const auto& predicate : opts.column_predicates_except_leafnode_of_andnode) {
-        if (!_segment->can_apply_predicate_safely(predicate->column_id(), predicate, *_schema,
-                                                  _opts.io_ctx.reader_type)) {
-            continue;
-        }
-        _col_preds_except_leafnode_of_andnode.push_back(predicate);
-    }*/
-
     _remaining_conjunct_roots = opts.remaining_conjunct_roots;
 
     if (_schema->rowid_col_idx() > 0) {
