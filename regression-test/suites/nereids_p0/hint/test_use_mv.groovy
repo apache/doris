@@ -53,9 +53,10 @@ suite("test_use_mv") {
                         );
     """
     sql """ alter table t1 add rollup r1(k2, k1); """
-    Thread.sleep(1000)
+    waitForRollUpJob("t1", 5000, 1)
     sql """ alter table t1 add rollup r2(k2); """
-    Thread.sleep(1000)
+    waitForRollUpJob("t1", 5000, 1)
+    createMV("create materialized view k1_k2_sumk3 as select k1, k2, sum(v1) from t1 group by k1, k2;")
     explain {
         sql """select k1 from t1;"""
         contains("t1(r1)")
@@ -74,7 +75,7 @@ suite("test_use_mv") {
     }
     explain {
         sql """select /*+ use_mv(t1.`*`) */ k1 from t1;"""
-        contains("t1(r1)")
+        contains("use_mv hint should only have one mv in one table")
     }
     explain {
         sql """select /*+ use_mv(t1.r1,t1.r2) */ k1 from t1;"""
@@ -96,4 +97,13 @@ suite("test_use_mv") {
         sql """select /*+ use_mv(t1.r1) no_use_mv(t1.r1) */ k1 from t1;"""
         contains("conflict mv exist in use_mv and no_use_mv in the same time")
     }
+    explain {
+        sql """select /*+ use_mv(t1.k1_k2_sumk3) */ k1, k2, sum(v1) from t1 group by k1, k2;"""
+        contains("t1(k1_k2_sumk3)")
+    }
+    explain {
+        sql """select /*+ use_mv(t1.k1_k2_sumk3) */ k1, k2, min(v1) from t1 group by k1, k2;"""
+        notContains("t1(k1_k2_sumk3)")
+    }
+
 }

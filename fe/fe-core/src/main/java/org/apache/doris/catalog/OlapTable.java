@@ -566,13 +566,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     private Long getMvIdWithUseMvHint(UseMvHint useMvHint, List<Long> orderedMvs) {
         if (useMvHint.isAllMv()) {
-            useMvHint.setStatus(Hint.HintStatus.SUCCESS);
+            useMvHint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+            useMvHint.setErrorMessage("use_mv hint should only have one mv in one table: "
+                    + this.name);
             return orderedMvs.get(0);
         } else {
             String mvName = useMvHint.getUseMvName(this.name);
             if (mvName != null) {
                 if (mvName.equals("`*`")) {
-                    useMvHint.setStatus(Hint.HintStatus.SUCCESS);
+                    useMvHint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+                    useMvHint.setErrorMessage("use_mv hint should only have one mv in one table: "
+                            + this.name);
                     return orderedMvs.get(0);
                 }
                 Long choosedIndexId = indexNameToId.get(mvName);
