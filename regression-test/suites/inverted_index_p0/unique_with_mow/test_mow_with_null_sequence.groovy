@@ -38,6 +38,7 @@ suite("test_mow_with_null_sequence", "inverted_index") {
              );
         """
 
+        sql """ set enable_common_expr_pushdown = true """
 
         sql """ insert into $tableName values('a', 'zhang san', 'address1', NULL) """
         sql """ insert into $tableName values('a', 'zhang si', 'address2', '2022-10-20') """
