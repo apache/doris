@@ -17,7 +17,8 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
-suite('docker_action') {
+// need add 'docker' to suite's group
+suite('docker_action', 'docker') {
     // run a new docker
     docker {
         sql '''create table tb1 (k int) DISTRIBUTED BY HASH(k) BUCKETS 10'''

@@ -52,16 +52,22 @@ import java.util.function.Predicate
 @CompileStatic
 class RegressionTest {
 
+    static enum SuiteType {
+        NORMAL,
+        SINGLE,
+        DOCKER,
+    }
+
     static ClassLoader classloader
     static CompilerConfiguration compileConfig
     static GroovyShell shell
     static ExecutorService scriptExecutors
-    static ExecutorService suiteExecutors
-    static ExecutorService singleSuiteExecutors
     static ExecutorService actionExecutors
+    static Map<SuiteType, ExecutorService> suiteExecutors
     static ThreadLocal<Integer> threadLoadedClassNum = new ThreadLocal<>()
     static final int cleanLoadedClassesThreshold = 20
     static String nonConcurrentTestGroup = "nonConcurrent"
+    static String dockerTestGroup = "docker"
 
     static {
         ch.qos.logback.classic.Logger loggerOfSuite =
@@ -113,8 +119,9 @@ class RegressionTest {
             }
         }
         actionExecutors.shutdown()
-        suiteExecutors.shutdown()
-        singleSuiteExecutors.shutdown()
+        for (ExecutorService suiteExecutor : suiteExecutors.values()) {
+            suiteExecutor.shutdown()
+        }
         scriptExecutors.shutdown()
         log.info("Test finished")
         if (!success) {
@@ -135,17 +142,24 @@ class RegressionTest {
             .build();
         scriptExecutors = Executors.newFixedThreadPool(config.parallel, scriptFactory)
 
+        suiteExecutors = [:]
         BasicThreadFactory suiteFactory = new BasicThreadFactory.Builder()
             .namingPattern("suite-thread-%d")
             .priority(Thread.MAX_PRIORITY)
             .build();
-        suiteExecutors = Executors.newFixedThreadPool(config.suiteParallel, suiteFactory)
+        suiteExecutors[SuiteType.NORMAL] = Executors.newFixedThreadPool(config.suiteParallel, suiteFactory)
 
         BasicThreadFactory singleSuiteFactory = new BasicThreadFactory.Builder()
             .namingPattern("non-concurrent-thread-%d")
             .priority(Thread.MAX_PRIORITY)
             .build();
-        singleSuiteExecutors = Executors.newFixedThreadPool(1, singleSuiteFactory)
+        suiteExecutors[SuiteType.SINGLE] = Executors.newFixedThreadPool(1, singleSuiteFactory)
+
+        BasicThreadFactory dockerSuiteFactory = new BasicThreadFactory.Builder()
+            .namingPattern("docker-suite-thread-%d")
+            .priority(Thread.MAX_PRIORITY)
+            .build();
+        suiteExecutors[SuiteType.DOCKER] = Executors.newFixedThreadPool(config.dockerSuiteParallel, dockerSuiteFactory)
 
         BasicThreadFactory actionFactory = new BasicThreadFactory.Builder()
             .namingPattern("action-thread-%d")
@@ -198,9 +212,9 @@ class RegressionTest {
         return sources
     }
 
-    static void runScript(Config config, ScriptSource source, Recorder recorder, boolean isSingleThreadScript) {
+    static void runScript(Config config, ScriptSource source, Recorder recorder, SuiteType suiteType) {
         def suiteFilter = { String suiteName, String groupName ->
-            canRun(config, suiteName, groupName, isSingleThreadScript)
+            canRun(config, suiteName, groupName, suiteType)
         }
         def file = source.getFile()
         int failureLimit = Integer.valueOf(config.otherConfigs.getOrDefault("max_failure_num", "-1").toString());
@@ -211,12 +225,7 @@ class RegressionTest {
             return;
         }
         def eventListeners = getEventListeners(config, recorder)
-        ExecutorService executors = null
-        if (isSingleThreadScript) {
-            executors = singleSuiteExecutors
-        } else {
-            executors = suiteExecutors
-        }
+        ExecutorService executors = suiteExecutors[suiteType]
 
         new ScriptContext(file, executors, actionExecutors,
                 config, eventListeners, suiteFilter).start { scriptContext ->
@@ -242,7 +251,15 @@ class RegressionTest {
         scriptSources.eachWithIndex { source, i ->
 //            log.info("Prepare scripts [${i + 1}/${totalFile}]".toString())
             def future = scriptExecutors.submit {
-                runScript(config, source, recorder, false)
+                runScript(config, source, recorder, SuiteType.NORMAL)
+            }
+            futures.add(future)
+        }
+
+        scriptSources.eachWithIndex { source, i ->
+//            log.info("Prepare scripts [${i + 1}/${totalFile}]".toString())
+            def future = scriptExecutors.submit {
+                runScript(config, source, recorder, SuiteType.DOCKER)
             }
             futures.add(future)
         }
@@ -261,7 +278,7 @@ class RegressionTest {
         scriptSources.eachWithIndex { source, i ->
 //            log.info("Prepare scripts [${i + 1}/${totalFile}]".toString())
             def future = scriptExecutors.submit {
-                runScript(config, source, recorder, true)
+                runScript(config, source, recorder, SuiteType.SINGLE)
             }
             futures.add(future)
         }
@@ -323,19 +340,19 @@ class RegressionTest {
         return true
     }
 
-    static boolean canRun(Config config, String suiteName, String group, boolean isSingleThreadScript) {
-        Set<String> suiteGroups = group.split(',').collect { g -> g.trim() }.toSet();
-        if (isSingleThreadScript) {
-            if (!suiteGroups.contains(nonConcurrentTestGroup)) {
-                return false
-            }
-        } else {
-            if (suiteGroups.contains(nonConcurrentTestGroup)) {
-                return false
-            }
-        }
+    static boolean canRun(Config config, String suiteName, String group, SuiteType suiteType) {
+        return getSuiteType(group) == suiteType && filterGroups(config, group) && filterSuites(config, suiteName)
+    }
 
-        return filterGroups(config, group) && filterSuites(config, suiteName)
+    static SuiteType getSuiteType(String group) {
+        Set<String> suiteGroups = group.split(',').collect { g -> g.trim() }.toSet();
+        if (suiteGroups.contains(nonConcurrentTestGroup)) {
+            return SuiteType.SINGLE
+        } else if (suiteGroups.contains(dockerTestGroup)) {
+            return SuiteType.DOCKER
+        } else {
+            return SuiteType.NORMAL
+        }
     }
 
     static List<EventListener> getEventListeners(Config config, Recorder recorder) {
@@ -421,7 +438,7 @@ class RegressionTest {
         }
         pluginPath.eachFileRecurse({ it ->
             if (it.name.endsWith(".groovy")) {
-                ScriptContext context = new ScriptContext(it, suiteExecutors, actionExecutors,
+                ScriptContext context = new ScriptContext(it, suiteExecutors[SuiteType.NORMAL], actionExecutors,
                         config, [], { name -> true })
                 File pluginFile = it
                 context.start({

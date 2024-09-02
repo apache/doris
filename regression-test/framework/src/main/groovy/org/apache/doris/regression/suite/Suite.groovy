@@ -29,6 +29,7 @@ import groovy.json.JsonSlurper
 import com.google.common.collect.ImmutableList
 import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
+import org.apache.doris.regression.RegressionTest
 import org.apache.doris.regression.action.BenchmarkAction
 import org.apache.doris.regression.action.ProfileAction
 import org.apache.doris.regression.action.WaitForAction
@@ -274,6 +275,10 @@ class Suite implements GroovyInterceptable {
     public void docker(ClusterOptions options = new ClusterOptions(), Closure actionSupplier) throws Exception {
         if (context.config.excludeDockerTest) {
             return
+        }
+
+        if (RegressionTest.getSuiteType(group) != RegressionTest.SuiteType.DOCKER) {
+            throw new Exception("Need add 'docker' to docker suite's belong groups")
         }
 
         boolean pipelineIsCloud = isCloudMode()
