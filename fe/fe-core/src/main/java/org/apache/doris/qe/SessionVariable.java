@@ -2120,7 +2120,7 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean enableFallbackOnMissingInvertedIndex = true;
 
-    public int adaptivePipelineTaskSerialReadOnLimit = 10000;
+    
     @VariableMgr.VarAttr(name = IN_LIST_VALUE_COUNT_THRESHOLD, description = {
         "in条件value数量大于这个threshold后将不会走fast_execute",
         "When the number of values in the IN condition exceeds this threshold,"
@@ -2142,6 +2142,7 @@ public class SessionVariable implements Serializable, Writable {
             "When enable_adaptive_pipeline_task_serial_read_on_limit is enabled, "
             + "the number of rows at which the parallelism of the scan will be set to 1."
     })
+    public int adaptivePipelineTaskSerialReadOnLimit = 10000;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
