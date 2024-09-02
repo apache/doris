@@ -18,6 +18,7 @@
 #include "scan_operator.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/Metrics_types.h>
 
 #include <cstdint>
 #include <memory>
@@ -1292,6 +1293,10 @@ Status ScanLocalState<Derived>::_init_profile() {
 
     _max_scanner_thread_num = ADD_COUNTER(_runtime_profile, "MaxScannerThreadNum", TUnit::UNIT);
 
+    _max_running_scanner_at_same_time =
+            _scanner_profile->AddHighWaterMarkCounter("MaxRunningScannerAtSameTime", TUnit::UNIT);
+    _max_memory_usage_at_same_time =
+            _scanner_profile->AddHighWaterMarkCounter("MaxMemoryUsageAtSameTime", TUnit::BYTES);
     return Status::OK();
 }
 

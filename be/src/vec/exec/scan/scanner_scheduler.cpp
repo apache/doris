@@ -34,6 +34,7 @@
 #include "common/status.h"
 #include "olap/tablet.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/async_io.h" // IWYU pragma: keep
@@ -210,6 +211,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         return;
     }
 
+    ctx->update_max_running_scanner_at_same_time(true);
+    Defer defer([&] { ctx->update_max_running_scanner_at_same_time(false); });
+
     std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
     if (scanner_delegate == nullptr) {
         return;
@@ -267,7 +271,11 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 if (free_block == nullptr) {
                     break;
                 }
+                ctx->update_max_memory_usage_at_same_time(free_block->allocated_bytes());
+                ctx->update_max_memory_usage_at_same_time(-free_block->allocated_bytes());
                 status = scanner->get_block_after_projects(state, free_block.get(), &eos);
+                // Projection will truncate useless columns, makes block size change.
+                ctx->update_max_memory_usage_at_same_time(free_block->allocated_bytes());
                 first_read = false;
                 if (!status.ok()) {
                     LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
@@ -289,6 +297,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     scan_task->cached_blocks.back().first.get()->set_columns(
                             std::move(mutable_block.mutable_columns()));
                     ctx->return_free_block(std::move(free_block));
+                    ctx->update_max_memory_usage_at_same_time(-free_block_bytes);
                     ctx->inc_free_block_usage(
                             scan_task->cached_blocks.back().first->allocated_bytes() - block_size);
                 } else {
