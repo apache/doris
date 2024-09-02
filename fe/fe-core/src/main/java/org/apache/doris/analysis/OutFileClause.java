@@ -884,7 +884,7 @@ public class OutFileClause {
         if (isOrcFormat()) {
             sinkOptions.setOrcSchema(serializeOrcSchema());
             sinkOptions.setOrcCompressionType(orcCompressionType);
-            sinkOptions.setOrcWriteVersion(1);
+            sinkOptions.setOrcWriterVersion(1);
         }
         return sinkOptions;
     }
