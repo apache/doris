@@ -71,13 +71,13 @@ Status transmit_block_httpv2(ExecEnv* exec_env, std::unique_ptr<Closure> closure
                              TNetworkAddress brpc_dest_addr) {
     RETURN_IF_ERROR(request_embed_attachment_contain_blockv2(closure->request_.get(), closure));
 
-    std::string host = brpc_dest_addr.host;
-    if (!is_valid_ip(brpc_dest_addr.host)) {
-        Status status = ExecEnv::GetInstance()->dns_cache()->get(brpc_dest_addr.host, &host);
+    std::string host = brpc_dest_addr.hostname;
+    if (!is_valid_ip(brpc_dest_addr.hostname)) {
+        Status status = ExecEnv::GetInstance()->dns_cache()->get(brpc_dest_addr.hostname, &host);
         if (!status.ok()) {
-            LOG(WARNING) << "failed to get ip from host " << brpc_dest_addr.host << ": "
+            LOG(WARNING) << "failed to get ip from host " << brpc_dest_addr.hostname << ": "
                          << status.to_string();
-            return Status::InternalError("failed to get ip from host {}", brpc_dest_addr.host);
+            return Status::InternalError("failed to get ip from host {}", brpc_dest_addr.hostname);
         }
     }
     //format an ipv6 address
