@@ -6,11 +6,10 @@ PhysicalResultSink
 ------hashJoin[INNER_JOIN](s.s_suppkey = l.lo_suppkey)
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN](c.c_custkey = l.lo_custkey)
-------------PhysicalDistribute
---------------hashJoin[INNER_JOIN](p.p_partkey = l.lo_partkey)
-----------------PhysicalOlapScan[lineorder]
-----------------PhysicalDistribute
-------------------PhysicalOlapScan[part]
+------------hashJoin[INNER_JOIN](p.p_partkey = l.lo_partkey)
+--------------PhysicalOlapScan[lineorder]
+--------------PhysicalDistribute
+----------------PhysicalOlapScan[part]
 ------------PhysicalDistribute
 --------------PhysicalOlapScan[customer]
 --------PhysicalDistribute
