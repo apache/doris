@@ -18,21 +18,17 @@
 package org.apache.doris.datasource.maxcompute.source;
 
 import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
-import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
@@ -50,8 +46,6 @@ import org.apache.doris.thrift.TMaxComputeFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.aliyun.odps.OdpsType;
-import com.aliyun.odps.data.Char;
-import com.aliyun.odps.data.Varchar;
 import com.aliyun.odps.table.TableIdentifier;
 import com.aliyun.odps.table.configuration.ArrowOptions;
 import com.aliyun.odps.table.configuration.ArrowOptions.TimestampUnit;
@@ -115,8 +109,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         rangeDesc.setSize(maxComputeSplit.getLength());
     }
 
-    protected void doInitialize() throws UserException {
-        super.doInitialize();
+    void createTableBatchReadSession() throws UserException {
         Predicate filterPredicate = convertPredicate();
 
 
@@ -149,7 +142,8 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                 tableBatchReadSession =
                         scanBuilder.identifier(TableIdentifier.of(table.getDbName(), table.getName()))
                                 .withSettings(((MaxComputeExternalCatalog) table.getCatalog()).settings)
-                                .withSplitOptions(SplitOptions.newBuilder()
+                                .withSplitOptions(
+                                        SplitOptions.newBuilder()
                                         .SplitByByteSize(256 * 1024L * 1024L)
                                         .withCrossPartition(false).build())
                                 .requiredPartitionColumns(requiredPartitionColumns)
@@ -247,34 +241,36 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                             ? com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator.IN
                             : com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator.NOT_IN;
 
-            List<Serializable> odpsValues = new ArrayList<>();
-
-
-
             String columnName = convertSlotRefToColumnName(expr.getChild(0));
             com.aliyun.odps.OdpsType odpsType  =  table.getColumnNameToOdpsColumn().get(columnName).getType();
 
-            for (int i = 1; i < inPredicate.getChildren().size(); i++) {
-                odpsValues.add(
-                        new com.aliyun.odps.table.optimizer.predicate.Constant(
-                        convertLiteralToOdpsValues(odpsType, expr.getChild(1))));
-            }
+            StringBuilder stringBuilder = new StringBuilder();
 
-            odpsPredicate = new com.aliyun.odps.table.optimizer.predicate.InPredicate(
-                    odpsOp,
-                    new com.aliyun.odps.table.optimizer.predicate.Attribute(columnName),
-                    odpsValues
-            );
+            stringBuilder.append(columnName);
+            stringBuilder.append(" ");
+            stringBuilder.append(odpsOp.getDescription());
+            stringBuilder.append(" (");
+
+            for (int i = 1; i < inPredicate.getChildren().size(); i++) {
+                stringBuilder.append(convertLiteralToOdpsValues(odpsType, expr.getChild(i)));
+                if (i < inPredicate.getChildren().size() - 1) {
+                    stringBuilder.append(" , ");
+                }
+            }
+            stringBuilder.append(" )");
+
+            odpsPredicate = new com.aliyun.odps.table.optimizer.predicate.RawPredicate(stringBuilder.toString());
+
         } else if (expr instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
             com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator odpsOp = switch (
                     binaryPredicate.getOp()) {
                 case EQ -> com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.EQUALS;
                 case NE -> com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.NOT_EQUALS;
-                case GE -> com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.GREATER_THAN;
-                case LE -> com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.LESS_THAN;
-                case LT -> com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.LESS_THAN_OR_EQUAL;
-                case GT -> com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.GREATER_THAN_OR_EQUAL;
+                case GE -> com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.GREATER_THAN_OR_EQUAL;
+                case LE -> com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.LESS_THAN_OR_EQUAL;
+                case LT -> com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.LESS_THAN;
+                case GT -> com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.GREATER_THAN;
                 default -> null;
             };
             if (odpsOp != null) {
@@ -282,14 +278,14 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
                 String columnName = convertSlotRefToColumnName(expr.getChild(0));
                 com.aliyun.odps.OdpsType odpsType  =  table.getColumnNameToOdpsColumn().get(columnName).getType();
+                StringBuilder stringBuilder = new StringBuilder();
+                stringBuilder.append(columnName);
+                stringBuilder.append(" ");
+                stringBuilder.append(odpsOp.getDescription());
+                stringBuilder.append(" ");
+                stringBuilder.append(convertLiteralToOdpsValues(odpsType, expr.getChild(1)));
 
-                odpsPredicate =
-                        new com.aliyun.odps.table.optimizer.predicate.BinaryPredicate(
-                                odpsOp,
-                                new com.aliyun.odps.table.optimizer.predicate.Attribute(columnName),
-                                new com.aliyun.odps.table.optimizer.predicate.Constant(
-                                        convertLiteralToOdpsValues(odpsType, expr.getChild(1)))
-                        );
+                odpsPredicate = new com.aliyun.odps.table.optimizer.predicate.RawPredicate(stringBuilder.toString());
             }
         } else if (expr instanceof IsNullPredicate) {
             IsNullPredicate isNullPredicate = (IsNullPredicate) expr;
@@ -314,74 +310,46 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     }
 
     private String convertSlotRefToColumnName(Expr expr) throws AnalysisException {
-        if (!(expr instanceof SlotRef)) {
-            throw new AnalysisException("Do not support convert ["
-                    + expr.getExprName() + "] in convertSlotRefToAttribute.");
+        if (expr instanceof SlotRef) {
+            return ((SlotRef) expr).getColumnName();
+        } else if (expr instanceof CastExpr) {
+            if (expr.getChild(0) instanceof SlotRef) {
+                return ((SlotRef) expr.getChild(0)).getColumnName();
+            }
         }
 
-        SlotRef slotRef = (SlotRef) expr;
-        return slotRef.getColumnName();
+        throw new AnalysisException("Do not support convert ["
+                + expr.getExprName() + "] in convertSlotRefToAttribute.");
+
+
     }
 
-    private Object convertLiteralToOdpsValues(OdpsType odpsType, Expr expr) throws AnalysisException {
+    private String convertLiteralToOdpsValues(OdpsType odpsType, Expr expr) throws AnalysisException {
         if (!(expr instanceof LiteralExpr)) {
             throw new AnalysisException("Do not support convert ["
                     + expr.getExprName() + "] in convertSlotRefToAttribute.");
         }
         LiteralExpr literalExpr = (LiteralExpr) expr;
 
-        Type literalExprType = literalExpr.getType().getResultType();
+        literalExpr.toString();
+
         switch (odpsType) {
             case BOOLEAN:
-                if (!(literalExpr instanceof BoolLiteral)) {
-                    break;
-                }
-                BoolLiteral boolLiteral = (BoolLiteral) literalExpr;
-                return boolLiteral.getValue();
             case TINYINT:
             case SMALLINT:
             case INT:
-            case BIGINT: {
-                if (!literalExprType.isIntegerType()) {
-                    break;
-                }
-                return  literalExpr.getRealValue();
-            }
+            case BIGINT:
+            case DECIMAL:
             case FLOAT:
             case DOUBLE: {
-                if (!(literalExprType ==  Type.FLOAT || literalExprType == Type.DOUBLE)) {
-                    break;
-                }
-                FloatLiteral floatLiteral = (FloatLiteral) literalExpr;
-                return floatLiteral.getValue();
+                return " " + literalExpr.toString() + " ";
             }
-            case STRING: {
-                if (!(literalExprType ==  Type.STRING)) {
-                    break;
-                }
-                StringLiteral stringLiteral = (StringLiteral) literalExpr;
-                return stringLiteral.getValue();
-            }
-            case DECIMAL: {
-                if (!(literalExprType.isWildcardDecimal())) {
-                    break;
-                }
-                DecimalLiteral decimalLiteral = (DecimalLiteral) literalExpr;
-                return decimalLiteral.getRealValue();
-            }
-            case CHAR: {
-                if (!(literalExprType ==  Type.STRING)) {
-                    break;
-                }
-                StringLiteral charLiteral = (StringLiteral) literalExpr;
-                return new Char(charLiteral.getValue());
-            }
-            case VARCHAR: {
-                if (!(literalExprType ==  Type.STRING)) {
-                    break;
-                }
-                StringLiteral charLiteral = (StringLiteral) literalExpr;
-                return new Varchar(charLiteral.getValue());
+            case STRING:
+            case CHAR:
+            case VARCHAR:
+            case DATE:
+            case TIMESTAMP: {
+                return " \"" + literalExpr.toString() + "\" ";
             }
             default: {
                 break;
@@ -417,7 +385,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         if (desc.getSlots().isEmpty() || odpsTable.getFileNum() <= 0) {
             return result;
         }
-
+        createTableBatchReadSession();
         try {
             InputSplitAssigner assigner = tableBatchReadSession.getInputSplitAssigner();
 
