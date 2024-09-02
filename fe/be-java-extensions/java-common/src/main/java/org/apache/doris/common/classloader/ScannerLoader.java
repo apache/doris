@@ -19,6 +19,7 @@ package org.apache.doris.common.classloader;
 
 import org.apache.doris.common.jni.utils.ExpiringMap;
 import org.apache.doris.common.jni.utils.Log4jOutputStream;
+import org.apache.doris.common.jni.utils.UdfClassCache;
 
 import com.google.common.collect.Streams;
 import org.apache.log4j.Level;
@@ -48,7 +49,7 @@ import java.util.stream.Collectors;
 public class ScannerLoader {
     public static final Logger LOG = Logger.getLogger(ScannerLoader.class);
     private static final Map<String, Class<?>> loadedClasses = new HashMap<>();
-    private static final ExpiringMap<String, ClassLoader> udfLoadedClasses = new ExpiringMap<String, ClassLoader>();
+    private static final ExpiringMap<String, UdfClassCache> udfLoadedClasses = new ExpiringMap<>();
     private static final String CLASS_SUFFIX = ".class";
     private static final String LOAD_PACKAGE = "org.apache.doris";
 
@@ -79,14 +80,14 @@ public class ScannerLoader {
         System.setErr(errorPrintStream);
     }
 
-    public static ClassLoader getUdfClassLoader(String functionSignature) {
+    public static UdfClassCache getUdfClassLoader(String functionSignature) {
         return udfLoadedClasses.get(functionSignature);
     }
 
-    public static synchronized void cacheClassLoader(String functionSignature, ClassLoader classLoader,
+    public static synchronized void cacheClassLoader(String functionSignature, UdfClassCache classCache,
             long expirationTime) {
         LOG.info("cacheClassLoader for: " + functionSignature);
-        udfLoadedClasses.put(functionSignature, classLoader, expirationTime * 60 * 1000L);
+        udfLoadedClasses.put(functionSignature, classCache, expirationTime * 60 * 1000L);
     }
 
     public synchronized void cleanUdfClassLoader(String functionSignature) {

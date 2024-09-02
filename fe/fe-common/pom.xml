@@ -143,6 +143,10 @@ under the License.
             <version>${commons-collections.version}</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>com.esotericsoftware</groupId>
+            <artifactId>kryo-shaded</artifactId>
+        </dependency>
     </dependencies>
     <build>
         <finalName>doris-fe-common</finalName>
