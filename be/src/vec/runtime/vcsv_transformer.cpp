@@ -66,7 +66,8 @@ VCSVTransformer::VCSVTransformer(RuntimeState* state, doris::io::FileWriter* fil
         _options.collection_delim = hive_serde_properties->collection_delim[0];
         _options.map_key_delim = hive_serde_properties->mapkv_delim[0];
         _options.escape_char = hive_serde_properties->escape_char[0];
-        _options.null_format = hive_serde_properties->null_format.c_str();
+        _options.null_format = hive_serde_properties->null_format.data();
+        _options.null_len = hive_serde_properties->null_format.length();
         // The list of separators + escapeChar are the bytes required to be escaped.
         _options.need_escape[_options.escape_char & 0xff] = true;
         for (int i = 0; i <= 153; i++) {
