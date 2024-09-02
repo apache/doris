@@ -41,4 +41,29 @@ suite("test_decimal256_cast") {
         select cast('0.000000000000000000000000000000000000000000000000000000000000000000000012345678901' as decimalv3(76,0));
     """
 
+    sql """
+        drop table  if exists dec256cast_to_float;
+    """
+    sql """
+    create table dec256cast_to_float (
+        k1 int,
+        v1 decimalv3(76, 60)
+    ) distributed by hash(k1)
+    properties (
+        'replication_num' = '1'
+    );
+    """
+    sql """
+        insert into dec256cast_to_float values  (1, "12345678.000000000000000000000000000000001");
+    """
+    test {
+        sql """
+            select cast(v1 as float) from dec256cast_to_float;
+        """
+        exception "Arithmetic overflow"
+    }
+    qt_decimal256_cast_to_double_1 """
+        select cast(v1 as double) from dec256cast_to_float;
+    """
+
 }

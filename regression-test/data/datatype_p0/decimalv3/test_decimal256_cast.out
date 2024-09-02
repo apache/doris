@@ -26,3 +26,6 @@
 -- !decimal256_cast8 --
 0
 
+-- !decimal256_cast_to_double_1 --
+12345678
+
