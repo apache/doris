@@ -1190,7 +1190,7 @@ void DeleteBitmap::remove_stale_delete_bitmap_from_queue() {
             pre_rowset_ids.emplace_back(std::get<0>(start_bmk).to_string());
             CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
             auto st = engine.meta_mgr().remove_old_version_delete_bitmap(tablet_id, pre_rowset_ids,
-                                                                          0, std::get<2>(end_bmk));
+                                                                         0, std::get<2>(end_bmk));
             it = _stale_delete_bitmap.erase(it);
         } else {
             it++;
