@@ -70,6 +70,11 @@ unsupportedStatement
     | unsupportedAdminStatement
     | unsupportedTransactionStatement
     | unsupportedRecoverStatement
+    | unsupportedCancelStatement
+    | unsupportedJobStatement
+    | unsupportedCleanStatement
+    | unsupportedRefreshStatement
+    | unsupportedLoadStatement
     | unsupportedOtherStatement
     ;
 
@@ -121,14 +126,11 @@ supportedDmlStatement
         partitionSpec? tableAlias
         (USING relations)?
         whereClause?                                                   #delete
-    | LOAD LABEL lableName=identifier
+    | LOAD LABEL lableName=multipartIdentifier
         LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
         (withRemoteStorageSystem)?
-        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
+        propertyClause?
         (commentSpec)?                                                 #load
-    | LOAD mysqlDataDesc
-        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
-        (commentSpec)?                                                 #mysqlLoad
     | EXPORT TABLE tableName=multipartIdentifier
         (PARTITION partition=identifierList)?
         (whereClause)?
@@ -198,6 +200,130 @@ warmUpItem
 lockTable
     : name=multipartIdentifier (AS alias=identifierOrText)?
         (READ (LOCAL)? | (LOW_PRIORITY)? WRITE)
+    ;
+
+unsupportedLoadStatement
+    : LOAD mysqlDataDesc
+        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
+        (commentSpec)?                                                              #mysqlLoad
+    | CREATE SYNC label=multipartIdentifier
+          LEFT_PAREN channelDescriptions RIGHT_PAREN
+          FROM BINLOG LEFT_PAREN propertyItemList RIGHT_PAREN
+          properties=propertyClause?                                                #createDataSyncJob
+    | STOP SYNC JOB name=multipartIdentifier                                        #stopDataSyncJob
+    | RESUME SYNC JOB name=multipartIdentifier                                      #resumeDataSyncJob
+    | PAUSE SYNC JOB name=multipartIdentifier                                       #pauseDataSyncJob
+    | CREATE ROUTINE LOAD label=multipartIdentifier (ON table=identifier)?
+        (WITH (APPEND | DELETE | MERGE))?
+        (loadProperty (COMMA loadProperty)*)? propertyClause? FROM type=identifier
+        LEFT_PAREN customProperties=propertyItemList RIGHT_PAREN
+        commentSpec?                                                                #createRoutineLoadJob
+    | PAUSE ROUTINE LOAD FOR label=multipartIdentifier                              #pauseRoutineLoad
+    | PAUSE ALL ROUTINE LOAD                                                        #pauseAllRoutineLoad
+    | RESUME ROUTINE LOAD FOR label=multipartIdentifier                             #resumeRoutineLoad
+    | RESUME ALL ROUTINE LOAD                                                       #resumeAllRoutineLoad
+    | STOP ROUTINE LOAD FOR label=multipartIdentifier                               #stopRoutineLoad
+    | SHOW ALL? ROUTINE LOAD ((FOR label=multipartIdentifier) | wildWhere?)         #showRoutineLoad
+    | SHOW ROUTINE LOAD TASK ((FROM | IN) database=identifier)? wildWhere?          #showRoutineLoadTask
+    | SHOW ALL? CREATE ROUTINE LOAD FOR label=multipartIdentifier                   #showCreateRoutineLoad
+    | SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad
+    | SYNC                                                                          #sync
+    | importSequenceStatement                                                       #importSequenceStatementAlias
+    | importPrecedingFilterStatement                                                #importPrecedingFilterStatementAlias
+    | importWhereStatement                                                          #importWhereStatementAlias
+    | importDeleteOnStatement                                                       #importDeleteOnStatementAlias
+    | importColumnsStatement                                                        #importColumnsStatementAlias
+    ;
+
+loadProperty
+    : COLUMNS TERMINATED BY STRING_LITERAL                                          #separator
+    | importColumnsStatement                                                        #importColumns
+    | importPrecedingFilterStatement                                                #importPrecedingFilter
+    | importWhereStatement                                                          #importWhere
+    | importDeleteOnStatement                                                       #importDeleteOn
+    | importSequenceStatement                                                       #importSequence
+    | partitionSpec                                                                 #importPartitions
+    ;
+
+importSequenceStatement
+    : ORDER BY identifier
+    ;
+
+importDeleteOnStatement
+    : DELETE ON booleanExpression
+    ;
+
+importWhereStatement
+    : WHERE booleanExpression
+    ;
+
+importPrecedingFilterStatement
+    : PRECEDING FILTER booleanExpression
+    ;
+
+importColumnsStatement
+    : COLUMNS LEFT_PAREN importColumnDesc (COMMA importColumnDesc)* RIGHT_PAREN
+    ;
+
+importColumnDesc
+    : name=identifier (EQ booleanExpression)?
+    | LEFT_PAREN name=identifier (EQ booleanExpression)? RIGHT_PAREN
+    ;
+
+channelDescriptions
+    : channelDescription (COMMA channelDescription)*
+    ;
+
+channelDescription
+    : FROM source=multipartIdentifier INTO destination=multipartIdentifier
+        partitionSpec? columnList=identifierList?
+    ;
+
+unsupportedRefreshStatement
+    : REFRESH TABLE name=multipartIdentifier                                        #refreshTable
+    | REFRESH DATABASE name=multipartIdentifier propertyClause?                     #refreshDatabase
+    | REFRESH CATALOG name=identifier propertyClause?                               #refreshCatalog
+    | REFRESH LDAP (ALL | (FOR user=identifierOrText))                              #refreshLdap
+    ;
+
+unsupportedCleanStatement
+    : CLEAN LABEL label=identifier? (FROM | IN) database=identifier                 #cleanLabel
+    | CLEAN ALL PROFILE                                                             #cleanAllProfile
+    | CLEAN QUERY STATS ((FOR database=identifier)
+        | ((FROM | IN) table=multipartIdentifier))                                  #cleanQueryStats
+    | CLEAN ALL QUERY STATS                                                         #cleanAllQueryStats
+    ;
+
+unsupportedJobStatement
+    : CREATE JOB label=multipartIdentifier ON SCHEDULE
+        (
+            (EVERY timeInterval=INTEGER_VALUE timeUnit=identifier
+            (STARTS (startTime=STRING_LITERAL | CURRENT_TIMESTAMP))?
+            (ENDS endsTime=STRING_LITERAL)?)
+            |
+            (AT (atTime=STRING_LITERAL | CURRENT_TIMESTAMP)))
+        commentSpec?
+        DO statement                                                                #createJob
+    | PAUSE JOB wildWhere?                                                          #pauseJob
+    | DROP JOB (IF EXISTS)? wildWhere?                                              #dropJob
+    | RESUME JOB wildWhere?                                                         #resumeJob
+    | CANCEL TASK wildWhere?                                                        #cancelJobTask
+    ;
+
+unsupportedCancelStatement
+    : CANCEL LOAD ((FROM | IN) database=identifier)? wildWhere?                     #cancelLoad
+    | CANCEL EXPORT ((FROM | IN) database=identifier)? wildWhere?                   #cancelExport
+    | CANCEL ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
+        FROM tableName=multipartIdentifier (LEFT_PAREN jobIds+=INTEGER_VALUE
+            (COMMA jobIds+=INTEGER_VALUE)* RIGHT_PAREN)?                            #cancelAlterTable
+    | CANCEL BUILD INDEX ON tableName=multipartIdentifier
+        (LEFT_PAREN jobIds+=INTEGER_VALUE
+            (COMMA jobIds+=INTEGER_VALUE)* RIGHT_PAREN)?                            #cancelBuildIndex
+    | CANCEL DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
+        (COMMA hostPorts+=STRING_LITERAL)*                                          #cancelDecommisionBackend
+    | CANCEL BACKUP ((FROM | IN) database=identifier)?                              #cancelBackup
+    | CANCEL RESTORE ((FROM | IN) database=identifier)?                             #cancelRestore
+    | CANCEL WARM UP JOB wildWhere?                                                 #cancelWarmUp
     ;
 
 unsupportedRecoverStatement
@@ -421,7 +547,11 @@ unsupportedDropStatement
     ;
 
 unsupportedStatsStatement
-    : ALTER TABLE name=multipartIdentifier SET STATS
+    : ANALYZE TABLE name=multipartIdentifier partitionSpec?
+        columns=identifierList? (WITH analyzeProperties)* propertyClause?       #analyzeTable
+    | ANALYZE DATABASE name=multipartIdentifier
+        (WITH analyzeProperties)* propertyClause?                               #analyzeDatabase
+    | ALTER TABLE name=multipartIdentifier SET STATS
         LEFT_PAREN propertyItemList RIGHT_PAREN partitionSpec?                  #alterTableStats
     | ALTER TABLE name=multipartIdentifier (INDEX indexName=identifier)?
         MODIFY COLUMN columnName=identifier
@@ -431,6 +561,19 @@ unsupportedStatsStatement
     | DROP CACHED STATS tableName=multipartIdentifier                           #dropCachedStats
     | DROP EXPIRED STATS                                                        #dropExpiredStats
     | DROP ANALYZE JOB INTEGER_VALUE                                            #dropAanalyzeJob
+    | KILL ANALYZE jobId=INTEGER_VALUE                                          #killAnalyzeJob
+    ;
+
+analyzeProperties
+    : SYNC
+    | INCREMENTAL
+    | FULL
+    | SQL
+    | HISTOGRAM
+    | (SAMPLE ((ROWS rows=INTEGER_VALUE) | (PERCENT percent=INTEGER_VALUE)) )
+    | (BUCKETS bucket=INTEGER_VALUE)
+    | (PERIOD periodInSecond=INTEGER_VALUE)
+    | (CRON crontabExpr=STRING_LITERAL)
     ;
 
 unsupportedCreateStatement
@@ -470,10 +613,6 @@ unsupportedCreateStatement
         (ACTIONS LEFT_PAREN workloadPolicyActions RIGHT_PAREN)?
         properties=propertyClause?                                              #createWorkloadPolicy
     | CREATE ENCRYPTKEY (IF NOT EXISTS)? multipartIdentifier AS STRING_LITERAL  #createEncryptkey
-    | CREATE SYNC dbName=identifier DOT jobName=identifierOrText
-        LEFT_PAREN channelDescriptions RIGHT_PAREN
-        FROM BINLOG LEFT_PAREN propertyItemList RIGHT_PAREN
-        properties=propertyClause?                                              #createDataSyncJob
     | CREATE SQL_BLOCK_RULE (IF NOT EXISTS)?
         name=identifier properties=propertyClause?                              #createSqlBlockRule
     | CREATE STORAGE POLICY (IF NOT EXISTS)?
@@ -481,15 +620,6 @@ unsupportedCreateStatement
     | BUILD INDEX name=identifier ON tableName=multipartIdentifier
         partitionSpec?                                                          #buildIndex
     | CREATE STAGE (IF NOT EXISTS)? name=identifier properties=propertyClause?  #createStage
-    ;
-
-channelDescriptions
-    : channelDescription (COMMA channelDescription)*
-    ;
-
-channelDescription
-    : FROM source=multipartIdentifier INTO destination=multipartIdentifier
-        partitionSpec? columnList=identifierList?
     ;
 
 workloadPolicyActions
@@ -646,6 +776,7 @@ dataDesc
         (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
         (LINES TERMINATED BY separator=STRING_LITERAL)?
         (FORMAT AS format=identifierOrText)?
+        (COMPRESS_TYPE AS compressType=identifierOrText)?
         (columns=identifierList)?
         (columnsFromPath=colFromPath)?
         (columnMapping=colMappingList)?
@@ -791,7 +922,7 @@ resourceDesc
     ;
 
 mysqlDataDesc
-    : DATA (LOCAL booleanValue)?
+    : DATA LOCAL?
         INFILE filePath=STRING_LITERAL
         INTO TABLE tableName=multipartIdentifier
         (PARTITION partition=identifierList)?

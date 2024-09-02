@@ -87,7 +87,7 @@ import java.util.function.Predicate;
       type of routine load:
           KAFKA
 */
-public class CreateRoutineLoadStmt extends DdlStmt {
+public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CreateRoutineLoadStmt.class);
 
     // routine load properties
