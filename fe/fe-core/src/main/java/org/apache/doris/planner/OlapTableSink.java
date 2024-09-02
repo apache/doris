@@ -323,6 +323,12 @@ public class OlapTableSink extends DataSink {
                     schemaParam.setAutoIncrementColumnUniqueId(col.getUniqueId());
                 }
             }
+            if (table.getSequenceMapCol() != null) {
+                Column seqMapCol = table.getFullSchema().stream()
+                        .filter(col -> col.getName().equalsIgnoreCase(table.getSequenceMapCol()))
+                        .findFirst().get();
+                schemaParam.setSequenceMapColName(seqMapCol.getName());
+            }
         }
         schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
         return schemaParam;

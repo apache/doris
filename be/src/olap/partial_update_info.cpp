@@ -23,6 +23,7 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "vec/common/assert_cast.h"
@@ -156,12 +157,16 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
             if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 &&
                          to_lower(column.default_value()).find(to_lower("CURRENT_TIMESTAMP")) !=
                                  std::string::npos)) {
+                LOG_INFO("_generate_default_values_for_missing_cids: column.default_value()={}",
+                         column.default_value());
                 DateV2Value<DateTimeV2ValueType> dtv;
                 dtv.from_unixtime(timestamp_ms / 1000, timezone);
                 default_value = dtv.debug_string();
             } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_DATEV2 &&
                                 to_lower(column.default_value()).find(to_lower("CURRENT_DATE")) !=
                                         std::string::npos)) {
+                LOG_INFO("_generate_default_values_for_missing_cids: column.default_value()={}",
+                         column.default_value());
                 DateV2Value<DateV2ValueType> dv;
                 dv.from_unixtime(timestamp_ms / 1000, timezone);
                 default_value = dv.debug_string();
@@ -174,6 +179,20 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
             default_values.emplace_back();
         }
     }
+    if (!tablet_schema.sequence_map_column().empty() &&
+        !partial_update_input_columns.contains(tablet_schema.sequence_map_column())) {
+        auto it = std::find(missing_cids.cbegin(), missing_cids.cend(),
+                            tablet_schema.sequence_col_idx());
+        DCHECK(it != missing_cids.cend());
+        std::size_t seq_col_idx_in_missing_cids = std::distance(missing_cids.cbegin(), it);
+        it = std::find(missing_cids.cbegin(), missing_cids.cend(),
+                       tablet_schema.field_index(tablet_schema.sequence_map_column()));
+        DCHECK(it != missing_cids.cend());
+        std::size_t seq_map_col_idx_in_missing_cids = std::distance(missing_cids.cbegin(), it);
+        default_values[seq_col_idx_in_missing_cids] =
+                default_values[seq_map_col_idx_in_missing_cids];
+    }
+
     CHECK_EQ(missing_cids.size(), default_values.size());
 }
 
@@ -253,7 +272,7 @@ Status PartialUpdateReadPlan::fill_missing_columns(
                 old_value_block, default_value_block));
     }
     auto mutable_default_value_columns = default_value_block.mutate_columns();
-
+    bool sequence_col_use_default_value = tablet_schema.sequence_col_use_default_value();
     // fill all missing value from mutable_old_columns, need to consider default value and null value
     for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
         // `use_default_or_null_flag[idx] == false` doesn't mean that we should read values from the old row
@@ -271,7 +290,7 @@ Status PartialUpdateReadPlan::fill_missing_columns(
                 const auto& tablet_column = tablet_schema.column(missing_cids[i]);
                 auto& missing_col = mutable_full_columns[missing_cids[i]];
                 // clang-format off
-                if (tablet_column.has_default_value()) {
+                if (tablet_column.has_default_value() || (tablet_column.name() == SEQUENCE_COL && sequence_col_use_default_value)) {
                     missing_col->insert_from(*mutable_default_value_columns[i].get(), 0);
                 } else if (tablet_column.is_nullable()) {
                     auto* nullable_column =

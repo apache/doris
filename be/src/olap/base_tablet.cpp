@@ -894,7 +894,8 @@ Status BaseTablet::generate_default_value_block(const TabletSchema& schema,
     auto mutable_default_value_columns = default_value_block.mutate_columns();
     for (auto i = 0; i < cids.size(); ++i) {
         const auto& column = schema.column(cids[i]);
-        if (column.has_default_value()) {
+        if (column.has_default_value() ||
+            (column.name() == SEQUENCE_COL && schema.sequence_col_use_default_value())) {
             const auto& default_value = default_values[i];
             vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
                                       default_value.size());
@@ -966,6 +967,8 @@ Status BaseTablet::generate_new_block_for_partial_update(
 
     CHECK(update_rows >= old_rows);
 
+    bool sequence_col_use_default_value = rowset_schema->sequence_col_use_default_value();
+
     // build full block
     for (auto i = 0; i < missing_cids.size(); ++i) {
         const auto& rs_column = rowset_schema->column(missing_cids[i]);
@@ -984,7 +987,8 @@ Status BaseTablet::generate_new_block_for_partial_update(
                 mutable_column->insert_default();
             } else if (old_block_delete_signs != nullptr &&
                        old_block_delete_signs[read_index_old[idx]] != 0) {
-                if (rs_column.has_default_value()) {
+                if (rs_column.has_default_value() ||
+                    (rs_column.name() == SEQUENCE_COL && sequence_col_use_default_value)) {
                     mutable_column->insert_from(*mutable_default_value_columns[i].get(), 0);
                 } else if (rs_column.is_nullable()) {
                     assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(

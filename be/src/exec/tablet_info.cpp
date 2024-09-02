@@ -127,6 +127,10 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
                     "different from BE.");
         }
         _auto_increment_column_unique_id = pschema.auto_increment_column_unique_id();
+
+        if (pschema.has_sequence_map_col_name()) {
+            _sequence_map_column = pschema.sequence_map_col_name();
+        }
     }
     _timestamp_ms = pschema.timestamp_ms();
     _timezone = pschema.timezone();
@@ -198,6 +202,10 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
                     "different from BE.");
         }
         _auto_increment_column_unique_id = tschema.auto_increment_column_unique_id;
+
+        if (tschema.__isset.sequence_map_col_name) {
+            _sequence_map_column = tschema.sequence_map_col_name;
+        }
     }
 
     for (const auto& tcolumn : tschema.partial_update_input_columns) {
@@ -273,6 +281,7 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     pschema->set_auto_increment_column_unique_id(_auto_increment_column_unique_id);
     pschema->set_timestamp_ms(_timestamp_ms);
     pschema->set_timezone(_timezone);
+    pschema->set_sequence_map_col_name(_sequence_map_column);
     for (auto col : _partial_update_input_columns) {
         *pschema->add_partial_update_input_columns() = col;
     }

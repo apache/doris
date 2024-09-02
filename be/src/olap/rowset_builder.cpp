@@ -415,6 +415,7 @@ void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
     _tablet_schema->set_db_id(table_schema_param->db_id());
     if (table_schema_param->is_partial_update()) {
         _tablet_schema->set_auto_increment_column(table_schema_param->auto_increment_coulumn());
+        _tablet_schema->set_sequence_map_column(table_schema_param->sequence_map_column());
     }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
