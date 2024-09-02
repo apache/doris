@@ -21,7 +21,7 @@ import org.apache.doris.regression.util.NodeType
 import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite('test_report_version_missing', "nonConcurrent") {
+suite('test_report_version_missing', "nonConcurrent,p1") {
     if (isCloudMode()) {
         return
     }
