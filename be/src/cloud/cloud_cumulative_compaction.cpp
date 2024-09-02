@@ -378,15 +378,15 @@ Status CloudCumulativeCompaction::modify_rowsets() {
             }
             if (!new_delete_bitmap->empty()) {
                 // store agg delete bitmap
-                initiator = boost::hash_range(_uuid.begin(), _uuid.end()) &
-                            std::numeric_limits<int64_t>::max();
-                RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_update_lock(*cloud_tablet(),
-                                                                                 -1, initiator));
+//                initiator = boost::hash_range(_uuid.begin(), _uuid.end()) &
+//                            std::numeric_limits<int64_t>::max();
+//                RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_update_lock(*cloud_tablet(),
+//                                                                                 -1, initiator));
                 RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
                         *cloud_tablet(), -1, initiator, new_delete_bitmap.get()));
 
-                RETURN_IF_ERROR(_engine.meta_mgr().remove_delete_bitmap_update_lock(*cloud_tablet(),
-                                                                                    -1, initiator));
+//                RETURN_IF_ERROR(_engine.meta_mgr().remove_delete_bitmap_update_lock(*cloud_tablet(),
+//                                                                                    -1, initiator));
             }
         }
     }
