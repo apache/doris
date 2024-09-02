@@ -15,17 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_storage_format_v1", "p0") {
+suite("test_storage_format_v2", "p0, nonConcurrent") {
     // define a sql table
-    def testTable_dup = "httplogs_dup_v1"
+    def testTable = "httplogs_dup_v1"
 
-    def create_httplogs_dup_table = {testTablex ->
+    def create_httplogs_dup_table = {test_table ->
         // multi-line sql
         def result = sql """
-                        CREATE TABLE IF NOT EXISTS ${testTablex} (
+                        CREATE TABLE IF NOT EXISTS ${test_table} (
                           `@timestamp` int(11) NULL,
                           `clientip` varchar(20) NULL,
-                          `request` text NULL,
+                          `request` string NULL,
                           `status` int(11) NULL,
                           `size` int(11) NULL,
                           INDEX size_idx (`size`) USING INVERTED COMMENT '',
@@ -35,29 +35,17 @@ suite("test_storage_format_v1", "p0") {
                         ) ENGINE=OLAP
                         DUPLICATE KEY(`@timestamp`)
                         COMMENT 'OLAP'
-                        PARTITION BY RANGE(`@timestamp`)
-                        (PARTITION p181998 VALUES [("-2147483648"), ("894225602")),
-                        PARTITION p191998 VALUES [("894225602"), ("894830402")),
-                        PARTITION p201998 VALUES [("894830402"), ("895435201")),
-                        PARTITION p211998 VALUES [("895435201"), ("896040001")),
-                        PARTITION p221998 VALUES [("896040001"), ("896644801")),
-                        PARTITION p231998 VALUES [("896644801"), ("897249601")),
-                        PARTITION p241998 VALUES [("897249601"), ("897854300")),
-                        PARTITION p251998 VALUES [("897854300"), ("2147483647")))
-                        DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 12
+                        DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 2
                         PROPERTIES (
                         "replication_allocation" = "tag.location.default: 1",
-                        "storage_format" = "V2",
                         "inverted_index_storage_format" = "V2",
-                        "compression" = "ZSTD",
-                        "light_schema_change" = "true",
-                        "disable_auto_compaction" = "false"
+                        "disable_auto_compaction" = "true"
                         );
                         """
     }
     
     def load_httplogs_data = {table_name, label, read_flag, format_flag, file_name, ignore_failure=false,
-                        expected_succ_rows = -1, load_to_single_tablet = 'true' ->
+                        expected_succ_rows = -1 ->
         
         // load the json data
         streamLoad {
@@ -94,24 +82,52 @@ suite("test_storage_format_v1", "p0") {
     }
 
     try {
-        sql "DROP TABLE IF EXISTS ${testTable_dup}"
-        create_httplogs_dup_table.call(testTable_dup)
-        load_httplogs_data.call(testTable_dup, 'test_httplogs_load_count_on_index', 'true', 'json', 'documents-1000.json')
+        sql """ set enable_common_expr_pushdown = true; """
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        create_httplogs_dup_table.call(testTable)
+
+        GetDebugPoint().enableDebugPointForAllBEs("inverted_index_storage_format_must_be_v2")
+        GetDebugPoint().enableDebugPointForAllBEs("match.invert_index_not_support_execute_match")
+        load_httplogs_data.call(testTable, 'label1', 'true', 'json', 'documents-1000.json')
+        load_httplogs_data.call(testTable, 'label2', 'true', 'json', 'documents-1000.json')
+        load_httplogs_data.call(testTable, 'label3', 'true', 'json', 'documents-1000.json')
+        load_httplogs_data.call(testTable, 'label4', 'true', 'json', 'documents-1000.json')
+        load_httplogs_data.call(testTable, 'label5', 'true', 'json', 'documents-1000.json')
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true """
 
-        qt_sql(" select COUNT(*) from ${testTable_dup} where request match 'images' ")
+        qt_sql(" select COUNT(*) from ${testTable} where request match 'images' ")
+        
+        def getJobState = { indexName ->
+            def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${indexName}' ORDER BY createtime DESC LIMIT 1 """
+            return jobStateResult[0][9]
+        }
 
-        // case1.2: test multiple count on different columns
-        qt_sql(" select COUNT(size), COUNT(request) from ${testTable_dup} where request match 'images'; ")
+        def wait_for_schema_change = { ->
+            int max_try_time = 3000
+            while (max_try_time--){
+                String result = getJobState(testTable)
+                if (result == "FINISHED") {
+                    sleep(3000)
+                    break
+                } else {
+                    if (result == "RUNNING") {
+                        sleep(3000)
+                    }
+                    if (max_try_time < 1){
+                        assertEquals(1,2)
+                    }
+                }
+            }
+        }
 
-        // case1.3: test count on different column
-        qt_sql(" select COUNT(size) from ${testTable_dup} where request match 'images'; ")
+        sql """ ALTER TABLE ${testTable} modify COLUMN status text"""
+        wait_for_schema_change.call()
 
-        qt_sql(" select COUNT() from ${testTable_dup} where size > 100; ")
-
-        qt_sql(" select COUNT() from ${testTable_dup} where status = 200; ")
+        qt_sql(" select COUNT(*) from ${testTable} where request match 'images' ")
+        
     } finally {
-        //try_sql("DROP TABLE IF EXISTS ${testTable}")
+        sql("DROP TABLE IF EXISTS ${testTable}")
+        GetDebugPoint().disableDebugPointForAllBEs("inverted_index_storage_format_must_be_v2")
+        GetDebugPoint().disableDebugPointForAllBEs("match.invert_index_not_support_execute_match")
     }
 }

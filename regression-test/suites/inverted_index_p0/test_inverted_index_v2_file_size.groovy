@@ -17,13 +17,12 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_index_compaction_dup_keys", "nonConcurrent") {
-    def tableName = "test_index_compaction_dup_keys"
+suite("test_index_index_V2_file_size", "nonConcurrent") {
+    def isCloudMode = isCloudMode()
+    def tableName = "test_index_index_V2_file_size"
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-    boolean disableAutoCompaction = false
   
     def set_be_config = { key, value ->
         for (String backend_id: backendId_to_backendIP.keySet()) {
@@ -49,11 +48,7 @@ suite("test_index_compaction_dup_keys", "nonConcurrent") {
 
 
             if (compactionStatus == "fail") {
-                assertEquals(disableAutoCompaction, false)
                 logger.info("Compaction was done automatically!")
-            }
-            if (disableAutoCompaction) {
-                assertEquals("success", compactionStatus)
             }
         }
     }
@@ -88,24 +83,7 @@ suite("test_index_compaction_dup_keys", "nonConcurrent") {
         return rowsetCount
     }
 
-    def check_config = { String key, String value ->
-        for (String backend_id: backendId_to_backendIP.keySet()) {
-            def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-            logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def configList = parseJson(out.trim())
-            assert configList instanceof List
-            for (Object ele in (List) configList) {
-                assert ele instanceof List<String>
-                if (((List<String>) ele)[0] == key) {
-                    assertEquals(value, ((List<String>) ele)[2])
-                }
-            }
-        }
-    }
-
     boolean invertedIndexCompactionEnable = false
-    boolean has_update_be_config = false
     try {
         String backend_id;
         backend_id = backendId_to_backendIP.keySet()[0]
@@ -122,15 +100,8 @@ suite("test_index_compaction_dup_keys", "nonConcurrent") {
                 invertedIndexCompactionEnable = Boolean.parseBoolean(((List<String>) ele)[2])
                 logger.info("inverted_index_compaction_enable: ${((List<String>) ele)[2]}")
             }
-            if (((List<String>) ele)[0] == "disable_auto_compaction") {
-                disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
-                logger.info("disable_auto_compaction: ${((List<String>) ele)[2]}")
-            }
         }
         set_be_config.call("inverted_index_compaction_enable", "true")
-        has_update_be_config = true
-        // check updated config
-        check_config.call("inverted_index_compaction_enable", "true");
 
         sql """ DROP TABLE IF EXISTS ${tableName}; """
         sql """
@@ -146,8 +117,12 @@ suite("test_index_compaction_dup_keys", "nonConcurrent") {
             DUPLICATE KEY(`id`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
+            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true");
         """
+
+        //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
+        def tablets = sql_return_maparray """ show tablets from ${tableName}; """
+        sql """ set enable_common_expr_pushdown = true """
 
         sql """ INSERT INTO ${tableName} VALUES (1, "andy", "andy love apple", 100); """
         sql """ INSERT INTO ${tableName} VALUES (1, "bason", "bason hate pear", 99); """
@@ -155,15 +130,20 @@ suite("test_index_compaction_dup_keys", "nonConcurrent") {
         sql """ INSERT INTO ${tableName} VALUES (2, "bason", "bason hate pear", 99); """
         sql """ INSERT INTO ${tableName} VALUES (3, "andy", "andy love apple", 100); """
         sql """ INSERT INTO ${tableName} VALUES (3, "bason", "bason hate pear", 99); """
-        sql """ set enable_common_expr_pushdown = true """
+
+        GetDebugPoint().enableDebugPointForAllBEs("match.invert_index_not_support_execute_match")
 
         qt_sql """ select * from ${tableName} order by id, name, hobbies, score """
         qt_sql """ select * from ${tableName} where name match "andy" order by id, name, hobbies, score """
         qt_sql """ select * from ${tableName} where hobbies match "pear" order by id, name, hobbies, score """
         qt_sql """ select * from ${tableName} where score < 100 order by id, name, hobbies, score """
 
-        //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
-        def tablets = sql_return_maparray """ show tablets from ${tableName}; """
+        // trigger full compactions for all tablets in ${tableName}
+        trigger_full_compaction_on_tablets.call(tablets)
+
+        // wait for full compaction done
+        wait_full_compaction_done.call(tablets)
+
         def dedup_tablets = deduplicate_tablets(tablets)
 
         // In the p0 testing environment, there are no expected operations such as scaling down BE (backend) services
@@ -174,19 +154,13 @@ suite("test_index_compaction_dup_keys", "nonConcurrent") {
             assert(false);
         }
 
-        // before full compaction, there are 7 rowsets.
-        int rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 7 * replicaNum)
-
-        // trigger full compactions for all tablets in ${tableName}
-        trigger_full_compaction_on_tablets.call(tablets)
-
-        // wait for full compaction done
-        wait_full_compaction_done.call(tablets)
-
         // after full compaction, there is only 1 rowset.
-        rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 1 * replicaNum)
+        def count = get_rowset_count.call(tablets);
+        if (isCloudMode) {
+            assert (count == (1 + 1) * replicaNum)
+        } else {
+            assert (count == 1 * replicaNum)
+        }
 
         qt_sql """ select * from ${tableName} order by id, name, hobbies, score """
         qt_sql """ select * from ${tableName} where name match "andy" order by id, name, hobbies, score """
@@ -201,14 +175,7 @@ suite("test_index_compaction_dup_keys", "nonConcurrent") {
         sql """ INSERT INTO ${tableName} VALUES (3, "andy", "andy love apple", 100); """
         sql """ INSERT INTO ${tableName} VALUES (3, "bason", "bason hate pear", 99); """
 
-        qt_sql """ select * from ${tableName} order by id, name, hobbies, score """
-        qt_sql """ select * from ${tableName} where name match "andy" order by id, name, hobbies, score """
-        qt_sql """ select * from ${tableName} where hobbies match "pear" order by id, name, hobbies, score """
-        qt_sql """ select * from ${tableName} where score < 100 order by id, name, hobbies, score """
-
-        rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 7 * replicaNum)
-
+        set_be_config.call("inverted_index_compaction_enable", "false")
         // trigger full compactions for all tablets in ${tableName}
         trigger_full_compaction_on_tablets.call(tablets)
 
@@ -216,17 +183,19 @@ suite("test_index_compaction_dup_keys", "nonConcurrent") {
         wait_full_compaction_done.call(tablets)
 
         // after full compaction, there is only 1 rowset.
-        rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 1 * replicaNum)
+        count = get_rowset_count.call(tablets);
+        if (isCloudMode) {
+            assert (count == (1 + 1) * replicaNum)
+        } else {
+            assert (count == 1 * replicaNum)
+        }
 
         qt_sql """ select * from ${tableName} order by id, name, hobbies, score """
         qt_sql """ select * from ${tableName} where name match "andy" order by id, name, hobbies, score """
         qt_sql """ select * from ${tableName} where hobbies match "pear" order by id, name, hobbies, score """
         qt_sql """ select * from ${tableName} where score < 100 order by id, name, hobbies, score """
-
     } finally {
-        if (has_update_be_config) {
-            set_be_config.call("inverted_index_compaction_enable", invertedIndexCompactionEnable.toString())
-        }
+        GetDebugPoint().disableDebugPointForAllBEs("match.invert_index_not_support_execute_match")
+        set_be_config.call("inverted_index_compaction_enable", invertedIndexCompactionEnable.toString())
     }
 }
