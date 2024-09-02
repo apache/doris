@@ -480,7 +480,7 @@ class RegressionTest {
                     + "output: ${sout.toString()}, error: ${serr.toString()}")
         }
 
-        def pipList = 'pip list'.execute().text
+        def pipList = 'python -m pip list'.execute().text
         log.info("python library: ${pipList}")
     }
 
