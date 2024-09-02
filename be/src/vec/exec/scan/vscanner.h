@@ -83,6 +83,8 @@ public:
 
     virtual std::string get_name() { return ""; }
 
+    virtual void set_compound_filters(const std::vector<TCondition>& compound_filters) {}
+
     // return the readable name of current scan range.
     // eg, for file scanner, return the current file path.
     virtual std::string get_current_scan_range_name() { return "not implemented"; }
