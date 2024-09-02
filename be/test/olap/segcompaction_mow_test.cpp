@@ -82,9 +82,9 @@ public:
         ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
 
         s = ThreadPoolBuilder("SegCompactionTaskThreadPool")
-                        .set_min_threads(config::segcompaction_num_threads)
-                        .set_max_threads(config::segcompaction_num_threads)
-                        .build(&s_engine->_seg_compaction_thread_pool);
+                    .set_min_threads(config::segcompaction_num_threads)
+                    .set_max_threads(config::segcompaction_num_threads)
+                    .build(&s_engine->_seg_compaction_thread_pool);
         EXPECT_TRUE(s.ok()) << s.to_string();
 
         _data_dir = std::make_unique<DataDir>(*s_engine, lTestDir);
