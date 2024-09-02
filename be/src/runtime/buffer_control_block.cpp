@@ -248,6 +248,7 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* 
 
 Status BufferControlBlock::close(const TUniqueId& id, Status exec_status) {
     std::unique_lock<std::mutex> l(_lock);
+    // close will be called multiple times and error status needs to be collected.
     if (!exec_status.ok()) {
         _status = exec_status;
     }
