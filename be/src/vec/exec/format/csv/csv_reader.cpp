@@ -354,7 +354,8 @@ Status CsvReader::init_reader(bool is_load) {
     }
 
     if (_params.file_attributes.text_params.__isset.null_format) {
-        _options.null_format = _params.file_attributes.text_params.null_format.c_str();
+        _options.null_format = _params.file_attributes.text_params.null_format.data();
+        _options.null_len = _params.file_attributes.text_params.null_format.length();
     }
 
     _use_nullable_string_opt.resize(_file_slot_descs.size());
