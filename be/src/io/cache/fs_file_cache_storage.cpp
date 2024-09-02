@@ -163,11 +163,17 @@ Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Sl
         Status s = fs->open_file(file, &file_reader);
         if (!s.ok()) {
             if (key.meta.type == FileCacheType::TTL) {
-                // try to open the file with old ttl format
-                file = get_path_in_local_cache_old_ttl_format(
+                std::string file_old_format = get_path_in_local_cache_old_ttl_format(
                         get_path_in_local_cache(key.hash, key.meta.expiration_time), key.offset,
                         key.meta.type);
-                RETURN_IF_ERROR(fs->open_file(file, &file_reader));
+                if (config::translate_to_new_ttl_format_during_read) {
+                    // try to rename the file with old ttl format to new and retry
+                    RETURN_IF_ERROR(fs->rename(file_old_format, file));
+                    RETURN_IF_ERROR(fs->open_file(file, &file_reader));
+                } else {
+                    // try to open the file with old ttl format
+                    RETURN_IF_ERROR(fs->open_file(file_old_format, &file_reader));
+                }
             } else {
                 return s;
             }
@@ -207,20 +213,12 @@ Status FSFileCacheStorage::remove(const FileCacheKey& key) {
 Status FSFileCacheStorage::change_key_meta_type(const FileCacheKey& key, const FileCacheType type) {
     // file operation
     if (key.meta.type != type) {
+        // TTL type file dose not need to change the suffix
+        DCHECK(key.meta.type != FileCacheType::TTL && type != FileCacheType::TTL);
         std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
         std::string original_file = get_path_in_local_cache(dir, key.offset, key.meta.type);
         std::string new_file = get_path_in_local_cache(dir, key.offset, type);
-        Status s = fs->rename(original_file, new_file);
-        if (!s.ok()) {
-            if (key.meta.type == FileCacheType::TTL) {
-                // try to rename the file with old ttl format
-                original_file =
-                        get_path_in_local_cache_old_ttl_format(dir, key.offset, key.meta.type);
-                RETURN_IF_ERROR(fs->rename(original_file, new_file));
-            } else {
-                return s;
-            }
-        }
+        RETURN_IF_ERROR(fs->rename(original_file, new_file));
     }
     return Status::OK();
 }
