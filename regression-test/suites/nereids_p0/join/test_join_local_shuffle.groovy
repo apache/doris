@@ -16,6 +16,10 @@
 // under the License.
 
 suite("test_join_local_shuffle", "query,p0") {
+    sql "DROP TABLE IF EXISTS test_join_local_shuffle_1;"
+    sql "DROP TABLE IF EXISTS test_join_local_shuffle_2;"
+    sql "DROP TABLE IF EXISTS test_join_local_shuffle_3;"
+    sql "DROP TABLE IF EXISTS test_join_local_shuffle_4;"
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """
@@ -72,7 +76,7 @@ suite("test_join_local_shuffle", "query,p0") {
     sql "insert into test_join_local_shuffle_2 values(2, 0);"
     sql "insert into test_join_local_shuffle_3 values(2, 0);"
     sql "insert into test_join_local_shuffle_4 values(0, 1);"
-    qt_sql " select  /*+SET_VAR(disable_join_reorder=true,enable_local_shuffle=true) */ * from (select c1, max(c2) from (select b.c1 c1, b.c2 c2 from test_join_local_shuffle_3 a join [shuffle] test_join_local_shuffle_1 b on a.c2 = b.c1 join [broadcast] test_join_local_shuffle_4 c on b.c1 = c.c1) t1 group by c1) t, test_join_local_shuffle_2 where t.c1 = test_join_local_shuffle_2.c2; "
+    qt_sql " select  /*+SET_VAR(disable_join_reorder=true,enable_local_shuffle=true) */ * from (select c1, max(c2) from (select b.c1 c1, b.c2 c2 from test_join_local_shuffle_3 a join [shuffle] test_join_local_shuffle_1 b on a.c2 = b.c1 join [broadcast] test_join_local_shuffle_4 c on b.c1 = c.c1) t1 group by c1) t join [shuffle] test_join_local_shuffle_2 on t.c1 = test_join_local_shuffle_2.c2; "
 
     sql "DROP TABLE IF EXISTS test_join_local_shuffle_1;"
     sql "DROP TABLE IF EXISTS test_join_local_shuffle_2;"

@@ -65,7 +65,7 @@ CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 CONF_Strings(recycle_whitelist, ""); // Comma seprated list
 // These instances will not be recycled, only effective when whitelist is empty.
 CONF_Strings(recycle_blacklist, ""); // Comma seprated list
-CONF_mInt32(instance_recycler_worker_pool_size, "1");
+CONF_mInt32(instance_recycler_worker_pool_size, "8");
 CONF_Bool(enable_checker, "false");
 // The parallelism for parallel recycle operation
 CONF_Int32(recycle_pool_parallelism, "10");
@@ -206,4 +206,11 @@ CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
 // Max retry times for object storage request
 CONF_mInt64(max_s3_client_retry, "10");
 
+CONF_Bool(enable_cloud_txn_lazy_commit, "true");
+CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
+CONF_Int32(txn_lazy_commit_num_threads, "8");
+CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
+
+// max TabletIndexPB num for batch get
+CONF_Int32(max_tablet_index_num_per_batch, "1000");
 } // namespace doris::cloud::config

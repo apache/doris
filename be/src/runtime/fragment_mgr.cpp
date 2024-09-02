@@ -533,8 +533,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     if (!exec_status.ok()) {
         LOG(WARNING) << "report error status: " << exec_status.msg()
                      << " to coordinator: " << req.coord_addr
-                     << ", query id: " << print_id(req.query_id)
-                     << ", instance id: " << print_id(req.fragment_instance_id);
+                     << ", query id: " << print_id(req.query_id);
     }
     try {
         try {
@@ -560,8 +559,8 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     }
 
     if (!rpc_status.ok()) {
-        LOG_INFO("Going to cancel instance {} since report exec status got rpc failed: {}",
-                 print_id(req.fragment_instance_id), rpc_status.to_string());
+        LOG_INFO("Going to cancel query {} since report exec status got rpc failed: {}",
+                 print_id(req.query_id), rpc_status.to_string());
         // we need to cancel the execution of this fragment
         req.cancel_fn(rpc_status);
     }
@@ -672,8 +671,10 @@ template <typename Params>
 Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
                                    QuerySource query_source,
                                    std::shared_ptr<QueryContext>& query_ctx) {
-    DBUG_EXECUTE_IF("FragmentMgr._get_query_ctx.failed",
-                    { return Status::InternalError("FragmentMgr._get_query_ctx.failed"); });
+    DBUG_EXECUTE_IF("FragmentMgr._get_query_ctx.failed", {
+        return Status::InternalError("FragmentMgr._get_query_ctx.failed, query id {}",
+                                     print_id(query_id));
+    });
     if (params.is_simplified_param) {
         // Get common components from _query_ctx_map
         std::lock_guard<std::mutex> lock(_lock);
@@ -681,9 +682,9 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             query_ctx = q_ctx;
         } else {
             return Status::InternalError(
-                    "Failed to get query fragments context. Query may be "
-                    "timeout or be cancelled. host: {}",
-                    BackendOptions::get_localhost());
+                    "Failed to get query fragments context. Query {} may be timeout or be "
+                    "cancelled. host: {}",
+                    print_id(query_id), BackendOptions::get_localhost());
         }
     } else {
         // Find _query_ctx_map, in case some other request has already
@@ -951,8 +952,9 @@ void FragmentMgr::cancel_worker() {
         timespec now;
         clock_gettime(CLOCK_MONOTONIC, &now);
 
-        if (now.tv_sec - check_invalid_query_last_timestamp.tv_sec >
-            config::pipeline_task_leakage_detect_period_secs) {
+        if (config::enable_pipeline_task_leakage_detect &&
+            now.tv_sec - check_invalid_query_last_timestamp.tv_sec >
+                    config::pipeline_task_leakage_detect_period_secs) {
             check_invalid_query_last_timestamp = now;
             running_queries_on_all_fes = _get_all_running_queries_from_fe();
         } else {

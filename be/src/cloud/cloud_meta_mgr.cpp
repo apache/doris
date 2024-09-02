@@ -451,7 +451,10 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
         int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
         tablet->last_sync_time_s = now;
 
-        if (tablet->enable_unique_key_merge_on_write()) {
+        // If is mow, the tablet has no delete bitmap in base rowsets.
+        // So dont need to sync it.
+        if (tablet->enable_unique_key_merge_on_write() &&
+            tablet->tablet_state() == TABLET_RUNNING) {
             DeleteBitmap delete_bitmap(tablet_id);
             int64_t old_max_version = req.start_version() - 1;
             auto st = sync_tablet_delete_bitmap(tablet, old_max_version, resp.rowset_meta(),
@@ -844,6 +847,7 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
     req.set_db_id(ctx.db_id);
     req.set_txn_id(ctx.txn_id);
     req.set_is_2pc(is_2pc);
+    req.set_enable_txn_lazy_commit(config::enable_cloud_txn_lazy_commit);
     auto st = retry_rpc("commit txn", req, &res, &MetaService_Stub::commit_txn);
 
     if (st.ok()) {

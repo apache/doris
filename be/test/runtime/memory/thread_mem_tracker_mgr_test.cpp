@@ -87,7 +87,7 @@ TEST_F(ThreadMemTrackerMgrTest, ConsumeMemory) {
     EXPECT_EQ(t->consumption(), 0); // detach automatic call flush_untracked_mem.
 }
 
-TEST(ThreadMemTrackerMgrTest, Boundary) {
+TEST_F(ThreadMemTrackerMgrTest, Boundary) {
     // TODO, Boundary check may not be necessary, add some `IF` maybe increase cost time.
 }
 

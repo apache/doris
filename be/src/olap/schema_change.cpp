@@ -777,6 +777,7 @@ SchemaChangeJob::SchemaChangeJob(StorageEngine& local_storage_engine,
 // The admin should upgrade all BE and then upgrade FE.
 // Should delete the old code after upgrade finished.
 Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& request) {
+    DBUG_EXECUTE_IF("SchemaChangeJob._do_process_alter_tablet.sleep", { sleep(10); })
     Status res;
     signal::tablet_id = _base_tablet->get_table_id();
 
@@ -870,8 +871,10 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             }
             // before calculating version_to_be_changed,
             // remove all data from new tablet, prevent to rewrite data(those double pushed when wait)
-            LOG(INFO) << "begin to remove all data from new tablet to prevent rewrite."
-                      << " new_tablet=" << _new_tablet->tablet_id();
+            LOG(INFO) << "begin to remove all data before end version from new tablet to prevent "
+                         "rewrite."
+                      << " new_tablet=" << _new_tablet->tablet_id()
+                      << ", end_version=" << max_rowset->end_version();
             std::vector<RowsetSharedPtr> rowsets_to_delete;
             std::vector<std::pair<Version, RowsetSharedPtr>> version_rowsets;
             _new_tablet->acquire_version_and_rowsets(&version_rowsets);

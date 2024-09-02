@@ -205,6 +205,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PARALLEL_RESULT_SINK = "enable_parallel_result_sink";
 
+    public static final String HIVE_TEXT_COMPRESSION = "hive_text_compression";
+
     public static final String READ_CSV_EMPTY_LINE_AS_NULL = "read_csv_empty_line_as_null";
 
     public static final String BE_NUMBER_FOR_TEST = "be_number_for_test";
@@ -649,6 +651,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_MATCH_WITHOUT_INVERTED_INDEX = "enable_match_without_inverted_index";
     public static final String ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX = "enable_fallback_on_missing_inverted_index";
+
+    public static final String IN_LIST_VALUE_COUNT_THRESHOLD = "in_list_value_count_threshold";
 
     public static final String ENABLE_ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT =
                                     "enable_adaptive_pipeline_task_serial_read_on_limit";
@@ -1116,6 +1120,9 @@ public class SessionVariable implements Serializable, Writable {
             description = {"如设置为1，则只生成1阶段sort，设置为2，则只生成2阶段sort，设置其它值，优化器根据代价选择sort类型",
                     "set the number of sort phases 1 or 2. if set other value, let cbo decide the sort type"})
     public int sortPhaseNum = 0;
+
+    @VariableMgr.VarAttr(name = HIVE_TEXT_COMPRESSION, needForward = true)
+    private String hiveTextCompression = "uncompressed";
 
     @VariableMgr.VarAttr(name = READ_CSV_EMPTY_LINE_AS_NULL, needForward = true,
             description = {"在读取csv文件时是否读取csv的空行为null",
@@ -2113,6 +2120,14 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean enableFallbackOnMissingInvertedIndex = true;
 
+    public int adaptivePipelineTaskSerialReadOnLimit = 10000;
+    @VariableMgr.VarAttr(name = IN_LIST_VALUE_COUNT_THRESHOLD, description = {
+        "in条件value数量大于这个threshold后将不会走fast_execute",
+        "When the number of values in the IN condition exceeds this threshold,"
+                + " fast_execute will not be used."
+    })
+    public int inListValueCountThreshold = 10;
+
     @VariableMgr.VarAttr(name = ENABLE_ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT, needForward = true, description = {
         "开启后将会允许自动调整 pipeline task 的并发数。当 scan 节点没有过滤条件，且 limit 参数小于"
             + "adaptive_pipeline_task_serial_read_on_limit 中指定的行数时，scan 的并行度将会被设置为 1",
@@ -2127,7 +2142,6 @@ public class SessionVariable implements Serializable, Writable {
             "When enable_adaptive_pipeline_task_serial_read_on_limit is enabled, "
             + "the number of rows at which the parallelism of the scan will be set to 1."
     })
-    public int adaptivePipelineTaskSerialReadOnLimit = 10000;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
@@ -3710,6 +3724,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableAdaptivePipelineTaskSerialReadOnLimit(enableAdaptivePipelineTaskSerialReadOnLimit);
         tResult.setAdaptivePipelineTaskSerialReadOnLimit(adaptivePipelineTaskSerialReadOnLimit);
+        tResult.setInListValueCountThreshold(inListValueCountThreshold);
         return tResult;
     }
 
@@ -4060,6 +4075,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setParallelResultSink(Boolean enableParallelResultSink) {
         this.enableParallelResultSink   = enableParallelResultSink;
+    }
+
+    public String hiveTextCompression() {
+        return hiveTextCompression;
+    }
+
+    public void setHiveTextCompression(String hiveTextCompression) {
+        this.hiveTextCompression = hiveTextCompression;
     }
 
     public boolean enableSyncRuntimeFilterSize() {
