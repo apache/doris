@@ -291,7 +291,11 @@ public class JdbcResource extends Resource {
             String schema = uri.getScheme();
             checkCloudWhiteList(driverUrl);
             if (schema == null && !driverUrl.startsWith("/")) {
-                return "file://" + Config.jdbc_drivers_dir + "/" + driverUrl;
+                String protocol = "file://";
+                if (!Config.jdbc_drivers_dir.startsWith("/")) {
+                    protocol += "/";
+                }
+                return protocol + Config.jdbc_drivers_dir + "/" + driverUrl;
             }
 
             if ("*".equals(Config.jdbc_driver_secure_path)) {
