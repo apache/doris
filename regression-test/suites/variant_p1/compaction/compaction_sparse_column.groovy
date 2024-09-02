@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_compaction_sparse_column", "nonConcurrent") {
+suite("test_compaction_sparse_column", "p1,nonConcurrent") {
     def tableName = "test_compaction"
 
     try {
