@@ -857,7 +857,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             // remove all data from new tablet, prevent to rewrite data(those double pushed when wait)
             LOG(INFO) << "begin to remove all data before end version from new tablet to prevent "
                          "rewrite."
-                      << " new_tablet=" << _new_tablet->tablet_id()
+                      << " new_tablet=" << new_tablet->tablet_id()
                       << ", end_version=" << max_rowset->end_version();
             std::vector<RowsetSharedPtr> rowsets_to_delete;
             std::vector<std::pair<Version, RowsetSharedPtr>> version_rowsets;
