@@ -137,6 +137,10 @@ public:
         bool converted_from_string = false;
 
         char escape_char = 0;
+        /**
+         * flags for each byte to indicate if escape is needed.
+         */
+        bool need_escape[256] = {false};
 
         /**
          * only used for export data
