@@ -46,6 +46,7 @@ import org.apache.doris.thrift.TWarmUpCacheAsyncRequest;
 import org.apache.doris.thrift.TWarmUpCacheAsyncResponse;
 
 import com.google.common.base.Preconditions;
+import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -54,6 +55,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -94,7 +96,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     private LinkedBlockingQueue<Pair<Long, Long>> tabletsMigrateTasks = new LinkedBlockingQueue<Pair<Long, Long>>();
 
-    private Map<Long, InfightTask> tabletToInfightTask = new HashMap<Long, InfightTask>();
+    private Map<InfightTablet, InfightTask> tabletToInfightTask = new HashMap<>();
 
     private long assignedErrNum = 0;
 
@@ -115,12 +117,39 @@ public class CloudTabletRebalancer extends MasterDaemon {
         PARTITION
     }
 
+    @Getter
+    private class InfightTablet {
+        private final Long tabletId;
+        private final String clusterId;
+
+        public InfightTablet(Long tabletId, String clusterId) {
+            this.tabletId = tabletId;
+            this.clusterId = clusterId;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            InfightTablet that = (InfightTablet) o;
+            return tabletId.equals(that.tabletId) && clusterId.equals(that.clusterId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(tabletId, clusterId);
+        }
+    }
+
     private class InfightTask {
         public Tablet pickedTablet;
         public long srcBe;
         public long destBe;
         public boolean isGlobal;
-        public String clusterId;
         public Map<Long, List<Tablet>> beToTablets;
         public long startTimestamp;
         BalanceType balanceType;
@@ -343,41 +372,44 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     public void checkInflghtWarmUpCacheAsync() {
-        Map<Long, List<Long>> beToTabletIds = new HashMap<Long, List<Long>>();
+        Map<Long, List<InfightTask>> beToInfightTasks = new HashMap<Long, List<InfightTask>>();
 
-        for (Map.Entry<Long, InfightTask> entry : tabletToInfightTask.entrySet()) {
-            beToTabletIds.putIfAbsent(entry.getValue().destBe, new ArrayList<Long>());
-            beToTabletIds.get(entry.getValue().destBe).add(entry.getValue().pickedTablet.getId());
+        for (Map.Entry<InfightTablet, InfightTask> entry : tabletToInfightTask.entrySet()) {
+            beToInfightTasks.putIfAbsent(entry.getValue().destBe, new ArrayList<>());
+            beToInfightTasks.get(entry.getValue().destBe).add(entry.getValue());
         }
 
         List<UpdateCloudReplicaInfo> infos = new ArrayList<>();
-        for (Map.Entry<Long, List<Long>> entry : beToTabletIds.entrySet()) {
+        for (Map.Entry<Long, List<InfightTask>> entry : beToInfightTasks.entrySet()) {
             LOG.info("before pre cache check dest be {} inflight task num {}", entry.getKey(), entry.getValue().size());
             Backend destBackend = cloudSystemInfoService.getBackend(entry.getKey());
             if (destBackend == null) {
-                for (long tabletId : entry.getValue()) {
-                    tabletToInfightTask.remove(tabletId);
+                for (InfightTask task : entry.getValue()) {
+                    for (InfightTablet key : tabletToInfightTask.keySet()) {
+                        tabletToInfightTask.remove(new InfightTablet(task.pickedTablet.getId(), key.clusterId));
+                    }
                 }
                 continue;
             }
-
-            Map<Long, Boolean> taskDone = sendCheckWarmUpCacheAsyncRpc(entry.getValue(), entry.getKey());
+            List<Long> tablets = entry.getValue().stream()
+                    .map(task -> task.pickedTablet.getId()).collect(Collectors.toList());
+            Map<Long, Boolean> taskDone = sendCheckWarmUpCacheAsyncRpc(tablets, entry.getKey());
             if (taskDone == null) {
                 LOG.warn("sendCheckWarmUpCacheAsyncRpc return null be {}, inFight tasks {}",
                         entry.getKey(), entry.getValue());
                 continue;
             }
-
+            String clusterId = cloudSystemInfoService.getBackend(entry.getKey()).getCloudClusterId();
             for (Map.Entry<Long, Boolean> result : taskDone.entrySet()) {
-                InfightTask task = tabletToInfightTask.get(result.getKey());
-                if (result.getValue()
-                        || System.currentTimeMillis() / 1000 - task.startTimestamp
-                            > Config.cloud_pre_heating_time_limit_sec) {
+                InfightTask task = tabletToInfightTask
+                        .getOrDefault(new InfightTablet(result.getKey(), clusterId), null);
+                if (task != null && (result.getValue() || System.currentTimeMillis() / 1000 - task.startTimestamp
+                            > Config.cloud_pre_heating_time_limit_sec)) {
                     if (!result.getValue()) {
                         LOG.info("{} pre cache timeout, forced to change the mapping", result.getKey());
                     }
-                    updateClusterToBeMap(task.pickedTablet, task.destBe, task.clusterId, infos);
-                    tabletToInfightTask.remove(result.getKey());
+                    updateClusterToBeMap(task.pickedTablet, task.destBe, clusterId, infos);
+                    tabletToInfightTask.remove(new InfightTablet(task.pickedTablet.getId(), clusterId));
                 }
             }
         }
@@ -393,13 +425,13 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
 
         // recalculate inflight beToTablets, just for print the log
-        beToTabletIds = new HashMap<Long, List<Long>>();
-        for (Map.Entry<Long, InfightTask> entry : tabletToInfightTask.entrySet()) {
-            beToTabletIds.putIfAbsent(entry.getValue().destBe, new ArrayList<Long>());
-            beToTabletIds.get(entry.getValue().destBe).add(entry.getValue().pickedTablet.getId());
+        beToInfightTasks.clear();
+        for (Map.Entry<InfightTablet, InfightTask> entry : tabletToInfightTask.entrySet()) {
+            beToInfightTasks.putIfAbsent(entry.getValue().destBe, new ArrayList<>());
+            beToInfightTasks.get(entry.getValue().destBe).add(entry.getValue());
         }
 
-        for (Map.Entry<Long, List<Long>> entry : beToTabletIds.entrySet()) {
+        for (Map.Entry<Long, List<InfightTask>> entry : beToInfightTasks.entrySet()) {
             LOG.info("after pre cache check dest be {} inflight task num {}", entry.getKey(), entry.getValue().size());
         }
     }
@@ -449,7 +481,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                             }
                             LOG.info("notify decommission response: {} ", response);
                         } catch (RpcException e) {
-                            LOG.info("failed to notify decommission {}", e);
+                            LOG.info("failed to notify decommission", e);
                             return;
                         }
                         beToDecommissionedTime.put(beId, System.currentTimeMillis() / 1000);
@@ -552,8 +584,10 @@ public class CloudTabletRebalancer extends MasterDaemon {
                         fillBeToTablets(bes.get(0), table.getId(), partition.getId(), index.getId(), tablet,
                                 tmpBeToTabletsGlobal, beToTabletsInTable, this.partitionToTablets);
 
-                        if (tabletToInfightTask.containsKey(tablet.getId())) {
-                            InfightTask task = tabletToInfightTask.get(tablet.getId());
+                        InfightTask task = tabletToInfightTask
+                                .getOrDefault(new InfightTablet(tablet.getId(), cluster), null);
+
+                        if (task != null) {
                             fillBeToTablets(task.destBe, table.getId(), partition.getId(), index.getId(), tablet,
                                     futureBeToTabletsGlobal, futureBeToTabletsInTable, futurePartitionToTablets);
                         } else {
@@ -808,9 +842,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             List<Tablet> destBeTablets = beToTabletsInParts.get(cloudReplica.getPartitionId())
                     .get(cloudReplica.getIndexId()).get(destBe);
             long minBeSize = destBeTablets == null ? 0 : destBeTablets.size();
-            if (minBeSize >= maxBeSize) {
-                return true;
-            }
+            return minBeSize >= maxBeSize;
         }
 
         return false;
@@ -881,10 +913,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 task.srcBe = srcBe;
                 task.destBe = destBe;
                 task.balanceType = balanceType;
-                task.clusterId = clusterId;
                 task.beToTablets = beToTablets;
                 task.startTimestamp = System.currentTimeMillis() / 1000;
-                tabletToInfightTask.put(pickedTablet.getId(), task);
+                tabletToInfightTask.put(new InfightTablet(pickedTablet.getId(), clusterId), task);
 
                 LOG.info("pre cache {} from {} to {}, cluster {} minNum {} maxNum {} beNum {} tabletsNum {}, part {}",
                          pickedTablet.getId(), srcBe, destBe, clusterId,
@@ -936,7 +967,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             CloudReplica cloudReplica = (CloudReplica) tablet.getReplicas().get(0);
             Backend be = cloudSystemInfoService.getBackend(srcBe);
             if (be == null) {
-                LOG.info("backend {} not found", be);
+                LOG.info("src backend {} not found", srcBe);
                 continue;
             }
             String clusterId = be.getCloudClusterId();

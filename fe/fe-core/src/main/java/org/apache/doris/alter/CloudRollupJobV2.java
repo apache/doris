@@ -229,6 +229,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                                     tbl.variantEnableFlattenNested());
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
+            requestBuilder.setDbId(dbId);
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                     .sendCreateTabletsRpc(requestBuilder);
         }

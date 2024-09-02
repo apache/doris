@@ -47,7 +47,7 @@ suite("test_index_empty_string", "p0"){
         (1, '', '1'), 
         (2, '2', '');
     """ 
-
+    sql """ set enable_common_expr_pushdown = true """
     qt_sql "SELECT count() FROM $indexTblName WHERE a match '';"
     qt_sql "SELECT count() FROM $indexTblName WHERE b match '';"
 }
