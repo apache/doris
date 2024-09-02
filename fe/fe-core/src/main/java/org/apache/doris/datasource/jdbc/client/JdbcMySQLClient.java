@@ -375,6 +375,10 @@ public class JdbcMySQLClient extends JdbcClient {
             }
             case "CHAR":
             case "VARCHAR": {
+                if (openParen == -1) {
+                    return baseType.equals("CHAR")
+                            ? ScalarType.createCharType(255) : ScalarType.createVarcharType(65533);
+                }
                 int length = Integer.parseInt(upperType.substring(openParen + 1, upperType.length() - 1));
                 return baseType.equals("CHAR")
                     ? ScalarType.createCharType(length) : ScalarType.createVarcharType(length);
