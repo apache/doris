@@ -269,7 +269,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
         for (Column col : columns) {
             // use exist slot in the plan
-            SlotReference slot = SlotReference.fromColumn(olapTable, col, col.getName(), olapScan.getQualifier());
+            SlotReference slot = SlotReference.fromColumn(olapTable, col, col.getName(), olapScan.qualified());
             ExprId exprId = slot.getExprId();
             for (Slot childSlot : childOutputSlots) {
                 if (childSlot instanceof SlotReference && ((SlotReference) childSlot).getName() == col.getName()) {
@@ -288,7 +288,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     return olapScan;
                 }
                 Alias alias = new Alias(exprId, ImmutableList.of(function), col.getName(),
-                        olapScan.getQualifier(), true);
+                        olapScan.qualified(), true);
                 outputExpressions.add(alias);
             }
         }
