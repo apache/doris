@@ -28,6 +28,8 @@ public class StatisticsBuilder {
     private int widthInJoinCluster;
     private final Map<Expression, ColumnStatistic> expressionToColumnStats;
 
+    private double deltaRowCount = 0.0;
+
     public StatisticsBuilder() {
         expressionToColumnStats = new HashMap<>();
     }
@@ -35,6 +37,7 @@ public class StatisticsBuilder {
     public StatisticsBuilder(Statistics statistics) {
         this.rowCount = statistics.getRowCount();
         this.widthInJoinCluster = statistics.getWidthInJoinCluster();
+        this.deltaRowCount = statistics.getDeltaRowCount();
         expressionToColumnStats = new HashMap<>();
         expressionToColumnStats.putAll(statistics.columnStatistics());
     }
@@ -46,6 +49,11 @@ public class StatisticsBuilder {
 
     public StatisticsBuilder setWidthInJoinCluster(int widthInJoinCluster) {
         this.widthInJoinCluster = widthInJoinCluster;
+        return this;
+    }
+
+    public StatisticsBuilder setDeltaRowCount(double deltaRowCount) {
+        this.deltaRowCount = deltaRowCount;
         return this;
     }
 
@@ -61,6 +69,6 @@ public class StatisticsBuilder {
     }
 
     public Statistics build() {
-        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats);
+        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats, deltaRowCount);
     }
 }

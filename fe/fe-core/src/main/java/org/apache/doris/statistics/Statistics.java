@@ -38,15 +38,31 @@ public class Statistics {
     // the byte size of one tuple
     private double tupleSize;
 
-    public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
-        this(rowCount, 1, expressionToColumnStats);
+    private double deltaRowCount = 0.0;
+
+    public Statistics(Statistics another) {
+        this.rowCount = another.rowCount;
+        this.widthInJoinCluster = another.widthInJoinCluster;
+        this.expressionToColumnStats = new HashMap<>(another.expressionToColumnStats);
+        this.tupleSize = another.tupleSize;
+        this.deltaRowCount = another.getDeltaRowCount();
     }
 
     public Statistics(double rowCount, int widthInJoinCluster,
-                      Map<Expression, ColumnStatistic> expressionToColumnStats) {
+            Map<Expression, ColumnStatistic> expressionToColumnStats, double deltaRowCount) {
         this.rowCount = rowCount;
         this.widthInJoinCluster = widthInJoinCluster;
         this.expressionToColumnStats = expressionToColumnStats;
+        this.deltaRowCount = deltaRowCount;
+    }
+
+    public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
+        this(rowCount, 1, expressionToColumnStats, 0);
+    }
+
+    public Statistics(double rowCount, int widthInJoinCluster,
+            Map<Expression, ColumnStatistic> expressionToColumnStats) {
+        this(rowCount, widthInJoinCluster, expressionToColumnStats, 0);
     }
 
     public ColumnStatistic findColumnStatistics(Expression expression) {
@@ -155,7 +171,11 @@ public class Statistics {
             return "-Infinite";
         }
         DecimalFormat format = new DecimalFormat("#,###.##");
-        return format.format(rowCount);
+        String rows = format.format(rowCount);
+        if (deltaRowCount > 0) {
+            rows = rows + "(" + format.format(deltaRowCount) + ")";
+        }
+        return rows;
     }
 
     public int getBENumber() {
