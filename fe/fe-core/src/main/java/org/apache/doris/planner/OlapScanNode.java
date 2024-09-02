@@ -756,6 +756,7 @@ public class OlapScanNode extends ScanNode {
         int useFixReplica = -1;
         boolean needCheckTags = false;
         boolean skipMissingVersion = false;
+        Set<Long> userSetBackendBlacklist = null;
         if (ConnectContext.get() != null) {
             allowedTags = ConnectContext.get().getResourceTags();
             needCheckTags = ConnectContext.get().isResourceTagsSet();
@@ -766,6 +767,7 @@ public class OlapScanNode extends ScanNode {
                 LOG.debug("query id: {}, partition id:{} visibleVersion: {}",
                         DebugUtil.printId(ConnectContext.get().queryId()), partition.getId(), visibleVersion);
             }
+            userSetBackendBlacklist = ConnectContext.get().getSessionVariable().getQueryBackendBlacklist();
         }
         for (Tablet tablet : tablets) {
             long tabletId = tablet.getId();
@@ -886,6 +888,19 @@ public class OlapScanNode extends ScanNode {
                     }
                     String err = "replica " + replica.getId() + "'s backend " + replica.getBackendId()
                             + " does not exist or not alive";
+                    if (Config.isCloudMode()) {
+                        errs.add(ConnectContext.cloudNoBackendsReason());
+                    }
+                    errs.add(err);
+                    continue;
+                }
+                if (userSetBackendBlacklist != null && userSetBackendBlacklist.contains(backend.getId())) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("backend {} is in the blacklist that user set in session variable {}",
+                                replica.getBackendId(), replica.getId());
+                    }
+                    String err = "replica " + replica.getId() + "'s backend " + replica.getBackendId()
+                            + " in the blacklist that user set in session variable";
                     if (Config.isCloudMode()) {
                         errs.add(ConnectContext.cloudNoBackendsReason());
                     }
