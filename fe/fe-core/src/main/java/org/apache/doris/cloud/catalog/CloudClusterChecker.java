@@ -412,6 +412,9 @@ public class CloudClusterChecker extends MasterDaemon {
                 }
                 Cloud.NodeInfoPB.NodeType type = node.getNodeType();
                 // ATTN: just allow to add follower or observer
+                if (Cloud.NodeInfoPB.NodeType.FE_MASTER.equals(type)) {
+                    LOG.warn("impossible !!!,  get fe node {} type equel master from ms", node);
+                }
                 FrontendNodeType role = type == Cloud.NodeInfoPB.NodeType.FE_FOLLOWER
                         ? FrontendNodeType.FOLLOWER :  FrontendNodeType.OBSERVER;
                 Frontend fe = new Frontend(role,

@@ -66,7 +66,7 @@ suite('test_multi_followr_in_cloud', 'multi_cluster') {
             }
         }
         // get fe clusterName
-        ret = sql_return_maparray """ADMIN SHOW FRONTEND CONFIG LIKE '%cloud_sql_server_cluster_name%'"""
+        def ret = sql_return_maparray """ADMIN SHOW FRONTEND CONFIG LIKE '%cloud_sql_server_cluster_name%'"""
         def feClusterName = ret.Value[0]
         ret = sql_return_maparray """ADMIN SHOW FRONTEND CONFIG LIKE '%cloud_sql_server_cluster_id%'"""
         def feClusterId = ret.Value[0]

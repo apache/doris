@@ -179,7 +179,7 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
 
     if (check_master_num && ClusterPB::SQL == cluster.type()) {
         no_err = false;
-        if (master_num && follower_num) {
+        if (master_num > 0 && follower_num > 0) {
             ss << "cluster is SQL type, and use multi follower mode, cant set master node, master "
                   "count: "
                << master_num << " follower count: " << follower_num;
@@ -632,7 +632,7 @@ std::pair<TxnErrorCode, std::string> ResourceManager::get_instance(std::shared_p
 }
 
 // check instance pb is valid
-bool instance_is_valid(const InstanceInfoPB& instance) {
+bool is_instance_valid(const InstanceInfoPB& instance) {
     // check has fe node
     for (auto& c : instance.clusters()) {
         if (c.has_type() && c.type() == ClusterPB::SQL) {
@@ -954,7 +954,7 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
     }
 
     LOG(INFO) << "instance " << instance_id << " info: " << instance.DebugString();
-    if (!to_del.empty() && !instance_is_valid(instance)) {
+    if (!to_del.empty() && !is_instance_valid(instance)) {
         msg = "instance invalid, cant modify, plz check";
         LOG(WARNING) << msg;
         return msg;
