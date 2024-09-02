@@ -1030,7 +1030,8 @@ TEST_F(BlockFileCacheTest, change_cache_type) {
         std::string data(size, '0');
         Slice result(data.data(), size);
         ASSERT_TRUE(blocks[0]->append(result).ok());
-        ASSERT_TRUE(blocks[0]->change_cache_type_between_normal_and_index(io::FileCacheType::INDEX));
+        ASSERT_TRUE(
+                blocks[0]->change_cache_type_between_normal_and_index(io::FileCacheType::INDEX));
         ASSERT_TRUE(blocks[0]->finalize().ok());
         auto key_str = key.to_string();
         auto subdir = fs::path(cache_base_path) / key_str.substr(0, 3) /
@@ -2684,7 +2685,8 @@ TEST_F(BlockFileCacheTest, append_many_time) {
             EXPECT_TRUE(fs::exists(storage->get_path_in_local_cache(dir, blocks[0]->offset(),
                                                                     blocks[0]->cache_type())));
         }
-        ASSERT_TRUE(blocks[0]->change_cache_type_between_normal_and_index(FileCacheType::INDEX).ok());
+        ASSERT_TRUE(
+                blocks[0]->change_cache_type_between_normal_and_index(FileCacheType::INDEX).ok());
         auto sp = SyncPoint::get_instance();
         sp->enable_processing();
         SyncPoint::CallbackGuard guard1;
@@ -2697,7 +2699,9 @@ TEST_F(BlockFileCacheTest, append_many_time) {
                 },
                 &guard1);
         {
-            ASSERT_FALSE(blocks[0]->change_cache_type_between_normal_and_index(FileCacheType::NORMAL).ok());
+            ASSERT_FALSE(blocks[0]
+                                 ->change_cache_type_between_normal_and_index(FileCacheType::NORMAL)
+                                 .ok());
             EXPECT_EQ(blocks[0]->cache_type(), FileCacheType::INDEX);
             std::string buffer;
             buffer.resize(5);
@@ -2705,7 +2709,9 @@ TEST_F(BlockFileCacheTest, append_many_time) {
             EXPECT_EQ(buffer, std::string(5, '0'));
         }
         {
-            EXPECT_FALSE(blocks[0]->change_cache_type_between_ttl_and_others(FileCacheType::NORMAL).ok());
+            EXPECT_FALSE(blocks[0]
+                                 ->change_cache_type_between_ttl_and_others(FileCacheType::NORMAL)
+                                 .ok());
             EXPECT_EQ(blocks[0]->cache_type(), FileCacheType::INDEX);
             std::string buffer;
             buffer.resize(5);

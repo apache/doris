@@ -32,7 +32,6 @@
 #include "io/fs/local_file_writer.h"
 #include "runtime/exec_env.h"
 #include "vec/common/hex.h"
-#include "io/fs/file_system.h"
 
 namespace doris::io {
 
@@ -223,7 +222,8 @@ Status FSFileCacheStorage::change_key_meta_type(const FileCacheKey& key, const F
     return Status::OK();
 }
 
-Status FSFileCacheStorage::change_key_meta_expiration(const FileCacheKey& key, const uint64_t expiration) {
+Status FSFileCacheStorage::change_key_meta_expiration(const FileCacheKey& key,
+                                                      const uint64_t expiration) {
     // directory operation
     if (key.meta.expiration_time != expiration) {
         std::string original_dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
@@ -234,6 +234,7 @@ Status FSFileCacheStorage::change_key_meta_expiration(const FileCacheKey& key, c
             return st;
         }
     }
+    return Status::OK();
 }
 
 std::string FSFileCacheStorage::get_path_in_local_cache(const std::string& dir, size_t offset,
@@ -247,8 +248,10 @@ std::string FSFileCacheStorage::get_path_in_local_cache(const std::string& dir, 
     }
 }
 
-std::string FSFileCacheStorage::get_path_in_local_cache_old_ttl_format(const std::string& dir, size_t offset,
-                                                        FileCacheType type, bool is_tmp) {
+std::string FSFileCacheStorage::get_path_in_local_cache_old_ttl_format(const std::string& dir,
+                                                                       size_t offset,
+                                                                       FileCacheType type,
+                                                                       bool is_tmp) {
     DCHECK(type == FileCacheType::TTL);
     return Path(dir) / (std::to_string(offset) + BlockFileCache::cache_type_to_string(type));
 }
@@ -383,9 +386,9 @@ std::string FSFileCacheStorage::get_version_path() const {
     return Path(_cache_base_path) / "version";
 }
 
-Status parse_filename_suffix_to_cache_type(const std::shared_ptr<LocalFileSystem>& fs,
-                                          const Path& file_path, long expiration_time, size_t size,
-                                          size_t* offset, bool* is_tmp, FileCacheType* cache_type) {
+Status FSFileCacheStorage::parse_filename_suffix_to_cache_type(
+        const std::shared_ptr<LocalFileSystem>& fs, const Path& file_path, long expiration_time,
+        size_t size, size_t* offset, bool* is_tmp, FileCacheType* cache_type) const {
     std::error_code ec;
     std::string offset_with_suffix = file_path.native();
     auto delim_pos1 = offset_with_suffix.find('_');
@@ -446,6 +449,7 @@ Status parse_filename_suffix_to_cache_type(const std::shared_ptr<LocalFileSystem
         }
         return Status::InternalError("file size is 0, file_name={}", offset_with_suffix);
     }
+    return Status::OK();
 }
 
 void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const {
@@ -457,9 +461,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.
             if (_mgr->_files.contains(args.hash) && _mgr->_files[args.hash].contains(args.offset)) {
-                BlockFileCache::FileBlockCell* cell =
-                        _mgr->get_cell(args.hash, args.offset, cache_lock);
-                FileBlockSPtr file_block = cell->file_block;
+                FileBlockSPtr file_block = _mgr->get_blocks_by_key(args.hash)[args.offset];
                 if (file_block->expiration_time() != args.ctx.expiration_time ||
                     file_block->cache_type() != args.ctx.cache_type) [[unlikely]] {
                     LOG(WARNING) << "duplicate hash with different expiration_time or cache_type"
@@ -515,8 +517,8 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
                 bool is_tmp = false;
                 FileCacheType cache_type = FileCacheType::NORMAL;
                 if (!parse_filename_suffix_to_cache_type(fs, offset_it->path().filename().native(),
-                                                        expiration_time, size, &offset, &is_tmp,
-                                                        &cache_type)) {
+                                                         expiration_time, size, &offset, &is_tmp,
+                                                         &cache_type)) {
                     continue;
                 }
                 context.cache_type = cache_type;
@@ -611,8 +613,8 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
         bool is_tmp = false;
         FileCacheType cache_type = FileCacheType::NORMAL;
         if (!parse_filename_suffix_to_cache_type(fs, check_it->path().filename().native(),
-                                                context_original.expiration_time, size, &offset,
-                                                &is_tmp, &cache_type)) {
+                                                 context_original.expiration_time, size, &offset,
+                                                 &is_tmp, &cache_type)) {
             continue;
         }
         if (!mgr->_files.contains(key.hash) || !mgr->_files[key.hash].contains(offset)) {

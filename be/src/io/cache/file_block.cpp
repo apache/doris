@@ -165,10 +165,8 @@ Status FileBlock::change_cache_type_between_ttl_and_others(FileCacheType new_typ
     std::lock_guard block_lock(_mutex);
     DCHECK(new_type != _key.meta.type);
     DCHECK(new_type == FileCacheType::TTL || _key.meta.type == FileCacheType::TTL);
-    if (_download_state == State::DOWNLOADED) {
-        // change cache type between TTL to others don't need to rename the filename suffix
-        TEST_SYNC_POINT_CALLBACK("FileBlock::change_cache_type", &st);
-    }
+
+    // change cache type between TTL to others don't need to rename the filename suffix
     _key.meta.type = new_type;
     return Status::OK();
 }
@@ -181,7 +179,9 @@ Status FileBlock::change_cache_type_between_normal_and_index(FileCacheType new_t
         return Status::OK();
     }
     if (_download_state == State::DOWNLOADED) {
-        RETURN_IF_ERROR(_mgr->_storage->change_key_meta_type(_key, new_type);
+        Status st;
+        TEST_SYNC_POINT_CALLBACK("FileBlock::change_cache_type", &st);
+        RETURN_IF_ERROR(_mgr->_storage->change_key_meta_type(_key, new_type));
     }
     _mgr->change_cache_type(_key.hash, _block_range.left, new_type, cache_lock);
     _key.meta.type = new_type;
