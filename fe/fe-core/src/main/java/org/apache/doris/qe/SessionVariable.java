@@ -2120,7 +2120,7 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean enableFallbackOnMissingInvertedIndex = true;
 
-    
+
     @VariableMgr.VarAttr(name = IN_LIST_VALUE_COUNT_THRESHOLD, description = {
         "in条件value数量大于这个threshold后将不会走fast_execute",
         "When the number of values in the IN condition exceeds this threshold,"
