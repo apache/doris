@@ -50,4 +50,32 @@ suite("test_math_unary_alway_nullable") {
         select sqrt(-1.1), sqrt(-1.1) is NULL, number from numbers("number"="10")
     """
 
+    sql "drop table if exists test_math_unary_alway_nullable"
+
+    sql """
+        create table if not exists test_math_unary_alway_nullable (rowid int, val double NULL)
+        distributed by hash(rowid) properties ("replication_num"="1");
+    """
+
+    sql """
+        insert into test_math_unary_alway_nullable values
+        (1, 1.1), (2, -1.1), (3, 0), (4, NULL)
+    """
+    sql """
+        insert into test_math_unary_alway_nullable values
+        (5, NULL), (6, NULL), (7, NULL), (8, NULL)
+    """
+
+    qt_acos_tbl_1 """
+        select rowid, acos(val), acos(val) is null from test_math_unary_alway_nullable order by rowid;
+    """
+
+    qt_asin_tbl_1 """
+        select rowid, asin(val), asin(val) is null from test_math_unary_alway_nullable order by rowid;
+    """
+
+    qt_sqrt_tbl_1 """
+        select rowid, sqrt(val), sqrt(val) is null from test_math_unary_alway_nullable order by rowid;
+    """
+
 }
