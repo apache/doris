@@ -74,5 +74,6 @@ message POlapTableSchemaParam {
     optional string timezone = 12;
     optional int32 auto_increment_column_unique_id = 13 [default = -1];
     optional string sequence_map_col_name = 14;
+    optional int32 nano_seconds = 15 [default = 0];
 };
 

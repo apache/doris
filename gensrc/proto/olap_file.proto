@@ -624,4 +624,5 @@ message PartialUpdateInfoPB {
     optional bool is_schema_contains_auto_inc_column = 10 [default = false];
     repeated string default_values = 11;
     optional int64 max_version_in_flush_phase = 12 [default = -1];
+    optional int32 nano_seconds = 13 [default = 0];
 }

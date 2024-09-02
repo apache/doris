@@ -33,12 +33,14 @@ namespace doris {
 
 void PartialUpdateInfo::init(const TabletSchema& tablet_schema, bool partial_update,
                              const std::set<string>& partial_update_cols, bool is_strict_mode,
-                             int64_t timestamp_ms, const std::string& timezone,
-                             const std::string& auto_increment_column, int64_t cur_max_version) {
+                             int64_t timestamp_ms, int32_t nano_seconds,
+                             const std::string& timezone, const std::string& auto_increment_column,
+                             int64_t cur_max_version) {
     is_partial_update = partial_update;
     partial_update_input_columns = partial_update_cols;
     max_version_in_flush_phase = cur_max_version;
     this->timestamp_ms = timestamp_ms;
+    this->nano_seconds = nano_seconds;
     this->timezone = timezone;
     missing_cids.clear();
     update_cids.clear();
@@ -79,6 +81,7 @@ void PartialUpdateInfo::to_pb(PartialUpdateInfoPB* partial_update_info_pb) const
             can_insert_new_rows_in_partial_update);
     partial_update_info_pb->set_is_strict_mode(is_strict_mode);
     partial_update_info_pb->set_timestamp_ms(timestamp_ms);
+    partial_update_info_pb->set_nano_seconds(nano_seconds);
     partial_update_info_pb->set_timezone(timezone);
     partial_update_info_pb->set_is_input_columns_contains_auto_inc_column(
             is_input_columns_contains_auto_inc_column);
@@ -115,6 +118,9 @@ void PartialUpdateInfo::from_pb(PartialUpdateInfoPB* partial_update_info_pb) {
             partial_update_info_pb->is_input_columns_contains_auto_inc_column();
     is_schema_contains_auto_inc_column =
             partial_update_info_pb->is_schema_contains_auto_inc_column();
+    if (partial_update_info_pb->has_nano_seconds()) {
+        nano_seconds = partial_update_info_pb->nano_seconds();
+    }
     default_values.clear();
     for (const auto& value : partial_update_info_pb->default_values()) {
         default_values.push_back(value);
@@ -157,16 +163,20 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
             if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 &&
                          to_lower(column.default_value()).find(to_lower("CURRENT_TIMESTAMP")) !=
                                  std::string::npos)) {
-                LOG_INFO("_generate_default_values_for_missing_cids: column.default_value()={}",
-                         column.default_value());
-                DateV2Value<DateTimeV2ValueType> dtv;
-                dtv.from_unixtime(timestamp_ms / 1000, timezone);
-                default_value = dtv.debug_string();
+                auto pos = to_lower(column.default_value()).find('(');
+                if (pos == std::string::npos) {
+                    DateV2Value<DateTimeV2ValueType> dtv;
+                    dtv.from_unixtime(timestamp_ms / 1000, timezone);
+                    default_value = dtv.debug_string();
+                } else {
+                    int precision = std::stoi(column.default_value().substr(pos + 1));
+                    DateV2Value<DateTimeV2ValueType> dtv;
+                    dtv.from_unixtime(timestamp_ms / 1000, nano_seconds, timezone, precision);
+                    default_value = dtv.debug_string();
+                }
             } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_DATEV2 &&
                                 to_lower(column.default_value()).find(to_lower("CURRENT_DATE")) !=
                                         std::string::npos)) {
-                LOG_INFO("_generate_default_values_for_missing_cids: column.default_value()={}",
-                         column.default_value());
                 DateV2Value<DateV2ValueType> dv;
                 dv.from_unixtime(timestamp_ms / 1000, timezone);
                 default_value = dv.debug_string();
