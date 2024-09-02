@@ -104,7 +104,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         super.notifyPropertiesUpdated(updatedProps);
         this.onClose();
-        initLocalObjectsImpl();
     }
 
     @Override
