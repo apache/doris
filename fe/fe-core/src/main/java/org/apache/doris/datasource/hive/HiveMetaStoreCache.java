@@ -36,6 +36,7 @@ import org.apache.doris.common.util.CacheBulkLoader;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CacheException;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.FileSystemCache;
@@ -141,7 +142,7 @@ public class HiveMetaStoreCache {
                 OptionalLong.of(28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
                 Config.max_hive_partition_table_cache_num,
-                false,
+                true,
                 null);
         partitionValuesCache = partitionValuesCacheFactory.buildCache(key -> loadPartitionValues(key), null,
                 refreshExecutor);
@@ -150,7 +151,7 @@ public class HiveMetaStoreCache {
                 OptionalLong.of(28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
                 Config.max_hive_partition_cache_num,
-                false,
+                true,
                 null);
         partitionCache = partitionCacheFactory.buildCache(new CacheLoader<PartitionCacheKey, HivePartition>() {
             @Override
@@ -183,7 +184,7 @@ public class HiveMetaStoreCache {
                         ? fileMetaCacheTtlSecond : 28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
                 Config.max_external_file_cache_num,
-                false,
+                true,
                 null);
 
         CacheLoader<FileCacheKey, FileCacheValue> loader = new CacheBulkLoader<FileCacheKey, FileCacheValue>() {
@@ -1124,5 +1125,20 @@ public class HiveMetaStoreCache {
             }
             return copy;
         }
+    }
+
+    /**
+     * get cache stats
+     * @return <cache name -> <metric name -> metric value>>
+     */
+    public Map<String, Map<String, String>> getStats() {
+        Map<String, Map<String, String>> res = Maps.newHashMap();
+        res.put("hive_partition_values_cache", ExternalMetaCacheMgr.getCacheStats(partitionValuesCache.stats(),
+                partitionCache.estimatedSize()));
+        res.put("hive_partition_cache",
+                ExternalMetaCacheMgr.getCacheStats(partitionCache.stats(), partitionCache.estimatedSize()));
+        res.put("hive_file_cache",
+                ExternalMetaCacheMgr.getCacheStats(fileCacheRef.get().stats(), fileCacheRef.get().estimatedSize()));
+        return res;
     }
 }
