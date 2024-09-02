@@ -77,8 +77,6 @@ struct UnaryFunctionPlain {
     using Type = DataTypeFloat64;
     static constexpr auto name = Name::name;
 
-    static constexpr bool is_invalid_input(Float64 x) { return Name::is_invalid_input(x); }
-
     template <typename T, typename U>
     static void execute(const T* src, U* dst) {
         *dst = static_cast<Float64>(Function(*src));

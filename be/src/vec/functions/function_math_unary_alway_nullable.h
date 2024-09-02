@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionMathUnary.h
-// and modified by Doris
 
 #pragma once
 
@@ -47,8 +44,6 @@ private:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 1; }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
-
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<typename Impl::Type>());
     }
@@ -61,44 +56,38 @@ private:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        const ColumnFloat64* col = nullptr;
-
-        if (is_column_nullable(*block.get_by_position(arguments[0]).column)) {
-            const auto* col_null = static_cast<const ColumnNullable*>(
-                    block.get_by_position(arguments[0]).column.get());
-            col = assert_cast<const ColumnFloat64*>(col_null->get_nested_column_ptr().get());
-        } else {
-            col = assert_cast<const ColumnFloat64*>(
-                    block.get_by_position(arguments[0]).column.get());
-        }
-
-        const auto& src_data = col->get_data();
-        const size_t size = src_data.size();
-
+        const ColumnFloat64* col =
+                assert_cast<const ColumnFloat64*>(block.get_by_position(arguments[0]).column.get());
         auto dst = ColumnFloat64::create();
         auto& dst_data = dst->get_data();
-        dst_data.resize(size);
+        dst_data.resize(input_rows_count);
 
-        execute_in_iterations(col->get_data().data(), dst_data.data(), size);
+        execute_in_iterations(col->get_data().data(), dst_data.data(), input_rows_count);
 
-        auto result_null_map = ColumnUInt8::create(size, 0);
+        auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
 
-        for (size_t i = 0; i < size; i++) {
-            if (Impl::is_invalid_input(col->get_data()[i])) {
+        for (size_t i = 0; i < input_rows_count; i++) {
+            if (Impl::is_invalid_input(col->get_data()[i])) [[unlikely]] {
                 result_null_map->get_data().data()[i] = 1;
             }
-        }
-
-        if (is_column_nullable(*block.get_by_position(arguments[0]).column)) {
-            const auto* col_null = static_cast<const ColumnNullable*>(
-                    block.get_by_position(arguments[0]).column.get());
-            vectorized::VectorizedUtils::update_null_map(result_null_map->get_data(),
-                                                         col_null->get_null_map_data());
         }
 
         block.replace_by_position(
                 result, ColumnNullable::create(std::move(dst), std::move(result_null_map)));
         return Status::OK();
+    }
+};
+
+template <typename Name, Float64(Function)(Float64)>
+struct UnaryFunctionPlainAlwayNullable {
+    using Type = DataTypeFloat64;
+    static constexpr auto name = Name::name;
+
+    static constexpr bool is_invalid_input(Float64 x) { return Name::is_invalid_input(x); }
+
+    template <typename T, typename U>
+    static void execute(const T* src, U* dst) {
+        *dst = static_cast<Float64>(Function(*src));
     }
 };
 

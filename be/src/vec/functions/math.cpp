@@ -57,14 +57,16 @@ struct AcosName {
     // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_acos
     static constexpr bool is_invalid_input(Float64 x) { return x < -1 || x > 1; }
 };
-using FunctionAcos = FunctionMathUnaryAlwayNullable<UnaryFunctionPlain<AcosName, std::acos>>;
+using FunctionAcos =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AcosName, std::acos>>;
 
 struct AsinName {
     static constexpr auto name = "asin";
     // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_asin
     static constexpr bool is_invalid_input(Float64 x) { return x < -1 || x > 1; }
 };
-using FunctionAsin = FunctionMathUnaryAlwayNullable<UnaryFunctionPlain<AsinName, std::asin>>;
+using FunctionAsin =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AsinName, std::asin>>;
 
 struct AtanName {
     static constexpr auto name = "atan";
@@ -250,7 +252,8 @@ struct SqrtName {
     // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_sqrt
     static constexpr bool is_invalid_input(Float64 x) { return x < 0; }
 };
-using FunctionSqrt = FunctionMathUnaryAlwayNullable<UnaryFunctionPlain<SqrtName, std::sqrt>>;
+using FunctionSqrt =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<SqrtName, std::sqrt>>;
 
 struct CbrtName {
     static constexpr auto name = "cbrt";
