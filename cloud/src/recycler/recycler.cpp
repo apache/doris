@@ -189,6 +189,10 @@ Recycler::~Recycler() {
 }
 
 void Recycler::instance_scanner_callback() {
+    // sleep 60 seconds before scheduling for the launch procedure to complete:
+    // some bad hdfs connection may cause some log to stdout stderr 
+    // which may pollute .out file and affect the script to check success
+    std::this_thread::sleep_for(std::chrono::seconds(60));
     while (!stopped()) {
         std::vector<InstanceInfoPB> instances;
         get_all_instances(txn_kv_.get(), instances);

@@ -167,12 +167,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (argc < 2) {
-        std::cerr << "not enough arguments" << std::endl;
-        help();
-        return 1;
-    }
-
     if (args.get<bool>(ARG_HELP)) {
         help();
         return 0;
@@ -183,17 +177,12 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+
     // There may be more roles to play in the future, if there are multi roles specified,
     // use meta_service as the process name
     std::string process_name = args.get<bool>(ARG_META_SERVICE) ? "meta_service"
                                : args.get<bool>(ARG_RECYCLER)   ? "recycler"
-                                                                : "";
-    if (process_name.empty()) {
-        std::cerr << "failed to determine prcess name with given args, "
-                  << "at least one of --recycler and --meta-service should be specified"
-                  << std::endl;
-        return 1;
-    }
+                                                                : "meta_service";
 
     using namespace std::chrono;
 
@@ -222,11 +211,18 @@ int main(int argc, char** argv) {
     }
 
     // We can invoke glog from now on
-
     std::string msg;
     LOG(INFO) << "try to start doris_cloud";
     LOG(INFO) << build_info();
     std::cout << build_info() << std::endl;
+
+    if (!args.get<bool>(ARG_META_SERVICE) && !args.get<bool>(ARG_RECYCLER)) {
+        std::get<0>(args.args()[ARG_META_SERVICE]) = true;
+        std::get<0>(args.args()[ARG_RECYCLER]) = true;
+        LOG(INFO) << "meta_service and recycler are both not specified, "
+                     "run doris_cloud as meta_service and recycler by default";
+        std::cout << "run doris_cloud as meta_service and recycler by default" << std::endl;
+    }
 
     brpc::Server server;
     brpc::FLAGS_max_body_size = config::brpc_max_body_size;
