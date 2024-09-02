@@ -518,10 +518,14 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
     public Boolean visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, Void context) {
         // process must shuffle
         visit(topN, context);
-
         // If child is DistributionSpecGather, topN should forbid two-phase topN
         if (topN.getSortPhase() == SortPhase.LOCAL_SORT
                 && childrenProperties.get(0).getDistributionSpec().equals(DistributionSpecGather.INSTANCE)) {
+            return false;
+        }
+        // forbid one step topn with distribute as child
+        if (topN.getSortPhase() == SortPhase.GATHER_SORT
+                && children.get(0).getPlan() instanceof PhysicalDistribute) {
             return false;
         }
         return true;
