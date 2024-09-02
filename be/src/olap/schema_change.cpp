@@ -1121,6 +1121,8 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
     // b. Generate historical data converter
     auto sc_procedure = get_sc_procedure(changer, sc_sorting, sc_directly);
 
+    DBUG_EXECUTE_IF("SchemaChangeJob::_convert_historical_rowsets.block", DBUG_BLOCK);
+
     // c.Convert historical data
     bool have_failure_rowset = false;
     for (const auto& rs_reader : sc_params.ref_rowset_readers) {
