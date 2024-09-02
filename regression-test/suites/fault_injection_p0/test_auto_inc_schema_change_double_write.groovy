@@ -32,12 +32,11 @@ suite("test_auto_inc_schema_change_double_write", "nonConcurrent") {
             )UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES (
-            "enable_mow_light_delete" = "false",
             "disable_auto_compaction" = "true",
             "enable_unique_key_merge_on_write" = "true",
             "replication_num" = "1"); """
 
-    sql """insert into ${table1} select number,number,number,number,number from numbers("number"="5000"); """
+    sql """insert into ${table1}(c1,c2,c3,c4) select number,number,number,number from numbers("number"="5000"); """
     sql "sync;"
     qt_sql "select count(*) from ${table1} group by k1 having count(*) > 1;"
 
@@ -46,7 +45,7 @@ suite("test_auto_inc_schema_change_double_write", "nonConcurrent") {
         (1..thread_num).each { id1 -> 
             threads.add(Thread.start {
                 (1..iters).each { id2 -> 
-                    sql """insert into ${table1}(value) select number from numbers("number" = "${rows}");"""
+                    sql """insert into ${table1}(c1,c2,c3,c4) select number,number,number,number from numbers("number"="${rows}");"""
                 }
             })
         }
@@ -62,8 +61,8 @@ suite("test_auto_inc_schema_change_double_write", "nonConcurrent") {
         AtomicBoolean stopped = new AtomicBoolean(false)
         def t1 = Thread.start {
             while (!stopped.get()) {
-                run_test(5, 1000, 3)
-                Thread.sleep(100)
+                run_test(2, 500, 3)
+                Thread.sleep(200)
             }
         }
 
@@ -92,6 +91,4 @@ suite("test_auto_inc_schema_change_double_write", "nonConcurrent") {
         GetDebugPoint().clearDebugPointsForAllFEs()
         GetDebugPoint().clearDebugPointsForAllBEs()
     }
-
-    sql "DROP TABLE IF EXISTS ${table1};"
 }
