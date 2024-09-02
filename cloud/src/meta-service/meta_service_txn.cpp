@@ -838,7 +838,7 @@ void scan_tmp_rowset(
             LOG(INFO) << "range_get rowset_tmp_key=" << hex(k) << " txn_id=" << txn_id;
             tmp_rowsets_meta->emplace_back();
             ValueBuf buf;
-            auto err = selectdb::get(txn.get(), k, &buf);
+            auto err = cloud::get(txn.get(), k, &buf);
             if (err != TxnErrorCode::TXN_OK) {
                 ss << "failed to get tmp rowset key"
                    << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? " (not found)" : "");
@@ -849,14 +849,14 @@ void scan_tmp_rowset(
                                                               : cast_as<ErrCategory::READ>(err);
                 return;
             }
-            doris::RowsetMetaPB rs_meta;
+            doris::RowsetMetaCloudPB rs_meta;
             if (!buf.to_pb(&rs_meta)) {
                 code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                 msg = "malformed rowset meta, unable to deserialize";
                 LOG(WARNING) << msg << " key=" << hex(k);
                 return;
             }
-            tmp_rowsets_meta.back().second = rs_meta;
+            tmp_rowsets_meta->back().second = rs_meta;
             // Save keys that will be removed later
             tmp_rowsets_meta->back().first = std::string(k.data(), k.size());
             ++num_rowsets;
@@ -1231,7 +1231,7 @@ void commit_txn_immediately(
         for (auto& i : rowsets) {
             size_t rowset_size = i.first.size() + i.second.size();
             // splitting large values (>90*1000) into multiple KVs
-            selectdb::put(txn.get(), i.first, i.second, 0);
+            cloud::put(txn.get(), i.first, i.second, 0);
             LOG(INFO) << "xxx put rowset_key=" << hex(i.first) << " txn_id=" << txn_id
                       << " rowset_size=" << rowset_size;
         }

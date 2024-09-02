@@ -882,7 +882,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     auto tmp_rowset_key = meta_rowset_tmp_key({instance_id, txn_id, tablet_id});
     std::string tmp_rowset_val;
     ValueBuf buf;
-    auto err = selectdb::get(txn.get(), tmp_rowset_key, &buf);
+    auto err = cloud::get(txn.get(), tmp_rowset_key, &buf);
     if (err != TxnErrorCode::TXN_OK) {
         SS << "failed to get tmp rowset key"
            << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? " (not found)" : "")
@@ -923,7 +923,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     int64_t version = compaction.output_versions(0);
     auto rowset_key = meta_rowset_key({instance_id, tablet_id, version});
     // splitting large values (>90*1000) into multiple KVs
-    selectdb::put(txn.get(), rowset_key, tmp_rowset_val, 0);
+    cloud::put(txn.get(), rowset_key, tmp_rowset_val, 0);
     INSTANCE_LOG(INFO) << "put rowset meta, tablet_id=" << tablet_id
                        << " rowset_key=" << hex(rowset_key);
 
@@ -1228,7 +1228,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         std::string tmp_rowset_val;
         // FIXME: async get
         ValueBuf buf;
-        auto err = selectdb::get(txn.get(), tmp_rowset_key, &buf);
+        auto err = cloud::get(txn.get(), tmp_rowset_key, &buf);
         if (err != TxnErrorCode::TXN_OK) {
             SS << "failed to get tmp rowset key"
                << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? " (not found)" : "")
@@ -1252,7 +1252,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         auto rowset_key = meta_rowset_key(
                 {instance_id, new_tablet_id, schema_change.output_versions().at(i)});
         // splitting large values (>90*1000) into multiple KVs
-        selectdb::put(txn.get(), rowset_key, tmp_rowset_val, 0);
+        cloud::put(txn.get(), rowset_key, tmp_rowset_val, 0);
         txn->remove(tmp_rowset_key);
     }
 

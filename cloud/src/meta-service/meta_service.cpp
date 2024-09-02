@@ -1159,7 +1159,7 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
     DCHECK_GT(rowset_meta.txn_expiration(), 0);
     auto tmp_rs_val = rowset_meta.SerializeAsString();
     // splitting large values (>90*1000) into multiple KVs
-    selectdb::put(txn.get(), tmp_rs_key, tmp_rs_val, 0);
+    cloud::put(txn.get(), tmp_rs_key, tmp_rs_val, 0);
     LOG(INFO) << "put tmp_rs_key " << hex(tmp_rs_key) << " delete recycle_rs_key "
               << hex(recycle_rs_key) << " value_size " << tmp_rs_val.size() << " txn_id "
               << request->txn_id();
@@ -1260,7 +1260,7 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
     }
 
     // splitting large values (>90*1000) into multiple KVs
-    selectdb::put(txn.get(), update_key, update_val, 0);
+    cloud::put(txn.get(), update_key, update_val, 0);
     LOG(INFO) << "xxx put "
               << "update_rowset_key " << hex(update_key) << " value_size " << update_val.size();
     err = txn->commit();
@@ -1310,7 +1310,7 @@ void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
             if (k != last_key) {
                 last_key = k;
                 ValueBuf buf;
-                err = selectdb::get(txn, k, &buf);
+                err = cloud::get(txn, k, &buf);
                 if (err != TxnErrorCode::TXN_OK) {
                     ss << "failed to get tmp rowset key"
                        << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? " (not found)" : "");
