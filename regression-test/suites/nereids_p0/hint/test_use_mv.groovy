@@ -34,6 +34,7 @@ suite("test_use_mv") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set runtime_filter_mode=OFF'
 
+    sql """drop table if exists t1;"""
     // create tables
     sql """
         CREATE TABLE `t1` (
@@ -53,6 +54,8 @@ suite("test_use_mv") {
     """
     sql """ alter table t1 add rollup r1(k2, k1); """
     Thread.sleep(1000)
+    sql """ alter table t1 add rollup r2(k2); """
+    Thread.sleep(1000)
     explain {
         sql """select k1 from t1;"""
         contains("t1(r1)")
@@ -66,12 +69,31 @@ suite("test_use_mv") {
         contains("parameter of no_use_mv hint must be in pairs")
     }
     explain {
+        sql """select /*+ no_use_mv(t1.`*`) */ k1 from t1;"""
+        contains("t1(t1)")
+    }
+    explain {
+        sql """select /*+ use_mv(t1.`*`) */ k1 from t1;"""
+        contains("t1(r1)")
+    }
+    explain {
         sql """select /*+ use_mv(t1.r1,t1.r2) */ k1 from t1;"""
         contains("use_mv hint should only have one mv in one table")
     }
     explain {
-        sql """select /*+ no_use_index(t1.r2) */ k1 from t1;"""
-        contains("t1(r1)")
+        sql """select /*+ use_mv(t1.r1) use_mv(t1.r2) */ k1 from t1;"""
+        contains("one use_mv hint is allowed")
     }
-    sql """drop table if exists t1;"""
+    explain {
+        sql """select /*+ no_use_mv(t1.r1) no_use_mv(t1.r2) */ k1 from t1;"""
+        contains("only one no_use_mv hint is allowed")
+    }
+    explain {
+        sql """select /*+ no_use_mv(t1.r3) */ k1 from t1;"""
+        contains("do not have mv: r3 in table: t1")
+    }
+    explain {
+        sql """select /*+ use_mv(t1.r1) no_use_mv(t1.r1) */ k1 from t1;"""
+        contains("conflict mv exist in use_mv and no_use_mv in the same time")
+    }
 }
