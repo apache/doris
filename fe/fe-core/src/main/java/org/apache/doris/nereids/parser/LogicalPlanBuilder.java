@@ -96,6 +96,8 @@ import org.apache.doris.nereids.DorisParser.DropConstraintContext;
 import org.apache.doris.nereids.DorisParser.DropMTMVContext;
 import org.apache.doris.nereids.DorisParser.DropProcedureContext;
 import org.apache.doris.nereids.DorisParser.ElementAtContext;
+import org.apache.doris.nereids.DorisParser.ExceptContext;
+import org.apache.doris.nereids.DorisParser.ExceptOrReplaceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
 import org.apache.doris.nereids.DorisParser.ExportContext;
@@ -108,7 +110,6 @@ import org.apache.doris.nereids.DorisParser.HintAssignmentContext;
 import org.apache.doris.nereids.DorisParser.HintStatementContext;
 import org.apache.doris.nereids.DorisParser.IdentifierContext;
 import org.apache.doris.nereids.DorisParser.IdentifierListContext;
-import org.apache.doris.nereids.DorisParser.IdentifierOrTextContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
 import org.apache.doris.nereids.DorisParser.InPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.IndexDefContext;
@@ -160,6 +161,7 @@ import org.apache.doris.nereids.DorisParser.RefreshScheduleContext;
 import org.apache.doris.nereids.DorisParser.RefreshTriggerContext;
 import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
+import org.apache.doris.nereids.DorisParser.ReplaceContext;
 import org.apache.doris.nereids.DorisParser.ResumeMTMVContext;
 import org.apache.doris.nereids.DorisParser.RollupDefContext;
 import org.apache.doris.nereids.DorisParser.RollupDefsContext;
@@ -488,7 +490,6 @@ import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
-import org.springframework.util.CollectionUtils;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -1128,7 +1129,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         : LoadTask.MergeType.valueOf(ddc.mergeType().getText());
 
             Optional<String> fileFormat = ddc.format == null ? Optional.empty()
-                    : Optional.of(visitIdentifierOrStringLiteral(ddc.format));
+                    : Optional.of(visitIdentifierOrText(ddc.format));
             Optional<String> separator = ddc.separator == null ? Optional.empty() : Optional.of(ddc.separator.getText()
                         .substring(1, ddc.separator.getText().length() - 1));
             Optional<String> comma = ddc.comma == null ? Optional.empty() : Optional.of(ddc.comma.getText()
@@ -1152,7 +1153,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             : Optional.of(ddc.sequenceColumn.identifier().getText()), dataProperties));
         }
         String labelName = ctx.lableName.getText();
-        Map<String, String> properties = visitPropertyItemList(ctx.properties);
+        Map<String, String> properties = Collections.emptyMap();
+        if (ctx.propertyClause() != null) {
+            properties = visitPropertyItemList(ctx.propertyClause().propertyItemList());
+        }
         String commentSpec = ctx.commentSpec() == null ? "''" : ctx.commentSpec().STRING_LITERAL().getText();
         String comment =
                 LogicalPlanBuilderAssistant.escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
@@ -1227,16 +1231,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public String visitIdentifierOrText(IdentifierOrTextContext ctx) {
-        if (ctx.STRING_LITERAL() != null) {
-            return ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1);
-        } else {
-            return ctx.errorCapturingIdentifier().getText();
-        }
-    }
-
-    @Override
-    public String visitIdentifierOrStringLiteral(DorisParser.IdentifierOrStringLiteralContext ctx) {
+    public String visitIdentifierOrText(DorisParser.IdentifierOrTextContext ctx) {
         if (ctx.STRING_LITERAL() != null) {
             return ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1);
         } else {
@@ -1355,10 +1350,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             LogicalPlan selectPlan;
             LogicalPlan relation;
             if (ctx.fromClause() == null) {
-                SelectColumnClauseContext columnCtx = selectCtx.selectColumnClause();
-                if (!CollectionUtils.isEmpty(columnCtx.exceptOrReplace())) {
-                    throw new ParseException("select with modifiers cannot be used in one row relation", selectCtx);
-                }
                 relation = new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(),
                         ImmutableList.of(new UnboundAlias(Literal.of(0))));
             } else {
@@ -1521,7 +1512,46 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else {
                 target = ImmutableList.of();
             }
-            return new UnboundStar(target);
+            List<ExceptOrReplaceContext> exceptOrReplaceList = ctx.exceptOrReplace();
+            if (exceptOrReplaceList != null && !exceptOrReplaceList.isEmpty()) {
+                List<NamedExpression> finalExpectSlots = ImmutableList.of();
+                List<NamedExpression> finalReplacedAlias = ImmutableList.of();
+                for (ExceptOrReplaceContext exceptOrReplace : exceptOrReplaceList) {
+                    if (exceptOrReplace instanceof ExceptContext) {
+                        if (!finalExpectSlots.isEmpty()) {
+                            throw new ParseException("only one except clause is supported", ctx);
+                        }
+                        ExceptContext exceptContext = (ExceptContext) exceptOrReplace;
+                        List<NamedExpression> expectSlots = getNamedExpressions(exceptContext.namedExpressionSeq());
+                        boolean allSlots = expectSlots.stream().allMatch(UnboundSlot.class::isInstance);
+                        if (expectSlots.isEmpty() || !allSlots) {
+                            throw new ParseException(
+                                    "only column name is supported in except clause", ctx);
+                        }
+                        finalExpectSlots = expectSlots;
+                    } else if (exceptOrReplace instanceof ReplaceContext) {
+                        if (!finalReplacedAlias.isEmpty()) {
+                            throw new ParseException("only one replace clause is supported", ctx);
+                        }
+                        ReplaceContext replaceContext = (ReplaceContext) exceptOrReplace;
+                        List<NamedExpression> expectAlias = getNamedExpressions(replaceContext.namedExpressionSeq());
+                        boolean allAlias = expectAlias.stream()
+                                .allMatch(e -> e instanceof UnboundAlias
+                                        && ((UnboundAlias) e).getAlias().isPresent());
+                        if (expectAlias.isEmpty() || !allAlias) {
+                            throw new ParseException(
+                                    "only alias is supported in select-replace clause", ctx);
+                        }
+                        finalReplacedAlias = expectAlias;
+                    } else {
+                        throw new ParseException("Unsupported except or replace clause: " + exceptOrReplace.getText(),
+                                ctx);
+                    }
+                }
+                return new UnboundStar(target, finalExpectSlots, finalReplacedAlias);
+            } else {
+                return new UnboundStar(target);
+            }
         });
     }
 
@@ -3032,46 +3062,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (!(aggregate instanceof Aggregate) && havingClause.isPresent()) {
                 // create a project node for pattern match of ProjectToGlobalAggregate rule
                 // then ProjectToGlobalAggregate rule can insert agg node as LogicalHaving node's child
-                LogicalPlan project;
-                if (!CollectionUtils.isEmpty(selectColumnCtx.exceptOrReplace())) {
-                    List<NamedExpression> except = ImmutableList.of();
-                    List<NamedExpression> replace = ImmutableList.of();
-                    boolean hasExcept = false;
-                    boolean hasReplace = false;
-                    for (DorisParser.ExceptOrReplaceContext er : selectColumnCtx.exceptOrReplace()) {
-                        if ((hasReplace && er.REPLACE() != null) || (hasExcept && er.EXCEPT() != null)) {
-                            throw new ParseException("only one except or replace is supported", selectColumnCtx);
-                        }
-                        if (er.EXCEPT() != null) {
-                            hasExcept = true;
-                            except = getNamedExpressions(er.namedExpressionSeq());
-                            if (!except.stream().allMatch(UnboundSlot.class::isInstance)) {
-                                throw new ParseException(
-                                    "only column name is supported in except clause", selectColumnCtx);
-                            }
-                        } else if (er.REPLACE() != null) {
-                            hasReplace = true;
-                            replace = getNamedExpressions(er.namedExpressionSeq());
-                            boolean isEmpty = replace.isEmpty();
-                            boolean allAlias = replace.stream()
-                                    .allMatch(e -> e instanceof UnboundAlias
-                                            && ((UnboundAlias) e).getAlias().isPresent());
-                            if (isEmpty || !allAlias) {
-                                throw new ParseException(
-                                    "only alias is supported in select-replace clause", selectColumnCtx);
-                            }
-                        } else {
-                            throw new ParseException("only except or replace is supported", selectColumnCtx);
-                        }
-                    }
-                    UnboundStar star = new UnboundStar(ImmutableList.of());
-                    project = new LogicalProject<>(
-                            ImmutableList.of(star), except, replace, isDistinct, aggregate);
-                } else {
-                    List<NamedExpression> projects = getNamedExpressions(selectColumnCtx.namedExpressionSeq());
-                    project = new LogicalProject<>(
-                            projects, ImmutableList.of(), ImmutableList.of(), isDistinct, aggregate);
-                }
+                List<NamedExpression> projects = getNamedExpressions(selectColumnCtx.namedExpressionSeq());
+                LogicalPlan project = new LogicalProject<>(projects, isDistinct, aggregate);
                 return new LogicalHaving<>(ExpressionUtils.extractConjunctionToSet(
                         getExpression((havingClause.get().booleanExpression()))), project);
             } else {
@@ -3198,7 +3190,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         hints.put(hintName, new SelectHintSetVar(hintName, parameters));
                         break;
                     case "leading":
-                        List<String> leadingParameters = new ArrayList<String>();
+                        List<String> leadingParameters = new ArrayList<>();
                         for (HintAssignmentContext kv : hintStatement.parameters) {
                             if (kv.key != null) {
                                 String parameterName = visitIdentifierOrText(kv.key);
@@ -3211,7 +3203,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         hints.put(hintName, new SelectHintOrdered(hintName));
                         break;
                     case "use_cbo_rule":
-                        List<String> useRuleParameters = new ArrayList<String>();
+                        List<String> useRuleParameters = new ArrayList<>();
                         for (HintAssignmentContext kv : hintStatement.parameters) {
                             if (kv.key != null) {
                                 String parameterName = visitIdentifierOrText(kv.key);
@@ -3221,7 +3213,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         hints.put(hintName, new SelectHintUseCboRule(hintName, useRuleParameters, false));
                         break;
                     case "no_use_cbo_rule":
-                        List<String> noUseRuleParameters = new ArrayList<String>();
+                        List<String> noUseRuleParameters = new ArrayList<>();
                         for (HintAssignmentContext kv : hintStatement.parameters) {
                             String parameterName = visitIdentifierOrText(kv.key);
                             if (kv.key != null) {
@@ -3268,49 +3260,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (aggCtx.isPresent()) {
                 if (isDistinct) {
                     return new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of())),
-                            Collections.emptyList(), Collections.emptyList(), isDistinct, input);
+                            isDistinct, input);
                 } else {
                     return input;
                 }
             } else {
-                if (!CollectionUtils.isEmpty(selectCtx.exceptOrReplace())) {
-                    List<NamedExpression> except = ImmutableList.of();
-                    List<NamedExpression> replace = ImmutableList.of();
-                    boolean hasExcept = false;
-                    boolean hasReplace = false;
-                    for (DorisParser.ExceptOrReplaceContext er : selectCtx.exceptOrReplace()) {
-                        if ((hasReplace && er.REPLACE() != null) || (hasExcept && er.EXCEPT() != null)) {
-                            throw new ParseException("only one except or replace is supported", selectCtx);
-                        }
-                        if (er.EXCEPT() != null) {
-                            hasExcept = true;
-                            except = getNamedExpressions(er.namedExpressionSeq());
-                            if (!except.stream().allMatch(UnboundSlot.class::isInstance)) {
-                                throw new ParseException(
-                                    "only column name is supported in except clause", selectCtx);
-                            }
-                        } else if (er.REPLACE() != null) {
-                            hasReplace = true;
-                            replace = getNamedExpressions(er.namedExpressionSeq());
-                            boolean isEmpty = replace.isEmpty();
-                            boolean allAlias = replace.stream()
-                                    .allMatch(e -> e instanceof UnboundAlias
-                                            && ((UnboundAlias) e).getAlias().isPresent());
-                            if (isEmpty || !allAlias) {
-                                throw new ParseException(
-                                    "only alias is supported in select-replace clause", selectCtx);
-                            }
-                        } else {
-                            throw new ParseException("only except or replace is supported", selectCtx);
-                        }
+                List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());
+                if (input instanceof UnboundOneRowRelation) {
+                    if (projects.stream().anyMatch(project -> project instanceof UnboundStar)) {
+                        throw new ParseException("SELECT * must have a FROM clause");
                     }
-                    UnboundStar star = new UnboundStar(ImmutableList.of());
-                    return new LogicalProject<>(ImmutableList.of(star), except, replace, isDistinct, input);
-                } else {
-                    List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());
-                    return new LogicalProject<>(
-                            projects, Collections.emptyList(), Collections.emptyList(), isDistinct, input);
                 }
+                return new LogicalProject<>(projects, isDistinct, input);
             }
         });
     }

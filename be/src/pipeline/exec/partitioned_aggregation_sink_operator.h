@@ -312,6 +312,9 @@ public:
     bool require_data_distribution() const override {
         return _agg_sink_operator->require_data_distribution();
     }
+    bool require_shuffled_data_distribution() const override {
+        return _agg_sink_operator->require_shuffled_data_distribution();
+    }
 
     Status set_child(OperatorXPtr child) override {
         RETURN_IF_ERROR(DataSinkOperatorX<PartitionedAggSinkLocalState>::set_child(child));

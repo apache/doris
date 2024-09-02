@@ -170,6 +170,9 @@ public class MaxComputeJniScanner extends JniScanner {
                 // query columns required non-null, when query partition table
                 pushDownColumns.add(session.getSchema().getColumn(0));
             }
+            if (totalRows == 0) {
+                return;
+            }
             arrowAllocator = new RootAllocator(Integer.MAX_VALUE);
             curReader = session.openArrowRecordReader(start, totalRows, pushDownColumns, arrowAllocator);
             remainBatchRows = totalRows;

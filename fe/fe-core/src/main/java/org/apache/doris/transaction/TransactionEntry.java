@@ -80,6 +80,8 @@ public class TransactionEntry {
     private List<InternalService.PDataRow> dataToSend = new ArrayList<>();
     private long rowsInTransaction = 0;
     private Types.PUniqueId pLoadId;
+    private boolean isFirstTxnInsert = false;
+    private volatile int txnSchemaVersion = -1;
 
     // for insert into select for multi tables
     private boolean isTransactionBegan = false;
@@ -179,6 +181,22 @@ public class TransactionEntry {
 
     public void setpLoadId(Types.PUniqueId pLoadId) {
         this.pLoadId = pLoadId;
+    }
+
+    public boolean isFirstTxnInsert() {
+        return isFirstTxnInsert;
+    }
+
+    public void setFirstTxnInsert(boolean firstTxnInsert) {
+        isFirstTxnInsert = firstTxnInsert;
+    }
+
+    public int getTxnSchemaVersion() {
+        return txnSchemaVersion;
+    }
+
+    public void setTxnSchemaVersion(int txnSchemaVersion) {
+        this.txnSchemaVersion = txnSchemaVersion;
     }
 
     // Used for insert into select, return the sub_txn_id for this insert

@@ -362,7 +362,12 @@ public:
     OwnedSlice(const OwnedSlice&) = delete;
     void operator=(const OwnedSlice&) = delete;
 
-    ~OwnedSlice() { Allocator::free(_slice.data, _capacity); }
+    ~OwnedSlice() {
+        if (_slice.data != nullptr) {
+            DCHECK(_capacity != 0);
+            Allocator::free(_slice.data, _capacity);
+        }
+    }
 
     const Slice& slice() const { return _slice; }
 

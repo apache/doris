@@ -720,6 +720,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
         // rebuild table's full schema
         tbl.rebuildFullSchema();
+        tbl.rebuildDistributionInfo();
 
         // update bloom filter
         if (hasBfChange) {

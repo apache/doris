@@ -473,6 +473,30 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
     }
 
+    public void rebuildDistributionInfo() {
+        if (!Objects.equals(defaultDistributionInfo.getType(), DistributionInfoType.HASH)) {
+            return;
+        }
+        HashDistributionInfo distributionInfo = (HashDistributionInfo) defaultDistributionInfo;
+        Set<String> originalColumnsNames =
+                distributionInfo.getDistributionColumns()
+                        .stream()
+                        .map(Column::getName)
+                        .collect(Collectors.toSet());
+
+        List<Column> newDistributionColumns = getBaseSchema()
+                .stream()
+                .filter(column -> originalColumnsNames.contains(column.getName()))
+                .map(Column::new)
+                .collect(Collectors.toList());
+        distributionInfo.setDistributionColumns(newDistributionColumns);
+
+        getPartitions()
+                .stream()
+                .map(Partition::getDistributionInfo)
+                .forEach(info -> ((HashDistributionInfo) info).setDistributionColumns(newDistributionColumns));
+    }
+
     public boolean deleteIndexInfo(String indexName) {
         if (!indexNameToId.containsKey(indexName)) {
             return false;
@@ -627,6 +651,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
         // remove colocate property.
         setColocateGroup(null);
+    }
+
+    public void resetVersionForRestore() {
+        for (Partition partition : idToPartition.values()) {
+            partition.setNextVersion(partition.getVisibleVersion() + 1);
+        }
     }
 
     public Status resetIdsForRestore(Env env, Database db, ReplicaAllocation restoreReplicaAlloc,
