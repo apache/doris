@@ -33,7 +33,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
-public class RefreshDbStmt extends DdlStmt {
+public class RefreshDbStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(RefreshDbStmt.class);
     private static final String INVALID_CACHE = "invalid_cache";
 
