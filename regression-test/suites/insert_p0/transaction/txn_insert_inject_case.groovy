@@ -198,7 +198,6 @@ suite("txn_insert_inject_case", "nonConcurrent") {
     try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
          Statement statement = conn.createStatement()) {
         statement.execute("ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '2');")
-        statement.execute("set insert_visible_timeout_ms = 2000")
         statement.execute("begin")
         statement.execute("insert into ${table}_0 select * from ${table}_1;")
         txn_id = get_txn_id_from_server_info((((StatementImpl) statement).results).getServerInfo())
@@ -206,6 +205,7 @@ suite("txn_insert_inject_case", "nonConcurrent") {
         statement.execute("insert into ${table}_0 select * from ${table}_2;")
         statement.execute("commit")
 
+        sql "set insert_visible_timeout_ms = 2000"
         sql """insert into ${table}_0 values(100, 2.2, "abc", [], [])"""
         sql """insert into ${table}_1 values(101, 2.2, "abc", [], [])"""
         sql """insert into ${table}_2 values(102, 2.2, "abc", [], [])"""
@@ -217,16 +217,17 @@ suite("txn_insert_inject_case", "nonConcurrent") {
         assertTrue(false, "should not reach here")
     } finally {
         setFeConfig('commit_timeout_second', commit_timeout_second_value)
+        sql "set insert_visible_timeout_ms = ${insert_visible_timeout[0][1]}"
         GetDebugPoint().disableDebugPointForAllFEs('PublishVersionDaemon.genPublishTask.failed')
         def rowCount = 0
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < 200; i++) {
             def result = sql "select count(*) from ${table}_0"
             logger.info("rowCount: " + result + ", retry: " + i)
             rowCount =  result[0][0]
             if (rowCount >= 7) {
                 break
             }
-            sleep(1000)
+            sleep(100)
         }
         assertEquals(7, rowCount)
     }
