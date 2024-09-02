@@ -160,7 +160,18 @@ Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Sl
         std::string file =
                 get_path_in_local_cache(get_path_in_local_cache(key.hash, key.meta.expiration_time),
                                         key.offset, key.meta.type);
-        RETURN_IF_ERROR(fs->open_file(file, &file_reader));
+        Status s = fs->open_file(file, &file_reader);
+        if (!s.ok()) {
+            if (key.meta.type == FileCacheType::TTL) {
+                // try to open the file with old ttl format
+                file = get_path_in_local_cache_old_ttl_format(
+                        get_path_in_local_cache(key.hash, key.meta.expiration_time), key.offset,
+                        key.meta.type);
+                RETURN_IF_ERROR(fs->open_file(file, &file_reader));
+            } else {
+                return s;
+            }
+        }
         FDCache::instance()->insert_file_reader(fd_key, file_reader);
     }
     size_t bytes_read = 0;
@@ -173,7 +184,16 @@ Status FSFileCacheStorage::remove(const FileCacheKey& key) {
     std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
     std::string file = get_path_in_local_cache(dir, key.offset, key.meta.type);
     FDCache::instance()->remove_file_reader(std::make_pair(key.hash, key.offset));
-    RETURN_IF_ERROR(fs->delete_file(file));
+    Status s = fs->delete_file(file);
+    if (!s.ok()) {
+        if (key.meta.type == FileCacheType::TTL) {
+            // try to remove the file with old ttl format
+            file = get_path_in_local_cache_old_ttl_format(dir, key.offset, key.meta.type);
+            RETURN_IF_ERROR(fs->delete_file(file));
+        } else {
+            return s;
+        }
+    }
     std::vector<FileInfo> files;
     bool exists {false};
     RETURN_IF_ERROR(fs->list(dir, true, &files, &exists));
@@ -184,23 +204,38 @@ Status FSFileCacheStorage::remove(const FileCacheKey& key) {
     return Status::OK();
 }
 
-Status FSFileCacheStorage::change_key_meta(const FileCacheKey& key, const KeyMeta& new_meta) {
-    // TTL change
-    if (key.meta.expiration_time != new_meta.expiration_time) {
+Status FSFileCacheStorage::change_key_meta_type(const FileCacheKey& key, const FileCacheType type) {
+    // file operation
+    if (key.meta.type != type) {
+        std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
+        std::string original_file = get_path_in_local_cache(dir, key.offset, key.meta.type);
+        std::string new_file = get_path_in_local_cache(dir, key.offset, type);
+        Status s = fs->rename(original_file, new_file);
+        if (!s.ok()) {
+            if (key.meta.type == FileCacheType::TTL) {
+                // try to rename the file with old ttl format
+                original_file =
+                        get_path_in_local_cache_old_ttl_format(dir, key.offset, key.meta.type);
+                RETURN_IF_ERROR(fs->rename(original_file, new_file));
+            } else {
+                return s;
+            }
+        }
+    }
+    return Status::OK();
+}
+
+Status FSFileCacheStorage::change_key_meta_expiration(const FileCacheKey& key, const uint64_t expiration) {
+    // directory operation
+    if (key.meta.expiration_time != expiration) {
         std::string original_dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
-        std::string new_dir = get_path_in_local_cache(key.hash, new_meta.expiration_time);
+        std::string new_dir = get_path_in_local_cache(key.hash, expiration);
         // It will be concurrent, but we don't care who rename
         Status st = fs->rename(original_dir, new_dir);
         if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
             return st;
         }
-    } else if (key.meta.type != new_meta.type) {
-        std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
-        std::string original_file = get_path_in_local_cache(dir, key.offset, key.meta.type);
-        std::string new_file = get_path_in_local_cache(dir, key.offset, new_meta.type);
-        RETURN_IF_ERROR(fs->rename(original_file, new_file));
     }
-    return Status::OK();
 }
 
 std::string FSFileCacheStorage::get_path_in_local_cache(const std::string& dir, size_t offset,
@@ -208,18 +243,16 @@ std::string FSFileCacheStorage::get_path_in_local_cache(const std::string& dir, 
     if (is_tmp) {
         return Path(dir) / (std::to_string(offset) + "_tmp");
     } else if (type == FileCacheType::TTL) {
-        // TTL maybe end up with '_ttl' (old format) or without (new format)
-        std::string path = Path(dir) / std::to_string(offset);
-        std::error_code ec;
-        bool exists = std::filesystem::exists(path, ec);
-        if (exists && !ec) {
-            return path;
-        } else {
-            return path + "_ttl";
-        }
+        return Path(dir) / std::to_string(offset);
     } else {
         return Path(dir) / (std::to_string(offset) + BlockFileCache::cache_type_to_string(type));
     }
+}
+
+std::string FSFileCacheStorage::get_path_in_local_cache_old_ttl_format(const std::string& dir, size_t offset,
+                                                        FileCacheType type, bool is_tmp) {
+    DCHECK(type == FileCacheType::TTL);
+    return Path(dir) / (std::to_string(offset) + BlockFileCache::cache_type_to_string(type));
 }
 
 std::string FSFileCacheStorage::get_path_in_local_cache(const UInt128Wrapper& value,
