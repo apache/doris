@@ -52,10 +52,10 @@ import java.util.function.Predicate
 @CompileStatic
 class RegressionTest {
 
-    static enum SuiteType {
+    static enum GroupExecType {
         NORMAL,
-        SINGLE,
-        DOCKER,
+        SINGLE,  // group contains nonConcurrent
+        DOCKER,  // group contains docker
     }
 
     static ClassLoader classloader
@@ -63,7 +63,7 @@ class RegressionTest {
     static GroovyShell shell
     static ExecutorService scriptExecutors
     static ExecutorService actionExecutors
-    static Map<SuiteType, ExecutorService> suiteExecutors
+    static Map<GroupExecType, ExecutorService> suiteExecutors
     static ThreadLocal<Integer> threadLoadedClassNum = new ThreadLocal<>()
     static final int cleanLoadedClassesThreshold = 20
     static String nonConcurrentTestGroup = "nonConcurrent"
@@ -147,19 +147,19 @@ class RegressionTest {
             .namingPattern("suite-thread-%d")
             .priority(Thread.MAX_PRIORITY)
             .build();
-        suiteExecutors[SuiteType.NORMAL] = Executors.newFixedThreadPool(config.suiteParallel, suiteFactory)
+        suiteExecutors[GroupExecType.NORMAL] = Executors.newFixedThreadPool(config.suiteParallel, suiteFactory)
 
         BasicThreadFactory singleSuiteFactory = new BasicThreadFactory.Builder()
             .namingPattern("non-concurrent-thread-%d")
             .priority(Thread.MAX_PRIORITY)
             .build();
-        suiteExecutors[SuiteType.SINGLE] = Executors.newFixedThreadPool(1, singleSuiteFactory)
+        suiteExecutors[GroupExecType.SINGLE] = Executors.newFixedThreadPool(1, singleSuiteFactory)
 
         BasicThreadFactory dockerSuiteFactory = new BasicThreadFactory.Builder()
             .namingPattern("docker-suite-thread-%d")
             .priority(Thread.MAX_PRIORITY)
             .build();
-        suiteExecutors[SuiteType.DOCKER] = Executors.newFixedThreadPool(config.dockerSuiteParallel, dockerSuiteFactory)
+        suiteExecutors[GroupExecType.DOCKER] = Executors.newFixedThreadPool(config.dockerSuiteParallel, dockerSuiteFactory)
 
         BasicThreadFactory actionFactory = new BasicThreadFactory.Builder()
             .namingPattern("action-thread-%d")
@@ -212,9 +212,9 @@ class RegressionTest {
         return sources
     }
 
-    static void runScript(Config config, ScriptSource source, Recorder recorder, SuiteType suiteType) {
+    static void runScript(Config config, ScriptSource source, Recorder recorder, GroupExecType grpExecType) {
         def suiteFilter = { String suiteName, String groupName ->
-            canRun(config, suiteName, groupName, suiteType)
+            canRun(config, suiteName, groupName, grpExecType)
         }
         def file = source.getFile()
         int failureLimit = Integer.valueOf(config.otherConfigs.getOrDefault("max_failure_num", "-1").toString());
@@ -225,7 +225,7 @@ class RegressionTest {
             return;
         }
         def eventListeners = getEventListeners(config, recorder)
-        ExecutorService executors = suiteExecutors[suiteType]
+        ExecutorService executors = suiteExecutors[grpExecType]
 
         new ScriptContext(file, executors, actionExecutors,
                 config, eventListeners, suiteFilter).start { scriptContext ->
@@ -251,7 +251,7 @@ class RegressionTest {
         scriptSources.eachWithIndex { source, i ->
 //            log.info("Prepare scripts [${i + 1}/${totalFile}]".toString())
             def future = scriptExecutors.submit {
-                runScript(config, source, recorder, SuiteType.NORMAL)
+                runScript(config, source, recorder, GroupExecType.NORMAL)
             }
             futures.add(future)
         }
@@ -260,7 +260,7 @@ class RegressionTest {
         scriptSources.eachWithIndex { source, i ->
 //            log.info("Prepare scripts [${i + 1}/${totalFile}]".toString())
             def future = scriptExecutors.submit {
-                runScript(config, source, recorder, SuiteType.DOCKER)
+                runScript(config, source, recorder, GroupExecType.DOCKER)
             }
             dockerFutures.add(future)
         }
@@ -279,7 +279,7 @@ class RegressionTest {
         scriptSources.eachWithIndex { source, i ->
 //            log.info("Prepare scripts [${i + 1}/${totalFile}]".toString())
             def future = scriptExecutors.submit {
-                runScript(config, source, recorder, SuiteType.SINGLE)
+                runScript(config, source, recorder, GroupExecType.SINGLE)
             }
             futures.add(future)
         }
@@ -349,18 +349,18 @@ class RegressionTest {
         return true
     }
 
-    static boolean canRun(Config config, String suiteName, String group, SuiteType suiteType) {
-        return getSuiteType(group) == suiteType && filterGroups(config, group) && filterSuites(config, suiteName)
+    static boolean canRun(Config config, String suiteName, String group, GroupExecType grpExecType) {
+        return getGroupExecType(group) == grpExecType && filterGroups(config, group) && filterSuites(config, suiteName)
     }
 
-    static SuiteType getSuiteType(String group) {
+    static GroupExecType getGroupExecType(String group) {
         Set<String> suiteGroups = group.split(',').collect { g -> g.trim() }.toSet();
         if (suiteGroups.contains(nonConcurrentTestGroup)) {
-            return SuiteType.SINGLE
+            return GroupExecType.SINGLE
         } else if (suiteGroups.contains(dockerTestGroup)) {
-            return SuiteType.DOCKER
+            return GroupExecType.DOCKER
         } else {
-            return SuiteType.NORMAL
+            return GroupExecType.NORMAL
         }
     }
 
@@ -447,7 +447,7 @@ class RegressionTest {
         }
         pluginPath.eachFileRecurse({ it ->
             if (it.name.endsWith(".groovy")) {
-                ScriptContext context = new ScriptContext(it, suiteExecutors[SuiteType.NORMAL], actionExecutors,
+                ScriptContext context = new ScriptContext(it, suiteExecutors[GroupExecType.NORMAL], actionExecutors,
                         config, [], { name -> true })
                 File pluginFile = it
                 context.start({

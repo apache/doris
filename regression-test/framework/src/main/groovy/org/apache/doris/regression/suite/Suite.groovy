@@ -277,7 +277,7 @@ class Suite implements GroovyInterceptable {
             return
         }
 
-        if (RegressionTest.getSuiteType(group) != RegressionTest.SuiteType.DOCKER) {
+        if (RegressionTest.getGroupExecType(group) != RegressionTest.GroupExecType.DOCKER) {
             throw new Exception("Need to add 'docker' to docker suite's belong groups, "
                     + "see example demo_p0/docker_action.groovy")
         }
