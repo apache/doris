@@ -154,9 +154,10 @@ class PlainCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<PlainCsvTextFi
 public:
     explicit PlainCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
                                        const std::string& value_sep, size_t value_sep_len = 1,
-                                       char trimming_char = 0)
+                                       char trimming_char = 0, char escape_char = 0)
             : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
-              _value_sep(value_sep) {
+              _value_sep(value_sep),
+              _escape_char(escape_char) {
         is_single_char_delim = (value_sep_len == 1);
     }
 
@@ -168,6 +169,7 @@ private:
 
     bool is_single_char_delim;
     std::string _value_sep;
+    char _escape_char;
 };
 
 class CsvReader : public GenericReader {

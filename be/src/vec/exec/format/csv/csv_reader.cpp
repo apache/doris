@@ -92,6 +92,9 @@ void PlainCsvTextFieldSplitter::_split_field_single_char(const Slice& line,
     size_t value_start = 0;
     for (size_t i = 0; i < size; ++i) {
         if (data[i] == _value_sep[0]) {
+            if (_escape_char != 0 && i > 0 && data[i - 1] == _escape_char) {
+                continue;
+            }
             process_value_func(data, value_start, i - value_start, _trimming_char, splitted_values);
             value_start = i + _value_sep_len;
         }
@@ -384,7 +387,8 @@ Status CsvReader::init_reader(bool is_load) {
                 _line_delimiter, _line_delimiter_length, _keep_cr);
 
         _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
-                _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1);
+                _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1,
+                _escape);
     } else {
         text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,

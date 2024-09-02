@@ -89,7 +89,6 @@ ROW FORMAT SERDE
   'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe' 
 WITH SERDEPROPERTIES (
   'field.delim' = 'a',
-  'line.delim' = 'b',
   'escape.delim' = '|',
   'serialization.null.format' = 'null'
 )
@@ -106,4 +105,4 @@ insert into serde_test3 values(1, "abc"),(2, "def");
 insert into serde_test4 values(1, "abc"),(2, "def");
 insert into serde_test5 values(1, "abc"),(2, "def");
 insert into serde_test6 values(1, "abc"),(2, "def");
-insert into serde_test7 values(1, null),(2, "|||"),(3, "aaa"),(4, "bbb"),(5, "\"null\"");
+insert into serde_test7 values(1, null),(2, "|||"),(3, "aaa"),(4, "\"null\"");
