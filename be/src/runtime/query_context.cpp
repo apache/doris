@@ -138,6 +138,11 @@ void QueryContext::_init_query_mem_tracker() {
     if (_query_options.__isset.is_report_success && _query_options.is_report_success) {
         query_mem_tracker->enable_print_log_usage();
     }
+#ifndef NDEBUG
+    if (_query_source == QuerySource::GROUP_COMMIT_LOAD) {
+        query_mem_tracker->is_group_commit_load = true;
+    }
+#endif
 }
 
 QueryContext::~QueryContext() {
