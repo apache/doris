@@ -1146,6 +1146,10 @@ public class AnalysisManager implements Writable {
         idToTblStats.remove(log.id);
     }
 
+    public Set<Long> getIdToTblStatsKeys() {
+        return new HashSet<>(idToTblStats.keySet());
+    }
+
     public ColStatsMeta findColStatsMeta(long tblId, String colName) {
         TableStatsMeta tableStats = findTableStatsStatus(tblId);
         if (tableStats == null) {

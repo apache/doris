@@ -185,6 +185,14 @@ public class StatisticsAutoCollectorTest {
         AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setAnalysisMethod(AnalysisMethod.FULL)
                 .setColToPartitions(new HashMap<>()).setAnalysisType(
                 AnalysisType.FUNDAMENTALS).setColName("col1").setJobType(JobType.SYSTEM).build();
+        Database db = new Database();
+        new MockUp<OlapTable>() {
+            @Mock
+            public DatabaseIf getDatabase() {
+                return db;
+            }
+
+        };
         new MockUp<AnalysisManager>() {
 
             int count = 0;
