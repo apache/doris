@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeA
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.executable.ExecutableFunctions;
 import org.apache.doris.nereids.trees.expressions.functions.executable.NumericArithmetic;
+import org.apache.doris.nereids.trees.expressions.functions.executable.StringArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRoundSeries;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -143,6 +144,7 @@ public enum ExpressionEvaluator {
                 DateLiteral.class,
                 DateTimeArithmetic.class,
                 NumericArithmetic.class,
+                StringArithmetic.class,
                 TimeRoundSeries.class
         );
         for (Class<?> cls : classes) {
