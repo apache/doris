@@ -226,7 +226,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
         if (predicates.isEmpty()) {
             return ImmutableSet.of();
         }
-        Set<Expression> inferPredicates = PredicatePropagation.infer(predicates);
+        Set<Expression> inferPredicates = ReplacePredicate.infer(predicates);
         Builder<Expression> newPredicates = ImmutableSet.builderWithExpectedSize(predicates.size() + 10);
         Set<Slot> outputSet = plan.getOutputSet();
 

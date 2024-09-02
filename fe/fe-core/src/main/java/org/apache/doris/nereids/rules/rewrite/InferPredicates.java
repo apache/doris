@@ -73,7 +73,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         }
         Plan left = join.left();
         Plan right = join.right();
-        Set<Expression> expressions = getAllExpressions(left, right, join.getOnClauseCondition());
+        Set<Expression> expressions = getAllExpressions(left, right, join.getOnClauseCondition(), join);
         switch (join.getJoinType()) {
             case INNER_JOIN:
             case CROSS_JOIN:
@@ -156,7 +156,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         Set<Expression> baseExpressions = pullUpPredicates(left);
         baseExpressions.addAll(pullUpPredicates(right));
         condition.ifPresent(on -> baseExpressions.addAll(ExpressionUtils.extractConjunction(on)));
-        baseExpressions.addAll(PredicatePropagation.infer(baseExpressions));
+        baseExpressions.addAll(ReplacePredicate.infer(baseExpressions));
         return baseExpressions;
     }
 
