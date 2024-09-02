@@ -316,7 +316,7 @@ void PipBufferControlBlock::_update_dependency() {
         (_batch_queue_empty || _buffer_rows < _buffer_limit || _is_cancelled)) {
         _result_sink_dependency->set_ready();
     } else if (_result_sink_dependency &&
-               (!_batch_queue_empty && _buffer_rows < _buffer_limit && !_is_cancelled)) {
+               (!_batch_queue_empty && _buffer_rows >= _buffer_limit && !_is_cancelled)) {
         _result_sink_dependency->block();
     }
 }
