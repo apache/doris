@@ -256,12 +256,13 @@ class RegressionTest {
             futures.add(future)
         }
 
+        List<Future> dockerFutures = Lists.newArrayList()
         scriptSources.eachWithIndex { source, i ->
 //            log.info("Prepare scripts [${i + 1}/${totalFile}]".toString())
             def future = scriptExecutors.submit {
                 runScript(config, source, recorder, SuiteType.DOCKER)
             }
-            futures.add(future)
+            dockerFutures.add(future)
         }
 
         // wait all scripts
@@ -284,6 +285,14 @@ class RegressionTest {
         }
 
         // wait all scripts
+        for (Future future : dockerFutures) {
+            try {
+                future.get()
+            } catch (Throwable t) {
+                // do nothing, because already save to Recorder
+            }
+        }
+
         for (Future future : futures) {
             try {
                 future.get()
