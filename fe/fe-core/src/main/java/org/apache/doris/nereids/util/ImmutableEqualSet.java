@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.rules.AbstractEqualSet;
+
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -32,7 +34,7 @@ import java.util.Set;
 /**
  * A class representing an immutable set of elements with equivalence relations.
  */
-public class ImmutableEqualSet<T> {
+public class ImmutableEqualSet<T> implements AbstractEqualSet<T> {
     private final Map<T, T> root;
 
     ImmutableEqualSet(Map<T, T> root) {
@@ -46,7 +48,7 @@ public class ImmutableEqualSet<T> {
     /**
      * Builder for ImmutableEqualSet.
      */
-    public static class Builder<T> {
+    public static class Builder<T> extends AbstractEqualSet.Builder<T> {
         private Map<T, T> parent;
 
         Builder(Map<T, T> parent) {
@@ -138,6 +140,7 @@ public class ImmutableEqualSet<T> {
             return findRoot(parent.get(a));
         }
 
+        @Override
         public ImmutableEqualSet<T> build() {
             ImmutableMap.Builder<T, T> foldMapBuilder = new ImmutableMap.Builder<>();
             for (T k : parent.keySet()) {
@@ -150,6 +153,7 @@ public class ImmutableEqualSet<T> {
     /**
      * Calculate equal set for a except self
      */
+    @Override
     public Set<T> calEqualSet(T a) {
         T ra = root.get(a);
         return root.keySet().stream()
@@ -164,6 +168,7 @@ public class ImmutableEqualSet<T> {
     /**
      * Calculate all equal set
      */
+    @Override
     public List<Set<T>> calEqualSetList() {
         return root.values()
                 .stream()
@@ -176,6 +181,7 @@ public class ImmutableEqualSet<T> {
                 }).collect(ImmutableList.toImmutableList());
     }
 
+    @Override
     public Set<T> getAllItemSet() {
         return ImmutableSet.copyOf(root.keySet());
     }
@@ -185,6 +191,11 @@ public class ImmutableEqualSet<T> {
             return false;
         }
         return root.get(l) == root.get(r);
+    }
+
+    @Override
+    public Set<Map.Entry<T, T>> getAllPairs() {
+        return root.entrySet();
     }
 
     @Override

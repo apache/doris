@@ -164,7 +164,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         Set<Expression> inferPredicates = new HashSet<>();
         Set<Expression> complexPredicates = new HashSet<>();
         Set<Expression> simplePredicates = new HashSet<>();
-        Set<Expression> tmp = PredicatePropagation.infer(baseExpressions);
+        Set<Expression> tmp = ReplacePredicate.infer(baseExpressions);
         tmp.addAll(baseExpressions);
         ExpressionUtils.getComplexAndSimplePredicates(tmp, complexPredicates, simplePredicates);
         inferPredicates.addAll(complexPredicates);

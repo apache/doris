@@ -229,7 +229,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
         Set<Expression> inferPredicates = new HashSet<>();
         Set<Expression> complexPredicates = new HashSet<>();
         Set<Expression> simplePredicates = new HashSet<>();
-        Set<Expression> tmp = PredicatePropagation.infer(predicates);
+        Set<Expression> tmp = ReplacePredicate.infer(predicates);
         tmp.addAll(predicates);
         ExpressionUtils.getComplexAndSimplePredicates(tmp, complexPredicates, simplePredicates);
         inferPredicates.addAll(complexPredicates);
