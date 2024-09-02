@@ -177,7 +177,6 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-
     // There may be more roles to play in the future, if there are multi roles specified,
     // use meta_service as the process name
     std::string process_name = args.get<bool>(ARG_META_SERVICE) ? "meta_service"
