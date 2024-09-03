@@ -70,7 +70,7 @@ suite('test_report_version_missing', 'nonConcurrent,p1') {
 
         Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).await().until({
             def tablets = sql_return_maparray """show tablets from ${tableName}"""
-            logger.info("show tablets from ${result}, has after ${i} * 60 s")
+            logger.info("show tablets from ${tablets}")
             assertNotNull(tablets)
             succ = tablets.any { it.TabletId.toLong() == tabletId.toLong() && it.LstFailedVersion.toLong() > 0 }
             return succ
