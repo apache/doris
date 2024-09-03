@@ -124,6 +124,9 @@ public class TableProperty implements Writable, GsonPostProcessable {
     private long timeSeriesCompactionLevelThreshold
                                     = PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
 
+    private String autoAnalyzePolicy = PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY;
+
+
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
     public TableProperty(Map<String, String> properties) {
@@ -163,6 +166,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
                 buildTimeSeriesCompactionEmptyRowsetsThreshold();
                 buildTimeSeriesCompactionLevelThreshold();
                 buildTTLSeconds();
+                buildAutoAnalyzeProperty();
                 break;
             default:
                 break;
@@ -253,6 +257,12 @@ public class TableProperty implements Writable, GsonPostProcessable {
     public TableProperty buildDisableAutoCompaction() {
         disableAutoCompaction = Boolean.parseBoolean(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION, "false"));
+        return this;
+    }
+
+    public TableProperty buildAutoAnalyzeProperty() {
+        autoAnalyzePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY,
+                PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY);
         return this;
     }
 
