@@ -152,7 +152,7 @@ private:
     Status init() override;
 
 private:
-    ZSTD_DCtx* _dctx;
+    ZSTD_DStream* _zstd_strm {nullptr};
 };
 
 class Lz4FrameDecompressor : public Decompressor {
