@@ -644,19 +644,29 @@ public class SystemInfoService {
 
     public void updateBackendReportVersion(long backendId, long newReportVersion, long dbId, long tableId,
             boolean checkDbExist) {
-        AtomicLong atomicLong;
-        if ((atomicLong = idToReportVersionRef.get(backendId)) != null) {
-            if (checkDbExist) {
-                Database db = (Database) Env.getCurrentInternalCatalog().getDbNullable(dbId);
-                if (db == null) {
-                    LOG.warn("failed to update backend report version, db {} does not exist", dbId);
-                    return;
+        AtomicLong atomicLong = idToReportVersionRef.get(backendId);
+        if (atomicLong == null) {
+            return;
+        }
+        if (checkDbExist && Env.getCurrentInternalCatalog().getDbNullable(dbId) == null) {
+            LOG.warn("failed to update backend report version, db {} does not exist", dbId);
+            return;
+        }
+        while (true) {
+            long curReportVersion = atomicLong.get();
+            if (curReportVersion >= newReportVersion) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("skip update backend {} report version: {}, current version: {}, db: {}, table: {}",
+                            backendId, newReportVersion, curReportVersion, dbId, tableId);
                 }
+                break;
             }
-            atomicLong.set(newReportVersion);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("update backend {} report version: {}, db: {}, table: {}",
-                        backendId, newReportVersion, dbId, tableId);
+            if (atomicLong.compareAndSet(curReportVersion, newReportVersion)) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("update backend {} report version: {}, db: {}, table: {}",
+                            backendId, newReportVersion, dbId, tableId);
+                }
+                break;
             }
         }
     }

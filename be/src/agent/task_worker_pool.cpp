@@ -102,7 +102,7 @@ namespace {
 std::mutex s_task_signatures_mtx;
 std::unordered_map<TTaskType::type, std::unordered_set<int64_t>> s_task_signatures;
 
-std::atomic_ulong s_report_version(time(nullptr) * 10000);
+std::atomic_ulong s_report_version(time(nullptr) * 100000);
 
 void increase_report_version() {
     s_report_version.fetch_add(1, std::memory_order_relaxed);
