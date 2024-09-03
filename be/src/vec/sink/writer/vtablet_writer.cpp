@@ -1029,10 +1029,10 @@ static void* periodic_send_batch(void* writer) {
 Status VTabletWriter::open(doris::RuntimeState* state, doris::RuntimeProfile* profile) {
     // if we set enable_decimal_conversion=false && disable_decimalv2=false in config
     // and we create nested type with decimal like array<text,decimal(28,12)>
-    // nereids planner will throw exception with precision should in (0, 27], but real precision is 28 
+    // nereids planner will throw exception with precision should in (0, 27], but real precision is 28
     // but in 2.1 we can fall back to old planner which make this behavior possible
-    // so in _init() we will meet slot has decimalv2 type with has precision 28 and exception will 
-    // throw from func check_type_precision() , so here we catch exception to avoid be core.    
+    // so in _init() we will meet slot has decimalv2 type with has precision 28 and exception will
+    // throw from func check_type_precision() , so here we catch exception to avoid be core.
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_init(state, profile));
     signal::set_signal_task_id(_load_id);
     SCOPED_TIMER(profile->total_time_counter());
