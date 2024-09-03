@@ -133,6 +133,8 @@ struct TResultFileSinkOptions {
     18: optional bool with_bom;
 
     19: optional PlanNodes.TFileCompressType orc_compression_type;
+
+    20: optional i64 orc_writer_version;
 }
 
 struct TMemoryScratchSink {
