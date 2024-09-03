@@ -24,7 +24,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-    sql "SET enable_match_without_inverted_index = false"
+    sql "SET global enable_match_without_inverted_index = false"
 
     boolean disableAutoCompaction = false
   
@@ -332,7 +332,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         if (has_update_be_config) {
             set_be_config.call("inverted_index_compaction_enable", invertedIndexCompactionEnable.toString())
         }
+        sql "SET global enable_match_without_inverted_index = true"
     }
 
-    sql "SET enable_match_without_inverted_index = true"
 }

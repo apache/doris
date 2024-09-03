@@ -47,7 +47,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         }
     }
 
-    sql "SET enable_match_without_inverted_index = false"
+    sql "SET global enable_match_without_inverted_index = false"
     boolean inverted_index_ram_dir_enable = true
     boolean has_update_be_config = false
     
@@ -291,7 +291,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         if (has_update_be_config) {
             set_be_config.call("inverted_index_ram_dir_enable", inverted_index_ram_dir_enable.toString())
         }
-        sql "SET enable_match_without_inverted_index = true"
+        sql "SET global enable_match_without_inverted_index = true"
     }
 
 }
