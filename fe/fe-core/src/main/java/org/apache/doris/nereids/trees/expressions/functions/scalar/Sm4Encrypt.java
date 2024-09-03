@@ -82,7 +82,7 @@ public class Sm4Encrypt extends Sm4CryptoFunction {
         } else if (children().size() == 3) {
             return new Sm4Encrypt(children.get(0), children.get(1), children.get(2));
         } else {
-            return new Sm4Encrypt(children.get(0), children.get(1), children.get(2), (StringLiteral) children.get(3));
+            return new Sm4Encrypt(children.get(0), children.get(1), children.get(2), children.get(3));
         }
     }
 
