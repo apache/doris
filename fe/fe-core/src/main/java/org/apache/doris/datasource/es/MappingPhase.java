@@ -130,10 +130,14 @@ public class MappingPhase implements SearchPhase {
                         if (docValue) {
                             docValueField = colName;
                         }
-                    } else {
-                        // a : {c : {}} -> a -> a.c
-                        docValueField = colName + "." + fieldName;
+                    } else if (innerTypeObject.has("ignore_above")) {
+                        // this field has `ignore_above` param
+                        // Strings longer than the ignore_above setting will not be indexed or stored
+                        // so we cannot rely on its doc_values
+                        continue;
                     }
+                    // a : {c : {}} -> a -> a.c
+                    docValueField = colName + "." + fieldName;
                 }
             }
         } else {
@@ -145,6 +149,11 @@ public class MappingPhase implements SearchPhase {
                 }
             } else if (fieldType == null || "nested".equals(fieldType)) {
                 // The object field has no type, and nested not support doc value.
+                return;
+            } else if (fieldObject.has("ignore_above")) {
+                // this field has `ignore_above` param
+                // Strings longer than the ignore_above setting will not be indexed or stored
+                // so we cannot rely on its doc_values
                 return;
             }
             docValueField = colName;
