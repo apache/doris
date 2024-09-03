@@ -53,6 +53,7 @@ import com.google.common.collect.BiMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
@@ -741,18 +742,17 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return res;
     }
 
-    private HiveMetaStoreCache.HivePartitionValues getHivePartitionValues() {
-        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) getCatalog());
-        return cache.getPartitionValues(
-                getDbName(), getName(), getPartitionColumnTypes());
-    }
-
     @Override
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context)
             throws AnalysisException {
-        long partitionLastModifyTime = getPartitionLastModifyTime(partitionName);
-        return new MTMVTimestampSnapshot(partitionLastModifyTime);
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) getCatalog());
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
+                getDbName(), getName(), getPartitionColumnTypes());
+        Long partitionId = getPartitionIdByNameOrAnalysisException(partitionName, hivePartitionValues);
+        HivePartition hivePartition = getHivePartitionByIdOrAnalysisException(partitionId,
+                hivePartitionValues, cache);
+        return new MTMVTimestampSnapshot(hivePartition.getLastModifiedTime());
     }
 
     @Override
@@ -760,45 +760,50 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (getPartitionType() == PartitionType.UNPARTITIONED) {
             return new MTMVMaxTimestampSnapshot(getName(), getLastDdlTime());
         }
-        String partitionName = "";
+        Long maxPartitionId = 0L;
         long maxVersionTime = 0L;
         long visibleVersionTime;
-        for (Entry<String, PartitionItem> entry : getAndCopyPartitionItems().entrySet()) {
-            visibleVersionTime = getPartitionLastModifyTime(entry.getKey());
-            if (visibleVersionTime > maxVersionTime) {
-                maxVersionTime = visibleVersionTime;
-                partitionName = entry.getKey();
-            }
-        }
-        return new MTMVMaxTimestampSnapshot(partitionName, maxVersionTime);
-    }
-
-    private long getPartitionLastModifyTime(String partitionName) throws AnalysisException {
-        return getPartitionByName(partitionName).getLastModifiedTime();
-    }
-
-    private HivePartition getPartitionByName(String partitionName) throws AnalysisException {
-        PartitionItem item = getAndCopyPartitionItems().get(partitionName);
-        List<List<String>> partitionValuesList = transferPartitionItemToPartitionValues(item);
-        List<HivePartition> partitions = getPartitionsByPartitionValues(partitionValuesList);
-        if (partitions.size() != 1) {
-            throw new AnalysisException("partition not normal, size: " + partitions.size());
-        }
-        return partitions.get(0);
-    }
-
-    private List<HivePartition> getPartitionsByPartitionValues(List<List<String>> partitionValuesList) {
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) getCatalog());
-        return cache.getAllPartitionsWithCache(getDbName(), getName(),
-                partitionValuesList);
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
+                getDbName(), getName(), getPartitionColumnTypes());
+        BiMap<Long, String> idToName = hivePartitionValues.getPartitionNameToIdMap().inverse();
+        if (MapUtils.isEmpty(idToName)) {
+            throw new AnalysisException("partitions is empty for : " + getName());
+        }
+        for (Long partitionId : idToName.keySet()) {
+            visibleVersionTime = getHivePartitionByIdOrAnalysisException(partitionId, hivePartitionValues,
+                    cache).getLastModifiedTime();
+            if (visibleVersionTime > maxVersionTime) {
+                maxVersionTime = visibleVersionTime;
+                maxPartitionId = partitionId;
+            }
+        }
+        return new MTMVMaxTimestampSnapshot(idToName.get(maxPartitionId), maxVersionTime);
     }
 
-    private List<List<String>> transferPartitionItemToPartitionValues(PartitionItem item) {
-        List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(1);
-        partitionValuesList.add(
-                ((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringListForHive());
-        return partitionValuesList;
+    private Long getPartitionIdByNameOrAnalysisException(String partitionName,
+            HiveMetaStoreCache.HivePartitionValues hivePartitionValues)
+            throws AnalysisException {
+        Long partitionId = hivePartitionValues.getPartitionNameToIdMap().get(partitionName);
+        if (partitionId == null) {
+            throw new AnalysisException("can not find partition: " + partitionName);
+        }
+        return partitionId;
+    }
+
+    private HivePartition getHivePartitionByIdOrAnalysisException(Long partitionId,
+            HiveMetaStoreCache.HivePartitionValues hivePartitionValues,
+            HiveMetaStoreCache cache) throws AnalysisException {
+        List<String> partitionValues = hivePartitionValues.getPartitionValuesMap().get(partitionId);
+        if (CollectionUtils.isEmpty(partitionValues)) {
+            throw new AnalysisException("can not find partitionValues: " + partitionId);
+        }
+        HivePartition partition = cache.getHivePartition(getDbName(), getName(), partitionValues);
+        if (partition == null) {
+            throw new AnalysisException("can not find partition: " + partitionId);
+        }
+        return partition;
     }
 
     @Override

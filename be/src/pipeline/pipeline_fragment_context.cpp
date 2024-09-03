@@ -1031,6 +1031,10 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
     }
     case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
         DCHECK(thrift_sink.__isset.olap_table_sink);
+#ifndef NDEBUG
+        DCHECK(state->get_query_ctx() != nullptr);
+        state->get_query_ctx()->query_mem_tracker->is_group_commit_load = true;
+#endif
         _sink.reset(
                 new GroupCommitBlockSinkOperatorX(next_sink_operator_id(), row_desc, output_exprs));
         break;
@@ -1177,6 +1181,10 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     case TPlanNodeType::GROUP_COMMIT_SCAN_NODE: {
+#ifndef NDEBUG
+        DCHECK(_query_ctx != nullptr);
+        _query_ctx->query_mem_tracker->is_group_commit_load = true;
+#endif
         op.reset(new GroupCommitOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
         if (request.__isset.parallel_instances) {
