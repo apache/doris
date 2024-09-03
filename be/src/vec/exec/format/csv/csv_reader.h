@@ -154,10 +154,9 @@ class PlainCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<PlainCsvTextFi
 public:
     explicit PlainCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
                                        const std::string& value_sep, size_t value_sep_len = 1,
-                                       char trimming_char = 0, char escape_char = 0)
+                                       char trimming_char = 0)
             : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
-              _value_sep(value_sep),
-              _escape_char(escape_char) {
+              _value_sep(value_sep) {
         is_single_char_delim = (value_sep_len == 1);
     }
 
@@ -168,6 +167,21 @@ private:
     void _split_field_multi_char(const Slice& line, std::vector<Slice>* splitted_values);
 
     bool is_single_char_delim;
+    std::string _value_sep;
+};
+
+class HiveCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<HiveCsvTextFieldSplitter> {
+public:
+    explicit HiveCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
+                                      const string& value_sep, size_t value_sep_len = 1,
+                                      char trimming_char = 0, char escape_char = 0)
+            : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
+              _value_sep(value_sep),
+              _escape_char(escape_char) {}
+
+    void do_split(const Slice& line, std::vector<Slice>* splitted_values);
+
+private:
     std::string _value_sep;
     char _escape_char;
 };
