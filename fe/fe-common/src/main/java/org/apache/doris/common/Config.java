@@ -19,6 +19,8 @@ package org.apache.doris.common;
 
 import java.io.File;
 
+import org.apache.doris.common.ConfigBase.ConfField;
+
 public class Config extends ConfigBase {
 
     @ConfField(description = {"用户自定义配置文件的路径，用于存放 fe_custom.conf。该文件中的配置会覆盖 fe.conf 中的配置",
@@ -2783,6 +2785,10 @@ public class Config extends ConfigBase {
     // The total size of profiles that can be stored to storage.
     @ConfField
     public static long spilled_profile_storage_limit_bytes = 1 * 1024 * 1024 * 1024; // 1GB
+
+    // Profile will be spilled to storage after query has finished for this time.
+    @ConfField
+    public static int profile_waiting_time_for_spill_s = 10;
 
     @ConfField(mutable = true, description = {
             "是否通过检测协调者BE心跳来 abort 事务",
