@@ -140,7 +140,7 @@ suite("test_partition_version_mtmv","mtmv") {
          DUPLICATE KEY(`user_id`, `date`, `num`)
          COMMENT 'OLAP'
          PARTITION BY RANGE(`date`)
-         (PARTITION p201701_1000 VALUES [('0000-01-01'), ('2017-02-01'))
+         (PARTITION p201701_1000 VALUES [('0000-01-01'), ('2017-02-01')))
          DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
          PROPERTIES ('replication_num' = '1') ;
         """
