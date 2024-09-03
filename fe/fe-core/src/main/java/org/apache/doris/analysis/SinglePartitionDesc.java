@@ -126,6 +126,10 @@ public class SinglePartitionDesc implements AllPartitionDesc {
         return versionInfo;
     }
 
+    public void setVersionInfo(Long versionInfo) {
+        this.versionInfo = versionInfo;
+    }
+
     public Map<String, String> getProperties() {
         return this.properties;
     }

@@ -1518,6 +1518,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 DistributionDesc distributionDesc = part.getDistributionInfo().toDistributionDesc();
                 Map<String, String> properties = newPartitionDesc.getProperties();
+                // Inherit the version number of the original partition,
+                // otherwise the materialized view will continue to insert overwrite,
+                // but the version number will always be 2
+                newPartitionDesc.setVersionInfo(part.getVisibleVersion());
                 clause = new AddPartitionClause(newPartitionDesc, distributionDesc,
                         properties, addPartitionLikeClause.getIsTempPartition());
             } finally {
