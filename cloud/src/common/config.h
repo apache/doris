@@ -55,7 +55,7 @@ CONF_Bool(enable_file_logger, "true");
 
 // recycler config
 CONF_mInt64(recycle_interval_seconds, "3600");
-CONF_mInt64(retention_seconds, "259200"); // 72h
+CONF_mInt64(retention_seconds, "259200"); // 72h, global retention time
 CONF_Int32(recycle_concurrency, "16");
 CONF_Int32(recycle_job_lease_expired_ms, "60000");
 CONF_mInt64(compacted_rowset_retention_seconds, "10800");  // 3h
@@ -77,7 +77,8 @@ CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 CONF_mInt32(check_object_interval_seconds, "43200"); // 12hours
 
 CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
-CONF_mInt64(recycle_task_threshold_seconds, "10800");    // 3h
+// log a warning if a recycle task takes longer than this duration
+CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 
 CONF_String(test_s3_ak, "");
 CONF_String(test_s3_sk, "");
