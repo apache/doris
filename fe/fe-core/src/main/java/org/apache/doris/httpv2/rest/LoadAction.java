@@ -89,7 +89,6 @@ public class LoadAction extends RestBaseController {
     public Object streamLoad(HttpServletRequest request,
             HttpServletResponse response,
             @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
-        LOG.info("streamload action, db: {}, tbl: {}, headers: {}", db, table, getAllHeaders(request));
         boolean groupCommit = false;
         String groupCommitStr = request.getHeader("group_commit");
         if (groupCommitStr != null) {
@@ -102,7 +101,7 @@ public class LoadAction extends RestBaseController {
                 if (groupCommitStr.equalsIgnoreCase("async_mode")) {
                     try {
                         if (isGroupCommitBlock(db, table)) {
-                            String msg = "insert table " + table + GroupCommitPlanner.SCHEMA_CHANGE;
+                            String msg = "insert table " + table + " is blocked on schema change";
                             return new RestBaseResult(msg);
                         }
                     } catch (Exception e) {
@@ -157,7 +156,7 @@ public class LoadAction extends RestBaseController {
                     // async mode needs to write WAL, we need to block load during waiting WAL.
                     if (groupCommitStr.equalsIgnoreCase("async_mode")) {
                         if (isGroupCommitBlock(pair[0], pair[1])) {
-                            String msg = "insert table " + pair[1] + GroupCommitPlanner.SCHEMA_CHANGE;
+                            String msg = "insert table " + pair[1] + " is blocked on schema change";
                             return new RestBaseResult(msg);
                         }
 
@@ -229,7 +228,6 @@ public class LoadAction extends RestBaseController {
     public Object streamLoad2PC(HttpServletRequest request,
             HttpServletResponse response,
             @PathVariable(value = DB_KEY) String db) {
-        LOG.info("streamload action 2PC, db: {}, headers: {}", db, getAllHeaders(request));
         if (needRedirect(request.getScheme())) {
             return redirectToHttps(request);
         }
@@ -243,7 +241,6 @@ public class LoadAction extends RestBaseController {
             HttpServletResponse response,
             @PathVariable(value = DB_KEY) String db,
             @PathVariable(value = TABLE_KEY) String table) {
-        LOG.info("streamload action 2PC, db: {}, tbl: {}, headers: {}", db, table, getAllHeaders(request));
         if (needRedirect(request.getScheme())) {
             return redirectToHttps(request);
         }
@@ -383,7 +380,7 @@ public class LoadAction extends RestBaseController {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
         if (groupCommit) {
-            backend = selectBackendForGroupCommit("", request, tableId);
+            backend = selectBackendForGroupCommit(request, tableId);
         } else {
             backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
         }
@@ -482,18 +479,7 @@ public class LoadAction extends RestBaseController {
         }
     }
 
-    private String getAllHeaders(HttpServletRequest request) {
-        StringBuilder headers = new StringBuilder();
-        Enumeration<String> headerNames = request.getHeaderNames();
-        while (headerNames.hasMoreElements()) {
-            String headerName = headerNames.nextElement();
-            String headerValue = request.getHeader(headerName);
-            headers.append(headerName).append(":").append(headerValue).append(", ");
-        }
-        return headers.toString();
-    }
-
-    private Backend selectBackendForGroupCommit(String clusterName, HttpServletRequest req, long tableId)
+    private Backend selectBackendForGroupCommit(HttpServletRequest req, long tableId)
             throws LoadException {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
@@ -507,7 +493,7 @@ public class LoadAction extends RestBaseController {
         Backend backend = null;
         try {
             backend = Env.getCurrentEnv().getGroupCommitManager()
-                    .selectBackendForGroupCommit(tableId, ctx, isCloud);
+                    .selectBackendForGroupCommit(tableId, ctx);
         } catch (DdlException e) {
             throw new LoadException(e.getMessage(), e);
         }
