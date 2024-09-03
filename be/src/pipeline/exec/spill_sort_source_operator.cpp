@@ -17,6 +17,8 @@
 
 #include "spill_sort_source_operator.h"
 
+#include <glog/logging.h>
+
 #include "common/status.h"
 #include "pipeline/exec/spill_utils.h"
 #include "runtime/fragment_mgr.h"
@@ -58,6 +60,10 @@ Status SpillSortLocalState::open(RuntimeState* state) {
     if (_opened) {
         return Status::OK();
     }
+
+    _spill_dependency = state->get_spill_dependency();
+    DCHECK(_spill_dependency != nullptr);
+
     RETURN_IF_ERROR(setup_in_memory_sort_op(state));
     return Base::open(state);
 }
@@ -77,7 +83,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
     auto& parent = Base::_parent->template cast<Parent>();
     VLOG_DEBUG << "query " << print_id(state->query_id()) << " sort node " << _parent->node_id()
                << " merge spill data";
-    _dependency->Dependency::block();
+    _spill_dependency->Dependency::block();
 
     auto query_id = state->query_id();
 
@@ -102,7 +108,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
                 VLOG_DEBUG << "query " << print_id(query_id) << " sort node " << _parent->node_id()
                            << " merge spill data finish";
             }
-            _dependency->Dependency::set_ready();
+            _spill_dependency->Dependency::set_ready();
         }};
         vectorized::Block merge_sorted_block;
         vectorized::SpillStreamSPtr tmp_stream;
