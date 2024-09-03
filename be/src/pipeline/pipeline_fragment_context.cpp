@@ -1031,6 +1031,12 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
     }
     case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
         DCHECK(thrift_sink.__isset.olap_table_sink);
+#ifndef NDEBUG
+        DCHECK(state->get_query_ctx() != nullptr);
+        state->get_query_ctx()->query_mem_tracker->is_group_commit_load = true;
+        LOG(INFO) << "is group commit load sink stage "
+                  << state->get_query_ctx()->query_mem_tracker->label(); // DEBUG
+#endif
         _sink.reset(
                 new GroupCommitBlockSinkOperatorX(next_sink_operator_id(), row_desc, output_exprs));
         break;
@@ -1178,6 +1184,12 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     }
     case TPlanNodeType::GROUP_COMMIT_SCAN_NODE: {
         op.reset(new GroupCommitOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
+#ifndef NDEBUG
+        DCHECK(_query_ctx != nullptr);
+        _query_ctx->query_mem_tracker->is_group_commit_load = true;
+        LOG(INFO) << "is group commit load sink stage "
+                  << _query_ctx->query_mem_tracker->label(); // DEBUG
+#endif
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
         if (request.__isset.parallel_instances) {
             cur_pipe->set_num_tasks(request.parallel_instances);
