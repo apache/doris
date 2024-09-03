@@ -318,8 +318,6 @@ public class Profile {
     }
 
     public String getProfileByLevel() {
-        waitProfileCompleteIfNeeded();
-
         if (!profileHasBeenStored()) {
             if (!this.isQueryFinished || !isProfileCompleted()) {
                 summaryProfile.setSystemMessageIfEmpty("Profile maybe not complete, still collecting.");
@@ -339,6 +337,7 @@ public class Profile {
 
     // If the query is already finished, and user wants to get the profile, we should check
     // if BE has reported all profiles, if not, sleep 2s.
+    // The caller of this method should make sure this function is not called inside a lock.
     private void waitProfileCompleteIfNeeded() {
         if (!this.isQueryFinished) {
             return;
