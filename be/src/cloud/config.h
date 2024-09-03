@@ -103,4 +103,6 @@ DECLARE_mInt32(sync_load_for_tablets_thread);
 // enable large txn lazy commit in meta-service `commit_txn`
 DECLARE_mBool(enable_cloud_txn_lazy_commit);
 
+DECLARE_mInt32(remove_expired_tablet_txn_info_interval_seconds);
+
 } // namespace doris::config

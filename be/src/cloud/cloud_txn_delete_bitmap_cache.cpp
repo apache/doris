@@ -23,6 +23,7 @@
 #include <memory>
 #include <shared_mutex>
 
+#include "cloud/config.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "olap/olap_common.h"
@@ -119,12 +120,11 @@ void CloudTxnDeleteBitmapCache::set_tablet_txn_info(
         TTransactionId transaction_id, int64_t tablet_id, DeleteBitmapPtr delete_bitmap,
         const RowsetIdUnorderedSet& rowset_ids, RowsetSharedPtr rowset, int64_t txn_expiration,
         std::shared_ptr<PartialUpdateInfo> partial_update_info) {
-    if (txn_expiration <= 0) {
-        txn_expiration = duration_cast<std::chrono::seconds>(
-                                 std::chrono::system_clock::now().time_since_epoch())
-                                 .count() +
-                         120;
-    }
+    int64_t txn_expiration_min =
+            duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
+                    .count() +
+            config::remove_expired_tablet_txn_info_interval_seconds;
+    txn_expiration = std::max(txn_expiration_min, txn_expiration);
     {
         std::unique_lock<std::shared_mutex> wlock(_rwlock);
         TxnKey txn_key(transaction_id, tablet_id);
@@ -184,26 +184,34 @@ void CloudTxnDeleteBitmapCache::update_tablet_txn_info(TTransactionId transactio
     LOG_INFO("update txn related delete bitmap")
             .tag("txn_id", transaction_id)
             .tag("tablt_id", tablet_id)
-            .tag("delete_bitmap_size", charge);
+            .tag("delete_bitmap_size", charge)
+            .tag("publish_status", static_cast<int>(publish_status));
 }
 
 void CloudTxnDeleteBitmapCache::remove_expired_tablet_txn_info() {
     TEST_SYNC_POINT_RETURN_WITH_VOID("CloudTxnDeleteBitmapCache::remove_expired_tablet_txn_info");
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
-    while (!_expiration_txn.empty()) {
-        auto iter = _expiration_txn.begin();
-        if (_txn_map.find(iter->second) == _txn_map.end()) {
-            _expiration_txn.erase(iter);
+    for (auto it = _expiration_txn.begin(); it != _expiration_txn.end();) {
+        if (_txn_map.find(it->second) == _txn_map.end()) {
+            it = _expiration_txn.erase(it);
             continue;
         }
         int64_t current_time = duration_cast<std::chrono::seconds>(
                                        std::chrono::system_clock::now().time_since_epoch())
                                        .count();
-        if (iter->first > current_time) {
+        if (it->first > current_time) {
             break;
         }
-        auto txn_iter = _txn_map.find(iter->second);
-        if ((txn_iter != _txn_map.end()) && (iter->first == txn_iter->second.txn_expiration)) {
+        if (*(_txn_map.find(it->second)->second.publish_status) != PublishStatus::SUCCEED) {
+            LOG(WARNING) << "process expired_tablet_txn_info, txn="
+                         << _txn_map.find(it->second)->first.txn_id << " publish_status is "
+                         << static_cast<int>(*(_txn_map.find(it->second)->second.publish_status))
+                         << ",skip to remove";
+            it++;
+            continue;
+        }
+        auto txn_iter = _txn_map.find(it->second);
+        if ((txn_iter != _txn_map.end()) && (it->first == txn_iter->second.txn_expiration)) {
             LOG_INFO("clean expired delete bitmap")
                     .tag("txn_id", txn_iter->first.txn_id)
                     .tag("expiration", txn_iter->second.txn_expiration)
@@ -212,9 +220,9 @@ void CloudTxnDeleteBitmapCache::remove_expired_tablet_txn_info() {
                                   std::to_string(txn_iter->first.tablet_id); // Cache key container
             CacheKey cache_key(key_str);
             erase(cache_key);
-            _txn_map.erase(iter->second);
+            _txn_map.erase(it->second);
         }
-        _expiration_txn.erase(iter);
+        it = _expiration_txn.erase(it);
     }
 }
 
@@ -238,7 +246,8 @@ void CloudTxnDeleteBitmapCache::remove_unused_tablet_txn_info(TTransactionId tra
 void CloudTxnDeleteBitmapCache::_clean_thread_callback() {
     do {
         remove_expired_tablet_txn_info();
-    } while (!_stop_latch.wait_for(std::chrono::seconds(300)));
+    } while (!_stop_latch.wait_for(
+            std::chrono::seconds(config::remove_expired_tablet_txn_info_interval_seconds)));
 }
 
 } // namespace doris
