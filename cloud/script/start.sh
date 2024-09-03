@@ -82,7 +82,7 @@ if ldd "${bin}" | grep -Ei 'libfdb_c.*not found' &>/dev/null; then
         exit 1
     fi
     patchelf --set-rpath "${lib_path}" "${bin}"
-    ldd "${bin}"
+    # ldd "${bin}"
 fi
 
 chmod 550 "${DORIS_HOME}/lib/doris_cloud"
@@ -91,7 +91,7 @@ if [[ -z "${JAVA_HOME}" ]]; then
     echo "The JAVA_HOME environment variable is not defined correctly"
     echo "This environment variable is needed to run this program"
     echo "NB: JAVA_HOME should point to a JDK not a JRE"
-    echo "You can set it in be.conf"
+    echo "You can set it in doris_cloud.conf"
     exit 1
 fi
 
