@@ -373,11 +373,11 @@ Status InvertedIndexFileWriter::write_v1() {
         } catch (CLuceneError& err) {
             auto index_path = InvertedIndexDescriptor::get_index_file_path_v1(
                     _index_path_prefix, index_id, index_suffix);
-            LOG(ERROR) << "CLuceneError occur when close idx file " << index_path
+            LOG(ERROR) << "CLuceneError occur when write_v1 idx file " << index_path
                        << " error msg: " << err.what();
 
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "CLuceneError occur when close idx file: {}, error msg: {}", index_path,
+                    "CLuceneError occur when write_v1 idx file: {}, error msg: {}", index_path,
                     err.what());
         }
     }
