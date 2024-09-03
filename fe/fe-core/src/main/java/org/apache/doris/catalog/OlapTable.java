@@ -1468,6 +1468,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
+        if (!autoAnalyzeEnabled()) {
+            return false;
+        }
         if (tblStats == null) {
             return true;
         }
@@ -3212,5 +3215,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
     public long getReplicaCount() {
         return statistics.getReplicaCount();
+    }
+
+    @Override
+    public boolean autoAnalyzeEnabled() {
+        if (tableProperty == null) {
+            return super.autoAnalyzeEnabled();
+        }
+        Map<String, String> properties = tableProperty.getProperties();
+        if (properties == null || !properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)
+                || properties.get(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)
+                    .equalsIgnoreCase(PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY)) {
+            return super.autoAnalyzeEnabled();
+        }
+        return properties.get(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)
+                .equalsIgnoreCase(PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY);
     }
 }

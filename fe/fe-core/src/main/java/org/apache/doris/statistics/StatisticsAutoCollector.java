@@ -123,6 +123,9 @@ public class StatisticsAutoCollector extends MasterDaemon {
 
     protected void processOneJob(TableIf table, JobPriority priority)
                 throws DdlException, ExecutionException, InterruptedException {
+        if (!table.autoAnalyzeEnabled()) {
+            return;
+        }
         AnalysisMethod analysisMethod =
                 table.getDataSize(true) >= StatisticsUtil.getHugeTableLowerBoundSizeInBytes()
                         ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
