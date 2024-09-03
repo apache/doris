@@ -49,7 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class ShowTableStatsStmt extends ShowStmt {
+public class ShowTableStatsStmt extends ShowStmt implements NotFallbackInParser {
 
     private static final ImmutableList<String> TABLE_TITLE_NAMES =
             new ImmutableList.Builder<String>()
@@ -61,6 +61,7 @@ public class ShowTableStatsStmt extends ShowStmt {
                     .add("trigger")
                     .add("new_partition")
                     .add("user_inject")
+                    .add("enable_auto_analyze")
                     .build();
 
     private static final ImmutableList<String> PARTITION_TITLE_NAMES =
@@ -197,12 +198,12 @@ public class ShowTableStatsStmt extends ShowStmt {
         return tableId;
     }
 
-    public ShowResultSet constructResultSet(TableStatsMeta tableStatistic) {
+    public ShowResultSet constructResultSet(TableStatsMeta tableStatistic, TableIf table) {
         if (indexName != null) {
             return constructIndexResultSet(tableStatistic);
         }
         if (partitionNames == null) {
-            return constructTableResultSet(tableStatistic);
+            return constructTableResultSet(tableStatistic, table);
         }
         if (columnNames == null) {
             return constructPartitionResultSet(tableStatistic);
@@ -215,7 +216,7 @@ public class ShowTableStatsStmt extends ShowStmt {
         return new ShowResultSet(getMetaData(), new ArrayList<>());
     }
 
-    public ShowResultSet constructResultSet(long rowCount) {
+    public ShowResultSet constructResultSet(TableIf table) {
         List<List<String>> result = Lists.newArrayList();
         if (partitionNames != null) {
             // For partition, return empty result if table stats not exist.
@@ -224,17 +225,18 @@ public class ShowTableStatsStmt extends ShowStmt {
         List<String> row = Lists.newArrayList();
         row.add("");
         row.add("");
-        row.add(String.valueOf(rowCount));
+        row.add(String.valueOf(table.getCachedRowCount()));
         row.add("");
         row.add("");
         row.add("");
         row.add("");
         row.add("");
+        row.add(String.valueOf(table.autoAnalyzeEnabled()));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
     }
 
-    public ShowResultSet constructTableResultSet(TableStatsMeta tableStatistic) {
+    public ShowResultSet constructTableResultSet(TableStatsMeta tableStatistic, TableIf table) {
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         if (tableStatistic == null) {
             return new ShowResultSet(getMetaData(), new ArrayList<>());
@@ -253,6 +255,7 @@ public class ShowTableStatsStmt extends ShowStmt {
         row.add(tableStatistic.jobType.toString());
         row.add(String.valueOf(tableStatistic.partitionChanged.get()));
         row.add(String.valueOf(tableStatistic.userInjected));
+        row.add(table == null ? "N/A" : String.valueOf(table.autoAnalyzeEnabled()));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
     }

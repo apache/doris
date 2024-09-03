@@ -479,8 +479,8 @@ void MetaServiceImpl::precommit_txn(::google::protobuf::RpcController* controlle
         return;
     }
 
-    LOG(INFO) << "xxx put running_key=" << hex(running_key) << " txn_id=" << txn_id;
     txn->put(running_key, running_val);
+    LOG(INFO) << "xxx put running_key=" << hex(running_key) << " txn_id=" << txn_id;
 
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
@@ -569,8 +569,6 @@ void put_routine_load_progress(MetaServiceCode& code, std::string& msg,
         new_statistic_info->set_task_execution_time_ms(commit_attachment.task_execution_time_ms());
     }
 
-    LOG(INFO) << "routine load new progress: " << new_progress_info.ShortDebugString();
-
     if (!new_progress_info.SerializeToString(&new_progress_val)) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
         ss << "failed to serialize new progress val, txn_id=" << txn_id;
@@ -579,6 +577,8 @@ void put_routine_load_progress(MetaServiceCode& code, std::string& msg,
     }
 
     txn->put(rl_progress_key, new_progress_val);
+    LOG(INFO) << "put rl_progress_key key=" << hex(rl_progress_key)
+              << " routine load new progress: " << new_progress_info.ShortDebugString();
 }
 
 void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcController* controller,
@@ -689,6 +689,7 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
 
     if (request->partition_to_offset().size() == 0) {
         txn->remove(rl_progress_key);
+        LOG(INFO) << "remove rl_progress_key key=" << hex(rl_progress_key);
     }
 
     if (request->partition_to_offset().size() > 0) {
@@ -738,6 +739,7 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
             return;
         }
         txn->put(rl_progress_key, new_progress_val);
+        LOG(INFO) << "put rl_progress_key key=" << hex(rl_progress_key);
     }
 
     err = txn->commit();
@@ -892,6 +894,7 @@ void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stat
         stats_pb.set_num_segments(stats_pb.num_segments() + stats.num_segs);
         stats_pb.SerializeToString(&val);
         txn->put(key, val);
+        LOG(INFO) << "put stats_tablet_key key=" << hex(key);
     }
 }
 
@@ -2370,6 +2373,7 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
             stats_pb.set_num_segments(stats_pb.num_segments() + stats.num_segs);
             stats_pb.SerializeToString(&val);
             txn->put(key, val);
+            LOG(INFO) << "put stats_tablet_key, key=" << hex(key);
         };
     }
     for (auto& [tablet_id, stats] : tablet_stats) {
@@ -2405,8 +2409,9 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
         return;
     }
     txn->put(recycle_key, recycle_val);
+    LOG(INFO) << "xxx commit_txn put recycle_txn_key key=" << hex(recycle_key)
+              << " txn_id=" << txn_id;
 
-    LOG(INFO) << "xxx commit_txn put recycle_key key=" << hex(recycle_key) << " txn_id=" << txn_id;
     LOG(INFO) << "commit_txn put_size=" << txn->put_bytes() << " del_size=" << txn->delete_bytes()
               << " num_put_keys=" << txn->num_put_keys() << " num_del_keys=" << txn->num_del_keys()
               << " txn_size=" << txn->approximate_bytes() << " txn_id=" << txn_id;
@@ -2541,7 +2546,7 @@ static void _abort_txn(const std::string& instance_id, const AbortTxnRequest* re
     //1. abort txn by txn id
     //2. abort txn by label and db_id
     if (txn_id > 0) {
-        VLOG_DEBUG << "abort_txn by txn_id";
+        VLOG_DEBUG << "abort_txn by txn_id, txn_id=" << txn_id;
         //abort txn by txn id
         // Get db id with txn id
 
@@ -2610,7 +2615,7 @@ static void _abort_txn(const std::string& instance_id, const AbortTxnRequest* re
             return;
         }
     } else {
-        VLOG_DEBUG << "abort_txn by db_id and txn label";
+        VLOG_DEBUG << "abort_txn db_id and label, db_id=" << db_id << " label=" << label;
         //abort txn by label.
         std::string label_key = txn_label_key({instance_id, db_id, label});
         std::string label_val;
@@ -2726,7 +2731,7 @@ static void _abort_txn(const std::string& instance_id, const AbortTxnRequest* re
         return;
     }
     txn->put(recycle_key, recycle_val);
-    LOG(INFO) << "xxx put recycle_key=" << hex(recycle_key)
+    LOG(INFO) << "put recycle_txn_key=" << hex(recycle_key)
               << " txn_id=" << return_txn_info.txn_id();
 }
 
