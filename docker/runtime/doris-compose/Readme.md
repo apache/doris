@@ -23,7 +23,16 @@ Use doris compose to create doris docker compose clusters.
 
 ## Requirements
 
-1. The doris image should contains:
+##### 1. Make sure you have docker permissions
+
+ run:
+```
+docker run hello-world
+```
+
+if have problem with permission denied, then [add-docker-permission](https://docs.docker.com/engine/install/linux-postinstall/).
+
+##### 2. The doris image should contains
 
 ```
 /opt/apache-doris/{fe, be, cloud}
@@ -32,16 +41,14 @@ Use doris compose to create doris docker compose clusters.
 if don't create cloud cluster, the image no need to contains the cloud pkg.
 
 
-if build doris use `sh build.sh --fe --be --cloud`, then its output satisfy with all above, then run command in doris root
+if build doris use `sh build.sh --fe --be --cloud`, then its output satisfy with all above, then run command in doris root directory
+ will generate such a image.
 
 ```
 docker build -f docker/runtime/doris-compose/Dockerfile -t <image> .
 ```
 
-will generate a image.
-
-2. Install the dependent python library in 'docker/runtime/doris-compose/requirements.txt'
-
+##### 3. Install the dependent python library in 'docker/runtime/doris-compose/requirements.txt'
 
 ```
 python -m pip install --user -r docker/runtime/doris-compose/requirements.txt
@@ -65,9 +72,11 @@ add fe/be nodes with the specific image, or update existing nodes with `--fe-id`
 
 
 For create a cloud cluster, steps are as below:
+
 1. Write cloud s3 store config file, its default path is '/tmp/doris/cloud.ini'.
    It's defined in environment variable DORIS_CLOUD_CFG_FILE, user can change this env var to change its path.
    A Example file is locate in 'docker/runtime/doris-compose/resource/cloud.ini.example'.
+
 2. Use doris compose up command with option '--cloud' to create a new cloud cluster.
 
 The simplest way to create a cloud cluster:
