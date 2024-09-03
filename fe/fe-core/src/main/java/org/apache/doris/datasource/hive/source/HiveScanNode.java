@@ -462,13 +462,19 @@ public class HiveScanNode extends FileQueryScanNode {
         if (serdeParams.containsKey(PROP_QUOTE_CHAR)) {
             textParams.setEnclose(serdeParams.get(PROP_QUOTE_CHAR).getBytes()[0]);
         }
-
         // 6. set escape delimiter
         Optional<String> escapeDelim = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
                 PROP_ESCAPE_DELIMITER);
-        textParams
-                .setEscape(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                        DEFAULT_ESCAPE_DELIMIER, escapeDelim)).getBytes()[0]);
+        if (escapeDelim.isPresent()) {
+            String escape = HiveMetaStoreClientHelper.getByte(
+                    escapeDelim.get());
+            if (escape != null) {
+                textParams
+                        .setEscape(escape.getBytes()[0]);
+            } else {
+                textParams.setEscape(DEFAULT_ESCAPE_DELIMIER.getBytes()[0]);
+            }
+        }
         // 7. set null format
         Optional<String> nullFormat = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
                 PROP_NULL_FORMAT);
