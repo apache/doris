@@ -102,8 +102,8 @@ public class MasterOpExecutor {
         waitOnReplaying();
     }
 
-    public long getGroupCommitLoadBeId(long tableId, String cluster, boolean isCloud) throws Exception {
-        result = forward(buildGetGroupCommitLoadBeIdParmas(tableId, cluster, isCloud));
+    public long getGroupCommitLoadBeId(long tableId, String cluster) throws Exception {
+        result = forward(buildGetGroupCommitLoadBeIdParmas(tableId, cluster));
         waitOnReplaying();
         return result.groupCommitLoadBeId;
     }
@@ -244,12 +244,11 @@ public class MasterOpExecutor {
         return params;
     }
 
-    private TMasterOpRequest buildGetGroupCommitLoadBeIdParmas(long tableId, String cluster, boolean isCloud) {
+    private TMasterOpRequest buildGetGroupCommitLoadBeIdParmas(long tableId, String cluster) {
         final TGroupCommitInfo groupCommitParams = new TGroupCommitInfo();
         groupCommitParams.setGetGroupCommitLoadBeId(true);
         groupCommitParams.setGroupCommitLoadTableId(tableId);
         groupCommitParams.setCluster(cluster);
-        groupCommitParams.setIsCloud(isCloud);
 
         final TMasterOpRequest params = new TMasterOpRequest();
         // node ident
