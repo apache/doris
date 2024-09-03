@@ -148,7 +148,7 @@ public class GroupCommitPlanner {
     protected void selectBackends(ConnectContext ctx) throws DdlException {
         try {
             backend = Env.getCurrentEnv().getGroupCommitManager()
-                    .selectBackendForGroupCommit(this.table.getId(), ctx, false);
+                    .selectBackendForGroupCommit(this.table.getId(), ctx);
         } catch (LoadException e) {
             throw new DdlException("No suitable backend");
         }
