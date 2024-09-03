@@ -312,12 +312,12 @@ void PipBufferControlBlock::set_dependency(
 }
 
 void PipBufferControlBlock::_update_dependency() {
-    if (_result_sink_dependency &&
-        (_batch_queue_empty || _buffer_rows < _buffer_limit || _is_cancelled)) {
-        _result_sink_dependency->set_ready();
-    } else if (_result_sink_dependency &&
-               (!_batch_queue_empty && _buffer_rows < _buffer_limit && !_is_cancelled)) {
-        _result_sink_dependency->block();
+    if (_result_sink_dependency) {
+        if (_batch_queue_empty || _buffer_rows < _buffer_limit || _is_cancelled) {
+            _result_sink_dependency->set_ready();
+        } else {
+            _result_sink_dependency->block();
+        }
     }
 }
 
