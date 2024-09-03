@@ -323,7 +323,7 @@ public class OlapTableSink extends DataSink {
                     schemaParam.setAutoIncrementColumnUniqueId(col.getUniqueId());
                 }
             }
-            if (table.getSequenceMapCol() != null) {
+            if (table.getSequenceMapCol() != null && !partialUpdateInputColumns.contains(table.getSequenceMapCol())) {
                 Column seqMapCol = table.getFullSchema().stream()
                         .filter(col -> col.getName().equalsIgnoreCase(table.getSequenceMapCol()))
                         .findFirst().get();
