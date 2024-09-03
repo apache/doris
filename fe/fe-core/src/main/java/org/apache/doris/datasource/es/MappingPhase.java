@@ -134,10 +134,10 @@ public class MappingPhase implements SearchPhase {
                         // this field has `ignore_above` param
                         // Strings longer than the ignore_above setting will not be indexed or stored
                         // so we cannot rely on its doc_values
-                        continue;
+                    } else {
+                        // a : {c : {}} -> a -> a.c
+                        docValueField = colName + "." + fieldName;
                     }
-                    // a : {c : {}} -> a -> a.c
-                    docValueField = colName + "." + fieldName;
                 }
             }
         } else {
