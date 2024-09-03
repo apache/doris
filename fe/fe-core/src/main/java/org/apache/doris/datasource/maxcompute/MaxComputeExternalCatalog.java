@@ -40,7 +40,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -50,13 +49,10 @@ import java.util.stream.Collectors;
 
 public class MaxComputeExternalCatalog extends ExternalCatalog {
     private Odps odps;
-
-    @SerializedName(value = "accessKey")
     private String accessKey;
-    @SerializedName(value = "secretKey")
     private String secretKey;
     private String endpoint;
-    private String catalogOwner = "";
+    private String catalogOwner;
     private String defaultProject;
     String quota;
 
@@ -64,7 +60,6 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
 
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
             MCProperties.PROJECT,
-            MCProperties.QUOTA,
             MCProperties.ENDPOINT
     );
 
@@ -79,7 +74,7 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         Map<String, String> props = catalogProperty.getProperties();
 
         defaultProject = props.get(MCProperties.PROJECT);
-        quota = props.get(MCProperties.QUOTA);
+        quota = props.getOrDefault(MCProperties.QUOTA, "pay-as-you-go");
         endpoint = props.getOrDefault(MCProperties.ENDPOINT, "");
 
         if (Strings.isNullOrEmpty(defaultProject)) {
