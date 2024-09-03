@@ -117,7 +117,7 @@ Status PprofUtils::get_readable_profile(const std::string& file_or_content, bool
     bool rc = util.exec_cmd(final_cmd, &cmd_output, false);
 
     // delete raw file
-    static_cast<void>(io::global_local_filesystem()->delete_file(file_or_content));
+    // static_cast<void>(io::global_local_filesystem()->delete_file(file_or_content));
 
     if (!rc) {
         return Status::InternalError("Failed to execute command: {}", cmd_output);

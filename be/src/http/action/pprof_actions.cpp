@@ -141,8 +141,7 @@ public:
 };
 
 void ProfileAction::handle(HttpRequest* req) {
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
-        defined(USE_JEMALLOC)
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
     std::string str = "CPU profiling is not available with address sanitizer or jemalloc builds.";
     HttpChannel::send_reply(req, str);
 #else
@@ -178,6 +177,7 @@ void ProfileAction::handle(HttpRequest* req) {
             prof_file.close();
             std::string str = ss.str();
             HttpChannel::send_reply(req, str);
+            return;
         }
 
         // text type. we will return readable content via http response

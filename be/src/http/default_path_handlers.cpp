@@ -283,8 +283,7 @@ void heap_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* ou
 void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* output) {
     (*output) << "<h2>CPU Profile</h2>" << std::endl;
 
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
-        defined(USE_JEMALLOC)
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
     (*output) << "<pre>" << std::endl;
     (*output) << "CPU profiling is not available with address sanitizer builds." << std::endl;
     (*output) << "</pre>" << std::endl;
@@ -315,7 +314,7 @@ void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* out
               << std::endl;
     (*output) << "And you need to download the FlameGraph and place it under 'be/tools/FlameGraph'."
               << std::endl;
-    (*output) << "Finally, check if the following files exist" << std::endl;
+    (*output) << "Finally, check if the following files exist. And shoudl be executable." << std::endl;
     (*output) << std::endl;
     (*output) << "    be/tools/FlameGraph/stackcollapse-perf.pl" << std::endl;
     (*output) << "    be/tools/FlameGraph/flamegraph.pl" << std::endl;
@@ -350,14 +349,14 @@ void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* out
     (*output) << "        type: \"GET\"," << std::endl;
     (*output) << "        dataType: \"text\"," << std::endl;
     (*output) << "        url: \"pprof/profile?type=text\"," << std::endl;
-    (*output) << "        timeout: 60000," << std::endl;
+    (*output) << "        timeout: 120000," << std::endl;
     (*output) << "        success: function (result) {" << std::endl;
     (*output) << "            document.getElementById(\"cpuContent\").innerText = result;"
               << std::endl;
     (*output) << "        }" << std::endl;
     (*output) << "        ," << std::endl;
     (*output) << "        error: function (result) {" << std::endl;
-    (*output) << "            alert(result);" << std::endl;
+    (*output) << "            alert(JSON.stringify(result));" << std::endl;
     (*output) << "        }" << std::endl;
     (*output) << "        ," << std::endl;
     (*output) << "    });" << std::endl;
@@ -372,14 +371,14 @@ void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* out
     (*output) << "        type: \"GET\"," << std::endl;
     (*output) << "        dataType: \"text\"," << std::endl;
     (*output) << "        url: \"pprof/profile?type=flamegraph\"," << std::endl;
-    (*output) << "        timeout: 60000," << std::endl;
+    (*output) << "        timeout: 120000," << std::endl;
     (*output) << "        success: function (result) {" << std::endl;
     (*output) << "            document.getElementById(\"cpuResultGraph\").innerHTML = result;"
               << std::endl;
     (*output) << "        }" << std::endl;
     (*output) << "        ," << std::endl;
     (*output) << "        error: function (result) {" << std::endl;
-    (*output) << "            alert(result);" << std::endl;
+    (*output) << "            alert(JSON.stringify(result));" << std::endl;
     (*output) << "        }" << std::endl;
     (*output) << "        ," << std::endl;
     (*output) << "    });" << std::endl;
