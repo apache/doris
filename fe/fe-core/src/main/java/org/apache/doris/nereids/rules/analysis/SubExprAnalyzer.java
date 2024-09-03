@@ -121,17 +121,21 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
     public Expression visitScalarSubquery(ScalarSubquery scalar, T context) {
         AnalyzedResult analyzedResult = analyzeSubquery(scalar);
         boolean isCorrelated = analyzedResult.isCorrelated();
+        LogicalPlan analyzedSubqueryPlan = analyzedResult.logicalPlan;
         if (isCorrelated) {
-            if (scalar.getQueryPlan() instanceof LogicalLimit) {
-                throw new AnalysisException("limit is not supported in correlated subquery "
-                        + analyzedResult.getLogicalPlan());
+            if (analyzedSubqueryPlan instanceof LogicalLimit) {
+                if (ScalarSubquery.findTopLevelScalarAgg(analyzedResult.logicalPlan) == null) {
+                    throw new AnalysisException("limit is not supported in correlated subquery "
+                            + analyzedResult.getLogicalPlan());
+                } else {
+                    analyzedSubqueryPlan = (LogicalPlan) analyzedSubqueryPlan.child(0);
+                }
             }
-            LogicalPlan rootPlan = scalar.getQueryPlan();
-            if (rootPlan instanceof LogicalSort) {
+            if (analyzedSubqueryPlan instanceof LogicalSort) {
                 // skip useless sort node
-                rootPlan = ((LogicalSort<LogicalPlan>) rootPlan).child();
+                analyzedResult = new AnalyzedResult((LogicalPlan) analyzedSubqueryPlan.child(0),
+                        analyzedResult.correlatedSlots);
             }
-            analyzedResult = analyzeSubquery(scalar.withSubquery(rootPlan));
         }
         checkOutputColumn(analyzedResult.getLogicalPlan());
         checkHasNoGroupBy(analyzedResult);

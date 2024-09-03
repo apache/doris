@@ -106,7 +106,10 @@ public class ScalarSubquery extends SubqueryExpr {
         return new ScalarSubquery(subquery, correlateSlots, typeCoercionExpr);
     }
 
-    private static Plan findTopLevelScalarAgg(Plan plan) {
+    /**
+    * findTopLevelScalarAgg
+    */
+    public static Plan findTopLevelScalarAgg(Plan plan) {
         if (plan instanceof LogicalAggregate) {
             if (((LogicalAggregate<?>) plan).getGroupByExpressions().isEmpty()) {
                 return plan;
