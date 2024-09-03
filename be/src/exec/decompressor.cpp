@@ -300,6 +300,34 @@ std::string Bzip2Decompressor::debug_info() {
     return ss.str();
 }
 
+ZstdDecompressor::~ZstdDecompressor() {
+    ZSTD_freeDCtx(_dctx);
+}
+
+Status ZstdDecompressor::init() {
+    _dctx = ZSTD_createDCtx();
+    if (!_dctx) {
+        std::stringstream ss;
+        return Status::InternalError("ZSTD_dctx creation error");
+    }
+
+    return Status::OK();
+}
+
+Status ZstdDecompressor::decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
+                                    uint8_t* output, size_t output_max_len,
+                                    size_t* decompressed_len, bool* stream_end,
+                                    size_t* more_input_bytes, size_t* more_output_bytes) {
+        ZSTD_getFrameContentSize()
+                            
+}
+
+std::string ZstdDecompressor::debug_info() {
+    std::stringstream ss;
+    ss << "ZstdDecompressor.";
+    return ss.str();
+}
+
 // Lz4Frame
 // Lz4 version: 1.7.5
 // define LZ4F_VERSION = 100
