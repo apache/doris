@@ -26,7 +26,7 @@
 #endif
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
         !defined(THREAD_SANITIZER)
-#include <gperftools/profiler.h>         // IWYU pragma: keep
+#include <gperftools/profiler.h> // IWYU pragma: keep
 #endif
 #include <stdio.h>
 
