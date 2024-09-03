@@ -78,4 +78,8 @@ suite("test_math_unary_alway_nullable") {
         select rowid, sqrt(val), sqrt(val) is null from test_math_unary_alway_nullable order by rowid;
     """
 
+    qt_dsqrt_tbl_1 """
+        select rowid, dsqrt(val), dsqrt(val) is null from test_math_unary_alway_nullable order by rowid;
+    """
+
 }
