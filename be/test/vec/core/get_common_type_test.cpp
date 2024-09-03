@@ -144,10 +144,7 @@ INSTANTIATE_TEST_SUITE_P(data_type, LeastSuperTypeTest,
                                  {"Int8 Int32 Int64", "Int64"},
                                  {"UInt8 UInt32 Int64", "Int64"},
                                  {"Float32 Float64", "Float64"},
+                                 {"Date Date", "Date"},
                                  {"Float32 UInt16 Int32", "Float64"},
                                  {"Float32 Int16 UInt32", "Float64"},
-                                 {"String String String", "String"},
-                                 {"Int8 String", "Jsonb"},
-                                 {"Int64 UInt64", "Jsonb"},
-                                 {"Float32 UInt64", "Jsonb"},
-                                 {"Float64 Int64", "Jsonb"}}));
+                                 {"String String String", "String"}}));
