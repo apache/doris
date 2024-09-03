@@ -61,7 +61,10 @@ suite("txn_insert_with_drop", "nonConcurrent") {
     sql """ insert into ${table}_3 values(10, '1', 1), (20, '2', 2) """
     sql """ insert into ${table}_4 values(30, '3', 3), (40, '4', 4), (5, '5', 5) """
 
+    def commit_timeout_second_value = getFeConfig("commit_timeout_second")
+    logger.info("commit_timeout_second_value: ${commit_timeout_second_value}")
     try {
+        setFeConfig('commit_timeout_second', '2')
         // -------------------- drop partition --------------------
         // 1. stop publish and txn insert
         GetDebugPoint().enableDebugPointForAllFEs('PublishVersionDaemon.stop_publish')
@@ -129,6 +132,7 @@ suite("txn_insert_with_drop", "nonConcurrent") {
     } catch (Exception e) {
         logger.info("failed", e)
     } finally {
+        setFeConfig('commit_timeout_second', commit_timeout_second_value)
         GetDebugPoint().disableDebugPointForAllFEs('PublishVersionDaemon.stop_publish')
     }
 }
