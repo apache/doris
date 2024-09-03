@@ -96,14 +96,11 @@ public class CompactionAction extends RestBaseController {
                 // both tablet id and table id are not empty, return err.
                 return ResponseEntityBuilder.badRequest("tablet id and table id can not be set at the same time!");
             } else {
-                Tablet tablet = Env.getCurrentEnv().getInternalCatalog().getTabletByTabletId(Long.valueOf(tabletId));
-                if (tablet == null) {
-                    return new RestBaseResult("Tablet not found. Tablet id: " + tabletId);
-                }
-                List<Replica> replicaList = tablet.getReplicas();
+                List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex()
+                        .getReplicasByTabletId(Long.parseLong(tabletId));
                 for (Replica replica : replicaList) {
                     Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
-                    sendRequestToBe(request, backend, tablet.getId());
+                    sendRequestToBe(request, backend, Long.parseLong(tabletId));
                 }
             }
         }
