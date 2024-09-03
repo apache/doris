@@ -20,7 +20,7 @@ import groovy.json.JsonSlurper
 import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite('test_multi_followr_in_cloud', 'multi_cluster') {
+suite('test_multi_followr_in_cloud', 'multi_cluster, docker') {
     if (!isCloudMode()) {
         return
     }
@@ -66,10 +66,10 @@ suite('test_multi_followr_in_cloud', 'multi_cluster') {
             }
         }
         // get fe clusterName
-        def ret = sql_return_maparray """ADMIN SHOW FRONTEND CONFIG LIKE '%cloud_sql_server_cluster_name%'"""
-        def feClusterName = ret.Value[0]
-        ret = sql_return_maparray """ADMIN SHOW FRONTEND CONFIG LIKE '%cloud_sql_server_cluster_id%'"""
-        def feClusterId = ret.Value[0]
+        def result = sql_return_maparray """ADMIN SHOW FRONTEND CONFIG LIKE '%cloud_sql_server_cluster_name%'"""
+        def feClusterName = result.Value[0]
+        result = sql_return_maparray """ADMIN SHOW FRONTEND CONFIG LIKE '%cloud_sql_server_cluster_id%'"""
+        def feClusterId = result.Value[0]
         log.info("fe clusterName: {}, clusterId: {} ", feClusterName, feClusterId)
         def toDropIP
         def toDropPort
@@ -82,7 +82,7 @@ suite('test_multi_followr_in_cloud', 'multi_cluster') {
             log.info("show frontends: {}", ret)
             ret.size() == 4
         }
-        check(4) { ret ->
+        check(4) { def ret ->
             ret.each {
                 assertTrue(it.Role.contains(f))
                 if (!Boolean.parseBoolean(it.IsMaster)) {
@@ -123,7 +123,7 @@ suite('test_multi_followr_in_cloud', 'multi_cluster') {
             ret.size() == 3
         }
 
-        check(3) { ret ->
+        check(3) { def ret ->
             ret.each {
                 assertTrue(it.Role.contains(f))
             }
@@ -131,7 +131,7 @@ suite('test_multi_followr_in_cloud', 'multi_cluster') {
 
         // add a observer
         cluster.addFrontend(1)
-        check(4) { ret ->
+        check(4) { def ret ->
             int observerNum = 0
             int followerNum = 0
             ret.each {
@@ -159,7 +159,7 @@ suite('test_multi_followr_in_cloud', 'multi_cluster') {
             ret.size() == 3
         }
 
-        check(3) { ret ->
+        check(3) { def ret ->
             int observerNum = 0
             int followerNum = 0
             ret.each {

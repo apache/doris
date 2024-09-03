@@ -282,6 +282,18 @@ public class CloudSystemInfoService extends SystemInfoService {
             LOG.debug("updateCloudFrontends toAdd={} toDel={}", toAdd, toDel);
         }
         String masterIp = Env.getCurrentEnv().getMasterHost();
+        for (Frontend fe : toDel) {
+            if (masterIp.equals(fe.getHost())) {
+                continue;
+            }
+            try {
+                Env.getCurrentEnv().dropFrontend(fe.getRole(), fe.getHost(), fe.getEditLogPort());
+                LOG.info("dropped cloud frontend={} ", fe);
+            } catch (DdlException e) {
+                LOG.warn("failed to drop cloud frontend={} ", fe);
+            }
+        }
+
         for (Frontend fe : toAdd) {
             if (masterIp.equals(fe.getHost())) {
                 continue;
@@ -292,17 +304,6 @@ public class CloudSystemInfoService extends SystemInfoService {
                 LOG.info("added cloud frontend={} ", fe);
             } catch (DdlException e) {
                 LOG.warn("failed to add cloud frontend={} ", fe);
-            }
-        }
-        for (Frontend fe : toDel) {
-            if (masterIp.equals(fe.getHost())) {
-                continue;
-            }
-            try {
-                Env.getCurrentEnv().dropFrontend(fe.getRole(), fe.getHost(), fe.getEditLogPort());
-                LOG.info("dropped cloud frontend={} ", fe);
-            } catch (DdlException e) {
-                LOG.warn("failed to drop cloud frontend={} ", fe);
             }
         }
     }
