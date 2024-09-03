@@ -161,20 +161,23 @@ Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Sl
                                         key.offset, key.meta.type);
         Status s = fs->open_file(file, &file_reader);
         if (!s.ok()) {
-            if (key.meta.type == FileCacheType::TTL) {
-                std::string file_old_format = get_path_in_local_cache_old_ttl_format(
-                        get_path_in_local_cache(key.hash, key.meta.expiration_time), key.offset,
-                        key.meta.type);
-                if (config::translate_to_new_ttl_format_during_read) {
-                    // try to rename the file with old ttl format to new and retry
-                    RETURN_IF_ERROR(fs->rename(file_old_format, file));
-                    RETURN_IF_ERROR(fs->open_file(file, &file_reader));
-                } else {
-                    // try to open the file with old ttl format
-                    RETURN_IF_ERROR(fs->open_file(file_old_format, &file_reader));
-                }
-            } else {
+            if (key.meta.type != FileCacheType::TTL) {
                 return s;
+            }
+            std::string file_old_format = get_path_in_local_cache_old_ttl_format(
+                    get_path_in_local_cache(key.hash, key.meta.expiration_time), key.offset,
+                    key.meta.type);
+            if (config::translate_to_new_ttl_format_during_read) {
+                // try to rename the file with old ttl format to new and retry
+                VLOG(7) << "try to rename the file with old ttl format to new and retry"
+                        << " oldformat=" << file_old_format << " original=" << file;
+                RETURN_IF_ERROR(fs->rename(file_old_format, file));
+                RETURN_IF_ERROR(fs->open_file(file, &file_reader));
+            } else {
+                // try to open the file with old ttl format
+                VLOG(7) << "try to open the file with old ttl format"
+                        << " oldformat=" << file_old_format << " original=" << file;
+                RETURN_IF_ERROR(fs->open_file(file_old_format, &file_reader));
             }
         }
         FDCache::instance()->insert_file_reader(fd_key, file_reader);
@@ -191,13 +194,14 @@ Status FSFileCacheStorage::remove(const FileCacheKey& key) {
     FDCache::instance()->remove_file_reader(std::make_pair(key.hash, key.offset));
     Status s = fs->delete_file(file);
     if (!s.ok()) {
-        if (key.meta.type == FileCacheType::TTL) {
-            // try to remove the file with old ttl format
-            file = get_path_in_local_cache_old_ttl_format(dir, key.offset, key.meta.type);
-            RETURN_IF_ERROR(fs->delete_file(file));
-        } else {
+        if (key.meta.type != FileCacheType::TTL) {
             return s;
         }
+        // try to remove the file with old ttl format
+        file = get_path_in_local_cache_old_ttl_format(dir, key.offset, key.meta.type);
+        VLOG(7) << "try to remove the file with old ttl format"
+                << " file=" << file;
+        RETURN_IF_ERROR(fs->delete_file(file));
     }
     std::vector<FileInfo> files;
     bool exists {false};
@@ -213,7 +217,14 @@ Status FSFileCacheStorage::change_key_meta_type(const FileCacheKey& key, const F
     // file operation
     if (key.meta.type != type) {
         // TTL type file dose not need to change the suffix
-        DCHECK(key.meta.type != FileCacheType::TTL && type != FileCacheType::TTL);
+        bool expr = (key.meta.type != FileCacheType::TTL && type != FileCacheType::TTL);
+        if (!expr) {
+            LOG(WARNING) << "TTL type file dose not need to change the suffix"
+                         << " key=" << key.hash.to_string() << " offset=" << key.offset
+                         << " old_type=" << BlockFileCache::cache_type_to_string(key.meta.type)
+                         << " new_type=" << BlockFileCache::cache_type_to_string(type);
+        }
+        DCHECK(expr);
         std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
         std::string original_file = get_path_in_local_cache(dir, key.offset, key.meta.type);
         std::string new_file = get_path_in_local_cache(dir, key.offset, type);

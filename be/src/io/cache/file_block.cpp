@@ -164,7 +164,14 @@ Status FileBlock::read(Slice buffer, size_t read_offset) {
 Status FileBlock::change_cache_type_between_ttl_and_others(FileCacheType new_type) {
     std::lock_guard block_lock(_mutex);
     DCHECK(new_type != _key.meta.type);
-    DCHECK(new_type == FileCacheType::TTL || _key.meta.type == FileCacheType::TTL);
+    bool expr = (new_type == FileCacheType::TTL || _key.meta.type == FileCacheType::TTL);
+    if (!expr) {
+        LOG(WARNING) << "none of the cache type is TTL"
+                     << ", hash: " << _key.hash.to_string() << ", offset: " << _key.offset
+                     << ", new type: " << BlockFileCache::cache_type_to_string(new_type)
+                     << ", old type: " << BlockFileCache::cache_type_to_string(_key.meta.type);
+    }
+    DCHECK(expr);
 
     // change cache type between TTL to others don't need to rename the filename suffix
     _key.meta.type = new_type;
@@ -174,7 +181,14 @@ Status FileBlock::change_cache_type_between_ttl_and_others(FileCacheType new_typ
 Status FileBlock::change_cache_type_between_normal_and_index(FileCacheType new_type) {
     std::lock_guard cache_lock(_mgr->_mutex);
     std::lock_guard block_lock(_mutex);
-    DCHECK(new_type != FileCacheType::TTL && _key.meta.type != FileCacheType::TTL);
+    bool expr = (new_type != FileCacheType::TTL && _key.meta.type != FileCacheType::TTL);
+    if (!expr) {
+        LOG(WARNING) << "one of the cache type is TTL"
+                     << ", hash: " << _key.hash.to_string() << ", offset: " << _key.offset
+                     << ", new type: " << BlockFileCache::cache_type_to_string(new_type)
+                     << ", old type: " << BlockFileCache::cache_type_to_string(_key.meta.type);
+    }
+    DCHECK(expr);
     if (_key.meta.type == FileCacheType::TTL || new_type == _key.meta.type) {
         return Status::OK();
     }
