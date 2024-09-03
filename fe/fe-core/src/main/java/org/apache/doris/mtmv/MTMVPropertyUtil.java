@@ -38,7 +38,8 @@ public class MTMVPropertyUtil {
             PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT,
             PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT,
             PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT,
-            PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION
+            PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION,
+            PropertyAnalyzer.PROPERTIES_IS_USED_IN_REWRITE
     );
 
     public static void analyzeProperty(String key, String value) {
@@ -65,6 +66,8 @@ public class MTMVPropertyUtil {
                 analyzePartitionSyncLimit(value);
                 break;
             case PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION:
+                break;
+            case PropertyAnalyzer.PROPERTIES_IS_USED_IN_REWRITE:
                 break;
             default:
                 throw new AnalysisException("illegal key:" + key);

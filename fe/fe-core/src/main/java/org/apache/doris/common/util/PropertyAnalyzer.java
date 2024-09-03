@@ -186,6 +186,9 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION =
             "enable_nondeterministic_function";
+
+    public static final String PROPERTIES_IS_USED_IN_REWRITE =
+            "is_used_in_rewritten";
     public static final String PROPERTIES_EXCLUDED_TRIGGER_TABLES = "excluded_trigger_tables";
     public static final String PROPERTIES_REFRESH_PARTITION_NUM = "refresh_partition_num";
     public static final String PROPERTIES_WORKLOAD_GROUP = "workload_group";
