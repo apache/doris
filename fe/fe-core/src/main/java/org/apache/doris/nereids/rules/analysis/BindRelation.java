@@ -236,8 +236,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
             }
         }
         if (needGenerateLogicalAggForRandomDistAggTable(scan)) {
+            // it's a random distribution agg table
+            // add agg on olap scan
             return preAggForRandomDistribution(scan);
         } else {
+            // it's a duplicate, unique or hash distribution agg table
+            // add delete sign filter on olap scan if needed
             return checkAndAddDeleteSignFilter(scan, ConnectContext.get(), (OlapTable) table);
         }
     }
@@ -245,6 +249,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private boolean needGenerateLogicalAggForRandomDistAggTable(LogicalOlapScan olapScan) {
         if (ConnectContext.get() != null && ConnectContext.get().getState() != null
                 && ConnectContext.get().getState().isQuery()) {
+            // we only need to add an agg node for query, and should not do it for deleting
+            // from random distributed table. see https://github.com/apache/doris/pull/37985 for more info
             OlapTable olapTable = olapScan.getTable();
             KeysType keysType = olapTable.getKeysType();
             DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
