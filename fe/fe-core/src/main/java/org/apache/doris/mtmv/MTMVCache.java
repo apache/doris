@@ -39,6 +39,7 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.BitSet;
 import java.util.Optional;
@@ -112,7 +113,7 @@ public class MTMVCache {
             Rewriter.getCteChildrenRewriter(childContext,
                     ImmutableList.of(Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new))).execute();
             return childContext.getRewritePlan();
-        }, mvPlan, originPlan);
+        }, mvPlan, originPlan, ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT, RuleType.CHECK_PRIVILEGES));
         // Construct structInfo once for use later
         Optional<StructInfo> structInfoOptional = MaterializationContext.constructStructInfo(mvPlan, originPlan,
                 planner.getCascadesContext(),

@@ -31,6 +31,7 @@ import org.apache.doris.mtmv.MTMVRewriteUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PartitionRemover;
@@ -265,7 +266,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     childContext -> {
                         Rewriter.getWholeTreeRewriter(childContext).execute();
                         return childContext.getRewritePlan();
-                    }, rewrittenPlan, queryPlan);
+                    }, rewrittenPlan, queryPlan,
+                    ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT, RuleType.CHECK_PRIVILEGES));
             if (rewrittenPlan == null) {
                 continue;
             }
