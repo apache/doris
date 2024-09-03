@@ -21,6 +21,8 @@
 
 namespace doris::vectorized {
 
+const std::string AggregateFunctionLinearHistogramConsts::NAME = "linear_histogram";
+
 template <typename T>
 AggregateFunctionPtr create_agg_function_linear_histogram(const DataTypes& argument_types,
                                                           const bool result_is_nullable) {
@@ -55,7 +57,8 @@ AggregateFunctionPtr create_aggregate_function_linear_histogram(const std::strin
 }
 
 void register_aggregate_function_linear_histogram(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("linear_histogram", create_aggregate_function_linear_histogram);
+    factory.register_function_both(AggregateFunctionLinearHistogramConsts::NAME,
+                                   create_aggregate_function_linear_histogram);
 }
 
 } // namespace doris::vectorized

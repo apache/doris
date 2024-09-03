@@ -21,7 +21,8 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 
-#include <map>
+#include <unordered_map>
+#include <vector>
 
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
@@ -47,7 +48,9 @@ private:
     double offset;
     double lower; // not used yet
     double upper; // not used yet
-    std::map<int32_t, size_t> buckets;
+    std::unordered_map<int32_t, size_t,
+                       decltype([](int32_t key) { return static_cast<size_t>(key); })>
+            buckets;
 
 public:
     // reset
@@ -125,34 +128,41 @@ public:
 
     // insert_result_into
     void insert_result_into(IColumn& to) const {
+        std::vector<std::pair<int32_t, size_t>> bucket_vector(buckets.begin(), buckets.end());
+        std::sort(bucket_vector.begin(), bucket_vector.end(),
+                  [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
+
         rapidjson::Document doc;
         doc.SetObject();
         rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
 
-        unsigned num_buckets =
-                buckets.empty() ? 0 : buckets.rbegin()->first - buckets.begin()->first + 1;
+        unsigned num_buckets = bucket_vector.empty() ? 0
+                                                     : bucket_vector.rbegin()->first -
+                                                               bucket_vector.begin()->first + 1;
         doc.AddMember("num_buckets", num_buckets, allocator);
 
         rapidjson::Value bucket_arr(rapidjson::kArrayType);
         bucket_arr.Reserve(num_buckets, allocator);
 
-        int32_t idx = buckets.begin()->first;
-        double left = buckets.begin()->first * interval + offset;
-        size_t count = 0;
-        size_t acc_count = 0;
+        if (num_buckets > 0) {
+            int32_t idx = bucket_vector.begin()->first;
+            double left = bucket_vector.begin()->first * interval + offset;
+            size_t count = 0;
+            size_t acc_count = 0;
 
-        for (const auto& [key, count_] : buckets) {
-            for (; idx <= key; ++idx) {
-                rapidjson::Value bucket_json(rapidjson::kObjectType);
-                bucket_json.AddMember("lower", left, allocator);
-                left += interval;
-                bucket_json.AddMember("upper", left, allocator);
-                count = (idx == key) ? count_ : 0;
-                bucket_json.AddMember("count", count, allocator);
-                acc_count += count;
-                bucket_json.AddMember("acc_count", acc_count, allocator);
+            for (const auto& [key, count_] : bucket_vector) {
+                for (; idx <= key; ++idx) {
+                    rapidjson::Value bucket_json(rapidjson::kObjectType);
+                    bucket_json.AddMember("lower", left, allocator);
+                    left += interval;
+                    bucket_json.AddMember("upper", left, allocator);
+                    count = (idx == key) ? count_ : 0;
+                    bucket_json.AddMember("count", count, allocator);
+                    acc_count += count;
+                    bucket_json.AddMember("acc_count", acc_count, allocator);
 
-                bucket_arr.PushBack(bucket_json, allocator);
+                    bucket_arr.PushBack(bucket_json, allocator);
+                }
             }
         }
 
@@ -165,6 +175,11 @@ public:
         auto& column = assert_cast<ColumnString&>(to);
         column.insert_data(buffer.GetString(), buffer.GetSize());
     }
+};
+
+class AggregateFunctionLinearHistogramConsts {
+public:
+    const static std::string NAME;
 };
 
 template <typename T, typename Data, bool has_offset>
@@ -180,7 +195,7 @@ public:
                       argument_types_),
               scale(get_decimal_scale(*argument_types_[0])) {}
 
-    std::string get_name() const override { return "linear_histogram"; }
+    std::string get_name() const override { return AggregateFunctionLinearHistogramConsts::NAME; }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 

@@ -116,7 +116,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(HllUnion.class, "hll_raw_agg", "hll_union"),
             agg(HllUnionAgg.class, "hll_union_agg"),
             agg(IntersectCount.class, "intersect_count"),
-            agg(LinearHistogram.class, "linear_histogram"),
+            agg(LinearHistogram.class, FunctionSet.LINEAR_HISTOGRAM),
             agg(MapAgg.class, "map_agg"),
             agg(Max.class, "max"),
             agg(MaxBy.class, "max_by"),
