@@ -190,6 +190,7 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
         }
     }
     if (!tablet_schema.sequence_map_column().empty() &&
+        !partial_update_input_columns.contains(SEQUENCE_COL) &&
         !partial_update_input_columns.contains(tablet_schema.sequence_map_column())) {
         auto it = std::find(missing_cids.cbegin(), missing_cids.cend(),
                             tablet_schema.sequence_col_idx());

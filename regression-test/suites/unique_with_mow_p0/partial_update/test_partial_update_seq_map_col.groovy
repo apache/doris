@@ -47,7 +47,7 @@ suite("test_partial_update_seq_map_col", "p0") {
             sql "insert into ${tableName}(k,c1) values(2,2);"
             sql "insert into ${tableName}(k,c1) values(3,3);"
             sql "insert into ${tableName}(k,c1) values(4,4);"
-            qt_sql1 "select k,c1 from ${tableName} where c2=__DORIS_SEQUENCE_COL__;"
+            order_qt_sql1 "select k,c1 from ${tableName} where c2=__DORIS_SEQUENCE_COL__;"
 
 
             tableName = "test_partial_update_seq_map_col2"
@@ -67,7 +67,7 @@ suite("test_partial_update_seq_map_col", "p0") {
             sql "insert into ${tableName}(k,c1) values(2,2);"
             sql "insert into ${tableName}(k,c1) values(3,3);"
             sql "insert into ${tableName}(k,c1) values(4,4);"
-            qt_sql2 "select k,c1 from ${tableName} where c2=__DORIS_SEQUENCE_COL__;"
+            order_qt_sql2 "select k,c1 from ${tableName} where c2=__DORIS_SEQUENCE_COL__;"
 
 
             tableName = "test_partial_update_seq_map_col3"
@@ -87,7 +87,12 @@ suite("test_partial_update_seq_map_col", "p0") {
             sql "insert into ${tableName}(k,c1) values(2,2);"
             sql "insert into ${tableName}(k,c1) values(3,3);"
             sql "insert into ${tableName}(k,c1) values(4,4);"
-            qt_sql3 "select k,c1,c2,__DORIS_SEQUENCE_COL__ from ${tableName} where c2=__DORIS_SEQUENCE_COL__;"
+            order_qt_sql3 "select k,c1,c2,__DORIS_SEQUENCE_COL__ from ${tableName};"
+            sql "insert into ${tableName}(k,c1,c2) values(1,99,8888);"
+            sql "insert into ${tableName}(k,c1,c2) values(2,99,8888);"
+            sql "insert into ${tableName}(k,c1,c2) values(4,99,77);"
+            sql "insert into ${tableName}(k,c1,c2) values(5,99,8888);"
+            order_qt_sql3 "select k,c1,c2,__DORIS_SEQUENCE_COL__ from ${tableName}"
 
 
             tableName = "test_partial_update_seq_map_col4"
@@ -107,7 +112,7 @@ suite("test_partial_update_seq_map_col", "p0") {
             sql "insert into ${tableName}(k,c1) values(2,2);"
             sql "insert into ${tableName}(k,c1) values(3,3);"
             sql "insert into ${tableName}(k,c1) values(4,4);"
-            qt_sql4 "select k,c1,c2,__DORIS_SEQUENCE_COL__ from ${tableName};"
+            order_qt_sql4 "select k,c1,c2,__DORIS_SEQUENCE_COL__ from ${tableName};"
 
 
             tableName = "test_partial_update_seq_map_col5"
