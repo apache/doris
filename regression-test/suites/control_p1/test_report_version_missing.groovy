@@ -21,17 +21,17 @@ import org.apache.doris.regression.util.NodeType
 import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite('test_report_version_missing', "nonConcurrent,p1") {
+suite('test_report_version_missing', 'nonConcurrent,p1') {
     if (isCloudMode()) {
         return
     }
-    def tableName = "test_set_replica_status_table_in_docker"
+    def tableName = 'test_set_replica_status_table_in_docker'
     try {
-    setFeConfig('disable_tablet_scheduler', true)
-    Thread.sleep(2000)
+        setFeConfig('disable_tablet_scheduler', true)
+        Thread.sleep(2000)
 
-    sql "DROP TABLE IF EXISTS ${tableName}"
-    sql """
+        sql "DROP TABLE IF EXISTS ${tableName}"
+        sql """
         CREATE TABLE ${tableName} (
             `id` LARGEINT NOT NULL,
             `count` LARGEINT SUM DEFAULT "0")
@@ -42,21 +42,21 @@ suite('test_report_version_missing', "nonConcurrent,p1") {
             "replication_num" = "1"
         )
         """
-    List<String> values = []
-    for (int i = 1; i <= 10; ++i) {
-        values.add("(${i}, ${i})")
-    }
-    sql """INSERT INTO ${tableName} VALUES ${values.join(",")}"""
+        List<String> values = []
+        for (int i = 1; i <= 10; ++i) {
+            values.add("(${i}, ${i})")
+        }
+        sql """INSERT INTO ${tableName} VALUES ${values.join(',')}"""
 
-    def result = sql_return_maparray """show tablets from ${tableName}"""
-    assertNotNull(result)
-    def tabletId = null
-    for (def res : result) {
-        tabletId = res.TabletId
-        break
-    }
+        def result = sql_return_maparray """show tablets from ${tableName}"""
+        assertNotNull(result)
+        def tabletId = null
+        for (def res : result) {
+            tabletId = res.TabletId
+            break
+        }
 
-        GetDebugPoint().enableDebugPointForAllBEs("Tablet.build_tablet_report_info.version_miss", [tablet_id:"${tabletId}",version_miss:true])
+        GetDebugPoint().enableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss', [tablet_id:"${tabletId}", version_miss:true])
         boolean succ = false
 
         def backendId_to_backendIP = [:]
@@ -72,15 +72,14 @@ suite('test_report_version_missing', "nonConcurrent,p1") {
             def tablets = sql_return_maparray """show tablets from ${tableName}"""
             logger.info("show tablets from ${result}, has after ${i} * 60 s")
             assertNotNull(tablets)
-            succ = tablets.any {it.TabletId.toLong() == tabletId.toLong() && it.LstFailedVersion.toLong() > 0)}
+            succ = tablets.any { it.TabletId.toLong() == tabletId.toLong() && it.LstFailedVersion.toLong() > 0 }
             return succ
         })
 
         assertTrue(succ)
-        
     } finally {
         setFeConfig('disable_tablet_scheduler', false)
-        GetDebugPoint().disableDebugPointForAllBEs("Tablet.build_tablet_report_info.version_miss")
+        GetDebugPoint().disableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss')
         sql "DROP TABLE IF EXISTS ${tableName}"
     }
 }
