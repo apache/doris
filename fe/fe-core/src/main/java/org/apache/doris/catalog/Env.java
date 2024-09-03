@@ -1679,10 +1679,15 @@ public class Env {
      */
     void advanceNextId() {
         long currentId = idGenerator.getBatchEndId();
-        long currentNanos = System.nanoTime();
+        long currentMill = System.currentTimeMillis();
         long nextId = currentId + 1;
-        if (nextId < currentNanos) {
-            nextId = currentNanos;
+        // Reserve ~1 trillion for use in case of bugs or frequent reboots (~2 billion reboots)
+        if ((1L << 63) - nextId < (1L << 40)) {
+            LOG.warn("nextId is too large: {}, it may be a bug and consider backup and migration", nextId);
+        } else {
+            // Keep compatible with previous impl, the previous impl may result in extreme large nextId,
+            // and guess there are no more than 1L<<32 (~4e9) ids used since last reboot
+            nextId = (currentId + 1) < currentMill ? currentMill : currentId + (1L << 32);
         }
 
         // ATTN: Because MetaIdGenerator has guaranteed that each id it returns must have
