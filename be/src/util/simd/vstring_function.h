@@ -187,8 +187,12 @@ public:
         return p;
     }
 
-    static inline std::pair<size_t, size_t> skip_leading_utf8(const char* begin, const char* end,
-                                                              size_t n) {
+    // Iterate a UTF-8 string without exceeding a given length n.
+    // The function returns two values:
+    // the first represents the byte length traversed, and the second represents the char length traversed.
+    static inline std::pair<size_t, size_t> iterate_utf8_with_limit_length(const char* begin,
+                                                                           const char* end,
+                                                                           size_t n) {
         const char* p = begin;
         int char_size = 0;
 

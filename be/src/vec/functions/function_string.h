@@ -1581,6 +1581,8 @@ public:
                       size_t input_rows_count) const {
         std::vector<size_t> pad_index;
         size_t const_pad_char_size = 0;
+        // If pad_const = true, initialize pad_index only once.
+        // The same logic applies to the if constexpr (!pad_const) condition below.
         if constexpr (pad_const) {
             const_pad_char_size = simd::VStringFunctions::get_char_len(
                     (const char*)padcol_chars.data(), padcol_offsets[0], pad_index);
@@ -1608,12 +1610,14 @@ public:
                 const int pad_len = padcol_offsets[pad_idx] - padcol_offsets[pad_idx - 1];
                 const auto* pad_data = &padcol_chars[padcol_offsets[pad_idx - 1]];
 
-                auto [real_len, skip_chars] = simd::VStringFunctions::skip_leading_utf8(
-                        (const char*)str_data, (const char*)str_data + str_len, len);
-                if (len <= skip_chars) {
-                    buffer.reserve(buffer_len + real_len);
-                    memcpy(buffer.data() + buffer_len, str_data, real_len);
-                    buffer_len += real_len;
+                auto [iterate_byte_len, iterate_char_len] =
+                        simd::VStringFunctions::iterate_utf8_with_limit_length(
+                                (const char*)str_data, (const char*)str_data + str_len, len);
+                // If iterate_char_len equals len, it indicates that the str length is greater than or equal to len
+                if (iterate_char_len == len) {
+                    buffer.reserve(buffer_len + iterate_byte_len);
+                    memcpy(buffer.data() + buffer_len, str_data, iterate_byte_len);
+                    buffer_len += iterate_byte_len;
                     res_offsets[i] = buffer_len;
                     continue;
                 }
@@ -1630,7 +1634,7 @@ public:
                     res_offsets[i] = buffer_len;
                     continue;
                 }
-                const size_t str_char_size = skip_chars;
+                const size_t str_char_size = iterate_char_len;
                 const size_t pad_times = (len - str_char_size) / pad_char_size;
                 const size_t pad_remainder_len = pad_index[(len - str_char_size) % pad_char_size];
                 const size_t new_capacity = str_len + size_t(pad_times + 1) * pad_len;
