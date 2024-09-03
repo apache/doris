@@ -17,13 +17,12 @@
 
 #pragma once
 
-#include "runtime/exec_env.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 
-static constexpr int32_t CACHE_MIN_FREE_SIZE = 67108864; // 64M
-static constexpr int32_t CACHE_MIN_FREE_NUMBER = 1024;
+static constexpr int32_t CACHE_MIN_SIZE = 67108864; // 64M
+static constexpr int32_t CACHE_MIN_NUMBER = 1024;
 
 // Base of all caches. register to CacheManager when cache is constructed.
 class CachePolicy {
@@ -123,13 +122,16 @@ public:
         }
     }
 
-    CachePolicy(CacheType type, uint32_t stale_sweep_time_s, bool enable_prune);
+    CachePolicy(CacheType type, size_t capacity, uint32_t stale_sweep_time_s, bool enable_prune);
     virtual ~CachePolicy();
 
     virtual void prune_stale() = 0;
     virtual void prune_all(bool force) = 0;
+    virtual void set_capacity(double adjust_weighted) = 0;
+    virtual size_t get_capacity() = 0;
 
     CacheType type() { return _type; }
+    size_t initial_capacity() const { return _initial_capacity; }
     bool enable_prune() const { return _enable_prune; }
     RuntimeProfile* profile() { return _profile.get(); }
 
@@ -139,16 +141,19 @@ protected:
                 std::make_unique<RuntimeProfile>(fmt::format("Cache type={}", type_string(_type)));
         _prune_stale_number_counter = ADD_COUNTER(_profile, "PruneStaleNumber", TUnit::UNIT);
         _prune_all_number_counter = ADD_COUNTER(_profile, "PruneAllNumber", TUnit::UNIT);
+        _set_capacity_number_counter = ADD_COUNTER(_profile, "SetCapacityNumber", TUnit::UNIT);
         _freed_memory_counter = ADD_COUNTER(_profile, "FreedMemory", TUnit::BYTES);
         _freed_entrys_counter = ADD_COUNTER(_profile, "FreedEntrys", TUnit::UNIT);
         _cost_timer = ADD_TIMER(_profile, "CostTime");
     }
 
     CacheType _type;
+    size_t _initial_capacity {0};
 
     std::unique_ptr<RuntimeProfile> _profile;
     RuntimeProfile::Counter* _prune_stale_number_counter = nullptr;
     RuntimeProfile::Counter* _prune_all_number_counter = nullptr;
+    RuntimeProfile::Counter* _set_capacity_number_counter = nullptr;
     // Reset before each gc
     RuntimeProfile::Counter* _freed_memory_counter = nullptr;
     RuntimeProfile::Counter* _freed_entrys_counter = nullptr;

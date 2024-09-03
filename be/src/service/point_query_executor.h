@@ -241,8 +241,8 @@ private:
         auto* value = new CacheValue;
         value->item = item;
         LOG(INFO) << "Add item mem"
-                  << ", cache_capacity: " << get_total_capacity()
-                  << ", cache_usage: " << get_usage() << ", mem_consum: " << mem_consumption();
+                  << ", cache_capacity: " << get_capacity() << ", cache_usage: " << get_usage()
+                  << ", mem_consum: " << mem_consumption();
         auto* lru_handle = insert(key, value, 1, sizeof(Reusable), CachePriority::NORMAL);
         release(lru_handle);
     }

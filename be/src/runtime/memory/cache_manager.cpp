@@ -66,4 +66,22 @@ int64_t CacheManager::cache_prune_all(CachePolicy::CacheType type, bool force) {
     return cache_policy->profile()->get_counter("FreedMemory")->value();
 }
 
+int64_t CacheManager::for_each_cache_refresh_capacity(double adjust_weighted,
+                                                      RuntimeProfile* profile) {
+    int64_t freed_size = 0;
+    std::lock_guard<std::mutex> l(_caches_lock);
+    for (const auto& pair : _caches) {
+        auto* cache_policy = pair.second;
+        if (!cache_policy->enable_prune()) {
+            continue;
+        }
+        cache_policy->set_capacity(adjust_weighted);
+        freed_size += cache_policy->profile()->get_counter("FreedMemory")->value();
+        if (cache_policy->profile()->get_counter("FreedMemory")->value() != 0 && profile) {
+            profile->add_child(cache_policy->profile(), true, nullptr);
+        }
+    }
+    return freed_size;
+}
+
 } // namespace doris

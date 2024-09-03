@@ -106,9 +106,6 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
             return;
         }
 
-        // no significant impact on performance is expected.
-        doris::MemInfo::notify_je_purge_dirty_pages();
-
         if (doris::thread_context()->thread_mem_tracker_mgr->is_attach_query() &&
             doris::thread_context()->thread_mem_tracker_mgr->wait_gc()) {
             int64_t wait_milliseconds = 0;
