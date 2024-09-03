@@ -82,7 +82,8 @@ Status VFileResultWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
     _init_profile(profile);
     // check orc writer version
-    if (_file_opts->orc_writer_version < 1) {
+    if (_file_opts->file_format == TFileFormatType::FORMAT_ORC &&
+        _file_opts->orc_writer_version < 1) {
         return Status::InternalError("orc writer version is less than 1.");
     }
     // Delete existing files
