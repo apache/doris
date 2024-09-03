@@ -29,6 +29,21 @@
 2012-03-11
 2012-03-12
 
+-- !sql_date_DateTime_tz_c --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
 -- !sql_date_DateTime_notnull --
 2012-03-01
 2012-03-02
@@ -56,6 +71,20 @@
 2012-03-10
 2012-03-11
 2012-03-12
+
+-- !sql_date_DateTime_notnull_tz_c --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
 
 -- !sql_date_DateTimeV2 --
 \N

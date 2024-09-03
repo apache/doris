@@ -255,12 +255,6 @@ public:
         return {std::make_shared<ArgDateType>(), std::make_shared<DataTypeString>()};
     }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
-
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        return Status::OK();
-    }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
@@ -277,29 +271,22 @@ public:
 
         default_preprocess_parameter_columns(argument_columns, col_const, {1}, block, arguments);
 
-        for (int i = 0; i < 2; i++) {
-            check_set_nullable(argument_columns[i], result_null_map_column, col_const[i]);
-        }
-
+        auto result_column = ReturnColumnType::create();
         if (col_const[1]) {
-            auto result_column = ReturnColumnType::create();
             execute_tz_const(context, assert_cast<const ArgColumnType*>(argument_columns[0].get()),
                              assert_cast<const ColumnString*>(argument_columns[1].get()),
                              assert_cast<ReturnColumnType*>(result_column.get()),
                              assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
                              input_rows_count);
-            block.get_by_position(result).column = ColumnNullable::create(
-                    std::move(result_column), std::move(result_null_map_column));
         } else {
-            auto result_column = ReturnColumnType::create();
             execute(context, assert_cast<const ArgColumnType*>(argument_columns[0].get()),
                     assert_cast<const ColumnString*>(argument_columns[1].get()),
                     assert_cast<ReturnColumnType*>(result_column.get()),
                     assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
                     input_rows_count);
-            block.get_by_position(result).column = ColumnNullable::create(
-                    std::move(result_column), std::move(result_null_map_column));
         } //if const
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(result_column), std::move(result_null_map_column));
         return Status::OK();
     }
 
