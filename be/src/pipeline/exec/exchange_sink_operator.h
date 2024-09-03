@@ -183,7 +183,7 @@ private:
 
     // for shuffle data by partition and tablet
     int64_t _txn_id = -1;
-    vectorized::VExprContextSPtrs _fake_expr_ctxs;
+    vectorized::VExprContextSPtrs _tablet_sink_expr_ctxs;
     std::unique_ptr<VOlapTablePartitionParam> _vpartition = nullptr;
     std::unique_ptr<vectorized::OlapTabletFinder> _tablet_finder = nullptr;
     std::shared_ptr<OlapTableSchemaParam> _schema = nullptr;
@@ -265,6 +265,8 @@ private:
     const TTupleId _tablet_sink_tuple_id;
     int64_t _tablet_sink_txn_id = -1;
     std::shared_ptr<ObjectPool> _pool;
+    vectorized::VExprContextSPtrs _tablet_sink_expr_ctxs;
+    const std::vector<TExpr>* _t_output_expr = nullptr;
 
     // for external table sink random partition
     // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
