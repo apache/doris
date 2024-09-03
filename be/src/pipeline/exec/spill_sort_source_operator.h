@@ -60,6 +60,8 @@ protected:
     std::vector<vectorized::SpillStreamSPtr> _current_merging_streams;
     std::unique_ptr<vectorized::VSortedRunMerger> _merger;
 
+    Dependency* _spill_dependency {nullptr};
+
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
     // counters for spill merge sort
     RuntimeProfile::Counter* _spill_timer = nullptr;

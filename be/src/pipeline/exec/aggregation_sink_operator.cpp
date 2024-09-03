@@ -719,7 +719,19 @@ Status AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs&
 }
 
 size_t AggSinkLocalState::get_reserve_mem_size(RuntimeState* state) const {
-    return _memory_usage();
+    size_t size_to_reserve = std::visit(
+            [&](auto&& arg) -> size_t {
+                using HashTableCtxType = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_same_v<HashTableCtxType, std::monostate>) {
+                    return 0;
+                } else {
+                    return arg.hash_table->estimate_memory(state->batch_size());
+                }
+            },
+            _agg_data->method_variant);
+
+    size_to_reserve += _memory_usage_last_executing;
+    return size_to_reserve;
 }
 
 AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,

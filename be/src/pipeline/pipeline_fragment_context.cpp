@@ -1834,7 +1834,7 @@ size_t PipelineFragmentContext::get_revocable_size(bool& has_running_task) const
 
             size_t revocable_size_ = task->get_revocable_size();
             if (revocable_size_ > _runtime_state->min_revocable_mem()) {
-                revocable_size += task->get_revocable_size();
+                revocable_size += revocable_size_;
             }
         }
     }
