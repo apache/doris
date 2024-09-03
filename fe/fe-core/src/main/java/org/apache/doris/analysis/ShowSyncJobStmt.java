@@ -37,7 +37,7 @@ import org.apache.logging.log4j.Logger;
 //
 // syntax:
 //      SHOW SYNC JOB [FROM db]
-public class ShowSyncJobStmt extends ShowStmt {
+public class ShowSyncJobStmt extends ShowStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(ShowSyncJobStmt.class);
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()

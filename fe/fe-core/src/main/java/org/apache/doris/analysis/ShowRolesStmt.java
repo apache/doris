@@ -27,7 +27,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-public class ShowRolesStmt extends ShowStmt {
+public class ShowRolesStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA;
 
     static {

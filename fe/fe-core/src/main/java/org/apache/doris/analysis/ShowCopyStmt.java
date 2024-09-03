@@ -38,7 +38,7 @@ import java.util.Set;
 //
 // syntax:
 //      SHOW COPY [FROM db] [LIKE mask]
-public class ShowCopyStmt extends ShowLoadStmt {
+public class ShowCopyStmt extends ShowLoadStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(ShowCopyStmt.class);
 
     public ShowCopyStmt(String db, Expr labelExpr, List<OrderByElement> orderByElements, LimitElement limitElement) {

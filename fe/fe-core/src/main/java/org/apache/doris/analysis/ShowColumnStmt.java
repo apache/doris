@@ -32,7 +32,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 // SHOW COLUMNS
-public class ShowColumnStmt extends ShowStmt {
+public class ShowColumnStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA = ShowResultSetMetaData.builder()
             .addColumn(new Column("Field", ScalarType.createVarchar(20)))
             .addColumn(new Column("Type", ScalarType.createVarchar(20)))

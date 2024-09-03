@@ -34,7 +34,7 @@ import lombok.Getter;
 import java.util.ArrayList;
 import java.util.List;
 
-public class InsertOverwriteTableStmt extends DdlStmt {
+public class InsertOverwriteTableStmt extends DdlStmt implements NotFallbackInParser {
 
     private final InsertTarget target;
 
