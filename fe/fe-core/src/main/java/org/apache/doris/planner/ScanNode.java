@@ -749,7 +749,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
             }
         } else {
             // No connection context, typically for broker load.
-            adaptivePipelineTaskSerialReadOnLimit = 10000;
         }
 
         // For UniqueKey table, we will use multiple instance.
