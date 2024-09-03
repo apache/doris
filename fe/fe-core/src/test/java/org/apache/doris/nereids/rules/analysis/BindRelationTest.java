@@ -141,10 +141,10 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
 
         Assertions.assertTrue(plan instanceof LogicalAggregate);
         Assertions.assertEquals(
-                ImmutableList.of("internal", DEFAULT_CLUSTER_PREFIX + DB1),
+                ImmutableList.of("internal", DEFAULT_CLUSTER_PREFIX + DB1, "tagg"),
                 plan.getOutput().get(0).getQualifier());
         Assertions.assertEquals(
-                ImmutableList.of("internal", DEFAULT_CLUSTER_PREFIX + DB1),
+                ImmutableList.of("internal", DEFAULT_CLUSTER_PREFIX + DB1, "tagg"),
                 plan.getOutput().get(1).getQualifier());
     }
 
