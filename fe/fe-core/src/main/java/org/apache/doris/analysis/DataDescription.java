@@ -939,13 +939,16 @@ public class DataDescription implements InsertStmt.DataDesc {
         if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null) {
             return;
         }
-        // check olapTable schema and sequenceCol
-        if (olapTable.hasSequenceCol() && !hasSequenceCol() && getMergeType() != LoadTask.MergeType.DELETE) {
-            throw new AnalysisException("Table " + olapTable.getName()
-                    + " has sequence column, need to specify the sequence column");
-        }
         if (hasSequenceCol() && !olapTable.hasSequenceCol()) {
             throw new AnalysisException("There is no sequence column in the table " + olapTable.getName());
+        }
+        if (getMergeType() == LoadTask.MergeType.DELETE) {
+            return;
+        }
+        // check olapTable schema and sequenceCol
+        if (olapTable.hasSequenceCol() && !hasSequenceCol()) {
+            throw new AnalysisException("Table " + olapTable.getName()
+                    + " has sequence column, need to specify the sequence column");
         }
         // check source sequence column is in parsedColumnExprList or Table base schema
         boolean hasSourceSequenceCol = false;

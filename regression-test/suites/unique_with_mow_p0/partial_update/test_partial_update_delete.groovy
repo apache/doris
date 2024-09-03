@@ -192,7 +192,6 @@ suite('test_partial_update_delete') {
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}",
                     "function_column.sequence_type" = "int"); """
-
             sql "insert into ${tableName5}(k1,c1,c2,c3,c4,__DORIS_SEQUENCE_COL__) values(1,1,1,1,1,1),(2,2,2,2,2,2),(3,3,3,3,3,3),(4,4,4,4,4,4),(5,5,5,5,5,5),(6,6,6,6,6,6);"
             qt_sql4 "select k1,c1,c2,c3,c4 from ${tableName5} order by k1,c1,c2,c3,c4;"
             streamLoad {
