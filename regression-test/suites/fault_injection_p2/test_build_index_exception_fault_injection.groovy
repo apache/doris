@@ -23,7 +23,7 @@ suite("test_build_index_exception_fault_injection", "nonConcurrent,p2") {
     }
     def tableNamePrefix = "test_build_index_exception_fault_injection"
 
-    sql "SET enable_match_without_inverted_index = false"
+    sql "SET global enable_match_without_inverted_index = false"
 
     // prepare test table
     def timeout = 60000
@@ -256,5 +256,5 @@ suite("test_build_index_exception_fault_injection", "nonConcurrent,p2") {
         }
     }
 
-    sql "SET enable_match_without_inverted_index = true"
+    sql "SET global enable_match_without_inverted_index = true"
 }
