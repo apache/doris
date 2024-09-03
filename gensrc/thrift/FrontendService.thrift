@@ -1005,6 +1005,7 @@ enum TSchemaTableName {
   TABLE_OPTIONS = 6,
   WORKLOAD_GROUP_PRIVILEGES = 7,
   TABLE_PROPERTIES = 8,
+  CATALOG_META_CACHE_STATS = 9,
 }
 
 struct TMetadataTableRequestParams {
@@ -1019,6 +1020,7 @@ struct TMetadataTableRequestParams {
   9: optional PlanNodes.TJobsMetadataParams jobs_metadata_params
   10: optional PlanNodes.TTasksMetadataParams tasks_metadata_params
   11: optional PlanNodes.TPartitionsMetadataParams partitions_metadata_params
+  12: optional PlanNodes.TMetaCacheStatsParams meta_cache_stats_params
 }
 
 struct TSchemaTableRequestParams {
