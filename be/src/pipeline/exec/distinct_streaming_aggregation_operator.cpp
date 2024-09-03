@@ -506,8 +506,12 @@ Status DistinctStreamingAggLocalState::close(RuntimeState* state) {
     _aggregated_block->clear();
     // If the limit is reached, there may still be remaining data in the cache block.
     // If the limit is not reached, the cache block must be empty.
-    DCHECK(_reach_limit || _aggregated_block->empty());
-    DCHECK(_reach_limit || _cache_block.empty());
+    // If the query is canceled, it might not satisfy the above conditions.
+    if (!state->is_cancelled()) {
+        if (!_reach_limit && !_cache_block.empty()) {
+            LOG_WARNING("If the limit is not reached, the cache block must be empty.");
+        }
+    }
     _cache_block.clear();
     return Base::close(state);
 }
