@@ -116,7 +116,8 @@ Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
     }
     COUNTER_SET(local_state.rows_returned_counter(), local_state.num_rows_returned());
     COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
+    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
+                                                           block->columns()));
     return Status::OK();
 }
 

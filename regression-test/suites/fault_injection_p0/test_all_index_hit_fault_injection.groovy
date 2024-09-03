@@ -96,10 +96,10 @@ suite("test_all_index_hit_fault_injection", "nonConcurrent") {
       load_httplogs_data.call(indexTbName2, 'test_all_index_hit_fault_injection_2', 'true', 'json', 'documents-1000.json')
 
       sql "sync"
-
+      sql """ set enable_common_expr_pushdown = true """
       try {
         GetDebugPoint().enableDebugPointForAllBEs("segment_iterator._read_columns_by_index", [column_name: "clientip,request"])
-        GetDebugPoint().enableDebugPointForAllBEs("segment_iterator.fast_execute", [column_name: "status,size"])
+        GetDebugPoint().enableDebugPointForAllBEs("VectorizedFnCall.must_in_slow_path", [column_name: "status,size"])
 
         qt_sql """ select count(`@timestamp`) from ${indexTbName1} where (request match_phrase 'hm'); """
         qt_sql """ select count() from ${indexTbName1} where (request match_phrase 'hm'); """
@@ -125,7 +125,7 @@ suite("test_all_index_hit_fault_injection", "nonConcurrent") {
 
       } finally {
         GetDebugPoint().disableDebugPointForAllBEs("segment_iterator._read_columns_by_index")
-        GetDebugPoint().disableDebugPointForAllBEs("segment_iterator.fast_execute")
+        GetDebugPoint().disableDebugPointForAllBEs("VectorizedFnCall.must_in_slow_path")
       }
     } finally {
     }

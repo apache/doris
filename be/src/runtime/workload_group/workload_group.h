@@ -100,7 +100,8 @@ public:
 
     void set_weighted_memory_ratio(double ratio);
     bool add_wg_refresh_interval_memory_growth(int64_t size) {
-        auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
+        auto realtime_total_mem_used =
+                _total_mem_used + _wg_refresh_interval_memory_growth.load() + size;
         if ((realtime_total_mem_used >
              ((double)_weighted_memory_limit *
               _spill_high_watermark.load(std::memory_order_relaxed) / 100))) {
@@ -125,6 +126,7 @@ public:
     }
 
     std::string debug_string() const;
+    std::string memory_debug_string() const;
 
     void check_and_update(const WorkloadGroupInfo& tg_info);
 

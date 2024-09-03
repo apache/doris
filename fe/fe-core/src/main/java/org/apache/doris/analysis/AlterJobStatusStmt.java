@@ -24,7 +24,7 @@ import org.apache.doris.job.common.JobStatus;
 import com.google.common.base.Strings;
 import lombok.Getter;
 
-public class AlterJobStatusStmt extends DdlStmt {
+public class AlterJobStatusStmt extends DdlStmt implements NotFallbackInParser {
 
     private Expr expr;
 

@@ -21,7 +21,6 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.stats.FilterEstimation.EstimationContext;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
@@ -61,7 +60,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Predicate;
 
 /**
  * Calculate selectivity of expression that produces boolean value.
@@ -69,9 +67,10 @@ import java.util.function.Predicate;
  */
 public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationContext> {
     public static final double DEFAULT_INEQUALITY_COEFFICIENT = 0.5;
+    // "Range selectivity is prone to producing outliers, so we add this threshold limit.
+    // The threshold estimation is calculated based on selecting one month out of fifty years."
+    public static final double RANGE_SELECTIVITY_THRESHOLD = 0.0016;
     public static final double DEFAULT_IN_COEFFICIENT = 1.0 / 3.0;
-
-    public static final double DEFAULT_HAVING_COEFFICIENT = 0.01;
 
     public static final double DEFAULT_LIKE_COMPARISON_SELECTIVITY = 0.2;
     public static final double DEFAULT_ISNULL_SELECTIVITY = 0.005;
@@ -93,12 +92,19 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     /**
      * This method will update the stats according to the selectivity.
      */
-    public Statistics estimate(Expression expression, Statistics statistics) {
-        // For a comparison predicate, only when it's left side is a slot and right side is a literal, we would
-        // consider is a valid predicate.
-        Statistics stats = expression.accept(this, new EstimationContext(statistics));
-        stats.enforceValid();
-        return stats;
+    public Statistics estimate(Expression expression, Statistics inputStats) {
+        Statistics outputStats = expression.accept(this, new EstimationContext(inputStats));
+        if (outputStats.getRowCount() == 0 && inputStats.getDeltaRowCount() > 0) {
+            StatisticsBuilder deltaStats = new StatisticsBuilder();
+            deltaStats.setDeltaRowCount(0);
+            deltaStats.setRowCount(inputStats.getDeltaRowCount());
+            for (Expression expr : inputStats.columnStatistics().keySet()) {
+                deltaStats.putColumnStatistics(expr, ColumnStatistic.UNKNOWN);
+            }
+            outputStats = expression.accept(this, new EstimationContext(deltaStats.build()));
+        }
+        outputStats.enforceValid();
+        return outputStats;
     }
 
     @Override
@@ -164,24 +170,6 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         }
         ColumnStatistic statsForLeft = ExpressionEstimation.estimate(left, context.statistics);
         ColumnStatistic statsForRight = ExpressionEstimation.estimate(right, context.statistics);
-        if (aggSlots != null) {
-            Predicate<TreeNode<Expression>> containsAggSlot = e -> {
-                if (e instanceof SlotReference) {
-                    SlotReference slot = (SlotReference) e;
-                    return aggSlots.contains(slot);
-                }
-                return false;
-            };
-            boolean leftAgg = left.anyMatch(containsAggSlot);
-            boolean rightAgg = right.anyMatch(containsAggSlot);
-            // It means this predicate appears in HAVING clause.
-            if (leftAgg || rightAgg) {
-                double rowCount = context.statistics.getRowCount();
-                double newRowCount = Math.max(rowCount * DEFAULT_HAVING_COEFFICIENT,
-                        Math.max(statsForLeft.ndv, statsForRight.ndv));
-                return context.statistics.withRowCount(newRowCount);
-            }
-        }
         if (!left.isConstant() && !right.isConstant()) {
             return calculateWhenBothColumn(cp, context, statsForLeft, statsForRight);
         } else {
@@ -622,6 +610,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             double sel = leftRange.overlapPercentWith(rightRange);
             if (!(dataType instanceof RangeScalable) && (sel != 0.0 && sel != 1.0)) {
                 sel = DEFAULT_INEQUALITY_COEFFICIENT;
+            } else if (sel < RANGE_SELECTIVITY_THRESHOLD) {
+                sel = RANGE_SELECTIVITY_THRESHOLD;
             }
             sel = getNotNullSelectivity(leftStats, sel);
             updatedStatistics = context.statistics.withSel(sel);
