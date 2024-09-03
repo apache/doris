@@ -376,7 +376,7 @@
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_timestamp_DateTime --
+-- !sql_timestamp_DateTime_tz --
 \N
 2012-03-01T00:00:01
 2012-03-02T01:01:02
@@ -391,7 +391,7 @@
 2012-03-11T10:10:11
 2012-03-12T11:11:12
 
--- !sql_timestamp_DateTime_notnull --
+-- !sql_timestamp_DateTime_notnull_tz --
 2012-03-01T00:00:01
 2012-03-02T01:01:02
 2012-03-03T02:02:03
@@ -405,7 +405,7 @@
 2012-03-11T10:10:11
 2012-03-12T11:11:12
 
--- !sql_timestamp_DateTimeV2 --
+-- !sql_timestamp_DateTimeV2_tz --
 \N
 2012-03-01T00:00:01
 2012-03-02T01:01:02
@@ -420,7 +420,7 @@
 2012-03-11T10:10:11
 2012-03-12T11:11:12
 
--- !sql_timestamp_DateTimeV2_notnull --
+-- !sql_timestamp_DateTimeV2_notnull_tz --
 2012-03-01T00:00:01
 2012-03-02T01:01:02
 2012-03-03T02:02:03
@@ -433,6 +433,64 @@
 2012-03-10T09:09:10
 2012-03-11T10:10:11
 2012-03-12T11:11:12
+
+-- !sql_timestamp_DateTime_tz_c --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_timestamp_DateTime_notnull_tz_c --
+
+
+
+
+
+
+
+
+
+
+
+
+
+-- !sql_timestamp_DateTimeV2_tz_c --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_timestamp_DateTimeV2_notnull_tz_c --
+
+
+
+
+
+
+
+
+
+
+
+
 
 -- !sql_to_base64_String --
 bnVsbA==
