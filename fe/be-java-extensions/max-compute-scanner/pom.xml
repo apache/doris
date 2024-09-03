@@ -59,13 +59,6 @@ under the License.
             <groupId>com.aliyun.odps</groupId>
             <artifactId>odps-sdk-table-api</artifactId>
             <version>0.48.8-public</version>
-<!--            <exclusions>-->
-<!--                <exclusion>-->
-<!--                    <artifactId>odps-sdk-core</artifactId>-->
-<!--                    <groupId>com.aliyun.odps</groupId>-->
-<!--                </exclusion>-->
-<!--            </exclusions>-->
-            <!--            todo -->
         </dependency>
         <dependency>
             <groupId>org.apache.arrow</groupId>
@@ -118,14 +111,6 @@ under the License.
                     <reuseForks>false</reuseForks>
                     <useFile>false</useFile>
                     <argLine>-javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar</argLine>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <configuration>
-                    <source>14</source>
-                    <target>14</target>
                 </configuration>
             </plugin>
         </plugins>

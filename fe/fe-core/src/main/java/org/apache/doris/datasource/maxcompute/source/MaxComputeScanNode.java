@@ -275,7 +275,6 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             };
             if (odpsOp != null) {
 
-
                 String columnName = convertSlotRefToColumnName(expr.getChild(0));
                 com.aliyun.odps.OdpsType odpsType  =  table.getColumnNameToOdpsColumn().get(columnName).getType();
                 StringBuilder stringBuilder = new StringBuilder();
@@ -346,11 +345,12 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             }
             case STRING:
             case CHAR:
-            case VARCHAR:
-            case DATE:
-            case TIMESTAMP: {
+            case VARCHAR: {
                 return " \"" + literalExpr.toString() + "\" ";
             }
+            // case DATE:
+            // case TIMESTAMP: {return " \"" + literalExpr.toString() + "\" ";}
+            // Time zone issues need to be taken into consideration.
             default: {
                 break;
             }

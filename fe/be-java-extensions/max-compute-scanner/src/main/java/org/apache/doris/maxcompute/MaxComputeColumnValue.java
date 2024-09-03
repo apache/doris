@@ -50,6 +50,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -198,6 +199,31 @@ public class MaxComputeColumnValue implements ColumnValue {
         return v == null ? new String(new byte[0]) : v;
     }
 
+    public String getChar() {
+        skippedIfNull();
+        VarCharVector varcharCol = (VarCharVector) column;
+        return varcharCol.getObject(idx++).toString().stripTrailing();
+    }
+
+    // Maybe I can use `appendBytesAndOffset(byte[] src, int offset, int length)` to reduce the creation of byte[].
+    // But I haven't figured out how to write it elegantly.
+    public byte[] getCharAsBytes() {
+        skippedIfNull();
+        VarCharVector varcharCol = (VarCharVector) column;
+        byte[] v = varcharCol.getObject(idx++).getBytes();
+
+        if (v == null) {
+            return new byte[0];
+        }
+
+        int end = v.length - 1;
+        while (end >= 0 && v[end] == ' ') {
+            end--;
+        }
+        return (end == -1) ? new byte[0] : Arrays.copyOfRange(v, 0, end + 1);
+    }
+
+
     @Override
     public byte[] getStringAsBytes() {
         skippedIfNull();
@@ -220,18 +246,25 @@ public class MaxComputeColumnValue implements ColumnValue {
         LocalDateTime result;
 
         ArrowType.Timestamp timestampType = ( ArrowType.Timestamp) column.getField().getFieldType().getType();
+        if (timestampType.getUnit() ==  org.apache.arrow.vector.types.TimeUnit.MILLISECOND) {
+            result = convertToLocalDateTime((TimeStampMilliTZVector) column, idx++);
+        } else {
+            result = convertToLocalDateTime((TimeStampNanoTZVector) column, idx++);
+        }
+
+        /*
+        timestampType.getUnit()
         result = switch (timestampType.getUnit()) {
             case MICROSECOND -> convertToLocalDateTime((TimeStampMicroTZVector) column, idx++);
             case SECOND -> convertToLocalDateTime((TimeStampSecTZVector) column, idx++);
             case MILLISECOND -> convertToLocalDateTime((TimeStampMilliTZVector) column, idx++);
             case NANOSECOND -> convertToLocalDateTime((TimeStampNanoTZVector) column, idx++);
         };
-
-        /*
         Because :
 
         MaxCompute type    => Doris Type
-        DATETIME TIMESTAMP => ScalarType.createDatetimeV2Type(3);
+        DATETIME  => ScalarType.createDatetimeV2Type(3)
+        TIMESTAMP => ScalarType.createDatetimeV2Type(6);
 
         and TableBatchReadSession
             .withArrowOptions (

@@ -230,9 +230,11 @@ public class MaxComputeExternalTable extends ExternalTable {
             case DATE: {
                 return ScalarType.createDateV2Type();
             }
-            case DATETIME:
-            case TIMESTAMP: {
+            case DATETIME: {
                 return ScalarType.createDatetimeV2Type(3);
+            }
+            case TIMESTAMP: {
+                return ScalarType.createDatetimeV2Type(6);
             }
             case ARRAY: {
                 ArrayTypeInfo arrayType = (ArrayTypeInfo) typeInfo;
