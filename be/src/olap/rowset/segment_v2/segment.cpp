@@ -203,7 +203,8 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         ColumnReader* reader = nullptr;
         if (col.is_extracted_column()) {
             auto relative_path = col.path_info_ptr()->copy_pop_front();
-            const auto* node = _sub_column_tree[col.unique_id()].find_exact(relative_path);
+            int32_t unique_id = col.unique_id() > 0 ? col.unique_id() : col.parent_unique_id();
+            const auto* node = _sub_column_tree[unique_id].find_exact(relative_path);
             reader = node != nullptr ? node->data.reader.get() : nullptr;
         } else {
             reader = _column_readers.contains(col.unique_id())
@@ -775,8 +776,9 @@ ColumnReader* Segment::_get_column_reader(const TabletColumn& col) {
     // init column iterator by path info
     if (col.has_path_info() || col.is_variant_type()) {
         auto relative_path = col.path_info_ptr()->copy_pop_front();
+        int32_t unique_id = col.unique_id() > 0 ? col.unique_id() : col.parent_unique_id();
         const auto* node = col.has_path_info()
-                                   ? _sub_column_tree[col.unique_id()].find_exact(relative_path)
+                                   ? _sub_column_tree[unique_id].find_exact(relative_path)
                                    : nullptr;
         if (node != nullptr) {
             return node->data.reader.get();

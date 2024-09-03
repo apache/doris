@@ -28,6 +28,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -269,6 +270,14 @@ public class PartitionTableInfo {
 
             try {
                 ArrayList<Expr> exprs = convertToLegacyAutoPartitionExprs(partitionList);
+
+                // only auto partition support partition expr
+                if (!isAutoPartition) {
+                    if (exprs.stream().anyMatch(expr -> expr instanceof FunctionCallExpr)) {
+                        throw new DdlException("Non-auto partition table not support partition expr!");
+                    }
+                }
+
                 // here we have already extracted identifierPartitionColumns
                 if (partitionType.equals(PartitionType.RANGE.name())) {
                     if (isAutoPartition) {
