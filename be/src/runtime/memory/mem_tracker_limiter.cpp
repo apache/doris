@@ -114,6 +114,8 @@ MemTrackerLimiter::~MemTrackerLimiter() {
             "mem tracker not equal to 0 when mem tracker destruct, this usually means that "
             "memory tracking is inaccurate and SCOPED_ATTACH_TASK and "
             "SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER are not used correctly. "
+            "If the log is truncated, search for `Address Sanitizer` in the be.INFO log to see "
+            "more information."
             "1. For query and load, memory leaks may have occurred, it is expected that the query "
             "mem tracker will be bound to the thread context using SCOPED_ATTACH_TASK and "
             "SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER before all memory alloc and free. "
@@ -127,7 +129,7 @@ MemTrackerLimiter::~MemTrackerLimiter() {
     if (_consumption->current_value() != 0) {
         // TODO, expect mem tracker equal to 0 at the load/compaction/etc. task end.
 #ifndef NDEBUG
-        if (_type == Type::QUERY) {
+        if (_type == Type::QUERY || (_type == Type::LOAD && !is_group_commit_load)) {
             std::string err_msg =
                     fmt::format("mem tracker label: {}, consumption: {}, peak consumption: {}, {}.",
                                 label(), _consumption->current_value(), _consumption->peak_value(),
@@ -140,7 +142,7 @@ MemTrackerLimiter::~MemTrackerLimiter() {
         }
         _consumption->set(0);
 #ifndef NDEBUG
-    } else if (!_address_sanitizers.empty()) {
+    } else if (!_address_sanitizers.empty() && !is_group_commit_load) {
         LOG(FATAL) << "[Address Sanitizer] consumption is 0, but address sanitizers not empty. "
                    << ", mem tracker label: " << _label
                    << ", peak consumption: " << _consumption->peak_value()
@@ -152,17 +154,17 @@ MemTrackerLimiter::~MemTrackerLimiter() {
 
 #ifndef NDEBUG
 void MemTrackerLimiter::add_address_sanitizers(void* buf, size_t size) {
-    if (_type == Type::QUERY) {
+    if (_type == Type::QUERY || (_type == Type::LOAD && !is_group_commit_load)) {
         std::lock_guard<std::mutex> l(_address_sanitizers_mtx);
         auto it = _address_sanitizers.find(buf);
         if (it != _address_sanitizers.end()) {
-            LOG(FATAL) << "[Address Sanitizer] memory buf repeat add, mem tracker label: " << _label
-                       << ", consumption: " << _consumption->current_value()
-                       << ", peak consumption: " << _consumption->peak_value() << ", buf: " << buf
-                       << ", size: " << size << ", old buf: " << it->first
-                       << ", old size: " << it->second.size
-                       << ", new stack_trace: " << get_stack_trace()
-                       << ", old stack_trace: " << it->second.stack_trace;
+            _error_address_sanitizers.emplace_back(
+                    fmt::format("[Address Sanitizer] memory buf repeat add, mem tracker label: {}, "
+                                "consumption: {}, peak consumption: {}, buf: {}, size: {}, old "
+                                "buf: {}, old size: {}, new stack_trace: {}, old stack_trace: {}.",
+                                _label, _consumption->current_value(), _consumption->peak_value(),
+                                buf, size, it->first, it->second.size,
+                                get_stack_trace(1, "FULL_WITH_INLINE"), it->second.stack_trace));
         }
 
         // if alignment not equal to 0, maybe usable_size > size.
@@ -174,26 +176,26 @@ void MemTrackerLimiter::add_address_sanitizers(void* buf, size_t size) {
 }
 
 void MemTrackerLimiter::remove_address_sanitizers(void* buf, size_t size) {
-    if (_type == Type::QUERY) {
+    if (_type == Type::QUERY || (_type == Type::LOAD && !is_group_commit_load)) {
         std::lock_guard<std::mutex> l(_address_sanitizers_mtx);
         auto it = _address_sanitizers.find(buf);
         if (it != _address_sanitizers.end()) {
             if (it->second.size != size) {
-                LOG(FATAL) << "[Address Sanitizer] free memory buf size inaccurate, mem tracker "
-                              "label: "
-                           << _label << ", consumption: " << _consumption->current_value()
-                           << ", peak consumption: " << _consumption->peak_value()
-                           << ", buf: " << buf << ", size: " << size << ", old buf: " << it->first
-                           << ", old size: " << it->second.size
-                           << ", new stack_trace: " << get_stack_trace()
-                           << ", old stack_trace: " << it->second.stack_trace;
+                _error_address_sanitizers.emplace_back(fmt::format(
+                        "[Address Sanitizer] free memory buf size inaccurate, mem tracker label: "
+                        "{}, consumption: {}, peak consumption: {}, buf: {}, size: {}, old buf: "
+                        "{}, old size: {}, new stack_trace: {}, old stack_trace: {}.",
+                        _label, _consumption->current_value(), _consumption->peak_value(), buf,
+                        size, it->first, it->second.size, get_stack_trace(1, "FULL_WITH_INLINE"),
+                        it->second.stack_trace));
             }
             _address_sanitizers.erase(buf);
         } else {
-            LOG(FATAL) << "[Address Sanitizer] memory buf not exist, mem tracker label: " << _label
-                       << ", consumption: " << _consumption->current_value()
-                       << ", peak consumption: " << _consumption->peak_value() << ", buf: " << buf
-                       << ", size: " << size << ", stack_trace: " << get_stack_trace();
+            _error_address_sanitizers.emplace_back(fmt::format(
+                    "[Address Sanitizer] memory buf not exist, mem tracker label: {}, consumption: "
+                    "{}, peak consumption: {}, buf: {}, size: {}, stack_trace: {}.",
+                    _label, _consumption->current_value(), _consumption->peak_value(), buf, size,
+                    get_stack_trace(1, "FULL_WITH_INLINE")));
         }
     }
 }
@@ -201,9 +203,20 @@ void MemTrackerLimiter::remove_address_sanitizers(void* buf, size_t size) {
 std::string MemTrackerLimiter::print_address_sanitizers() {
     std::lock_guard<std::mutex> l(_address_sanitizers_mtx);
     std::string detail = "[Address Sanitizer]:";
+    detail += "\n memory not be freed:";
     for (const auto& it : _address_sanitizers) {
-        detail += fmt::format("\n    {}, size {}, strack trace: {}", it.first, it.second.size,
-                              it.second.stack_trace);
+        auto msg = fmt::format(
+                "\n    [Address Sanitizer] buf not be freed, mem tracker label: {}, consumption: "
+                "{}, peak consumption: {}, buf: {}, size {}, strack trace: {}",
+                _label, _consumption->current_value(), _consumption->peak_value(), it.first,
+                it.second.size, it.second.stack_trace);
+        LOG(INFO) << msg;
+        detail += msg;
+    }
+    detail += "\n incorrect memory alloc and free:";
+    for (const auto& err_msg : _error_address_sanitizers) {
+        LOG(INFO) << err_msg;
+        detail += fmt::format("\n    {}", err_msg);
     }
     return detail;
 }

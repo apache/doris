@@ -42,6 +42,10 @@ Status GroupCommitScanNode::get_next(RuntimeState* state, vectorized::Block* blo
 
 Status GroupCommitScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(VScanNode::init(tnode, state));
+#ifndef NDEBUG
+        DCHECK(state->get_query_ctx() != nullptr);
+        state->get_query_ctx()->query_mem_tracker->is_group_commit_load = true;
+#endif
     return state->exec_env()->group_commit_mgr()->get_load_block_queue(
             _table_id, state->fragment_instance_id(), load_block_queue);
 }
