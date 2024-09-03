@@ -406,10 +406,10 @@ suite("insert_group_commit_into") {
             "replication_allocation" = "tag.location.default: 1"
             ); """
             sql """DROP MATERIALIZED VIEW IF EXISTS ods_zn_dnt_max1 ON ${table};"""
-            sql """create materialized view ods_zn_dnt_max1 as
+            createMV("""create materialized view ods_zn_dnt_max1 as
             select ordernum,max(dnt) as dnt from ${table}
             group by ordernum
-            ORDER BY ordernum;"""
+            ORDER BY ordernum;""")
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
                 sql """ set group_commit = async_mode; """
                 if (item == "nereids") {
