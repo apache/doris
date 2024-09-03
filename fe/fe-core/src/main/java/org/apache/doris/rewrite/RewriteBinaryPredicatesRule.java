@@ -118,6 +118,15 @@ public class RewriteBinaryPredicatesRule implements ExprRewriteRule {
         }
     }
 
+    /**
+     * Convert the binary predicate between datetime and date
+     * 1) with date column col <= '2024-06-01 23:59:39'
+     *    converted from cast (`col` to datetime ) <= '2024-06-01 23:59:39' to
+     *    `col` <= '2024-06-01'
+     * 2) with datetime column convert(col, date) <= '2024-06-01'
+     *    converted from cast (`col` to date ) <= '2024-06-01' to
+     *    cast(cast(`col` to date) to datetime) <= '2024-06-01 00:00:00'
+     */
     private Expr processDateLikeTypeCoercion(Expr expr) throws AnalysisException {
         BinaryPredicate.Operator op = ((BinaryPredicate) expr).getOp();
         Expr left = expr.getChild(0);
@@ -128,9 +137,9 @@ public class RewriteBinaryPredicatesRule implements ExprRewriteRule {
             return expr;
         }
 
-        // datetime&datetimev2 to date&datev2
-        if (cast.getChild(0).getType().isDate()
-                || cast.getChild(0).getType().isDateV2()) {
+        // 1) datetime&datetimev2 to date&datev2
+        if ((cast.getChild(0).getType().isDate()
+                || cast.getChild(0).getType().isDateV2()) && cast.getChild(0) instanceof SlotRef) {
             if ((right.getType().isDatetime() || right.getType().isDatetimeV2())
                     && !cannotAdjust((DateLiteral) right, op)) {
                 left = cast.getChild(0);
@@ -142,6 +151,16 @@ public class RewriteBinaryPredicatesRule implements ExprRewriteRule {
                 ) {
                     right = ((DateLiteral) right).plusDays(1);
                 }
+            }
+        }
+
+        // 2) date&datev2 to datetime&datetimev2
+        if (cast.getChild(0).getType().isDatetime() && cast.getChild(0) instanceof SlotRef) {
+            if (right.getType().isDate()) {
+                left = new CastExpr(cast.getChild(0).getType(), cast);
+                DateLiteral dateLiteral = (DateLiteral) right;
+                right = new DateLiteral(dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay(),
+                    0, 0, 0, cast.getChild(0).getType());
             }
         }
 
