@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.PartitionKeyDesc.PartitionKeyValueType;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
@@ -179,7 +180,10 @@ public class SinglePartitionDesc implements AllPartitionDesc {
         }
 
         // analyze version info
-        versionInfo = PropertyAnalyzer.analyzeVersionInfo(properties);
+        // if not set, set by property
+        if (versionInfo != Partition.PARTITION_INIT_VERSION) {
+            versionInfo = PropertyAnalyzer.analyzeVersionInfo(properties);
+        }
 
         // analyze in memory
         isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
