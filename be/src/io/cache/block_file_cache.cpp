@@ -1397,6 +1397,21 @@ std::string BlockFileCache::dump_structure_unlocked(const UInt128Wrapper& hash,
     return result.str();
 }
 
+std::string BlockFileCache::dump_single_cache_type(const UInt128Wrapper& hash, size_t offset) {
+    std::lock_guard cache_lock(_mutex);
+    return dump_single_cache_type_unlocked(hash, offset, cache_lock);
+}
+
+std::string BlockFileCache::dump_single_cache_type_unlocked(const UInt128Wrapper& hash,
+                                                            size_t offset,
+                                                            std::lock_guard<std::mutex>&) {
+    std::stringstream result;
+    const auto& cells_by_offset = _files[hash];
+    const auto& cell = cells_by_offset.find(offset);
+
+    return cache_type_to_string(cell->second.file_block->cache_type());
+}
+
 void BlockFileCache::change_cache_type(const UInt128Wrapper& hash, size_t offset,
                                        FileCacheType new_type,
                                        std::lock_guard<std::mutex>& cache_lock) {

@@ -1422,7 +1422,7 @@ TEST_F(BlockFileCacheTest, fix_tmp_file) {
     }
 }
 
-TEST_F(BlockFileCacheTest, test_lazy_load) {
+TEST_F(BlockFileCacheTest, test_async_load) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -1483,7 +1483,7 @@ TEST_F(BlockFileCacheTest, test_lazy_load) {
     }
 }
 
-TEST_F(BlockFileCacheTest, test_lazy_load_with_limit) {
+TEST_F(BlockFileCacheTest, test_async_load_with_limit) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -2677,7 +2677,8 @@ TEST_F(BlockFileCacheTest, append_many_time) {
         auto holder = cache.get_or_set(key, 0, 5, context);
         auto blocks = fromHolder(holder);
         assert_range(1, blocks[0], io::FileBlock::Range(0, 4), io::FileBlock::State::DOWNLOADED);
-        ASSERT_TRUE(blocks[0]->change_cache_type_self(FileCacheType::INDEX).ok());
+        ASSERT_TRUE(
+                blocks[0]->change_cache_type_between_normal_and_index(FileCacheType::INDEX).ok());
         if (auto storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
             storage != nullptr) {
             auto dir = storage->get_path_in_local_cache(blocks[0]->get_hash_value(),
@@ -3424,7 +3425,7 @@ TEST_F(BlockFileCacheTest, test_hot_data) {
     EXPECT_EQ(cache.get_hot_blocks_meta(key2).size(), 1);
 }
 
-TEST_F(BlockFileCacheTest, test_lazy_load_with_error_file_1) {
+TEST_F(BlockFileCacheTest, test_async_load_with_error_file_1) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -3497,7 +3498,82 @@ TEST_F(BlockFileCacheTest, test_lazy_load_with_error_file_1) {
     }
 }
 
-TEST_F(BlockFileCacheTest, test_lazy_load_with_error_file_2) {
+TEST_F(BlockFileCacheTest, test_async_load_ttl_suffix) {
+    const int64_t expiration = 1987654321;
+    // old file path format, [hash]_[expiration]/[offset]_ttl
+    // new file path format, [hash]_[expiration]/[offset]
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    auto sp = SyncPoint::get_instance();
+    Defer defer {[sp] { sp->clear_all_call_backs(); }};
+    io::FileCacheSettings settings;
+    settings.index_queue_size = 30;
+    settings.index_queue_elements = 5;
+    settings.capacity = 30;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+    io::CacheContext context;
+    context.cache_type = io::FileCacheType::TTL;
+    context.expiration_time = expiration;
+    auto key = io::BlockFileCache::hash("key1");
+    io::BlockFileCache cache(cache_base_path, settings);
+    std::string dir = cache_base_path + key.to_string().substr(0, 3) + "/" + key.to_string() + "_" +
+                      std::to_string(expiration);
+    std::cout << dir << std::endl;
+    auto st = global_local_filesystem()->create_directory(dir, false);
+    if (!st.ok()) {
+        std::cout << dir << " create failed" ASSERT_TRUE(false);
+    }
+    sp->set_call_back("BlockFileCache::BeforeScan", [&](auto&&) {
+        FileWriterPtr writer;
+        ASSERT_TRUE(global_local_filesystem()->create_file(dir / "10086_ttl", &writer).ok());
+        ASSERT_TRUE(writer->append(Slice("111", 3)).ok());
+        ASSERT_TRUE(writer->close().ok());
+
+        // no suffix, but it is not NORMAL, instead it is TTL because the
+        // dirname contains non-zero expiration time
+        ASSERT_TRUE(global_local_filesystem()->create_file(dir / "20086", &writer).ok());
+        ASSERT_TRUE(writer->append(Slice("111", 3)).ok());
+        ASSERT_TRUE(writer->close().ok());
+
+        ASSERT_TRUE(global_local_filesystem()->create_file(dir / "30086_idx", &writer).ok());
+        ASSERT_TRUE(writer->append(Slice("111", 3)).ok());
+        ASSERT_TRUE(writer->close().ok());
+    });
+    sp->enable_processing();
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        };
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    {
+        auto type = cache.dump_single_cache_type(key, 10086);
+        ASSERT_TRUE(type == "_ttl");
+        auto holder = cache.get_or_set(key, 10086, 3, context); /// Add range [9, 9]
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        assert_range(1, blocks[0], io::FileBlock::Range(10086, 10086 + 3 - 1),
+                     io::FileBlock::State::DOWNLOADED);
+        ASSERT_TRUE(blocks[0]->cache_type() == io::FileCacheType::TTL);
+    }
+    {
+        auto type = cache.dump_single_cache_type(key, 20086);
+        ASSERT_TRUE(type == "_ttl");
+        auto holder = cache.get_or_set(key, 20086, 3, context); /// Add range [9, 9]
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        assert_range(1, blocks[0], io::FileBlock::Range(20086, 20086 + 3 - 1),
+                     io::FileBlock::State::DOWNLOADED);
+        ASSERT_TRUE(blocks[0]->cache_type() == io::FileCacheType::TTL);
+    }
+}
+
+TEST_F(BlockFileCacheTest, test_async_load_with_error_file_2) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }

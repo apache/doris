@@ -104,8 +104,9 @@ public:
     std::string reset_capacity(size_t new_capacity);
 
     std::map<size_t, FileBlockSPtr> get_blocks_by_key(const UInt128Wrapper& hash);
-    /// For debug.
+    /// For debug and UT
     std::string dump_structure(const UInt128Wrapper& hash);
+    std::string dump_single_cache_type(const UInt128Wrapper& hash, size_t offset);
 
     [[nodiscard]] size_t get_used_cache_size(FileCacheType type) const;
 
@@ -357,6 +358,9 @@ private:
 
     std::string dump_structure_unlocked(const UInt128Wrapper& hash,
                                         std::lock_guard<std::mutex>& cache_lock);
+
+    std::string dump_single_cache_type_unlocked(const UInt128Wrapper& hash, size_t offset,
+                                                std::lock_guard<std::mutex>& cache_lock);
 
     void fill_holes_with_empty_file_blocks(FileBlocks& file_blocks, const UInt128Wrapper& hash,
                                            const CacheContext& context,

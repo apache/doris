@@ -553,6 +553,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
     };
     std::error_code ec;
     if constexpr (USE_CACHE_VERSION2) {
+        TEST_SYNC_POINT_CALLBACK("BlockFileCache::BeforeScan");
         std::filesystem::directory_iterator key_prefix_it {_cache_base_path, ec};
         if (ec) {
             LOG(WARNING) << ec.message();
