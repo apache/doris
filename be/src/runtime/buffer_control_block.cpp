@@ -248,6 +248,11 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* 
 
 Status BufferControlBlock::close(const TUniqueId& id, Status exec_status) {
     std::unique_lock<std::mutex> l(_lock);
+    // close will be called multiple times and error status needs to be collected.
+    if (!exec_status.ok()) {
+        _status = exec_status;
+    }
+
     auto it = _result_sink_dependencys.find(id);
     if (it != _result_sink_dependencys.end()) {
         it->second->set_always_ready();
@@ -258,7 +263,6 @@ Status BufferControlBlock::close(const TUniqueId& id, Status exec_status) {
     }
 
     _is_close = true;
-    _status = exec_status;
     _arrow_data_arrival.notify_all();
 
     if (!_waiting_rpc.empty()) {
