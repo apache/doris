@@ -24,6 +24,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
+    sql """ set global enable_match_without_inverted_index = false """
     boolean disableAutoCompaction = false
   
     def set_be_config = { key, value ->
@@ -317,5 +318,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
         if (has_update_be_config) {
             set_be_config.call("inverted_index_compaction_enable", invertedIndexCompactionEnable.toString())
         }
+
+        sql """ set global enable_match_without_inverted_index = true """
     }
 }
