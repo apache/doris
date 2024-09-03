@@ -732,7 +732,7 @@ enum TMetadataType {
   JOBS,
   TASKS,
   WORKLOAD_SCHED_POLICY,
-  PARTITIONS
+  PARTITIONS;
 }
 
 enum TIcebergQueryType {
