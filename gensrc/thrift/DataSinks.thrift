@@ -137,8 +137,8 @@ struct TResultFileSinkOptions {
     // Since we have changed the type mapping from Doris to Orc type,
     // using the Outfile to export Date/Datetime types will cause BE core dump
     // when only upgrading BE without upgrading FE.
-    // orc_writer_version = 1 means doris FE is higher than version 2.1.15
-    // orc_writer_version = 0 means doris FE is less than or equal to version 2.1.15
+    // orc_writer_version = 1 means doris FE is higher than version 2.1.5
+    // orc_writer_version = 0 means doris FE is less than or equal to version 2.1.5
     20: optional i64 orc_writer_version;
 }
 
