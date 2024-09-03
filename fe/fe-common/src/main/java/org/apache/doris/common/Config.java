@@ -3049,4 +3049,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"表示最大锁持有时间，超过该时间会打印告警日志，单位秒",
             "Maximum lock hold time; logs a warning if exceeded"})
     public static long max_lock_hold_threshold_seconds = 10;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"Kafka的连接重试次数,默认是3", "The number of retry times for Kafka, default is 3"})
+    public static int get_kafka_meta_retry_times = 3;
 }
