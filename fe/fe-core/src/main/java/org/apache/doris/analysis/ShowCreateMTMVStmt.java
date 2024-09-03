@@ -30,7 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW CREATE Materialized View statement.
-public class ShowCreateMTMVStmt extends ShowStmt {
+public class ShowCreateMTMVStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Materialized View", ScalarType.createVarchar(20)))
