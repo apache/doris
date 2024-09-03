@@ -503,35 +503,41 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     }
 
     RETURN_IF_ERROR(_apply_bitmap_index());
-    RETURN_IF_ERROR(_apply_inverted_index());
-    RETURN_IF_ERROR(_apply_index_expr());
-    size_t input_rows = _row_bitmap.cardinality();
-    for (auto it = _common_expr_ctxs_push_down.begin(); it != _common_expr_ctxs_push_down.end();) {
-        if ((*it)->all_expr_inverted_index_evaluated()) {
-            const auto* result =
-                    (*it)->get_inverted_index_context()->get_inverted_index_result_for_expr(
-                            (*it)->root().get());
-            if (result != nullptr) {
-                _row_bitmap &= *result->get_data_bitmap();
-                auto root = (*it)->root();
-                auto iter_find = std::find(_remaining_conjunct_roots.begin(),
-                                           _remaining_conjunct_roots.end(), root);
-                if (iter_find != _remaining_conjunct_roots.end()) {
-                    _remaining_conjunct_roots.erase(iter_find);
+    {
+        if (_opts.runtime_state &&
+            _opts.runtime_state->query_options().enable_inverted_index_query) {
+            SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
+            size_t input_rows = _row_bitmap.cardinality();
+            RETURN_IF_ERROR(_apply_inverted_index());
+            RETURN_IF_ERROR(_apply_index_expr());
+            for (auto it = _common_expr_ctxs_push_down.begin();
+                 it != _common_expr_ctxs_push_down.end();) {
+                if ((*it)->all_expr_inverted_index_evaluated()) {
+                    const auto* result =
+                            (*it)->get_inverted_index_context()->get_inverted_index_result_for_expr(
+                                    (*it)->root().get());
+                    if (result != nullptr) {
+                        _row_bitmap &= *result->get_data_bitmap();
+                        auto root = (*it)->root();
+                        auto iter_find = std::find(_remaining_conjunct_roots.begin(),
+                                                   _remaining_conjunct_roots.end(), root);
+                        if (iter_find != _remaining_conjunct_roots.end()) {
+                            _remaining_conjunct_roots.erase(iter_find);
+                        }
+                        it = _common_expr_ctxs_push_down.erase(it);
+                    }
+                } else {
+                    ++it;
                 }
-                it = _common_expr_ctxs_push_down.erase(it);
             }
-        } else {
-            ++it;
-        }
-    }
+            _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
+            for (auto cid : _schema->column_ids()) {
+                bool result_true = _check_all_conditions_passed_inverted_index_for_column(cid);
 
-    _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
-    for (auto cid : _schema->column_ids()) {
-        bool result_true = _check_all_conditions_passed_inverted_index_for_column(cid);
-
-        if (result_true) {
-            _need_read_data_indices[cid] = false;
+                if (result_true) {
+                    _need_read_data_indices[cid] = false;
+                }
+            }
         }
     }
     if (!_row_bitmap.isEmpty() &&
@@ -968,11 +974,6 @@ bool SegmentIterator::_is_target_expr_match_predicate(const vectorized::VExprSPt
 }
 
 Status SegmentIterator::_apply_inverted_index() {
-    SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
-    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
-        return Status::OK();
-    }
-    size_t input_rows = _row_bitmap.cardinality();
     std::vector<ColumnPredicate*> remaining_predicates;
     std::set<const ColumnPredicate*> no_need_to_pass_column_predicate_set;
 
@@ -990,7 +991,6 @@ Status SegmentIterator::_apply_inverted_index() {
     }
 
     _col_predicates = std::move(remaining_predicates);
-    _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
     return Status::OK();
 }
 
