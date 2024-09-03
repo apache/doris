@@ -181,7 +181,7 @@ public class SinglePartitionDesc implements AllPartitionDesc {
 
         // analyze version info
         // if not set, set by property
-        if (versionInfo != Partition.PARTITION_INIT_VERSION) {
+        if (versionInfo == Partition.PARTITION_INIT_VERSION) {
             versionInfo = PropertyAnalyzer.analyzeVersionInfo(properties);
         }
 
