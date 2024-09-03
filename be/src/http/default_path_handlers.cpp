@@ -314,7 +314,7 @@ void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* out
               << std::endl;
     (*output) << "And you need to download the FlameGraph and place it under 'be/tools/FlameGraph'."
               << std::endl;
-    (*output) << "Finally, check if the following files exist. And shoudl be executable." << std::endl;
+    (*output) << "Finally, check if the following files exist. And should be executable." << std::endl;
     (*output) << std::endl;
     (*output) << "    be/tools/FlameGraph/stackcollapse-perf.pl" << std::endl;
     (*output) << "    be/tools/FlameGraph/flamegraph.pl" << std::endl;
@@ -334,9 +334,6 @@ void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* out
             << std::endl;
     (*output) << "    <br/>" << std::endl;
     (*output) << "    <div id=\"cpuResult\"><pre id=\"cpuContent\"></pre></div>" << std::endl;
-    (*output) << "    <br/>" << std::endl;
-    (*output) << "    <div id=\"cpuResultGraph\"><pre id=\"cpuContentGraph\"></pre></div>"
-              << std::endl;
     (*output) << "</div>" << std::endl;
 
     // for text profile
@@ -364,7 +361,7 @@ void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* out
 
     // for graph profile
     (*output) << "$('#getCpuGraph').click(function () {" << std::endl;
-    (*output) << "    document.getElementById(\"cpuContentGraph\").innerText = \"Sampling... (30 "
+    (*output) << "    document.getElementById(\"cpuContent\").innerText = \"Sampling... (30 "
                  "seconds)\";"
               << std::endl;
     (*output) << "    $.ajax({" << std::endl;
@@ -373,7 +370,7 @@ void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* out
     (*output) << "        url: \"pprof/profile?type=flamegraph\"," << std::endl;
     (*output) << "        timeout: 120000," << std::endl;
     (*output) << "        success: function (result) {" << std::endl;
-    (*output) << "            document.getElementById(\"cpuResultGraph\").innerHTML = result;"
+    (*output) << "            document.getElementById(\"cpuContent\").innerHTML = result;"
               << std::endl;
     (*output) << "        }" << std::endl;
     (*output) << "        ," << std::endl;

@@ -23,6 +23,9 @@
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/heap-profiler.h>    // IWYU pragma: keep
 #include <gperftools/malloc_extension.h> // IWYU pragma: keep
+#endif
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER)
 #include <gperftools/profiler.h>         // IWYU pragma: keep
 #endif
 #include <stdio.h>
@@ -193,7 +196,7 @@ void ProfileAction::handle(HttpRequest* req) {
         std::string svg_file_content;
         std::string flamegraph_install_dir =
                 std::string(std::getenv("DORIS_HOME")) + "/tools/FlameGraph/";
-        Status st = PprofUtils::generate_flamegraph(30, flamegraph_install_dir, false,
+        Status st = PprofUtils::generate_flamegraph(seconds, flamegraph_install_dir, false,
                                                     &svg_file_content);
         if (!st.ok()) {
             HttpChannel::send_reply(req, st.to_string());
