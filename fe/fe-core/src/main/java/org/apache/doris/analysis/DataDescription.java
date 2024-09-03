@@ -940,7 +940,7 @@ public class DataDescription implements InsertStmt.DataDesc {
             return;
         }
         // check olapTable schema and sequenceCol
-        if (olapTable.hasSequenceCol() && !hasSequenceCol()) {
+        if (olapTable.hasSequenceCol() && !hasSequenceCol() && getMergeType() != LoadTask.MergeType.DELETE) {
             throw new AnalysisException("Table " + olapTable.getName()
                     + " has sequence column, need to specify the sequence column");
         }
