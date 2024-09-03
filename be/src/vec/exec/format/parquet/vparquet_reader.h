@@ -91,6 +91,7 @@ public:
         int64_t page_index_filter_time = 0;
         int64_t read_page_index_time = 0;
         int64_t parse_page_index_time = 0;
+        int64_t predicate_filter_time = 0;
     };
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
@@ -188,6 +189,7 @@ private:
         RuntimeProfile::Counter* decode_null_map_time = nullptr;
         RuntimeProfile::Counter* skip_page_header_num = nullptr;
         RuntimeProfile::Counter* parse_page_header_num = nullptr;
+        RuntimeProfile::Counter* predicate_filter_time = nullptr;
     };
 
     Status _open_file();

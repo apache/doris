@@ -197,6 +197,9 @@ DECLARE_mInt64(stacktrace_in_alloc_large_memory_bytes);
 DECLARE_mInt64(crash_in_alloc_large_memory_bytes);
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
+// !! not modify the default value of this conf!! otherwise memory errors cannot be detected in time.
+// allocator free memory not need to check, because when the thread memory tracker label is Orphan,
+// use the tracker saved in Allocator.
 DECLARE_mBool(enable_memory_orphan_check);
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
@@ -1407,6 +1410,11 @@ DECLARE_mInt16(topn_agg_limit_multiplier);
 DECLARE_mInt64(tablet_meta_serialize_size_limit);
 
 DECLARE_mInt64(pipeline_task_leakage_detect_period_secs);
+// To be compatible with hadoop's block compression
+DECLARE_mInt32(snappy_compression_block_size);
+DECLARE_mInt32(lz4_compression_block_size);
+
+DECLARE_mBool(enable_pipeline_task_leakage_detect);
 
 #ifdef BE_TEST
 // test s3

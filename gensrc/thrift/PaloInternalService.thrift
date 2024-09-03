@@ -333,6 +333,8 @@ struct TQueryOptions {
 
   126: optional i32 runtime_bloom_filter_max_size = 16777216;
 
+  127: optional i32 in_list_value_count_threshold = 10;
+
   128: optional bool enable_adaptive_pipeline_task_serial_read_on_limit = true;
   129: optional i32 adaptive_pipeline_task_serial_read_on_limit = 10000;
 

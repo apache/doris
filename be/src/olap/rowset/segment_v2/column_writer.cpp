@@ -69,9 +69,10 @@ public:
     // Returns whether the building nullmap contains nullptr
     bool has_null() const { return _has_null; }
 
-    OwnedSlice finish() {
+    Status finish(OwnedSlice* slice) {
         _rle_encoder.Flush();
-        return _bitmap_buf.build();
+        RETURN_IF_CATCH_EXCEPTION({ *slice = _bitmap_buf.build(); });
+        return Status::OK();
     }
 
     void reset() {
@@ -533,7 +534,8 @@ Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     return Status::OK();
 }
 
-Status ScalarColumnWriter::append_data_in_current_page(const uint8_t* data, size_t* num_written) {
+Status ScalarColumnWriter::_internal_append_data_in_current_page(const uint8_t* data,
+                                                                 size_t* num_written) {
     RETURN_IF_ERROR(_page_builder->add(data, num_written));
     if (_opts.need_zone_map) {
         _zone_map_index_builder->add_values(data, *num_written);
@@ -676,14 +678,15 @@ Status ScalarColumnWriter::finish_current_page() {
 
     // build data page body : encoded values + [nullmap]
     std::vector<Slice> body;
-    OwnedSlice encoded_values = _page_builder->finish();
+    OwnedSlice encoded_values;
+    RETURN_IF_ERROR(_page_builder->finish(&encoded_values));
     RETURN_IF_ERROR(_page_builder->reset());
     body.push_back(encoded_values.slice());
 
     OwnedSlice nullmap;
     if (_null_bitmap_builder != nullptr) {
         if (is_nullable() && _null_bitmap_builder->has_null()) {
-            nullmap = _null_bitmap_builder->finish();
+            RETURN_IF_ERROR(_null_bitmap_builder->finish(&nullmap));
             body.push_back(nullmap.slice());
         }
         _null_bitmap_builder->reset();

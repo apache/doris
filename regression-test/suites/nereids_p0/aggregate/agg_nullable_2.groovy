@@ -331,19 +331,19 @@ suite("agg_nullable_2") {
         contains "colUniqueId=null, type=bigint, nullable=false"
     }
     
-    qt_select_group_array_intersect """select group_array_intersect(kaint) from agg_nullable_test_2;"""
+    qt_select_group_array_intersect """select array_sort(group_array_intersect(kaint)) from agg_nullable_test_2;"""
     explain {
         sql("verbose select group_array_intersect(kaint) from agg_nullable_test_2;")
         contains "colUniqueId=null, type=array<int>, nullable=false"
     }
 
-    qt_select_group_array_intersect2 """select group_array_intersect(kaint) from agg_nullable_test_2 group by id;"""
+    qt_select_group_array_intersect2 """select array_sort(group_array_intersect(kaint)) from agg_nullable_test_2 group by id;"""
     explain {
         sql("verbose select group_array_intersect(kaint) from agg_nullable_test_2 group by id;")
         contains "colUniqueId=null, type=array<int>, nullable=false"
     }
 
-    qt_select_group_array_intersect_n """select group_array_intersect(knaint) from agg_nullable_test_2;"""
+    qt_select_group_array_intersect_n """select array_sort(group_array_intersect(knaint)) from agg_nullable_test_2;"""
     explain {
         sql("verbose select group_array_intersect(knaint) from agg_nullable_test_2;")
         contains "colUniqueId=null, type=array<int>, nullable=false"

@@ -490,4 +490,14 @@ class DateTimeLiteralTest {
         Assertions.assertEquals(1, literal.roundCeiling(0).month);
         Assertions.assertEquals(2001, literal.roundCeiling(0).year);
     }
+
+    @Test
+    void testEquals() {
+        DateTimeV2Literal l1 = new DateTimeV2Literal(1, 1, 1, 1, 1, 1, 1);
+        DateTimeV2Literal l2 = new DateTimeV2Literal(1, 1, 1, 1, 1, 1, 1);
+        DateTimeV2Literal l3 = new DateTimeV2Literal(1, 1, 1, 1, 1, 1, 2);
+
+        Assertions.assertEquals(l1, l2);
+        Assertions.assertNotEquals(l1, l3);
+    }
 }

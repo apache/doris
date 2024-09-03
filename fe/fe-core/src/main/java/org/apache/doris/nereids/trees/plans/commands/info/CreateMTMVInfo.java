@@ -38,6 +38,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
@@ -151,6 +152,9 @@ public class CreateMTMVInfo {
     public void analyze(ConnectContext ctx) throws Exception {
         // analyze table name
         mvName.analyze(ctx);
+        if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(mvName.getCtl())) {
+            throw new AnalysisException("Only support creating asynchronous materialized views in internal catalog");
+        }
         try {
             FeNameFormat.checkTableName(mvName.getTbl());
         } catch (org.apache.doris.common.AnalysisException e) {
@@ -287,7 +291,7 @@ public class CreateMTMVInfo {
                 if (type.isFloatLikeType() || type.isStringType() || type.isJsonType()
                         || catalogType.isComplexType() || type.isBitmapType() || type.isHllType()
                         || type.isQuantileStateType() || type.isJsonType() || type.isStructType()
-                        || column.getAggType() != null) {
+                        || column.getAggType() != null || type.isVariantType()) {
                     break;
                 }
                 keys.add(column.getName());
