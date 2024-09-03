@@ -215,7 +215,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
                         .thenComparing(rid -> (Long) rid))
                 .collect(Collectors.toList());
 
-        return sortedIndexIds.get(0);
+        return table.getBestMvIdWithHint(sortedIndexIds);
     }
 
     protected List<MaterializedIndex> matchPrefixMost(

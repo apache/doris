@@ -26,9 +26,11 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.hint.OrderedHint;
+import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
+import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
@@ -41,7 +43,6 @@ import org.apache.doris.qe.VariableMgr;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 
@@ -55,10 +56,10 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalSelectHint().thenApply(ctx -> {
             LogicalSelectHint<Plan> selectHintPlan = ctx.root;
-            for (Entry<String, SelectHint> hint : selectHintPlan.getHints().entrySet()) {
-                String hintName = hint.getKey();
+            for (SelectHint hint : selectHintPlan.getHints()) {
+                String hintName = hint.getHintName();
                 if (hintName.equalsIgnoreCase("SET_VAR")) {
-                    setVar((SelectHintSetVar) hint.getValue(), ctx.statementContext);
+                    setVar((SelectHintSetVar) hint, ctx.statementContext);
                 } else if (hintName.equalsIgnoreCase("ORDERED")) {
                     try {
                         ctx.cascadesContext.getConnectContext().getSessionVariable()
@@ -71,10 +72,14 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                     ctx.cascadesContext.getHintMap().put("Ordered", ordered);
                     ctx.statementContext.addHint(ordered);
                 } else if (hintName.equalsIgnoreCase("LEADING")) {
-                    extractLeading((SelectHintLeading) hint.getValue(), ctx.cascadesContext,
-                            ctx.statementContext, selectHintPlan.getHints());
+                    extractLeading((SelectHintLeading) hint, ctx.cascadesContext,
+                            ctx.statementContext, selectHintPlan);
+                } else if (hintName.equalsIgnoreCase("USE_MV")) {
+                    extractMv((SelectHintUseMv) hint, ConnectContext.get().getStatementContext());
+                } else if (hintName.equalsIgnoreCase("NO_USE_MV")) {
+                    extractMv((SelectHintUseMv) hint, ConnectContext.get().getStatementContext());
                 } else {
-                    logger.warn("Can not process select hint '{}' and skip it", hint.getKey());
+                    logger.warn("Can not process select hint '{}' and skip it", hint.getHintName());
                 }
             }
             return selectHintPlan.child();
@@ -111,7 +116,7 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
     }
 
     private void extractLeading(SelectHintLeading selectHint, CascadesContext context,
-                                    StatementContext statementContext, Map<String, SelectHint> hints) {
+                                    StatementContext statementContext, LogicalSelectHint<Plan> selectHintPlan) {
         LeadingHint hint = new LeadingHint("Leading", selectHint.getParameters(), selectHint.toString());
         if (context.getHintMap().get("Leading") != null) {
             hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
@@ -134,7 +139,9 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
         if (!hint.isSyntaxError()) {
             hint.setStatus(Hint.HintStatus.SUCCESS);
         }
-        if (hints.get("ordered") != null || ConnectContext.get().getSessionVariable().isDisableJoinReorder()) {
+        if (selectHintPlan.isIncludeHint("Ordered")
+                || ConnectContext.get().getSessionVariable().isDisableJoinReorder()
+                || context.isLeadingDisableJoinReorder()) {
             context.setLeadingJoin(false);
             hint.setStatus(Hint.HintStatus.UNUSED);
         } else {
@@ -142,6 +149,24 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
         }
         assert (selectHint != null);
         assert (context != null);
+    }
+
+    private void extractMv(SelectHintUseMv selectHint, StatementContext statementContext) {
+        boolean isAllMv = selectHint.getParameters().isEmpty();
+        UseMvHint useMvHint = new UseMvHint(selectHint.getHintName(), selectHint.getParameters(),
+                selectHint.isUseMv(), isAllMv);
+        for (Hint hint : statementContext.getHints()) {
+            if (hint.getHintName().equals(selectHint.getHintName())) {
+                hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+                hint.setErrorMessage("only one " + selectHint.getHintName() + " hint is allowed");
+                useMvHint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+                useMvHint.setErrorMessage("only one " + selectHint.getHintName() + " hint is allowed");
+            }
+        }
+        if (!useMvHint.isSyntaxError()) {
+            ConnectContext.get().getSessionVariable().setEnableSyncMvCostBasedRewrite(false);
+        }
+        statementContext.addHint(useMvHint);
     }
 
 }
