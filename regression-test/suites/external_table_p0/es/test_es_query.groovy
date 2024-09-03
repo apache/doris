@@ -214,6 +214,8 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_5_18 """select message from test1 where not_null_or_empty(message)"""
             order_qt_sql_5_19 """select * from test1 where esquery(c_unsigned_long, '{"match":{"c_unsigned_long":0}}')"""
             order_qt_sql_5_20 """select c_person, c_user, json_extract(c_person, '\$.[0].name'), json_extract(c_user, '\$.[1].last') from test1;"""
+            order_qt_sql_5_21 """select test6, substring(test6, 1, 13) from test2 where substring(test6, 1, 13) = '2022-08-08 20' limit 4;"""
+            order_qt_sql_5_22 """select test6, substring(test6, 1, 13) from test2 where substring(test6, 1, 13) = '2022-08-08 12' limit 4;"""
             try {
                 sql """select * from composite_type_array;"""
                 fail("Should not reach here")
@@ -243,6 +245,8 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_6_18 """select message from test1 where not_null_or_empty(message)"""
             order_qt_sql_6_19 """select * from test1 where esquery(c_person, '{"match":{"c_person.name":"Andy"}}')"""
             order_qt_sql_6_20 """select c_person, c_user, json_extract(c_person, '\$.[0].name'), json_extract(c_user, '\$.[1].last') from test1;"""
+            order_qt_sql_6_21 """select test6, substring(test6, 1, 13) from test2 where substring(test6, 1, 13) = '2022-08-08 20' limit 4;"""
+            order_qt_sql_6_22 """select test6, substring(test6, 1, 13) from test2 where substring(test6, 1, 13) = '2022-08-08 12' limit 4;"""
             try {
                 sql """select * from composite_type_array;"""
                 fail("Should not reach here")
@@ -295,6 +299,10 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_7_23 """select * from test1 where level = 'debug'"""
             order_qt_sql_7_24 """select * from test1 where esquery(c_float, '{"match":{"c_float":1.1}}')"""
             order_qt_sql_7_25 """select c_person, c_user, json_extract(c_person, '\$.[0].name'), json_extract(c_user, '\$.[1].last') from test1;"""
+            order_qt_sql_7_26 """select test7,substring(test7, 1, 10) from test2 where substring(test7, 1, 10)='2022-08-08' limit 2;"""
+            order_qt_sql_7_27 """select test7,substring(test7, 1, 10) from test2 where substring(test7, 1, 10)='2022-08-09' limit 2;"""
+            order_qt_sql_7_28 """select test7,substring(test7, 1, 10) from test2 where substring(test7, 1, 10)='2022-08-10' limit 2;"""
+            order_qt_sql_7_29 """select test7,substring(test7, 1, 10) from test2 where substring(test7, 1, 10)='2022-08-11' limit 2;"""
             try {
                 sql """select * from composite_type_array;"""
                 fail("Should not reach here")
@@ -347,6 +355,10 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_8_21 """select * from test1 where level = 'debug'"""
             order_qt_sql_8_22 """select * from test1 where esquery(c_ip, '{"match":{"c_ip":"192.168.0.1"}}')"""
             order_qt_sql_8_23 """select c_person, c_user, json_extract(c_person, '\$.[0].name'), json_extract(c_user, '\$.[1].last') from test1;"""
+            order_qt_sql_8_24 """select test7,substring(test7, 1, 10) from test2 where substring(test7, 1, 10)='2022-08-08' limit 2;"""
+            order_qt_sql_8_25 """select test7,substring(test7, 1, 10) from test2 where substring(test7, 1, 10)='2022-08-09' limit 2;"""
+            order_qt_sql_8_26 """select test7,substring(test7, 1, 10) from test2 where substring(test7, 1, 10)='2022-08-10' limit 2;"""
+            order_qt_sql_8_27 """select test7,substring(test7, 1, 10) from test2 where substring(test7, 1, 10)='2022-08-11' limit 2;"""
             try {
                 sql """select * from composite_type_array;"""
                 fail("Should not reach here")
