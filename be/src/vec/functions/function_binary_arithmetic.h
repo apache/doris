@@ -933,6 +933,7 @@ class FunctionBinaryArithmetic : public IFunction {
     using OpTraits = OperationTraits<Operation>;
 
     mutable bool need_replace_null_data_to_default_ = false;
+    mutable DataTypePtr type_res;
 
     template <typename F>
     static bool cast_type(const IDataType* type, F&& f) {
@@ -983,7 +984,6 @@ public:
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DataTypePtr type_res;
         bool valid = cast_both_types(
                 arguments[0].get(), arguments[1].get(), [&](const auto& left, const auto& right) {
                     using LeftDataType = std::decay_t<decltype(left)>;
@@ -1045,6 +1045,15 @@ public:
         if (result_generic->is_nullable()) {
             result_generic =
                     static_cast<const DataTypeNullable*>(result_generic)->get_nested_type().get();
+        }
+
+        const auto* retunr_type_ptr = type_res.get();
+        if (typeid(*result_generic) != typeid(*retunr_type_ptr)) {
+            return Status::InternalError(
+                    "error return type be plan : {} ,be class : {} , fe plan : {}  , fe class : "
+                    "{}, function name : {} ",
+                    type_res->get_name(), typeid(*retunr_type_ptr).name(),
+                    result_generic->get_name(), typeid(*result_generic).name(), get_name());
         }
 
         bool check_overflow_for_decimal = context->check_overflow_for_decimal();
