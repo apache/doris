@@ -129,105 +129,100 @@ suite('test_partial_update_delete') {
                 sql "drop table if exists ${tableName3};"
 
 
-                // sql "set skip_delete_sign=false;"
-                // sql "set skip_storage_engine_merge=false;"
-                // sql "set skip_delete_bitmap=false;"
-                // def tableName4 = "test_partial_update_delete4"
-                // sql "DROP TABLE IF EXISTS ${tableName4};"
-                // sql """ CREATE TABLE IF NOT EXISTS ${tableName4} (
-                //         `k1` int NOT NULL,
-                //         `c1` int,
-                //         `c2` int,
-                //         `c3` int NOT NULL,
-                //         `c4` int
-                //         )UNIQUE KEY(k1)
-                //     DISTRIBUTED BY HASH(k1) BUCKETS 1
-                //     PROPERTIES (
-                //         "enable_unique_key_merge_on_write" = "true",
-                //         "disable_auto_compaction" = "true",
-                //         "replication_num" = "1",
-                //         "store_row_column" = "${use_row_store}",
-                //         "function_column.sequence_col" = "c3"); """
+                sql "set skip_delete_sign=false;"
+                sql "set skip_storage_engine_merge=false;"
+                sql "set skip_delete_bitmap=false;"
+                def tableName4 = "test_partial_update_delete4"
+                sql "DROP TABLE IF EXISTS ${tableName4};"
+                sql """ CREATE TABLE IF NOT EXISTS ${tableName4} (
+                        `k1` int NOT NULL,
+                        `c1` int,
+                        `c2` int,
+                        `c3` int NOT NULL,
+                        `c4` int
+                        )UNIQUE KEY(k1)
+                    DISTRIBUTED BY HASH(k1) BUCKETS 1
+                    PROPERTIES (
+                        "enable_unique_key_merge_on_write" = "true",
+                        "disable_auto_compaction" = "true",
+                        "replication_num" = "1",
+                        "store_row_column" = "${use_row_store}",
+                        "function_column.sequence_col" = "c3"); """
 
-                // sql "insert into ${tableName4} values(1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3),(4,4,4,4,4),(5,5,5,5,5),(6,6,6,6,6);"
-                // qt_sql3 "select k1,c1,c2,c3,c4 from ${tableName4} order by k1,c1,c2,c3,c4;"
-                // streamLoad {
-                //     table "${tableName4}"
-                //     set 'column_separator', ','
-                //     set 'format', 'csv'
-                //     set 'columns', 'k1'
-                //     set 'partial_columns', 'true'
-                //     set 'merge_type', 'DELETE'
-                //     file 'partial_update_delete.csv'
-                //     time 10000
-                // }
-                // sql "sync"
-                // qt_sql3 "select k1,c1,c2,c3,c4 from ${tableName4} order by k1,c1,c2,c3,c4;"
+                sql "insert into ${tableName4} values(1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3),(4,4,4,4,4),(5,5,5,5,5),(6,6,6,6,6);"
+                qt_sql3 "select k1,c1,c2,c3,c4 from ${tableName4} order by k1,c1,c2,c3,c4;"
+                // if the table has sequence map col, can not set sequence map col when merge_type=delete
+                streamLoad {
+                    table "${tableName4}"
+                    set 'column_separator', ','
+                    set 'format', 'csv'
+                    set 'columns', 'k1'
+                    set 'partial_columns', 'true'
+                    set 'merge_type', 'DELETE'
+                    file 'partial_update_delete.csv'
+                    time 10000
+                }
+                sql "sync"
+                qt_sql3 "select k1,c1,c2,c3,c4 from ${tableName4} order by k1,c1,c2,c3,c4;"
 
-                // sql "set enable_insert_strict=false;"
-                // sql "set enable_unique_key_partial_update=true;"
-                // sql "sync;"
-                // sql "insert into ${tableName4}(k1, __DORIS_DELETE_SIGN__) values(8,1),(4,1),(9,1);"
-                // qt_sql3 "select k1,c1,c2,c3,c4 from ${tableName4} order by k1,c1,c2,c3,c4;"
-                // sql "set enable_insert_strict=true;"
-                // sql "set enable_unique_key_partial_update=false;"
-                // sql "sync;"
+                sql "set enable_insert_strict=false;"
+                sql "set enable_unique_key_partial_update=true;"
+                sql "sync;"
+                sql "insert into ${tableName4}(k1, __DORIS_DELETE_SIGN__) values(8,1),(4,1),(9,1);"
+                qt_sql3 "select k1,c1,c2,c3,c4 from ${tableName4} order by k1,c1,c2,c3,c4;"
+                sql "set enable_insert_strict=true;"
+                sql "set enable_unique_key_partial_update=false;"
+                sql "sync;"
 
-                // sql "set skip_delete_sign=true;"
-                // sql "set skip_storage_engine_merge=true;"
-                // sql "set skip_delete_bitmap=true;"
-                // qt_sql3 "select k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__ from ${tableName4} order by k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__;"
-                // sql "drop table if exists ${tableName4};"
+                sql "set skip_delete_sign=true;"
+                sql "set skip_storage_engine_merge=true;"
+                sql "set skip_delete_bitmap=true;"
+                qt_sql3 "select k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__ from ${tableName4} order by k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__;"
+                sql "drop table if exists ${tableName4};"
 
 
-                // sql "set skip_delete_sign=false;"
-                // sql "set skip_storage_engine_merge=false;"
-                // sql "set skip_delete_bitmap=false;"
-                // def tableName5 = "test_partial_update_delete5"
-                // sql "DROP TABLE IF EXISTS ${tableName5};"
-                // sql """ CREATE TABLE IF NOT EXISTS ${tableName5} (
-                //         `k1` int NOT NULL,
-                //         `c1` int,
-                //         `c2` int,
-                //         `c3` int NOT NULL,
-                //         `c4` int
-                //         )UNIQUE KEY(k1)
-                //     DISTRIBUTED BY HASH(k1) BUCKETS 1
-                //     PROPERTIES (
-                //         "enable_unique_key_merge_on_write" = "true",
-                //         "disable_auto_compaction" = "true",
-                //         "replication_num" = "1",
-                //         "store_row_column" = "${use_row_store}",
-                //         "function_column.sequence_type" = "int"); """
-                // sql "insert into ${tableName5}(k1,c1,c2,c3,c4,__DORIS_SEQUENCE_COL__) values(1,1,1,1,1,1),(2,2,2,2,2,2),(3,3,3,3,3,3),(4,4,4,4,4,4),(5,5,5,5,5,5),(6,6,6,6,6,6);"
-                // qt_sql4 "select k1,c1,c2,c3,c4 from ${tableName5} order by k1,c1,c2,c3,c4;"
-                // streamLoad {
-                //     table "${tableName5}"
-                //     set 'column_separator', ','
-                //     set 'format', 'csv'
-                //     set 'columns', 'k1'
-                //     set 'partial_columns', 'true'
-                //     set 'merge_type', 'DELETE'
-                //     file 'partial_update_delete.csv'
-                //     time 10000
-                // }
-                // sql "sync"
-                // qt_sql4 "select k1,c1,c2,c3,c4 from ${tableName5} order by k1,c1,c2,c3,c4;"
-
-                // sql "set enable_insert_strict=false;"
-                // sql "set enable_unique_key_partial_update=true;"
-                // sql "sync;"
-                // sql "insert into ${tableName5}(k1, __DORIS_DELETE_SIGN__) values(8,1),(4,1),(9,1);"
-                // qt_sql4 "select k1,c1,c2,c3,c4 from ${tableName5} order by k1,c1,c2,c3,c4;"
-                // sql "set enable_insert_strict=true;"
-                // sql "set enable_unique_key_partial_update=false;"
-                // sql "sync;"
-
-                // sql "set skip_delete_sign=true;"
-                // sql "set skip_storage_engine_merge=true;"
-                // sql "set skip_delete_bitmap=true;"
-                // qt_sql4 "select k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__ from ${tableName5} order by k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__;"
-                // sql "drop table if exists ${tableName5};"
+                sql "set skip_delete_sign=false;"
+                sql "set skip_storage_engine_merge=false;"
+                sql "set skip_delete_bitmap=false;"
+                def tableName5 = "test_partial_update_delete5"
+                sql "DROP TABLE IF EXISTS ${tableName5};"
+                sql """ CREATE TABLE IF NOT EXISTS ${tableName5} (
+                        `k1` int NOT NULL,
+                        `c1` int,
+                        `c2` int,
+                        `c3` int NOT NULL,
+                        `c4` int
+                        )UNIQUE KEY(k1)
+                    DISTRIBUTED BY HASH(k1) BUCKETS 1
+                    PROPERTIES (
+                        "enable_unique_key_merge_on_write" = "true",
+                        "disable_auto_compaction" = "true",
+                        "replication_num" = "1",
+                        "store_row_column" = "${use_row_store}",
+                        "function_column.sequence_type" = "int"); """
+                sql "insert into ${tableName5}(k1,c1,c2,c3,c4,__DORIS_SEQUENCE_COL__) values(1,1,1,1,1,1),(2,2,2,2,2,2),(3,3,3,3,3,3),(4,4,4,4,4,4),(5,5,5,5,5,5),(6,6,6,6,6,6);"
+                qt_sql4 "select k1,c1,c2,c3,c4 from ${tableName5} order by k1,c1,c2,c3,c4;"
+                // if the table has sequence type col, users must set sequence col even if merge_type=delete
+                streamLoad {
+                    table "${tableName5}"
+                    set 'column_separator', ','
+                    set 'format', 'csv'
+                    set 'columns', 'k1'
+                    set 'partial_columns', 'true'
+                    set 'merge_type', 'DELETE'
+                    file 'partial_update_delete.csv'
+                    time 10000
+                    check { result, exception, startTime, endTime ->
+                        if (exception != null) {
+                            throw exception
+                        }
+                        log.info("Stream load result: ${result}".toString())
+                        def json = parseJson(result)
+                        assertEquals("fail", json.Status.toLowerCase())
+                        assertTrue(json.Message.contains('need to specify the sequence column'))
+                    }
+                }
+                sql "drop table if exists ${tableName5};"
             }
         }
     }
