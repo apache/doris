@@ -25,6 +25,7 @@
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "util/bitmap_value.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 
@@ -165,6 +166,11 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                 DateV2Value<DateV2ValueType> dv;
                 dv.from_unixtime(timestamp_ms / 1000, timezone);
                 default_value = dv.debug_string();
+            } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_OBJECT &&
+                                to_lower(column.default_value()).find(to_lower("BITMAP_EMPTY")) !=
+                                        std::string::npos)) {
+                BitmapValue v = BitmapValue {};
+                default_value = v.to_string();
             } else {
                 default_value = column.default_value();
             }
