@@ -859,7 +859,7 @@ cloudUniqueId= "{fe_cloud_unique_id}"
                     in_annotation = False
                     annotation_end_line_idx = line_idx
                 elif not in_annotation:
-                    if line or line_idx == annotation_end_line_idx + 1:
+                    if line or line_idx != annotation_end_line_idx + 1:
                         f.write(line + "\n")
 
         print("\nWrite succ: " + regression_conf_custom)
