@@ -14,22 +14,18 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import org.awaitility.Awaitility
 
 suite("test_group_commit_partial_update") {
     def tableName = "test_group_commit_partial_update"
 
-    def getRowCount = { expectedRowCount ->
-        def retry = 0
-        while (retry < 30) {
-            sleep(2000)
-            def rowCount = sql "select count(*) from ${tableName}"
-            logger.info("rowCount: " + rowCount + ", retry: " + retry)
-            if (rowCount[0][0] >= expectedRowCount) {
-                break
-            }
-            retry++
-        }
-    }
+   def getRowCount = { expectedRowCount ->
+    Awaitility.await().untilAsserted(() -> {
+        def rowCount = sql "select count(*) from ${tableName}"
+        logger.info("rowCount: " + rowCount[0][0])
+        assert rowCount[0][0] >= expectedRowCount : "Expected row count not reached, current count: " + rowCount[0][0]
+    })
+}
 
     def checkStreamLoadGroupCommitResult = { exception, result, total_rows, loaded_rows, filtered_rows, unselected_rows ->
         if (exception != null) {
