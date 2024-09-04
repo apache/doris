@@ -244,12 +244,6 @@ private:
 
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
-    Status check_be_exec_version(int read_be_exec_version) {
-        if (_meta_type == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
-        }
-        return Status::OK();
-    }
-
 private:
     int64_t _meta_length;
     FieldType _meta_type;
