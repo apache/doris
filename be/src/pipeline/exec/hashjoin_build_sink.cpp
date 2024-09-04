@@ -114,6 +114,11 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state) {
     if (!_should_build_hash_table) {
         return 0;
     }
+
+    if (_shared_state->build_block) {
+        return 0;
+    }
+
     size_t size_to_reserve = 0;
 
     if (!_build_side_mutable_block.empty()) {
@@ -655,6 +660,11 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 size_t HashJoinBuildSinkOperatorX::get_reserve_mem_size(RuntimeState* state) {
     auto& local_state = get_local_state(state);
     return local_state.get_reserve_mem_size(state);
+}
+
+size_t HashJoinBuildSinkOperatorX::get_memory_usage(RuntimeState* state) const {
+    auto& local_state = get_local_state(state);
+    return local_state._mem_tracker->consumption();
 }
 
 } // namespace doris::pipeline

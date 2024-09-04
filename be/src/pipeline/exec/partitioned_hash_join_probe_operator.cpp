@@ -343,9 +343,10 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
 
         ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(spilled_stream);
         shared_state_sptr->spilled_streams[partition_index].reset();
+        const size_t rows = mutable_block ? mutable_block->rows() : 0;
         VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
                    << ", task id: " << state->task_id() << ", partition: " << partition_index
-                   << ", recovery build data done";
+                   << ", recovery build data done, rows: " << rows;
     };
 
     auto exception_catch_func = [read_func, query_id, this]() {
@@ -673,7 +674,9 @@ Status PartitionedHashJoinProbeOperatorX::_setup_internal_operators(
     VLOG_DEBUG << "query: " << print_id(state->query_id())
                << ", internal build operator finished, node id: " << node_id()
                << ", task id: " << state->task_id()
-               << ", partition: " << local_state._partition_cursor;
+               << ", partition: " << local_state._partition_cursor << "rows: " << block.rows()
+               << ", usage: "
+               << _inner_sink_operator->get_memory_usage(local_state._runtime_state.get());
     return Status::OK();
 }
 
