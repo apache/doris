@@ -826,7 +826,7 @@ cloudUniqueId= "{fe_cloud_unique_id}"
                 old_contents = f.readlines()
         with open(regression_conf_custom, "w") as f:
             # write auto gen config
-            f.write(annotation_start + "\n")
+            f.write(annotation_start)
             f.write(base_conf.format(fe_ip=fe_ip))
             if cluster.is_cloud:
                 multi_cluster_bes = ",".join([
@@ -845,7 +845,7 @@ cloudUniqueId= "{fe_cloud_unique_id}"
                         multi_cluster_bes=multi_cluster_bes,
                         fe_cloud_unique_id=cluster.get_node(
                             CLUSTER.Node.TYPE_FE, 1).cloud_unique_id()))
-            f.write(annotation_end + "\n")
+            f.write(annotation_end + "\n\n")
 
             # write not-auto gen config
             in_annotation = False
