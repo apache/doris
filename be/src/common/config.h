@@ -305,6 +305,10 @@ DECLARE_mInt32(remote_split_source_batch_size);
 DECLARE_Int32(doris_max_remote_scanner_thread_pool_thread_num);
 // number of olap scanner thread pool queue size
 DECLARE_Int32(doris_scanner_thread_pool_queue_size);
+// number of scanner yield signal thread
+DECLARE_Int32(doris_scanner_yield_signal_thread_num);
+// max run seconds of scanner yield signal thread
+DECLARE_Int32(doris_scanner_yield_signal_max_run_seconds);
 // default thrift client connect timeout(in seconds)
 DECLARE_mInt32(thrift_connect_timeout_seconds);
 DECLARE_mInt32(fetch_rpc_timeout_seconds);

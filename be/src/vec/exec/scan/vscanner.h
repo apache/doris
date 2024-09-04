@@ -28,6 +28,7 @@
 #include "runtime/runtime_state.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
+#include "vec/exec/scan/yield_signal.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -155,6 +156,10 @@ public:
         _query_statistics = query_statistics;
     }
 
+    const YieldSignal& yield_signal() const { return _yield_signal; }
+
+    YieldSignal& yield_signal() { return _yield_signal; }
+
 protected:
     void _discard_conjuncts() {
         for (auto& conjunct : _conjuncts) {
@@ -229,6 +234,8 @@ protected:
     int64_t _projection_timer = 0;
 
     bool _should_stop = false;
+
+    YieldSignal _yield_signal;
 };
 
 using VScannerSPtr = std::shared_ptr<VScanner>;

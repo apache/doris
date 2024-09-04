@@ -335,6 +335,9 @@ Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool*
             }
             break;
         }
+        if (_yield_signal.is_set()) {
+            break;
+        }
     } while (true);
 
     // Update filtered rows and unselected rows for load, reset counter.
@@ -957,6 +960,7 @@ Status VFileScanner::_get_next_reader() {
             return Status::InternalError("Not supported file format: {}", _params->format_type);
         }
 
+        _cur_reader->set_yield_signal(&_yield_signal);
         COUNTER_UPDATE(_file_counter, 1);
         // The VFileScanner for external table may try to open not exist files,
         // Because FE file cache for external table may out of date.

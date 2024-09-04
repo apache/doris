@@ -86,6 +86,16 @@ void ScannerScheduler::stop() {
     _local_scan_thread_pool->stop();
     _remote_scan_thread_pool->stop();
 
+    _work_guard.reset();
+
+    _io_context->stop();
+
+    for (auto& thread : _yield_signal_threads) {
+        if (thread.joinable()) {
+            thread.join();
+        }
+    }
+
     LOG(INFO) << "ScannerScheduler stopped";
 }
 
@@ -114,6 +124,18 @@ Status ScannerScheduler::init(ExecEnv* env) {
                             .set_max_threads(config::doris_scanner_thread_pool_thread_num)
                             .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
                             .build(&_limited_scan_thread_pool));
+
+    // 4. yield signal executor service
+    _io_context = std::make_unique<boost::asio::io_context>();
+    _work_guard = std::make_unique<
+            boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
+            boost::asio::make_work_guard(
+                    *_io_context)); // Create a work guard to keep the io_context running even if there are no tasks.
+
+    for (size_t i = 0; i < config::doris_scanner_yield_signal_thread_num; ++i) {
+        _yield_signal_threads.emplace_back([this]() { _io_context->run(); });
+    }
+
     _register_metrics();
     _is_init = true;
     return Status::OK();
@@ -139,17 +161,18 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
         }
 
         scanner_delegate->_scanner->start_wait_worker_timer();
-        auto s = ctx->thread_token->submit_func([scanner_ref = scan_task, ctx]() {
-            auto status = [&] {
-                RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
-                return Status::OK();
-            }();
+        auto s = ctx->thread_token->submit_func(
+                [scanner_ref = scan_task, ctx, io_context = _io_context.get()]() {
+                    auto status = [&] {
+                        RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref, io_context));
+                        return Status::OK();
+                    }();
 
-            if (!status.ok()) {
-                scanner_ref->set_status(status);
-                ctx->append_block_to_queue(scanner_ref);
-            }
-        });
+                    if (!status.ok()) {
+                        scanner_ref->set_status(status);
+                        ctx->append_block_to_queue(scanner_ref);
+                    }
+                });
         if (!s.ok()) {
             scan_task->set_status(s);
             ctx->append_block_to_queue(scan_task);
@@ -171,9 +194,9 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                 scan_sched =
                         is_local ? _local_scan_thread_pool.get() : _remote_scan_thread_pool.get();
             }
-            auto work_func = [scanner_ref = scan_task, ctx]() {
+            auto work_func = [scanner_ref = scan_task, ctx, io_context = _io_context.get()]() {
                 auto status = [&] {
-                    RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
+                    RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref, io_context));
                     return Status::OK();
                 }();
 
@@ -202,7 +225,8 @@ std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
 }
 
 void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
-                                     std::shared_ptr<ScanTask> scan_task) {
+                                     std::shared_ptr<ScanTask> scan_task,
+                                     boost::asio::io_context* io_context) {
     // record the time from scanner submission to actual execution in nanoseconds
     ctx->incr_ctx_scheduling_time(GetCurrentTimeNanos() - scan_task->last_submit_time);
     auto task_lock = ctx->task_exec_ctx();
@@ -235,6 +259,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     bool eos = false;
     ASSIGN_STATUS_IF_CATCH_EXCEPTION(
             RuntimeState* state = ctx->state(); DCHECK(nullptr != state);
+            scanner->yield_signal().set_with_delay(
+                    std::chrono::seconds(config::doris_scanner_yield_signal_max_run_seconds),
+                    io_context);
             if (!scanner->is_init()) {
                 status = scanner->init();
                 if (!status.ok()) {
@@ -295,6 +322,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     ctx->inc_free_block_usage(free_block->allocated_bytes());
                     scan_task->cached_blocks.emplace_back(std::move(free_block), free_block_bytes);
                 }
+                if (scanner->yield_signal().is_set()) {
+                    break;
+                }
             } // end for while
 
             if (UNLIKELY(!status.ok())) {
@@ -308,6 +338,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         eos = true;
     }
 
+    scanner->yield_signal().reset();
     scanner->update_scan_cpu_timer();
     if (eos) {
         scanner->mark_to_need_to_close();

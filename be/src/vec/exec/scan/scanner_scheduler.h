@@ -18,6 +18,7 @@
 #pragma once
 
 #include <atomic>
+#include <boost/asio.hpp>
 #include <memory>
 
 #include "common/status.h"
@@ -72,7 +73,8 @@ public:
 
 private:
     static void _scanner_scan(std::shared_ptr<ScannerContext> ctx,
-                              std::shared_ptr<ScanTask> scan_task);
+                              std::shared_ptr<ScanTask> scan_task,
+                              boost::asio::io_context* io_context);
 
     void _register_metrics();
 
@@ -85,6 +87,12 @@ private:
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _local_scan_thread_pool;
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _remote_scan_thread_pool;
     std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
+
+    // yield signal asio executor service
+    std::unique_ptr<boost::asio::io_context> _io_context;
+    std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>
+            _work_guard;
+    std::vector<std::thread> _yield_signal_threads;
 
     // true is the scheduler is closed.
     std::atomic_bool _is_closed = {false};

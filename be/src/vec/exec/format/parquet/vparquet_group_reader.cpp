@@ -520,6 +520,9 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             if (!pre_eof) {
                 // If continuous batches are skipped, we can cache them to skip a whole page
                 _cached_filtered_rows += pre_read_rows;
+                if (_lazy_read_ctx.yield_signal->is_set()) {
+                    break;
+                }
             } else { // pre_eof
                 // If select_vector_ptr->filter_all() and pre_eof, we can skip whole row group.
                 *read_rows = 0;
