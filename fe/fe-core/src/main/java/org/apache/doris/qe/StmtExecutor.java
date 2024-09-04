@@ -802,6 +802,7 @@ public class StmtExecutor {
                             + Env.getCurrentEnv().getSelfNode().getHost() + ") and failed to execute"
                             + " because Master FE is not ready. You may need to check FE's status"));
                 }
+                redirectStatus = RedirectStatus.NO_FORWARD;
                 forwardToMaster();
                 if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
                     context.setQueryId(masterOpExecutor.getQueryId());
