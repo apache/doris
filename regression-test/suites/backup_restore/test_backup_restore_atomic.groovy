@@ -105,7 +105,8 @@ suite("test_backup_restore_atomic", "backup_restore") {
         PROPERTIES
         (
             "backup_timestamp" = "${snapshot}",
-            "reserve_replica" = "true"
+            "reserve_replica" = "true",
+            "atomic_restore" = "true"
         )
     """
 
