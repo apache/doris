@@ -47,47 +47,47 @@ public class ExecutableFunctions {
     /**
      * other scalar function
      */
-    @ExecFunction(name = "abs", argTypes = {"TINYINT"}, returnType = "SMALLINT")
+    @ExecFunction(hasVarArgs = false, name = "abs", argTypes = {"TINYINT"}, returnType = "SMALLINT")
     public static Expression abs(TinyIntLiteral literal) {
         return new SmallIntLiteral((short) Math.abs(literal.getValue()));
     }
 
-    @ExecFunction(name = "abs", argTypes = {"SMALLINT"}, returnType = "INT")
+    @ExecFunction(hasVarArgs = false, name = "abs", argTypes = {"SMALLINT"}, returnType = "INT")
     public static Expression abs(SmallIntLiteral literal) {
         return new IntegerLiteral(Math.abs(literal.getValue()));
     }
 
-    @ExecFunction(name = "abs", argTypes = {"INT"}, returnType = "BIGINT")
+    @ExecFunction(hasVarArgs = false, name = "abs", argTypes = {"INT"}, returnType = "BIGINT")
     public static Expression abs(IntegerLiteral literal) {
         return new BigIntLiteral(Math.abs((long) literal.getValue()));
     }
 
-    @ExecFunction(name = "abs", argTypes = {"BIGINT"}, returnType = "LARGEINT")
+    @ExecFunction(hasVarArgs = false, name = "abs", argTypes = {"BIGINT"}, returnType = "LARGEINT")
     public static Expression abs(BigIntLiteral literal) {
         return new LargeIntLiteral(BigInteger.valueOf(literal.getValue()).abs());
     }
 
-    @ExecFunction(name = "abs", argTypes = {"LARGEINT"}, returnType = "LARGEINT")
+    @ExecFunction(hasVarArgs = false, name = "abs", argTypes = {"LARGEINT"}, returnType = "LARGEINT")
     public static Expression abs(LargeIntLiteral literal) {
         return new LargeIntLiteral(literal.getValue().abs());
     }
 
-    @ExecFunction(name = "abs", argTypes = {"FLOAT"}, returnType = "FLOAT")
+    @ExecFunction(hasVarArgs = false, name = "abs", argTypes = {"FLOAT"}, returnType = "FLOAT")
     public static Expression abs(FloatLiteral literal) {
         return new FloatLiteral(Math.abs(literal.getValue()));
     }
 
-    @ExecFunction(name = "abs", argTypes = {"DOUBLE"}, returnType = "DOUBLE")
+    @ExecFunction(hasVarArgs = false, name = "abs", argTypes = {"DOUBLE"}, returnType = "DOUBLE")
     public static Expression abs(DoubleLiteral literal) {
         return new DoubleLiteral(Math.abs(literal.getValue()));
     }
 
-    @ExecFunction(name = "abs", argTypes = {"DECIMALV2"}, returnType = "DECIMALV2")
+    @ExecFunction(hasVarArgs = false, name = "abs", argTypes = {"DECIMALV2"}, returnType = "DECIMALV2")
     public static Expression abs(DecimalLiteral literal) {
         return new DecimalLiteral(literal.getValue().abs());
     }
 
-    @ExecFunction(name = "abs", argTypes = {"DECIMALV3"}, returnType = "DECIMALV3")
+    @ExecFunction(hasVarArgs = false, name = "abs", argTypes = {"DECIMALV3"}, returnType = "DECIMALV3")
     public static Expression abs(DecimalV3Literal literal) {
         return new DecimalV3Literal(literal.getValue().abs());
     }
@@ -95,7 +95,7 @@ public class ExecutableFunctions {
     /**
      * acos scalar function
      */
-    @ExecFunction(name = "acos", argTypes = {"DOUBLE"}, returnType = "DOUBLE")
+    @ExecFunction(hasVarArgs = false, name = "acos", argTypes = {"DOUBLE"}, returnType = "DOUBLE")
     public static Expression acos(DoubleLiteral literal) {
         double result = Math.acos(literal.getValue());
         if (Double.isNaN(result)) {
@@ -105,7 +105,7 @@ public class ExecutableFunctions {
         }
     }
 
-    @ExecFunction(name = "append_trailing_char_if_absent", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(hasVarArgs = false, name = "append_trailing_char_if_absent", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
     public static Expression appendTrailingIfCharAbsent(StringLikeLiteral literal, StringLikeLiteral chr) {
         if (literal.getValue().length() != 1) {
             return null;
@@ -114,12 +114,12 @@ public class ExecutableFunctions {
                 : new VarcharLiteral(literal.getValue() + chr.getValue());
     }
 
-    @ExecFunction(name = "e", argTypes = {}, returnType = "DOUBLE")
+    @ExecFunction(hasVarArgs = false, name = "e", argTypes = {}, returnType = "DOUBLE")
     public static Expression e() { // CHECKSTYLE IGNORE THIS LINE
         return new DoubleLiteral(Math.E);
     }
 
-    @ExecFunction(name = "p1", argTypes = {}, returnType = "DOUBLE")
+    @ExecFunction(hasVarArgs = false, name = "p1", argTypes = {}, returnType = "DOUBLE")
     public static Expression pi() {
         return new DoubleLiteral(Math.PI);
     }
