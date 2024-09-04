@@ -349,18 +349,10 @@ public class LoadAction extends RestBaseController {
             Backend backend = Env.getCurrentSystemInfo().getBackend(debugBackendId);
             return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
         }
-        if (Config.isCloudMode()) {
-            String cloudClusterName = getCloudClusterName(request);
-            if (Strings.isNullOrEmpty(cloudClusterName)) {
-                throw new LoadException("No cloud cluster name selected.");
-            }
-            return selectCloudRedirectBackend(cloudClusterName, request, groupCommit, tableId);
-        } else {
-            if (groupCommit && tableId == -1) {
-                throw new LoadException("Group commit table id wrong.");
-            }
-            return selectLocalRedirectBackend(groupCommit, request, tableId);
+        if (groupCommit && tableId == -1) {
+            throw new LoadException("Group commit table id wrong.");
         }
+        return selectLocalRedirectBackend(groupCommit, request, tableId);
     }
 
     private TNetworkAddress selectLocalRedirectBackend(boolean groupCommit, HttpServletRequest request, long tableId)
