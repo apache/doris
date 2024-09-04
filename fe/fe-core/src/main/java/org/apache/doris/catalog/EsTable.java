@@ -52,7 +52,8 @@ import java.util.Set;
 @Getter
 @Setter
 public class EsTable extends Table implements GsonPostProcessable {
-    // refrence: https://www.elastic.co/guide/en/elasticsearch/reference/current/doc-values.html
+    // reference: https://www.elastic.co/guide/en/elasticsearch/reference/current/doc-values.html
+    // https://www.elastic.co/guide/en/elasticsearch/reference/current/text.html
     public static final Set<String> DEFAULT_DOCVALUE_DISABLED_FIELDS =
             new HashSet<>(Arrays.asList("text", "annotated_text", "match_only_text"));
 
