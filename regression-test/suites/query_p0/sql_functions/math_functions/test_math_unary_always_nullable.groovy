@@ -16,10 +16,6 @@
 // under the License.
 
 suite("test_math_unary_alway_nullable") {
-    sql """
-        set debug_skip_fold_constant=true;
-    """
-
     qt_acos_1 """
         select acos(1.1), acos(1.1) is null;
     """
