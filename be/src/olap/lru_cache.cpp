@@ -220,7 +220,6 @@ size_t LRUCache::get_capacity() {
 size_t LRUCache::get_element_count() {
     std::lock_guard l(_mutex);
     return _table.element_count();
-    ;
 }
 
 bool LRUCache::_unref(LRUHandle* e) {

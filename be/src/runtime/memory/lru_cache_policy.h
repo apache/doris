@@ -218,11 +218,9 @@ public:
             return;
         }
 
-        LOG(INFO) << fmt::format(
-                "[MemoryGC] {} update capacity, current capacity {}, adjust_weighted {}, new "
-                "capacity {}, consumption {}, usage {}",
-                type_string(_type), get_capacity(), adjust_weighted, capacity, mem_consumption(),
-                get_usage());
+        size_t old_capacity = get_capacity();
+        int64_t old_mem_consumption = mem_consumption();
+        int64_t old_usage = get_usage();
         {
             SCOPED_TIMER(_cost_timer);
             PrunedInfo pruned_info = _cache->set_capacity(capacity);
@@ -231,9 +229,13 @@ public:
         }
         COUNTER_UPDATE(_set_capacity_number_counter, 1);
         LOG(INFO) << fmt::format(
-                "[MemoryGC] {} update capacity prune {} entries, {} bytes, cost {}, {} times prune",
-                type_string(_type), _freed_entrys_counter->value(), _freed_memory_counter->value(),
-                _cost_timer->value(), _set_capacity_number_counter->value());
+                "[MemoryGC] {} update capacity, old <capacity {}, consumption {}, usage {}>, "
+                "adjust_weighted {}, new <capacity {}, consumption {}, usage {}>, prune {} "
+                "entries, {} bytes, cost {}, {} times prune",
+                type_string(_type), old_capacity, old_mem_consumption, old_usage, adjust_weighted,
+                get_capacity(), mem_consumption(), get_usage(), _freed_entrys_counter->value(),
+                _freed_memory_counter->value(), _cost_timer->value(),
+                _set_capacity_number_counter->value());
     }
 
 protected:

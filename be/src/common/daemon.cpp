@@ -222,7 +222,7 @@ void refresh_allocator_memory_metrics() {
     MemInfo::refresh_memory_bvar();
 }
 
-void refresh_memory_log_after_memory_change(int64_t& last_print_proc_mem) {
+void refresh_memory_state_after_memory_change(int64_t& last_print_proc_mem) {
     if (abs(last_print_proc_mem - PerfCounters::get_vm_rss()) > 268435456) {
         last_print_proc_mem = PerfCounters::get_vm_rss();
         doris::MemTrackerLimiter::clean_tracker_limiter_group();
@@ -234,18 +234,17 @@ void refresh_memory_log_after_memory_change(int64_t& last_print_proc_mem) {
     }
 }
 
-void refresh_cache_capacity(int32_t& refresh_cache_capacity_sleep_time_ms,
-                            int32_t interval_milliseconds) {
+void refresh_cache_capacity(int32_t& refresh_cache_capacity_sleep_time_ms) {
     if (refresh_cache_capacity_sleep_time_ms <= 0) {
         auto cache_capacity_reduce_mem_limit = uint64_t(
-                doris::MemInfo::mem_limit() * config::cache_capacity_reduce_mem_limit_frac);
+                doris::MemInfo::soft_mem_limit() * config::cache_capacity_reduce_mem_limit_frac);
         int64_t process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
         double new_cache_capacity_adjust_weighted =
                 process_memory_usage <= cache_capacity_reduce_mem_limit
                         ? 1
                         : std::min<double>(
                                   1 - (process_memory_usage - cache_capacity_reduce_mem_limit) /
-                                                  (doris::MemInfo::mem_limit() -
+                                                  (doris::MemInfo::soft_mem_limit() -
                                                    cache_capacity_reduce_mem_limit),
                                   0);
         if (new_cache_capacity_adjust_weighted !=
@@ -256,11 +255,10 @@ void refresh_cache_capacity(int32_t& refresh_cache_capacity_sleep_time_ms,
             refresh_cache_capacity_sleep_time_ms = config::memory_gc_sleep_time_ms;
         }
     }
-    refresh_cache_capacity_sleep_time_ms -= interval_milliseconds;
+    refresh_cache_capacity_sleep_time_ms -= config::memory_maintenance_sleep_time_ms;
 }
 
-void je_purge_dirty_pages(int32_t& je_purge_dirty_pages_sleep_time_ms,
-                          int32_t interval_milliseconds) {
+void je_purge_dirty_pages(int32_t& je_purge_dirty_pages_sleep_time_ms) {
 #ifdef USE_JEMALLOC
     if (je_purge_dirty_pages_sleep_time_ms <= 0 &&
         doris::MemInfo::je_dirty_pages_mem() > doris::MemInfo::je_dirty_pages_mem_limit() &&
@@ -268,17 +266,16 @@ void je_purge_dirty_pages(int32_t& je_purge_dirty_pages_sleep_time_ms,
         doris::MemInfo::notify_je_purge_dirty_pages();
         je_purge_dirty_pages_sleep_time_ms = config::memory_gc_sleep_time_ms;
     }
-    je_purge_dirty_pages_sleep_time_ms -= interval_milliseconds;
+    je_purge_dirty_pages_sleep_time_ms -= config::memory_maintenance_sleep_time_ms;
 #endif
 }
 
 void Daemon::memory_maintenance_thread() {
-    int32_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
     int64_t last_print_proc_mem = PerfCounters::get_vm_rss();
     int32_t refresh_cache_capacity_sleep_time_ms = 0;
     int32_t je_purge_dirty_pages_sleep_time_ms = 0;
     while (!_stop_background_threads_latch.wait_for(
-            std::chrono::milliseconds(interval_milliseconds))) {
+            std::chrono::milliseconds(config::memory_maintenance_sleep_time_ms))) {
         // step 1. Refresh process memory metrics.
         refresh_process_memory_metrics();
 
@@ -286,19 +283,19 @@ void Daemon::memory_maintenance_thread() {
         refresh_allocator_memory_metrics();
 
         // step 3. Update and print memory stat when the memory changes by 256M.
-        refresh_memory_log_after_memory_change(last_print_proc_mem);
+        refresh_memory_state_after_memory_change(last_print_proc_mem);
 
         // step 4. Asyn Refresh cache capacity
         // TODO adjust cache capacity based on smoothstep (smooth gradient).
-        refresh_cache_capacity(refresh_cache_capacity_sleep_time_ms, interval_milliseconds);
+        refresh_cache_capacity(refresh_cache_capacity_sleep_time_ms);
 
         // step 5. Cancel top memory task when process memory exceed hard limit.
         // TODO replace memory_gc_thread.
 
-        // step 6. Refresh weighted memory ratio of workload groups
+        // step 6. Refresh weighted memory ratio of workload groups.
         doris::ExecEnv::GetInstance()->workload_group_mgr()->refresh_wg_weighted_memory_limit();
 
-        // step 7. Analyze blocking queries
+        // step 7. Analyze blocking queries.
         // TODO sort the operators that can spill, wake up the pipeline task spill
         // or continue execution according to certain rules or cancel query.
 
@@ -307,7 +304,7 @@ void Daemon::memory_maintenance_thread() {
         // TODO notify flush memtable
 
         // step 9. Jemalloc purge all arena dirty pages
-        je_purge_dirty_pages(je_purge_dirty_pages_sleep_time_ms, interval_milliseconds);
+        je_purge_dirty_pages(je_purge_dirty_pages_sleep_time_ms);
     }
 }
 

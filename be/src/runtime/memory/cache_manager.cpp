@@ -59,9 +59,6 @@ int64_t CacheManager::for_each_cache_prune_all(RuntimeProfile* profile, bool for
 int64_t CacheManager::cache_prune_all(CachePolicy::CacheType type, bool force) {
     std::lock_guard<std::mutex> l(_caches_lock);
     auto* cache_policy = _caches[type];
-    if (!cache_policy->enable_prune()) {
-        return -1;
-    }
     cache_policy->prune_all(force);
     return cache_policy->profile()->get_counter("FreedMemory")->value();
 }
