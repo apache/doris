@@ -229,15 +229,14 @@ static void export_fdb_status_details(const std::string& status_str) {
 }
 
 void FdbMetricExporter::export_fdb_metrics(TxnKv* txn_kv) {
-    double busyness = 0.0;
+    int busyness = 0.0;
     std::string fdb_status = get_fdb_status(txn_kv);
     export_fdb_status_details(fdb_status);
     if (auto* kv = dynamic_cast<FdbTxnKv*>(txn_kv); kv != nullptr) {
-        busyness = kv->get_client_thread_busyness();
-        g_bvar_fdb_client_thread_busyness.set_value(busyness);
+        busyness = static_cast<int64_t>(kv->get_client_thread_busyness() * 100);
+        g_bvar_fdb_client_thread_busyness_percent.set_value(busyness);
     }
-    LOG(INFO) << "finish to collect fdb metric, client busyness: "
-              << static_cast<int>(busyness * 100) << "%";
+    LOG(INFO) << "finish to collect fdb metric, client busyness: " << busyness << "%";
 }
 
 FdbMetricExporter::~FdbMetricExporter() {
