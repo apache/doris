@@ -140,8 +140,7 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
             hint.setStatus(Hint.HintStatus.SUCCESS);
         }
         if (selectHintPlan.isIncludeHint("Ordered")
-                || ConnectContext.get().getSessionVariable().isDisableJoinReorder()
-                || context.isLeadingDisableJoinReorder()) {
+                || ConnectContext.get().getSessionVariable().isDisableJoinReorder()) {
             context.setLeadingJoin(false);
             hint.setStatus(Hint.HintStatus.UNUSED);
         } else {
@@ -162,9 +161,6 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                 useMvHint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
                 useMvHint.setErrorMessage("only one " + selectHint.getHintName() + " hint is allowed");
             }
-        }
-        if (!useMvHint.isSyntaxError()) {
-            ConnectContext.get().getSessionVariable().setEnableSyncMvCostBasedRewrite(false);
         }
         statementContext.addHint(useMvHint);
     }
