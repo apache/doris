@@ -146,8 +146,6 @@ public:
 
     // Creates and adds the tracker to the mem_tracker_pool.
     MemTracker(const std::string& label, MemTrackerLimiter* parent = nullptr);
-    // For MemTrackerLimiter
-    MemTracker() { _parent_group_num = -1; }
 
     virtual ~MemTracker();
 
@@ -203,6 +201,9 @@ public:
     }
 
 protected:
+    // Only used by MemTrackerLimiter
+    MemTracker() { _parent_group_num = -1; }
+
     void bind_parent(MemTrackerLimiter* parent);
 
     Type _type;
