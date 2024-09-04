@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -58,16 +57,7 @@ public class AesDecrypt extends AesCryptoFunction {
      * AesDecrypt
      */
     public AesDecrypt(Expression arg0, Expression arg1) {
-        // if there are only 2 params, we need set encryption mode to AES_128_ECB
-        // this keeps the behavior consistent with old doris ver.
-        super("aes_decrypt", arg0, arg1, new StringLiteral("AES_128_ECB"));
-
-        // check if encryptionMode from session variables is valid
-        StringLiteral encryptionMode = CryptoFunction.getDefaultBlockEncryptionMode("AES_128_ECB");
-        if (!AES_MODES.contains(encryptionMode.getValue())) {
-            throw new AnalysisException(
-                    "session variable block_encryption_mode is invalid with aes");
-        }
+        super("aes_decrypt", arg0, arg1, new StringLiteral(""), getDefaultBlockEncryptionMode());
     }
 
     public AesDecrypt(Expression arg0, Expression arg1, Expression arg2) {
@@ -89,7 +79,7 @@ public class AesDecrypt extends AesCryptoFunction {
         } else if (children().size() == 3) {
             return new AesDecrypt(children.get(0), children.get(1), children.get(2));
         } else {
-            return new AesDecrypt(children.get(0), children.get(1), children.get(2), (StringLiteral) children.get(3));
+            return new AesDecrypt(children.get(0), children.get(1), children.get(2), children.get(3));
         }
     }
 
