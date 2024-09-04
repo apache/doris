@@ -596,7 +596,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                                                  segment_pos);
 
             } else {
-                if (!_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update) {
+                if (!_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update &&
+                    !have_delete_sign) {
                     std::string error_column;
                     for (auto cid : _opts.rowset_ctx->partial_update_info->missing_cids) {
                         const TabletColumn& col = _tablet_schema->column(cid);
