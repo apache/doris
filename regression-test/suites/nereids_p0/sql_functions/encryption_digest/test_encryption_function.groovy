@@ -57,4 +57,10 @@ suite("test_encryption_function") {
     qt_sql "SELECT SM3(\"abc\");"
     qt_sql "select sm3(\"abcd\");"
     qt_sql "select sm3sum(\"ab\",\"cd\");"
+
+    qt_sql_gcm_1 "SELECT TO_BASE64(AES_ENCRYPT_V2('Spark SQL', '1234567890abcdef', '123456789012', 'aes_128_gcm', 'Some AAD'))"
+    qt_sql_gcm_2 "SELECT AES_DECRYPT_V2(FROM_BASE64('MTIzNDU2Nzg5MDEyMdXvR41sJqwZ6hnTU8FRTTtXbL8yeChIZA=='), '1234567890abcdef', '', 'aes_128_gcm', 'Some AAD')"
+
+    qt_sql_gcm_3 "select to_base64(aes_encrypt('Spark','abcdefghijklmnop12345678ABCDEFGH',unhex('000000000000000000000000'),'aes_256_gcm', 'This is an AAD mixed into the input'));"
+    qt_sql_gcm_4 "SELECT AES_DECRYPT_V2(FROM_BASE64('AAAAAAAAAAAAAAAAQiYi+sTLm7KD9UcZ2nlRdYDe/PX4'), 'abcdefghijklmnop12345678ABCDEFGH', '', 'aes_256_gcm', 'This is an AAD mixed into the input');"
 }
