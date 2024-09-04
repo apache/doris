@@ -23,6 +23,9 @@ suite("test_build_index_exception_fault_injection", "nonConcurrent,p2") {
     }
     def tableNamePrefix = "test_build_index_exception_fault_injection"
 
+    def changed_variables = sql "show variables where Changed = 1"
+    logger.info("changed variables: " + changed_variables.toString())
+    sql "UNSET GLOBAL VARIABLE ALL;"
     sql "SET global enable_match_without_inverted_index = false"
 
     // prepare test table
