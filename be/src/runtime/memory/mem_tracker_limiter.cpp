@@ -336,7 +336,6 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
     snapshot.cur_consumption = GlobalMemoryArbitrator::process_reserved_memory();
     snapshot.peak_consumption = -1;
     (*snapshots).emplace_back(snapshot);
-    all_trackers_mem_sum += GlobalMemoryArbitrator::process_reserved_memory();
 
     snapshot.type = "overview";
     snapshot.label = "sum_of_all_trackers"; // is virtual memory
