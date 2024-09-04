@@ -268,7 +268,7 @@ Status VMysqlResultWriter<is_binary_format>::write(Block& input_block) {
 
         size_t offset = 0;
         while (offset < total_rows) {
-            size_t rows = std::min(sub_block_rows, total_rows - offset);
+            size_t rows = std::min(static_cast<size_t>(sub_block_rows), total_rows - offset);
             auto sub_block = block.clone_empty();
             for (size_t i = 0; i != block.columns(); ++i) {
                 sub_block.get_by_position(i).column =

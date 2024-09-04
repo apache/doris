@@ -17,7 +17,6 @@
 
 #include "runtime/fragment_mgr.h"
 
-#include <bits/types/struct_timespec.h>
 #include <bvar/latency_recorder.h>
 #include <exprs/runtime_filter.h>
 #include <fmt/format.h>
@@ -35,10 +34,12 @@
 #include <gen_cpp/types.pb.h>
 #include <pthread.h>
 #include <stddef.h>
+#include <sys/time.h>
 #include <thrift/TApplicationException.h>
 #include <thrift/Thrift.h>
 #include <thrift/protocol/TDebugProtocol.h>
 #include <thrift/transport/TTransportException.h>
+#include <time.h>
 
 #include <algorithm>
 #include <atomic>
@@ -1248,8 +1249,9 @@ void FragmentMgr::cancel_worker() {
         timespec now_for_check_invalid_query;
         clock_gettime(CLOCK_MONOTONIC, &now_for_check_invalid_query);
 
-        if (now_for_check_invalid_query.tv_sec - check_invalid_query_last_timestamp.tv_sec >
-            config::pipeline_task_leakage_detect_period_secs) {
+        if (config::enable_pipeline_task_leakage_detect &&
+            now_for_check_invalid_query.tv_sec - check_invalid_query_last_timestamp.tv_sec >
+                    config::pipeline_task_leakage_detect_period_secs) {
             check_invalid_query_last_timestamp = now_for_check_invalid_query;
             running_queries_on_all_fes = _get_all_running_queries_from_fe();
         } else {

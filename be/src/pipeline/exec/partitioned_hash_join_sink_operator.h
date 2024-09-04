@@ -119,6 +119,9 @@ public:
                                           _distribution_partition_exprs);
     }
 
+    bool require_shuffled_data_distribution() const override {
+        return _join_op != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
+    }
     bool is_shuffled_hash_join() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED;
     }
@@ -127,6 +130,10 @@ public:
                              const std::shared_ptr<HashJoinProbeOperatorX>& probe_operator) {
         _inner_sink_operator = sink_operator;
         _inner_probe_operator = probe_operator;
+    }
+
+    bool require_data_distribution() const override {
+        return _inner_probe_operator->require_data_distribution();
     }
 
 private:

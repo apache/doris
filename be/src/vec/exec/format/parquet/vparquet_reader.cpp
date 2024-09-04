@@ -181,6 +181,8 @@ void ParquetReader::_init_profile() {
                 _profile, "SkipPageHeaderNum", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.parse_page_header_num = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "ParsePageHeaderNum", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.predicate_filter_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PredicateFilterTime", parquet_profile, 1);
     }
 }
 
@@ -595,6 +597,7 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         auto column_st = _current_group_reader->statistics();
         _column_statistics.merge(column_st);
         _statistics.lazy_read_filtered_rows += _current_group_reader->lazy_read_filtered_rows();
+        _statistics.predicate_filter_time += _current_group_reader->predicate_filter_time();
         if (_read_row_groups.size() == 0) {
             *eof = true;
         } else {
@@ -1042,6 +1045,7 @@ void ParquetReader::_collect_profile() {
     COUNTER_UPDATE(_parquet_profile.skip_page_header_num, _column_statistics.skip_page_header_num);
     COUNTER_UPDATE(_parquet_profile.parse_page_header_num,
                    _column_statistics.parse_page_header_num);
+    COUNTER_UPDATE(_parquet_profile.predicate_filter_time, _statistics.predicate_filter_time);
     COUNTER_UPDATE(_parquet_profile.file_read_time, _column_statistics.read_time);
     COUNTER_UPDATE(_parquet_profile.file_read_calls, _column_statistics.read_calls);
     COUNTER_UPDATE(_parquet_profile.file_meta_read_calls, _column_statistics.meta_read_calls);

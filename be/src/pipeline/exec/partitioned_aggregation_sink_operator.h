@@ -289,7 +289,7 @@ public:
 class PartitionedAggSinkOperatorX : public DataSinkOperatorX<PartitionedAggSinkLocalState> {
 public:
     PartitionedAggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                const DescriptorTbl& descs);
+                                const DescriptorTbl& descs, bool require_bucket_distribution);
     ~PartitionedAggSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
@@ -306,6 +306,13 @@ public:
 
     DataDistribution required_data_distribution() const override {
         return _agg_sink_operator->required_data_distribution();
+    }
+
+    bool require_data_distribution() const override {
+        return _agg_sink_operator->require_data_distribution();
+    }
+    bool require_shuffled_data_distribution() const override {
+        return _agg_sink_operator->require_shuffled_data_distribution();
     }
 
     Status set_child(OperatorXPtr child) override {

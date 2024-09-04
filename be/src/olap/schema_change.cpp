@@ -735,6 +735,7 @@ std::unordered_set<int64_t> SchemaChangeHandler::_tablet_ids_in_converting;
 // The admin should upgrade all BE and then upgrade FE.
 // Should delete the old code after upgrade finished.
 Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2& request) {
+    DBUG_EXECUTE_IF("SchemaChangeJob._do_process_alter_tablet.sleep", { sleep(10); })
     Status res = Status::OK();
     TabletSharedPtr base_tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(request.base_tablet_id);

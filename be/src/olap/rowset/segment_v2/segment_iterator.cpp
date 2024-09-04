@@ -917,10 +917,17 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
         return false;
     }
 
-    if ((pred->type() == PredicateType::IN_LIST || pred->type() == PredicateType::NOT_IN_LIST) &&
-        pred->predicate_params()->marked_by_runtime_filter) {
+    if (pred->type() == PredicateType::IN_LIST || pred->type() == PredicateType::NOT_IN_LIST) {
+        auto predicate_param = pred->predicate_params();
         // in_list or not_in_list predicate produced by runtime filter
-        return false;
+        if (predicate_param->marked_by_runtime_filter) {
+            return false;
+        }
+        // the in_list or not_in_list value count cannot be greater than threshold
+        int32_t threshold = _opts.runtime_state->query_options().in_list_value_count_threshold;
+        if (pred_in_compound && predicate_param->values.size() > threshold) {
+            return false;
+        }
     }
 
     // UNTOKENIZED strings exceed ignore_above, they are written as null, causing range query errors
@@ -1412,10 +1419,15 @@ Status SegmentIterator::_init_inverted_index_iterators() {
     }
     for (auto cid : _schema->column_ids()) {
         if (_inverted_index_iterators[cid] == nullptr) {
+            // Not check type valid, since we need to get inverted index for related variant type when reading the segment.
+            // If check type valid, we can not get inverted index for variant type, and result nullptr.The result for calling
+            // get_inverted_index with variant suffix should return corresponding inverted index meta.
+            bool check_inverted_index_by_type = false;
             // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
             RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
                     _opts.tablet_schema->column(cid),
-                    _segment->_tablet_schema->get_inverted_index(_opts.tablet_schema->column(cid)),
+                    _segment->_tablet_schema->get_inverted_index(_opts.tablet_schema->column(cid),
+                                                                 check_inverted_index_by_type),
                     _opts, &_inverted_index_iterators[cid]));
         }
     }

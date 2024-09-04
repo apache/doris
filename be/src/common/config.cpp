@@ -988,7 +988,7 @@ DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
 DEFINE_mBool(variant_enable_flatten_nested, "false");
 DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
-DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "1000");
+DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 
 // block file cache
@@ -1039,7 +1039,7 @@ DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
-DEFINE_mBool(inverted_index_compaction_enable, "true");
+DEFINE_mBool(inverted_index_compaction_enable, "false");
 // Only for debug, do not use in production
 DEFINE_mBool(debug_inverted_index_compaction, "false");
 // index by RAM directory
@@ -1279,6 +1279,8 @@ DEFINE_Validator(tablet_meta_serialize_size_limit,
                  [](const int64_t config) -> bool { return config < 1717986918; });
 
 DEFINE_mInt64(pipeline_task_leakage_detect_period_secs, "60");
+
+DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 
 // clang-format off
 #ifdef BE_TEST
