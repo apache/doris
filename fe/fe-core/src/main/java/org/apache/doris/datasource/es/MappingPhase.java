@@ -137,7 +137,6 @@ public class MappingPhase implements SearchPhase {
                         // > Do not index any string longer than this value. Defaults to 2147483647 so that all values
                         // > would be accepted. Please however note that default dynamic mapping rules create a sub
                         // > keyword field that overrides this default by setting ignore_above: 256.
-                        
                         // this field has `ignore_above` param
                         // Strings longer than the ignore_above setting will not be indexed or stored
                         // so we cannot rely on its doc_values
@@ -164,7 +163,6 @@ public class MappingPhase implements SearchPhase {
                 // > Do not index any string longer than this value. Defaults to 2147483647 so that all values
                 // > would be accepted. Please however note that default dynamic mapping rules create a sub
                 // > keyword field that overrides this default by setting ignore_above: 256.
-
                 // this field has `ignore_above` param
                 // Strings longer than the ignore_above setting will not be indexed or stored
                 // so we cannot rely on its doc_values
