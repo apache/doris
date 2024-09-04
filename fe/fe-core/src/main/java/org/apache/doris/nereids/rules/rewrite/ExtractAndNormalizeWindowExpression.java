@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindowAnalytic;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -64,6 +66,10 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
                     if (output instanceof WindowExpression) {
                         WindowExpression windowExpression = (WindowExpression) output;
                         Expression expression = ((WindowExpression) output).getFunction();
+                        if (!(expression instanceof SupportWindowAnalytic)) {
+                            throw new AnalysisException("1OVER clause requires aggregate or analytic function: "
+                                    + expression.toSql());
+                        }
                         if (expression instanceof Sum || expression instanceof Max
                                 || expression instanceof Min || expression instanceof Avg) {
                             // sum, max, min and avg in window function should be always nullable
