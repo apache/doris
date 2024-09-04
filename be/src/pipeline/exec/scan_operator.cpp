@@ -1274,6 +1274,9 @@ Status ScanLocalState<Derived>::_init_profile() {
     _memory_usage_counter = ADD_LABEL_COUNTER_WITH_LEVEL(_scanner_profile, "MemoryUsage", 1);
     _free_blocks_memory_usage =
             _scanner_profile->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES, "MemoryUsage", 1);
+    _scanner_peak_memory_usage = _scanner_profile->AddHighWaterMarkCounter(
+            "PeakMemoryUsage", TUnit::BYTES, "MemoryUsage", 1);
+
     _newly_create_free_blocks_num =
             ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
     _scale_up_scanners_counter = ADD_COUNTER(_scanner_profile, "NumScaleUpScanners", TUnit::UNIT);
@@ -1294,7 +1297,6 @@ Status ScanLocalState<Derived>::_init_profile() {
 
     _peak_running_scanner =
             _scanner_profile->AddHighWaterMarkCounter("PeakRunningScanner", TUnit::UNIT);
-    _peak_memory_usage = _scanner_profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES);
     return Status::OK();
 }
 

@@ -451,7 +451,7 @@ void ScannerContext::update_peak_running_scanner(int num) {
 }
 
 void ScannerContext::update_peak_memory_usage(int64_t usage) {
-    _local_state->_peak_memory_usage->add(usage);
+    _local_state->_scanner_peak_memory_usage->add(usage);
 }
 
 } // namespace doris::vectorized
