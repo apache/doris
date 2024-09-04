@@ -21,6 +21,7 @@
 
 #include <algorithm>
 
+#include "common/logging.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/fragment_mgr.h"
 #include "util/mem_info.h"
@@ -543,6 +544,10 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
                 });
                 RETURN_IF_ERROR(_inner_sink_operator->sink(
                         local_state._shared_state->inner_runtime_state.get(), in_block, eos));
+                VLOG_DEBUG << "hash join sink " << node_id() << " sink eos, set_ready_to_read"
+                           << ", task id: " << state->task_id() << ", nonspill build usage: "
+                           << _inner_sink_operator->get_memory_usage(
+                                      local_state._shared_state->inner_runtime_state.get());
             }
 
             std::for_each(local_state._shared_state->partitioned_build_blocks.begin(),

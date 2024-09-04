@@ -203,7 +203,8 @@ void TaskScheduler::add_paused_task(PipelineTask* task) {
     auto wg = query_ctx_sptr->workload_group();
     auto&& [it, inserted] = _paused_queries_list[wg].emplace(std::move(query_ctx_sptr));
     if (inserted) {
-        LOG(INFO) << "here insert one new paused query: " << print_id(it->get()->query_id());
+        LOG(INFO) << "here insert one new paused query: " << it->query_id()
+                  << ", wg: " << (void*)(wg.get());
     }
 
     _paused_queries_cv.notify_all();
@@ -249,8 +250,8 @@ void TaskScheduler::_paused_queries_handler() {
                 if (!is_low_wartermark && !is_high_wartermark) {
                     LOG(INFO) << "**** there are " << queries_list.size() << " to resume";
                     for (const auto& query : queries_list) {
-                        LOG(INFO) << "**** resume paused query: " << print_id(query->query_id());
-                        query->set_memory_sufficient(true);
+                        LOG(INFO) << "**** resume paused query: " << query.query_id();
+                        query.query_ctx->set_memory_sufficient(true);
                     }
 
                     queries_list.clear();
@@ -269,7 +270,7 @@ void TaskScheduler::_paused_queries_handler() {
                 auto it_to_remove = queries_list.end();
 
                 for (auto query_it = queries_list.begin(); query_it != queries_list.end();) {
-                    const auto& query_ctx = *query_it;
+                    const auto& query_ctx = query_it->query_ctx;
                     size_t revocable_size = 0;
                     size_t memory_usage = 0;
                     bool has_running_task = false;
@@ -324,24 +325,27 @@ void TaskScheduler::_paused_queries_handler() {
                 } else if (max_memory_usage_query) {
                     bool new_is_low_wartermark = false;
                     bool new_is_high_wartermark = false;
+                    const auto query_id = print_id(max_memory_usage_query->query_id());
                     wg->check_mem_used(&new_is_low_wartermark, &new_is_high_wartermark);
-                    if (new_is_high_wartermark) {
-                        LOG(INFO) << "memory insufficient and cannot find revocable query, cancel "
-                                     "the query: "
-                                  << print_id(max_memory_usage_query->query_id())
-                                  << ", usage: " << max_memory_usage
+                    if (!new_is_low_wartermark || it_to_remove->elapsed_time() < 2000) {
+                        LOG(INFO) << "memory insufficient and cannot find revocable query, "
+                                     "the max usage query: "
+                                  << query_id << ", usage: " << max_memory_usage
+                                  << ", elapsed: " << it_to_remove->elapsed_time()
                                   << ", wg info: " << wg->debug_string();
-                        max_memory_usage_query->cancel(Status::InternalError(
-                                "memory insufficient and cannot find revocable query, cancel the "
-                                "biggest usage({}) query({})",
-                                max_memory_usage, print_id(max_memory_usage_query->query_id())));
-                    } else {
-                        LOG(INFO) << "new_is_high_wartermark is false, resume max memory usage "
-                                     "paused query: "
-                                  << print_id(max_memory_usage_query->query_id());
-                        max_memory_usage_query->set_memory_sufficient(true);
-                        queries_list.erase(it_to_remove);
+                        continue;
                     }
+
+                    LOG(INFO) << "memory insufficient and cannot find revocable query, "
+                                 "cancel "
+                                 "the query: "
+                              << query_id << ", usage: " << max_memory_usage
+                              << ", wg info: " << wg->debug_string();
+                    max_memory_usage_query->cancel(Status::InternalError(
+                            "memory insufficient and cannot find revocable query, cancel "
+                            "the "
+                            "biggest usage({}) query({})",
+                            max_memory_usage, query_id));
                 }
             }
         }

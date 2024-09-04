@@ -128,6 +128,8 @@ public:
 
     size_t get_reserve_mem_size(RuntimeState* state) override;
 
+    [[nodiscard]] size_t get_memory_usage(RuntimeState* state) const;
+
     bool should_dry_run(RuntimeState* state) override {
         return _is_broadcast_join && !state->get_sink_local_state()
                                               ->cast<HashJoinBuildSinkLocalState>()

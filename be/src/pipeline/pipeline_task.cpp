@@ -250,6 +250,18 @@ bool PipelineTask::_wait_to_start() {
 }
 
 bool PipelineTask::_is_blocked() {
+    _blocked_dep = _spill_dependency->is_blocked_by(this);
+    if (_blocked_dep != nullptr) {
+        _blocked_dep->start_watcher();
+        return true;
+    }
+
+    _blocked_dep = _memory_sufficient_dependency->is_blocked_by(this);
+    if (_blocked_dep != nullptr) {
+        _blocked_dep->start_watcher();
+        return true;
+    }
+
     // `_dry_run = true` means we do not need data from source operator.
     if (!_dry_run) {
         for (int i = _read_dependencies.size() - 1; i >= 0; i--) {
@@ -263,34 +275,21 @@ bool PipelineTask::_is_blocked() {
             }
             // If all dependencies are ready for this operator, we can execute this task if no datum is needed from upstream operators.
             if (!_operators[i]->need_more_input_data(_state)) {
-                if (VLOG_DEBUG_IS_ON) {
-                    VLOG_DEBUG << "query: " << print_id(_state->query_id())
-                               << ", task id: " << _index << ", operator " << i
-                               << " not need_more_input_data";
-                }
+                // if (VLOG_DEBUG_IS_ON) {
+                //     VLOG_DEBUG << "query: " << print_id(_state->query_id())
+                //                << ", task id: " << _index << ", operator " << i
+                //                << " not need_more_input_data";
+                // }
                 break;
             }
         }
     }
-
-    _blocked_dep = _spill_dependency->is_blocked_by(this);
-    if (_blocked_dep != nullptr) {
-        _blocked_dep->start_watcher();
-        return true;
-    }
-
     for (auto* op_dep : _write_dependencies) {
         _blocked_dep = op_dep->is_blocked_by(this);
         if (_blocked_dep != nullptr) {
             _blocked_dep->start_watcher();
             return true;
         }
-    }
-
-    _blocked_dep = _memory_sufficient_dependency->is_blocked_by(this);
-    if (_blocked_dep != nullptr) {
-        _blocked_dep->start_watcher();
-        return true;
     }
     return false;
 }
@@ -390,10 +389,20 @@ Status PipelineTask::execute(bool* eos) {
             if (reserve_size > 0) {
                 auto st = thread_context()->try_reserve_memory(reserve_size);
                 if (!st.ok()) {
-                    LOG(INFO) << "query: " << print_id(query_id)
-                              << ", try to reserve: " << reserve_size
-                              << " failed: " << st.to_string()
-                              << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
+                    VLOG_DEBUG << "query: " << print_id(query_id)
+                               << ", try to reserve: " << reserve_size << "(sink reserve size:("
+                               << sink_reserve_size << " )"
+                               << ", sink name: " << _sink->get_name()
+                               << ", node id: " << _sink->node_id()
+                               << ", is_wg_mem_high_water_mark: " << is_wg_mem_high_water_mark
+                               << " failed: " << st.to_string()
+                               << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
+                    {
+                        _memory_sufficient_dependency->block();
+                        _state->get_query_ctx()->get_pipe_exec_scheduler()->add_paused_task(this);
+                        RETURN_IF_ERROR(_sink->revoke_memory(_state));
+                        continue;
+                    }
                     has_enough_memory = false;
                 }
             }
