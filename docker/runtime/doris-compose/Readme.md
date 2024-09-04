@@ -56,6 +56,14 @@ python -m pip install --user -r docker/runtime/doris-compose/requirements.txt
 
 ## Usage
 
+### Notice
+
+Each cluster will have a directory in '/tmp/doris/{cluster-name}', user can set env LOCAL_DORIS_PATH to change its directory.
+
+For example, if user export LOCAL_DORIS_PATH=/mydoris, then the cluster's directory is '/mydoris/{cluster-name}'.
+
+And cluster's directory will contains all its containers's logs and data, like fe-1, fe-2, be-1, ..., etc.
+
 ### Create a cluster or recreate its containers
 
 ```
@@ -136,7 +144,7 @@ Generate regression-conf-custom.groovy to connect to the specific docker cluster
 
 steps:
 
-1. Create a new cluster:  `python doris-compose.py up my-cluster  my-image  --add-fe-num 2  --add-be-num 4 --cloud`
-2. Generate regression-conf-custom.groovy: `python doris-compose.py config my-cluster  <doris-root-path> --connect-follow-fe`
+1. Create a new cluster:  `python docker/runtime/doris-compose/doris-compose.py up my-cluster  my-image  --add-fe-num 2  --add-be-num 4 --cloud`
+2. Generate regression-conf-custom.groovy: `python docker/runtime/doris-compose/doris-compose.py config my-cluster  <doris-root-path> --connect-follow-fe`
 3. Run regression test: `bash run-regression-test.sh --run -times 1 -parallel 1 -suiteParallel 1 -d cloud/multi_cluster`
 
