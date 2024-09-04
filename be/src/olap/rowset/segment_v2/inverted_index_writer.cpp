@@ -707,6 +707,7 @@ private:
     std::unique_ptr<lucene::analysis::Analyzer> _analyzer = nullptr;
     std::unique_ptr<lucene::util::Reader> _char_string_reader = nullptr;
     std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer = nullptr;
+    InvertedIndexCtxSPtr _inverted_index_ctx = nullptr;
     DorisFSDirectory* _dir = nullptr;
     const KeyCoder* _value_key_coder;
     const TabletIndex* _index_meta;

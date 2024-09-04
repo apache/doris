@@ -26,7 +26,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
 
     def changed_variables = sql "show variables where Changed = 1"
     logger.info("changed variables: " + changed_variables.toString())
-    sql "UNSET GLOBAL VARIABLE ALL;"
+    // sql "UNSET GLOBAL VARIABLE ALL;"
     sql "SET global enable_match_without_inverted_index = false"
 
     boolean disableAutoCompaction = false

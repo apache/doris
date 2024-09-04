@@ -651,12 +651,12 @@ Status Compaction::do_inverted_index_compaction() {
         auto col = _cur_tablet_schema->column_by_uid(column_uniq_id);
         const auto* index_meta = _cur_tablet_schema->inverted_index(col);
         DBUG_EXECUTE_IF("Compaction::do_inverted_index_compaction_can_not_find_index_meta",
-                                { index_meta = nullptr; })
-                if (index_meta == nullptr) {
-                    status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(
-                            fmt::format("Can not find index_meta for col {}", col.name()));
-                    break;
-                }
+                        { index_meta = nullptr; })
+        if (index_meta == nullptr) {
+            status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(
+                    fmt::format("Can not find index_meta for col {}", col.name()));
+            break;
+        }
 
         std::vector<lucene::store::Directory*> dest_index_dirs(dest_segment_num);
         try {
@@ -724,8 +724,8 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
                 first_properties = properties;
             } else {
                 DBUG_EXECUTE_IF(
-                                        "Compaction::do_inverted_index_compaction_index_properties_different",
-                                        { properties.emplace("dummy_key", "dummy_value"); })
+                        "Compaction::do_inverted_index_compaction_index_properties_different",
+                        { properties.emplace("dummy_key", "dummy_value"); })
                 if (properties != first_properties.value()) {
                     is_continue = true;
                     break;
@@ -737,9 +737,8 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
         }
         auto has_inverted_index = [&](const RowsetSharedPtr& src_rs) {
             auto* rowset = static_cast<BetaRowset*>(src_rs.get());
-            DBUG_EXECUTE_IF(
-                                    "Compaction::construct_skip_inverted_index_is_skip_index_compaction",
-                                    { rowset->set_skip_index_compaction(col_unique_id); })
+            DBUG_EXECUTE_IF("Compaction::construct_skip_inverted_index_is_skip_index_compaction",
+                            { rowset->set_skip_index_compaction(col_unique_id); })
             if (rowset->is_skip_index_compaction(col_unique_id)) {
                 LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] rowset["
                              << rowset->rowset_id() << "] column_unique_id[" << col_unique_id
@@ -747,34 +746,34 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
                 return false;
             }
 
-                auto fs = rowset->rowset_meta()->fs();
-                DBUG_EXECUTE_IF("Compaction::construct_skip_inverted_index_get_fs_error",
-                                { fs = nullptr; })
-                if (!fs) {
-                    LOG(WARNING) << "get fs failed, resource_id="
-                                 << rowset->rowset_meta()->resource_id();
-                    return false;
-                }
+            auto fs = rowset->rowset_meta()->fs();
+            DBUG_EXECUTE_IF("Compaction::construct_skip_inverted_index_get_fs_error",
+                            { fs = nullptr; })
+            if (!fs) {
+                LOG(WARNING) << "get fs failed, resource_id="
+                             << rowset->rowset_meta()->resource_id();
+                return false;
+            }
 
             const auto* index_meta = rowset->tablet_schema()->inverted_index(col_unique_id);
             DBUG_EXECUTE_IF("Compaction::construct_skip_inverted_index_index_meta_nullptr",
-                                            { index_meta = nullptr; })
+                            { index_meta = nullptr; })
             if (index_meta == nullptr) {
                 LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] column_unique_id["
                              << col_unique_id << "] index meta is null, will skip index compaction";
                 return false;
             }
 
-                for (auto i = 0; i < rowset->num_segments(); i++) {
-                    // TODO: inverted_index_path
-                    auto seg_path = rowset->segment_path(i);
-                    DBUG_EXECUTE_IF("Compaction::construct_skip_inverted_index_seg_path_nullptr", {
-                        seg_path = ResultError(Status::Error<ErrorCode::INTERNAL_ERROR>("error"));
-                    })
-                    if (!seg_path) {
-                        LOG(WARNING) << seg_path.error();
-                        return false;
-                    }
+            for (auto i = 0; i < rowset->num_segments(); i++) {
+                // TODO: inverted_index_path
+                auto seg_path = rowset->segment_path(i);
+                DBUG_EXECUTE_IF("Compaction::construct_skip_inverted_index_seg_path_nullptr", {
+                    seg_path = ResultError(Status::Error<ErrorCode::INTERNAL_ERROR>("error"));
+                })
+                if (!seg_path) {
+                    LOG(WARNING) << seg_path.error();
+                    return false;
+                }
 
                 std::string index_file_path;
                 try {
@@ -789,15 +788,15 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
                             config::inverted_index_read_buffer_size, open_idx_file_cache);
                     index_file_path = inverted_index_file_reader->get_index_file_path(index_meta);
                     DBUG_EXECUTE_IF(
-                                                "Compaction::construct_skip_inverted_index_index_file_reader_init_"
-                                                "status_not_ok",
-                                                {
-                                                    st = Status::Error<ErrorCode::INTERNAL_ERROR>(
-                                                            "debug point: "
-                                                            "construct_skip_inverted_index_index_file_reader_init_"
-                                                            "status_"
-                                                            "not_ok");
-                                                })
+                            "Compaction::construct_skip_inverted_index_index_file_reader_init_"
+                            "status_not_ok",
+                            {
+                                st = Status::Error<ErrorCode::INTERNAL_ERROR>(
+                                        "debug point: "
+                                        "construct_skip_inverted_index_index_file_reader_init_"
+                                        "status_"
+                                        "not_ok");
+                            })
                     if (!st.ok()) {
                         LOG(WARNING) << "init index " << index_file_path << " error:" << st;
                         return false;
@@ -806,13 +805,13 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
                     // check index meta
                     auto result = inverted_index_file_reader->open(index_meta);
                     DBUG_EXECUTE_IF(
-                                                "Compaction::construct_skip_inverted_index_index_file_reader_open_"
-                                                "error",
-                                                {
-                                                    result = ResultError(
-                                                            Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                                                                    "CLuceneError occur when open idx file"));
-                                                })
+                            "Compaction::construct_skip_inverted_index_index_file_reader_open_"
+                            "error",
+                            {
+                                result = ResultError(
+                                        Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                                                "CLuceneError occur when open idx file"));
+                            })
                     if (!result.has_value()) {
                         LOG(WARNING)
                                 << "open index " << index_file_path << " error:" << result.error();
@@ -823,8 +822,8 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
                     reader->list(&files);
                     reader->close();
                     DBUG_EXECUTE_IF(
-                                                "Compaction::construct_skip_inverted_index_index_reader_close_error",
-                                                { _CLTHROWA(CL_ERR_IO, "debug point: reader close error"); })
+                            "Compaction::construct_skip_inverted_index_index_reader_close_error",
+                            { _CLTHROWA(CL_ERR_IO, "debug point: reader close error"); })
 
                     DBUG_EXECUTE_IF("Compaction::construct_skip_inverted_index_index_files_count",
                                     { files.clear(); })

@@ -394,7 +394,8 @@ Status InvertedIndexFileWriter::write_v2() {
 
         io::Path index_path {InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix)};
 
-        auto* out_dir = DorisFSDirectoryFactory::getDirectory(_fs, index_path.parent_path().c_str());
+        auto* out_dir =
+                DorisFSDirectoryFactory::getDirectory(_fs, index_path.parent_path().c_str());
         out_dir->set_file_writer_opts(_opts);
 
         std::unique_ptr<lucene::store::IndexOutput> compound_file_output;

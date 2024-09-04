@@ -45,8 +45,8 @@ Status compact_column(int64_t index_id,
     lucene::store::Directory* dir = DorisFSDirectoryFactory::getDirectory(
             io::global_local_filesystem(), tmp_path.data(), can_use_ram_dir);
     DBUG_EXECUTE_IF("compact_column_getDirectory_error", {
-            _CLTHROWA(CL_ERR_IO, "debug point: compact_column_getDirectory_error in index compaction");
-        })
+        _CLTHROWA(CL_ERR_IO, "debug point: compact_column_getDirectory_error in index compaction");
+    })
     lucene::analysis::SimpleAnalyzer<char> analyzer;
     auto* index_writer = _CLNEW lucene::index::IndexWriter(dir, &analyzer, true /* create */,
                                                            true /* closeDirOnShutdown */);
