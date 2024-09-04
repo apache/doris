@@ -2322,8 +2322,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         switch (type) {
             case "DATE":
                 return Config.enable_date_conversion ? new DateV2Literal(value) : new DateLiteral(value);
+            case "DATETIME":
             case "TIMESTAMP":
                 return Config.enable_date_conversion ? new DateTimeV2Literal(value) : new DateTimeLiteral(value);
+            case "DATETIMEV2":
+                return new DateTimeV2Literal(value);
             case "DATEV2":
                 return new DateV2Literal(value);
             case "DATEV1":

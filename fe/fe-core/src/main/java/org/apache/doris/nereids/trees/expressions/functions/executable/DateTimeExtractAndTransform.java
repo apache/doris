@@ -345,7 +345,7 @@ public class DateTimeExtractAndTransform {
         LocalDateTime localDateTime = datetime.toJavaDateType();
         ZonedDateTime resultDateTime = localDateTime.atZone(DateUtils.getTimeZone()).withZoneSameInstant(toZone);
         localDateTime = resultDateTime.toLocalDateTime();
-        return new DateV2Literal(localDateTime.getYear(), localDateTime.getMonthValue(), localDateTime.getDayOfMonth());
+        return new DateLiteral(localDateTime.getYear(), localDateTime.getMonthValue(), localDateTime.getDayOfMonth());
     }
 
     /**
