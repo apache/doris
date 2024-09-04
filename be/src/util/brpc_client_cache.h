@@ -83,10 +83,12 @@ public:
     }
 
     std::shared_ptr<T> get_client(const std::string& host, int port) {
-        std::string realhost;
-        realhost = host;
-        if (!is_valid_ip(host)) {
-            Status status = ExecEnv::GetInstance()->dns_cache()->get(host, &realhost);
+        std::string realhost = host;
+        auto dns_cache = ExecEnv::GetInstance()->dns_cache();
+        if (dns_cache == nullptr) {
+            LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
+        } else if (!is_valid_ip(host)) {
+            Status status = dns_cache->get(host, &realhost);
             if (!status.ok()) {
                 LOG(WARNING) << "failed to get ip from host:" << status.to_string();
                 return nullptr;

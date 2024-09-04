@@ -718,8 +718,11 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
         }
 
         std::string host = _node_info.host;
-        if (!is_valid_ip(_node_info.host)) {
-            Status status = ExecEnv::GetInstance()->dns_cache()->get(_node_info.host, &host);
+        auto dns_cache = ExecEnv::GetInstance()->dns_cache();
+        if (dns_cache == nullptr) {
+            LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
+        } else if (!is_valid_ip(_node_info.host)) {
+            Status status = dns_cache->get(_node_info.host, &host);
             if (!status.ok()) {
                 LOG(WARNING) << "failed to get ip from host " << _node_info.host << ": "
                              << status.to_string();

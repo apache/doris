@@ -152,8 +152,11 @@ void CloudBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
 void CloudBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& response,
                                               const TWarmUpCacheAsyncRequest& request) {
     std::string host = request.host;
-    if (!is_valid_ip(request.host)) {
-        Status status = ExecEnv::GetInstance()->dns_cache()->get(request.host, &host);
+    auto dns_cache = ExecEnv::GetInstance()->dns_cache();
+    if (dns_cache == nullptr) {
+        LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
+    } else if (!is_valid_ip(request.host)) {
+        Status status = dns_cache->get(request.host, &host);
         if (!status.ok()) {
             LOG(WARNING) << "failed to get ip from host " << request.host << ": "
                          << status.to_string();
