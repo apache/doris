@@ -39,6 +39,7 @@ suite('test_partial_update_delete') {
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
+                    "enable_mow_light_delete" = "false",
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
 
@@ -51,6 +52,7 @@ suite('test_partial_update_delete') {
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
+                    "enable_mow_light_delete" = "false",
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
 
@@ -86,6 +88,7 @@ suite('test_partial_update_delete') {
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
+                    "enable_mow_light_delete" = "false",
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
 
