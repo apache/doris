@@ -298,8 +298,7 @@ private:
 
     void _convert_dict_code_for_predicate_if_necessary_impl(ColumnPredicate* predicate);
 
-    bool _check_apply_by_inverted_index(ColumnId col_id);
-    bool _check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound = false);
+    bool _check_apply_by_inverted_index(ColumnPredicate* pred);
 
     void _output_index_result_column_for_expr(uint16_t* sel_rowid_idx, uint16_t select_size,
                                               vectorized::Block* block);
