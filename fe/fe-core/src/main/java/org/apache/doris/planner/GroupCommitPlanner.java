@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FormatOptions;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
@@ -133,7 +134,7 @@ public class GroupCommitPlanner {
     public PGroupCommitInsertResponse executeGroupCommitInsert(ConnectContext ctx,
             List<InternalService.PDataRow> rows)
             throws DdlException, RpcException, ExecutionException, InterruptedException {
-        backend = ctx.getInsertGroupCommit(this.table.getId());
+        selectBackends(ctx);
         if (backend == null || !backend.isAlive() || backend.isDecommissioned()) {
             List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (allBackendIds.isEmpty()) {
@@ -161,7 +162,7 @@ public class GroupCommitPlanner {
                         .setRequest(execPlanFragmentParamsBytes)
                         .setCompact(false).setVersion(InternalService.PFragmentRequestVersion.VERSION_2).build())
                 .setLoadId(Types.PUniqueId.newBuilder().setHi(loadId.hi).setLo(loadId.lo)
-                .build()).addAllData(rows)
+                        .build()).addAllData(rows)
                 .build();
         Future<PGroupCommitInsertResponse> future = BackendServiceProxy.getInstance()
                 .groupCommitInsert(new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), request);
@@ -199,6 +200,15 @@ public class GroupCommitPlanner {
             expr.getChildren().forEach(child -> processExprVal(child, row));
         } else {
             row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValue()));
+        }
+    }
+
+    protected void selectBackends(ConnectContext ctx) throws DdlException {
+        try {
+            backend = Env.getCurrentEnv().getGroupCommitManager()
+                    .selectBackendForGroupCommit(this.table.getId(), ctx);
+        } catch (LoadException e) {
+            throw new DdlException("No suitable backend");
         }
     }
 
