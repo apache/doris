@@ -67,7 +67,7 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
                         WindowExpression windowExpression = (WindowExpression) output;
                         Expression expression = ((WindowExpression) output).getFunction();
                         if (!(expression instanceof SupportWindowAnalytic)) {
-                            throw new AnalysisException("1OVER clause requires aggregate or analytic function: "
+                            throw new AnalysisException("OVER clause requires aggregate or analytic function: "
                                     + expression.toSql());
                         }
                         if (expression instanceof Sum || expression instanceof Max
