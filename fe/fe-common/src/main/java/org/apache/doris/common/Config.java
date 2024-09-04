@@ -1212,7 +1212,13 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_get_kafka_meta_timeout_second = 60;
-
+    
+    /**
+     * the min timeout of get kafka meta.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int min_get_kafka_meta_timeout_second = 5;
+    
     /**
      * The max number of files store in SmallFileMgr
      */
