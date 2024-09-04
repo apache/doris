@@ -72,7 +72,8 @@ public:
     }
 
     Status init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
-                const TQueryOptions& query_options, size_t block_size = 1);
+                const TQueryOptions& query_options, const TabletSchema& schema,
+                size_t block_size = 1);
 
     std::unique_ptr<vectorized::Block> get_block();
 
@@ -95,6 +96,9 @@ public:
 
     RuntimeState* runtime_state() { return _runtime_state.get(); }
 
+    // delete sign idx in block
+    int32_t delete_sign_idx() const { return _delete_sign_idx; }
+
 private:
     // caching TupleDescriptor, output_expr, etc...
     std::unique_ptr<RuntimeState> _runtime_state;
@@ -108,6 +112,8 @@ private:
     std::unordered_map<uint32_t, uint32_t> _col_uid_to_idx;
     std::vector<std::string> _col_default_values;
     int64_t _mem_size = 0;
+    // delete sign idx in block
+    int32_t _delete_sign_idx = -1;
 };
 
 // RowCache is a LRU cache for row store
