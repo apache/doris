@@ -1311,15 +1311,14 @@ public class PropertyAnalyzer {
         throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " must be `true` or `false`");
     }
 
-    public static boolean analyzeEnableDeleteOnDeletePredicate(Map<String, String> properties,
-            boolean enableUniqueKeyMergeOnWrite)
+    public static boolean analyzeEnableDeleteOnDeletePredicate(Map<String, String> properties)
             throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
-            return enableUniqueKeyMergeOnWrite ? Config.enable_mow_light_delete : false;
+            return false;
         }
         String value = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
         if (value == null) {
-            return enableUniqueKeyMergeOnWrite ? Config.enable_mow_light_delete : false;
+            return false;
         }
         properties.remove(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
         if (value.equals("true")) {
