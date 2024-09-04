@@ -68,3 +68,17 @@ AAAAAAAAAAAAAAAAQiYi+sTLm7KD9UcZ2nlRdYDe/PX4
 -- !sql_gcm_4 --
 Spark
 
+-- !sql_gcm_5 --
+1	MTIzNDU2Nzg5MDEyMdXvR41sJqwZ6hnTU8FRTTtXbL8yeChIZA==
+2	AAAAAAAAAAAAAAAAQiYi+sTLm7KD9UcZ2nlRdYDe/PX4
+
+-- !sql_gcm_6 --
+1	Spark SQL
+2	Spark
+
+-- !sql_gcm_7 --
+1	MTIzNDU2Nzg5MDEyMdXvR41sJqwZ6hnTU8FRTTtXbL8yeChIZA==
+
+-- !sql_gcm_8 --
+Spark SQL
+
