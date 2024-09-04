@@ -23,10 +23,10 @@ suite("with_select_table_auth","p0,auth") {
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
 
-    String user = 'with_select_table_auth'
+    String user_name = 'with_select_table_auth'
     String pwd = 'test1'
-    try_sql("DROP USER ${user}")
-    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+    try_sql("DROP USER ${user_name}")
+    sql """CREATE USER '${user_name}' IDENTIFIED BY '${pwd}'"""
 
     sql """
     drop table if exists orders
@@ -118,9 +118,12 @@ suite("with_select_table_auth","p0,auth") {
     (5, 2, 'o', 1.2, '2023-12-12', 'c','d',2, 'mi');  
     """
 
-    sql """grant select_priv on ${db}.orders to ${user}"""
-    sql """grant select_priv on ${db}.lineitem to ${user}"""
-    sql """grant select_priv on regression_test to ${user}"""
+    sql """analyze table lineitem with sync"""
+    sql """analyze table orders with sync"""
+
+    sql """grant select_priv on ${db}.orders to ${user_name}"""
+    sql """grant select_priv on ${db}.lineitem to ${user_name}"""
+    sql """grant select_priv on regression_test to ${user_name}"""
 
 
     sql """drop materialized view if exists mv1;"""
@@ -145,12 +148,13 @@ suite("with_select_table_auth","p0,auth") {
             l_suppkey;
             """
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    sql """analyze table mv1 with sync"""
 
+    connect(user=user_name, password="${pwd}", url=context.config.jdbcUrl) {
         sql "use ${db}"
         mv_rewrite_success(
             """
-           select t1.l_partkey, t1.l_suppkey, o_orderdate,
+            select t1.l_partkey, t1.l_suppkey, o_orderdate,
             sum(o_totalprice),
             max(o_totalprice),
             min(o_totalprice),
@@ -162,10 +166,10 @@ suite("with_select_table_auth","p0,auth") {
             o_orderdate,
             l_partkey,
             l_suppkey;
-                """,
-                "${db}.mv1"
+            """,
+            "mv1"
         )
     }
-    sql """drop MATERIALIZED VIEW ${db}.mv1;"""
+    sql """drop MATERIALIZED VIEW IF EXISTS ${db}.mv1;"""
 }
 

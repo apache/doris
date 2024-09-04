@@ -20,7 +20,6 @@ package org.apache.doris.nereids.mv;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
@@ -32,7 +31,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.BitSet;
-import java.util.Set;
 
 /**
  * The connectContext would new instance when generate MTMVCache, after generate, the connectContext should

@@ -28,7 +28,6 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
@@ -783,8 +782,7 @@ public class StructInfo {
         return Pair.of(MaterializedViewUtils.rewriteByRules(parentCascadesContext, context -> {
             Rewriter.getWholeTreeRewriter(context).execute();
             return context.getRewritePlan();
-        }, queryPlanWithUnionFilter, queryPlan,
-                ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT, RuleType.CHECK_PRIVILEGES)), true);
+        }, queryPlanWithUnionFilter, queryPlan), true);
     }
 
     /**
