@@ -545,6 +545,9 @@ public class OlapTable extends Table {
     }
 
     private Optional<UseMvHint> getUseMvHint(String useMvName) {
+        if (ConnectContext.get().getStatementContext() == null) {
+            return Optional.empty();
+        }
         for (Hint hint : ConnectContext.get().getStatementContext().getHints()) {
             if (hint.isSyntaxError()) {
                 continue;
