@@ -16,7 +16,7 @@
 // under the License.
 
 suite("valid_window_expression") {
-    sql "SET enable_ner eids_planner=true"
+    sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
     sql "drop table if exists valid_window_expression"
