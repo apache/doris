@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_is_used_in_rewrite","mtmv") {
-    String suiteName = "test_is_used_rewritten"
+suite("test_use_for_rewrite","mtmv") {
+    String suiteName = "test_use_for_rewrite"
     String tableName = "${suiteName}_table"
     String mvName = "${suiteName}_mv"
     String db = context.config.getDbNameByFile(context.file)
@@ -41,7 +41,7 @@ suite("test_is_used_in_rewrite","mtmv") {
         (1,1, '2024-05-01'),(2,2, '2024-05-02'), (3,3, '2024-05-03');
         """
 
-    // when not set is_used_in_rewrite, should rewrite successfully
+    // when not set use_for_rewrite, should rewrite successfully
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD IMMEDIATE REFRESH AUTO ON MANUAL
@@ -60,14 +60,14 @@ suite("test_is_used_in_rewrite","mtmv") {
     sql """drop materialized view if exists ${mvName};"""
 
 
-    // when set is_used_in_rewrite = true, should rewrite successfully
+    // when set use_for_rewrite = true, should rewrite successfully
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD IMMEDIATE REFRESH AUTO ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
         'replication_num' = '1',
-        'is_used_in_rewrite' = 'true'
+        'use_for_rewrite' = 'true'
         )
         AS
         SELECT k1, k2, count(*) from ${tableName} group by k1, k2;
@@ -79,7 +79,7 @@ suite("test_is_used_in_rewrite","mtmv") {
     """ ,mvName)
 
 
-    // when set is_used_in_rewrite = false, should not partition in rewritten
+    // when set use_for_rewrite = false, should not partition in rewritten
     sql """drop materialized view if exists ${mvName};"""
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
@@ -87,7 +87,7 @@ suite("test_is_used_in_rewrite","mtmv") {
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
         'replication_num' = '1',
-        'is_used_in_rewrite' = 'false'
+        'use_for_rewrite' = 'false'
         )
         AS
         SELECT k1, k2, count(*) from ${tableName} group by k1, k2;

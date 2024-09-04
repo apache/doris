@@ -39,7 +39,7 @@ public class MTMVPropertyUtil {
             PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT,
             PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT,
             PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION,
-            PropertyAnalyzer.PROPERTIES_IS_USED_IN_REWRITE
+            PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE
     );
 
     public static void analyzeProperty(String key, String value) {
@@ -67,7 +67,7 @@ public class MTMVPropertyUtil {
                 break;
             case PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION:
                 break;
-            case PropertyAnalyzer.PROPERTIES_IS_USED_IN_REWRITE:
+            case PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE:
                 break;
             default:
                 throw new AnalysisException("illegal key:" + key);
