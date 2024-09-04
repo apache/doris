@@ -401,11 +401,11 @@ Status CsvReader::init_reader(bool is_load) {
                 _line_delimiter, _line_delimiter_length, _keep_cr);
         if (_text_serde_type == TTextSerdeType::HIVE_TEXT_SERDE) {
             _fields_splitter = std::make_unique<HiveCsvTextFieldSplitter>(
-                    _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1);
-        } else {
-            _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
                     _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1,
                     _escape);
+        } else {
+            _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
+                    _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1);
         }
     } else {
         text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
