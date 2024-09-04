@@ -91,6 +91,7 @@ public class MysqlProto {
         serializer.reset();
         MysqlHandshakePacket handshakePacket = new MysqlHandshakePacket(context.getConnectionId());
         handshakePacket.writeTo(serializer);
+        context.setMysqlHandshakePacket(handshakePacket);
         try {
             channel.sendAndFlush(serializer.toByteBuffer());
         } catch (IOException e) {

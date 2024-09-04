@@ -50,6 +50,7 @@ import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -248,6 +249,8 @@ public class ConnectContext {
     // isProxy used for forward request from other FE and used in one thread
     // it's default thread-safe
     private boolean isProxy = false;
+
+    private MysqlHandshakePacket mysqlHandshakePacket;
 
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
@@ -1367,5 +1370,13 @@ public class ConnectContext {
 
     public boolean isProxy() {
         return isProxy;
+    }
+
+    public void setMysqlHandshakePacket(MysqlHandshakePacket mysqlHandshakePacket) {
+        this.mysqlHandshakePacket = mysqlHandshakePacket;
+    }
+
+    public byte[] getAuthPluginData() {
+        return mysqlHandshakePacket == null ? null : mysqlHandshakePacket.getAuthPluginData();
     }
 }
