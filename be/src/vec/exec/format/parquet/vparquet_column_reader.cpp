@@ -454,11 +454,6 @@ Status ScalarColumnReader::read_dict_values_to_column(MutableColumnPtr& doris_co
     return Status::OK();
 }
 
-Status ScalarColumnReader::get_dict_codes(const ColumnString* column_string,
-                                          std::vector<int32_t>* dict_codes) {
-    return _chunk_reader->get_dict_codes(column_string, dict_codes);
-}
-
 MutableColumnPtr ScalarColumnReader::convert_dict_column_to_string_column(
         const ColumnInt32* dict_column) {
     return _chunk_reader->convert_dict_column_to_string_column(dict_column);

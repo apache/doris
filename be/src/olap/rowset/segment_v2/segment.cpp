@@ -203,7 +203,8 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         ColumnReader* reader = nullptr;
         if (col.is_extracted_column()) {
             auto relative_path = col.path_info_ptr()->copy_pop_front();
-            const auto* node = _sub_column_tree[col.unique_id()].find_exact(relative_path);
+            int32_t unique_id = col.unique_id() > 0 ? col.unique_id() : col.parent_unique_id();
+            const auto* node = _sub_column_tree[unique_id].find_exact(relative_path);
             reader = node != nullptr ? node->data.reader.get() : nullptr;
         } else {
             reader = _column_readers.contains(col.unique_id())
@@ -552,7 +553,7 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
                 vectorized::PathInData path;
                 path.from_protobuf(spase_column_pb.column_path_info());
                 // Read from root column, so reader is nullptr
-                _sparse_column_tree[column.unique_id()].add(
+                _sparse_column_tree[unique_id].add(
                         path.copy_pop_front(),
                         SubcolumnReader {nullptr,
                                          vectorized::DataTypeFactory::instance().create_data_type(
@@ -616,9 +617,10 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
     const auto* node = tablet_column.has_path_info()
                                ? _sub_column_tree[unique_id].find_exact(relative_path)
                                : nullptr;
-    const auto* sparse_node = tablet_column.has_path_info()
-                                      ? _sparse_column_tree[unique_id].find_exact(relative_path)
-                                      : nullptr;
+    const auto* sparse_node =
+            tablet_column.has_path_info() && _sparse_column_tree.contains(unique_id)
+                    ? _sparse_column_tree[unique_id].find_exact(relative_path)
+                    : nullptr;
     // Currently only compaction and checksum need to read flat leaves
     // They both use tablet_schema_with_merged_max_schema_version as read schema
     auto type_to_read_flat_leaves = [](ReaderType type) {
@@ -775,8 +777,9 @@ ColumnReader* Segment::_get_column_reader(const TabletColumn& col) {
     // init column iterator by path info
     if (col.has_path_info() || col.is_variant_type()) {
         auto relative_path = col.path_info_ptr()->copy_pop_front();
+        int32_t unique_id = col.unique_id() > 0 ? col.unique_id() : col.parent_unique_id();
         const auto* node = col.has_path_info()
-                                   ? _sub_column_tree[col.unique_id()].find_exact(relative_path)
+                                   ? _sub_column_tree[unique_id].find_exact(relative_path)
                                    : nullptr;
         if (node != nullptr) {
             return node->data.reader.get();

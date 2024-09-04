@@ -181,6 +181,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
                 requestBuilder.setStorageVaultName(storageVaultName);
             }
+            requestBuilder.setDbId(dbId);
 
             LOG.info("create tablets, dbId: {}, tableId: {}, tableName: {}, partitionId: {}, partitionName: {}, "
                     + "indexId: {}, vault name {}",
@@ -682,7 +683,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             sendCreateTabletsRpc(Cloud.CreateTabletsRequest.Builder requestBuilder) throws DdlException  {
         requestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         Cloud.CreateTabletsRequest createTabletsReq = requestBuilder.build();
-
+        Preconditions.checkState(createTabletsReq.hasDbId(), "createTabletsReq must set dbId");
         if (LOG.isDebugEnabled()) {
             LOG.debug("send create tablets rpc, createTabletsReq: {}", createTabletsReq);
         }

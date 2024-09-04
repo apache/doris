@@ -32,7 +32,7 @@ import com.google.common.base.Strings;
  * Syntax:
  *     SHOW TABLE CREATION [FROM db] [LIKE mask]
  */
-public class ShowTableCreationStmt extends ShowStmt {
+public class ShowTableCreationStmt extends ShowStmt implements NotFallbackInParser {
 
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()

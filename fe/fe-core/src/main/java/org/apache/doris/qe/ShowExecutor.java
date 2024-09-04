@@ -533,6 +533,7 @@ public class ShowExecutor {
             try {
                 TShowProcessListRequest request = new TShowProcessListRequest();
                 request.setShowFullSql(isShowFullSql);
+                request.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentity().toThrift());
                 List<Pair<String, Integer>> frontends = FrontendsProcNode.getFrontendWithRpcPort(Env.getCurrentEnv(),
                         false);
                 FrontendService.Client client = null;
@@ -2719,7 +2720,7 @@ public class ShowExecutor {
             if (tableStats == null) {
                 resultSet = showTableStatsStmt.constructEmptyResultSet();
             } else {
-                resultSet = showTableStatsStmt.constructResultSet(tableStats);
+                resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
             }
             return;
         }
@@ -2728,9 +2729,9 @@ public class ShowExecutor {
            tableStats == null means it's not analyzed, in this case show the estimated row count.
          */
         if (tableStats == null) {
-            resultSet = showTableStatsStmt.constructResultSet(tableIf.getCachedRowCount());
+            resultSet = showTableStatsStmt.constructResultSet(tableIf);
         } else {
-            resultSet = showTableStatsStmt.constructResultSet(tableStats);
+            resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
         }
     }
 

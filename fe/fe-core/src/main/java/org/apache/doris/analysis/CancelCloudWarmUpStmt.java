@@ -21,7 +21,7 @@ import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 
-public class CancelCloudWarmUpStmt extends CancelStmt {
+public class CancelCloudWarmUpStmt extends CancelStmt implements NotFallbackInParser {
     private Expr whereClause;
     private long jobId;
 
