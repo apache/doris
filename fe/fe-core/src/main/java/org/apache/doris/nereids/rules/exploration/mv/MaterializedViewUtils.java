@@ -268,10 +268,10 @@ public class MaterializedViewUtils {
                 cascadesContext.getStatementContext(), rewrittenPlan,
                 cascadesContext.getCurrentJobContext().getRequiredProperties());
         try {
-            rewrittenPlanContext.getConnectContext().getStatementContext().setRboInMaterializedViewRewrite(true);
+            rewrittenPlanContext.getConnectContext().getStatementContext().setRboForMaterializedViewRewrite(true);
             rewrittenPlan = planRewriter.apply(rewrittenPlanContext);
         } finally {
-            rewrittenPlanContext.getConnectContext().getStatementContext().setRboInMaterializedViewRewrite(false);
+            rewrittenPlanContext.getConnectContext().getStatementContext().setRboForMaterializedViewRewrite(false);
         }
         Map<ExprId, Slot> exprIdToNewRewrittenSlot = Maps.newLinkedHashMap();
         for (Slot slot : rewrittenPlan.getOutput()) {
