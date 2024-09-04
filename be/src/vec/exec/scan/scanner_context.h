@@ -121,7 +121,7 @@ public:
     Status init();
 
     vectorized::BlockUPtr get_free_block(bool force);
-    void return_free_block(vectorized::BlockUPtr block);
+    bool return_free_block(vectorized::BlockUPtr block);
     inline void inc_free_block_usage(size_t usage) {
         _free_blocks_memory_usage += usage;
         _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);

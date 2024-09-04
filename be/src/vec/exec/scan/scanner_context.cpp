@@ -73,11 +73,23 @@ ScannerContext::ScannerContext(
         limit = -1;
     }
     MAX_SCALE_UP_RATIO = _state->scanner_scale_up_ratio();
+    // _max_thread_num controls how many scanners of this ScanOperator can be submitted to scheduler at a time.
+    // The overall target of our system is to make full utilization of the resources.
+    // At the same time, we dont want too many tasks are queued by scheduler, that makes the query
+    // waiting too long, and existing task can not be scheduled in time.
+    // First of all, we try to make sure _max_thread_num of a ScanNode of a query on a single backend is less than
+    // config::doris_scanner_thread_pool_thread_num.
+    // For example, on a 64-core machine, the default value of config::doris_scanner_thread_pool_thread_num will be 64*2 =128.
+    // and the num_parallel_instances of this scan operator will be 64/2=32.
+    // For a query who has two scan nodes, the _max_thread_num of each scan node instance will be 128 / 32 = 4.
+    // We have 32 instances of this scan operator, so for the ScanNode, we have 4 * 32 = 128 scanner tasks can be submitted at a time.
+    // Remember that we have to ScanNode in this query, so the total number of scanner tasks can be submitted at a time is 128 * 2 = 256.
     _max_thread_num =
             _state->num_scanner_threads() > 0
                     ? _state->num_scanner_threads()
                     : config::doris_scanner_thread_pool_thread_num / num_parallel_instances;
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
+    // In some situation, there are not too many big tablets involed, so we can reduce the thread number.
     _max_thread_num = std::min(_max_thread_num, (int32_t)scanners.size());
     // 1. Calculate max concurrency
     // For select * from table limit 10; should just use one thread.
@@ -159,6 +171,9 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
         DCHECK(block->mem_reuse());
         _free_blocks_memory_usage -= block->allocated_bytes();
         _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
+        // A free block is reused, so the memory usage should be decreased
+        // The caller of get_free_block will increase the memory usage
+        update_peak_memory_usage(-block->allocated_bytes());
     } else if (_free_blocks_memory_usage < _max_bytes_in_queue || force) {
         _newly_create_free_blocks_num->update(1);
         block = vectorized::Block::create_unique(_output_tuple_desc->slots(), 0,
@@ -167,13 +182,18 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
     return block;
 }
 
-void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
+bool ScannerContext::return_free_block(vectorized::BlockUPtr block) {
     if (block->mem_reuse() && _free_blocks_memory_usage < _max_bytes_in_queue) {
-        _free_blocks_memory_usage += block->allocated_bytes();
+        size_t block_size_to_reuse = block->allocated_bytes();
+        _free_blocks_memory_usage += block_size_to_reuse;
         _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
         block->clear_column_data();
-        _free_blocks.enqueue(std::move(block));
+        if (_free_blocks.enqueue(std::move(block))) {
+            update_peak_memory_usage(block_size_to_reuse);
+            return true;
+        }
     }
+    return false;
 }
 
 bool ScannerContext::empty_in_queue(int id) {

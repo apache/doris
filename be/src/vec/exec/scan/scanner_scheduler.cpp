@@ -271,6 +271,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 if (free_block == nullptr) {
                     break;
                 }
+                // We got a new created block or a reused block.
                 ctx->update_peak_memory_usage(free_block->allocated_bytes());
                 ctx->update_peak_memory_usage(-free_block->allocated_bytes());
                 status = scanner->get_block_after_projects(state, free_block.get(), &eos);
@@ -283,6 +284,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     break;
                 }
                 raw_bytes_read += free_block_bytes;
+
                 if (!scan_task->cached_blocks.empty() &&
                     scan_task->cached_blocks.back().first->rows() + free_block->rows() <=
                             ctx->batch_size()) {
@@ -298,7 +300,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     scan_task->cached_blocks.back().second = mutable_block.allocated_bytes();
                     scan_task->cached_blocks.back().first.get()->set_columns(
                             std::move(mutable_block.mutable_columns()));
+                    // If block can be reused, its memory usage will be added back.
                     ctx->return_free_block(std::move(free_block));
+                    // Return block succeed or not, this free_block is not used by this scan task any more.
                     ctx->update_peak_memory_usage(-free_block_bytes);
                     ctx->inc_free_block_usage(free_block_bytes);
                 } else {
