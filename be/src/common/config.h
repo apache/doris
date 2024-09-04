@@ -1026,10 +1026,6 @@ DECLARE_Bool(enable_debug_points);
 
 DECLARE_Int32(pipeline_executor_size);
 
-// Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
-// Will remove after fully test.
-DECLARE_Bool(enable_index_apply_preds_except_leafnode_of_andnode);
-
 // block file cache
 DECLARE_Bool(enable_file_cache);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
@@ -1410,6 +1406,11 @@ DECLARE_mInt16(topn_agg_limit_multiplier);
 DECLARE_mInt64(tablet_meta_serialize_size_limit);
 
 DECLARE_mInt64(pipeline_task_leakage_detect_period_secs);
+// To be compatible with hadoop's block compression
+DECLARE_mInt32(snappy_compression_block_size);
+DECLARE_mInt32(lz4_compression_block_size);
+
+DECLARE_mBool(enable_pipeline_task_leakage_detect);
 
 #ifdef BE_TEST
 // test s3

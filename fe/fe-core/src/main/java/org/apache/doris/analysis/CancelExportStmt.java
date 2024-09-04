@@ -33,7 +33,7 @@ import lombok.Getter;
  *     CANCEL EXPORT [FROM db]
  *     WHERE [LABEL = "export_label" | LABEL like "label_pattern" | STATE = "PENDING/IN_QUEUE/EXPORTING"]
  **/
-public class CancelExportStmt extends DdlStmt {
+public class CancelExportStmt extends DdlStmt implements NotFallbackInParser {
 
     private static final ImmutableSet<String> SUPPORT_COLUMNS = new ImmutableSet.Builder<String>()
             .add("label")

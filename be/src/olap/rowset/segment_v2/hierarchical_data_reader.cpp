@@ -17,6 +17,8 @@
 
 #include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 
+#include <memory>
+
 #include "common/status.h"
 #include "io/io_common.h"
 #include "olap/rowset/segment_v2/column_reader.h"
@@ -42,7 +44,7 @@ Status HierarchicalDataReader::create(std::unique_ptr<ColumnIterator>* reader,
     vectorized::PathsInData leaves_paths;
     SubcolumnColumnReaders::get_leaves_of_node(node, leaves, leaves_paths);
     for (size_t i = 0; i < leaves_paths.size(); ++i) {
-        if (leaves_paths[i] == root->path) {
+        if (leaves_paths[i].empty()) {
             // use set_root to share instead
             continue;
         }

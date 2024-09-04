@@ -219,6 +219,11 @@ public class PropertyAnalyzer {
     public static final boolean PROPERTIES_ENABLE_MOW_LIGHT_DELETE_DEFAULT_VALUE
             = Config.enable_mow_light_delete;
 
+    public static final String PROPERTIES_AUTO_ANALYZE_POLICY = "auto_analyze_policy";
+    public static final String ENABLE_AUTO_ANALYZE_POLICY = "enable";
+    public static final String DISABLE_AUTO_ANALYZE_POLICY = "disable";
+    public static final String USE_CATALOG_AUTO_ANALYZE_POLICY = "base_on_catalog";
+
     // compaction policy
     public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
     public static final String TIME_SERIES_COMPACTION_POLICY = "time_series";
@@ -1466,14 +1471,15 @@ public class PropertyAnalyzer {
         throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " must be `true` or `false`");
     }
 
-    public static boolean analyzeEnableDeleteOnDeletePredicate(Map<String, String> properties)
+    public static boolean analyzeEnableDeleteOnDeletePredicate(Map<String, String> properties,
+            boolean enableUniqueKeyMergeOnWrite)
             throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
-            return false;
+            return enableUniqueKeyMergeOnWrite ? Config.enable_mow_light_delete : false;
         }
         String value = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
         if (value == null) {
-            return false;
+            return enableUniqueKeyMergeOnWrite ? Config.enable_mow_light_delete : false;
         }
         properties.remove(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
         if (value.equals("true")) {

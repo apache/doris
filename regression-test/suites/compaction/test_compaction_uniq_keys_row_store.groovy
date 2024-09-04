@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 
-suite("test_compaction_uniq_keys_row_store", "nonConcurrent") {
+suite("test_compaction_uniq_keys_row_store", "p0") {
     def realDb = "regression_test_serving_p0"
     def tableName = realDb + ".compaction_uniq_keys_row_store_regression_test"
     sql "CREATE DATABASE IF NOT EXISTS ${realDb}"

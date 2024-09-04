@@ -144,6 +144,7 @@ suite("parse_sql_from_sql_cache") {
                 set "partitions", "p1"
                 inputIterator([[1, 3], [1, 4]].iterator())
             }
+            sql "sync"
 
             // stream load can not use cache
             sql "select * from test_use_plan_cache5"
@@ -722,10 +723,7 @@ suite("parse_sql_from_sql_cache") {
             def result2 = sql "select * from (select $randomInt as id)a"
             assertTrue(result2.size() == 1)
 
-            assertNoCache "select * from test_use_plan_cache20 limit 0"
-            def result3 = sql "select * from test_use_plan_cache20 limit 0"
-            assertTrue(result3.isEmpty())
-
+            sql "select * from test_use_plan_cache20 limit 0"
             assertHasCache "select * from test_use_plan_cache20 limit 0"
             def result4 = sql "select * from test_use_plan_cache20 limit 0"
             assertTrue(result4.isEmpty())
@@ -771,6 +769,21 @@ suite("parse_sql_from_sql_cache") {
             assertNoCache "select * from test_use_plan_cache21"
             def result2 = sql "select * from test_use_plan_cache21"
             assertTrue(result2.size() == 1)
+        }),
+        extraThread("remove_comment", {
+            createTestTable "test_use_plan_cache22"
+
+            // after partition changed 10s, the sql cache can be used
+            sleep(10000)
+
+            sql "set enable_nereids_planner=true"
+            sql "set enable_fallback_to_original_planner=false"
+            sql "set enable_sql_cache=true"
+
+            assertNoCache "select /*+SET_VAR(disable_nereids_rules='')*/ /*comment2*/ * from test_use_plan_cache22 order by 1, 2"
+            sql "select /*+SET_VAR(disable_nereids_rules='')*/ /*comment1*/ * from test_use_plan_cache22 order by 1, 2"
+
+            assertHasCache "select /*+SET_VAR(disable_nereids_rules='')*/ /*comment2*/ * from test_use_plan_cache22 order by 1, 2"
         })
     ).get()
 }

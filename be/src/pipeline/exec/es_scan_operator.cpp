@@ -84,8 +84,9 @@ Status EsScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* sca
                 std::to_string(RuntimeFilterConsumer::_state->batch_size());
         properties[ESScanReader::KEY_HOST_PORT] = get_host_and_port(es_scan_range->es_hosts);
         // push down limit to Elasticsearch
-        // if predicate in _conjunct_ctxs can not be processed by Elasticsearch, we can not push down limit operator to Elasticsearch
-        if (p.limit() != -1 && p.limit() <= RuntimeFilterConsumer::_state->batch_size()) {
+        // if predicate in _conjuncts can not be processed by Elasticsearch, we can not push down limit operator to Elasticsearch
+        if (p.limit() != -1 && p.limit() <= RuntimeFilterConsumer::_state->batch_size() &&
+            p.conjuncts().empty()) {
             properties[ESScanReader::KEY_TERMINATE_AFTER] = std::to_string(p.limit());
         }
 
