@@ -607,11 +607,13 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     .setMaxExpr(intersectRange.getHighExpr())
                     .setNdv(intersectRange.getDistinctValues())
                     .setNumNulls(0);
-            double sel = leftRange.overlapPercentWith(rightRange);
+            double sel = leftRange.getDistinctValues() == 0
+                    ? 1.0
+                    : intersectRange.getDistinctValues() / leftRange.getDistinctValues();
             if (!(dataType instanceof RangeScalable) && (sel != 0.0 && sel != 1.0)) {
                 sel = DEFAULT_INEQUALITY_COEFFICIENT;
-            } else if (sel < RANGE_SELECTIVITY_THRESHOLD) {
-                sel = RANGE_SELECTIVITY_THRESHOLD;
+            } else {
+                sel = Math.max(sel, RANGE_SELECTIVITY_THRESHOLD);
             }
             sel = getNotNullSelectivity(leftStats, sel);
             updatedStatistics = context.statistics.withSel(sel);
