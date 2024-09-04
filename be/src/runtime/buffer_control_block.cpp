@@ -97,7 +97,6 @@ BufferControlBlock::BufferControlBlock(const TUniqueId& id, int buffer_size, int
         : _fragment_id(id),
           _is_close(false),
           _is_cancelled(false),
-          _buffer_rows(0),
           _buffer_limit(buffer_size),
           _packet_num(0),
           _batch_size(batch_size) {
@@ -135,7 +134,6 @@ Status BufferControlBlock::add_batch(RuntimeState* state,
             _instance_rows_in_queue.emplace_back();
             _fe_result_batch_queue.push_back(std::move(result));
         }
-        _buffer_rows += num_rows;
         _instance_rows[state->fragment_instance_id()] += num_rows;
         _instance_rows_in_queue.back()[state->fragment_instance_id()] += num_rows;
     } else {
@@ -162,7 +160,6 @@ Status BufferControlBlock::add_arrow_batch(RuntimeState* state,
     // TODO: merge RocordBatch, ToStructArray -> Make again
 
     _arrow_flight_batch_queue.push_back(std::move(result));
-    _buffer_rows += num_rows;
     _instance_rows_in_queue.emplace_back();
     _instance_rows[state->fragment_instance_id()] += num_rows;
     _instance_rows_in_queue.back()[state->fragment_instance_id()] += num_rows;
@@ -187,7 +184,6 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
         // get result
         std::unique_ptr<TFetchDataResult> result = std::move(_fe_result_batch_queue.front());
         _fe_result_batch_queue.pop_front();
-        _buffer_rows -= result->result_batch.rows.size();
         for (auto it : _instance_rows_in_queue.front()) {
             _instance_rows[it.first] -= it.second;
         }
@@ -228,7 +224,6 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* 
     if (!_arrow_flight_batch_queue.empty()) {
         *result = std::move(_arrow_flight_batch_queue.front());
         _arrow_flight_batch_queue.pop_front();
-        _buffer_rows -= (*result)->num_rows();
         for (auto it : _instance_rows_in_queue.front()) {
             _instance_rows[it.first] -= it.second;
         }
