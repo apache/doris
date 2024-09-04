@@ -192,16 +192,19 @@ Status FSFileCacheStorage::remove(const FileCacheKey& key) {
     std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
     std::string file = get_path_in_local_cache(dir, key.offset, key.meta.type);
     FDCache::instance()->remove_file_reader(std::make_pair(key.hash, key.offset));
-    Status s = fs->delete_file(file);
-    if (!s.ok()) {
-        if (key.meta.type != FileCacheType::TTL) {
-            return s;
-        }
-        // try to remove the file with old ttl format
+    RETURN_IF_ERROR(fs->delete_file(file));
+    // return OK not means the file is deleted, it may be not exist
+    // So for TTL, we make sure the old format will be removed well
+    if (key.meta.type == FileCacheType::TTL) {
+        bool exists {false};
+        // try to detect the file with old ttl format
         file = get_path_in_local_cache_old_ttl_format(dir, key.offset, key.meta.type);
-        VLOG(7) << "try to remove the file with old ttl format"
-                << " file=" << file;
-        RETURN_IF_ERROR(fs->delete_file(file));
+        RETURN_IF_ERROR(fs->exists(file, &exists));
+        if (exists) {
+            VLOG(7) << "try to remove the file with old ttl format"
+                    << " file=" << file;
+            RETURN_IF_ERROR(fs->delete_file(file));
+        }
     }
     std::vector<FileInfo> files;
     bool exists {false};
@@ -472,6 +475,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.
             if (_mgr->_files.contains(args.hash) && _mgr->_files[args.hash].contains(args.offset)) {
+                /*
                 FileBlockSPtr file_block = _mgr->get_blocks_by_key(args.hash)[args.offset];
                 if (file_block->expiration_time() != args.ctx.expiration_time ||
                     file_block->cache_type() != args.ctx.cache_type) [[unlikely]] {
@@ -484,6 +488,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
                                  << " new cache_type="
                                  << BlockFileCache::cache_type_to_string(file_block->cache_type());
                 }
+                 */
                 return;
             }
             // if the file is tmp, it means it is the old file and it should be removed
