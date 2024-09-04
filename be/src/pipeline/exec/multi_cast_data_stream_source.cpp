@@ -29,8 +29,7 @@ MultiCastDataStreamSourceLocalState::MultiCastDataStreamSourceLocalState(Runtime
                                                                          OperatorXBase* parent)
         : Base(state, parent),
           RuntimeFilterConsumer(static_cast<Parent*>(parent)->dest_id_from_sink(),
-                                parent->runtime_filter_descs(),
-                                static_cast<Parent*>(parent)->_row_desc(), _conjuncts) {}
+                                parent->runtime_filter_descs(), parent->row_desc(), _conjuncts) {}
 
 Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));

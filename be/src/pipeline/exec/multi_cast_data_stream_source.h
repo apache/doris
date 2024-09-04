@@ -76,10 +76,11 @@ public:
     MultiCastDataStreamerSourceOperatorX(const int consumer_id, ObjectPool* pool,
                                          const TDataStreamSink& sink,
                                          const RowDescriptor& row_descriptor, int operator_id)
+            // The common constructor is not used here because it requires a tnode, and multi_cast does not have a plan node.
             : Base(pool, -1, operator_id),
               _consumer_id(consumer_id),
               _t_data_stream_sink(sink),
-              _row_descriptor(row_descriptor) {
+              _multi_cast_row_descriptor(row_descriptor) {
         _op_name = "MULTI_CAST_DATA_STREAM_SOURCE_OPERATOR";
     };
     ~MultiCastDataStreamerSourceOperatorX() override = default;
@@ -91,13 +92,13 @@ public:
         if (_t_data_stream_sink.__isset.output_exprs) {
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_data_stream_sink.output_exprs,
                                                                  _output_expr_contexts));
-            RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_expr_contexts, state, _row_desc()));
+            RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_expr_contexts, state, row_desc()));
         }
 
         if (_t_data_stream_sink.__isset.conjuncts) {
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_data_stream_sink.conjuncts,
                                                                  conjuncts()));
-            RETURN_IF_ERROR(vectorized::VExpr::prepare(conjuncts(), state, _row_desc()));
+            RETURN_IF_ERROR(vectorized::VExpr::prepare(conjuncts(), state, row_desc()));
         }
         return Status::OK();
     }
@@ -128,16 +129,9 @@ private:
     const int _consumer_id;
     const TDataStreamSink _t_data_stream_sink;
     vectorized::VExprContextSPtrs _output_expr_contexts;
-    // FIXME: non-static data member '_row_descriptor' of 'MultiCastDataStreamerSourceOperatorX' shadows member inherited from type 'OperatorXBase'
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wshadow-field"
-#endif
-    const RowDescriptor& _row_descriptor;
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
-    const RowDescriptor& _row_desc() { return _row_descriptor; }
+
+    const RowDescriptor& _multi_cast_row_descriptor;
+    const RowDescriptor& row_desc() const override { return _multi_cast_row_descriptor; }
 };
 
 } // namespace pipeline
