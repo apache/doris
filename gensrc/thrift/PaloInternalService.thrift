@@ -326,6 +326,9 @@ struct TQueryOptions {
   128: optional bool enable_verbose_profile = false;
   129: optional i32 rpc_verbose_profile_max_instance_count = 0;
 
+  128: optional bool enable_adaptive_pipeline_task_serial_read_on_limit = true;
+  129: optional i32 adaptive_pipeline_task_serial_read_on_limit = 10000;
+
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }
