@@ -57,7 +57,7 @@ public class Date extends ScalarFunction
     }
 
     /**
-     * constructor with 1 argument.
+     * constructor with 2 argument.
      */
     public Date(Expression arg1, Expression arg2) {
         super("date", arg1, arg2);
