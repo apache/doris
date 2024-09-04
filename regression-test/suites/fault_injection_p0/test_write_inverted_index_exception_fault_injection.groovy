@@ -47,6 +47,10 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         }
     }
 
+    def changed_variables = sql "show variables where Changed = 1"
+    logger.info("changed variables: " + changed_variables.toString())
+    sql "UNSET GLOBAL VARIABLE ALL;"
+
     sql "SET global enable_match_without_inverted_index = false"
     boolean inverted_index_ram_dir_enable = true
     boolean has_update_be_config = false

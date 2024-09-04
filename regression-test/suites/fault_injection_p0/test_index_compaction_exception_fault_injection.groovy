@@ -24,6 +24,9 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
+    def changed_variables = sql "show variables where Changed = 1"
+    logger.info("changed variables: " + changed_variables.toString())
+    sql "UNSET GLOBAL VARIABLE ALL;"
     sql "SET global enable_match_without_inverted_index = false"
 
     boolean disableAutoCompaction = false
