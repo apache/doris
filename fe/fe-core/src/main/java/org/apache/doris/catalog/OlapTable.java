@@ -54,6 +54,8 @@ import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVVersionSnapshot;
+import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -563,6 +565,99 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             visibleMVs.put(mv.getId(), indexIdToMeta.get(mv.getId()));
         }
         return visibleMVs;
+    }
+
+    public Long getBestMvIdWithHint(List<Long> orderedMvs) {
+        Optional<UseMvHint> useMvHint = getUseMvHint("USE_MV");
+        Optional<UseMvHint> noUseMvHint = getUseMvHint("NO_USE_MV");
+        if (useMvHint.isPresent() && noUseMvHint.isPresent()) {
+            if (noUseMvHint.get().getNoUseMVName(this.name).contains(useMvHint.get().getUseMvName(this.name))) {
+                String errorMsg = "conflict mv exist in use_mv and no_use_mv in the same time"
+                        + useMvHint.get().getUseMvName(this.name);
+                useMvHint.get().setStatus(Hint.HintStatus.SYNTAX_ERROR);
+                useMvHint.get().setErrorMessage(errorMsg);
+                noUseMvHint.get().setStatus(Hint.HintStatus.SYNTAX_ERROR);
+                noUseMvHint.get().setErrorMessage(errorMsg);
+            }
+            return getMvIdWithUseMvHint(useMvHint.get(), orderedMvs);
+        } else if (useMvHint.isPresent()) {
+            return getMvIdWithUseMvHint(useMvHint.get(), orderedMvs);
+        } else if (noUseMvHint.isPresent()) {
+            return getMvIdWithNoUseMvHint(noUseMvHint.get(), orderedMvs);
+        }
+        return orderedMvs.get(0);
+    }
+
+    private Long getMvIdWithUseMvHint(UseMvHint useMvHint, List<Long> orderedMvs) {
+        if (useMvHint.isAllMv()) {
+            useMvHint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+            useMvHint.setErrorMessage("use_mv hint should only have one mv in one table: "
+                    + this.name);
+            return orderedMvs.get(0);
+        } else {
+            String mvName = useMvHint.getUseMvName(this.name);
+            if (mvName != null) {
+                if (mvName.equals("`*`")) {
+                    useMvHint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+                    useMvHint.setErrorMessage("use_mv hint should only have one mv in one table: "
+                            + this.name);
+                    return orderedMvs.get(0);
+                }
+                Long choosedIndexId = indexNameToId.get(mvName);
+                if (orderedMvs.contains(choosedIndexId)) {
+                    useMvHint.setStatus(Hint.HintStatus.SUCCESS);
+                    return choosedIndexId;
+                } else {
+                    useMvHint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+                    useMvHint.setErrorMessage("do not have mv: " + mvName + " in table: " + this.name);
+                }
+            }
+        }
+        return orderedMvs.get(0);
+    }
+
+    private Long getMvIdWithNoUseMvHint(UseMvHint noUseMvHint, List<Long> orderedMvs) {
+        if (noUseMvHint.isAllMv()) {
+            noUseMvHint.setStatus(Hint.HintStatus.SUCCESS);
+            return getBaseIndex().getId();
+        } else {
+            List<String> mvNames = noUseMvHint.getNoUseMVName(this.name);
+            Set<Long> forbiddenIndexIds = Sets.newHashSet();
+            for (int i = 0; i < mvNames.size(); i++) {
+                if (mvNames.get(i).equals("`*`")) {
+                    noUseMvHint.setStatus(Hint.HintStatus.SUCCESS);
+                    return getBaseIndex().getId();
+                }
+                if (hasMaterializedIndex(mvNames.get(i))) {
+                    Long forbiddenIndexId = indexNameToId.get(mvNames.get(i));
+                    forbiddenIndexIds.add(forbiddenIndexId);
+                } else {
+                    noUseMvHint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+                    noUseMvHint.setErrorMessage("do not have mv: " + mvNames.get(i) + " in table: " + this.name);
+                    break;
+                }
+            }
+            for (int i = 0; i < orderedMvs.size(); i++) {
+                if (forbiddenIndexIds.contains(orderedMvs.get(i))) {
+                    noUseMvHint.setStatus(Hint.HintStatus.SUCCESS);
+                } else {
+                    return orderedMvs.get(i);
+                }
+            }
+        }
+        return orderedMvs.get(0);
+    }
+
+    private Optional<UseMvHint> getUseMvHint(String useMvName) {
+        for (Hint hint : ConnectContext.get().getStatementContext().getHints()) {
+            if (hint.isSyntaxError()) {
+                continue;
+            }
+            if (hint.getHintName().equalsIgnoreCase(useMvName)) {
+                return Optional.of((UseMvHint) hint);
+            }
+        }
+        return Optional.empty();
     }
 
     public List<MaterializedIndex> getVisibleIndex() {
@@ -3157,5 +3252,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         } else {
             return false;
         }
+    }
+
+    @Override
+    public boolean autoAnalyzeEnabled() {
+        if (tableProperty == null) {
+            return super.autoAnalyzeEnabled();
+        }
+        Map<String, String> properties = tableProperty.getProperties();
+        if (properties == null || !properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)
+                || properties.get(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)
+                    .equalsIgnoreCase(PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY)) {
+            return super.autoAnalyzeEnabled();
+        }
+        return properties.get(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)
+                .equalsIgnoreCase(PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY);
     }
 }

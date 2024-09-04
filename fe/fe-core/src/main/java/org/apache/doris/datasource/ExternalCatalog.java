@@ -33,6 +33,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
@@ -127,6 +128,9 @@ public abstract class ExternalCatalog
     protected Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
     @SerializedName(value = "lastUpdateTime")
     protected long lastUpdateTime;
+    // <db name, table name> to tableAutoAnalyzePolicy
+    @SerializedName(value = "taap")
+    protected Map<Pair<String, String>, String> tableAutoAnalyzePolicy = Maps.newHashMap();
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
@@ -723,6 +727,9 @@ public abstract class ExternalCatalog
         this.propLock = new byte[0];
         this.initialized = false;
         setDefaultPropsIfMissing(true);
+        if (tableAutoAnalyzePolicy == null) {
+            tableAutoAnalyzePolicy = Maps.newHashMap();
+        }
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
@@ -883,5 +890,14 @@ public abstract class ExternalCatalog
 
     public String getQualifiedName(String dbName) {
         return String.join(".", name, dbName);
+    }
+
+    public void setAutoAnalyzePolicy(String dbName, String tableName, String policy) {
+        Pair<String, String> key = Pair.of(dbName, tableName);
+        if (policy == null) {
+            tableAutoAnalyzePolicy.remove(key);
+        } else {
+            tableAutoAnalyzePolicy.put(key, policy);
+        }
     }
 }
