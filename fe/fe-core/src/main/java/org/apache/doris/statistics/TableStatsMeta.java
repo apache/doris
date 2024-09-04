@@ -19,7 +19,6 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
@@ -48,8 +47,23 @@ import java.util.stream.Collectors;
 
 public class TableStatsMeta implements Writable, GsonPostProcessable {
 
+    @SerializedName("ctlId")
+    public final long ctlId;
+
+    @SerializedName("ctln")
+    public final String ctlName;
+
+    @SerializedName("dbId")
+    public final long dbId;
+
+    @SerializedName("dbn")
+    public final String dbName;
+
     @SerializedName("tblId")
     public final long tblId;
+
+    @SerializedName("tbln")
+    public final String tblName;
 
     @SerializedName("idxId")
     public final long idxId;
@@ -89,16 +103,29 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
     @SerializedName("irc")
     public ConcurrentMap<Long, Long> indexesRowCount = new ConcurrentHashMap<>();
 
+    @SerializedName("ircut")
+    public ConcurrentMap<Long, Long> indexesRowCountUpdateTime = new ConcurrentHashMap<>();
+
     @VisibleForTesting
     public TableStatsMeta() {
+        ctlId = 0;
+        ctlName = null;
+        dbId = 0;
+        dbName = null;
         tblId = 0;
+        tblName = null;
         idxId = 0;
     }
 
     // It's necessary to store these fields separately from AnalysisInfo, since the lifecycle between AnalysisInfo
     // and TableStats is quite different.
     public TableStatsMeta(long rowCount, AnalysisInfo analyzedJob, TableIf table) {
+        this.ctlId = table.getDatabase().getCatalog().getId();
+        this.ctlName = table.getDatabase().getCatalog().getName();
+        this.dbId = table.getDatabase().getId();
+        this.dbName = table.getDatabase().getFullName();
         this.tblId = table.getId();
+        this.tblName = table.getName();
         this.idxId = -1;
         this.rowCount = rowCount;
         update(analyzedJob, table);
@@ -129,6 +156,10 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
 
     public void removeColumn(String indexName, String colName) {
         colToColStatsMeta.remove(Pair.of(indexName, colName));
+    }
+
+    public void removeAllColumn() {
+        colToColStatsMeta.clear();
     }
 
     public Set<Pair<String, String>> analyzeColumns() {
@@ -163,7 +194,8 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
         if (tableIf != null) {
             if (tableIf instanceof OlapTable) {
                 indexesRowCount.putAll(analyzedJob.indexesRowCount);
-                clearStaleIndexRowCount((OlapTable) tableIf);
+                indexesRowCountUpdateTime.putAll(analyzedJob.indexesRowCountUpdateTime);
+                clearStaleIndexRowCountAndTime((OlapTable) tableIf);
             }
             rowCount = analyzedJob.rowCount;
             if (rowCount == 0 && AnalysisMethod.SAMPLE.equals(analyzedJob.analysisMethod)) {
@@ -176,13 +208,6 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
                             .map(Column::getName).collect(Collectors.toSet())))) {
                 partitionChanged.set(false);
                 userInjected = false;
-            } else if (tableIf instanceof OlapTable) {
-                PartitionInfo partitionInfo = ((OlapTable) tableIf).getPartitionInfo();
-                if (partitionInfo != null && analyzedJob.jobColumns
-                        .containsAll(tableIf.getColumnIndexPairs(partitionInfo.getPartitionColumns().stream()
-                            .map(Column::getName).collect(Collectors.toSet())))) {
-                    partitionChanged.set(false);
-                }
             }
         }
     }
@@ -199,15 +224,32 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
         if (indexesRowCount == null) {
             indexesRowCount = new ConcurrentHashMap<>();
         }
+        if (colToColStatsMeta == null) {
+            colToColStatsMeta = new ConcurrentHashMap<>();
+        }
+        if (indexesRowCountUpdateTime == null) {
+            indexesRowCountUpdateTime = new ConcurrentHashMap<>();
+        }
     }
 
     public long getRowCount(long indexId) {
         return indexesRowCount.getOrDefault(indexId, -1L);
     }
 
-    private void clearStaleIndexRowCount(OlapTable table) {
+    public long getRowCountUpdateTime(long indexId) {
+        return indexesRowCountUpdateTime.getOrDefault(indexId, 0L);
+    }
+
+    private void clearStaleIndexRowCountAndTime(OlapTable table) {
         Iterator<Long> iterator = indexesRowCount.keySet().iterator();
         List<Long> indexIds = table.getIndexIds();
+        while (iterator.hasNext()) {
+            long key = iterator.next();
+            if (indexIds.contains(key)) {
+                iterator.remove();
+            }
+        }
+        iterator = indexesRowCountUpdateTime.keySet().iterator();
         while (iterator.hasNext()) {
             long key = iterator.next();
             if (indexIds.contains(key)) {

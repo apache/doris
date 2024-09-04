@@ -369,14 +369,6 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
-        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
-            try {
-                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            } catch (Exception e) {
-                throw new AnalysisException("failed to set fallback to original planner to true", e);
-            }
-            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
-        }
         return completeQueryPlan(ctx, logicalQuery);
     }
 
@@ -400,25 +392,39 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         List<String> cols = Lists.newArrayList();
         boolean isMow = targetTable.getEnableUniqueKeyMergeOnWrite();
         String tableName = tableAlias != null ? tableAlias : targetTable.getName();
+        boolean hasClusterKey = targetTable.getBaseSchema().stream().anyMatch(Column::isClusterKey);
+        boolean hasSyncMaterializedView = false;
+        // currently cluster key doesn't support partial update, so we can't convert
+        // a delete stmt to partial update load if the table has cluster key
         for (Column column : targetTable.getFullSchema()) {
+            if (column.isMaterializedViewColumn()) {
+                hasSyncMaterializedView = true;
+                break;
+            }
+        }
+        for (Column column : targetTable.getBaseSchema(true)) {
+            NamedExpression expr;
             if (column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
-                selectLists.add(new UnboundAlias(new TinyIntLiteral(((byte) 1)), Column.DELETE_SIGN));
+                expr = new UnboundAlias(new TinyIntLiteral(((byte) 1)), Column.DELETE_SIGN);
             } else if (column.getName().equalsIgnoreCase(Column.SEQUENCE_COL)
                     && targetTable.getSequenceMapCol() != null) {
-                selectLists.add(new UnboundSlot(tableName, targetTable.getSequenceMapCol()));
+                expr = new UnboundSlot(tableName, targetTable.getSequenceMapCol());
             } else if (column.isKey()) {
-                selectLists.add(new UnboundSlot(tableName, column.getName()));
+                expr = new UnboundSlot(tableName, column.getName());
             } else if (!isMow && (!column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue()))) {
-                selectLists.add(new UnboundSlot(tableName, column.getName()));
+                expr = new UnboundSlot(tableName, column.getName());
+            } else if (hasClusterKey || hasSyncMaterializedView) {
+                expr = new UnboundSlot(tableName, column.getName());
             } else {
-                selectLists.add(new UnboundSlot(tableName, column.getName()));
+                continue;
             }
+            selectLists.add(expr);
             cols.add(column.getName());
         }
 
         logicalQuery = new LogicalProject<>(selectLists, logicalQuery);
 
-        boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
+        boolean isPartialUpdate = isMow && !hasClusterKey && !hasSyncMaterializedView
                 && cols.size() < targetTable.getColumns().size();
         logicalQuery = handleCte(logicalQuery);
         // make UnboundTableSink

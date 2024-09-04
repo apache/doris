@@ -301,12 +301,6 @@ Status StorageEngine::start_bg_threads() {
             [this]() { this->_tablet_path_check_callback(); }, &_tablet_path_check_thread));
     LOG(INFO) << "tablet path check thread started";
 
-    // cache clean thread
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "cache_clean_thread", [this]() { this->_cache_clean_callback(); },
-            &_cache_clean_thread));
-    LOG(INFO) << "cache clean thread started";
-
     // path scan and gc thread
     if (config::path_gc_check) {
         for (auto data_dir : get_stores()) {
@@ -357,42 +351,6 @@ Status StorageEngine::start_bg_threads() {
 
     LOG(INFO) << "all storage engine's background threads are started.";
     return Status::OK();
-}
-
-void StorageEngine::_cache_clean_callback() {
-    int32_t interval = config::cache_periodic_prune_stale_sweep_sec;
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
-        if (interval <= 0) {
-            LOG(WARNING) << "config of cache clean interval is illegal: [" << interval
-                         << "], force set to 3600 ";
-            interval = 3600;
-        }
-        if (config::disable_memory_gc) {
-            continue;
-        }
-
-        CacheManager::instance()->for_each_cache_prune_stale();
-
-        // Dynamically modify the config to clear the cache, each time the disable cache will only be cleared once.
-        if (config::disable_segment_cache) {
-            if (!_clear_segment_cache) {
-                CacheManager::instance()->clear_once(CachePolicy::CacheType::SEGMENT_CACHE);
-                _clear_segment_cache = true;
-            }
-        } else {
-            _clear_segment_cache = false;
-        }
-        if (config::disable_storage_page_cache) {
-            if (!_clear_page_cache) {
-                CacheManager::instance()->clear_once(CachePolicy::CacheType::DATA_PAGE_CACHE);
-                CacheManager::instance()->clear_once(CachePolicy::CacheType::INDEXPAGE_CACHE);
-                CacheManager::instance()->clear_once(CachePolicy::CacheType::PK_INDEX_PAGE_CACHE);
-                _clear_page_cache = true;
-            }
-        } else {
-            _clear_page_cache = false;
-        }
-    }
 }
 
 void StorageEngine::_garbage_sweeper_thread_callback() {

@@ -26,7 +26,14 @@
 #if defined(USE_JEMALLOC)
 #include <jemalloc/jemalloc.h>
 #endif // defined(USE_JEMALLOC)
+
+#ifdef __APPLE__
+#include <malloc/malloc.h>
+#define GET_MALLOC_SIZE(ptr) malloc_size(ptr)
+#else
 #include <malloc.h>
+#define GET_MALLOC_SIZE(ptr) malloc_usable_size(ptr)
+#endif
 #include <stdint.h>
 #include <string.h>
 
@@ -64,6 +71,14 @@
 #define MAP_ANONYMOUS MAP_ANON
 #endif
 
+#ifndef __THROW
+#if __cplusplus
+#define __THROW noexcept
+#else
+#define __THROW
+#endif
+#endif
+
 static constexpr size_t MMAP_MIN_ALIGNMENT = 4096;
 static constexpr size_t MALLOC_MIN_ALIGNMENT = 8;
 
@@ -71,6 +86,10 @@ static constexpr size_t MALLOC_MIN_ALIGNMENT = 8;
 // By the way, in 64-bit system, the address of a block returned by malloc or realloc in GNU systems
 // is always a multiple of sixteen. (https://www.gnu.org/software/libc/manual/html_node/Aligned-Memory-Blocks.html)
 static constexpr int ALLOCATOR_ALIGNMENT_16 = 16;
+
+namespace doris {
+class MemTrackerLimiter;
+}
 
 class DefaultMemoryAllocator {
 public:
@@ -106,7 +125,7 @@ public:
 
     static constexpr bool need_record_actual_size() { return true; }
 
-    static size_t allocated_size(void* ptr) { return malloc_usable_size(ptr); }
+    static size_t allocated_size(void* ptr) { return GET_MALLOC_SIZE(ptr); }
 
     static int posix_memalign(void** ptr, size_t alignment, size_t size) __THROW {
         return ::posix_memalign(ptr, alignment, size);
@@ -213,7 +232,7 @@ public:
     // alloc will continue to execute, so the consume memtracker is forced.
     void memory_check(size_t size) const;
     // Increases consumption of this tracker by 'bytes'.
-    void consume_memory(size_t size) const;
+    void consume_memory(size_t size);
     void release_memory(size_t size) const;
     void throw_bad_alloc(const std::string& err) const;
 #ifndef NDEBUG
@@ -384,6 +403,8 @@ protected:
     static constexpr size_t get_stack_threshold() { return 0; }
 
     static constexpr bool clear_memory = clear_memory_;
+
+    std::shared_ptr<doris::MemTrackerLimiter> mem_tracker_ {nullptr};
 
     // Freshly mmapped pages are copy-on-write references to a global zero page.
     // On the first write, a page fault occurs, and an actual writable page is

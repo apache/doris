@@ -35,10 +35,8 @@ import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.AcidInfo;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hive.source.HiveSplit;
-import org.apache.doris.datasource.iceberg.source.IcebergSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
@@ -268,7 +266,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         boolean isWal = fileFormatType == TFileFormatType.FORMAT_WAL;
         if (isCsvOrJson || isWal) {
             params.setFileAttributes(getFileAttributes());
-            if (getLocationType() == TFileType.FILE_STREAM) {
+            if (isFileStreamType()) {
                 params.setFileType(TFileType.FILE_STREAM);
                 FunctionGenTable table = (FunctionGenTable) this.desc.getTable();
                 ExternalFileTableValuedFunction tableValuedFunction = (ExternalFileTableValuedFunction) table.getTvf();
@@ -309,19 +307,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
             }
-            if (splitAssignment.getSampleSplit() == null && !(getLocationType() == TFileType.FILE_STREAM)) {
+            if (splitAssignment.getSampleSplit() == null && !isFileStreamType()) {
                 return;
             }
             selectedSplitNum = numApproximateSplits();
 
-            TFileType locationType;
             FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
-            if (fileSplit instanceof IcebergSplit
-                    && ((IcebergSplit) fileSplit).getConfig().containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
-                locationType = TFileType.FILE_BROKER;
-            } else {
-                locationType = getLocationType(fileSplit.getPath().toString());
-            }
+            TFileType locationType = fileSplit.getLocationType();
             totalFileSize = fileSplit.getLength() * selectedSplitNum;
             long maxWaitTime = ConnectContext.get().getSessionVariable().getFetchSplitsMaxWaitTime();
             // Not accurate, only used to estimate concurrency.
@@ -351,7 +343,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
             }
             selectedSplitNum = inputSplits.size();
-            if (inputSplits.isEmpty() && !(getLocationType() == TFileType.FILE_STREAM)) {
+            if (inputSplits.isEmpty() && !isFileStreamType()) {
                 return;
             }
             Multimap<Backend, Split> assignment =  backendPolicy.computeScanRangeAssignment(inputSplits);
@@ -379,14 +371,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
             Split split,
             List<String> pathPartitionKeys) throws UserException {
         FileSplit fileSplit = (FileSplit) split;
-        TFileType locationType;
-        if (fileSplit instanceof IcebergSplit
-                && ((IcebergSplit) fileSplit).getConfig().containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
-            locationType = TFileType.FILE_BROKER;
-        } else {
-            locationType = getLocationType(fileSplit.getPath().toString());
-        }
-
         TScanRangeLocations curLocations = newLocations();
         // If fileSplit has partition values, use the values collected from hive partitions.
         // Otherwise, use the values in file path.
@@ -396,37 +380,42 @@ public abstract class FileQueryScanNode extends FileScanNode {
             isACID = hiveSplit.isACID();
         }
         List<String> partitionValuesFromPath = fileSplit.getPartitionValues() == null
-                ? BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(), pathPartitionKeys,
+                ? BrokerUtil.parseColumnsFromPath(fileSplit.getPathString(), pathPartitionKeys,
                 false, isACID) : fileSplit.getPartitionValues();
 
-        TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys,
-                locationType);
+        TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
         TFileCompressType fileCompressType = getFileCompressType(fileSplit);
         rangeDesc.setCompressType(fileCompressType);
-        if (isACID) {
-            HiveSplit hiveSplit = (HiveSplit) fileSplit;
-            hiveSplit.setTableFormatType(TableFormatType.TRANSACTIONAL_HIVE);
-            TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
-            tableFormatFileDesc.setTableFormatType(hiveSplit.getTableFormatType().value());
-            AcidInfo acidInfo = (AcidInfo) hiveSplit.getInfo();
-            TTransactionalHiveDesc transactionalHiveDesc = new TTransactionalHiveDesc();
-            transactionalHiveDesc.setPartition(acidInfo.getPartitionLocation());
-            List<TTransactionalHiveDeleteDeltaDesc> deleteDeltaDescs = new ArrayList<>();
-            for (DeleteDeltaInfo deleteDeltaInfo : acidInfo.getDeleteDeltas()) {
-                TTransactionalHiveDeleteDeltaDesc deleteDeltaDesc = new TTransactionalHiveDeleteDeltaDesc();
-                deleteDeltaDesc.setDirectoryLocation(deleteDeltaInfo.getDirectoryLocation());
-                deleteDeltaDesc.setFileNames(deleteDeltaInfo.getFileNames());
-                deleteDeltaDescs.add(deleteDeltaDesc);
+        if (fileSplit instanceof  HiveSplit) {
+            if (isACID) {
+                HiveSplit hiveSplit = (HiveSplit) fileSplit;
+                hiveSplit.setTableFormatType(TableFormatType.TRANSACTIONAL_HIVE);
+                TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
+                tableFormatFileDesc.setTableFormatType(hiveSplit.getTableFormatType().value());
+                AcidInfo acidInfo = (AcidInfo) hiveSplit.getInfo();
+                TTransactionalHiveDesc transactionalHiveDesc = new TTransactionalHiveDesc();
+                transactionalHiveDesc.setPartition(acidInfo.getPartitionLocation());
+                List<TTransactionalHiveDeleteDeltaDesc> deleteDeltaDescs = new ArrayList<>();
+                for (DeleteDeltaInfo deleteDeltaInfo : acidInfo.getDeleteDeltas()) {
+                    TTransactionalHiveDeleteDeltaDesc deleteDeltaDesc = new TTransactionalHiveDeleteDeltaDesc();
+                    deleteDeltaDesc.setDirectoryLocation(deleteDeltaInfo.getDirectoryLocation());
+                    deleteDeltaDesc.setFileNames(deleteDeltaInfo.getFileNames());
+                    deleteDeltaDescs.add(deleteDeltaDesc);
+                }
+                transactionalHiveDesc.setDeleteDeltas(deleteDeltaDescs);
+                tableFormatFileDesc.setTransactionalHiveParams(transactionalHiveDesc);
+                rangeDesc.setTableFormatParams(tableFormatFileDesc);
+            } else {
+                TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
+                tableFormatFileDesc.setTableFormatType(TableFormatType.HIVE.value());
+                rangeDesc.setTableFormatParams(tableFormatFileDesc);
             }
-            transactionalHiveDesc.setDeleteDeltas(deleteDeltaDescs);
-            tableFormatFileDesc.setTransactionalHiveParams(transactionalHiveDesc);
-            rangeDesc.setTableFormatParams(tableFormatFileDesc);
         }
 
         setScanParams(rangeDesc, fileSplit);
         curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
         TScanRangeLocation location = new TScanRangeLocation();
-        setLocationPropertiesIfNecessary(backend, locationType, locationProperties);
+        setLocationPropertiesIfNecessary(backend, fileSplit.getLocationType(), locationProperties);
         location.setBackendId(backend.getId());
         location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
         curLocations.addToLocations(location);
@@ -489,8 +478,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     private TFileRangeDesc createFileRangeDesc(FileSplit fileSplit, List<String> columnsFromPath,
-                                               List<String> columnsFromPathKeys, TFileType locationType)
-            throws UserException {
+                                               List<String> columnsFromPathKeys) {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
         rangeDesc.setStartOffset(fileSplit.getStart());
         rangeDesc.setSize(fileSplit.getLength());
@@ -500,10 +488,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         rangeDesc.setColumnsFromPath(columnsFromPath);
         rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
 
-        rangeDesc.setFileType(locationType);
-        rangeDesc.setPath(fileSplit.getPath().toString());
-        if (locationType == TFileType.FILE_HDFS) {
-            URI fileUri = fileSplit.getPath().toUri();
+        rangeDesc.setFileType(fileSplit.getLocationType());
+        rangeDesc.setPath(fileSplit.getPath().toStorageLocation().toString());
+        if (fileSplit.getLocationType() == TFileType.FILE_HDFS) {
+            URI fileUri = fileSplit.getPath().getPath().toUri();
             rangeDesc.setFsName(fileUri.getScheme() + "://" + fileUri.getAuthority());
         }
         rangeDesc.setModificationTime(fileSplit.getModificationTime());
@@ -550,14 +538,16 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return scanRangeLocations.size();
     }
 
-    protected abstract TFileType getLocationType() throws UserException;
-
-    protected abstract TFileType getLocationType(String location) throws UserException;
+    // Return true if this is a TFileType.FILE_STREAM type.
+    // Currently, only TVFScanNode may be TFileType.FILE_STREAM type.
+    protected boolean isFileStreamType() throws UserException {
+        return false;
+    }
 
     protected abstract TFileFormatType getFileFormatType() throws UserException;
 
     protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
-        return Util.inferFileCompressTypeByPath(fileSplit.getPath().toString());
+        return Util.inferFileCompressTypeByPath(fileSplit.getPathString());
     }
 
     protected TFileAttributes getFileAttributes() throws UserException {

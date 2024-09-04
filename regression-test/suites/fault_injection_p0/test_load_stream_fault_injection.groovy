@@ -143,30 +143,53 @@ suite("load_stream_fault_injection", "nonConcurrent") {
     load_with_injection("LocalFileSystem.create_file_impl.open_file_failed", "")
     // LoadStreamWriter append_data meet null file writer error
     load_with_injection("LoadStreamWriter.append_data.null_file_writer", "")
-    // LoadStreamWriter close_writer meet not inited error
-    load_with_injection("LoadStreamWriter.close_writer.uninited_writer", "")
+    load_with_injection("LoadStreamWriter.append_data.create_file_writer_failed", "")
+    load_with_injection("LoadStreamWriter.append_data.wrong_offset", "")
     // LoadStreamWriter close_writer meet not bad segid error
     load_with_injection("LoadStreamWriter.close_writer.bad_segid", "")
     // LoadStreamWriter close_writer meet null file writer error
     load_with_injection("LoadStreamWriter.close_writer.null_file_writer", "")
     // LoadStreamWriter close_writer meet file writer failed to close error
     load_with_injection("LocalFileWriter.close.failed", "")
+    load_with_injection("LoadStreamWriter.close.cancelled", "")
+    load_with_injection("LoadStreamWriter.close.inverted_writers_size_not_match", "")
+    load_with_injection("LoadStreamWriter.close.file_not_closed", "")
+    load_with_injection("LoadStreamWriter.close.inverted_file_not_closed", "")
     // LoadStreamWriter close_writer meet bytes_appended and real file size not match error
     load_with_injection("FileWriter.close_writer.zero_bytes_appended", "")
-    // LoadStreamWriter add_segment meet not inited error
-    load_with_injection("LoadStreamWriter.add_segment.uninited_writer", "")
+    // LoadStreamWriter close_writer/add_segment meet not inited error
+    load_with_injection("TabletStream.init.uninited_writer", "")
+    // LoadStreamWriter init failure
+    load_with_injection("LoadStreamWriter.init.failure", "")
     // LoadStreamWriter add_segment meet not bad segid error
     load_with_injection("LoadStreamWriter.add_segment.bad_segid", "")
+    load_with_injection("LoadStreamWriter.add_segment.size_not_match", "")
+    load_with_injection("LoadStreamWriter._calc_file_size.unknown_segment", "")
     // LoadStreamWriter add_segment meet null file writer error
-    load_with_injection("LoadStreamWriter.calc_file_size.null_file_writer", "")
+    load_with_injection("LoadStreamWriter._calc_file_size.null_file_writer", "")
+    load_with_injection("LoadStreamWriter._calc_file_size.file_not_closed", "")
     // LoadStreamWriter add_segment meet bytes_appended and real file size not match error
     load_with_injection("FileWriter.add_segment.zero_bytes_appended", "")
     // LoadStream init failed coz LoadStreamWriter init failed
     load_with_injection("RowsetBuilder.check_tablet_version_count.too_many_version", "")
     // LoadStream add_segment meet unknown segid in request header
     load_with_injection("TabletStream.add_segment.unknown_segid", "")
+    // LoadStream add_segment meet unknown segid in request header
+    load_with_injection("TabletStream.add_segment.segid_never_written", "")
+    // LoadStream add_segment meet LoadStreamWriter add segment failure
+    load_with_injection("TabletStream.add_segment.add_segment_failed", "")
+    // LoadStream add_segment meet submit function failure
+    load_with_injection("TabletStream.add_segment.submit_func_failed", "")
+    // LoadStream append_data meet unknown file type
+    load_with_injection("TabletStream.append_data.unknown_file_type", "")
+    // LoadStream append_data meet LoadStremWriter append or close failed
+    load_with_injection("TabletStream.append_data.append_failed", "")
+    // LoadStream append_data meet submit function failure
+    load_with_injection("TabletStream.append_data.submit_func_failed", "")
     // LoadStream append_data meet unknown index id in request header
     load_with_injection("TabletStream._append_data.unknown_indexid", "")
+    // LoadStream close meet segment num mismatch
+    load_with_injection("TabletStream.close.segment_num_mismatch", "")
     // LoadStream dispatch meet unknown load id
     load_with_injection("LoadStream._dispatch.unknown_loadid", "")
     // LoadStream dispatch meet unknown src id

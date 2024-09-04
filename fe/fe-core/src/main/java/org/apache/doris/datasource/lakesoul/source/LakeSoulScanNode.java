@@ -17,28 +17,26 @@
 
 package org.apache.doris.datasource.lakesoul.source;
 
-
-
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
 import org.apache.doris.datasource.lakesoul.LakeSoulUtils;
+import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
-import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLakeSoulFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
 import com.dmetasoul.lakesoul.lakesoul.io.substrait.SubstraitUtil;
 import com.dmetasoul.lakesoul.meta.DBUtil;
 import com.dmetasoul.lakesoul.meta.DataFileInfo;
@@ -46,15 +44,13 @@ import com.dmetasoul.lakesoul.meta.DataOperation;
 import com.dmetasoul.lakesoul.meta.LakeSoulOptions;
 import com.dmetasoul.lakesoul.meta.entity.PartitionInfo;
 import com.dmetasoul.lakesoul.meta.entity.TableInfo;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Lists;
-import com.lakesoul.shaded.com.alibaba.fastjson.JSON;
-import com.lakesoul.shaded.com.alibaba.fastjson.JSONObject;
-import com.lakesoul.shaded.com.fasterxml.jackson.core.type.TypeReference;
-import com.lakesoul.shaded.com.fasterxml.jackson.databind.ObjectMapper;
-import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Field;
-import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Schema;
 import io.substrait.proto.Plan;
 import lombok.SneakyThrows;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -63,12 +59,12 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class LakeSoulScanNode extends FileQueryScanNode {
 
     private static final Logger LOG = LogManager.getLogger(LakeSoulScanNode.class);
+
     protected LakeSoulExternalTable lakeSoulExternalTable;
 
     String tableName;
@@ -112,17 +108,6 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         } catch (IOException e) {
             throw new UserException(e);
         }
-    }
-
-    @Override
-    protected TFileType getLocationType() throws UserException {
-        return getLocationType(location);
-    }
-
-    @Override
-    protected TFileType getLocationType(String location) throws UserException {
-        return Optional.ofNullable(LocationPath.getTFileTypeForBE(location)).orElseThrow(() ->
-                new DdlException("Unknown file location " + location + " for lakesoul table "));
     }
 
     @Override
@@ -170,7 +155,7 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         }
     }
 
-    public void setLakeSoulParams(TFileRangeDesc rangeDesc, LakeSoulSplit lakeSoulSplit) throws IOException {
+    private void setLakeSoulParams(TFileRangeDesc rangeDesc, LakeSoulSplit lakeSoulSplit) throws IOException {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(lakeSoulSplit.getTableFormatType().value());
         TLakeSoulFileDesc fileDesc = new TLakeSoulFileDesc();
@@ -197,7 +182,13 @@ public class LakeSoulScanNode extends FileQueryScanNode {
 
         if (catalogProps.get(S3Properties.Env.ENDPOINT) != null) {
             options.put(LakeSoulUtils.FS_S3A_ENDPOINT, catalogProps.get(S3Properties.Env.ENDPOINT));
-            options.put(LakeSoulUtils.FS_S3A_PATH_STYLE_ACCESS, "true");
+            if (!options.containsKey(OssProperties.ENDPOINT)) {
+                // Aliyun OSS requires virtual host style access
+                options.put(LakeSoulUtils.FS_S3A_PATH_STYLE_ACCESS, "false");
+            } else {
+                // use path style access for all other s3 compatible storage services
+                options.put(LakeSoulUtils.FS_S3A_PATH_STYLE_ACCESS, "true");
+            }
             if (catalogProps.get(S3Properties.Env.ACCESS_KEY) != null) {
                 options.put(LakeSoulUtils.FS_S3A_ACCESS_KEY, catalogProps.get(S3Properties.Env.ACCESS_KEY));
             }
@@ -289,8 +280,6 @@ public class LakeSoulScanNode extends FileQueryScanNode {
             }
         }
         return splits;
-
     }
-
 }
 

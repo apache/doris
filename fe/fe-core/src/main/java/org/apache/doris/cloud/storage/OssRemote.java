@@ -155,7 +155,7 @@ public class OssRemote extends DefaultRemote {
             }
             return new ListObjectsResult(objectFiles, result.isTruncated(), result.getNextContinuationToken());
         } catch (OSSException e) {
-            LOG.warn("Failed to list objects for OSS", e);
+            LOG.warn("Failed to list objects for OSS prefix {}", prefix, e);
             throw new DdlException("Failed to list objects for OSS, Error code=" + e.getErrorCode() + ", Error message="
                     + e.getErrorMessage());
         }

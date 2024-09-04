@@ -415,7 +415,11 @@ int GcsAccessor::delete_prefix_impl(const std::string& path_prefix, int64_t expi
 
 int GcsAccessor::delete_files(const std::vector<std::string>& paths) {
     std::vector<int> delete_rets(paths.size());
+#ifdef USE_LIBCPP
+    std::transform(paths.begin(), paths.end(), delete_rets.begin(),
+#else
     std::transform(std::execution::par, paths.begin(), paths.end(), delete_rets.begin(),
+#endif
                    [this](const std::string& path) {
                        LOG_INFO("delete file").tag("uri", to_uri(path));
                        return delete_file(path);

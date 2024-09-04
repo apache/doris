@@ -253,16 +253,15 @@ public class PublishVersionDaemon extends MasterDaemon {
     // Merge task tablets update rows to tableToTabletsDelta.
     private void calculateTaskUpdateRows(Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows, PublishVersionTask task) {
         if (CollectionUtils.isEmpty(task.getErrorTablets())) {
+            LOG.debug("Task backend id {}, update rows info : [{}]",
+                    task.getBackendId(), task.getTableIdToTabletDeltaRows());
             for (Entry<Long, Map<Long, Long>> tableEntry : task.getTableIdToTabletDeltaRows().entrySet()) {
-                if (tableIdToTabletDeltaRows.containsKey(tableEntry.getKey())) {
-                    Map<Long, Long> tabletsDelta = tableIdToTabletDeltaRows.get(tableEntry.getKey());
-                    for (Entry<Long, Long> tabletEntry : tableEntry.getValue().entrySet()) {
-                        tabletsDelta.computeIfPresent(tabletEntry.getKey(),
-                                (tabletId, origRows) -> origRows + tabletEntry.getValue());
-                        tabletsDelta.putIfAbsent(tabletEntry.getKey(), tabletEntry.getValue());
-                    }
-                } else {
-                    tableIdToTabletDeltaRows.put(tableEntry.getKey(), tableEntry.getValue());
+                tableIdToTabletDeltaRows.putIfAbsent(tableEntry.getKey(), Maps.newHashMap());
+                Map<Long, Long> tabletsDelta = tableIdToTabletDeltaRows.get(tableEntry.getKey());
+                for (Entry<Long, Long> tabletEntry : tableEntry.getValue().entrySet()) {
+                    tabletsDelta.computeIfPresent(tabletEntry.getKey(),
+                            (tabletId, origRows) -> origRows + tabletEntry.getValue());
+                    tabletsDelta.putIfAbsent(tabletEntry.getKey(), tabletEntry.getValue());
                 }
             }
         }

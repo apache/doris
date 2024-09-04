@@ -62,7 +62,7 @@ TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id,
           _txn_id(txn_id),
           _load_stream_mgr(load_stream_mgr) {
     load_stream_mgr->create_tokens(_flush_tokens);
-    _failed_st = std::make_shared<Status>();
+    _status = Status::OK();
     _profile = profile->create_child(fmt::format("TabletStream {}", id), true, true);
     _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
     _add_segment_timer = ADD_TIMER(_profile, "AddSegmentTime");
@@ -71,7 +71,7 @@ TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id,
 
 inline std::ostream& operator<<(std::ostream& ostr, const TabletStream& tablet_stream) {
     ostr << "load_id=" << tablet_stream._load_id << ", txn_id=" << tablet_stream._txn_id
-         << ", tablet_id=" << tablet_stream._id << ", status=" << *tablet_stream._failed_st;
+         << ", tablet_id=" << tablet_stream._id << ", status=" << tablet_stream._status;
     return ostr;
 }
 
@@ -89,17 +89,20 @@ Status TabletStream::init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t 
     };
 
     _load_stream_writer = std::make_shared<LoadStreamWriter>(&req, _profile);
-    auto st = _load_stream_writer->init();
-    if (!st.ok()) {
-        _failed_st = std::make_shared<Status>(st);
+    DBUG_EXECUTE_IF("TabletStream.init.uninited_writer", {
+        _status = Status::Uninitialized("fault injection");
+        return _status;
+    });
+    _status = _load_stream_writer->init();
+    if (!_status.ok()) {
         LOG(INFO) << "failed to init rowset builder due to " << *this;
     }
-    return st;
+    return _status;
 }
 
 Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data) {
-    if (!_failed_st->ok()) {
-        return *_failed_st;
+    if (!_status.ok()) {
+        return _status;
     }
 
     // dispatch add_segment request
@@ -142,11 +145,13 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     uint32_t new_segid = mapping->at(segid);
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
     butil::IOBuf buf = data->movable();
-    auto flush_func = [this, new_segid, eos, buf, header, file_type]() {
+    auto flush_func = [this, new_segid, eos, buf, header, file_type]() mutable {
         signal::set_signal_task_id(_load_id);
         g_load_stream_flush_running_threads << -1;
         auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf, file_type);
         if (eos && st.ok()) {
+            DBUG_EXECUTE_IF("TabletStream.append_data.unknown_file_type",
+                            { file_type = static_cast<FileType>(-1); });
             if (file_type == FileType::SEGMENT_FILE || file_type == FileType::INVERTED_INDEX_FILE) {
                 st = _load_stream_writer->close_writer(new_segid, file_type);
             } else {
@@ -156,9 +161,11 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
                         file_type, new_segid);
             }
         }
-        if (!st.ok() && _failed_st->ok()) {
-            _failed_st = std::make_shared<Status>(st);
-            LOG(INFO) << "write data failed " << *this;
+        DBUG_EXECUTE_IF("TabletStream.append_data.append_failed",
+                        { st = Status::InternalError("fault injection"); });
+        if (!st.ok() && _status.ok()) {
+            _status = st;
+            LOG(WARNING) << "write data failed " << st << ", " << *this;
         }
     };
     auto& flush_token = _flush_tokens[new_segid % _flush_tokens.size()];
@@ -173,10 +180,11 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     timer.start();
     while (flush_token->num_tasks() >= load_stream_flush_token_max_tasks) {
         if (timer.elapsed_time() / 1000 / 1000 >= load_stream_max_wait_flush_token_time_ms) {
-            return Status::Error<true>(
+            _status = Status::Error<true>(
                     "wait flush token back pressure time is more than "
                     "load_stream_max_wait_flush_token_time {}",
                     load_stream_max_wait_flush_token_time_ms);
+            return _status;
         }
         bthread_usleep(2 * 1000); // 2ms
     }
@@ -184,10 +192,23 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     int64_t time_ms = timer.elapsed_time() / 1000 / 1000;
     g_load_stream_flush_wait_ms << time_ms;
     g_load_stream_flush_running_threads << 1;
-    return flush_token->submit_func(flush_func);
+    Status st = Status::OK();
+    DBUG_EXECUTE_IF("TabletStream.append_data.submit_func_failed",
+                    { st = Status::InternalError("fault injection"); });
+    if (st.ok()) {
+        st = flush_token->submit_func(flush_func);
+    }
+    if (!st.ok()) {
+        _status = st;
+    }
+    return _status;
 }
 
 Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data) {
+    if (!_status.ok()) {
+        return _status;
+    }
+
     SCOPED_TIMER(_add_segment_timer);
     DCHECK(header.has_segment_statistics());
     SegmentStatistics stat(header.segment_statistics());
@@ -204,15 +225,19 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     {
         std::lock_guard lock_guard(_lock);
         if (!_segids_mapping.contains(src_id)) {
-            return Status::InternalError(
+            _status = Status::InternalError(
                     "add segment failed, no segment written by this src be yet, src_id={}, "
                     "segment_id={}",
                     src_id, segid);
+            return _status;
         }
+        DBUG_EXECUTE_IF("TabletStream.add_segment.segid_never_written",
+                        { segid = _segids_mapping[src_id]->size(); });
         if (segid >= _segids_mapping[src_id]->size()) {
-            return Status::InternalError(
+            _status = Status::InternalError(
                     "add segment failed, segment is never written, src_id={}, segment_id={}",
                     src_id, segid);
+            return _status;
         }
         new_segid = _segids_mapping[src_id]->at(segid);
     }
@@ -221,16 +246,31 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     auto add_segment_func = [this, new_segid, stat, flush_schema]() {
         signal::set_signal_task_id(_load_id);
         auto st = _load_stream_writer->add_segment(new_segid, stat, flush_schema);
-        if (!st.ok() && _failed_st->ok()) {
-            _failed_st = std::make_shared<Status>(st);
+        DBUG_EXECUTE_IF("TabletStream.add_segment.add_segment_failed",
+                        { st = Status::InternalError("fault injection"); });
+        if (!st.ok() && _status.ok()) {
+            _status = st;
             LOG(INFO) << "add segment failed " << *this;
         }
     };
     auto& flush_token = _flush_tokens[new_segid % _flush_tokens.size()];
-    return flush_token->submit_func(add_segment_func);
+    Status st = Status::OK();
+    DBUG_EXECUTE_IF("TabletStream.add_segment.submit_func_failed",
+                    { st = Status::InternalError("fault injection"); });
+    if (st.ok()) {
+        st = flush_token->submit_func(add_segment_func);
+    }
+    if (!st.ok()) {
+        _status = st;
+    }
+    return _status;
 }
 
 Status TabletStream::close() {
+    if (!_status.ok()) {
+        return _status;
+    }
+
     SCOPED_TIMER(_close_wait_timer);
     bthread::Mutex mu;
     std::unique_lock<bthread::Mutex> lock(mu);
@@ -247,23 +287,32 @@ Status TabletStream::close() {
     if (ret) {
         cv.wait(lock);
     } else {
-        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+        _status = Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "there is not enough thread resource for close load");
+        return _status;
     }
 
-    if (!_failed_st->ok()) {
-        return *_failed_st;
-    }
+    DBUG_EXECUTE_IF("TabletStream.close.segment_num_mismatch", { _num_segments++; });
     if (_next_segid.load() != _num_segments) {
-        return Status::Corruption(
+        _status = Status::Corruption(
                 "segment num mismatch in tablet {}, expected: {}, actual: {}, load_id: {}", _id,
                 _num_segments, _next_segid.load(), print_id(_load_id));
+        return _status;
     }
 
-    Status st = Status::OK();
-    auto close_func = [this, &mu, &cv, &st]() {
+    // it is necessary to check status after wait_func,
+    // for create_rowset could fail during add_segment when loading to MOW table,
+    // in this case, should skip close to avoid submit_calc_delete_bitmap_task which could cause coredump.
+    if (!_status.ok()) {
+        return _status;
+    }
+
+    auto close_func = [this, &mu, &cv]() {
         signal::set_signal_task_id(_load_id);
-        st = _load_stream_writer->close();
+        auto st = _load_stream_writer->close();
+        if (!st.ok() && _status.ok()) {
+            _status = st;
+        }
         std::lock_guard<bthread::Mutex> lock(mu);
         cv.notify_one();
     };
@@ -271,10 +320,10 @@ Status TabletStream::close() {
     if (ret) {
         cv.wait(lock);
     } else {
-        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+        _status = Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "there is not enough thread resource for close load");
     }
-    return st;
+    return _status;
 }
 
 IndexStream::IndexStream(PUniqueId load_id, int64_t id, int64_t txn_id,
@@ -298,7 +347,7 @@ Status IndexStream::append_data(const PStreamHeader& header, butil::IOBuf* data)
         std::lock_guard lock_guard(_lock);
         auto it = _tablet_streams_map.find(tablet_id);
         if (it == _tablet_streams_map.end()) {
-            RETURN_IF_ERROR(_init_tablet_stream(tablet_stream, tablet_id, header.partition_id()));
+            _init_tablet_stream(tablet_stream, tablet_id, header.partition_id());
         } else {
             tablet_stream = it->second;
         }
@@ -307,17 +356,19 @@ Status IndexStream::append_data(const PStreamHeader& header, butil::IOBuf* data)
     return tablet_stream->append_data(header, data);
 }
 
-Status IndexStream::_init_tablet_stream(TabletStreamSharedPtr& tablet_stream, int64_t tablet_id,
-                                        int64_t partition_id) {
+void IndexStream::_init_tablet_stream(TabletStreamSharedPtr& tablet_stream, int64_t tablet_id,
+                                      int64_t partition_id) {
     tablet_stream = std::make_shared<TabletStream>(_load_id, tablet_id, _txn_id, _load_stream_mgr,
                                                    _profile);
     _tablet_streams_map[tablet_id] = tablet_stream;
-    RETURN_IF_ERROR(tablet_stream->init(_schema, _id, partition_id));
-    return Status::OK();
+    auto st = tablet_stream->init(_schema, _id, partition_id);
+    if (!st.ok()) {
+        LOG(WARNING) << "tablet stream init failed " << *tablet_stream;
+    }
 }
 
-Status IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
-                          std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablets) {
+void IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
+                        std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablets) {
     std::lock_guard lock_guard(_lock);
     SCOPED_TIMER(_close_wait_timer);
     // open all need commit tablets
@@ -328,8 +379,7 @@ Status IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
         TabletStreamSharedPtr tablet_stream;
         auto it = _tablet_streams_map.find(tablet.tablet_id());
         if (it == _tablet_streams_map.end()) {
-            RETURN_IF_ERROR(
-                    _init_tablet_stream(tablet_stream, tablet.tablet_id(), tablet.partition_id()));
+            _init_tablet_stream(tablet_stream, tablet.tablet_id(), tablet.partition_id());
             tablet_stream->add_num_segments(tablet.num_segments());
         } else {
             it->second->add_num_segments(tablet.num_segments());
@@ -345,7 +395,6 @@ Status IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
             failed_tablets->emplace_back(tablet_stream->id(), st);
         }
     }
-    return Status::OK();
 }
 
 // TODO: Profile is temporary disabled, because:
@@ -398,8 +447,8 @@ Status LoadStream::init(const POpenLoadStreamRequest* request) {
     return Status::OK();
 }
 
-Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
-                         std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablets) {
+void LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
+                       std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablets) {
     std::lock_guard<bthread::Mutex> lock_guard(_lock);
     SCOPED_TIMER(_close_wait_timer);
 
@@ -417,16 +466,14 @@ Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_t
 
     if (_close_load_cnt < _total_streams) {
         // do not return commit info if there is remaining streams.
-        return Status::OK();
+        return;
     }
 
     for (auto& [_, index_stream] : _index_streams_map) {
-        RETURN_IF_ERROR(
-                index_stream->close(_tablets_to_commit, success_tablet_ids, failed_tablets));
+        index_stream->close(_tablets_to_commit, success_tablet_ids, failed_tablets);
     }
     LOG(INFO) << "close load " << *this << ", success_tablet_num=" << success_tablet_ids->size()
               << ", failed_tablet_num=" << failed_tablets->size();
-    return Status::OK();
 }
 
 void LoadStream::_report_result(StreamId stream, const Status& status,
@@ -498,7 +545,11 @@ void LoadStream::_report_schema(StreamId stream, const PStreamHeader& hdr) {
 
 Status LoadStream::_write_stream(StreamId stream, butil::IOBuf& buf) {
     for (;;) {
-        int ret = brpc::StreamWrite(stream, buf);
+        int ret = 0;
+        DBUG_EXECUTE_IF("LoadStream._write_stream.EAGAIN", { ret = EAGAIN; });
+        if (ret == 0) {
+            ret = brpc::StreamWrite(stream, buf);
+        }
         switch (ret) {
         case 0:
             return Status::OK();
@@ -612,8 +663,8 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
         std::vector<int64_t> success_tablet_ids;
         FailedTablets failed_tablets;
         std::vector<PTabletID> tablets_to_commit(hdr.tablets().begin(), hdr.tablets().end());
-        auto st = close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablets);
-        _report_result(id, st, success_tablet_ids, failed_tablets, true);
+        close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablets);
+        _report_result(id, Status::OK(), success_tablet_ids, failed_tablets, true);
         brpc::StreamClose(id);
     } break;
     case PStreamHeader::GET_SCHEMA: {

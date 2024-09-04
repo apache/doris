@@ -418,7 +418,7 @@ public class SparkEtlJobHandlerTest {
     public void testDeleteEtlOutputPath(@Mocked BrokerUtil brokerUtil) throws UserException {
         new Expectations() {
             {
-                BrokerUtil.deletePath(etlOutputPath, (BrokerDesc) any);
+                BrokerUtil.deletePathWithBroker(etlOutputPath, (BrokerDesc) any);
                 times = 1;
             }
         };

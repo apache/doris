@@ -148,6 +148,8 @@ namespace {
 bvar::Adder<uint64_t> exceed_version_limit_counter;
 bvar::Window<bvar::Adder<uint64_t>> exceed_version_limit_counter_minute(
         &exceed_version_limit_counter, 60);
+bvar::Adder<uint64_t> cooldown_pending_task("cooldown_pending_task");
+bvar::Adder<uint64_t> cooldown_processing_task("cooldown_processing_task");
 
 void set_last_failure_time(Tablet* tablet, const Compaction& compaction, int64_t ms) {
     switch (compaction.compaction_type()) {
@@ -167,6 +169,8 @@ void set_last_failure_time(Tablet* tablet, const Compaction& compaction, int64_t
 };
 
 } // namespace
+
+bvar::Adder<uint64_t> unused_remote_rowset_num("unused_remote_rowset_num");
 
 WriteCooldownMetaExecutors::WriteCooldownMetaExecutors(size_t executor_nums)
         : _executor_nums(executor_nums) {
@@ -230,8 +234,13 @@ void WriteCooldownMetaExecutors::WriteCooldownMetaExecutors::submit(TabletShared
         VLOG_DEBUG << "tablet " << t->tablet_id() << " is not cooldown replica";
     };
 
-    _executors[_get_executor_pos(tablet_id)]->offer(
-            [task = std::move(async_write_task)]() { task(); });
+    cooldown_pending_task << 1;
+    _executors[_get_executor_pos(tablet_id)]->offer([task = std::move(async_write_task)]() {
+        cooldown_pending_task << -1;
+        cooldown_processing_task << 1;
+        task();
+        cooldown_processing_task << -1;
+    });
 }
 
 Tablet::Tablet(StorageEngine& engine, TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
@@ -861,6 +870,14 @@ Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
             }
         }
     }
+
+    DBUG_EXECUTE_IF("TTablet::capture_consistent_versions.inject_failure", {
+        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
+            status = Status::Error<VERSION_ALREADY_MERGED>("version already merged");
+        }
+    });
+
     return status;
 }
 
@@ -1713,7 +1730,13 @@ Status Tablet::prepare_compaction_and_calculate_permits(
         }
     }
 
-    permits = compaction->get_compaction_permits();
+    // Time series policy does not rely on permits, it uses goal size to control memory
+    if (tablet->tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
+        // permits = 0 means that prepare_compaction failed
+        permits = 1;
+    } else {
+        permits = compaction->get_compaction_permits();
+    }
     return Status::OK();
 }
 
@@ -2373,6 +2396,7 @@ void Tablet::record_unused_remote_rowset(const RowsetId& rowset_id, const std::s
         LOG(WARNING) << "failed to record unused remote rowset. tablet_id=" << tablet_id()
                      << " rowset_id=" << rowset_id << " resource_id=" << resource;
     }
+    unused_remote_rowset_num << 1;
 }
 
 Status Tablet::remove_all_remote_rowsets() {
@@ -2636,14 +2660,21 @@ Status Tablet::ingest_binlog_metas(RowsetBinlogMetasPB* metas_pb) {
 }
 
 void Tablet::clear_cache() {
-    std::shared_lock rlock(get_header_lock());
-    static auto recycle_segment_cache = [](const auto& rowset_map) {
-        for (auto& [_, rowset] : rowset_map) {
-            rowset->clear_cache();
+    std::vector<RowsetSharedPtr> rowsets;
+    {
+        std::shared_lock rlock(get_header_lock());
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
+
+        for (auto& [_, rowset] : rowset_map()) {
+            rowsets.push_back(rowset);
         }
-    };
-    recycle_segment_cache(rowset_map());
-    recycle_segment_cache(stale_rowset_map());
+        for (auto& [_, rowset] : stale_rowset_map()) {
+            rowsets.push_back(rowset);
+        }
+    }
+    for (auto& rowset : rowsets) {
+        rowset->clear_cache();
+    }
 }
 
 } // namespace doris

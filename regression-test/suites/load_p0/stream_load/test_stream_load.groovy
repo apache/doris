@@ -1657,7 +1657,7 @@ suite("test_stream_load", "p0") {
        log.info("test chunked transfer result: ${out}".toString())
        def json = parseJson(out)
        assertEquals("fail", json.Status.toLowerCase())
-       assertTrue(json.Message.contains("[INTERNAL_ERROR]please do not set both content_length and transfer-encoding"))
+       assertTrue(json.Message.contains("please do not set both content_length and transfer-encoding"))
     } finally {
        sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
     }
@@ -1687,7 +1687,7 @@ suite("test_stream_load", "p0") {
         log.info("test chunked transfer result: ${out}".toString())
         def json = parseJson(out)
         assertEquals("fail", json.Status.toLowerCase())
-        assertTrue(json.Message.contains("[INTERNAL_ERROR]content_length is empty and transfer-encoding!=chunked, please set content_length or transfer-encoding=chunked"))
+        assertTrue(json.Message.contains("content_length is empty and transfer-encoding!=chunked, please set content_length or transfer-encoding=chunked"))
     } finally {
         sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
     }

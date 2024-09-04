@@ -16,6 +16,8 @@
 # specific language governing permissions and limitations
 # under the License.
 
+set -eo pipefail
+
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 DORIS_HOME="$(
@@ -30,12 +32,16 @@ if [[ ! -d bin || ! -d conf || ! -d lib ]]; then
     exit 1
 fi
 
-daemonized=0
+RUN_DAEMON=0
+RUN_VERSION=0
+RUN_CONSOLE=0
 for arg; do
     shift
-    [[ "${arg}" = "--daemonized" ]] && daemonized=1 && continue
-    [[ "${arg}" = "-daemonized" ]] && daemonized=1 && continue
-    [[ "${arg}" = "--daemon" ]] && daemonized=1 && continue
+    [[ "${arg}" = "--daemonized" ]] && RUN_DAEMON=1 && continue
+    [[ "${arg}" = "-daemonized" ]] && RUN_DAEMON=1 && continue
+    [[ "${arg}" = "--daemon" ]] && RUN_DAEMON=1 && continue
+    [[ "${arg}" = "--version" ]] && RUN_VERSION=1 && continue
+    [[ "${arg}" = "--console" ]] && RUN_CONSOLE=1 && continue
     set -- "$@" "${arg}"
 done
 # echo "$@" "daemonized=${daemonized}"}
@@ -76,7 +82,7 @@ if ldd "${bin}" | grep -Ei 'libfdb_c.*not found' &>/dev/null; then
         exit 1
     fi
     patchelf --set-rpath "${lib_path}" "${bin}"
-    ldd "${bin}"
+    # ldd "${bin}"
 fi
 
 chmod 550 "${DORIS_HOME}/lib/doris_cloud"
@@ -85,7 +91,7 @@ if [[ -z "${JAVA_HOME}" ]]; then
     echo "The JAVA_HOME environment variable is not defined correctly"
     echo "This environment variable is needed to run this program"
     echo "NB: JAVA_HOME should point to a JDK not a JRE"
-    echo "You can set it in be.conf"
+    echo "You can set it in doris_cloud.conf"
     exit 1
 fi
 
@@ -116,11 +122,16 @@ fi
 
 echo "LIBHDFS3_CONF=${LIBHDFS3_CONF}"
 
-export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:15000,dirty_decay_ms:15000,oversize_threshold:0,prof:true,prof_prefix:jeprof.out"
+export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:5000,dirty_decay_ms:5000,oversize_threshold:0,prof:false,lg_prof_interval:-1"
+
+if [[ "${RUN_VERSION}" -eq 1 ]]; then
+    "${bin}" --version
+    exit 0
+fi
 
 mkdir -p "${DORIS_HOME}/log"
 echo "starts ${process} with args: $*"
-if [[ "${daemonized}" -eq 1 ]]; then
+if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     date >>"${DORIS_HOME}/log/${process}.out"
     nohup "${bin}" "$@" >>"${DORIS_HOME}/log/${process}.out" 2>&1 &
     # wait for log flush
@@ -128,6 +139,10 @@ if [[ "${daemonized}" -eq 1 ]]; then
     tail -n10 "${DORIS_HOME}/log/${process}.out" | grep 'working directory' -B1 -A10
     echo "please check process log for more details"
     echo ""
+elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
+    export DORIS_LOG_TO_STDERR=1
+    date
+    "${bin}" "$@" 2>&1
 else
     "${bin}" "$@"
 fi

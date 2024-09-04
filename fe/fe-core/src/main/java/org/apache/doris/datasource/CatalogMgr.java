@@ -36,11 +36,13 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
@@ -70,7 +72,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -88,9 +89,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public static final String METADATA_REFRESH_INTERVAL_SEC = "metadata_refresh_interval_sec";
     public static final String CATALOG_TYPE_PROP = "type";
 
-    private static final String YES = "yes";
-
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+    private final MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock(true);
 
     @SerializedName(value = "idToCatalog")
     private final Map<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>> idToCatalog = Maps.newConcurrentMap();
@@ -384,12 +383,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         row.add(name);
                         row.add(catalog.getType());
                         if (name.equals(currentCtlg)) {
-                            row.add(YES);
+                            row.add("Yes");
                         } else {
-                            row.add("");
+                            row.add("No");
                         }
                         Map<String, String> props = catalog.getProperties();
-                        String createTime = props.getOrDefault(CreateCatalogStmt.CREATE_TIME_PROP, "UNRECORDED");
+                        String createTime = props.getOrDefault(ExternalCatalog.CREATE_TIME, FeConstants.null_string);
                         row.add(createTime);
                         row.add(TimeUtils.longToTimeString(catalog.getLastUpdateTime()));
                         row.add(catalog.getComment());
@@ -450,7 +449,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             if (catalog.getProperties().size() > 0) {
                 sb.append(" PROPERTIES (\n");
-                sb.append(new PrintableMap<>(catalog.getProperties(), "=", true, true, true, true));
+                PrintableMap<String, String> printableMap = new PrintableMap<>(catalog.getProperties(), "=", true, true,
+                        true, true);
+                printableMap.setAdditionalHiddenKeys(ExternalCatalog.HIDDEN_PROPERTIES);
+                sb.append(printableMap);
                 sb.append("\n);");
             }
 
@@ -655,13 +657,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
 
-        TableIf table = db.getTableNullable(tableName);
-        if (table != null) {
-            if (!ignoreIfExists) {
-                throw new DdlException("Table " + tableName + " has exist in db " + dbName);
-            }
-            return;
-        }
         long tblId;
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
         if (hmsCatalog.getUseMetaCache().get()) {
@@ -711,13 +706,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support create ExternalCatalog databases");
-        }
-        DatabaseIf db = catalog.getDbNullable(dbName);
-        if (db != null) {
-            if (!ignoreIfExists) {
-                throw new DdlException("Database " + dbName + " has exist in catalog " + catalog.getName());
-            }
-            return;
         }
 
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;

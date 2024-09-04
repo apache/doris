@@ -52,7 +52,6 @@ public class MTMVTest {
                 = "MTMV{refreshInfo=BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 2 SECOND STARTS ss, "
                 + "querySql='select * from xxx;', "
                 + "status=MTMVStatus{state=INIT, schemaChangeDetail='null', refreshState=INIT}, "
-                + "envInfo=EnvInfo{ctlId='1', dbId='2'}, "
                 + "jobInfo=MTMVJobInfo{jobName='job1', "
                 + "historyTasks=[MTMVTask{dbId=0, mtmvId=0, taskContext=null, "
                 + "needRefreshPartitions=null, completedPartitions=null, refreshMode=null} "
@@ -70,7 +69,6 @@ public class MTMVTest {
         mtmv.setRefreshInfo(buildMTMVRefreshInfo(mtmv));
         mtmv.setQuerySql("select * from xxx;");
         mtmv.setStatus(new MTMVStatus());
-        mtmv.setEnvInfo(new EnvInfo(1L, 2L));
         mtmv.setJobInfo(buildMTMVJobInfo(mtmv));
         mtmv.setMvProperties(new HashMap<>());
         mtmv.setRelation(new MTMVRelation(Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet()));

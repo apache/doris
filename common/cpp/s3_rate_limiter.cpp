@@ -25,10 +25,8 @@
 
 #if defined(__APPLE__)
 #include <ctime>
-#define CURRENT_TIME std::chrono::system_clock::now()
-#else
-#define CURRENT_TIME std::chrono::high_resolution_clock::now()
 #endif
+#define CURRENT_TIME std::chrono::system_clock::now()
 
 namespace doris {
 // Just 10^6.

@@ -76,7 +76,6 @@ public:
     String get_name() const override { return name; }
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 1; }
-    bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (arguments.empty()) {
@@ -95,15 +94,13 @@ public:
                         "The {} -th argument for function: {} .must be an array but it type is {}",
                         i, get_name(), arguments[i]->get_name());
             }
-            if (i == 0) {
-                is_nested_nullable = array_type->get_nested_type()->is_nullable();
-            }
+            is_nested_nullable = is_nested_nullable || array_type->get_nested_type()->is_nullable();
         }
 
         auto return_nested_type = std::make_shared<DataTypeInt64>();
         DataTypePtr return_type = std::make_shared<DataTypeArray>(
                 is_nested_nullable ? make_nullable(return_nested_type) : return_nested_type);
-        if (arguments.size() == 1 && arguments[0]->is_nullable()) {
+        if (arguments[0]->is_nullable()) {
             return_type = make_nullable(return_type);
         }
         return return_type;
@@ -147,7 +144,7 @@ public:
                 src_offsets = array->get_offsets_ptr();
             } else if (*offsets != cur_offsets) {
                 return Status::RuntimeError(fmt::format(
-                        "lengths of all arrays of fucntion {} must be equal.", get_name()));
+                        "lengths of all arrays of function {} must be equal.", get_name()));
             }
             const auto* array_data = &array->get_data();
             data_columns[i] = array_data;

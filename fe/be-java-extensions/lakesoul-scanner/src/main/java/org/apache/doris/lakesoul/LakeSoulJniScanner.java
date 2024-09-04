@@ -24,17 +24,17 @@ import com.dmetasoul.lakesoul.lakesoul.io.NativeIOReader;
 import com.dmetasoul.lakesoul.lakesoul.io.substrait.SubstraitUtil;
 import com.lakesoul.shaded.com.fasterxml.jackson.core.type.TypeReference;
 import com.lakesoul.shaded.com.fasterxml.jackson.databind.ObjectMapper;
+import com.lakesoul.shaded.io.substrait.proto.Plan;
 import com.lakesoul.shaded.org.apache.arrow.vector.VectorSchemaRoot;
 import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Field;
 import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Schema;
-import io.substrait.proto.Plan;
+import com.lakesoul.shaded.org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -65,9 +65,8 @@ public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
         withAllocator(nativeIOReader.getAllocator());
         nativeIOReader.setBatchSize(batchSize);
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("opening LakeSoulJniScanner with params={}", params);
-        }
+        LOG.info("opening LakeSoulJniScanner with params={}", params);
+
         // add files
         for (String file : params.get(LakeSoulUtils.FILE_NAMES).split(LakeSoulUtils.LIST_DELIM)) {
             nativeIOReader.addFile(file);
@@ -105,6 +104,10 @@ public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
 
         List<Field> requiredFields = new ArrayList<>();
         for (String fieldName : requiredFieldNames) {
+            String name = fieldName.strip();
+            if (StringUtils.isEmpty(name)) {
+                continue;
+            }
             requiredFields.add(tableSchema.findField(fieldName));
         }
 
@@ -181,29 +184,5 @@ public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
         if (currentBatch != null) {
             currentBatch.close();
         }
-    }
-
-    public static void main(String[] args) throws IOException {
-        HashMap<String, String> params = new HashMap<>();
-        params.put("required_fields", "r_regionkey;r_name;r_comment");
-        params.put("primary_keys", "r_regionkey;r_name");
-        params.put("query_id", "e9d075a6500a4cac-b94630fd4b30c171");
-        params.put("file_paths",
-                "file:/Users/ceng/Documents/GitHub/LakeSoul/rust/lakesoul-datafusion/"
-                    + "default/region/part-RzmUvDFtYV8ceb3J_0000.parquet"
-        );
-        params.put("options", "{}");
-        params.put("table_schema",
-                "{\"fields\":["
-                    + "{\"name\":\"r_regionkey\",\"type\":{\"name\":\"int\",\"isSigned\":true,\"bitWidth\":64},"
-                    + "\"nullable\":false,\"children\":[]},"
-                    + "{\"name\":\"r_name\",\"type\":{\"name\":\"utf8\"},\"nullable\":false,\"children\":[]},"
-                    + "{\"name\":\"r_comment\",\"type\":{\"name\":\"utf8\"},\"nullable\":false,\"children\":[]}"
-                    + "],"
-                    + "\"metadata\":null}");
-        params.put("partition_descs", "");
-        LakeSoulJniScanner scanner = new LakeSoulJniScanner(1024, params);
-        scanner.open();
-        System.out.println(scanner.getNext());
     }
 }

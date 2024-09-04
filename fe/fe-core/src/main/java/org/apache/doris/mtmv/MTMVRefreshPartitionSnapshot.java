@@ -17,35 +17,88 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.MTMV;
+
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Optional;
+import java.util.Set;
 
 public class MTMVRefreshPartitionSnapshot {
+    private static final Logger LOG = LogManager.getLogger(MTMV.class);
     @SerializedName("p")
     private Map<String, MTMVSnapshotIf> partitions;
+    // old version only persist table id, we need `BaseTableInfo`, `tables` only for compatible old version
     @SerializedName("t")
+    @Deprecated
     private Map<Long, MTMVSnapshotIf> tables;
+    @SerializedName("ti")
+    private Map<BaseTableInfo, MTMVSnapshotIf> tablesInfo;
 
     public MTMVRefreshPartitionSnapshot() {
         this.partitions = Maps.newConcurrentMap();
         this.tables = Maps.newConcurrentMap();
+        this.tablesInfo = Maps.newConcurrentMap();
     }
 
     public Map<String, MTMVSnapshotIf> getPartitions() {
         return partitions;
     }
 
-    public Map<Long, MTMVSnapshotIf> getTables() {
-        return tables;
+    public MTMVSnapshotIf getTableSnapshot(BaseTableInfo table) {
+        if (tablesInfo.containsKey(table)) {
+            return tablesInfo.get(table);
+        }
+        // for compatible old version
+        return tables.get(table.getTableId());
+    }
+
+    public void addTableSnapshot(BaseTableInfo baseTableInfo, MTMVSnapshotIf tableSnapshot) {
+        tablesInfo.put(baseTableInfo, tableSnapshot);
+        // for compatible old version
+        tables.put(baseTableInfo.getTableId(), tableSnapshot);
     }
 
     @Override
     public String toString() {
         return "MTMVRefreshPartitionSnapshot{"
                 + "partitions=" + partitions
-                + ", tables=" + tables
+                + ", tablesInfo=" + tablesInfo
                 + '}';
+    }
+
+    public void compatible(MTMV mtmv) {
+        if (tables.size() == tablesInfo.size()) {
+            return;
+        }
+        MTMVRelation relation = mtmv.getRelation();
+        if (relation == null || CollectionUtils.isEmpty(relation.getBaseTablesOneLevel())) {
+            return;
+        }
+        for (Entry<Long, MTMVSnapshotIf> entry : tables.entrySet()) {
+            Optional<BaseTableInfo> tableInfo = getByTableId(entry.getKey(),
+                    relation.getBaseTablesOneLevel());
+            if (tableInfo.isPresent()) {
+                tablesInfo.put(tableInfo.get(), entry.getValue());
+            } else {
+                LOG.warn("MTMV compatible failed, tableId: {}, relationTables: {}", entry.getKey(),
+                        relation.getBaseTablesOneLevel());
+            }
+        }
+    }
+
+    private Optional<BaseTableInfo> getByTableId(Long tableId, Set<BaseTableInfo> baseTables) {
+        for (BaseTableInfo info : baseTables) {
+            if (info.getTableId() == tableId) {
+                return Optional.of(info);
+            }
+        }
+        return Optional.empty();
     }
 }

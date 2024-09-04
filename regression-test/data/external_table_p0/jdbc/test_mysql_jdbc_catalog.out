@@ -192,40 +192,7 @@ bca	2022-11-02	2022-11-02	8012	vivo
 2	2
 
 -- !information_schema --
-active_queries
-backend_active_tasks
-character_sets
-collations
-column_privileges
-column_statistics
-columns
-engines
-events
-files
-global_variables
-key_column_usage
-metadata_name_ids
-parameters
-partitions
 processlist
-profiling
-referential_constraints
-routines
-rowsets
-schema_privileges
-schemata
-session_variables
-statistics
-table_constraints
-table_options
-table_privileges
-tables
-triggers
-user_privileges
-views
-workload_group_privileges
-workload_groups
-workload_policy
 
 -- !dt --
 2023-06-17T10:00	2023-06-17T10:00:01.100	2023-06-17T10:00:02.220	2023-06-17T10:00:03.333	2023-06-17T10:00:04.444400	2023-06-17T10:00:05.555550	2023-06-17T10:00:06.666666
@@ -241,15 +208,6 @@ workload_policy
 3	0000-01-01
 
 -- !test_filter_not --
-张三1	11	12345678	123	321312	1999-02-13T00:00	中国	男	0
-张三2	11	12345671	123	321312	1999-02-13T00:00	中国	男	0
-张三3	11	12345673	123	321312	1999-02-13T00:00	中国	男	0
-张三4	11	123456711	123	321312	1999-02-13T00:00	中国	男	0
-张三5	11	1232134567	123	321312	1999-02-13T00:00	中国	男	0
-张三6	11	124314567	123	321312	1999-02-13T00:00	中国	男	0
-张三7	11	123445167	123	321312	1998-02-13T00:00	中国	男	0
-
--- !test_filter_not_old_plan --
 张三1	11	12345678	123	321312	1999-02-13T00:00	中国	男	0
 张三2	11	12345671	123	321312	1999-02-13T00:00	中国	男	0
 张三3	11	12345673	123	321312	1999-02-13T00:00	中国	男	0
@@ -455,4 +413,41 @@ doris
 
 -- !sql --
 1
+
+-- !sql --
+10	\N	7744
+11	\N	-94
+12	16970	95
+13	\N	7023
+14	\N	1
+15	3679	-11
+16	\N	-1079
+17	-22	\N
+18	30995	\N
+19	\N	-79
+5	\N	-127
+6	14680	-26424
+7	-22270	12722
+8	\N	\N
+9	\N	\N
+
+-- !sql --
+
+-- !sql --
+int_u	bigint	Yes	true	\N	
+text	varchar(65533)	Yes	true	\N	
+t2	text	Yes	false	\N	NONE
+
+-- !sql --
+varchar	varchar(65533)	Yes	true	\N	
+int_u	bigint	Yes	false	\N	NONE
+
+-- !sql --
+int_u	bigint	Yes	true	\N	
+text	varchar(65533)	Yes	true	\N	
+t2	varchar(65533)	Yes	false	\N	NONE
+
+-- !sql --
+varchar	varchar(65533)	Yes	true	\N	
+int_u	bigint	Yes	false	\N	NONE
 

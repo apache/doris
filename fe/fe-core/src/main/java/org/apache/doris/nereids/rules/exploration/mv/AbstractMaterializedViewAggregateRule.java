@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.AggregateExpressionRewriteContext.ExpressionRewriteMode;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
@@ -45,6 +46,8 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
@@ -113,7 +116,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         boolean queryContainsGroupSets = queryAggregate.getSourceRepeat().isPresent();
         // If group by expression between query and view is equals, try to rewrite expression directly
         if (!queryContainsGroupSets && isGroupByEquals(queryTopPlanAndAggPair, viewTopPlanAndAggPair,
-                viewToQuerySlotMapping, queryStructInfo, viewStructInfo, materializationContext,
+                viewToQuerySlotMapping, queryStructInfo, viewStructInfo, tempRewritedPlan, materializationContext,
                 cascadesContext)) {
             List<Expression> rewrittenQueryExpressions = rewriteExpression(queryTopPlan.getOutput(),
                     queryTopPlan,
@@ -214,7 +217,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         LogicalAggregate<Plan> queryAggregate = queryTopPlanAndAggPair.value();
         List<Expression> queryGroupByExpressions = queryAggregate.getGroupByExpressions();
         // handle the scene that query top plan not use the group by in query bottom aggregate
-        if (queryGroupByExpressions.size() != queryTopPlanGroupBySet.size()) {
+        if (needCompensateGroupBy(queryTopPlanGroupBySet, queryGroupByExpressions)) {
             for (Expression expression : queryGroupByExpressions) {
                 if (queryTopPlanGroupBySet.contains(expression)) {
                     continue;
@@ -261,6 +264,42 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             return NormalizeRepeat.doNormalize(repeat);
         }
         return new LogicalAggregate<>(finalGroupExpressions, finalOutputExpressions, tempRewritedPlan);
+    }
+
+    /**
+     * handle the scene that query top plan not use the group by in query bottom aggregate
+     * If mv is select o_orderdate from  orders group by o_orderdate;
+     * query is select 1 from orders group by o_orderdate.
+     * Or mv is select o_orderdate from orders group by o_orderdate
+     * query is select o_orderdate from  orders group by o_orderdate, o_orderkey;
+     * if the slot which query top project use can not cover the slot which query bottom aggregate group by slot
+     * should compensate group by to make sure the data is right.
+     * For example:
+     * mv is select o_orderdate from orders group by o_orderdate;
+     * query is select o_orderdate from  orders group by o_orderdate, o_orderkey;
+     *
+     * @param queryGroupByExpressions query bottom aggregate group by is o_orderdate, o_orderkey
+     * @param queryTopProject query top project is o_orderdate
+     * @return need to compensate group by if true or not need
+     *
+     */
+    private static boolean needCompensateGroupBy(Set<? extends Expression> queryTopProject,
+            List<Expression> queryGroupByExpressions) {
+        Set<Expression> queryGroupByExpressionSet = new HashSet<>(queryGroupByExpressions);
+        if (queryGroupByExpressionSet.size() != queryTopProject.size()) {
+            return true;
+        }
+        Set<NamedExpression> queryTopPlanGroupByUseNamedExpressions = new HashSet<>();
+        Set<NamedExpression> queryGroupByUseNamedExpressions = new HashSet<>();
+        for (Expression expr : queryTopProject) {
+            queryTopPlanGroupByUseNamedExpressions.addAll(expr.collect(NamedExpression.class::isInstance));
+        }
+        for (Expression expr : queryGroupByExpressionSet) {
+            queryGroupByUseNamedExpressions.addAll(expr.collect(NamedExpression.class::isInstance));
+        }
+        // if the slots query top project use can not cover the slots which query bottom aggregate use
+        // Should compensate.
+        return !queryTopPlanGroupByUseNamedExpressions.containsAll(queryGroupByUseNamedExpressions);
     }
 
     /**
@@ -324,18 +363,21 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             SlotMapping viewToQuerySlotMapping,
             StructInfo queryStructInfo,
             StructInfo viewStructInfo,
+            Plan tempRewrittenPlan,
             MaterializationContext materializationContext,
             CascadesContext cascadesContext) {
+
+        if (materializationContext instanceof SyncMaterializationContext) {
+            // For data correctness, should always add aggregate node if rewritten by sync materialized view
+            return false;
+        }
         Plan queryTopPlan = queryTopPlanAndAggPair.key();
         Plan viewTopPlan = viewTopPlanAndAggPair.key();
         LogicalAggregate<Plan> queryAggregate = queryTopPlanAndAggPair.value();
         LogicalAggregate<Plan> viewAggregate = viewTopPlanAndAggPair.value();
 
-        Set<Expression> queryGroupShuttledExpression = new HashSet<>();
-        for (Expression queryExpression : ExpressionUtils.shuttleExpressionWithLineage(
-                queryAggregate.getGroupByExpressions(), queryTopPlan, queryStructInfo.getTableBitSet())) {
-            queryGroupShuttledExpression.add(queryExpression);
-        }
+        Set<Expression> queryGroupShuttledExpression = new HashSet<>(ExpressionUtils.shuttleExpressionWithLineage(
+                queryAggregate.getGroupByExpressions(), queryTopPlan, queryStructInfo.getTableBitSet()));
 
         // try to eliminate group by dimension by function dependency if group by expression is not in query
         Map<Expression, Expression> viewShuttledExpressionQueryBasedToGroupByExpressionMap = new HashMap<>();
@@ -355,22 +397,117 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     viewGroupExpressionQueryBased
             );
         }
-        if (queryGroupShuttledExpression.equals(viewShuttledExpressionQueryBasedToGroupByExpressionMap.values())) {
+        if (queryGroupShuttledExpression.equals(viewShuttledExpressionQueryBasedToGroupByExpressionMap.keySet())) {
             // return true, if equals directly
             return true;
         }
-        List<NamedExpression> projects = new ArrayList<>();
-        for (Expression expression : queryGroupShuttledExpression) {
-            if (!viewShuttledExpressionQueryBasedToGroupByExpressionMap.containsKey(expression)) {
-                // query group expression is not in view group by expression
+
+        boolean isGroupByEquals = false;
+        // check is equals by group by eliminate
+        isGroupByEquals |= isGroupByEqualsAfterGroupByEliminate(queryGroupShuttledExpression,
+                viewShuttledExpressionQueryBasedToGroupByExpressionMap,
+                groupByExpressionToViewShuttledExpressionQueryBasedMap,
+                viewAggregate,
+                cascadesContext);
+        // check is equals by equal filter eliminate
+        Optional<LogicalFilter<Plan>> filterOptional = tempRewrittenPlan.collectFirst(LogicalFilter.class::isInstance);
+        if (!filterOptional.isPresent()) {
+            return isGroupByEquals;
+        }
+        isGroupByEquals |= isGroupByEqualsAfterEqualFilterEliminate(
+                (LogicalPlan) tempRewrittenPlan,
+                queryGroupShuttledExpression,
+                viewShuttledExpressionQueryBasedToGroupByExpressionMap,
+                materializationContext);
+        return isGroupByEquals;
+    }
+
+    /**
+     * Check group by is equals by equal filter eliminate
+     * For example query is select a, b, c from t1 where a = 1 and d = 'xx' group by a, b, c;
+     * mv is select a, b, c, d from t1 group by a, b, c, d;
+     * the group by expression between query and view is equals after equal filter eliminate
+     * should not aggregate roll up
+     * */
+    private static boolean isGroupByEqualsAfterEqualFilterEliminate(
+            LogicalPlan tempRewrittenPlan,
+            Set<Expression> queryGroupShuttledExpression,
+            Map<Expression, Expression> viewShuttledExprQueryBasedToViewGroupByExprMap,
+            MaterializationContext materializationContext) {
+
+        Map<Expression, Expression> viewShuttledExprToScanExprMapping =
+                materializationContext.getShuttledExprToScanExprMapping().flattenMap().get(0);
+        Set<Expression> viewShuttledExprQueryBasedSet = viewShuttledExprQueryBasedToViewGroupByExprMap.keySet();
+        // view group by expr can not cover query group by expr
+        if (!viewShuttledExprQueryBasedSet.containsAll(queryGroupShuttledExpression)) {
+            return false;
+        }
+        Set<Expression> viewShouldUniformExpressionSet = new HashSet<>();
+        // calc the group by expr which is needed to roll up and should be uniform
+        for (Map.Entry<Expression, Expression> expressionEntry :
+                viewShuttledExprQueryBasedToViewGroupByExprMap.entrySet()) {
+            if (queryGroupShuttledExpression.contains(expressionEntry.getKey())) {
+                // the group expr which query has, do not require uniform
+                continue;
+            }
+            viewShouldUniformExpressionSet.add(expressionEntry.getValue());
+        }
+
+        DataTrait dataTrait = tempRewrittenPlan.computeDataTrait();
+        for (Expression shouldUniformExpr : viewShouldUniformExpressionSet) {
+            Expression viewScanExpression = viewShuttledExprToScanExprMapping.get(shouldUniformExpr);
+            if (viewScanExpression == null) {
                 return false;
             }
+            if (!(viewScanExpression instanceof Slot)) {
+                return false;
+            }
+            if (!dataTrait.isUniform((Slot) viewScanExpression)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Check group by is equal or not after group by eliminate by functional dependency
+     * Such as query is select l_orderdate, l_supperkey, count(*) from table group by l_orderdate, l_supperkey;
+     * materialized view is select l_orderdate, l_supperkey, l_partkey count(*) from table
+     * group by l_orderdate, l_supperkey, l_partkey;
+     * Would check the extra l_partkey is can be eliminated by functional dependency.
+     * The process step and  data is as following:
+     * group by expression is (l_orderdate#1, l_supperkey#2)
+     * materialized view is group by expression is (l_orderdate#4, l_supperkey#5, l_partkey#6)
+     * materialized view expression mapping is
+     * {l_orderdate#4:l_orderdate#10, l_supperkey#5:l_supperkey#11, l_partkey#6:l_partkey#12}
+     * 1. viewShuttledExpressionQueryBasedToGroupByExpressionMap
+     * is {l_orderdate#1:l_orderdate#10,  l_supperkey#2:l_supperkey#11}
+     * groupByExpressionToViewShuttledExpressionQueryBasedMap
+     * is {l_orderdate#10:l_orderdate#1,  l_supperkey#11:l_supperkey#2:}
+     * 2. construct projects query used by view group expressions
+     * projects (l_orderdate#10, l_supperkey#11)
+     * 3. try to eliminate materialized view group expression
+     * projects (l_orderdate#10, l_supperkey#11)
+     * viewAggregate
+     * 4. check the viewAggregate group by expression is equals queryAggregate expression or not
+     */
+    private static boolean isGroupByEqualsAfterGroupByEliminate(Set<Expression> queryGroupShuttledExpression,
+            Map<Expression, Expression> viewShuttledExpressionQueryBasedToGroupByExpressionMap,
+            Map<Expression, Expression> groupByExpressionToViewShuttledExpressionQueryBasedMap,
+            LogicalAggregate<Plan> viewAggregate,
+            CascadesContext cascadesContext) {
+        List<NamedExpression> projects = new ArrayList<>();
+        // construct projects query used by view group expressions
+        for (Expression expression : queryGroupShuttledExpression) {
             Expression chosenExpression = viewShuttledExpressionQueryBasedToGroupByExpressionMap.get(expression);
+            if (chosenExpression == null) {
+                return false;
+            }
             projects.add(chosenExpression instanceof NamedExpression
                     ? (NamedExpression) chosenExpression : new Alias(chosenExpression));
         }
         LogicalProject<LogicalAggregate<Plan>> project = new LogicalProject<>(projects, viewAggregate);
-        // try to eliminate group by expression which is not in query group by expression
+        // try to eliminate view group by expression which is not in query group by expression
         Plan rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                 childContext -> {
                     Rewriter.getCteChildrenRewriter(childContext,
@@ -383,20 +520,21 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         if (!aggreagateOptional.isPresent()) {
             return false;
         }
+        // check result after view group by eliminate by functional dependency
         List<Expression> viewEliminatedGroupByExpressions = aggreagateOptional.get().getGroupByExpressions();
         if (viewEliminatedGroupByExpressions.size() != queryGroupShuttledExpression.size()) {
             return false;
         }
         Set<Expression> viewGroupShuttledExpressionQueryBased = new HashSet<>();
         for (Expression viewExpression : aggreagateOptional.get().getGroupByExpressions()) {
-            if (!groupByExpressionToViewShuttledExpressionQueryBasedMap.containsKey(viewExpression)) {
+            Expression viewExpressionQueryBased =
+                    groupByExpressionToViewShuttledExpressionQueryBasedMap.get(viewExpression);
+            if (viewExpressionQueryBased == null) {
                 return false;
             }
-            viewGroupShuttledExpressionQueryBased.add(
-                    groupByExpressionToViewShuttledExpressionQueryBasedMap.get(viewExpression));
+            viewGroupShuttledExpressionQueryBased.add(viewExpressionQueryBased);
         }
-        return materializationContext instanceof SyncMaterializationContext ? false
-                : queryGroupShuttledExpression.equals(viewGroupShuttledExpressionQueryBased);
+        return queryGroupShuttledExpression.equals(viewGroupShuttledExpressionQueryBased);
     }
 
     /**

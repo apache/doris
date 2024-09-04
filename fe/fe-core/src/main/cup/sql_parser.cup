@@ -60,6 +60,7 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionMeta;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadActionMeta;
+import org.apache.doris.system.NodeType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -717,7 +718,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     use_stmt, use_cloud_cluster_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
-    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, show_mtmv_stmt, kill_analysis_job_stmt, insert_overwrite_stmt, copy_stmt,
+    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, kill_analysis_job_stmt, insert_overwrite_stmt, copy_stmt,
     warm_up_stmt;
 
 nonterminal FromClause opt_using_clause;
@@ -766,8 +767,6 @@ nonterminal BackupStmt backup_stmt;
 nonterminal AbstractBackupTableRefClause opt_backup_table_ref_list;
 nonterminal Boolean backup_exclude_or_not;
 nonterminal RestoreStmt restore_stmt;
-nonterminal PrepareStmt prepare_stmt;
-nonterminal ExecuteStmt execute_stmt;
 
 nonterminal SelectList select_clause, select_list, select_sublist;
 
@@ -1273,12 +1272,6 @@ stmt ::=
     {: RESULT = stmt; :}
     | analyze_stmt:stmt
     {: RESULT = stmt; :}
-    | show_mtmv_stmt : stmt
-    {: RESULT = stmt; :}
-    | prepare_stmt:stmt
-    {: RESULT = stmt; :}
-    | execute_stmt:stmt
-    {: RESULT = stmt; :}
     | warm_up_stmt:stmt
     {: RESULT = stmt; :}
     | /* empty: query only has comments */
@@ -1745,6 +1738,14 @@ alter_table_clause ::=
     | KW_MODIFY KW_ENGINE KW_TO ident:engine opt_properties:properties
     {:
         RESULT = new ModifyEngineClause(engine, properties);
+    :}
+    | KW_ADD opt_tmp:isTempPartition KW_PARTITIONS KW_FROM LPAREN partition_key_list:lower RPAREN KW_TO LPAREN partition_key_list:upper RPAREN KW_INTERVAL INTEGER_LITERAL:time_interval ident:time_unit opt_properties:properties
+    {:
+        RESULT = new AlterMultiPartitionClause(PartitionKeyDesc.createMultiFixed(lower, upper, time_interval, time_unit), properties, isTempPartition);
+    :}
+    | KW_ADD opt_tmp:isTempPartition KW_PARTITIONS KW_FROM LPAREN partition_key_list:lower RPAREN KW_TO LPAREN partition_key_list:upper RPAREN KW_INTERVAL INTEGER_LITERAL:num_interval opt_properties:properties
+    {:
+        RESULT = new AlterMultiPartitionClause(PartitionKeyDesc.createMultiFixed(lower, upper, num_interval), properties, isTempPartition);
     :}
     ;
 
@@ -3280,6 +3281,10 @@ drop_stmt ::=
     {:
         RESULT = new DropStatsStmt(tbl, cols, partitionNames);
     :}
+    | KW_DROP KW_CACHED KW_STATS table_name:tbl
+    {:
+        RESULT = new DropCachedStatsStmt(tbl);
+    :}
     | KW_DROP KW_EXPIRED KW_STATS
     {:
         RESULT = new DropStatsStmt(true);
@@ -4172,7 +4177,7 @@ show_stmt ::=
     {:
         RESULT = new ShowStoragePolicyUsingStmt(null);
     :}
-    | KW_SHOW KW_STORAGE KW_POLICY KW_USING KW_FOR ident:policy
+    | KW_SHOW KW_STORAGE KW_POLICY KW_USING KW_FOR ident_or_text:policy
     {:
         RESULT = new ShowStoragePolicyUsingStmt(policy);
     :}
@@ -4597,14 +4602,19 @@ show_param ::=
         RESULT = new ShowSyncJobStmt(dbName);
     :}
     /* show table stats */
-    | KW_TABLE opt_cached:cached KW_STATS table_name:tbl opt_partition_names:partitionNames opt_col_list:cols
+    | KW_TABLE KW_STATS table_name:tbl opt_partition_names:partitionNames opt_col_list:cols
     {:
-        RESULT = new ShowTableStatsStmt(tbl, cols, partitionNames, cached, null);
+        RESULT = new ShowTableStatsStmt(tbl, cols, partitionNames, null);
+    :}
+    /* show table id stats */
+    | KW_TABLE KW_STATS INTEGER_LITERAL:tableId
+    {:
+        RESULT = new ShowTableStatsStmt(tableId);
     :}
     /* show index stats */
     | KW_INDEX KW_STATS table_name:tbl ident:id
     {:
-        RESULT = new ShowTableStatsStmt(tbl, null, null, false, id);
+        RESULT = new ShowTableStatsStmt(tbl, null, null, id);
     :}
     /* show column stats */
     | KW_COLUMN opt_cached:cached KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
@@ -4699,7 +4709,15 @@ show_param ::=
     :}
     | KW_FRONTEND KW_CONFIG opt_wild_where
     {:
-        RESULT = new ShowConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, parser.wild);
+        RESULT = new ShowConfigStmt(NodeType.FRONTEND, parser.wild);
+    :}
+    | KW_BACKEND KW_CONFIG opt_wild_where
+    {:
+        RESULT = new ShowConfigStmt(NodeType.BACKEND, parser.wild);
+    :}
+    | KW_BACKEND KW_CONFIG opt_wild_where KW_FROM INTEGER_LITERAL:backendId
+    {:
+        RESULT = new ShowConfigStmt(NodeType.BACKEND, parser.wild, backendId);
     :}
     | KW_TABLET KW_STORAGE KW_FORMAT
     {:
@@ -5854,22 +5872,6 @@ expr_or_default ::=
     | KW_DEFAULT
     {:
         RESULT = new DefaultValueExpr();
-    :}
-    ;
-
-prepare_stmt ::=
-    KW_PREPARE variable_name:name KW_FROM select_stmt:s
-    {:
-        RESULT = new PrepareStmt(s, name);
-        s.setPlaceHolders(parser.placeholder_expr_list);
-        parser.placeholder_expr_list.clear();
-    :}
-    ;
-
-execute_stmt ::=
-    KW_EXECUTE variable_name:name args_list:s
-    {:
-        RESULT = new ExecuteStmt(name, s);
     :}
     ;
 
@@ -7310,6 +7312,20 @@ non_pred_expr ::=
   {: RESULT = new CastExpr(targetType, e); :}
   | KW_KEY encryptkey_name:name
   {: RESULT = new EncryptKeyRef(name); :}
+  | expr:e KW_IS KW_TRUE
+  {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.BOOLEAN), e); :}
+  | expr:e KW_IS KW_NOT KW_TRUE
+  {:
+    e = new CastExpr(TypeDef.create(PrimitiveType.BOOLEAN), e);
+    RESULT = new CompoundPredicate(CompoundPredicate.Operator.NOT, e, null);
+  :}
+  | expr:e KW_IS KW_FALSE
+  {:
+    e = new CastExpr(TypeDef.create(PrimitiveType.BOOLEAN), e);
+    RESULT = new CompoundPredicate(CompoundPredicate.Operator.NOT, e, null);
+  :}
+  | expr:e KW_IS KW_NOT KW_FALSE
+  {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.BOOLEAN), e); :}
   | KW_CONVERT LPAREN expr:e KW_USING ident:character RPAREN
   {: 
     ArrayList<Expr> exprs = new ArrayList<>();
@@ -7824,20 +7840,28 @@ admin_stmt ::=
     :}
     | KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs
     {:
-        RESULT = new AdminSetConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, configs, false);
+        RESULT = new AdminSetConfigStmt(NodeType.FRONTEND, configs, false);
     :}
     | KW_ADMIN KW_SET KW_ALL KW_FRONTENDS KW_CONFIG opt_key_value_map:configs
     {:
-        RESULT = new AdminSetConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, configs, true);
+        RESULT = new AdminSetConfigStmt(NodeType.FRONTEND, configs, true);
     :}
     | KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs KW_ALL
     {:
-        RESULT = new AdminSetConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, configs, true);
+        RESULT = new AdminSetConfigStmt(NodeType.FRONTEND, configs, true);
     :}
     // deprecated
     | KW_ADMIN KW_SHOW KW_FRONTEND KW_CONFIG opt_wild_where
     {:
-        RESULT = new ShowConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, parser.wild);
+        RESULT = new ShowConfigStmt(NodeType.FRONTEND, parser.wild);
+    :}
+    | KW_ADMIN KW_SHOW KW_BACKEND KW_CONFIG opt_wild_where
+    {:
+        RESULT = new ShowConfigStmt(NodeType.BACKEND, parser.wild);
+    :}
+    | KW_ADMIN KW_SHOW KW_BACKEND KW_CONFIG opt_wild_where KW_FROM INTEGER_LITERAL:backendId
+    {:
+        RESULT = new ShowConfigStmt(NodeType.BACKEND, parser.wild, backendId);
     :}
     | KW_ADMIN KW_CHECK KW_TABLET LPAREN integer_list:tabletIds RPAREN opt_properties:properties
     {:

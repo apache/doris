@@ -93,9 +93,8 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
                 doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(),
                 doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
 
-        if (!doris::enable_thread_catch_bad_alloc &&
-            (size > 1024L * 1024 * 1024 ||
-             doris::config::enable_stacktrace_in_allocator_check_failed)) {
+        if (doris::config::stacktrace_in_alloc_large_memory_bytes > 0 &&
+            size > doris::config::stacktrace_in_alloc_large_memory_bytes) {
             err_msg += "\nAlloc Stacktrace:\n" + doris::get_stack_trace();
         }
 
@@ -106,8 +105,11 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
             }
             return;
         }
-        if (!doris::config::disable_memory_gc &&
-            doris::thread_context()->thread_mem_tracker_mgr->is_attach_query() &&
+
+        // no significant impact on performance is expected.
+        doris::MemInfo::notify_je_purge_dirty_pages();
+
+        if (doris::thread_context()->thread_mem_tracker_mgr->is_attach_query() &&
             doris::thread_context()->thread_mem_tracker_mgr->wait_gc()) {
             int64_t wait_milliseconds = 0;
             LOG(INFO) << fmt::format(
@@ -115,19 +117,23 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
                     print_id(doris::thread_context()->task_id()),
                     doris::thread_context()->get_thread_id(),
                     doris::config::thread_wait_gc_max_milliseconds, err_msg);
-            while (wait_milliseconds < doris::config::thread_wait_gc_max_milliseconds) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                if (!doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(size)) {
-                    doris::GlobalMemoryArbitrator::refresh_interval_memory_growth += size;
-                    break;
-                }
-                if (doris::thread_context()->thread_mem_tracker_mgr->is_query_cancelled()) {
-                    if (doris::enable_thread_catch_bad_alloc) {
-                        throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
+            // only query thread exceeded memory limit for the first time and wait_gc is true.
+            doris::MemInfo::je_thread_tcache_flush();
+            if (!doris::config::disable_memory_gc) {
+                while (wait_milliseconds < doris::config::thread_wait_gc_max_milliseconds) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    if (!doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(size)) {
+                        doris::GlobalMemoryArbitrator::refresh_interval_memory_growth += size;
+                        break;
                     }
-                    return;
+                    if (doris::thread_context()->thread_mem_tracker_mgr->is_query_cancelled()) {
+                        if (doris::enable_thread_catch_bad_alloc) {
+                            throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
+                        }
+                        return;
+                    }
+                    wait_milliseconds += 100;
                 }
-                wait_milliseconds += 100;
             }
             if (wait_milliseconds >= doris::config::thread_wait_gc_max_milliseconds) {
                 // Make sure to completely wait thread_wait_gc_max_milliseconds only once.
@@ -205,14 +211,43 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::consume_memory(
-        size_t size) const {
+        size_t size) {
+    // Usually, an object that inherits Allocator has the same TLS tracker for each alloc.
+    // If an object that inherits Allocator needs to be reused by multiple queries,
+    // it is necessary to switch the same tracker to TLS when calling alloc.
+    // However, in ORC Reader, ORC DataBuffer will be reused, but we cannot switch TLS tracker,
+    // so we update the Allocator tracker when the TLS tracker changes.
+    // note that the tracker in thread context when object that inherit Allocator is constructed may be
+    // no attach memory tracker in tls. usually the memory tracker is attached in tls only during the first alloc.
+    if (mem_tracker_ == nullptr ||
+        mem_tracker_->label() != doris::thread_context()->thread_mem_tracker()->label()) {
+        mem_tracker_ = doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
+    }
     CONSUME_THREAD_MEM_TRACKER(size);
 }
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::release_memory(
         size_t size) const {
-    RELEASE_THREAD_MEM_TRACKER(size);
+    doris::ThreadContext* thread_context = doris::thread_context(true);
+    if ((thread_context && thread_context->thread_mem_tracker()->label() != "Orphan") ||
+        mem_tracker_ == nullptr) {
+        // If thread_context exist and the label of thread_mem_tracker not equal to `Orphan`,
+        // this means that in the scope of SCOPED_ATTACH_TASK,
+        // so thread_mem_tracker should be used to release memory.
+        // If mem_tracker_ is nullptr there is a scenario where an object that inherits Allocator
+        // has never called alloc, but free memory.
+        // in phmap, the memory alloced by an object may be transferred to another object and then free.
+        // in this case, thread context must attach a memory tracker other than Orphan,
+        // otherwise memory tracking will be wrong.
+        RELEASE_THREAD_MEM_TRACKER(size);
+    } else {
+        // if thread_context does not exist or the label of thread_mem_tracker is equal to
+        // `Orphan`, it usually happens during object destruction. This means that
+        // the scope of SCOPED_ATTACH_TASK has been left,  so release memory using Allocator tracker.
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker_);
+        RELEASE_THREAD_MEM_TRACKER(size);
+    }
 }
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>

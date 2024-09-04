@@ -126,11 +126,20 @@ public class StatisticsRepository {
 
     public static ColumnStatistic queryColumnStatisticsByName(
             long ctlId, long dbId, long tableId, long indexId, String colName) {
+        ColumnStatistic columnStatistic = ColumnStatistic.UNKNOWN;
         ResultRow resultRow = queryColumnStatisticById(ctlId, dbId, tableId, indexId, colName);
         if (resultRow == null) {
-            return ColumnStatistic.UNKNOWN;
+            return columnStatistic;
         }
-        return ColumnStatistic.fromResultRow(resultRow);
+        try {
+            columnStatistic = ColumnStatistic.fromResultRow(resultRow);
+        } catch (Exception e) {
+            LOG.warn("Failed to deserialize column statistics. reason: [{}]. Row [{}]", e.getMessage(), resultRow);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(e);
+            }
+        }
+        return columnStatistic;
     }
 
     public static List<ResultRow> queryColumnStatisticsByPartitions(TableIf table, Set<String> columnNames,
@@ -371,8 +380,9 @@ public class StatisticsRepository {
                     objects.catalog.getId(), objects.db.getId(), objects.table.getId(), indexId, colName,
                     null, columnStatistic);
             Env.getCurrentEnv().getStatisticsCache().syncColStats(data);
+            long timestamp = System.currentTimeMillis();
             AnalysisInfo mockedJobInfo = new AnalysisInfoBuilder()
-                    .setTblUpdateTime(System.currentTimeMillis())
+                    .setTblUpdateTime(timestamp)
                     .setColName("")
                     .setRowCount((long) Double.parseDouble(rowCount))
                     .setJobColumns(Sets.newHashSet())
@@ -382,6 +392,7 @@ public class StatisticsRepository {
             if (objects.table instanceof OlapTable) {
                 indexId = indexId == -1 ? ((OlapTable) objects.table).getBaseIndexId() : indexId;
                 mockedJobInfo.addIndexRowCount(indexId, (long) Double.parseDouble(rowCount));
+                mockedJobInfo.addIndexUpdateRowCountTime(indexId, timestamp);
             }
             Env.getCurrentEnv().getAnalysisManager().updateTableStatsForAlterStats(mockedJobInfo, objects.table);
         } else {

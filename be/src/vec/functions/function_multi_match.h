@@ -26,13 +26,6 @@
 
 namespace doris::vectorized {
 
-class MatchParam {
-public:
-    std::string query;
-    std::set<std::string> fields;
-    std::string type;
-};
-
 class FunctionMultiMatch : public IFunction {
 public:
     static constexpr auto name = "multi_match";
@@ -42,9 +35,9 @@ public:
 
     String get_name() const override { return name; }
 
-    bool is_variadic() const override { return false; }
+    bool is_variadic() const override { return true; }
 
-    size_t get_number_of_arguments() const override { return 4; }
+    size_t get_number_of_arguments() const override { return 0; }
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
@@ -52,7 +45,9 @@ public:
         return std::make_shared<DataTypeUInt8>();
     }
 
-    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        return Status::OK();
+    }
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return Status::OK();
@@ -63,8 +58,11 @@ public:
 
     bool can_push_down_to_index() const override { return true; }
 
-    Status eval_inverted_index(FunctionContext* context,
-                               segment_v2::FuncExprParams& params) override;
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override;
 };
 
 } // namespace doris::vectorized

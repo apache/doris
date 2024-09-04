@@ -344,8 +344,6 @@ public:
         return _query_options.disable_stream_preaggregations;
     }
 
-    bool enable_spill() const { return _query_options.enable_spilling; }
-
     int32_t runtime_filter_wait_time_ms() const {
         return _query_options.runtime_filter_wait_time_ms;
     }
@@ -439,10 +437,6 @@ public:
 
     std::vector<TErrorTabletInfo>& error_tablet_infos() { return _error_tablet_infos; }
 
-    // get mem limit for load channel
-    // if load mem limit is not set, or is zero, using query mem limit instead.
-    int64_t get_load_mem_limit();
-
     // local runtime filter mgr, the runtime filter do not have remote target or
     // not need local merge should regist here. the instance exec finish, the local
     // runtime filter mgr can release the memory of local runtime filter
@@ -510,12 +504,6 @@ public:
     }
 
     void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
-
-    int64_t external_agg_bytes_threshold() const {
-        return _query_options.__isset.external_agg_bytes_threshold
-                       ? _query_options.external_agg_bytes_threshold
-                       : 0;
-    }
 
     inline bool enable_delete_sub_pred_v2() const {
         return _query_options.__isset.enable_delete_sub_predicate_v2 &&
@@ -589,9 +577,9 @@ public:
 
     int64_t min_revocable_mem() const {
         if (_query_options.__isset.min_revocable_mem) {
-            return _query_options.min_revocable_mem;
+            return std::max(_query_options.min_revocable_mem, (int64_t)1);
         }
-        return 0;
+        return 1;
     }
 
     void set_max_operator_id(int max_operator_id) { _max_operator_id = max_operator_id; }
@@ -737,9 +725,11 @@ private:
     std::string _s3_error_log_file_path;
 };
 
-#define RETURN_IF_CANCELLED(state)                                                    \
-    do {                                                                              \
-        if (UNLIKELY((state)->is_cancelled())) return Status::Cancelled("Cancelled"); \
+#define RETURN_IF_CANCELLED(state)               \
+    do {                                         \
+        if (UNLIKELY((state)->is_cancelled())) { \
+            return (state)->cancel_reason();     \
+        }                                        \
     } while (false)
 
 } // namespace doris

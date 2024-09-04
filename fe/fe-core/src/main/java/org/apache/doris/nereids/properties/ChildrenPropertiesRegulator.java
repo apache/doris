@@ -162,12 +162,15 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                             distinctChildColumns, ShuffleType.REQUIRE);
                     if ((!groupByColumns.isEmpty() && distributionSpecHash.satisfy(groupByRequire))
                             || (groupByColumns.isEmpty() && distributionSpecHash.satisfy(distinctChildRequire))) {
-                        return false;
+                        if (!agg.mustUseMultiDistinctAgg()) {
+                            return false;
+                        }
                     }
                 }
                 // if distinct without group by key, we prefer three or four stage distinct agg
                 // because the second phase of multi-distinct only have one instance, and it is slow generally.
-                if (agg.getOutputExpressions().size() == 1 && agg.getGroupByExpressions().isEmpty()) {
+                if (agg.getOutputExpressions().size() == 1 && agg.getGroupByExpressions().isEmpty()
+                        && !agg.mustUseMultiDistinctAgg()) {
                     return false;
                 }
             }
@@ -198,6 +201,9 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
     @Override
     public Boolean visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, Void context) {
         // do not process must shuffle
+        if (children.get(0).getPlan() instanceof PhysicalDistribute) {
+            return false;
+        }
         return true;
     }
 
@@ -461,6 +467,9 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
     @Override
     public Boolean visitPhysicalProject(PhysicalProject<? extends Plan> project, Void context) {
         // do not process must shuffle
+        if (children.get(0).getPlan() instanceof PhysicalDistribute) {
+            return false;
+        }
         return true;
     }
 
@@ -528,9 +537,19 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         // process must shuffle
         visit(topN, context);
 
+        int sortPhaseNum = jobContext.getCascadesContext().getConnectContext().getSessionVariable().sortPhaseNum;
+        // if control sort phase, forbid nothing
+        if (sortPhaseNum == 1 || sortPhaseNum == 2) {
+            return true;
+        }
         // If child is DistributionSpecGather, topN should forbid two-phase topN
         if (topN.getSortPhase() == SortPhase.LOCAL_SORT
                 && childrenProperties.get(0).getDistributionSpec().equals(DistributionSpecGather.INSTANCE)) {
+            return false;
+        }
+        // forbid one step topn with distribute as child
+        if (topN.getSortPhase() == SortPhase.GATHER_SORT
+                && children.get(0).getPlan() instanceof PhysicalDistribute) {
             return false;
         }
         return true;

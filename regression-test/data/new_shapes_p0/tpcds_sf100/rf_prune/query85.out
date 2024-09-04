@@ -11,27 +11,22 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((reason.r_reason_sk = web_returns.wr_reason_sk)) otherCondition=()
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((customer_address.ca_address_sk = web_returns.wr_refunded_addr_sk)) otherCondition=((((ca_state IN ('DE', 'FL', 'TX') AND ((web_sales.ws_net_profit >= 100.00) AND (web_sales.ws_net_profit <= 200.00))) OR (ca_state IN ('ID', 'IN', 'ND') AND ((web_sales.ws_net_profit >= 150.00) AND (web_sales.ws_net_profit <= 300.00)))) OR (ca_state IN ('IL', 'MT', 'OH') AND ((web_sales.ws_net_profit >= 50.00) AND (web_sales.ws_net_profit <= 250.00))))) build RFs:RF8 wr_refunded_addr_sk->[ca_address_sk]
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((cd1.cd_education_status = cd2.cd_education_status) and (cd1.cd_marital_status = cd2.cd_marital_status) and (cd2.cd_demo_sk = web_returns.wr_returning_cdemo_sk)) otherCondition=() build RFs:RF6 wr_returning_cdemo_sk->[cd_demo_sk];RF7 cd_marital_status->[cd_marital_status];RF8 cd_education_status->[cd_education_status]
 ------------------------PhysicalProject
---------------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('DE', 'FL', 'ID', 'IL', 'IN', 'MT', 'ND', 'OH', 'TX'))
-----------------------------PhysicalOlapScan[customer_address] apply RFs: RF8
+--------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF6 RF7 RF8
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF7 ws_web_page_sk->[wp_web_page_sk]
+--------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=()
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[web_page] apply RFs: RF7
-----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((cd1.cd_education_status = cd2.cd_education_status) and (cd1.cd_marital_status = cd2.cd_marital_status) and (cd2.cd_demo_sk = web_returns.wr_returning_cdemo_sk)) otherCondition=() build RFs:RF4 wr_returning_cdemo_sk->[cd_demo_sk];RF5 cd_marital_status->[cd_marital_status];RF6 cd_education_status->[cd_education_status]
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((cd1.cd_demo_sk = web_returns.wr_refunded_cdemo_sk)) otherCondition=((((((cd1.cd_marital_status = 'M') AND (cd1.cd_education_status = '4 yr Degree')) AND ((web_sales.ws_sales_price >= 100.00) AND (web_sales.ws_sales_price <= 150.00))) OR (((cd1.cd_marital_status = 'S') AND (cd1.cd_education_status = 'Secondary')) AND ((web_sales.ws_sales_price >= 50.00) AND (web_sales.ws_sales_price <= 100.00)))) OR (((cd1.cd_marital_status = 'W') AND (cd1.cd_education_status = 'Advanced Degree')) AND ((web_sales.ws_sales_price >= 150.00) AND (web_sales.ws_sales_price <= 200.00))))) build RFs:RF4 wr_refunded_cdemo_sk->[cd_demo_sk]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF4 RF5 RF6
+----------------------------------filter(((((cd1.cd_marital_status = 'M') AND (cd1.cd_education_status = '4 yr Degree')) OR ((cd1.cd_marital_status = 'S') AND (cd1.cd_education_status = 'Secondary'))) OR ((cd1.cd_marital_status = 'W') AND (cd1.cd_education_status = 'Advanced Degree'))))
+------------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF4
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((cd1.cd_demo_sk = web_returns.wr_refunded_cdemo_sk)) otherCondition=((((((cd1.cd_marital_status = 'M') AND (cd1.cd_education_status = '4 yr Degree')) AND ((web_sales.ws_sales_price >= 100.00) AND (web_sales.ws_sales_price <= 150.00))) OR (((cd1.cd_marital_status = 'S') AND (cd1.cd_education_status = 'Secondary')) AND ((web_sales.ws_sales_price >= 50.00) AND (web_sales.ws_sales_price <= 100.00)))) OR (((cd1.cd_marital_status = 'W') AND (cd1.cd_education_status = 'Advanced Degree')) AND ((web_sales.ws_sales_price >= 150.00) AND (web_sales.ws_sales_price <= 200.00))))) build RFs:RF3 wr_refunded_cdemo_sk->[cd_demo_sk]
-------------------------------------PhysicalProject
---------------------------------------filter(((((cd1.cd_marital_status = 'M') AND (cd1.cd_education_status = '4 yr Degree')) OR ((cd1.cd_marital_status = 'S') AND (cd1.cd_education_status = 'Secondary'))) OR ((cd1.cd_marital_status = 'W') AND (cd1.cd_education_status = 'Advanced Degree'))))
-----------------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF3
+----------------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((customer_address.ca_address_sk = web_returns.wr_refunded_addr_sk)) otherCondition=((((ca_state IN ('DE', 'FL', 'TX') AND ((web_sales.ws_net_profit >= 100.00) AND (web_sales.ws_net_profit <= 200.00))) OR (ca_state IN ('ID', 'IN', 'ND') AND ((web_sales.ws_net_profit >= 150.00) AND (web_sales.ws_net_profit <= 300.00)))) OR (ca_state IN ('IL', 'MT', 'OH') AND ((web_sales.ws_net_profit >= 50.00) AND (web_sales.ws_net_profit <= 250.00))))) build RFs:RF3 ca_address_sk->[wr_refunded_addr_sk]
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF1 ws_item_sk->[wr_item_sk];RF2 ws_order_number->[wr_order_number]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF1 RF2
+------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF1 RF2 RF3
 ----------------------------------------PhysicalProject
 ------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_sold_date_sk]
 --------------------------------------------PhysicalProject
@@ -40,6 +35,11 @@ PhysicalResultSink
 --------------------------------------------PhysicalProject
 ----------------------------------------------filter((date_dim.d_year = 2000))
 ------------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------PhysicalProject
+--------------------------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('DE', 'FL', 'ID', 'IL', 'IN', 'MT', 'ND', 'OH', 'TX'))
+----------------------------------------PhysicalOlapScan[customer_address]
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[web_page]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[reason]
 

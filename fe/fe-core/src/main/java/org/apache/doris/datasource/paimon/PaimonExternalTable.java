@@ -187,22 +187,17 @@ public class PaimonExternalTable extends ExternalTable {
     @Override
     public long fetchRowCount() {
         makeSureInitialized();
-        try {
-            long rowCount = 0;
-            Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
-            Table paimonTable = schemaCacheValue.map(value -> ((PaimonSchemaCacheValue) value).getPaimonTable())
-                    .orElse(null);
-            if (paimonTable == null) {
-                return -1;
-            }
-            List<Split> splits = paimonTable.newReadBuilder().newScan().plan().splits();
-            for (Split split : splits) {
-                rowCount += split.rowCount();
-            }
-            return rowCount;
-        } catch (Exception e) {
-            LOG.warn("Fail to collect row count for db {} table {}", dbName, name, e);
+        long rowCount = 0;
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+        Table paimonTable = schemaCacheValue.map(value -> ((PaimonSchemaCacheValue) value).getPaimonTable())
+                .orElse(null);
+        if (paimonTable == null) {
+            return -1;
         }
-        return -1;
+        List<Split> splits = paimonTable.newReadBuilder().newScan().plan().splits();
+        for (Split split : splits) {
+            rowCount += split.rowCount();
+        }
+        return rowCount;
     }
 }

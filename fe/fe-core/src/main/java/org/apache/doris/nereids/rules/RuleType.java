@@ -176,6 +176,7 @@ public enum RuleType {
 
     PUSH_DOWN_FILTER_THROUGH_CTE(RuleTypeClass.REWRITE),
     PUSH_DOWN_FILTER_THROUGH_CTE_ANCHOR(RuleTypeClass.REWRITE),
+    MAX_MIN_FILTER_PUSH_DOWN(RuleTypeClass.REWRITE),
 
     PUSH_DOWN_DISTINCT_THROUGH_JOIN(RuleTypeClass.REWRITE),
 
@@ -299,7 +300,6 @@ public enum RuleType {
     // split limit
     SPLIT_LIMIT(RuleTypeClass.REWRITE),
     PULL_UP_JOIN_FROM_UNIONALL(RuleTypeClass.REWRITE),
-    PULL_UP_JOIN_FROM_UNION(RuleTypeClass.REWRITE),
     // limit push down
     PUSH_LIMIT_THROUGH_JOIN(RuleTypeClass.REWRITE),
     PUSH_LIMIT_THROUGH_PROJECT_JOIN(RuleTypeClass.REWRITE),

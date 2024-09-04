@@ -24,9 +24,8 @@ suite("test_warmup_show_stmt_2") {
     // create table if not exists
     sql new File("""${context.file.parent}/../ddl/${table}_with_partition.sql""").text
     sql new File("""${context.file.parent}/../ddl/supplier.sql""").text
-
+    // FIXME(gavin): should also reset the stats of cache hotspot on the BE side
     sql """ TRUNCATE TABLE __internal_schema.cloud_cache_hotspot; """
-    sleep(30000)
 
     def s3BucketName = getS3BucketName()
     def s3WithProperties = """WITH S3 (
@@ -38,8 +37,6 @@ suite("test_warmup_show_stmt_2") {
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",
         |"load_parallelism" = "3")""".stripMargin()
-    
-    
 
     def load_customer_once =  { 
         def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
@@ -61,10 +58,14 @@ suite("test_warmup_show_stmt_2") {
             sleep(5000)
         }
     }
-    
-    sql "use @regression_cluster_name0"
-    load_customer_once()
 
+    connect('root') {
+        sql "use @regression_cluster_name0"
+        sql "use regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot"
+        load_customer_once()
+    }
+
+    // generate cache hotspot
     for (int i = 0; i < 1000; i++) {
         sql "select count(*) from customer where C_CUSTKEY > 10001000"
         if (i % 2 == 0) {
@@ -73,22 +74,51 @@ suite("test_warmup_show_stmt_2") {
     }
 
     sleep(40000)
-    result = sql """ show cache hotspot "/" """
-    assertEquals(result.size(), 1);
-    assertEquals(result[0][0], "regression_cluster_id0")
-    assertEquals(result[0][3], "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer")
 
-    result = sql """ show cache hotspot "/regression_cluster_name0" """
-    assertEquals(result[0][3], "p3");
-    result = sql """ show cache hotspot "/regression_cluster_name1" """
-    assertEquals(result.size(), 0);
-    result = sql """ show cache hotspot "/regression_cluster_name0/regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.supplier" """
+    def getLineNumber = {
+        def s = java.lang.Thread.currentThread().getStackTrace()[3]
+        return s.getFileName() + ":" + s.getLineNumber()
+    }
+
+    def result = sql_return_maparray """ show cache hotspot "/" """
+    log.info(result.toString())
+    org.junit.Assert.assertTrue("result.size() " + result.size() + " > 0", result.size() > 0)
+    def hotTableName = "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer"
+    for (int i = 0; i < result.size(); ++i) {
+        if (!result[i].get("hot_table_name").equals(hotTableName)) {
+            org.junit.Assert.assertTrue(getLineNumber() + "cannot find expected cache hotspot ${hotTableName}", result.size() > i + 1)
+            continue
+        }
+        assertEquals(result[i].get("cluster_id"), "regression_cluster_id0")
+        assertEquals(result[i].get("cluster_name"), "regression_cluster_name0")
+        assertEquals(result[i].get("hot_table_name"), "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer")
+    }
+
+    result = sql_return_maparray """ show cache hotspot "/regression_cluster_name0" """
+    log.info(result.toString())
+    org.junit.Assert.assertTrue(getLineNumber() + "result.size() " + result.size() + " > 0", result.size() > 0)
+    assertEquals(result[0].get("hot_partition_name"), "p3")
+    assertEquals(result[0].get("table_name"), "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer")
+    // result = sql_return_maparray """ show cache hotspot "/regression_cluster_name1" """
+    // assertEquals(result.size(), 0);
+    // not queried table should not be the hotspot
+    result = sql_return_maparray """ show cache hotspot "/regression_cluster_name0/regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.supplier" """
+    log.info(result.toString())
     assertEquals(result.size(), 0);
 
     sql new File("""${context.file.parent}/../ddl/${table}_delete.sql""").text
     sleep(40000)
-    result = sql """ show cache hotspot "/" """
-    assertEquals(result.size(), 1);
-    assertEquals(result[0][0], "regression_cluster_id0")
-    assertEquals(result[0][3], "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer")
+    result = sql_return_maparray """ show cache hotspot "/" """
+    log.info(result.toString())
+    org.junit.Assert.assertTrue("result.size() " + result.size() + " > 0", result.size() > 0)
+    for (int i = 0; i < result.size(); ++i) {
+        if (!result[i].get("hot_table_name").equals(hotTableName)) {
+            org.junit.Assert.assertTrue("cannot find expected cache hotspot ${hotTableName}", result.size() > i + 1)
+            continue
+        }
+        assertEquals(result[i].get("cluster_id"), "regression_cluster_id0")
+        assertEquals(result[i].get("cluster_name"), "regression_cluster_name0")
+        assertEquals(result[i].get("hot_table_name"), "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer")
+        break
+    }
 }

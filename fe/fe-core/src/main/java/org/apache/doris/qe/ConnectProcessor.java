@@ -260,12 +260,8 @@ public abstract class ConnectProcessor {
         Exception nereidsSyntaxException = null;
         long parseSqlStartTime = System.currentTimeMillis();
         List<StatementBase> cachedStmts = null;
-        // Currently we add a config to decide whether using PREPARED/EXECUTE command for nereids
-        // TODO: after implemented full prepared, we could remove this flag
-        boolean nereidsUseServerPrep = sessionVariable.enableServeSidePreparedStatement
-                        || mysqlCommand == MysqlCommand.COM_QUERY;
         CacheKeyType cacheKeyType = null;
-        if (nereidsUseServerPrep && sessionVariable.isEnableNereidsPlanner()) {
+        if (sessionVariable.isEnableNereidsPlanner()) {
             if (wantToParseSqlFromSqlCache) {
                 cachedStmts = parseFromSqlCache(originStmt);
                 Optional<SqlCacheContext> sqlCacheContext = ConnectContext.get()
@@ -308,6 +304,12 @@ public abstract class ConnectProcessor {
 
         // stmts == null when Nereids cannot planner this query or Nereids is disabled.
         if (stmts == null) {
+            if (mysqlCommand == MysqlCommand.COM_STMT_PREPARE) {
+                // avoid fall back to legacy planner
+                ctx.getState().setError(ErrorCode.ERR_UNSUPPORTED_PS, "Not supported such prepared statement");
+                ctx.getState().setErrType(QueryState.ErrType.OTHER_ERR);
+                return;
+            }
             try {
                 stmts = parse(convertedStmt);
             } catch (Throwable throwable) {
@@ -326,6 +328,7 @@ public abstract class ConnectProcessor {
         if (mysqlCommand == MysqlCommand.COM_QUERY
                 && ctx.getSessionVariable().isEnableNereidsPlanner()
                 && !ctx.getSessionVariable().enableFallbackToOriginalPlanner
+                && !stmts.isEmpty()
                 && stmts.stream().allMatch(s -> s instanceof NotFallbackInParser)) {
             String errMsg;
             Throwable exception = null;
@@ -391,7 +394,7 @@ public abstract class ConnectProcessor {
                                 // when client not request CLIENT_MULTI_STATEMENTS, mysql treat all query as
                                 // single statement. Doris treat it with multi statement, but only return
                                 // the last statement result.
-                                if (getConnectContext().getCapability().isClientMultiStatements()) {
+                                if (getConnectContext().getMysqlChannel().clientMultiStatements()) {
                                     finalizeCommand();
                                 }
                             }

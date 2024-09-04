@@ -7,34 +7,41 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN broadcast] hashCondition=((ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF3 ss_sold_date_sk->[d_date_sk]
+--------------PhysicalUnion
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[date_dim] apply RFs: RF3
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 ss_sold_date_sk->[d_date_sk]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[date_dim] apply RFs: RF1
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 ss_item_sk->[i_item_sk]
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[item] apply RFs: RF0
+--------------------------PhysicalProject
+----------------------------filter(ss_hdemo_sk IS NULL)
+------------------------------PhysicalOlapScan[store_sales]
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
 ------------------PhysicalProject
---------------------PhysicalUnion
-----------------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 ss_item_sk->[i_item_sk]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[item] apply RFs: RF0
-----------------------------PhysicalProject
-------------------------------filter(ss_hdemo_sk IS NULL)
---------------------------------PhysicalOlapScan[store_sales]
-----------------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF1 ws_item_sk->[i_item_sk]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[item] apply RFs: RF1
-----------------------------PhysicalProject
-------------------------------filter(ws_bill_addr_sk IS NULL)
---------------------------------PhysicalOlapScan[web_sales]
-----------------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 cs_item_sk->[i_item_sk]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[item] apply RFs: RF2
-----------------------------PhysicalProject
-------------------------------filter(cs_warehouse_sk IS NULL)
---------------------------------PhysicalOlapScan[catalog_sales]
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF3 ws_sold_date_sk->[d_date_sk]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[date_dim] apply RFs: RF3
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 ws_item_sk->[i_item_sk]
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[item] apply RFs: RF2
+--------------------------PhysicalProject
+----------------------------filter(ws_bill_addr_sk IS NULL)
+------------------------------PhysicalOlapScan[web_sales]
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF5 cs_sold_date_sk->[d_date_sk]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[date_dim] apply RFs: RF5
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF4 cs_item_sk->[i_item_sk]
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[item] apply RFs: RF4
+--------------------------PhysicalProject
+----------------------------filter(cs_warehouse_sk IS NULL)
+------------------------------PhysicalOlapScan[catalog_sales]
 

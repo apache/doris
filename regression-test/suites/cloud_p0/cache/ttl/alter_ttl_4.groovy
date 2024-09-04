@@ -19,7 +19,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("alter_ttl_4") {
     sql """ use @regression_cluster_name1 """
-    def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="90") """
+    def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="900") """
     String[][] backends = sql """ show backends """
     String backendId;
     def backendIdToBackendIP = [:]

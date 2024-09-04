@@ -84,13 +84,12 @@ public class StreamLoadHandler {
      * Select a random backend in the given cloud cluster.
      *
      * @param clusterName cloud cluster name
-     * @param groupCommit if this selection is for group commit
      * @throws LoadException if there is no available backend
      */
-    public static Backend selectBackend(String clusterName, boolean groupCommit) throws LoadException {
+    public static Backend selectBackend(String clusterName) throws LoadException {
         List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                 .getBackendsByClusterName(clusterName)
-                .stream().filter(be -> be.isAlive() && (!groupCommit || groupCommit && !be.isDecommissioned()))
+                .stream().filter(Backend::isAlive)
                 .collect(Collectors.toList());
 
         if (backends.isEmpty()) {
@@ -101,8 +100,7 @@ public class StreamLoadHandler {
         // TODO: add a more sophisticated algorithm to select backend
         SecureRandom rand = new SecureRandom();
         int randomIndex = rand.nextInt(backends.size());
-        Backend backend = backends.get(randomIndex);
-        return backend;
+        return backends.get(randomIndex);
     }
 
     public void setCloudCluster() throws UserException {
@@ -126,7 +124,7 @@ public class StreamLoadHandler {
 
         ctx.setRemoteIP(request.isSetAuthCode() ? clientAddr : request.getUserIp());
         String userName = ClusterNamespace.getNameFromFullName(request.getUser());
-        if (!request.isSetToken() && !Strings.isNullOrEmpty(userName)) {
+        if (!request.isSetToken() && !request.isSetAuthCode() && !Strings.isNullOrEmpty(userName)) {
             List<UserIdentity> currentUser = Lists.newArrayList();
             try {
                 Env.getCurrentEnv().getAuth().checkPlainPassword(userName,

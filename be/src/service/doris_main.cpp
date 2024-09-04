@@ -67,7 +67,6 @@
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "io/cache/block_file_cache_factory.h"
-#include "io/fs/local_file_reader.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
@@ -528,7 +527,6 @@ int main(int argc, char** argv) {
 
     doris::ThreadLocalHandle::create_thread_local_if_not_exits();
 
-    doris::io::BeConfDataDirReader::init_be_conf_data_dir(paths, spill_paths);
     // init exec env
     auto* exec_env(doris::ExecEnv::GetInstance());
     status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, spill_paths, broken_paths);
@@ -603,6 +601,8 @@ int main(int argc, char** argv) {
     daemon.start();
     stop_work_if_error(
             status, "Arrow Flight Service did not start correctly, exiting, " + status.to_string());
+
+    exec_env->storage_engine().notify_listeners();
 
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)

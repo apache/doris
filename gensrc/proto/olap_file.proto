@@ -131,6 +131,9 @@ message RowsetMetaPB {
     // the segments_file_size maybe is empty or error
     optional bool enable_segments_file_size = 1004;
     optional bool has_variant_type_in_schema = 1005;
+
+    optional bool enable_inverted_index_file_info = 1006;
+    repeated InvertedIndexFileInfo inverted_index_file_info = 1007;
 }
 
 message SchemaDictKeyList {
@@ -214,6 +217,9 @@ message RowsetMetaCloudPB {
     optional bool has_variant_type_in_schema = 104;
     // dict key lists for compress schema info
     optional SchemaDictKeyList schema_dict_key_list = 105;
+
+    optional bool enable_inverted_index_file_info = 106;
+    repeated InvertedIndexFileInfo inverted_index_file_info = 107;
 }
 
 message SegmentStatisticsPB {
@@ -384,6 +390,8 @@ message TabletSchemaPB {
     // column unique ids for row store columns
     repeated int32 row_store_column_unique_ids = 26;
     optional int64 row_store_page_size = 27 [default=16384];
+
+    optional bool variant_enable_flatten_nested = 28 [default=false];
 }
 
 message TabletSchemaCloudPB {
@@ -414,6 +422,7 @@ message TabletSchemaCloudPB {
     repeated int32 row_store_column_unique_ids = 26;
     optional int64 row_store_page_size = 27 [default=16384];
     optional bool enable_mow_light_delete = 28 [default=false];
+    optional bool enable_variant_flatten_nested = 29 [default=false];
 
     optional bool is_dynamic_schema = 100 [default=false];
 }
@@ -600,4 +609,19 @@ message RowsetBinlogMetasPB {
     }
 
     repeated RowsetBinlogMetaPB rowset_binlog_metas = 1;
+}
+
+message PartialUpdateInfoPB {
+    optional bool is_partial_update = 1 [default = false];
+    repeated string partial_update_input_columns = 2;
+    repeated uint32 missing_cids = 3;
+    repeated uint32 update_cids = 4;
+    optional bool can_insert_new_rows_in_partial_update = 5 [default = false];
+    optional bool is_strict_mode = 6 [default = false];
+    optional int64 timestamp_ms = 7 [default = 0];
+    optional string timezone = 8;
+    optional bool is_input_columns_contains_auto_inc_column = 9 [default = false];
+    optional bool is_schema_contains_auto_inc_column = 10 [default = false];
+    repeated string default_values = 11;
+    optional int64 max_version_in_flush_phase = 12 [default = -1];
 }

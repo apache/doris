@@ -3,7 +3,7 @@
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalProject
-------hashJoin[INNER_JOIN shuffle] hashCondition=((PULL_UP_UNIFIED_OUTPUT_ALIAS = customer.c_customer_sk)) otherCondition=() build RFs:RF3 c_customer_sk->[cs_bill_customer_sk,ss_customer_sk,ws_bill_customer_sk]
+------hashJoin[INNER_JOIN broadcast] hashCondition=((PULL_UP_UNIFIED_OUTPUT_ALIAS = customer.c_customer_sk)) otherCondition=() build RFs:RF3 c_customer_sk->[cs_bill_customer_sk,ss_customer_sk,ws_bill_customer_sk]
 --------PhysicalProject
 ----------PhysicalUnion
 ------------PhysicalProject
@@ -51,20 +51,14 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------filter((t_w_secyear.dyear = 2000) and (t_w_secyear.sale_type = 'w'))
 ------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((t_s_firstyear.customer_id = t_w_firstyear.customer_id)) otherCondition=()
-------------------PhysicalProject
---------------------filter((t_w_firstyear.dyear = 1999) and (t_w_firstyear.sale_type = 'w') and (t_w_firstyear.year_total > 0.000000))
-----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t_s_firstyear.customer_id = t_w_firstyear.customer_id)) otherCondition=()
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((t_s_firstyear.customer_id = t_c_secyear.customer_id)) otherCondition=((if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL) > if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL)))
 ----------------------PhysicalProject
 ------------------------filter((t_c_secyear.dyear = 2000) and (t_c_secyear.sale_type = 'c'))
 --------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((t_s_firstyear.customer_id = t_c_firstyear.customer_id)) otherCondition=()
---------------------------PhysicalProject
-----------------------------filter((t_c_firstyear.dyear = 1999) and (t_c_firstyear.sale_type = 'c') and (t_c_firstyear.year_total > 0.000000))
-------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t_s_firstyear.customer_id = t_c_firstyear.customer_id)) otherCondition=()
 --------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((t_s_secyear.customer_id = t_s_firstyear.customer_id)) otherCondition=()
 ----------------------------PhysicalProject
 ------------------------------filter((t_s_secyear.dyear = 2000) and (t_s_secyear.sale_type = 's'))
@@ -72,4 +66,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------------PhysicalProject
 ------------------------------filter((t_s_firstyear.dyear = 1999) and (t_s_firstyear.sale_type = 's') and (t_s_firstyear.year_total > 0.000000))
 --------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------------------PhysicalProject
+----------------------------filter((t_c_firstyear.dyear = 1999) and (t_c_firstyear.sale_type = 'c') and (t_c_firstyear.year_total > 0.000000))
+------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------------PhysicalProject
+--------------------filter((t_w_firstyear.dyear = 1999) and (t_w_firstyear.sale_type = 'w') and (t_w_firstyear.year_total > 0.000000))
+----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

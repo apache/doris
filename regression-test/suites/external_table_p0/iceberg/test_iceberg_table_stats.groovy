@@ -42,7 +42,7 @@ suite("test_iceberg_table_stats", "p0,external,doris,external_docker,external_do
                 while (retry < 10) {
                     def result = sql """ show table stats ${table_name} """
                     act = result[0][2]
-                    if (act != "0") {
+                    if (act != "-1") {
                         break;
                     }
                     Thread.sleep(2000)
@@ -57,6 +57,10 @@ suite("test_iceberg_table_stats", "p0,external,doris,external_docker,external_do
             assert_stats("sample_cow_parquet", "1000")
             assert_stats("sample_mor_orc", "1000")
             assert_stats("sample_mor_parquet", "1000")
+
+            // test catalog_meta_cache_statistics
+            sql """select * from information_schema.catalog_meta_cache_statistics;"""
+            sql """select * from information_schema.catalog_meta_cache_statistics where catalog_name="${catalog_name}";"""
 
         } finally {
         }

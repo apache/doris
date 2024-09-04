@@ -96,6 +96,7 @@ suite("test_topn_fault_injection", "nonConcurrent") {
       load_httplogs_data.call(indexTbName2, 'test_topn_fault_injection2', 'true', 'json', 'documents-1000.json')
 
       sql "sync"
+      sql """ set enable_common_expr_pushdown = true """
 
       try {
         GetDebugPoint().enableDebugPointForAllBEs("segment_iterator.topn_opt_1")
@@ -123,10 +124,13 @@ suite("test_topn_fault_injection", "nonConcurrent") {
         qt_sql """ select * from ${indexTbName1} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm' and request like '%ag%') order by `@timestamp` limit 1; """
         qt_sql """ select * from ${indexTbName1} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm' and clientip like '%1%') order by `@timestamp` limit 1; """
         qt_sql """ select * from ${indexTbName1} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (clientip match_phrase '1' or clientip match_phrase '3' and request like '%ag%') order by `@timestamp` limit 1; """
+        qt_sql """ select * from ${indexTbName1} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (clientip match_phrase '1' or `@timestamp` = 1) order by `@timestamp` limit 1; """
 
         qt_sql """ select * from ${indexTbName2} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm' and request like '%ag%') order by `@timestamp` limit 1; """
         qt_sql """ select * from ${indexTbName2} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm' and clientip like '%1%') order by `@timestamp` limit 1; """
         qt_sql """ select * from ${indexTbName2} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (clientip match_phrase '1' or clientip match_phrase '3' and request like '%ag%') order by `@timestamp` limit 1; """
+        qt_sql """ select * from ${indexTbName2} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (clientip match_phrase '1' or `@timestamp` = 1) order by `@timestamp` limit 1; """
+        
       } finally {
         GetDebugPoint().disableDebugPointForAllBEs("segment_iterator.topn_opt_2")
       }
