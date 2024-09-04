@@ -78,14 +78,14 @@ public:
 
     void start_count_scope_mem() {
         CHECK(init());
-        _scope_mem = _reserved_mem; // consume in advance
+        _scope_mem = 0;
         _count_scope_mem = true;
     }
 
     int64_t stop_count_scope_mem() {
         flush_untracked_mem();
         _count_scope_mem = false;
-        return _scope_mem - _reserved_mem;
+        return _scope_mem;
     }
 
     // Note that, If call the memory allocation operation in Memory Hook,
@@ -186,7 +186,6 @@ inline bool ThreadMemTrackerMgr::push_consumer_tracker(MemTracker* tracker) {
     }
     _consumer_tracker_stack.push_back(tracker);
     tracker->release(_untracked_mem);
-    tracker->consume(_reserved_mem); // consume in advance
     return true;
 }
 
@@ -194,11 +193,20 @@ inline void ThreadMemTrackerMgr::pop_consumer_tracker() {
     DCHECK(!_consumer_tracker_stack.empty());
     flush_untracked_mem();
     _consumer_tracker_stack.back()->consume(_untracked_mem);
-    _consumer_tracker_stack.back()->release(_reserved_mem);
     _consumer_tracker_stack.pop_back();
 }
 
 inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_check) {
+    // `count_scope_mem` and `consumer_tracker` not support reserve memory and not require use `_untracked_mem`
+    // to batch consume, because `count_scope_mem` is thread local, `consumer_tracker` will not be bound
+    // by many threads, so there is no performance problem.
+    if (_count_scope_mem) {
+        _scope_mem += size;
+    }
+    for (auto* tracker : _consumer_tracker_stack) {
+        tracker->consume(size);
+    }
+
     if (_reserved_mem != 0) {
         if (_reserved_mem > size) {
             // only need to subtract _reserved_mem, no need to consume MemTracker,
@@ -285,13 +293,7 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     DCHECK(_limiter_tracker_raw);
 
     _old_untracked_mem = _untracked_mem;
-    if (_count_scope_mem) {
-        _scope_mem += _untracked_mem;
-    }
     _limiter_tracker_raw->consume(_old_untracked_mem);
-    for (auto* tracker : _consumer_tracker_stack) {
-        tracker->consume(_old_untracked_mem);
-    }
     _untracked_mem -= _old_untracked_mem;
     _stop_consume = false;
 }
@@ -328,12 +330,6 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
         }
         return doris::Status::MemoryLimitExceeded(err_msg);
     }
-    if (_count_scope_mem) {
-        _scope_mem += size;
-    }
-    for (auto* tracker : _consumer_tracker_stack) {
-        tracker->consume(size);
-    }
     _reserved_mem += size;
     return doris::Status::OK();
 }
@@ -346,12 +342,6 @@ inline void ThreadMemTrackerMgr::release_reserved() {
         auto wg_ptr = _wg_wptr.lock();
         if (wg_ptr) {
             wg_ptr->sub_wg_refresh_interval_memory_growth(_reserved_mem);
-        }
-        if (_count_scope_mem) {
-            _scope_mem -= _reserved_mem;
-        }
-        for (auto* tracker : _consumer_tracker_stack) {
-            tracker->release(_reserved_mem);
         }
         _untracked_mem = 0;
         _reserved_mem = 0;
