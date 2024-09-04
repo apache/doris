@@ -239,6 +239,7 @@ private:
     const std::vector<TExpr> _texprs;
 
     const RowDescriptor& _row_desc;
+    TTupleId _output_tuple_id = -1;
 
     TPartitionType::type _part_type;
 
@@ -266,7 +267,7 @@ private:
     int64_t _tablet_sink_txn_id = -1;
     std::shared_ptr<ObjectPool> _pool;
     vectorized::VExprContextSPtrs _tablet_sink_expr_ctxs;
-    const std::vector<TExpr>* _t_output_expr = nullptr;
+    const std::vector<TExpr>* _t_tablet_sink_exprs = nullptr;
 
     // for external table sink random partition
     // Control the number of channels according to the flow, thereby controlling the number of table sink writers.

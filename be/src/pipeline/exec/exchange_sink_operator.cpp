@@ -302,7 +302,7 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
           _tablet_sink_location(sink.tablet_sink_location),
           _tablet_sink_tuple_id(sink.tablet_sink_tuple_id),
           _tablet_sink_txn_id(sink.tablet_sink_txn_id),
-          _t_output_expr(&sink.tablet_sink_exprs),
+          _t_tablet_sink_exprs(&sink.tablet_sink_exprs),
           _enable_local_merge_sort(state->enable_local_merge_sort()) {
     DCHECK_GT(destinations.size(), 0);
     DCHECK(sink.output_partition.type == TPartitionType::UNPARTITIONED ||
@@ -315,6 +315,9 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
            sink.output_partition.type == TPartitionType::TABLE_SINK_RANDOM_PARTITIONED);
     _name = "ExchangeSinkOperatorX";
     _pool = std::make_shared<ObjectPool>();
+    if (sink.__isset.output_tuple_id) {
+        _output_tuple_id = sink.output_tuple_id;
+    }
 }
 
 Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
@@ -323,8 +326,8 @@ Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
         return Status::InternalError("TPartitionType::RANGE_PARTITIONED should not be used");
     }
     if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
-        RETURN_IF_ERROR(
-                vectorized::VExpr::create_expr_trees(*_t_output_expr, _tablet_sink_expr_ctxs));
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(*_t_tablet_sink_exprs,
+                                                             _tablet_sink_expr_ctxs));
     }
     return Status::OK();
 }
@@ -335,8 +338,15 @@ Status ExchangeSinkOperatorX::open(RuntimeState* state) {
     _mem_tracker = std::make_unique<MemTracker>("ExchangeSinkOperatorX:");
     _compression_type = state->fragement_transmission_compression_type();
     if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
-        RETURN_IF_ERROR(
-                vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state, _child_x->row_desc()));
+        if (_output_tuple_id == -1) {
+            RETURN_IF_ERROR(
+                    vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state, _child->row_desc()));
+        } else {
+            auto* output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
+            auto* output_row_desc = _pool->add(new RowDescriptor(output_tuple_desc, false));
+            RETURN_IF_ERROR(
+                    vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state, *output_row_desc));
+        }
         RETURN_IF_ERROR(vectorized::VExpr::open(_tablet_sink_expr_ctxs, state));
     }
     return Status::OK();
