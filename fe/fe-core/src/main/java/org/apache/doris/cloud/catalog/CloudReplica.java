@@ -20,10 +20,10 @@ package org.apache.doris.cloud.catalog;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.Replica.ReplicaContext;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.qe.ConnectContext;
@@ -64,6 +64,9 @@ public class CloudReplica extends Replica {
     private Random rand = new Random();
 
     private Map<String, List<Long>> memClusterToBackends = new ConcurrentHashMap<String, List<Long>>();
+
+    // clusterId, secondaryBe, changeTimestamp
+    private Map<String, Pair<Long,  Long>> secondaryBeAndChangeTimeWithCluster = new ConcurrentHashMap<>();
 
     public CloudReplica() {
     }
@@ -216,20 +219,40 @@ public class CloudReplica extends Replica {
             long backendId = clusterToBackends.get(clusterId).get(0);
             Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
             if (be != null && be.isQueryAvailable()) {
+                // be normal
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("backendId={} ", backendId);
                 }
+                secondaryBeAndChangeTimeWithCluster.remove(clusterId);
                 return backendId;
+            }
+            // be abnormal but use secondary
+            if (!Config.enable_immediate_be_assign && be != null) {
+                Long secondaryBe = -1L;
+                if (!secondaryBeAndChangeTimeWithCluster.containsKey(clusterId)) {
+                    secondaryBe = hashReplicaToBe(clusterId, false, false);
+                    secondaryBeAndChangeTimeWithCluster.put(clusterId,
+                            Pair.of(secondaryBe, System.currentTimeMillis()));
+                } else {
+                    secondaryBe = secondaryBeAndChangeTimeWithCluster.get(clusterId).first;
+                    Long changeTimestamp = secondaryBeAndChangeTimeWithCluster.get(clusterId).second;
+                    if (System.currentTimeMillis() - changeTimestamp > Config.secondary_be_validity_seconds * 1000L) {
+                        // set secondary be to tablet after secondary_be_validity_seconds
+                        setBeToTablet(clusterId, secondaryBe);
+                        secondaryBeAndChangeTimeWithCluster.remove(clusterId);
+                    }
+                }
+                return secondaryBe;
             }
         }
         if (DebugPointUtil.isEnable("CloudReplica.getBackendIdImpl.clusterToBackends")) {
             LOG.info("Debug Point enable CloudReplica.getBackendIdImpl.clusterToBackends");
             return -1;
         }
-        return hashReplicaToBe(clusterId, false);
+        return hashReplicaToBe(clusterId, false, true);
     }
 
-    public long hashReplicaToBe(String clusterId, boolean isBackGround) {
+    public long hashReplicaToBe(String clusterId, boolean isBackGround, boolean setToTablet) {
         // TODO(luwei) list should be sorted
         List<Backend> clusterBes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                 .getBackendsByClusterId(clusterId);
@@ -270,12 +293,18 @@ public class CloudReplica extends Replica {
                 pickedBeId, getId(), partitionId, availableBes.size(), idx, index,
                 hashCode == null ? -1 : hashCode.asLong());
 
+        if (setToTablet) {
+            setBeToTablet(clusterId, pickedBeId);
+        }
+
+        return pickedBeId;
+    }
+
+    private void setBeToTablet(String clusterId, long pickedBeId) {
         // save to clusterToBackends map
         List<Long> bes = new ArrayList<Long>();
         bes.add(pickedBeId);
         clusterToBackends.put(clusterId, bes);
-
-        return pickedBeId;
     }
 
     public List<Long> hashReplicaToBes(String clusterId, boolean isBackGround, int replicaNum) {

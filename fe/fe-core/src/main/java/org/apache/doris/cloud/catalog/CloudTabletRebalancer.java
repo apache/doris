@@ -502,7 +502,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     Map<String, List<Long>> clusterToBackends =
                             ((CloudReplica) replica).getClusterToBackends();
                     if (!clusterToBackends.containsKey(cluster)) {
-                        long beId = ((CloudReplica) replica).hashReplicaToBe(cluster, true);
+                        long beId = ((CloudReplica) replica).hashReplicaToBe(cluster, true, true);
                         if (beId <= 0) {
                             assignedErrNum++;
                             continue;
