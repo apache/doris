@@ -64,6 +64,12 @@ For example, if user export LOCAL_DORIS_PATH=/mydoris, then the cluster's direct
 
 And cluster's directory will contains all its containers's logs and data, like fe-1, fe-2, be-1, ..., etc.
 
+If there are multiple users run doris-compose on the same machine, suggest don't change LOCAL_DORIS_PATH or they should export the same LOCAL_DORIS_PATH.
+
+Because when create a new cluster, doris-compose will search the local doris path, and choose a docker network which is different with this path's clusters.
+
+So if multiple users use different LOCAL_DORIS_PATH, their clusters may have docker network conflict!!!
+
 ### Create a cluster or recreate its containers
 
 ```
