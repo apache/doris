@@ -54,7 +54,7 @@ import java.util.Set;
 public class EsTable extends Table implements GsonPostProcessable {
     // refrence: https://www.elastic.co/guide/en/elasticsearch/reference/current/doc-values.html
     public static final Set<String> DEFAULT_DOCVALUE_DISABLED_FIELDS =
-            new HashSet<>(Arrays.asList("text", "annotated_text"));
+            new HashSet<>(Arrays.asList("text", "annotated_text", "match_only_text"));
 
     private static final Logger LOG = LogManager.getLogger(EsTable.class);
     // Solr doc_values vs stored_fields performance-smackdown indicate:
