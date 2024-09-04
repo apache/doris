@@ -846,17 +846,21 @@ cloudUniqueId= "{fe_cloud_unique_id}"
                         fe_cloud_unique_id=cluster.get_node(
                             CLUSTER.Node.TYPE_FE, 1).cloud_unique_id()))
             f.write(annotation_end + "\n\n")
+            annotation_end_line_count = -1
 
             # write not-auto gen config
             in_annotation = False
-            for line in old_contents:
+            annotation_end_line_idx = -100
+            for line_idx, line in enumerate(old_contents):
                 line = line.rstrip()
                 if line == annotation_start:
                     in_annotation = True
                 elif line == annotation_end:
                     in_annotation = False
+                    annotation_end_line_idx = line_idx
                 elif not in_annotation:
-                    f.write(line + "\n")
+                    if line or line_idx == annotation_end_line_idx + 1:
+                        f.write(line + "\n")
 
         print("\nWrite succ: " + regression_conf_custom)
 
