@@ -88,6 +88,9 @@ suite("test_show_create_table_with_storage_policy") {
     def ret = sql """ SHOW CREATE TABLE ${tableName} """
     String createSql = ret[0][1]
 
+    ret = sql """ SHOW PARTITIONS FROM ${tableName} """
+    assertEquals(ret[9][12], storagePolicyName)
+
     sql """ DROP TABLE IF EXISTS ${tableName} """
     // create table successfully with stmt from show create table
     sql createSql
