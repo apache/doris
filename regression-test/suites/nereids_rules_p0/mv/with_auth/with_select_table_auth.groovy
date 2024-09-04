@@ -170,6 +170,15 @@ suite("with_select_table_auth","p0,auth") {
             "mv1"
         )
     }
+
+    connect(user=user_name, password="${pwd}", url=context.config.jdbcUrl) {
+        sql "use ${db}"
+        test {
+            sql """select * from mv1;"""
+            exception "denied"
+        }
+    }
+
     sql """drop MATERIALIZED VIEW IF EXISTS ${db}.mv1;"""
 }
 
