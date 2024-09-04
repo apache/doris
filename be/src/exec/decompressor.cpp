@@ -468,7 +468,7 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t
         }
 
         std::size_t decompressed_large_block_len = 0;
-        do {
+        while (remaining_decompressed_large_block_len > 0) {
             // Check that input length should not be negative.
             if (input_len < sizeof(uint32_t)) {
                 *more_input_bytes = sizeof(uint32_t) - input_len;
@@ -505,8 +505,7 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t
             output_ptr += decompressed_small_block_len;
             remaining_decompressed_large_block_len -= decompressed_small_block_len;
             decompressed_large_block_len += decompressed_small_block_len;
-
-        } while (remaining_decompressed_large_block_len > 0);
+        };
 
         if (*more_input_bytes != 0) {
             // Need more input buffer
@@ -586,7 +585,7 @@ Status SnappyBlockDecompressor::decompress(uint8_t* input, size_t input_len,
         }
 
         std::size_t decompressed_large_block_len = 0;
-        do {
+        while (remaining_decompressed_large_block_len > 0) {
             // Check that input length should not be negative.
             if (input_len < sizeof(uint32_t)) {
                 *more_input_bytes = sizeof(uint32_t) - input_len;
@@ -630,8 +629,7 @@ Status SnappyBlockDecompressor::decompress(uint8_t* input, size_t input_len,
             output_ptr += decompressed_small_block_len;
             remaining_decompressed_large_block_len -= decompressed_small_block_len;
             decompressed_large_block_len += decompressed_small_block_len;
-
-        } while (remaining_decompressed_large_block_len > 0);
+        };
 
         if (*more_input_bytes != 0) {
             // Need more input buffer
