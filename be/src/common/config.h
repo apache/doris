@@ -288,6 +288,12 @@ DECLARE_Int32(sys_log_verbose_level);
 DECLARE_Int32(sys_log_verbose_flags_v);
 // log buffer level
 DECLARE_String(log_buffer_level);
+// log enable custom date time format
+DECLARE_Bool(sys_log_enable_custom_date_time_format);
+// log custom date time format (https://en.cppreference.com/w/cpp/io/manip/put_time)
+DECLARE_String(sys_log_custom_date_time_format);
+// log custom date time milliseconds format (fmt::format)
+DECLARE_String(sys_log_custom_date_time_ms_format);
 
 // number of threads available to serve backend execution requests
 DECLARE_Int32(be_service_threads);
