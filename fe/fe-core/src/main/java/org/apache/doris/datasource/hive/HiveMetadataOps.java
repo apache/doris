@@ -296,7 +296,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean databaseExist(String dbName) {
-        return listDatabaseNames().contains(dbName);
+        return listDatabaseNames().contains(dbName.toLowerCase());
     }
 
     @Override
