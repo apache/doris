@@ -1294,8 +1294,7 @@ Status ScanLocalState<Derived>::_init_profile() {
 
     _peak_running_scanner =
             _scanner_profile->AddHighWaterMarkCounter("PeakRunningScanner", TUnit::UNIT);
-    _peak_memory_usage =
-            _scanner_profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES);
+    _peak_memory_usage = _scanner_profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES);
     return Status::OK();
 }
 
