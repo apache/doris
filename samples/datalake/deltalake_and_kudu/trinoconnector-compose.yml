@@ -1,0 +1,323 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+version: "3.9"
+services:
+  metastore_db:
+    image: postgres:11
+    hostname: metastore_db
+    environment:
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hive
+      POSTGRES_DB: metastore
+
+  hive-metastore:
+    hostname: hive-metastore
+    container_name: spark-hive
+    image: 'starburstdata/hive:3.1.2-e.18'
+    volumes:
+      - './packages/spark-3.4.2-bin-hadoop3:/opt/spark-3.4.2-bin-hadoop3'
+      - './scripts:/opt/scripts'
+    ports:
+      - '${HIVE_THRIFT_PORT}:9083' # Metastore Thrift
+    environment:
+      HIVE_METASTORE_DRIVER: org.postgresql.Driver
+      HIVE_METASTORE_JDBC_URL: jdbc:postgresql://metastore_db:5432/metastore
+      HIVE_METASTORE_USER: hive
+      HIVE_METASTORE_PASSWORD: hive
+      HIVE_METASTORE_WAREHOUSE_DIR: s3://datalake/
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minio
+      S3_SECRET_KEY: minio123
+      S3_PATH_STYLE_ACCESS: "true"
+      REGION: ""
+      GOOGLE_CLOUD_KEY_FILE_PATH: ""
+      AZURE_ADL_CLIENT_ID: ""
+      AZURE_ADL_CREDENTIAL: ""
+      AZURE_ADL_REFRESH_URL: ""
+      AZURE_ABFS_STORAGE_ACCOUNT: ""
+      AZURE_ABFS_ACCESS_KEY: ""
+      AZURE_WASB_STORAGE_ACCOUNT: ""
+      AZURE_ABFS_OAUTH: ""
+      AZURE_ABFS_OAUTH_TOKEN_PROVIDER: ""
+      AZURE_ABFS_OAUTH_CLIENT_ID: ""
+      AZURE_ABFS_OAUTH_SECRET: ""
+      AZURE_ABFS_OAUTH_ENDPOINT: ""
+      AZURE_WASB_ACCESS_KEY: ""
+      HIVE_METASTORE_USERS_IN_ADMIN_ROLE: "hive"
+    depends_on:
+      - metastore_db
+
+  doris-env:
+    hostname: doris-env
+    container_name: doris-env
+    image: 'apache/hadoop:3.3.6'
+    environment:
+      LD_LIBRARY_PATH: /opt/doris/be/lib
+    ports:
+      - '${DORIS_QUERY_PORT}:9030'
+    volumes:
+      - './packages/jdk-17.0.2:/opt/jdk-17.0.2'
+      - './packages/doris-bin:/opt/doris-bin'
+      - './scripts:/opt/scripts'
+      - './packages/connectors:/opt/connectors'
+    command: sh /opt/scripts/start_doris.sh
+
+  minio:
+    hostname: minio
+    image: 'minio/minio:RELEASE.2022-05-26T05-48-41Z'
+    container_name: minio-storage
+    ports:
+      - '${MINIO_SERVICE_PORT}:9000'
+    environment:
+      MINIO_ACCESS_KEY: minio
+      MINIO_SECRET_KEY: minio123
+    command: server /data --console-address ":9001"
+
+  # This job will create the "datalake" bucket on Minio
+  mc-job:
+    image: 'minio/mc:RELEASE.2022-05-09T04-08-26Z'
+    volumes:
+      - './data:/data'
+    entrypoint: |
+      /bin/bash -c "
+      sleep 5;
+      /usr/bin/mc config --quiet host add myminio http://minio:9000 minio minio123;
+      /usr/bin/mc mb --quiet myminio/datalake;
+      /usr/bin/mc mb --quiet myminio/data;
+      /usr/bin/mc mirror /data myminio/data 
+      "
+    depends_on:
+      - minio
+
+  kudu-master-1:
+    image: apache/kudu:${KUDU_QUICKSTART_VERSION:-latest}
+    hostname: kudu-master-1
+    container_name: kudu-master-1
+    ports:
+      - "7051:7051"
+      - "8051:8051"
+    command: ["master"]
+    volumes:
+      - kudu-master-1:/var/lib/kudu
+      - './packages/jdk-17.0.2:/opt/jdk-17.0.2'
+      - './packages/kudu-java-example-1.0-SNAPSHOT.jar:/opt/kudu-java-example-1.0-SNAPSHOT.jar'
+    environment:
+      - KUDU_MASTERS=kudu-master-1:7051,kudu-master-2:7151,kudu-master-3:7251
+      # TODO: Use `host.docker.internal` instead of KUDU_QUICKSTART_IP when it
+      # works on Linux (https://github.com/docker/for-linux/issues/264)
+      - >
+        MASTER_ARGS=--fs_wal_dir=/var/lib/kudu/master
+        --rpc_bind_addresses=0.0.0.0:7051
+        --rpc_advertised_addresses=${KUDU_QUICKSTART_IP:?Please set KUDU_QUICKSTART_IP environment variable}:7051
+        --webserver_port=8051
+        --webserver_advertised_addresses=${KUDU_QUICKSTART_IP}:8051
+        --webserver_doc_root=/opt/kudu/www
+        --stderrthreshold=0
+        --use_hybrid_clock=false
+        --unlock_unsafe_flags=true
+    # command: /opt/jdk-17.0.2/bin/java -DkuduMasters=kudu-master-1:7051,kudu-master-2:7151,kudu-master-3:7251 -jar /opt/kudu-java-example-1.0-SNAPSHOT.jar
+
+  kudu-master-2:
+    image: apache/kudu:${KUDU_QUICKSTART_VERSION:-latest}
+    hostname: kudu-master-2
+    container_name: kudu-master-2
+    ports:
+      - "7151:7151"
+      - "8151:8151"
+    command: ["master"]
+    volumes:
+      - kudu-master-2:/var/lib/kudu
+    environment:
+      - KUDU_MASTERS=kudu-master-1:7051,kudu-master-2:7151,kudu-master-3:7251
+      - >
+        MASTER_ARGS=--fs_wal_dir=/var/lib/kudu/master
+        --rpc_bind_addresses=0.0.0.0:7151
+        --rpc_advertised_addresses=${KUDU_QUICKSTART_IP}:7151
+        --webserver_port=8151
+        --webserver_advertised_addresses=${KUDU_QUICKSTART_IP}:8151
+        --webserver_doc_root=/opt/kudu/www
+        --stderrthreshold=0
+        --use_hybrid_clock=false
+        --unlock_unsafe_flags=true
+  kudu-master-3:
+    image: apache/kudu:${KUDU_QUICKSTART_VERSION:-latest}
+    hostname: kudu-master-3
+    container_name: kudu-master-3
+    ports:
+      - "7251:7251"
+      - "8251:8251"
+    command: ["master"]
+    volumes:
+      - kudu-master-3:/var/lib/kudu
+    environment:
+      - KUDU_MASTERS=kudu-master-1:7051,kudu-master-2:7151,kudu-master-3:7251
+      - >
+        MASTER_ARGS=--fs_wal_dir=/var/lib/kudu/master
+        --rpc_bind_addresses=0.0.0.0:7251
+        --rpc_advertised_addresses=${KUDU_QUICKSTART_IP}:7251
+        --webserver_port=8251
+        --webserver_advertised_addresses=${KUDU_QUICKSTART_IP}:8251
+        --webserver_doc_root=/opt/kudu/www
+        --stderrthreshold=0
+        --use_hybrid_clock=false
+        --unlock_unsafe_flags=true
+  kudu-tserver-1:
+    image: apache/kudu:${KUDU_QUICKSTART_VERSION:-latest}
+    hostname: kudu-tserver-1
+    container_name: kudu-tserver-1
+    depends_on:
+      - kudu-master-1
+      - kudu-master-2
+      - kudu-master-3
+    ports:
+      - "7050:7050"
+      - "8050:8050"
+    command: ["tserver"]
+    volumes:
+      - kudu-tserver-1:/var/lib/kudu
+    environment:
+      - KUDU_MASTERS=kudu-master-1:7051,kudu-master-2:7151,kudu-master-3:7251
+      - >
+        TSERVER_ARGS=--fs_wal_dir=/var/lib/kudu/tserver
+        --rpc_bind_addresses=0.0.0.0:7050
+        --rpc_advertised_addresses=${KUDU_QUICKSTART_IP}:7050
+        --webserver_port=8050
+        --webserver_advertised_addresses=${KUDU_QUICKSTART_IP}:8050
+        --webserver_doc_root=/opt/kudu/www
+        --stderrthreshold=0
+        --use_hybrid_clock=false
+        --unlock_unsafe_flags=true
+  kudu-tserver-2:
+    image: apache/kudu:${KUDU_QUICKSTART_VERSION:-latest}
+    hostname: kudu-tserver-2
+    container_name: kudu-tserver-2
+    depends_on:
+      - kudu-master-1
+      - kudu-master-2
+      - kudu-master-3
+    ports:
+      - "7150:7150"
+      - "8150:8150"
+    command: ["tserver"]
+    volumes:
+      - kudu-tserver-2:/var/lib/kudu
+    environment:
+      - KUDU_MASTERS=kudu-master-1:7051,kudu-master-2:7151,kudu-master-3:7251
+      - >
+        TSERVER_ARGS=--fs_wal_dir=/var/lib/kudu/tserver
+        --rpc_bind_addresses=0.0.0.0:7150
+        --rpc_advertised_addresses=${KUDU_QUICKSTART_IP}:7150
+        --webserver_port=8150
+        --webserver_advertised_addresses=${KUDU_QUICKSTART_IP}:8150
+        --webserver_doc_root=/opt/kudu/www
+        --stderrthreshold=0
+        --use_hybrid_clock=false
+        --unlock_unsafe_flags=true
+  kudu-tserver-3:
+    image: apache/kudu:${KUDU_QUICKSTART_VERSION:-latest}
+    hostname: kudu-tserver-3
+    container_name: kudu-tserver-3
+    depends_on:
+      - kudu-master-1
+      - kudu-master-2
+      - kudu-master-3
+    ports:
+      - "7250:7250"
+      - "8250:8250"
+    command: ["tserver"]
+    volumes:
+      - kudu-tserver-3:/var/lib/kudu
+    environment:
+      - KUDU_MASTERS=kudu-master-1:7051,kudu-master-2:7151,kudu-master-3:7251
+      - >
+        TSERVER_ARGS=--fs_wal_dir=/var/lib/kudu/tserver
+        --rpc_bind_addresses=0.0.0.0:7250
+        --rpc_advertised_addresses=${KUDU_QUICKSTART_IP}:7250
+        --webserver_port=8250
+        --webserver_advertised_addresses=${KUDU_QUICKSTART_IP}:8250
+        --webserver_doc_root=/opt/kudu/www
+        --stderrthreshold=0
+        --use_hybrid_clock=false
+        --unlock_unsafe_flags=true
+  kudu-tserver-4:
+    image: apache/kudu:${KUDU_QUICKSTART_VERSION:-latest}
+    hostname: kudu-tserver-4
+    container_name: kudu-tserver-4
+    depends_on:
+      - kudu-master-1
+      - kudu-master-2
+      - kudu-master-3
+    ports:
+      - "7350:7350"
+      - "8350:8350"
+    command: ["tserver"]
+    volumes:
+      - kudu-tserver-4:/var/lib/kudu
+    environment:
+      - KUDU_MASTERS=kudu-master-1:7051,kudu-master-2:7151,kudu-master-3:7251
+      - >
+        TSERVER_ARGS=--fs_wal_dir=/var/lib/kudu/tserver
+        --rpc_bind_addresses=0.0.0.0:7350
+        --rpc_advertised_addresses=${KUDU_QUICKSTART_IP}:7350
+        --webserver_port=8350
+        --webserver_advertised_addresses=${KUDU_QUICKSTART_IP}:8350
+        --webserver_doc_root=/opt/kudu/www
+        --stderrthreshold=0
+        --use_hybrid_clock=false
+        --unlock_unsafe_flags=true
+  kudu-tserver-5:
+    image: apache/kudu:${KUDU_QUICKSTART_VERSION:-latest}
+    hostname: kudu-tserver-5
+    container_name: kudu-tserver-5
+    depends_on:
+      - kudu-master-1
+      - kudu-master-2
+      - kudu-master-3
+    ports:
+      - "7450:7450"
+      - "8450:8450"
+    command: ["tserver"]
+    volumes:
+      - kudu-tserver-5:/var/lib/kudu
+    environment:
+      - KUDU_MASTERS=kudu-master-1:7051,kudu-master-2:7151,kudu-master-3:7251
+      - >
+        TSERVER_ARGS=--fs_wal_dir=/var/lib/kudu/tserver
+        --rpc_bind_addresses=0.0.0.0:7450
+        --rpc_advertised_addresses=${KUDU_QUICKSTART_IP}:7450
+        --webserver_port=8450
+        --webserver_advertised_addresses=${KUDU_QUICKSTART_IP}:8450
+        --webserver_doc_root=/opt/kudu/www
+        --stderrthreshold=0
+        --use_hybrid_clock=false
+        --unlock_unsafe_flags=true
+
+volumes:
+  kudu-master-1:
+  kudu-master-2:
+  kudu-master-3:
+  kudu-tserver-1:
+  kudu-tserver-2:
+  kudu-tserver-3:
+  kudu-tserver-4:
+  kudu-tserver-5:
+
+networks:
+  default:
+    name: trinoconnector-net
+    external: true

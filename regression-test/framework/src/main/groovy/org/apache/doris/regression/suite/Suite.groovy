@@ -1394,11 +1394,11 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean enableStoragevault() {
+        boolean ret = false;
         if (context.config.metaServiceHttpAddress == null || context.config.metaServiceHttpAddress.isEmpty() ||
-                context.config.metaServiceHttpAddress == null || context.config.metaServiceHttpAddress.isEmpty() ||
-                    context.config.instanceId == null || context.config.instanceId.isEmpty() ||
-                        context.config.metaServiceToken == null || context.config.metaServiceToken.isEmpty()) {
-            return false;
+                context.config.instanceId == null || context.config.instanceId.isEmpty() ||
+                context.config.metaServiceToken == null || context.config.metaServiceToken.isEmpty()) {
+            return ret;
         }
         def getInstanceInfo = { check_func ->
             httpTest {
@@ -1408,7 +1408,6 @@ class Suite implements GroovyInterceptable {
                 check check_func
             }
         }
-        boolean enableStorageVault = false;
         getInstanceInfo.call() {
             respCode, body ->
                 String respCodeValue = "${respCode}".toString();
@@ -1417,10 +1416,10 @@ class Suite implements GroovyInterceptable {
                 }
                 def json = parseJson(body)
                 if (json.result.containsKey("enable_storage_vault") && json.result.enable_storage_vault) {
-                    enableStorageVault = true;
+                    ret = true;
                 }
         }
-        return enableStorageVault;
+        return ret;
     }
 
     boolean isGroupCommitMode() {
