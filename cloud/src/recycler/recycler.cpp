@@ -1219,7 +1219,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
                     return {std::string_view(), range_move};
                 }
                 ++num_recycled;
-                LOG_INFO("k is {}, is empty {}", k, k.empty());
+                LOG(INFO) << "recycle_tablets scan, key=" << (k.empty() ? "(empty)" : hex(k));
                 return {k, range_move};
             });
         } else {
@@ -1694,6 +1694,10 @@ int InstanceRecycler::recycle_rowsets() {
             LOG_WARNING("malformed recycle rowset").tag("key", hex(k));
             return -1;
         }
+
+        VLOG_DEBUG << "recycle rowset scan, key=" << hex(k) << " num_scanned=" << num_scanned
+                   << " num_expired=" << num_expired << " expiration=" << calc_expiration(rowset)
+                   << " RecycleRowsetPB=" << rowset.ShortDebugString();
         int64_t current_time = ::time(nullptr);
         if (current_time < calc_expiration(rowset)) { // not expired
             return 0;
@@ -1745,8 +1749,8 @@ int InstanceRecycler::recycle_rowsets() {
                   << rowset_meta->start_version() << '-' << rowset_meta->end_version()
                   << "] txn_id=" << rowset_meta->txn_id()
                   << " type=" << RecycleRowsetPB_Type_Name(rowset.type())
-                  << " rowset_meta_size=" << v.size() << " creation_time"
-                  << rowset_meta->creation_time();
+                  << " rowset_meta_size=" << v.size()
+                  << " creation_time=" << rowset_meta->creation_time();
         if (rowset.type() == RecycleRowsetPB::PREPARE) {
             // unable to calculate file path, can only be deleted by rowset id prefix
             num_prepare += 1;
@@ -1910,6 +1914,10 @@ int InstanceRecycler::recycle_tmp_rowsets() {
         //  duration or timeout always < `retention_time` in practice.
         int64_t expiration =
                 rowset.txn_expiration() > 0 ? rowset.txn_expiration() : rowset.creation_time();
+        VLOG_DEBUG << "recycle tmp rowset scan, key=" << hex(k) << " num_scanned=" << num_scanned
+                   << " num_expired=" << num_expired << " expiration=" << expiration
+                   << " txn_expiration=" << rowset.txn_expiration()
+                   << " rowset_creation_time=" << rowset.creation_time();
         if (current_time < expiration + config::retention_seconds) {
             // not expired
             return 0;
@@ -2150,7 +2158,7 @@ int InstanceRecycler::recycle_expired_txn_label() {
     recycle_txn_key(recycle_txn_key_info0, &begin_recycle_txn_key);
     recycle_txn_key(recycle_txn_key_info1, &end_recycle_txn_key);
 
-    LOG_INFO("begin to recycle expire txn").tag("instance_id", instance_id_);
+    LOG_INFO("begin to recycle expired txn").tag("instance_id", instance_id_);
 
     int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
     register_recycle_task(task_name, start_time);
