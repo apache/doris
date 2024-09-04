@@ -2165,20 +2165,34 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock(
     }
     auto table_id = request->table_id();
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+    LOG(INFO) << "(" << instance_id << ")"
+              << "start to remove delete bitmap lock initiator, table_id=" << table_id
+              << ", key=" << hex(lock_key) << ", initiator=" << request->initiator();
     std::string lock_val;
     err = txn->get(lock_key, &lock_val);
     if (err != TxnErrorCode::TXN_OK) {
-        LOG(WARNING) << "failed to get delete bitmap update lock key, instance_id=" << instance_id
-                     << " table_id=" << table_id << " key=" << hex(lock_key) << " err=" << err;
+        code = cast_as<ErrCategory::READ>(err);
+        ss << "failed to get delete bitmap update lock key, instance_id=" << instance_id
+           << " table_id=" << table_id << " key=" << hex(lock_key) << " err=" << err;
+        msg = ss.str();
+        LOG(WARNING) << ss.str();
         return;
     }
     DeleteBitmapUpdateLockPB lock_info;
     if (!lock_info.ParseFromString(lock_val)) [[unlikely]] {
-        LOG(WARNING) << "failed to parse DeleteBitmapUpdateLockPB, instance_id=" << instance_id
-                     << " table_id=" << table_id << " key=" << hex(lock_key);
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        ss << "failed to parse DeleteBitmapUpdateLockPB, instance_id=" << instance_id
+           << " table_id=" << table_id << " key=" << hex(lock_key);
+        msg = ss.str();
+        LOG(WARNING) << ss.str();
         return;
     }
     if (lock_info.lock_id() != request->lock_id()) {
+        code = MetaServiceCode::LOCK_CONFLICT;
+        ss << "lock id is not match. request lock_id=" << request->lock_id()
+           << " locked by lock_id=" << lock_info.lock_id() << " table_id=" << table_id;
+        msg = ss.str();
+        LOG(WARNING) << ss.str();
         return;
     }
     bool found = false;
@@ -2191,26 +2205,35 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock(
         }
     }
     if (!found) {
+        code = MetaServiceCode::UNDEFINED_ERR;
+        ss << "not found initiator=" << request->initiator() << " table_id=" << table_id
+           << " request lock_id=" << request->lock_id() << " key=" << hex(lock_key);
+        msg = ss.str();
+        LOG(WARNING) << ss.str();
         return;
     }
     if (initiators->empty()) {
         LOG(INFO) << "(" << instance_id << ")"
                   << "remove delete bitmap lock, table_id=" << table_id << " key=" << hex(lock_key);
         txn->remove(lock_key);
+        err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::COMMIT>(err);
+            ss << "failed to remove delete bitmap lock,table_id=" << table_id
+               << " key=" << hex(lock_key) << " initiator=" << request->initiator()
+               << " request lock_id=" << request->lock_id() << "err=" << err;
+            msg = ss.str();
+            return;
+        }
+    } else {
+        code = MetaServiceCode::UNDEFINED_ERR;
+        ss << "failed to remove delete bitmap lock,initiators is not empty,table_id=" << table_id
+           << " key=" << hex(lock_key) << " initiator=" << request->initiator()
+           << " initiators_size=" << lock_info.initiators_size();
+        msg = ss.str();
+        LOG(WARNING) << ss.str();
         return;
     }
-    lock_info.SerializeToString(&lock_val);
-    if (lock_val.empty()) {
-        LOG(WARNING) << "(" << instance_id << ")"
-                     << "failed to seiralize lock_info, table_id=" << table_id
-                     << " key=" << hex(lock_key);
-        return;
-    }
-    LOG(INFO) << "(" << instance_id << ")"
-              << "remove delete bitmap lock initiator, table_id=" << table_id
-              << ", key=" << hex(lock_key) << ", initiator=" << request->initiator()
-              << " initiators_size=" << lock_info.initiators_size();
-    txn->put(lock_key, lock_val);
 }
 
 std::pair<MetaServiceCode, std::string> MetaServiceImpl::get_instance_info(
