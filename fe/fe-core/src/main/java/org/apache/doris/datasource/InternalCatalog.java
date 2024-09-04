@@ -2498,8 +2498,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         boolean enableDeleteOnDeletePredicate = false;
         try {
-            enableDeleteOnDeletePredicate = PropertyAnalyzer.analyzeEnableDeleteOnDeletePredicate(properties,
-                    enableUniqueKeyMergeOnWrite);
+            enableDeleteOnDeletePredicate = PropertyAnalyzer.analyzeEnableDeleteOnDeletePredicate(properties);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
