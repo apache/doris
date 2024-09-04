@@ -206,6 +206,11 @@ public:
         return IColumn::convert_column_if_overflow();
     }
 
+    bool is_exclusive() const override {
+        return IColumn::is_exclusive() && keys_column->is_exclusive() &&
+               values_column->is_exclusive() && offsets_column->is_exclusive();
+    }
+
 private:
     friend class COWHelper<IColumn, ColumnMap>;
 
