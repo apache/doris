@@ -262,6 +262,12 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             // Rewrite query by view
             rewrittenPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
                     rewrittenPlan, materializationContext, cascadesContext);
+            // If rewrite successfully, try to get mv read lock to avoid data inconsistent,
+            // try to get lock which should added before RBO
+            if (materializationContext instanceof AsyncMaterializationContext && !materializationContext.isSuccess()) {
+                cascadesContext.getStatementContext()
+                        .addTableReadLock(((AsyncMaterializationContext) materializationContext).getMtmv());
+            }
             rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                     childContext -> {
                         Rewriter.getWholeTreeRewriter(childContext).execute();
@@ -375,12 +381,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             rewriteResults.add(rewrittenPlan);
             // if rewrite successfully, try to regenerate mv scan because it maybe used again
             materializationContext.tryReGenerateScanPlan(cascadesContext);
-            //  if rewrite successfully, try to get mv read lock to avoid data inconsistent
-            if (materializationContext instanceof AsyncMaterializationContext && !materializationContext.isSuccess()) {
-                // Need get mtmv read lock, to avoid the data of plan which use mv is wrong
-                cascadesContext.getStatementContext()
-                        .addTableReadLock(((AsyncMaterializationContext) materializationContext).getMtmv());
-            }
             recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext, cascadesContext);
         }
         return rewriteResults;
