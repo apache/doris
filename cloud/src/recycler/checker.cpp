@@ -79,6 +79,8 @@ int Checker::start() {
 
     // launch instance scanner
     auto scanner_func = [this]() {
+        std::this_thread::sleep_for(
+                std::chrono::seconds(config::recycler_sleep_before_scheduling_seconds));
         while (!stopped()) {
             std::vector<InstanceInfoPB> instances;
             get_all_instances(txn_kv_.get(), instances);

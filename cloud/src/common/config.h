@@ -77,6 +77,7 @@ CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 CONF_mInt32(check_object_interval_seconds, "43200"); // 12hours
 
 CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
+CONF_mInt64(recycler_sleep_before_scheduling_seconds, "60");
 // log a warning if a recycle task takes longer than this duration
 CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 
