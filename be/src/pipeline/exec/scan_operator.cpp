@@ -1292,10 +1292,10 @@ Status ScanLocalState<Derived>::_init_profile() {
 
     _max_scanner_thread_num = ADD_COUNTER(_runtime_profile, "MaxScannerThreadNum", TUnit::UNIT);
 
-    _max_running_scanner_at_same_time =
-            _scanner_profile->AddHighWaterMarkCounter("MaxRunningScannerAtSameTime", TUnit::UNIT);
-    _max_memory_usage_at_same_time =
-            _scanner_profile->AddHighWaterMarkCounter("MaxMemoryUsageAtSameTime", TUnit::BYTES);
+    _peak_running_scanner =
+            _scanner_profile->AddHighWaterMarkCounter("PeakRunningScanner", TUnit::UNIT);
+    _peak_memory_usage =
+            _scanner_profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES);
     return Status::OK();
 }
 

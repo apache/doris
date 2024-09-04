@@ -447,11 +447,11 @@ void ScannerContext::_set_scanner_done() {
 }
 
 void ScannerContext::update_peak_running_scanner(int num) {
-    _local_state->_max_running_scanner_at_same_time->add(num);
+    _local_state->_peak_running_scanner->add(num);
 }
 
 void ScannerContext::update_peak_memory_usage(int64_t usage) {
-    _local_state->_max_memory_usage_at_same_time->add(usage);
+    _local_state->_peak_memory_usage->add(usage);
 }
 
 } // namespace doris::vectorized
