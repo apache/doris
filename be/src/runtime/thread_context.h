@@ -82,10 +82,16 @@
 #endif
 
 #if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
-// Count a code segment memory (memory malloc - memory free) to int64_t
-// Usage example: int64_t scope_mem = 0; { SCOPED_MEM_COUNT_BY_HOOK(&scope_mem); xxx; xxx; }
-#define SCOPED_MEM_COUNT_BY_HOOK(scope_mem) \
-    auto VARNAME_LINENUM(scope_mem_count) = doris::ScopeMemCountByHook(scope_mem)
+// Count a code segment memory
+// Usage example:
+//      int64_t peak_mem = 0;
+//      {
+//          SCOPED_PEAK_MEM(&peak_mem);
+//          xxxx
+//      }
+//      LOG(INFO) << *peak_mem;
+#define SCOPED_PEAK_MEM(peak_mem) \
+    auto VARNAME_LINENUM(scope_peak_mem) = doris::ScopedPeakMem(peak_mem)
 
 // Count a code segment memory (memory malloc - memory free) to MemTracker.
 // Compared to count `scope_mem`, MemTracker is easier to observe from the outside and is thread-safe.
@@ -94,8 +100,8 @@
 #define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumerByHook(mem_tracker)
 #else
-#define SCOPED_MEM_COUNT_BY_HOOK(scope_mem) \
-    auto VARNAME_LINENUM(scoped_tls_mcbh) = doris::ScopedInitThreadContext()
+#define SCOPED_PEAK_MEM() \
+    auto VARNAME_LINENUM(scoped_tls_pm) = doris::ScopedInitThreadContext()
 #define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
     auto VARNAME_LINENUM(scoped_tls_cmtbh) = doris::ScopedInitThreadContext()
 #endif
@@ -402,23 +408,22 @@ public:
     std::weak_ptr<WorkloadGroup> wg_wptr;
 };
 
-class ScopeMemCountByHook {
+class ScopedPeakMem {
 public:
-    explicit ScopeMemCountByHook(int64_t* scope_mem) {
+    explicit ScopedPeakMem(int64* peak_mem) : _peak_mem(peak_mem), _mem_tracker("ScopedPeakMem") {
         ThreadLocalHandle::create_thread_local_if_not_exits();
-        _scope_mem = scope_mem;
-        thread_context()->thread_mem_tracker_mgr->start_count_scope_mem();
-        use_mem_hook = true;
+        thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(&_mem_tracker);
     }
 
-    ~ScopeMemCountByHook() {
-        use_mem_hook = false;
-        *_scope_mem += thread_context()->thread_mem_tracker_mgr->stop_count_scope_mem();
+    ~ScopedPeakMem() {
+        thread_context()->thread_mem_tracker_mgr->pop_consumer_tracker();
+        *_peak_mem += _mem_tracker.peak_consumption();
         ThreadLocalHandle::del_thread_local_if_count_is_zero();
     }
 
 private:
-    int64_t* _scope_mem = nullptr;
+    int64* _peak_mem;
+    MemTracker _mem_tracker;
 };
 
 // only hold thread context in scope.

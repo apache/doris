@@ -64,7 +64,10 @@ public:
     // Must be fast enough! Thread update_tracker may be called very frequently.
     bool push_consumer_tracker(MemTracker* mem_tracker);
     void pop_consumer_tracker();
-    std::string last_consumer_tracker() {
+    MemTracker* last_consumer_tracker() {
+        return _consumer_tracker_stack.empty() ? nullptr : _consumer_tracker_stack.back();
+    }
+    std::string last_consumer_tracker_label() {
         return _consumer_tracker_stack.empty() ? "" : _consumer_tracker_stack.back()->label();
     }
 
@@ -75,18 +78,6 @@ public:
     void set_wg_wptr(const std::weak_ptr<WorkloadGroup>& wg_wptr) { _wg_wptr = wg_wptr; }
 
     void reset_wg_wptr() { _wg_wptr.reset(); }
-
-    void start_count_scope_mem() {
-        CHECK(init());
-        _scope_mem = 0;
-        _count_scope_mem = true;
-    }
-
-    int64_t stop_count_scope_mem() {
-        flush_untracked_mem();
-        _count_scope_mem = false;
-        return _scope_mem;
-    }
 
     // Note that, If call the memory allocation operation in Memory Hook,
     // such as calling LOG/iostream/sstream/stringstream/etc. related methods,
@@ -146,9 +137,6 @@ private:
     // so `attach_limiter_tracker` may be nested.
     std::vector<int64_t> _reserved_mem_stack;
 
-    bool _count_scope_mem = false;
-    int64_t _scope_mem = 0;
-
     std::string _failed_consume_msg = std::string();
     // If true, the Allocator will wait for the GC to free memory if it finds that the memory exceed limit.
     // A thread of query/load will only wait once during execution.
@@ -185,24 +173,17 @@ inline bool ThreadMemTrackerMgr::push_consumer_tracker(MemTracker* tracker) {
         return false;
     }
     _consumer_tracker_stack.push_back(tracker);
-    tracker->release(_untracked_mem);
     return true;
 }
 
 inline void ThreadMemTrackerMgr::pop_consumer_tracker() {
     DCHECK(!_consumer_tracker_stack.empty());
-    flush_untracked_mem();
-    _consumer_tracker_stack.back()->consume(_untracked_mem);
     _consumer_tracker_stack.pop_back();
 }
 
 inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_check) {
-    // `count_scope_mem` and `consumer_tracker` not support reserve memory and not require use `_untracked_mem`
-    // to batch consume, because `count_scope_mem` is thread local, `consumer_tracker` will not be bound
-    // by many threads, so there is no performance problem.
-    if (_count_scope_mem) {
-        _scope_mem += size;
-    }
+    // `consumer_tracker` not support reserve memory and not require use `_untracked_mem` to batch consume,
+    // because `consumer_tracker` will not be bound by many threads, so there is no performance problem.
     for (auto* tracker : _consumer_tracker_stack) {
         tracker->consume(size);
     }
