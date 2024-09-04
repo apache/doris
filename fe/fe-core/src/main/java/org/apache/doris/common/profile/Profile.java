@@ -526,12 +526,13 @@ public class Profile {
             return false;
         }
 
+        long currentTimeMillis = System.currentTimeMillis();
         if (this.queryFinishTimestamp != Long.MAX_VALUE
-                    && (System.currentTimeMillis() - this.queryFinishTimestamp) >
-                        Config.profile_waiting_time_for_spill_s * 1000) {
+                    && (currentTimeMillis - this.queryFinishTimestamp)
+                        > Config.profile_waiting_time_for_spill_s * 1000) {
             LOG.warn("Profile {} should be stored to storage without waiting for incoming profile,"
-                    + " since it has been waiting for {} ms, query finished time: {}", id,
-                    System.currentTimeMillis() - this.queryFinishTimestamp, this.queryFinishTimestamp);
+                    + " since it has been waiting for {} ms, current time {} query finished time: {}",
+                    id, currentTimeMillis - this.queryFinishTimestamp, currentTimeMillis, this.queryFinishTimestamp);
 
             this.summaryProfile.setSystemMessage(
                             "This profile is not complete, since its collection does not finish in time."
