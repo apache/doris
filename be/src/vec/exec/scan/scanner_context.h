@@ -154,9 +154,9 @@ public:
     RuntimeState* state() { return _state; }
     void incr_ctx_scheduling_time(int64_t num) { _scanner_ctx_sched_time->update(num); }
     // Caller should make sure the pipeline task is still running when calling this function
-    void update_max_running_scanner_at_same_time(bool increase);
+    void update_peak_running_scanner(int num);
     // Caller should make sure the pipeline task is still running when calling this function
-    void update_max_memory_usage_at_same_time(int64_t usage);
+    void update_peak_memory_usage(int64_t usage);
     std::string parent_name();
 
     bool empty_in_queue(int id);

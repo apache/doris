@@ -18,7 +18,6 @@
 #include "scan_operator.h"
 
 #include <fmt/format.h>
-#include <gen_cpp/Metrics_types.h>
 
 #include <cstdint>
 #include <memory>

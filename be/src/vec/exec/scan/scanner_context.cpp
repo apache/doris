@@ -244,7 +244,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             }
             _free_blocks_memory_usage -= block_size;
             _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
-            update_max_memory_usage_at_same_time(-current_block->allocated_bytes());
+            update_peak_memory_usage(-current_block->allocated_bytes());
             // consume current block
             block->swap(*current_block);
             return_free_block(std::move(current_block));
@@ -446,11 +446,11 @@ void ScannerContext::_set_scanner_done() {
     _dependency->set_always_ready();
 }
 
-void ScannerContext::update_max_running_scanner_at_same_time(bool increase) {
-    _local_state->_max_running_scanner_at_same_time->add(increase ? 1 : -1);
+void ScannerContext::update_peak_running_scanner(int num) {
+    _local_state->_max_running_scanner_at_same_time->add(num);
 }
 
-void ScannerContext::update_max_memory_usage_at_same_time(int64_t usage) {
+void ScannerContext::update_peak_memory_usage(int64_t usage) {
     _local_state->_max_memory_usage_at_same_time->add(usage);
 }
 
