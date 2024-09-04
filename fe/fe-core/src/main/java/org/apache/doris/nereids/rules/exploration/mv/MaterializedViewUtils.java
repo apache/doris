@@ -268,7 +268,6 @@ public class MaterializedViewUtils {
         CascadesContext rewrittenPlanContext = CascadesContext.initContext(
                 cascadesContext.getStatementContext(), rewrittenPlan,
                 cascadesContext.getCurrentJobContext().getRequiredProperties());
-        rewrittenPlan = planRewriter.apply(rewrittenPlanContext);
         // Tmp old disable rule variable
         Set<String> oldDisableRuleNames = rewrittenPlanContext.getStatementContext().getConnectContext()
                 .getSessionVariable()
