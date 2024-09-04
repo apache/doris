@@ -2188,7 +2188,7 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock(
         return;
     }
     if (lock_info.lock_id() != request->lock_id()) {
-        code = MetaServiceCode::LOCK_CONFLICT;
+        code = MetaServiceCode::LOCK_EXPIRED;
         ss << "lock id is not match. request lock_id=" << request->lock_id()
            << " locked by lock_id=" << lock_info.lock_id() << " table_id=" << table_id;
         msg = ss.str();
@@ -2205,7 +2205,7 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock(
         }
     }
     if (!found) {
-        code = MetaServiceCode::UNDEFINED_ERR;
+        code = MetaServiceCode::LOCK_EXPIRED;
         ss << "not found initiator=" << request->initiator() << " table_id=" << table_id
            << " request lock_id=" << request->lock_id() << " key=" << hex(lock_key);
         msg = ss.str();
@@ -2216,22 +2216,28 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock(
         LOG(INFO) << "(" << instance_id << ")"
                   << "remove delete bitmap lock, table_id=" << table_id << " key=" << hex(lock_key);
         txn->remove(lock_key);
-        err = txn->commit();
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::COMMIT>(err);
-            ss << "failed to remove delete bitmap lock,table_id=" << table_id
-               << " key=" << hex(lock_key) << " initiator=" << request->initiator()
-               << " request lock_id=" << request->lock_id() << "err=" << err;
-            msg = ss.str();
+    } else {
+        lock_info.SerializeToString(&lock_val);
+        if (lock_val.empty()) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = "pb serialization error";
             return;
         }
-    } else {
-        code = MetaServiceCode::UNDEFINED_ERR;
-        ss << "failed to remove delete bitmap lock,initiators is not empty,table_id=" << table_id
+        ss << "(" << instance_id << ")"
+           << "remove delete bitmap lock initiator, table_id=" << table_id
            << " key=" << hex(lock_key) << " initiator=" << request->initiator()
-           << " initiators_size=" << lock_info.initiators_size();
+           << " now initiators_size=" << lock_info.initiators_size();
         msg = ss.str();
-        LOG(WARNING) << ss.str();
+        LOG(INFO) << ss.str();
+        txn->put(lock_key, lock_val);
+    }
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "failed to remove delete bitmap lock,table_id=" << table_id
+           << " key=" << hex(lock_key) << " initiator=" << request->initiator()
+           << " request lock_id=" << request->lock_id() << "err=" << err;
+        msg = ss.str();
         return;
     }
 }
