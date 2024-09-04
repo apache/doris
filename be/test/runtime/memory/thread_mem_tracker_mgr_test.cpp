@@ -265,7 +265,7 @@ TEST_F(ThreadMemTrackerMgrTest, ReserveMemory) {
     EXPECT_EQ(t->consumption(), size1 + size2);
 
     auto st = thread_context->try_reserve_memory(size3);
-    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(t->consumption(), size1 + size2 + size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3);
 
@@ -304,7 +304,7 @@ TEST_F(ThreadMemTrackerMgrTest, ReserveMemory) {
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 0);
 
     st = thread_context->try_reserve_memory(size3);
-    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(t->consumption(), size1 + size2 + size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3);
 
@@ -355,7 +355,7 @@ TEST_F(ThreadMemTrackerMgrTest, NestedReserveMemory) {
 
     thread_context->attach_task(TUniqueId(), t, workload_group);
     auto st = thread_context->try_reserve_memory(size3);
-    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(t->consumption(), size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3);
 
@@ -367,7 +367,7 @@ TEST_F(ThreadMemTrackerMgrTest, NestedReserveMemory) {
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3 - size2);
 
     st = thread_context->try_reserve_memory(size2);
-    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok()) << st.to_string();
     // ThreadMemTrackerMgr _reserved_mem = size3 - size2 + size2
     // ThreadMemTrackerMgr _untracked_mem = 0
     EXPECT_EQ(t->consumption(), size3 + size2);
@@ -375,9 +375,9 @@ TEST_F(ThreadMemTrackerMgrTest, NestedReserveMemory) {
               size3); // size3 - size2 + size2
 
     st = thread_context->try_reserve_memory(size3);
-    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok()) << st.to_string();
     st = thread_context->try_reserve_memory(size3);
-    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok()) << st.to_string();
     thread_context->consume_memory(size3);
     thread_context->consume_memory(size2);
     thread_context->consume_memory(size3);
@@ -412,14 +412,14 @@ TEST_F(ThreadMemTrackerMgrTest, NestedSwitchMemTrackerReserveMemory) {
 
     thread_context->attach_task(TUniqueId(), t1, workload_group);
     auto st = thread_context->try_reserve_memory(size3);
-    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok()) << st.to_string();
     thread_context->consume_memory(size2);
     EXPECT_EQ(t1->consumption(), size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3 - size2);
 
     thread_context->thread_mem_tracker_mgr->attach_limiter_tracker(t2);
     st = thread_context->try_reserve_memory(size3);
-    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(t1->consumption(), size3);
     EXPECT_EQ(t2->consumption(), size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3 - size2 + size3);
@@ -431,7 +431,7 @@ TEST_F(ThreadMemTrackerMgrTest, NestedSwitchMemTrackerReserveMemory) {
 
     thread_context->thread_mem_tracker_mgr->attach_limiter_tracker(t3);
     st = thread_context->try_reserve_memory(size3);
-    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(t1->consumption(), size3);
     EXPECT_EQ(t2->consumption(), size3 + size2);
     EXPECT_EQ(t3->consumption(), size3);
