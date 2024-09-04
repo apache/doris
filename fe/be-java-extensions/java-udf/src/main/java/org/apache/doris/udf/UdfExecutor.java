@@ -159,9 +159,9 @@ public class UdfExecutor extends BaseExecutor {
                 classLoader = UdfUtils.getClassLoader(jarPath, parent);
                 ClassLoader loader = classLoader;
                 cache = new UdfClassCache();
-                cache.c = Class.forName(className, true, loader);
-                cache.methodAccess = MethodAccess.get(cache.c);
-                checkUdfClass(className, cache, funcRetType, parameterTypes);
+                cache.udfClass = Class.forName(className, true, loader);
+                cache.methodAccess = MethodAccess.get(cache.udfClass);
+                checkAndCacheUdfClass(className, cache, funcRetType, parameterTypes);
                 if (isStaticLoad) {
                     ScannerLoader.cacheClassLoader(signature, cache, expirationTime);
                 }
@@ -170,10 +170,10 @@ public class UdfExecutor extends BaseExecutor {
         return cache;
     }
 
-    private void checkUdfClass(String className, UdfClassCache cache, Type funcRetType, Type... parameterTypes)
+    private void checkAndCacheUdfClass(String className, UdfClassCache cache, Type funcRetType, Type... parameterTypes)
             throws InternalException, UdfRuntimeException {
         ArrayList<String> signatures = Lists.newArrayList();
-        Class<?> c = cache.c;
+        Class<?> c = cache.udfClass;
         Method[] methods = c.getMethods();
         Method prepareMethod = findPrepareMethod(methods);
         if (prepareMethod != null) {
@@ -251,57 +251,13 @@ public class UdfExecutor extends BaseExecutor {
             }
             UdfClassCache cache = getClassCache(className, jarPath, request.getFn().getSignature(), expirationTime,
                     funcRetType, parameterTypes);
-            Class<?> c = cache.c;
             methodAccess = cache.methodAccess;
-            Constructor<?> ctor = c.getConstructor();
+            Constructor<?> ctor = cache.udfClass.getConstructor();
             udf = ctor.newInstance();
             Method prepareMethod = cache.prepareMethod;
             if (prepareMethod != null) {
                 prepareMethod.invoke(udf);
             }
-<<<<<<< HEAD
-            for (Method m : methods) {
-                // By convention, the udf must contain the function "evaluate"
-                if (!m.getName().equals(UDF_FUNCTION_NAME)) {
-                    continue;
-                }
-                signatures.add(m.toGenericString());
-                argClass = m.getParameterTypes();
-
-                // Try to match the arguments
-                if (argClass.length != parameterTypes.length) {
-                    continue;
-                }
-                method = m;
-                evaluateIndex = methodAccess.getIndex(UDF_FUNCTION_NAME, argClass);
-                Pair<Boolean, JavaUdfDataType> returnType;
-                if (argClass.length == 0 && parameterTypes.length == 0) {
-                    // Special case where the UDF doesn't take any input args
-                    returnType = UdfUtils.setReturnType(funcRetType, m.getReturnType());
-                    if (!returnType.first) {
-                        continue;
-                    } else {
-                        retType = returnType.second;
-                    }
-                    argTypes = new JavaUdfDataType[0];
-                    return;
-                }
-                returnType = UdfUtils.setReturnType(funcRetType, m.getReturnType());
-                if (!returnType.first) {
-                    continue;
-                } else {
-                    retType = returnType.second;
-                }
-                Pair<Boolean, JavaUdfDataType[]> inputType = UdfUtils.setArgTypes(parameterTypes, argClass, false);
-                if (!inputType.first) {
-                    continue;
-                } else {
-                    argTypes = inputType.second;
-                }
-                return;
-            }
-=======
->>>>>>> 631326901a ([sf] refactor udf cache)
 
             argClass = cache.argClass;
             method = cache.method;
