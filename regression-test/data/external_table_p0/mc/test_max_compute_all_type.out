@@ -60,13 +60,13 @@ t_array_string_with_nulls_in_between	array<text>	Yes	true	\N
 t_array_string_ending_with_nulls	array<text>	Yes	true	\N	
 
 -- !test_1 --
-1	false	-7	-15	16	-9223372036854775807	-123.45	-123456.789	123456789	-1234.5678	-123456.789012	-123456789.012345700000	str	2024-03-25	2024-03-25T12:00	2024-03-25T12:00:00.123456	2024-03-25T12:00:00.123456	char_value11111                                   	char_value22222                                                                                     	char_value33333                                                                                                                                                                                                                                                	varchar_value11111	varchar_value22222	varchar_value33333	{"key7":"value1"}	{"key7":"value1"}	{"x         ":"y         "}	{3:20}	{3:200000000000}	{3.2:20.2}	{3.2:20.2}	{0:1}	["string1", "string2"]	[4, 5, 6]	[300000000000, 400000000000]	[3.3, 4.4]	[3.123456789, 4.123456789]	[0, 1]	["varchar1", "varchar2"]	["char1     ", "char2     "]	[3.3, 4.4]	[3.45, 4.56]	[9.4567, 4.5678]	[6.45678901, 4.56789012]	[3.45678901, 4.56789012]	[3.4567890123456790, 4.5678901234567890]	{"s_bigint":-1234567890}	{"key":[{"s_int":-123}]}	{"struct_field":["value1", "value2"]}	{"struct_non_nulls_after_nulls1":-123, "struct_non_nulls_after_nulls2":"value"}	{"struct_field1":-123, "struct_field2":"value", "strict_field3":{"nested_struct_field1":-123, "nested_struct_field2":"nested_value"}}	[null, "value1", "value2"]	["value1", null, "value2"]	["value11", "value2", null]
-2	true	127	32767	2147483647	9223372036854775807	123.45	123456.789	123456789	1234.5678	123456.789012	123456789.012345700000	string_value	2024-03-20	2024-03-20T12:00	2024-03-20T12:00:00.123456	2024-03-20T12:00:00.123456	char_value1                                       	char_value2                                                                                         	char_value3                                                                                                                                                                                                                                                    	varchar_value1	varchar_value2	varchar_value3	{"key1":"value1"}	{"key1":"value1"}	{"a         ":"b         "}	{1:10}	{1:100000000000}	{1.1:10.1}	{1.1:10.1}	{1:0}	["string1", "string2"]	[1, 2, 3]	[100000000000, 200000000000]	[1.1, 2.2]	[1.123456789, 2.123456789]	[1, 0]	["varchar1", "varchar2"]	["char1     ", "char2     "]	[1.1, 2.2]	[1.23, 2.34]	[1.2345, 2.3456]	[1.23456789, 2.34567891]	[1.23456789, 2.34567891]	[1.2345678901234570, 2.3456789012345680]	{"s_bigint":1234567890}	{"key":[{"s_int":-123}]}	{"struct_field":["value1", "value2"]}	{"struct_non_nulls_after_nulls1":123, "struct_non_nulls_after_nulls2":"value"}	{"struct_field1":123, "struct_field2":"value", "strict_field3":{"nested_struct_field1":123, "nested_struct_field2":"nested_value"}}	[null, "value1", "value2"]	["value1", null, "value2"]	["value1", "value2", null]
-3	false	-7	-15	16	-9223372036854775807	-123.45	-123456.789	123456789	-1234.5678	-123456.789012	-123456789.012345700000	str	2024-03-25	2024-03-25T12:00	2024-03-25T12:00:00.123456	2024-03-25T12:00:00.123456	char_value11111                                   	char_value22222                                                                                     	char_value33333                                                                                                                                                                                                                                                	varchar_value11111	varchar_value22222	varchar_value33333	{"key7":"value1"}	{"key7":"value1"}	{"x         ":"y         "}	{3:20}	{3:200000000000}	{3.2:20.2}	{3.2:20.2}	{0:1}	["string1", "string2"]	[4, 5, 6]	[300000000000, 400000000000]	[3.3, 4.4]	[3.123456789, 4.123456789]	[0, 1]	["varchar1", "varchar2"]	["char1     ", "char2     "]	[3.3, 4.4]	[3.45, 4.56]	[9.4567, 4.5678]	[6.45678901, 4.56789012]	[3.45678901, 4.56789012]	[3.4567890123456790, 4.5678901234567890]	{"s_bigint":-1234567890}	{"key":[{"s_int":-123}]}	{"struct_field":["value1", "value2"]}	{"struct_non_nulls_after_nulls1":-123, "struct_non_nulls_after_nulls2":"value"}	{"struct_field1":-123, "struct_field2":"value", "strict_field3":{"nested_struct_field1":-123, "nested_struct_field2":"nested_value"}}	[null, "value1", "value2"]	["value1", null, "value2"]	["value11", "value2", null]
-4	false	-128	-32768	-2147483647	-9223372036854775807	-123.45	-123456.789	-123456789	-1234.5678	-123456.789012	-123456789.012345700000	string_value	2024-03-21	2024-03-21T12:00	2024-03-21T12:00:00.123456	2024-03-21T12:00:00.123456	char_value1                                       	char_value2                                                                                         	char_value3                                                                                                                                                                                                                                                    	varchar_value1	varchar_value2	varchar_value3	{"key1":"value1"}	{"key1":"value1"}	{"x         ":"y         "}	{2:20}	{2:200000000000}	{2.2:20.2}	{2.2:20.2}	{0:1}	["string1", "string2"]	[4, 5, 6]	[300000000000, 400000000000]	[3.3, 4.4]	[3.123456789, 4.123456789]	[0, 1]	["varchar1", "varchar2"]	["char1     ", "char2     "]	[3.3, 4.4]	[3.45, 4.56]	[3.4567, 4.5678]	[3.45678901, 4.56789012]	[3.45678901, 4.56789012]	[3.4567890123456790, 4.5678901234567890]	{"s_bigint":-1234567890}	{"key":[{"s_int":-123}]}	{"struct_field":["value1", "value2"]}	{"struct_non_nulls_after_nulls1":-123, "struct_non_nulls_after_nulls2":"value"}	{"struct_field1":-123, "struct_field2":"value", "strict_field3":{"nested_struct_field1":-123, "nested_struct_field2":"nested_value"}}	[null, "value1", "value2"]	["value1", null, "value2"]	["value1", "value2", null]
+1	false	-7	-15	16	-9223372036854775807	-123.45	-123456.789	123456789	-1234.5678	-123456.789012	-123456789.012345700000	str	2024-03-25	2024-03-25T12:00	2024-03-25T12:00:00.123456	2024-03-25T12:00:00.123456	char_value11111	char_value22222	char_value33333	varchar_value11111	varchar_value22222	varchar_value33333	{"key7":"value1"}	{"key7":"value1"}	{"x":"y"}	{3:20}	{3:200000000000}	{3.2:20.2}	{3.2:20.2}	{0:1}	["string1", "string2"]	[4, 5, 6]	[300000000000, 400000000000]	[3.3, 4.4]	[3.123456789, 4.123456789]	[0, 1]	["varchar1", "varchar2"]	["char1", "char2"]	[3.3, 4.4]	[3.45, 4.56]	[9.4567, 4.5678]	[6.45678901, 4.56789012]	[3.45678901, 4.56789012]	[3.4567890123456790, 4.5678901234567890]	{"s_bigint":-1234567890}	{"key":[{"s_int":-123}]}	{"struct_field":["value1", "value2"]}	{"struct_non_nulls_after_nulls1":-123, "struct_non_nulls_after_nulls2":"value"}	{"struct_field1":-123, "struct_field2":"value", "strict_field3":{"nested_struct_field1":-123, "nested_struct_field2":"nested_value"}}	[null, "value1", "value2"]	["value1", null, "value2"]	["value11", "value2", null]
+2	true	127	32767	2147483647	9223372036854775807	123.45	123456.789	123456789	1234.5678	123456.789012	123456789.012345700000	string_value	2024-03-20	2024-03-20T12:00	2024-03-20T12:00:00.123456	2024-03-20T12:00:00.123456	char_value1	char_value2	char_value3	varchar_value1	varchar_value2	varchar_value3	{"key1":"value1"}	{"key1":"value1"}	{"a":"b"}	{1:10}	{1:100000000000}	{1.1:10.1}	{1.1:10.1}	{1:0}	["string1", "string2"]	[1, 2, 3]	[100000000000, 200000000000]	[1.1, 2.2]	[1.123456789, 2.123456789]	[1, 0]	["varchar1", "varchar2"]	["char1", "char2"]	[1.1, 2.2]	[1.23, 2.34]	[1.2345, 2.3456]	[1.23456789, 2.34567891]	[1.23456789, 2.34567891]	[1.2345678901234570, 2.3456789012345680]	{"s_bigint":1234567890}	{"key":[{"s_int":-123}]}	{"struct_field":["value1", "value2"]}	{"struct_non_nulls_after_nulls1":123, "struct_non_nulls_after_nulls2":"value"}	{"struct_field1":123, "struct_field2":"value", "strict_field3":{"nested_struct_field1":123, "nested_struct_field2":"nested_value"}}	[null, "value1", "value2"]	["value1", null, "value2"]	["value1", "value2", null]
+3	false	-7	-15	16	-9223372036854775807	-123.45	-123456.789	123456789	-1234.5678	-123456.789012	-123456789.012345700000	str	2024-03-25	2024-03-25T12:00	2024-03-25T12:00:00.123456	2024-03-25T12:00:00.123456	char_value11111	char_value22222	char_value33333	varchar_value11111	varchar_value22222	varchar_value33333	{"key7":"value1"}	{"key7":"value1"}	{"x":"y"}	{3:20}	{3:200000000000}	{3.2:20.2}	{3.2:20.2}	{0:1}	["string1", "string2"]	[4, 5, 6]	[300000000000, 400000000000]	[3.3, 4.4]	[3.123456789, 4.123456789]	[0, 1]	["varchar1", "varchar2"]	["char1", "char2"]	[3.3, 4.4]	[3.45, 4.56]	[9.4567, 4.5678]	[6.45678901, 4.56789012]	[3.45678901, 4.56789012]	[3.4567890123456790, 4.5678901234567890]	{"s_bigint":-1234567890}	{"key":[{"s_int":-123}]}	{"struct_field":["value1", "value2"]}	{"struct_non_nulls_after_nulls1":-123, "struct_non_nulls_after_nulls2":"value"}	{"struct_field1":-123, "struct_field2":"value", "strict_field3":{"nested_struct_field1":-123, "nested_struct_field2":"nested_value"}}	[null, "value1", "value2"]	["value1", null, "value2"]	["value11", "value2", null]
+4	false	-128	-32768	-2147483647	-9223372036854775807	-123.45	-123456.789	-123456789	-1234.5678	-123456.789012	-123456789.012345700000	string_value	2024-03-21	2024-03-21T12:00	2024-03-21T12:00:00.123456	2024-03-21T12:00:00.123456	char_value1	char_value2	char_value3	varchar_value1	varchar_value2	varchar_value3	{"key1":"value1"}	{"key1":"value1"}	{"x":"y"}	{2:20}	{2:200000000000}	{2.2:20.2}	{2.2:20.2}	{0:1}	["string1", "string2"]	[4, 5, 6]	[300000000000, 400000000000]	[3.3, 4.4]	[3.123456789, 4.123456789]	[0, 1]	["varchar1", "varchar2"]	["char1", "char2"]	[3.3, 4.4]	[3.45, 4.56]	[3.4567, 4.5678]	[3.45678901, 4.56789012]	[3.45678901, 4.56789012]	[3.4567890123456790, 4.5678901234567890]	{"s_bigint":-1234567890}	{"key":[{"s_int":-123}]}	{"struct_field":["value1", "value2"]}	{"struct_non_nulls_after_nulls1":-123, "struct_non_nulls_after_nulls2":"value"}	{"struct_field1":-123, "struct_field2":"value", "strict_field3":{"nested_struct_field1":-123, "nested_struct_field2":"nested_value"}}	[null, "value1", "value2"]	["value1", null, "value2"]	["value1", "value2", null]
 
 -- !test_2 --
-1	false	-7	-15	16	-9223372036854775807	-123.45	-123456.789	123456789	-1234.5678	-123456.789012	-123456789.012345700000	str	2024-03-25	2024-03-25T12:00	2024-03-25T12:00:00.123456	2024-03-25T12:00:00.123456	char_value11111                                   	char_value22222                                                                                     	char_value33333                                                                                                                                                                                                                                                	varchar_value11111	varchar_value22222	varchar_value33333	{"key7":"value1"}	{"key7":"value1"}	{"x         ":"y         "}	{3:20}	{3:200000000000}	{3.2:20.2}	{3.2:20.2}	{0:1}	["string1", "string2"]	[4, 5, 6]	[300000000000, 400000000000]	[3.3, 4.4]	[3.123456789, 4.123456789]	[0, 1]	["varchar1", "varchar2"]	["char1     ", "char2     "]	[3.3, 4.4]	[3.45, 4.56]	[9.4567, 4.5678]	[6.45678901, 4.56789012]	[3.45678901, 4.56789012]	[3.4567890123456790, 4.5678901234567890]	{"s_bigint":-1234567890}	{"key":[{"s_int":-123}]}	{"struct_field":["value1", "value2"]}	{"struct_non_nulls_after_nulls1":-123, "struct_non_nulls_after_nulls2":"value"}	{"struct_field1":-123, "struct_field2":"value", "strict_field3":{"nested_struct_field1":-123, "nested_struct_field2":"nested_value"}}	[null, "value1", "value2"]	["value1", null, "value2"]	["value11", "value2", null]
+1	false	-7	-15	16	-9223372036854775807	-123.45	-123456.789	123456789	-1234.5678	-123456.789012	-123456789.012345700000	str	2024-03-25	2024-03-25T12:00	2024-03-25T12:00:00.123456	2024-03-25T12:00:00.123456	char_value11111	char_value22222	char_value33333	varchar_value11111	varchar_value22222	varchar_value33333	{"key7":"value1"}	{"key7":"value1"}	{"x":"y"}	{3:20}	{3:200000000000}	{3.2:20.2}	{3.2:20.2}	{0:1}	["string1", "string2"]	[4, 5, 6]	[300000000000, 400000000000]	[3.3, 4.4]	[3.123456789, 4.123456789]	[0, 1]	["varchar1", "varchar2"]	["char1", "char2"]	[3.3, 4.4]	[3.45, 4.56]	[9.4567, 4.5678]	[6.45678901, 4.56789012]	[3.45678901, 4.56789012]	[3.4567890123456790, 4.5678901234567890]	{"s_bigint":-1234567890}	{"key":[{"s_int":-123}]}	{"struct_field":["value1", "value2"]}	{"struct_non_nulls_after_nulls1":-123, "struct_non_nulls_after_nulls2":"value"}	{"struct_field1":-123, "struct_field2":"value", "strict_field3":{"nested_struct_field1":-123, "nested_struct_field2":"nested_value"}}	[null, "value1", "value2"]	["value1", null, "value2"]	["value11", "value2", null]
 
 -- !test_3 --
 1	false
@@ -396,112 +396,106 @@ t_array_string_ending_with_nulls	array<text>	Yes	true	\N
 4	2024-03-21T12:00:00.123456
 
 -- !test_75 --
-1	char_value11111                                   
-2	char_value1                                       
-3	char_value11111                                   
-4	char_value1                                       
+1	char_value11111
+2	char_value1
+3	char_value11111
+4	char_value1
 
 -- !test_76 --
+1	char_value11111
+3	char_value11111
 
 -- !test_77 --
-1	char_value11111                                   
-2	char_value1                                       
-3	char_value11111                                   
-4	char_value1                                       
+2	char_value1
+4	char_value1
 
 -- !test_78 --
-1	char_value11111                                   
-2	char_value1                                       
-3	char_value11111                                   
-4	char_value1                                       
+1	char_value11111
+3	char_value11111
 
 -- !test_79 --
+2	char_value1
+4	char_value1
 
 -- !test_80 --
-1	char_value11111                                   
-2	char_value1                                       
-3	char_value11111                                   
-4	char_value1                                       
+1	char_value11111
+3	char_value11111
 
 -- !test_81 --
+1	char_value11111
+2	char_value1
+3	char_value11111
+4	char_value1
 
 -- !test_82 --
-1	char_value11111                                   
-2	char_value1                                       
-3	char_value11111                                   
-4	char_value1                                       
 
 -- !test_83 --
-1	char_value22222                                                                                     
-2	char_value2                                                                                         
-3	char_value22222                                                                                     
-4	char_value2                                                                                         
+1	char_value22222
+2	char_value2
+3	char_value22222
+4	char_value2
 
 -- !test_84 --
+1	char_value22222
+3	char_value22222
 
 -- !test_85 --
-1	char_value22222                                                                                     
-2	char_value2                                                                                         
-3	char_value22222                                                                                     
-4	char_value2                                                                                         
+2	char_value2
+4	char_value2
 
 -- !test_86 --
-1	char_value22222                                                                                     
-2	char_value2                                                                                         
-3	char_value22222                                                                                     
-4	char_value2                                                                                         
+1	char_value22222
+3	char_value22222
 
 -- !test_87 --
+2	char_value2
+4	char_value2
 
 -- !test_88 --
-1	char_value22222                                                                                     
-2	char_value2                                                                                         
-3	char_value22222                                                                                     
-4	char_value2                                                                                         
+1	char_value22222
+3	char_value22222
 
 -- !test_89 --
+1	char_value22222
+2	char_value2
+3	char_value22222
+4	char_value2
 
 -- !test_90 --
-1	char_value22222                                                                                     
-2	char_value2                                                                                         
-3	char_value22222                                                                                     
-4	char_value2                                                                                         
 
 -- !test_91 --
-1	char_value33333                                                                                                                                                                                                                                                
-2	char_value3                                                                                                                                                                                                                                                    
-3	char_value33333                                                                                                                                                                                                                                                
-4	char_value3                                                                                                                                                                                                                                                    
+1	char_value33333
+2	char_value3
+3	char_value33333
+4	char_value3
 
 -- !test_92 --
+1	char_value33333
+3	char_value33333
 
 -- !test_93 --
-1	char_value33333                                                                                                                                                                                                                                                
-2	char_value3                                                                                                                                                                                                                                                    
-3	char_value33333                                                                                                                                                                                                                                                
-4	char_value3                                                                                                                                                                                                                                                    
+2	char_value3
+4	char_value3
 
 -- !test_94 --
-1	char_value33333                                                                                                                                                                                                                                                
-2	char_value3                                                                                                                                                                                                                                                    
-3	char_value33333                                                                                                                                                                                                                                                
-4	char_value3                                                                                                                                                                                                                                                    
+1	char_value33333
+3	char_value33333
 
 -- !test_95 --
+2	char_value3
+4	char_value3
 
 -- !test_96 --
-1	char_value33333                                                                                                                                                                                                                                                
-2	char_value3                                                                                                                                                                                                                                                    
-3	char_value33333                                                                                                                                                                                                                                                
-4	char_value3                                                                                                                                                                                                                                                    
+1	char_value33333
+3	char_value33333
 
 -- !test_97 --
+1	char_value33333
+2	char_value3
+3	char_value33333
+4	char_value3
 
 -- !test_98 --
-1	char_value33333                                                                                                                                                                                                                                                
-2	char_value3                                                                                                                                                                                                                                                    
-3	char_value33333                                                                                                                                                                                                                                                
-4	char_value3                                                                                                                                                                                                                                                    
 
 -- !test_99 --
 1	varchar_value11111
@@ -618,10 +612,10 @@ t_array_string_ending_with_nulls	array<text>	Yes	true	\N
 4	{"key1":"value1"}
 
 -- !test_125 --
-1	{"x         ":"y         "}
-2	{"a         ":"b         "}
-3	{"x         ":"y         "}
-4	{"x         ":"y         "}
+1	{"x":"y"}
+2	{"a":"b"}
+3	{"x":"y"}
+4	{"x":"y"}
 
 -- !test_126 --
 1	{3:20}
@@ -696,10 +690,10 @@ t_array_string_ending_with_nulls	array<text>	Yes	true	\N
 4	["varchar1", "varchar2"]
 
 -- !test_138 --
-1	["char1     ", "char2     "]
-2	["char1     ", "char2     "]
-3	["char1     ", "char2     "]
-4	["char1     ", "char2     "]
+1	["char1", "char2"]
+2	["char1", "char2"]
+3	["char1", "char2"]
+4	["char1", "char2"]
 
 -- !test_139 --
 1	[3.3, 4.4]
@@ -792,8 +786,8 @@ t_array_string_ending_with_nulls	array<text>	Yes	true	\N
 4	["value1", "value2", null]
 
 -- !test_154 --
-1	{"x         ":"y         "}
-2	{"a         ":"b         "}
-3	{"x         ":"y         "}
-4	{"x         ":"y         "}
+1	{"x":"y"}
+2	{"a":"b"}
+3	{"x":"y"}
+4	{"x":"y"}
 

@@ -272,7 +272,6 @@ public class MaxComputeExternalTable extends ExternalTable {
         List<Column> schema = getFullSchema();
         TMCTable tMcTable = new TMCTable();
         MaxComputeExternalCatalog mcCatalog = ((MaxComputeExternalCatalog) catalog);
-        //TODO remove: tMcTable.setRegion(mcCatalog.getRegion());
 
         tMcTable.setAccessKey(mcCatalog.getAccessKey());
         tMcTable.setSecretKey(mcCatalog.getSecretKey());

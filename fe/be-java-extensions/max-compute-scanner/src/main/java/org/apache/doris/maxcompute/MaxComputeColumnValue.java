@@ -260,8 +260,8 @@ public class MaxComputeColumnValue implements ColumnValue {
             case MILLISECOND -> convertToLocalDateTime((TimeStampMilliTZVector) column, idx++);
             case NANOSECOND -> convertToLocalDateTime((TimeStampNanoTZVector) column, idx++);
         };
-        Because :
 
+        Because :
         MaxCompute type    => Doris Type
         DATETIME  => ScalarType.createDatetimeV2Type(3)
         TIMESTAMP => ScalarType.createDatetimeV2Type(6);
@@ -308,9 +308,10 @@ public class MaxComputeColumnValue implements ColumnValue {
     public void unpackMap(List<ColumnValue> keys, List<ColumnValue> values) {
         skippedIfNull();
         MapVector mapCol = (MapVector) column;
-        int elemSize = mapCol.getObject(idx).size();
-        FieldVector keyList = mapCol.getDataVector().getChildrenFromFields().get(0);
-        FieldVector valList = mapCol.getDataVector().getChildrenFromFields().get(1);
+        int elemSize = mapCol.getElementEndIndex(idx) - mapCol.getElementStartIndex(idx);
+        List<FieldVector> innerCols = ((StructVector) mapCol.getDataVector()).getChildrenFromFields();
+        FieldVector keyList = innerCols.get(0);
+        FieldVector valList = innerCols.get(1);
         for (int i = 0; i < elemSize; i++) {
             MaxComputeColumnValue key = new MaxComputeColumnValue(keyList, offset);
             keys.add(key);
@@ -325,8 +326,9 @@ public class MaxComputeColumnValue implements ColumnValue {
     public void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values) {
         skippedIfNull();
         StructVector structCol = (StructVector) column;
+        List<FieldVector> innerCols = structCol.getChildrenFromFields();
         for (Integer fieldIndex : structFieldIndex) {
-            MaxComputeColumnValue val = new MaxComputeColumnValue(structCol.getChildByOrdinal(fieldIndex), idx);
+            MaxComputeColumnValue val = new MaxComputeColumnValue(innerCols.get(fieldIndex), idx);
             values.add(val);
         }
         idx++;

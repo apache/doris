@@ -199,18 +199,23 @@ public class MaxComputeJniScanner extends JniScanner {
     private int readVectors(int expectedRows) throws IOException {
         int curReadRows = 0;
         while (curReadRows < expectedRows) {
-
-            if (!currentSplitReader.hasNext()) {
-                currentSplitReader.close();
-                currentSplitReader = null;
-                break;
-            }
-            VectorSchemaRoot data = currentSplitReader.get();
-            if (data.getRowCount() == 0) {
+            try {
+                if (!currentSplitReader.hasNext()) {
+                    currentSplitReader.close();
+                    currentSplitReader = null;
+                    break;
+                }
+            } catch (Exception e) {
+                LOG.info("currentSplitReader hasNext fail", e);
                 break;
             }
 
             try {
+                VectorSchemaRoot data = currentSplitReader.get();
+                if (data.getRowCount() == 0) {
+                    break;
+                }
+
                 List<FieldVector> fieldVectors = data.getFieldVectors();
                 int batchRows = 0;
                 for (FieldVector column : fieldVectors) {
@@ -227,8 +232,6 @@ public class MaxComputeJniScanner extends JniScanner {
                 curReadRows += batchRows;
             } catch (Exception e) {
                 throw new RuntimeException("Fail to read arrow data, reason: " + e.getMessage(), e);
-            } finally {
-                data.close();
             }
         }
         return curReadRows;

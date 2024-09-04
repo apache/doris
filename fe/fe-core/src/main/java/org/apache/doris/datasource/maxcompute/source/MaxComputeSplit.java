@@ -30,17 +30,12 @@ public class MaxComputeSplit extends FileSplit {
     public String scanSerialize;
     public String sessionId;
 
-
     public enum SplitType {
         ROW_OFFSET,
         BYTE_SIZE
     }
 
     public SplitType splitType;
-
-
-
-
 
     public MaxComputeSplit(LocationPath path, long start, long length, long fileLength,
             long modificationTime, String[] hosts, List<String> partitionValues) {

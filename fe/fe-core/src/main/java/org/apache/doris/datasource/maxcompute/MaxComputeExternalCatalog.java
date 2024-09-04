@@ -33,6 +33,7 @@ import com.aliyun.odps.Project;
 import com.aliyun.odps.account.Account;
 import com.aliyun.odps.account.AliyunAccount;
 import com.aliyun.odps.security.SecurityManager;
+import com.aliyun.odps.table.configuration.SplitOptions;
 import com.aliyun.odps.table.enviroment.Credentials;
 import com.aliyun.odps.table.enviroment.EnvironmentSettings;
 import com.aliyun.odps.utils.StringUtils;
@@ -54,9 +55,13 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     private String endpoint;
     private String catalogOwner;
     private String defaultProject;
-    String quota;
+    private String quota;
+    private EnvironmentSettings settings;
 
-    public  EnvironmentSettings settings;
+    private String splitStrategy;
+    private SplitOptions splitOptions;
+    private long splitRowCount;
+    private long splitByteSize;
 
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
             MCProperties.PROJECT,
@@ -73,15 +78,47 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     protected void initLocalObjectsImpl() {
         Map<String, String> props = catalogProperty.getProperties();
 
-        defaultProject = props.get(MCProperties.PROJECT);
-        quota = props.getOrDefault(MCProperties.QUOTA, "pay-as-you-go");
-        endpoint = props.getOrDefault(MCProperties.ENDPOINT, "");
+        quota = props.getOrDefault(MCProperties.QUOTA, MCProperties.DEFAULT_QUOTA);
 
+        try {
+            splitStrategy = props.getOrDefault(MCProperties.SPLIT_STRATEGY, MCProperties.DEFAULT_SPLIT_STRATEGY);
+            if (splitStrategy.equals(MCProperties.SPLIT_BY_BYTE_SIZE_STRATEGY)) {
+                splitByteSize = Long.parseLong(props.getOrDefault(MCProperties.SPLIT_BYTE_SIZE,
+                        MCProperties.DEFAULT_SPLIT_BYTE_SIZE));
+
+                splitOptions = SplitOptions.newBuilder()
+                        .SplitByByteSize(splitByteSize)
+                        .withCrossPartition(false)
+                        .build();
+
+            } else if (splitStrategy.equals(MCProperties.SPLIT_BY_ROW_COUNT_STRATEGY)) {
+                splitRowCount = Long.parseLong(props.getOrDefault(MCProperties.SPLIT_ROW_COUNT,
+                        MCProperties.DEFAULT_SPLIT_ROW_COUNT));
+                if (splitRowCount <= 0) {
+                    throw new IllegalArgumentException(MCProperties.SPLIT_ROW_COUNT + " must be greater than 0");
+                }
+
+                splitOptions = SplitOptions.newBuilder()
+                        .SplitByRowOffset()
+                        .withCrossPartition(false)
+                        .build();
+            } else {
+                throw new IllegalArgumentException("property " + MCProperties.SPLIT_STRATEGY + "must is "
+                        + MCProperties.SPLIT_BY_BYTE_SIZE_STRATEGY + " or " + MCProperties.SPLIT_BY_ROW_COUNT_STRATEGY);
+            }
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("property " + MCProperties.SPLIT_BYTE_SIZE + "/"
+                    + MCProperties.SPLIT_ROW_COUNT + "must be an integer");
+        }
+
+        endpoint = props.getOrDefault(MCProperties.ENDPOINT, "");
+        if (Strings.isNullOrEmpty(endpoint)) {
+            throw new IllegalArgumentException("Missing required property '" + MCProperties.ENDPOINT + "'.");
+        }
+
+        defaultProject = props.get(MCProperties.PROJECT);
         if (Strings.isNullOrEmpty(defaultProject)) {
             throw new IllegalArgumentException("Missing required property '" + MCProperties.PROJECT + "'.");
-        }
-        if (Strings.isNullOrEmpty(quota)) {
-            throw new IllegalArgumentException("Missing required property '" + MCProperties.QUOTA + "'.");
         }
 
         CloudCredential credential = MCProperties.getCredential(props);
@@ -125,7 +162,9 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
             Iterator<Project> iterator = odps.projects().iterator(catalogOwner);
             while (iterator.hasNext()) {
                 Project project = iterator.next();
-                result.add(project.getName());
+                if (!project.getName().equals(defaultProject)) {
+                    result.add(project.getName());
+                }
             }
         } catch (OdpsException e) {
             throw new RuntimeException(e);
@@ -209,6 +248,27 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
 
     public String getQuota() {
         return quota;
+    }
+
+    public SplitOptions getSplitOption() {
+        return splitOptions;
+    }
+
+    public EnvironmentSettings getSettings() {
+        return settings;
+    }
+
+    public String getSplitStrategy() {
+        return splitStrategy;
+    }
+
+    public long getSplitRowCount() {
+        return splitRowCount;
+    }
+
+
+    public long getSplitByteSize() {
+        return splitByteSize;
     }
 
     @Override

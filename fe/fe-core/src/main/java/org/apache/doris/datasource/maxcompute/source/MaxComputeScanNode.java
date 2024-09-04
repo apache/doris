@@ -28,6 +28,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -37,6 +38,7 @@ import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.maxcompute.source.MaxComputeSplit.SplitType;
+import org.apache.doris.datasource.property.constants.MCProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -49,7 +51,6 @@ import com.aliyun.odps.OdpsType;
 import com.aliyun.odps.table.TableIdentifier;
 import com.aliyun.odps.table.configuration.ArrowOptions;
 import com.aliyun.odps.table.configuration.ArrowOptions.TimestampUnit;
-import com.aliyun.odps.table.configuration.SplitOptions;
 import com.aliyun.odps.table.optimizer.predicate.Predicate;
 import com.aliyun.odps.table.read.TableBatchReadSession;
 import com.aliyun.odps.table.read.TableReadSessionBuilder;
@@ -74,8 +75,6 @@ import java.util.stream.Collectors;
 public class MaxComputeScanNode extends FileQueryScanNode {
 
     private final MaxComputeExternalTable table;
-    private static final int MIN_SPLIT_SIZE = 4096;
-    String splitStrategy;
     TableBatchReadSession tableBatchReadSession;
 
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
@@ -104,7 +103,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         fileDesc.setSessionId(maxComputeSplit.getSessionId());
         tableFormatFileDesc.setMaxComputeParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
-        rangeDesc.setPath("Not use");
+        rangeDesc.setPath("[ " + maxComputeSplit.getStart() + " , " + maxComputeSplit.getLength() + " ]");
         rangeDesc.setStartOffset(maxComputeSplit.getStart());
         rangeDesc.setSize(maxComputeSplit.getLength());
     }
@@ -116,14 +115,12 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         List<String> requiredPartitionColumns = new ArrayList<>();
         List<String> requiredDataColumns = new ArrayList<>();
 
-
-        ArrayList<SlotDescriptor> slots = desc.getSlots();
+        ArrayList<SlotDescriptor> requiredSlots = desc.getSlots();
         Set<String> partitionColumns =
-                table.getPartitionColumns().stream().map(col -> col.getName()).collect(Collectors.toSet());
-
+                table.getPartitionColumns().stream().map(Column::getName).collect(Collectors.toSet());
         Set<String> columnNames =
-                table.getColumns().stream().map(col -> col.getName()).collect(Collectors.toSet());
-        for (SlotDescriptor slot  : slots) {
+                table.getColumns().stream().map(Column::getName).collect(Collectors.toSet());
+        for (SlotDescriptor slot  : requiredSlots) {
             String slotName = slot.getColumn().getName();
             if (partitionColumns.contains(slotName)) {
                 requiredPartitionColumns.add(slotName);
@@ -132,56 +129,32 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             }
         }
 
-        splitStrategy = table.getCatalog().getCatalogProperty()
-                .getOrDefault("split_strategy", "byte_size");
 
-        TableReadSessionBuilder scanBuilder = new TableReadSessionBuilder();
+        MaxComputeExternalCatalog mcCatalog = (MaxComputeExternalCatalog) table.getCatalog();
 
         try {
-            if (splitStrategy.equals("byte_size")) {
-                tableBatchReadSession =
-                        scanBuilder.identifier(TableIdentifier.of(table.getDbName(), table.getName()))
-                                .withSettings(((MaxComputeExternalCatalog) table.getCatalog()).settings)
-                                .withSplitOptions(
-                                        SplitOptions.newBuilder()
-                                        .SplitByByteSize(256 * 1024L * 1024L)
-                                        .withCrossPartition(false).build())
-                                .requiredPartitionColumns(requiredPartitionColumns)
-                                .requiredDataColumns(requiredDataColumns)
-                                .withArrowOptions(
-                                        ArrowOptions.newBuilder()
-                                                .withDatetimeUnit(TimestampUnit.MILLI)
-                                                .withTimestampUnit(TimestampUnit.NANO)
-                                                .build()
-                                )
-                                .withFilterPredicate(filterPredicate)
-                                .buildBatchReadSession();
-            } else {
-                tableBatchReadSession =
-                        scanBuilder.identifier(TableIdentifier.of(table.getDbName(), table.getName()))
-                                .withSettings(((MaxComputeExternalCatalog) table.getCatalog()).settings)
-                                .requiredPartitionColumns(requiredPartitionColumns)
-                                .requiredDataColumns(requiredDataColumns)
-                                .withSplitOptions(SplitOptions.newBuilder()
-                                        .SplitByRowOffset()
-                                        .withCrossPartition(false)
-                                        .build())
-                                .withArrowOptions(
-                                        ArrowOptions.newBuilder()
-                                                .withDatetimeUnit(TimestampUnit.MILLI)
-                                                .withTimestampUnit(TimestampUnit.NANO)
-                                                .build()
-                                )
-                                .withFilterPredicate(filterPredicate)
-                                .buildBatchReadSession();
-            }
+            TableReadSessionBuilder scanBuilder = new TableReadSessionBuilder();
+            tableBatchReadSession =
+                    scanBuilder.identifier(TableIdentifier.of(table.getDbName(), table.getName()))
+                            .withSettings(mcCatalog.getSettings())
+                            .withSplitOptions(mcCatalog.getSplitOption())
+                            .requiredPartitionColumns(requiredPartitionColumns)
+                            .requiredDataColumns(requiredDataColumns)
+                            .withArrowOptions(
+                                    ArrowOptions.newBuilder()
+                                            .withDatetimeUnit(TimestampUnit.MILLI)
+                                            .withTimestampUnit(TimestampUnit.NANO)
+                                            .build()
+                            )
+                            .withFilterPredicate(filterPredicate)
+                            .buildBatchReadSession();
         } catch (java.io.IOException e) {
             throw new RuntimeException(e);
         }
 
     }
 
-    protected Predicate convertPredicate() throws UserException {
+    protected Predicate convertPredicate() {
         if (conjuncts.isEmpty()) {
             return Predicate.NO_PREDICATE;
         }
@@ -386,49 +359,51 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             return result;
         }
         createTableBatchReadSession();
+
         try {
+            String scanSessionSerialize =  serializeSession(tableBatchReadSession);
             InputSplitAssigner assigner = tableBatchReadSession.getInputSplitAssigner();
+            long modificationTime = table.getOdpsTable().getLastDataModifiedTime().getTime();
 
-            if (splitStrategy.equals("byte_size"))  {
+            MaxComputeExternalCatalog mcCatalog = (MaxComputeExternalCatalog) table.getCatalog();
+
+            if (mcCatalog.getSplitStrategy().equals(MCProperties.SPLIT_BY_BYTE_SIZE_STRATEGY)) {
+
                 for (com.aliyun.odps.table.read.split.InputSplit split : assigner.getAllSplits()) {
-
-                    long modificationTime = table.getOdpsTable().getLastDataModifiedTime().getTime();
                     MaxComputeSplit maxComputeSplit =
                             new MaxComputeSplit(new LocationPath("/byte_size", Maps.newHashMap()),
-                                    ((IndexedInputSplit) split).getSplitIndex(), -1,  -1,
+                                    ((IndexedInputSplit) split).getSplitIndex(), -1,
+                                    mcCatalog.getSplitByteSize(),
                                     modificationTime, null,
                                     Collections.emptyList());
 
 
-                    maxComputeSplit.scanSerialize = serialize(tableBatchReadSession);
+                    maxComputeSplit.scanSerialize = scanSessionSerialize;
                     maxComputeSplit.splitType = SplitType.BYTE_SIZE;
-                    maxComputeSplit.sessionId = split.getSessionId();
-                    result.add(maxComputeSplit);
-                }
-            } else if (splitStrategy.equals("row_offset")) {
-
-                long totalRowCount =  assigner.getTotalRowCount();
-
-                long recordsPerSplit = 4096;
-                for (long offset = 0; offset < totalRowCount; offset += recordsPerSplit) {
-                    recordsPerSplit = Math.min(recordsPerSplit, totalRowCount - offset);
-                    com.aliyun.odps.table.read.split.InputSplit split =
-                            assigner.getSplitByRowOffset(offset, recordsPerSplit);
-
-                    long modificationTime = table.getOdpsTable().getLastDataModifiedTime().getTime();
-                    MaxComputeSplit maxComputeSplit =
-                            new MaxComputeSplit(new LocationPath("/row_offset", Maps.newHashMap()),
-                            offset, recordsPerSplit, totalRowCount, modificationTime, null,
-                            Collections.emptyList());
-
-                    maxComputeSplit.scanSerialize = serialize(tableBatchReadSession);
-                    maxComputeSplit.splitType = SplitType.ROW_OFFSET;
                     maxComputeSplit.sessionId = split.getSessionId();
 
                     result.add(maxComputeSplit);
                 }
             } else {
-                throw new RuntimeException("Unsupported split strategy: " + splitStrategy);
+                long totalRowCount =  assigner.getTotalRowCount();
+
+                long recordsPerSplit = mcCatalog.getSplitRowCount();
+                for (long offset = 0; offset < totalRowCount; offset += recordsPerSplit) {
+                    recordsPerSplit = Math.min(recordsPerSplit, totalRowCount - offset);
+                    com.aliyun.odps.table.read.split.InputSplit split =
+                            assigner.getSplitByRowOffset(offset, recordsPerSplit);
+
+                    MaxComputeSplit maxComputeSplit =
+                            new MaxComputeSplit(new LocationPath("/row_offset", Maps.newHashMap()),
+                            offset, recordsPerSplit, totalRowCount, modificationTime, null,
+                            Collections.emptyList());
+
+                    maxComputeSplit.scanSerialize = scanSessionSerialize;
+                    maxComputeSplit.splitType = SplitType.ROW_OFFSET;
+                    maxComputeSplit.sessionId = split.getSessionId();
+
+                    result.add(maxComputeSplit);
+                }
             }
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -436,7 +411,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         return result;
     }
 
-    private static String serialize(Serializable object) throws IOException {
+    private static String serializeSession(Serializable object) throws IOException {
         ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
         ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream);
         objectOutputStream.writeObject(object);
