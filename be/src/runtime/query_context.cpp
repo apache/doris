@@ -398,24 +398,24 @@ void QueryContext::_report_query_profile() {
     ExecEnv::GetInstance()->runtime_query_statistics_mgr()->trigger_report_profile();
 }
 
-void QueryContext::get_revocable_info(size_t& revocable_size, size_t& memory_usage,
-                                      bool& has_running_task) const {
-    revocable_size = 0;
+void QueryContext::get_revocable_info(size_t* revocable_size, size_t* memory_usage,
+                                      bool* has_running_task) const {
+    *revocable_size = 0;
     for (auto&& [fragment_id, fragment_wptr] : _fragment_id_to_pipeline_ctx) {
         auto fragment_ctx = fragment_wptr.lock();
         if (!fragment_ctx) {
             continue;
         }
 
-        revocable_size += fragment_ctx->get_revocable_size(has_running_task);
+        *revocable_size += fragment_ctx->get_revocable_size(has_running_task);
 
         // Should wait for all tasks are not running before revoking memory.
-        if (has_running_task) {
+        if (*has_running_task) {
             break;
         }
     }
 
-    memory_usage = query_mem_tracker->consumption();
+    *memory_usage = query_mem_tracker->consumption();
 }
 
 size_t QueryContext::get_revocable_size() const {
@@ -427,7 +427,7 @@ size_t QueryContext::get_revocable_size() const {
         }
 
         bool has_running_task = false;
-        revocable_size += fragment_ctx->get_revocable_size(has_running_task);
+        revocable_size += fragment_ctx->get_revocable_size(&has_running_task);
 
         // Should wait for all tasks are not running before revoking memory.
         if (has_running_task) {
