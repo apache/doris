@@ -843,7 +843,9 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
         // execute logic function
         RETURN_IF_ERROR(_execute_compound_fn(function_name));
     } else {
-        return Status::NotSupported("_execute_predicates_except_leafnode_of_andnode not supported for TExprNodeType:{}", node_type);
+        return Status::InvalidArgument(
+                "_execute_predicates_except_leafnode_of_andnode not supported for TExprNodeType:{}",
+                node_type);
     }
 
     return Status::OK();
