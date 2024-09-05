@@ -335,7 +335,7 @@ struct EncryptionAndDecryptFourImpl {
         return Status::OK();
     }
 
-    static void vector_const(const ColumnString* column, StringRef iv_arg, StringRef key_arg,
+    static void vector_const(const ColumnString* column, StringRef key_arg, StringRef iv_arg,
                              StringRef mode_arg, size_t input_rows_count,
                              ColumnString::Chars& result_data, ColumnString::Offsets& result_offset,
                              NullMap& null_map) {

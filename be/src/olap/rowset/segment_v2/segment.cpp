@@ -553,7 +553,7 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
                 vectorized::PathInData path;
                 path.from_protobuf(spase_column_pb.column_path_info());
                 // Read from root column, so reader is nullptr
-                _sparse_column_tree[column.unique_id()].add(
+                _sparse_column_tree[unique_id].add(
                         path.copy_pop_front(),
                         SubcolumnReader {nullptr,
                                          vectorized::DataTypeFactory::instance().create_data_type(
@@ -617,9 +617,10 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
     const auto* node = tablet_column.has_path_info()
                                ? _sub_column_tree[unique_id].find_exact(relative_path)
                                : nullptr;
-    const auto* sparse_node = tablet_column.has_path_info()
-                                      ? _sparse_column_tree[unique_id].find_exact(relative_path)
-                                      : nullptr;
+    const auto* sparse_node =
+            tablet_column.has_path_info() && _sparse_column_tree.contains(unique_id)
+                    ? _sparse_column_tree[unique_id].find_exact(relative_path)
+                    : nullptr;
     // Currently only compaction and checksum need to read flat leaves
     // They both use tablet_schema_with_merged_max_schema_version as read schema
     auto type_to_read_flat_leaves = [](ReaderType type) {

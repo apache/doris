@@ -95,4 +95,7 @@ DECLARE_mBool(save_load_error_log_to_s3);
 // the theads which sync the datas which loaded in other clusters
 DECLARE_mInt32(sync_load_for_tablets_thread);
 
+// enable large txn lazy commit in meta-service `commit_txn`
+DECLARE_mBool(enable_cloud_txn_lazy_commit);
+
 } // namespace doris::config

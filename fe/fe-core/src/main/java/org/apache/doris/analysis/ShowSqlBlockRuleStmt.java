@@ -36,7 +36,7 @@ import org.apache.commons.lang3.StringUtils;
       show sql_block_rule
       show sql_block_rule for rule_name
 */
-public class ShowSqlBlockRuleStmt extends ShowStmt {
+public class ShowSqlBlockRuleStmt extends ShowStmt implements NotFallbackInParser {
 
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()

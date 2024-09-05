@@ -296,7 +296,7 @@ DEFINE_mInt32(default_num_rows_per_column_file_block, "1024");
 // pending data policy
 DEFINE_mInt32(pending_data_expire_time_sec, "1800");
 // inc_rowset snapshot rs sweep time interval
-DEFINE_mInt32(tablet_rowset_stale_sweep_time_sec, "300");
+DEFINE_mInt32(tablet_rowset_stale_sweep_time_sec, "600");
 // tablet stale rowset sweep by threshold size
 DEFINE_Bool(tablet_rowset_stale_sweep_by_size, "false");
 DEFINE_mInt32(tablet_rowset_stale_sweep_threshold_size, "100");
@@ -965,10 +965,6 @@ DEFINE_Bool(enable_debug_points, "false");
 DEFINE_Int32(pipeline_executor_size, "0");
 DEFINE_Bool(enable_workload_group_for_scan, "false");
 DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
-
-// Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
-// Will remove after fully test.
-DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
 DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");

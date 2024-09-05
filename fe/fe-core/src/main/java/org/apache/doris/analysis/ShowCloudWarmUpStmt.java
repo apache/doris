@@ -28,7 +28,7 @@ import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-public class ShowCloudWarmUpStmt extends ShowStmt {
+public class ShowCloudWarmUpStmt extends ShowStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(ShowCloudWarmUpStmt.class);
     private Expr whereClause;
     private boolean showAllJobs = false;

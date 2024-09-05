@@ -62,4 +62,6 @@ DEFINE_mInt32(sync_load_for_tablets_thread, "32");
 
 DEFINE_mBool(enable_new_tablet_do_compaction, "false");
 
+DEFINE_Bool(enable_cloud_txn_lazy_commit, "false");
+
 } // namespace doris::config
