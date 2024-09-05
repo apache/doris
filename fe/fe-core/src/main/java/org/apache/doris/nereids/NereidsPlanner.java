@@ -27,6 +27,7 @@ import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.nereids.CascadesContext.Lock;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -65,16 +66,20 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.normalize.QueryCacheNormalizer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TQueryCacheParam;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
+import org.apache.commons.codec.binary.Hex;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -343,10 +348,11 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsTranslateTime();
         }
-        if (cascadesContext.getConnectContext().getSessionVariable().isEnableNereidsTrace()) {
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+        if (sessionVariable.isEnableNereidsTrace()) {
             CounterEvent.clearCounter();
         }
-        if (cascadesContext.getConnectContext().getSessionVariable().isPlayNereidsDump()) {
+        if (sessionVariable.isPlayNereidsDump()) {
             return;
         }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
@@ -355,8 +361,31 @@ public class NereidsPlanner extends Planner {
         physicalRelations.addAll(planTranslatorContext.getPhysicalRelations());
         descTable = planTranslatorContext.getDescTable();
         fragments = new ArrayList<>(planTranslatorContext.getPlanFragments());
+
+        boolean enableQueryCache = sessionVariable.getEnableQueryCache();
+        String queryId = DebugUtil.printId(cascadesContext.getConnectContext().queryId());
         for (int seq = 0; seq < fragments.size(); seq++) {
-            fragments.get(seq).setFragmentSequenceNum(seq);
+            PlanFragment fragment = fragments.get(seq);
+            fragment.setFragmentSequenceNum(seq);
+            if (enableQueryCache) {
+                try {
+                    QueryCacheNormalizer normalizer = new QueryCacheNormalizer(fragment, descTable);
+                    Optional<TQueryCacheParam> queryCacheParam =
+                            normalizer.normalize(cascadesContext.getConnectContext());
+                    if (queryCacheParam.isPresent()) {
+                        fragment.queryCacheParam = queryCacheParam.get();
+                        // after commons-codec 1.14 (include), Hex.encodeHexString will change ByteBuffer.pos,
+                        // so we should copy a new byte buffer to print it
+                        ByteBuffer digestCopy = fragment.queryCacheParam.digest.duplicate();
+                        LOG.info("Use query cache for fragment {}, node id: {}, digest: {}, queryId: {}",
+                                seq,
+                                fragment.queryCacheParam.node_id,
+                                Hex.encodeHexString(digestCopy), queryId);
+                    }
+                } catch (Throwable t) {
+                    // do nothing
+                }
+            }
         }
         // set output exprs
         logicalPlanAdapter.setResultExprs(root.getOutputExprs());
