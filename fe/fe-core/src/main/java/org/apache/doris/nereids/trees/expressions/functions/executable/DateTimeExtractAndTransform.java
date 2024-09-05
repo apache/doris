@@ -67,7 +67,7 @@ public class DateTimeExtractAndTransform {
     /**
      * datetime arithmetic function date-v2
      */
-    @ExecFunction(hasVarArgs = false, name = "datev2", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
+    @ExecFunction(varArgs = false, name = "datev2", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
     public static Expression dateV2(DateTimeV2Literal dateTime) {
         return new DateV2Literal(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
     }
@@ -75,22 +75,22 @@ public class DateTimeExtractAndTransform {
     /**
      * Executable datetime extract year
      */
-    @ExecFunction(hasVarArgs = false, name = "year", argTypes = {"DATE"}, returnType = "SMALLINT")
+    @ExecFunction(varArgs = false, name = "year", argTypes = {"DATE"}, returnType = "SMALLINT")
     public static Expression year(DateLiteral date) {
         return new SmallIntLiteral(((short) date.getYear()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "year", argTypes = {"DATETIME"}, returnType = "SMALLINT")
+    @ExecFunction(varArgs = false, name = "year", argTypes = {"DATETIME"}, returnType = "SMALLINT")
     public static Expression year(DateTimeLiteral date) {
         return new SmallIntLiteral(((short) date.getYear()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "year", argTypes = {"DATEV2"}, returnType = "SMALLINT")
+    @ExecFunction(varArgs = false, name = "year", argTypes = {"DATEV2"}, returnType = "SMALLINT")
     public static Expression year(DateV2Literal date) {
         return new SmallIntLiteral(((short) date.getYear()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "year", argTypes = {"DATETIMEV2"}, returnType = "SMALLINT")
+    @ExecFunction(varArgs = false, name = "year", argTypes = {"DATETIMEV2"}, returnType = "SMALLINT")
     public static Expression year(DateTimeV2Literal date) {
         return new SmallIntLiteral(((short) date.getYear()));
     }
@@ -98,22 +98,22 @@ public class DateTimeExtractAndTransform {
     /**
      * Executable datetime extract quarter
      */
-    @ExecFunction(hasVarArgs = false, name = "quarter", argTypes = {"DATE"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "quarter", argTypes = {"DATE"}, returnType = "TINYINT")
     public static Expression quarter(DateLiteral date) {
         return new TinyIntLiteral((byte) (((byte) date.getMonth() - 1) / 3 + 1));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "quarter", argTypes = {"DATETIME"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "quarter", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static Expression quarter(DateTimeLiteral date) {
         return new TinyIntLiteral((byte) ((date.getMonth() - 1) / 3 + 1));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "quarter", argTypes = {"DATEV2"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "quarter", argTypes = {"DATEV2"}, returnType = "TINYINT")
     public static Expression quarter(DateV2Literal date) {
         return new TinyIntLiteral((byte) ((date.getMonth() - 1) / 3 + 1));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "quarter", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "quarter", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
     public static Expression quarter(DateTimeV2Literal date) {
         return new TinyIntLiteral((byte) ((date.getMonth() - 1) / 3 + 1));
     }
@@ -121,22 +121,22 @@ public class DateTimeExtractAndTransform {
     /**
      * Executable datetime extract month
      */
-    @ExecFunction(hasVarArgs = false, name = "month", argTypes = {"DATE"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "month", argTypes = {"DATE"}, returnType = "TINYINT")
     public static Expression month(DateLiteral date) {
         return new TinyIntLiteral((byte) date.getMonth());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "month", argTypes = {"DATETIME"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "month", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static Expression month(DateTimeLiteral date) {
         return new TinyIntLiteral((byte) date.getMonth());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "month", argTypes = {"DATEV2"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "month", argTypes = {"DATEV2"}, returnType = "TINYINT")
     public static Expression month(DateV2Literal date) {
         return new TinyIntLiteral((byte) date.getMonth());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "month", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "month", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
     public static Expression month(DateTimeV2Literal date) {
         return new TinyIntLiteral((byte) date.getMonth());
     }
@@ -144,22 +144,22 @@ public class DateTimeExtractAndTransform {
     /**
      * Executable datetime extract day
      */
-    @ExecFunction(hasVarArgs = false, name = "day", argTypes = {"DATE"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "day", argTypes = {"DATE"}, returnType = "TINYINT")
     public static Expression day(DateLiteral date) {
         return new TinyIntLiteral((byte) date.getDay());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "day", argTypes = {"DATETIME"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "day", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static Expression day(DateTimeLiteral date) {
         return new TinyIntLiteral((byte) date.getDay());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "day", argTypes = {"DATEV2"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "day", argTypes = {"DATEV2"}, returnType = "TINYINT")
     public static Expression day(DateV2Literal date) {
         return new TinyIntLiteral((byte) date.getDay());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "day", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "day", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
     public static Expression day(DateTimeV2Literal date) {
         return new TinyIntLiteral((byte) date.getDay());
     }
@@ -167,12 +167,12 @@ public class DateTimeExtractAndTransform {
     /**
      * Executable datetime extract hour
      */
-    @ExecFunction(hasVarArgs = false, name = "hour", argTypes = {"DATETIME"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "hour", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static Expression hour(DateTimeLiteral date) {
         return new TinyIntLiteral(((byte) date.getHour()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "hour", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "hour", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
     public static Expression hour(DateTimeV2Literal date) {
         return new TinyIntLiteral(((byte) date.getHour()));
     }
@@ -180,12 +180,12 @@ public class DateTimeExtractAndTransform {
     /**
      * Executable datetime extract hour
      */
-    @ExecFunction(hasVarArgs = false, name = "minute", argTypes = {"DATETIME"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "minute", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static Expression minute(DateTimeLiteral date) {
         return new TinyIntLiteral(((byte) date.getMinute()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "minute", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "minute", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
     public static Expression minute(DateTimeV2Literal date) {
         return new TinyIntLiteral(((byte) date.getMinute()));
     }
@@ -193,12 +193,12 @@ public class DateTimeExtractAndTransform {
     /**
      * Executable datetime extract second
      */
-    @ExecFunction(hasVarArgs = false, name = "second", argTypes = {"DATETIME"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "second", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static Expression second(DateTimeLiteral date) {
         return new TinyIntLiteral(((byte) date.getSecond()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "second", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "second", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
     public static Expression second(DateTimeV2Literal date) {
         return new TinyIntLiteral(((byte) date.getSecond()));
     }
@@ -206,7 +206,7 @@ public class DateTimeExtractAndTransform {
     /**
      * Executable datetime extract microsecond
      */
-    @ExecFunction(hasVarArgs = false, name = "microsecond", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    @ExecFunction(varArgs = false, name = "microsecond", argTypes = {"DATETIMEV2"}, returnType = "INT")
     public static Expression microsecond(DateTimeV2Literal date) {
         return new IntegerLiteral(((int) date.getMicroSecond()));
     }
@@ -214,22 +214,22 @@ public class DateTimeExtractAndTransform {
     /**
      * Executable datetime extract dayofyear
      */
-    @ExecFunction(hasVarArgs = false, name = "dayofyear", argTypes = {"DATE"}, returnType = "SMALLINT")
+    @ExecFunction(varArgs = false, name = "dayofyear", argTypes = {"DATE"}, returnType = "SMALLINT")
     public static Expression dayOfYear(DateLiteral date) {
         return new SmallIntLiteral((short) date.getDayOfYear());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "dayofyear", argTypes = {"DATETIME"}, returnType = "SMALLINT")
+    @ExecFunction(varArgs = false, name = "dayofyear", argTypes = {"DATETIME"}, returnType = "SMALLINT")
     public static Expression dayOfYear(DateTimeLiteral date) {
         return new SmallIntLiteral((short) date.getDayOfYear());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "dayofyear", argTypes = {"DATEV2"}, returnType = "SMALLINT")
+    @ExecFunction(varArgs = false, name = "dayofyear", argTypes = {"DATEV2"}, returnType = "SMALLINT")
     public static Expression dayOfYear(DateV2Literal date) {
         return new SmallIntLiteral((short) date.getDayOfYear());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "dayofyear", argTypes = {"DATETIMEV2"}, returnType = "SMALLINT")
+    @ExecFunction(varArgs = false, name = "dayofyear", argTypes = {"DATETIMEV2"}, returnType = "SMALLINT")
     public static Expression dayOfYear(DateTimeV2Literal date) {
         return new SmallIntLiteral((short) date.getDayOfYear());
     }
@@ -237,22 +237,22 @@ public class DateTimeExtractAndTransform {
     /**
      * Executable datetime extract dayofmonth
      */
-    @ExecFunction(hasVarArgs = false, name = "dayofmonth", argTypes = {"DATE"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "dayofmonth", argTypes = {"DATE"}, returnType = "TINYINT")
     public static Expression dayOfMonth(DateLiteral date) {
         return new TinyIntLiteral((byte) date.toJavaDateType().getDayOfMonth());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "dayofmonth", argTypes = {"DATETIME"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "dayofmonth", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static Expression dayOfMonth(DateTimeLiteral date) {
         return new TinyIntLiteral((byte) date.toJavaDateType().getDayOfMonth());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "dayofmonth", argTypes = {"DATEV2"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "dayofmonth", argTypes = {"DATEV2"}, returnType = "TINYINT")
     public static Expression dayOfMonth(DateV2Literal date) {
         return new TinyIntLiteral((byte) date.toJavaDateType().getDayOfMonth());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "dayofmonth", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "dayofmonth", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
     public static Expression dayOfMonth(DateTimeV2Literal date) {
         return new TinyIntLiteral((byte) date.toJavaDateType().getDayOfMonth());
     }
@@ -260,22 +260,22 @@ public class DateTimeExtractAndTransform {
     /**
      * Executable datetime extract dayofweek
      */
-    @ExecFunction(hasVarArgs = false, name = "dayofweek", argTypes = {"DATE"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "dayofweek", argTypes = {"DATE"}, returnType = "TINYINT")
     public static Expression dayOfWeek(DateLiteral date) {
         return new TinyIntLiteral((byte) (date.getDayOfWeek() % 7 + 1));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "dayofweek", argTypes = {"DATETIME"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "dayofweek", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static Expression dayOfWeek(DateTimeLiteral date) {
         return new TinyIntLiteral((byte) (date.getDayOfWeek() % 7 + 1));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "dayofweek", argTypes = {"DATEV2"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "dayofweek", argTypes = {"DATEV2"}, returnType = "TINYINT")
     public static Expression dayOfWeek(DateV2Literal date) {
         return new TinyIntLiteral((byte) (date.getDayOfWeek() % 7 + 1));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "dayofweek", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "dayofweek", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
     public static Expression dayOfWeek(DateTimeV2Literal date) {
         return new TinyIntLiteral((byte) (date.getDayOfWeek() % 7 + 1));
     }
@@ -291,26 +291,26 @@ public class DateTimeExtractAndTransform {
     /**
      * datetime arithmetic function date-format
      */
-    @ExecFunction(hasVarArgs = false, name = "date_format", argTypes = {"DATE", "VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(varArgs = false, name = "date_format", argTypes = {"DATE", "VARCHAR"}, returnType = "VARCHAR")
     public static Expression dateFormat(DateLiteral date, StringLikeLiteral format) {
         return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
                 java.time.LocalDate.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()))));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "date_format", argTypes = {"DATETIME", "VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(varArgs = false, name = "date_format", argTypes = {"DATETIME", "VARCHAR"}, returnType = "VARCHAR")
     public static Expression dateFormat(DateTimeLiteral date, StringLikeLiteral format) {
         return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
                 java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
                         ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()))));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "date_format", argTypes = {"DATEV2", "VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(varArgs = false, name = "date_format", argTypes = {"DATEV2", "VARCHAR"}, returnType = "VARCHAR")
     public static Expression dateFormat(DateV2Literal date, StringLikeLiteral format) {
         return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
                 java.time.LocalDate.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()))));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "date_format", argTypes = {"DATETIMEV2", "VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(varArgs = false, name = "date_format", argTypes = {"DATETIMEV2", "VARCHAR"}, returnType = "VARCHAR")
     public static Expression dateFormat(DateTimeV2Literal date, StringLikeLiteral format) {
         return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
                 java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
@@ -320,12 +320,12 @@ public class DateTimeExtractAndTransform {
     /**
      * datetime arithmetic function date
      */
-    @ExecFunction(hasVarArgs = false, name = "date", argTypes = {"DATETIME"}, returnType = "DATE")
+    @ExecFunction(varArgs = false, name = "date", argTypes = {"DATETIME"}, returnType = "DATE")
     public static Expression date(DateTimeLiteral dateTime) throws AnalysisException {
         return new DateLiteral(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "date", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
+    @ExecFunction(varArgs = false, name = "date", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
     public static Expression date(DateTimeV2Literal dateTime) throws AnalysisException {
         return new DateV2Literal(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
     }
@@ -333,22 +333,22 @@ public class DateTimeExtractAndTransform {
     /**
      * datetime arithmetic function date-trunc
      */
-    @ExecFunction(hasVarArgs = false, name = "date_trunc", argTypes = {"DATETIME", "VARCHAR"}, returnType = "DATETIME")
+    @ExecFunction(varArgs = false, name = "date_trunc", argTypes = {"DATETIME", "VARCHAR"}, returnType = "DATETIME")
     public static Expression dateTrunc(DateTimeLiteral date, StringLikeLiteral trunc) {
         return DateTimeLiteral.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "date_trunc", argTypes = {"DATETIMEV2", "VARCHAR"}, returnType = "DATETIMEV2")
+    @ExecFunction(varArgs = false, name = "date_trunc", argTypes = {"DATETIMEV2", "VARCHAR"}, returnType = "DATETIMEV2")
     public static Expression dateTrunc(DateTimeV2Literal date, StringLikeLiteral trunc) {
         return DateTimeV2Literal.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "date_trunc", argTypes = {"DATE", "VARCHAR"}, returnType = "DATE")
+    @ExecFunction(varArgs = false, name = "date_trunc", argTypes = {"DATE", "VARCHAR"}, returnType = "DATE")
     public static Expression dateTrunc(DateLiteral date, StringLikeLiteral trunc) {
         return DateLiteral.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "date_trunc", argTypes = {"DATEV2", "VARCHAR"}, returnType = "DATEV2")
+    @ExecFunction(varArgs = false, name = "date_trunc", argTypes = {"DATEV2", "VARCHAR"}, returnType = "DATEV2")
     public static Expression dateTrunc(DateV2Literal date, StringLikeLiteral trunc) {
         return DateV2Literal.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
     }
@@ -395,7 +395,7 @@ public class DateTimeExtractAndTransform {
     /**
      * from_days.
      */
-    @ExecFunction(hasVarArgs = false, name = "from_days", argTypes = {"INT"}, returnType = "DATEV2")
+    @ExecFunction(varArgs = false, name = "from_days", argTypes = {"INT"}, returnType = "DATEV2")
     public static Expression fromDays(IntegerLiteral n) {
         // doris treat 0000AD as ordinary year but java LocalDateTime treat it as lunar year.
         LocalDateTime res = LocalDateTime.of(0, 1, 1, 0, 0, 0)
@@ -406,28 +406,28 @@ public class DateTimeExtractAndTransform {
         return DateV2Literal.fromJavaDateType(res);
     }
 
-    @ExecFunction(hasVarArgs = false, name = "last_day", argTypes = {"DATE"}, returnType = "DATE")
+    @ExecFunction(varArgs = false, name = "last_day", argTypes = {"DATE"}, returnType = "DATE")
     public static Expression lastDay(DateLiteral date) {
         LocalDateTime nextMonthFirstDay = LocalDateTime.of((int) date.getYear(), (int) date.getMonth(), 1,
                 0, 0, 0).plusMonths(1);
         return DateLiteral.fromJavaDateType(nextMonthFirstDay.minusDays(1));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "last_day", argTypes = {"DATETIME"}, returnType = "DATE")
+    @ExecFunction(varArgs = false, name = "last_day", argTypes = {"DATETIME"}, returnType = "DATE")
     public static Expression lastDay(DateTimeLiteral date) {
         LocalDateTime nextMonthFirstDay = LocalDateTime.of((int) date.getYear(), (int) date.getMonth(), 1,
                 0, 0, 0).plusMonths(1);
         return DateLiteral.fromJavaDateType(nextMonthFirstDay.minusDays(1));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "last_day", argTypes = {"DATEV2"}, returnType = "DATEV2")
+    @ExecFunction(varArgs = false, name = "last_day", argTypes = {"DATEV2"}, returnType = "DATEV2")
     public static Expression lastDay(DateV2Literal date) {
         LocalDateTime nextMonthFirstDay = LocalDateTime.of((int) date.getYear(), (int) date.getMonth(), 1,
                 0, 0, 0).plusMonths(1);
         return DateV2Literal.fromJavaDateType(nextMonthFirstDay.minusDays(1));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "last_day", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
+    @ExecFunction(varArgs = false, name = "last_day", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
     public static Expression lastDay(DateTimeV2Literal date) {
         LocalDateTime nextMonthFirstDay = LocalDateTime.of((int) date.getYear(), (int) date.getMonth(), 1,
                 0, 0, 0).plusMonths(1);
@@ -437,22 +437,22 @@ public class DateTimeExtractAndTransform {
     /**
      * datetime transformation function: to_monday
      */
-    @ExecFunction(hasVarArgs = false, name = "to_monday", argTypes = {"DATE"}, returnType = "DATE")
+    @ExecFunction(varArgs = false, name = "to_monday", argTypes = {"DATE"}, returnType = "DATE")
     public static Expression toMonday(DateLiteral date) {
         return DateLiteral.fromJavaDateType(toMonday(date.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "to_monday", argTypes = {"DATETIME"}, returnType = "DATE")
+    @ExecFunction(varArgs = false, name = "to_monday", argTypes = {"DATETIME"}, returnType = "DATE")
     public static Expression toMonday(DateTimeLiteral date) {
         return DateLiteral.fromJavaDateType(toMonday(date.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "to_monday", argTypes = {"DATEV2"}, returnType = "DATEV2")
+    @ExecFunction(varArgs = false, name = "to_monday", argTypes = {"DATEV2"}, returnType = "DATEV2")
     public static Expression toMonday(DateV2Literal date) {
         return DateV2Literal.fromJavaDateType(toMonday(date.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "to_monday", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
+    @ExecFunction(varArgs = false, name = "to_monday", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
     public static Expression toMonday(DateTimeV2Literal date) {
         return DateV2Literal.fromJavaDateType(toMonday(date.toJavaDateType()));
     }
@@ -469,7 +469,7 @@ public class DateTimeExtractAndTransform {
     /**
      * date transformation function: from_unixtime
      */
-    @ExecFunction(hasVarArgs = false, name = "from_unixtime", argTypes = {"BIGINT"}, returnType = "VARCHAR")
+    @ExecFunction(varArgs = false, name = "from_unixtime", argTypes = {"BIGINT"}, returnType = "VARCHAR")
     public static Expression fromUnixTime(BigIntLiteral second) {
         return fromUnixTime(second, new VarcharLiteral("%Y-%m-%d %H:%i:%s"));
     }
@@ -477,7 +477,7 @@ public class DateTimeExtractAndTransform {
     /**
      * date transformation function: from_unixtime
      */
-    @ExecFunction(hasVarArgs = false, name = "from_unixtime", argTypes = {"BIGINT", "VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(varArgs = false, name = "from_unixtime", argTypes = {"BIGINT", "VARCHAR"}, returnType = "VARCHAR")
     public static Expression fromUnixTime(BigIntLiteral second, StringLikeLiteral format) {
         // 32536771199L is max valid timestamp of mysql from_unix_time
         if (second.getValue() < 0 || second.getValue() > 32536771199L) {
@@ -497,17 +497,17 @@ public class DateTimeExtractAndTransform {
     /**
      * date transformation function: unix_timestamp
      */
-    @ExecFunction(hasVarArgs = false, name = "unix_timestamp", argTypes = {"DATE"}, returnType = "INT")
+    @ExecFunction(varArgs = false, name = "unix_timestamp", argTypes = {"DATE"}, returnType = "INT")
     public static Expression unixTimestamp(DateLiteral date) {
         return new IntegerLiteral(Integer.parseInt(getTimestamp(date.toJavaDateType())));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "unix_timestamp", argTypes = {"DATETIME"}, returnType = "INT")
+    @ExecFunction(varArgs = false, name = "unix_timestamp", argTypes = {"DATETIME"}, returnType = "INT")
     public static Expression unixTimestamp(DateTimeLiteral date) {
         return new IntegerLiteral(Integer.parseInt(getTimestamp(date.toJavaDateType())));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "unix_timestamp", argTypes = {"DATEV2"}, returnType = "INT")
+    @ExecFunction(varArgs = false, name = "unix_timestamp", argTypes = {"DATEV2"}, returnType = "INT")
     public static Expression unixTimestamp(DateV2Literal date) {
         return new IntegerLiteral(Integer.parseInt(getTimestamp(date.toJavaDateType())));
     }
@@ -515,7 +515,7 @@ public class DateTimeExtractAndTransform {
     /**
      * date transformation function: unix_timestamp
      */
-    @ExecFunction(hasVarArgs = false, name = "unix_timestamp", argTypes = {"DATETIMEV2"}, returnType = "DECIMALV3")
+    @ExecFunction(varArgs = false, name = "unix_timestamp", argTypes = {"DATETIMEV2"}, returnType = "DECIMALV3")
     public static Expression unixTimestamp(DateTimeV2Literal date) {
         if (date.getMicroSecond() == 0) {
             return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(10, 0),
@@ -529,7 +529,7 @@ public class DateTimeExtractAndTransform {
     /**
      * date transformation function: unix_timestamp
      */
-    @ExecFunction(hasVarArgs = false, name = "unix_timestamp", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "DECIMALV3")
+    @ExecFunction(varArgs = false, name = "unix_timestamp", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "DECIMALV3")
     public static Expression unixTimestamp(StringLikeLiteral date, StringLikeLiteral format) {
         DateTimeFormatter formatter = DateUtils.formatBuilder(format.getValue()).toFormatter();
         LocalDateTime dateObj;
@@ -564,12 +564,12 @@ public class DateTimeExtractAndTransform {
     /**
      * date transformation function: to_date
      */
-    @ExecFunction(hasVarArgs = false, name = "to_date", argTypes = {"DATETIME"}, returnType = "DATE")
+    @ExecFunction(varArgs = false, name = "to_date", argTypes = {"DATETIME"}, returnType = "DATE")
     public static Expression toDate(DateTimeLiteral date) {
         return new DateLiteral(date.getYear(), date.getMonth(), date.getDay());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "to_date", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
+    @ExecFunction(varArgs = false, name = "to_date", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
     public static Expression toDate(DateTimeV2Literal date) {
         return new DateV2Literal(date.getYear(), date.getMonth(), date.getDay());
     }
@@ -577,25 +577,25 @@ public class DateTimeExtractAndTransform {
     /**
      * date transformation function: to_days
      */
-    @ExecFunction(hasVarArgs = false, name = "to_days", argTypes = {"DATE"}, returnType = "INT")
+    @ExecFunction(varArgs = false, name = "to_days", argTypes = {"DATE"}, returnType = "INT")
     public static Expression toDays(DateLiteral date) {
         return new IntegerLiteral(((int) Duration.between(
                 LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "to_days", argTypes = {"DATETIME"}, returnType = "INT")
+    @ExecFunction(varArgs = false, name = "to_days", argTypes = {"DATETIME"}, returnType = "INT")
     public static Expression toDays(DateTimeLiteral date) {
         return new IntegerLiteral(((int) Duration.between(
                 LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "to_days", argTypes = {"DATEV2"}, returnType = "INT")
+    @ExecFunction(varArgs = false, name = "to_days", argTypes = {"DATEV2"}, returnType = "INT")
     public static Expression toDays(DateV2Literal date) {
         return new IntegerLiteral(((int) Duration.between(
                 LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "to_days", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    @ExecFunction(varArgs = false, name = "to_days", argTypes = {"DATETIMEV2"}, returnType = "INT")
     public static Expression toDays(DateTimeV2Literal date) {
         return new IntegerLiteral(((int) Duration.between(
                 LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
@@ -604,7 +604,7 @@ public class DateTimeExtractAndTransform {
     /**
      * date transformation function: makedate
      */
-    @ExecFunction(hasVarArgs = false, name = "makedate", argTypes = {"INT", "INT"}, returnType = "DATE")
+    @ExecFunction(varArgs = false, name = "makedate", argTypes = {"INT", "INT"}, returnType = "DATE")
     public static Expression makeDate(IntegerLiteral year, IntegerLiteral dayOfYear) {
         int day = dayOfYear.getValue();
         return day > 0 ? DateLiteral.fromJavaDateType(LocalDateTime.of(year.getValue(), 1, 1, 0, 0, 0)
@@ -614,7 +614,7 @@ public class DateTimeExtractAndTransform {
     /**
      * date transformation function: str_to_date
      */
-    @ExecFunction(hasVarArgs = false, name = "str_to_date", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "DATETIMEV2")
+    @ExecFunction(varArgs = false, name = "str_to_date", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "DATETIMEV2")
     public static Expression strToDate(StringLikeLiteral str, StringLikeLiteral format) {
         if (org.apache.doris.analysis.DateLiteral.hasTimePart(format.getStringValue())) {
             DataType returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATETIME));
@@ -637,12 +637,12 @@ public class DateTimeExtractAndTransform {
         }
     }
 
-    @ExecFunction(hasVarArgs = false, name = "timestamp", argTypes = {"DATETIME"}, returnType = "DATETIME")
+    @ExecFunction(varArgs = false, name = "timestamp", argTypes = {"DATETIME"}, returnType = "DATETIME")
     public static Expression timestamp(DateTimeLiteral datetime) {
         return datetime;
     }
 
-    @ExecFunction(hasVarArgs = false, name = "timestamp", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
+    @ExecFunction(varArgs = false, name = "timestamp", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
     public static Expression timestamp(DateTimeV2Literal datetime) {
         return datetime;
     }
@@ -650,7 +650,8 @@ public class DateTimeExtractAndTransform {
     /**
      * convert_tz
      */
-    @ExecFunction(hasVarArgs = false, name = "convert_tz", argTypes = {"DATETIMEV2", "VARCHAR", "VARCHAR"}, returnType = "DATETIMEV2")
+    @ExecFunction(varArgs = false, name = "convert_tz",
+            argTypes = {"DATETIMEV2", "VARCHAR", "VARCHAR"}, returnType = "DATETIMEV2")
     public static Expression convertTz(DateTimeV2Literal datetime, StringLikeLiteral fromTz, StringLikeLiteral toTz) {
         DateTimeFormatter zoneFormatter = new DateTimeFormatterBuilder()
                 .parseCaseInsensitive()
@@ -665,52 +666,52 @@ public class DateTimeExtractAndTransform {
         return DateTimeV2Literal.fromJavaDateType(resultDateTime.toLocalDateTime(), datetime.getDataType().getScale());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "weekday", argTypes = {"DATE"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "weekday", argTypes = {"DATE"}, returnType = "TINYINT")
     public static Expression weekDay(DateLiteral date) {
         return new TinyIntLiteral((byte) ((date.toJavaDateType().getDayOfWeek().getValue() + 6) % 7));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "weekday", argTypes = {"DATETIME"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "weekday", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static Expression weekDay(DateTimeLiteral date) {
         return new TinyIntLiteral((byte) ((date.toJavaDateType().getDayOfWeek().getValue() + 6) % 7));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "weekday", argTypes = {"DATEV2"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "weekday", argTypes = {"DATEV2"}, returnType = "TINYINT")
     public static Expression weekDay(DateV2Literal date) {
         return new TinyIntLiteral((byte) ((date.toJavaDateType().getDayOfWeek().getValue() + 6) % 7));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "weekday", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "weekday", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
     public static Expression weekDay(DateTimeV2Literal date) {
         return new TinyIntLiteral((byte) ((date.toJavaDateType().getDayOfWeek().getValue() + 6) % 7));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "week", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "week", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
     public static Expression week(DateTimeV2Literal dateTime) {
         return week(dateTime.toJavaDateType(), 0);
     }
 
-    @ExecFunction(hasVarArgs = false, name = "week", argTypes = {"DATETIMEV2", "INT"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "week", argTypes = {"DATETIMEV2", "INT"}, returnType = "TINYINT")
     public static Expression week(DateTimeV2Literal dateTime, IntegerLiteral mode) {
         return week(dateTime.toJavaDateType(), mode.getIntValue());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "week", argTypes = {"DATETIME"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "week", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static Expression week(DateTimeLiteral dateTime) {
         return week(dateTime.toJavaDateType(), 0);
     }
 
-    @ExecFunction(hasVarArgs = false, name = "week", argTypes = {"DATETIME", "INT"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "week", argTypes = {"DATETIME", "INT"}, returnType = "TINYINT")
     public static Expression week(DateTimeLiteral dateTime, IntegerLiteral mode) {
         return week(dateTime.toJavaDateType(), mode.getIntValue());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "week", argTypes = {"DATEV2"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "week", argTypes = {"DATEV2"}, returnType = "TINYINT")
     public static Expression week(DateV2Literal date) {
         return week(date.toJavaDateType(), 0);
     }
 
-    @ExecFunction(hasVarArgs = false, name = "week", argTypes = {"DATEV2", "INT"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "week", argTypes = {"DATEV2", "INT"}, returnType = "TINYINT")
     public static Expression week(DateV2Literal date, IntegerLiteral mode) {
         return week(date.toJavaDateType(), mode.getIntValue());
     }
@@ -775,32 +776,32 @@ public class DateTimeExtractAndTransform {
                 && (localDateTime.getDayOfMonth() == 1 || localDateTime.getDayOfMonth() == 2);
     }
 
-    @ExecFunction(hasVarArgs = false, name = "yearweek", argTypes = {"DATEV2", "INT"}, returnType = "INT")
+    @ExecFunction(varArgs = false, name = "yearweek", argTypes = {"DATEV2", "INT"}, returnType = "INT")
     public static Expression yearWeek(DateV2Literal date, IntegerLiteral mode) {
         return yearWeek(date.toJavaDateType(), mode.getIntValue());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "yearweek", argTypes = {"DATETIMEV2", "INT"}, returnType = "INT")
+    @ExecFunction(varArgs = false, name = "yearweek", argTypes = {"DATETIMEV2", "INT"}, returnType = "INT")
     public static Expression yearWeek(DateTimeV2Literal dateTime, IntegerLiteral mode) {
         return yearWeek(dateTime.toJavaDateType(), mode.getIntValue());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "yearweek", argTypes = {"DATETIME", "INT"}, returnType = "INT")
+    @ExecFunction(varArgs = false, name = "yearweek", argTypes = {"DATETIME", "INT"}, returnType = "INT")
     public static Expression yearWeek(DateTimeLiteral dateTime, IntegerLiteral mode) {
         return yearWeek(dateTime.toJavaDateType(), mode.getIntValue());
     }
 
-    @ExecFunction(hasVarArgs = false, name = "yearweek", argTypes = {"DATEV2"}, returnType = "INT")
+    @ExecFunction(varArgs = false, name = "yearweek", argTypes = {"DATEV2"}, returnType = "INT")
     public static Expression yearWeek(DateV2Literal date) {
         return yearWeek(date.toJavaDateType(), 0);
     }
 
-    @ExecFunction(hasVarArgs = false, name = "yearweek", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    @ExecFunction(varArgs = false, name = "yearweek", argTypes = {"DATETIMEV2"}, returnType = "INT")
     public static Expression yearWeek(DateTimeV2Literal dateTime) {
         return yearWeek(dateTime.toJavaDateType(), 0);
     }
 
-    @ExecFunction(hasVarArgs = false, name = "yearweek", argTypes = {"DATETIME"}, returnType = "INT")
+    @ExecFunction(varArgs = false, name = "yearweek", argTypes = {"DATETIME"}, returnType = "INT")
     public static Expression yearWeek(DateTimeLiteral dateTime) {
         return yearWeek(dateTime.toJavaDateType(), 0);
     }
@@ -868,7 +869,7 @@ public class DateTimeExtractAndTransform {
     /**
      * weekofyear
      */
-    @ExecFunction(hasVarArgs = false, name = "weekofyear", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "weekofyear", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
     public static Expression weekOfYear(DateTimeV2Literal dateTime) {
         if (dateTime.getYear() == 0 && dateTime.getDayOfWeek() == 1) {
             if (dateTime.getMonth() == 1 && dateTime.getDay() == 2) {
@@ -883,7 +884,7 @@ public class DateTimeExtractAndTransform {
     /**
      * weekofyear
      */
-    @ExecFunction(hasVarArgs = false, name = "weekofyear", argTypes = {"DATETIME"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "weekofyear", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static Expression weekOfYear(DateTimeLiteral dateTime) {
         if (dateTime.getYear() == 0 && dateTime.getDayOfWeek() == 1) {
             if (dateTime.getMonth() == 1 && dateTime.getDay() == 2) {
@@ -898,7 +899,7 @@ public class DateTimeExtractAndTransform {
     /**
      * weekofyear
      */
-    @ExecFunction(hasVarArgs = false, name = "weekofyear", argTypes = {"DATEV2"}, returnType = "TINYINT")
+    @ExecFunction(varArgs = false, name = "weekofyear", argTypes = {"DATEV2"}, returnType = "TINYINT")
     public static Expression weekOfYear(DateV2Literal date) {
         if (date.getYear() == 0 && date.getDayOfWeek() == 1) {
             if (date.getMonth() == 1 && date.getDay() == 2) {
@@ -909,53 +910,53 @@ public class DateTimeExtractAndTransform {
         return new TinyIntLiteral((byte) date.toJavaDateType().get(WeekFields.ISO.weekOfWeekBasedYear()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "dayname", argTypes = {"DATETIMEV2"}, returnType = "VARCHAR")
+    @ExecFunction(varArgs = false, name = "dayname", argTypes = {"DATETIMEV2"}, returnType = "VARCHAR")
     public static Expression dayName(DateTimeV2Literal dateTime) {
         return new VarcharLiteral(dateTime.toJavaDateType().getDayOfWeek().getDisplayName(TextStyle.FULL,
                 Locale.getDefault()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "dayname", argTypes = {"DATETIME"}, returnType = "VARCHAR")
+    @ExecFunction(varArgs = false, name = "dayname", argTypes = {"DATETIME"}, returnType = "VARCHAR")
     public static Expression dayName(DateTimeLiteral dateTime) {
         return new VarcharLiteral(dateTime.toJavaDateType().getDayOfWeek().getDisplayName(TextStyle.FULL,
                 Locale.getDefault()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "dayname", argTypes = {"DATEV2"}, returnType = "VARCHAR")
+    @ExecFunction(varArgs = false, name = "dayname", argTypes = {"DATEV2"}, returnType = "VARCHAR")
     public static Expression dayName(DateV2Literal date) {
         return new VarcharLiteral(date.toJavaDateType().getDayOfWeek().getDisplayName(TextStyle.FULL,
                 Locale.getDefault()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "monthname", argTypes = {"DATETIMEV2"}, returnType = "VARCHAR")
+    @ExecFunction(varArgs = false, name = "monthname", argTypes = {"DATETIMEV2"}, returnType = "VARCHAR")
     public static Expression monthName(DateTimeV2Literal dateTime) {
         return new VarcharLiteral(dateTime.toJavaDateType().getMonth().getDisplayName(TextStyle.FULL,
                 Locale.getDefault()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "monthname", argTypes = {"DATETIME"}, returnType = "VARCHAR")
+    @ExecFunction(varArgs = false, name = "monthname", argTypes = {"DATETIME"}, returnType = "VARCHAR")
     public static Expression monthName(DateTimeLiteral dateTime) {
         return new VarcharLiteral(dateTime.toJavaDateType().getMonth().getDisplayName(TextStyle.FULL,
                 Locale.getDefault()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "monthname", argTypes = {"DATEV2"}, returnType = "VARCHAR")
+    @ExecFunction(varArgs = false, name = "monthname", argTypes = {"DATEV2"}, returnType = "VARCHAR")
     public static Expression monthName(DateV2Literal date) {
         return new VarcharLiteral(date.toJavaDateType().getMonth().getDisplayName(TextStyle.FULL,
                 Locale.getDefault()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "from_second", argTypes = {"BIGINT"}, returnType = "DATETIMEV2")
+    @ExecFunction(varArgs = false, name = "from_second", argTypes = {"BIGINT"}, returnType = "DATETIMEV2")
     public static Expression fromSecond(BigIntLiteral second) {
         return fromMicroSecond(second.getValue() * 1000 * 1000);
     }
 
-    @ExecFunction(hasVarArgs = false, name = "from_millisecond", argTypes = {"BIGINT"}, returnType = "DATETIMEV2")
+    @ExecFunction(varArgs = false, name = "from_millisecond", argTypes = {"BIGINT"}, returnType = "DATETIMEV2")
     public static Expression fromMilliSecond(BigIntLiteral milliSecond) {
         return fromMicroSecond(milliSecond.getValue() * 1000);
     }
 
-    @ExecFunction(hasVarArgs = false, name = "from_microsecond", argTypes = {"BIGINT"}, returnType = "DATETIMEV2")
+    @ExecFunction(varArgs = false, name = "from_microsecond", argTypes = {"BIGINT"}, returnType = "DATETIMEV2")
     public static Expression fromMicroSecond(BigIntLiteral microSecond) {
         return fromMicroSecond(microSecond.getValue());
     }
@@ -972,187 +973,191 @@ public class DateTimeExtractAndTransform {
                 dateTime.getMinute(), dateTime.getSecond(), dateTime.getNano() / 1000);
     }
 
-    @ExecFunction(hasVarArgs = false, name = "microseconds_diff", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "microseconds_diff",
+            argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "BIGINT")
     public static Expression microsecondsDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.MICROS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "milliseconds_diff", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "milliseconds_diff",
+            argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "BIGINT")
     public static Expression millisecondsDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.MILLIS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "seconds_diff", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "seconds_diff",
+            argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "BIGINT")
     public static Expression secondsDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.SECONDS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "seconds_diff", argTypes = {"DATETIMEV2", "DATEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "seconds_diff", argTypes = {"DATETIMEV2", "DATEV2"}, returnType = "BIGINT")
     public static Expression secondsDiff(DateTimeV2Literal t1, DateV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.SECONDS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "seconds_diff", argTypes = {"DATEV2", "DATETIMEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "seconds_diff", argTypes = {"DATEV2", "DATETIMEV2"}, returnType = "BIGINT")
     public static Expression secondsDiff(DateV2Literal t1, DateTimeV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.SECONDS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "seconds_diff", argTypes = {"DATEV2", "DATEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "seconds_diff", argTypes = {"DATEV2", "DATEV2"}, returnType = "BIGINT")
     public static Expression secondsDiff(DateV2Literal t1, DateV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.SECONDS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "seconds_diff", argTypes = {"DATETIME", "DATETIME"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "seconds_diff", argTypes = {"DATETIME", "DATETIME"}, returnType = "BIGINT")
     public static Expression secondsDiff(DateTimeLiteral t1, DateTimeLiteral t2) {
         return new BigIntLiteral(ChronoUnit.SECONDS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "minutes_diff", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "minutes_diff",
+            argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "BIGINT")
     public static Expression minutesDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.MINUTES.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "minutes_diff", argTypes = {"DATETIMEV2", "DATEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "minutes_diff", argTypes = {"DATETIMEV2", "DATEV2"}, returnType = "BIGINT")
     public static Expression minutesDiff(DateTimeV2Literal t1, DateV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.MINUTES.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "minutes_diff", argTypes = {"DATEV2", "DATETIMEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "minutes_diff", argTypes = {"DATEV2", "DATETIMEV2"}, returnType = "BIGINT")
     public static Expression minutesDiff(DateV2Literal t1, DateTimeV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.MINUTES.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "minutes_diff", argTypes = {"DATEV2", "DATEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "minutes_diff", argTypes = {"DATEV2", "DATEV2"}, returnType = "BIGINT")
     public static Expression minutesDiff(DateV2Literal t1, DateV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.MINUTES.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "minutes_diff", argTypes = {"DATETIME", "DATETIME"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "minutes_diff", argTypes = {"DATETIME", "DATETIME"}, returnType = "BIGINT")
     public static Expression minutesDiff(DateTimeLiteral t1, DateTimeLiteral t2) {
         return new BigIntLiteral(ChronoUnit.MINUTES.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "hours_diff", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "hours_diff", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "BIGINT")
     public static Expression hoursDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.HOURS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "hours_diff", argTypes = {"DATETIMEV2", "DATEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "hours_diff", argTypes = {"DATETIMEV2", "DATEV2"}, returnType = "BIGINT")
     public static Expression hoursDiff(DateTimeV2Literal t1, DateV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.HOURS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "hours_diff", argTypes = {"DATEV2", "DATETIMEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "hours_diff", argTypes = {"DATEV2", "DATETIMEV2"}, returnType = "BIGINT")
     public static Expression hoursDiff(DateV2Literal t1, DateTimeV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.HOURS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "hours_diff", argTypes = {"DATEV2", "DATEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "hours_diff", argTypes = {"DATEV2", "DATEV2"}, returnType = "BIGINT")
     public static Expression hoursDiff(DateV2Literal t1, DateV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.HOURS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "hours_diff", argTypes = {"DATETIME", "DATETIME"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "hours_diff", argTypes = {"DATETIME", "DATETIME"}, returnType = "BIGINT")
     public static Expression hoursDiff(DateTimeLiteral t1, DateTimeLiteral t2) {
         return new BigIntLiteral(ChronoUnit.HOURS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "days_diff", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "days_diff", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "BIGINT")
     public static Expression daysDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.DAYS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "days_diff", argTypes = {"DATETIMEV2", "DATEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "days_diff", argTypes = {"DATETIMEV2", "DATEV2"}, returnType = "BIGINT")
     public static Expression daysDiff(DateTimeV2Literal t1, DateV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.DAYS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "days_diff", argTypes = {"DATEV2", "DATETIMEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "days_diff", argTypes = {"DATEV2", "DATETIMEV2"}, returnType = "BIGINT")
     public static Expression daysDiff(DateV2Literal t1, DateTimeV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.DAYS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "days_diff", argTypes = {"DATEV2", "DATEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "days_diff", argTypes = {"DATEV2", "DATEV2"}, returnType = "BIGINT")
     public static Expression daysDiff(DateV2Literal t1, DateV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.DAYS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "days_diff", argTypes = {"DATETIME", "DATETIME"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "days_diff", argTypes = {"DATETIME", "DATETIME"}, returnType = "BIGINT")
     public static Expression daysDiff(DateTimeLiteral t1, DateTimeLiteral t2) {
         return new BigIntLiteral(ChronoUnit.DAYS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "weeks_diff", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "weeks_diff", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "BIGINT")
     public static Expression weeksDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.WEEKS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "weeks_diff", argTypes = {"DATETIMEV2", "DATEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "weeks_diff", argTypes = {"DATETIMEV2", "DATEV2"}, returnType = "BIGINT")
     public static Expression weeksDiff(DateTimeV2Literal t1, DateV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.WEEKS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "weeks_diff", argTypes = {"DATEV2", "DATETIMEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "weeks_diff", argTypes = {"DATEV2", "DATETIMEV2"}, returnType = "BIGINT")
     public static Expression weeksDiff(DateV2Literal t1, DateTimeV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.WEEKS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "weeks_diff", argTypes = {"DATEV2", "DATEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "weeks_diff", argTypes = {"DATEV2", "DATEV2"}, returnType = "BIGINT")
     public static Expression weeksDiff(DateV2Literal t1, DateV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.WEEKS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "weeks_diff", argTypes = {"DATETIME", "DATETIME"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "weeks_diff", argTypes = {"DATETIME", "DATETIME"}, returnType = "BIGINT")
     public static Expression weeksDiff(DateTimeLiteral t1, DateTimeLiteral t2) {
         return new BigIntLiteral(ChronoUnit.WEEKS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "months_diff", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "months_diff", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "BIGINT")
     public static Expression monthsDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "months_diff", argTypes = {"DATETIMEV2", "DATEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "months_diff", argTypes = {"DATETIMEV2", "DATEV2"}, returnType = "BIGINT")
     public static Expression monthsDiff(DateTimeV2Literal t1, DateV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "months_diff", argTypes = {"DATEV2", "DATETIMEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "months_diff", argTypes = {"DATEV2", "DATETIMEV2"}, returnType = "BIGINT")
     public static Expression monthsDiff(DateV2Literal t1, DateTimeV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "months_diff", argTypes = {"DATEV2", "DATEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "months_diff", argTypes = {"DATEV2", "DATEV2"}, returnType = "BIGINT")
     public static Expression monthsDiff(DateV2Literal t1, DateV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "months_diff", argTypes = {"DATETIME", "DATETIME"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "months_diff", argTypes = {"DATETIME", "DATETIME"}, returnType = "BIGINT")
     public static Expression monthsDiff(DateTimeLiteral t1, DateTimeLiteral t2) {
         return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "years_diff", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "years_diff", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "BIGINT")
     public static Expression yearsDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "years_diff", argTypes = {"DATETIMEV2", "DATEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "years_diff", argTypes = {"DATETIMEV2", "DATEV2"}, returnType = "BIGINT")
     public static Expression yearsDiff(DateTimeV2Literal t1, DateV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "years_diff", argTypes = {"DATEV2", "DATETIMEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "years_diff", argTypes = {"DATEV2", "DATETIMEV2"}, returnType = "BIGINT")
     public static Expression yearsDiff(DateV2Literal t1, DateTimeV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "years_diff", argTypes = {"DATEV2", "DATEV2"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "years_diff", argTypes = {"DATEV2", "DATEV2"}, returnType = "BIGINT")
     public static Expression yearsDiff(DateV2Literal t1, DateV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(hasVarArgs = false, name = "years_diff", argTypes = {"DATETIME", "DATETIME"}, returnType = "BIGINT")
+    @ExecFunction(varArgs = false, name = "years_diff", argTypes = {"DATETIME", "DATETIME"}, returnType = "BIGINT")
     public static Expression yearsDiff(DateTimeLiteral t1, DateTimeLiteral t2) {
         return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }

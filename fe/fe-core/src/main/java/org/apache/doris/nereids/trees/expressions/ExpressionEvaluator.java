@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRound
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
@@ -220,7 +219,7 @@ public enum ExpressionEvaluator {
             for (int i = 0; i < argTypes.size(); i++) {
                 array[i] = argTypes.get(i);
             }
-            FunctionSignature signature = new FunctionSignature(name, array, returnType, annotation.hasVarArgs());
+            FunctionSignature signature = new FunctionSignature(name, array, returnType, annotation.varArgs());
             mapBuilder.put(name, new FunctionInvoker(method, signature));
         }
     }

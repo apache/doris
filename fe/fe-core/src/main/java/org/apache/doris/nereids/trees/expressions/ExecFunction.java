@@ -47,5 +47,5 @@ public @interface ExecFunction {
     /**
      * hasVarArgsc
      */
-    boolean hasVarArgs();
+    boolean varArgs();
 }
