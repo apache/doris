@@ -162,9 +162,6 @@ Status LRUFileCache::initialize() {
                         _normal_queue.get_total_cache_size(cache_lock),
                         _normal_queue.get_elements_num(cache_lock), cost);
             });
-            if (_cache_background_load_thread.joinable()) {
-                _cache_background_load_thread.join();
-            }
         } else {
             std::error_code ec;
             fs::create_directories(_cache_base_path, ec);
