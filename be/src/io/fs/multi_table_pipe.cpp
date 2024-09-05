@@ -96,7 +96,7 @@ std::string MultiTablePipe::parse_dst_table(const char* data, size_t size) {
 
 Status MultiTablePipe::dispatch(const std::string& table, const char* data, size_t size,
                                 AppendFunc cb) {
-    if (size == 0 || strlen(data) == 0) {
+    if (size == 0) {
         LOG(WARNING) << "empty data for table: " << table << ", ctx: " << _ctx->brief();
         return Status::InternalError("empty data");
     }
