@@ -200,13 +200,11 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
         return Status::InternalError("unknown destination tuple descriptor, id = {}",
                                      _tuple_desc_id);
     }
-    DBUG_EXECUTE_IF("VTabletWriterV2._init._vec_output_expr_ctxs_not_equal_output_tuple_slot", {
-        return Status::InvalidArgument(
-                "output_tuple_slot_num {} should be equal to output_expr_num {}",
-                _output_tuple_desc->slots().size() + 1, _vec_output_expr_ctxs.size());
-    });
+    auto output_tuple_desc_slots_size = _output_tuple_desc->slots().size();
+    DBUG_EXECUTE_IF("VTabletWriterV2._init._vec_output_expr_ctxs_not_equal_output_tuple_slot",
+                    { output_tuple_desc_slots_size++; });
     if (!_vec_output_expr_ctxs.empty() &&
-        _output_tuple_desc->slots().size() != _vec_output_expr_ctxs.size()) {
+        _vec_output_expr_ctxs.size() != output_tuple_desc_slots_size) {
         LOG(WARNING) << "output tuple slot num should be equal to num of output exprs, "
                      << "output_tuple_slot_num " << _output_tuple_desc->slots().size()
                      << " output_expr_num " << _vec_output_expr_ctxs.size();
@@ -289,6 +287,8 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, Streams& stream
     }
     auto idle_timeout_ms = _state->execution_timeout() * 1000;
     std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
+    DBUG_EXECUTE_IF("VTabletWriterV2._open_streams_to_backend.no_schema_when_open_streams",
+                    { tablets_for_schema.clear(); });
     int fault_injection_skip_cnt = 0;
     for (auto& stream : streams) {
         DBUG_EXECUTE_IF("VTabletWriterV2._open_streams_to_backend.one_stream_open_failure", {
@@ -482,6 +482,8 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                 break;
             }
         }
+        DBUG_EXECUTE_IF("VTabletWriterV2._write_memtable.index_not_found",
+                        { index_not_found = true; });
         if (index_not_found) {
             LOG(WARNING) << "index " << rows.index_id
                          << " not found in schema, load_id=" << print_id(_load_id);
@@ -675,6 +677,7 @@ void VTabletWriterV2::_close_wait(bool incremental) {
                     }
                     int64_t remain_ms = static_cast<int64_t>(_state->execution_timeout()) * 1000 -
                                         _timeout_watch.elapsed_time() / 1000 / 1000;
+                    DBUG_EXECUTE_IF("VTabletWriterV2._close_wait.load_timeout", { remain_ms = 0; });
                     if (remain_ms <= 0) {
                         LOG(WARNING) << "load timed out before close waiting, load_id="
                                      << print_id(_load_id);

@@ -53,7 +53,7 @@ import java.util.Set;
 // GRANT privilege[(col1,col2...)] [, privilege] ON db.tbl TO user_identity [ROLE 'role'];
 // GRANT privilege [, privilege] ON RESOURCE 'resource' TO user_identity [ROLE 'role'];
 // GRANT role [, role] TO user_identity
-public class GrantStmt extends DdlStmt {
+public class GrantStmt extends DdlStmt implements NotFallbackInParser {
     private UserIdentity userIdent;
     // Indicates which permissions are granted to this role
     private String role;

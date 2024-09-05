@@ -23,7 +23,9 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
@@ -507,7 +509,9 @@ public class DatabaseTransactionMgr {
         List<Long> tabletIds = tabletCommitInfos.stream()
                 .map(TabletCommitInfo::getTabletId).collect(Collectors.toList());
         List<TabletMeta> tabletMetaList = tabletInvertedIndex.getTabletMetaList(tabletIds);
+        HashMap<Long, Boolean> tableIdtoRestoring = new HashMap<>();
         for (int i = 0; i < tabletMetaList.size(); i++) {
+            // get partition and table of this tablet
             TabletMeta tabletMeta = tabletMetaList.get(i);
             if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
                 continue;
@@ -516,21 +520,43 @@ public class DatabaseTransactionMgr {
             long tableId = tabletMeta.getTableId();
             OlapTable tbl = (OlapTable) idToTable.get(tableId);
             if (tbl == null) {
-                // this can happen when tableId == -1 (tablet being dropping)
-                // or table really not exist.
+                // this can happen when tableId == -1 (tablet being dropping) or table really not exist.
                 continue;
             }
 
-            if (tbl.getState() == OlapTable.OlapTableState.RESTORE) {
-                throw new LoadException("Table " + tbl.getName() + " is in restore process. "
-                        + "Can not load into it");
-            }
-
+            // check relative partition restore here
             long partitionId = tabletMeta.getPartitionId();
             if (tbl.getPartition(partitionId) == null) {
-                // this can happen when partitionId == -1 (tablet being dropping)
-                // or partition really not exist.
+                // this can happen when partitionId == -1 (tablet being dropping) or partition really not exist.
                 continue;
+            }
+            if (tbl.getPartition(partitionId).getState() == PartitionState.RESTORE) {
+                // partition in restore process which can not load data
+                throw new LoadException("Table [" + tbl.getName() + "], Partition ["
+                        + tbl.getPartition(partitionId).getName() + "] is in restore process. Can not load into it");
+            }
+
+            // only do check when here's restore on this table now
+            if (tbl.getState() == OlapTableState.RESTORE) {
+                boolean hasPartitionRestoring = false;
+                if (tableIdtoRestoring.containsKey(tableId)) {
+                    hasPartitionRestoring = tableIdtoRestoring.get(tableId);
+                } else {
+                    for (Partition partition : tbl.getPartitions()) {
+                        if (partition.getState() == PartitionState.RESTORE) {
+                            hasPartitionRestoring = true;
+                            break;
+                        }
+                    }
+                    tableIdtoRestoring.put(tableId, hasPartitionRestoring);
+                }
+                // tbl RESTORE && all partition NOT RESTORE -> whole table restore
+                // tbl RESTORE && some partition RESTORE -> just partitions restore, NOT WHOLE TABLE
+                // so check wether the whole table restore here
+                if (!hasPartitionRestoring) {
+                    throw new LoadException(
+                            "Table " + tbl.getName() + " is in restore process. " + "Can not load into it");
+                }
             }
 
             if (!tableToPartition.containsKey(tableId)) {
@@ -680,7 +706,10 @@ public class DatabaseTransactionMgr {
         return writeDetail;
     }
 
-    private void checkTransactionStateBeforeCommit(Database db, List<Table> tableList, long transactionId,
+    /**
+     * @return true if the transaction need to commit, otherwise false
+     */
+    private boolean checkTransactionStateBeforeCommit(Database db, List<Table> tableList, long transactionId,
             boolean is2PC, TransactionState transactionState)
             throws TransactionCommitFailedException {
         if (transactionState == null) {
@@ -706,7 +735,7 @@ public class DatabaseTransactionMgr {
                 throw new TransactionCommitFailedException("transaction [" + transactionId
                         + "] is already visible, not pre-committed.");
             }
-            return;
+            return false;
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
             if (LOG.isDebugEnabled()) {
@@ -716,7 +745,7 @@ public class DatabaseTransactionMgr {
                 throw new TransactionCommitFailedException("transaction [" + transactionId
                         + "] is already committed, not pre-committed.");
             }
-            return;
+            return false;
         }
 
         if (is2PC && transactionState.getTransactionStatus() == TransactionStatus.PREPARE) {
@@ -755,6 +784,7 @@ public class DatabaseTransactionMgr {
                 }
             }
         }
+        return true;
     }
 
     /**
@@ -780,7 +810,9 @@ public class DatabaseTransactionMgr {
             readUnlock();
         }
 
-        checkTransactionStateBeforeCommit(db, tableList, transactionId, is2PC, transactionState);
+        if (!checkTransactionStateBeforeCommit(db, tableList, transactionId, is2PC, transactionState)) {
+            return;
+        }
 
         Set<Long> errorReplicaIds = Sets.newHashSet();
         Set<Long> totalInvolvedBackends = Sets.newHashSet();
@@ -836,7 +868,9 @@ public class DatabaseTransactionMgr {
                     "DebugPoint: DatabaseTransactionMgr.commitTransaction.failed");
         }
 
-        checkTransactionStateBeforeCommit(db, tableList, transactionId, false, transactionState);
+        if (!checkTransactionStateBeforeCommit(db, tableList, transactionId, false, transactionState)) {
+            return;
+        }
 
         // error replica may be duplicated for different sub transaction, but it's ok
         Set<Long> errorReplicaIds = Sets.newHashSet();

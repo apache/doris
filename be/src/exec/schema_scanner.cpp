@@ -28,6 +28,7 @@
 
 #include "exec/schema_scanner/schema_active_queries_scanner.h"
 #include "exec/schema_scanner/schema_backend_active_tasks.h"
+#include "exec/schema_scanner/schema_catalog_meta_cache_stats_scanner.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
 #include "exec/schema_scanner/schema_columns_scanner.h"
@@ -134,7 +135,11 @@ Status SchemaScanner::get_next_block_async(RuntimeState* state) {
                     _opened = true;
                 }
                 bool eos = false;
-                _scanner_status.update(get_next_block_internal(_data_block.get(), &eos));
+                auto call_next_block_internal = [&]() -> Status {
+                    RETURN_IF_CATCH_EXCEPTION(
+                            { return get_next_block_internal(_data_block.get(), &eos); });
+                };
+                _scanner_status.update(call_next_block_internal());
                 _eos = eos;
                 _async_thread_running = false;
                 _dependency->set_ready();
@@ -236,6 +241,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaBackendWorkloadGroupResourceUsage::create_unique();
     case TSchemaTableType::SCH_TABLE_PROPERTIES:
         return SchemaTablePropertiesScanner::create_unique();
+    case TSchemaTableType::SCH_CATALOG_META_CACHE_STATISTICS:
+        return SchemaCatalogMetaCacheStatsScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

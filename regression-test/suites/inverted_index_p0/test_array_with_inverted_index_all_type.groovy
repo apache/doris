@@ -279,6 +279,7 @@ suite("test_array_with_inverted_index_all_type"){
     }
 
     // query test
+    sql """ set enable_common_expr_pushdown = true """
 
     for (int i = 0; i < 6; i+=1) {
         def indexTblName = indexTblNames[i]

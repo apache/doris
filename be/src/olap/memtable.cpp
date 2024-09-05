@@ -108,10 +108,11 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
             // the aggregate function manually.
             function = vectorized::AggregateFunctionSimpleFactory::instance().get(
                     "replace_load", {block->get_data_type(cid)},
-                    block->get_data_type(cid)->is_nullable());
+                    block->get_data_type(cid)->is_nullable(),
+                    BeExecVersionManager::get_newest_version());
         } else {
-            function =
-                    _tablet_schema->column(cid).get_aggregate_function(vectorized::AGG_LOAD_SUFFIX);
+            function = _tablet_schema->column(cid).get_aggregate_function(
+                    vectorized::AGG_LOAD_SUFFIX, _tablet_schema->column(cid).get_be_exec_version());
             if (function == nullptr) {
                 LOG(WARNING) << "column get aggregate function failed, column="
                              << _tablet_schema->column(cid).name();
@@ -505,7 +506,7 @@ bool MemTable::need_agg() const {
     return false;
 }
 
-Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
+Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
     size_t same_keys_num = _sort();
     if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
         if (_keys_type == KeysType::DUP_KEYS && _tablet_schema->num_key_columns() == 0) {
@@ -526,6 +527,11 @@ Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
     _insert_mem_tracker->release(_mem_usage);
     _mem_usage = 0;
     *res = vectorized::Block::create_unique(_output_mutable_block.to_block());
+    return Status::OK();
+}
+
+Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_to_block(res));
     return Status::OK();
 }
 

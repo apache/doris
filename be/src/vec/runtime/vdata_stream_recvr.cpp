@@ -156,7 +156,7 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
     {
         SCOPED_RAW_TIMER(&deserialize_time);
         block = Block::create_unique();
-        RETURN_IF_ERROR(block->deserialize(pblock));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(block->deserialize(pblock));
     }
 
     const auto rows = block->rows();

@@ -8,20 +8,20 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[ss_item_sk]
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[ss_item_sk]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[store_sales] apply RFs: RF2
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN shuffle] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF1 i_item_sk->[inv_item_sk]
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = inventory.inv_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[inv_date_sk]
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = inventory.inv_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[inv_date_sk]
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[inv_item_sk]
 --------------------------PhysicalProject
 ----------------------------filter((inventory.inv_quantity_on_hand <= 500) and (inventory.inv_quantity_on_hand >= 100))
 ------------------------------PhysicalOlapScan[inventory] apply RFs: RF0 RF1
 --------------------------PhysicalProject
-----------------------------filter((date_dim.d_date <= '1999-09-07') and (date_dim.d_date >= '1999-07-09'))
-------------------------------PhysicalOlapScan[date_dim]
+----------------------------filter((item.i_current_price <= 47.00) and (item.i_current_price >= 17.00) and i_manufact_id IN (138, 169, 339, 639))
+------------------------------PhysicalOlapScan[item]
 ----------------------PhysicalProject
-------------------------filter((item.i_current_price <= 47.00) and (item.i_current_price >= 17.00) and i_manufact_id IN (138, 169, 339, 639))
---------------------------PhysicalOlapScan[item]
+------------------------filter((date_dim.d_date <= '1999-09-07') and (date_dim.d_date >= '1999-07-09'))
+--------------------------PhysicalOlapScan[date_dim]
 

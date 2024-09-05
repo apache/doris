@@ -166,8 +166,9 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
                 }
                 EXPECT_EQ(st.ok(), true);
                 // serialize
-                serde->serialize_one_cell_to_hive_text(*col, i, buffer_writer,
-                                                       default_format_option);
+                st = serde->serialize_one_cell_to_hive_text(*col, i, buffer_writer,
+                                                            default_format_option);
+                EXPECT_EQ(st.ok(), true);
                 buffer_writer.commit();
                 EXPECT_EQ(ser_col->get_data_at(ser_col->size() - 1).to_string(),
                           std::get<2>(type_pair)[i]);
@@ -368,7 +369,8 @@ TEST(CsvSerde, ComplexTypeSerdeCsvTest) {
         auto ser_col = ColumnString::create();
         ser_col->reserve(1);
         VectorBufferWriter buffer_writer(*ser_col.get());
-        serde->serialize_one_cell_to_hive_text(*col, 0, buffer_writer, formatOptions);
+        st = serde->serialize_one_cell_to_hive_text(*col, 0, buffer_writer, formatOptions);
+        EXPECT_EQ(st.ok(), true);
         buffer_writer.commit();
         StringRef rand_s_d = ser_col->get_data_at(0);
         std::cout << "test:" << str << std::endl;
@@ -396,7 +398,8 @@ TEST(CsvSerde, ComplexTypeSerdeCsvTest) {
         auto ser_col = ColumnString::create();
         ser_col->reserve(1);
         VectorBufferWriter buffer_writer(*ser_col.get());
-        serde->serialize_one_cell_to_hive_text(*col, 0, buffer_writer, formatOptions);
+        st = serde->serialize_one_cell_to_hive_text(*col, 0, buffer_writer, formatOptions);
+        EXPECT_EQ(st.ok(), true);
         buffer_writer.commit();
         StringRef rand_s_d = ser_col->get_data_at(0);
         std::cout << "test:" << str << std::endl;
@@ -439,7 +442,8 @@ TEST(CsvSerde, ComplexTypeSerdeCsvTest) {
         auto ser_col = ColumnString::create();
         ser_col->reserve(1);
         VectorBufferWriter buffer_writer(*ser_col.get());
-        serde->serialize_one_cell_to_hive_text(*col, 0, buffer_writer, formatOptions);
+        st = serde->serialize_one_cell_to_hive_text(*col, 0, buffer_writer, formatOptions);
+        EXPECT_EQ(st.ok(), true);
         buffer_writer.commit();
         StringRef rand_s_d = ser_col->get_data_at(0);
         std::cout << "test:" << str << std::endl;
@@ -469,7 +473,8 @@ TEST(CsvSerde, ComplexTypeSerdeCsvTest) {
         auto ser_col = ColumnString::create();
         ser_col->reserve(1);
         VectorBufferWriter buffer_writer(*ser_col.get());
-        serde->serialize_one_cell_to_hive_text(*col, 0, buffer_writer, formatOptions);
+        st = serde->serialize_one_cell_to_hive_text(*col, 0, buffer_writer, formatOptions);
+        EXPECT_EQ(st.ok(), true);
         buffer_writer.commit();
         StringRef rand_s_d = ser_col->get_data_at(0);
         std::cout << "test:" << str << std::endl;

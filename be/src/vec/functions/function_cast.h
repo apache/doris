@@ -433,6 +433,11 @@ struct ConvertImpl {
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
                     return Status::OK();
+                } else if constexpr ((std::is_same_v<FromDataType, DataTypeIPv4>)&&(
+                                             std::is_same_v<ToDataType, DataTypeIPv6>)) {
+                    for (size_t i = 0; i < size; ++i) {
+                        map_ipv4_to_ipv6(vec_from[i], reinterpret_cast<UInt8*>(&vec_to[i]));
+                    }
                 } else {
                     for (size_t i = 0; i < size; ++i) {
                         vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
@@ -452,6 +457,12 @@ struct ConvertImpl {
                                         named_from.column->get_name(), Name::name);
         }
         return Status::OK();
+    }
+
+private:
+    static void map_ipv4_to_ipv6(IPv4 ipv4, UInt8* buf) {
+        unaligned_store<UInt64>(buf, 0x0000FFFF00000000ULL | static_cast<UInt64>(ipv4));
+        unaligned_store<UInt64>(buf + 8, 0);
     }
 };
 
@@ -806,6 +817,21 @@ struct ConvertImplGenericToJsonb {
 
         block.replace_by_position(
                 result, ColumnNullable::create(std::move(col_to), std::move(col_null_map_to)));
+        return Status::OK();
+    }
+};
+
+struct ConvertNothingToJsonb {
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          const size_t result, size_t input_rows_count) {
+        const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
+        const IColumn& col_from = *col_with_type_and_name.column;
+        auto data_type_to = block.get_by_position(result).type;
+        size_t size = col_from.size();
+        auto col_to = data_type_to->create_column_const_with_default_value(size);
+        ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size, 1);
+        block.replace_by_position(result, ColumnNullable::create(col_to->assume_mutable(),
+                                                                 std::move(col_null_map_to)));
         return Status::OK();
     }
 };
@@ -2002,6 +2028,8 @@ private:
             } else {
                 return &ConvertImplGenericFromString::execute;
             }
+        case TypeIndex::Nothing:
+            return &ConvertNothingToJsonb::execute;
         default:
             return &ConvertImplGenericToJsonb::execute;
         }
