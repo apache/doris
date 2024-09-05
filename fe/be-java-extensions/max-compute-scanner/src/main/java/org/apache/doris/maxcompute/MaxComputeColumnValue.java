@@ -32,6 +32,7 @@ import org.apache.arrow.vector.SmallIntVector;
 import org.apache.arrow.vector.TimeStampMicroTZVector;
 import org.apache.arrow.vector.TimeStampMilliTZVector;
 import org.apache.arrow.vector.TimeStampNanoTZVector;
+import org.apache.arrow.vector.TimeStampNanoVector;
 import org.apache.arrow.vector.TimeStampSecTZVector;
 import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.ValueVector;
@@ -199,6 +200,8 @@ public class MaxComputeColumnValue implements ColumnValue {
         return v == null ? new String(new byte[0]) : v;
     }
 
+
+
     public String getChar() {
         skippedIfNull();
         VarCharVector varcharCol = (VarCharVector) column;
@@ -249,7 +252,7 @@ public class MaxComputeColumnValue implements ColumnValue {
         if (timestampType.getUnit() ==  org.apache.arrow.vector.types.TimeUnit.MILLISECOND) {
             result = convertToLocalDateTime((TimeStampMilliTZVector) column, idx++);
         } else {
-            result = convertToLocalDateTime((TimeStampNanoTZVector) column, idx++);
+            result = ((TimeStampNanoVector) column).getObject(idx++);
         }
 
         /*
@@ -264,19 +267,23 @@ public class MaxComputeColumnValue implements ColumnValue {
         Because :
         MaxCompute type    => Doris Type
         DATETIME  => ScalarType.createDatetimeV2Type(3)
-        TIMESTAMP => ScalarType.createDatetimeV2Type(6);
+        TIMESTAMP_NTZ => ScalarType.createDatetimeV2Type(6);
 
-        and TableBatchReadSession
+        and
+        TableBatchReadSession
             .withArrowOptions (
                 ArrowOptions.newBuilder()
                 .withDatetimeUnit(TimestampUnit.MILLI)
                 .withTimestampUnit(TimestampUnit.NANO)
                 .build()
             )
+        ,
+        TIMESTAMP_NTZ is NTZ  => column is  TimeStampNanoVector
 
         So:
             case SECOND -> convertToLocalDateTime((TimeStampSecTZVector) column, idx++);
             case MICROSECOND -> convertToLocalDateTime((TimeStampMicroTZVector) column, idx++);
+            case NANOSECOND -> convertToLocalDateTime((TimeStampNanoTZVector) column, idx++);
             may never be used.
         */
 

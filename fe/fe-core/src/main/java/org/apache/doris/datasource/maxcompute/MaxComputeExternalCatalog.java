@@ -37,7 +37,6 @@ import com.aliyun.odps.table.configuration.SplitOptions;
 import com.aliyun.odps.table.enviroment.Credentials;
 import com.aliyun.odps.table.enviroment.EnvironmentSettings;
 import com.aliyun.odps.utils.StringUtils;
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -78,56 +77,35 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     protected void initLocalObjectsImpl() {
         Map<String, String> props = catalogProperty.getProperties();
 
+        endpoint = props.get(MCProperties.ENDPOINT);
+        defaultProject = props.get(MCProperties.PROJECT);
         quota = props.getOrDefault(MCProperties.QUOTA, MCProperties.DEFAULT_QUOTA);
 
-        try {
-            splitStrategy = props.getOrDefault(MCProperties.SPLIT_STRATEGY, MCProperties.DEFAULT_SPLIT_STRATEGY);
-            if (splitStrategy.equals(MCProperties.SPLIT_BY_BYTE_SIZE_STRATEGY)) {
-                splitByteSize = Long.parseLong(props.getOrDefault(MCProperties.SPLIT_BYTE_SIZE,
-                        MCProperties.DEFAULT_SPLIT_BYTE_SIZE));
 
-                splitOptions = SplitOptions.newBuilder()
-                        .SplitByByteSize(splitByteSize)
-                        .withCrossPartition(false)
-                        .build();
+        splitStrategy = props.getOrDefault(MCProperties.SPLIT_STRATEGY, MCProperties.DEFAULT_SPLIT_STRATEGY);
+        if (splitStrategy.equals(MCProperties.SPLIT_BY_BYTE_SIZE_STRATEGY)) {
+            splitByteSize = Long.parseLong(props.getOrDefault(MCProperties.SPLIT_BYTE_SIZE,
+                    MCProperties.DEFAULT_SPLIT_BYTE_SIZE));
 
-            } else if (splitStrategy.equals(MCProperties.SPLIT_BY_ROW_COUNT_STRATEGY)) {
-                splitRowCount = Long.parseLong(props.getOrDefault(MCProperties.SPLIT_ROW_COUNT,
-                        MCProperties.DEFAULT_SPLIT_ROW_COUNT));
-                if (splitRowCount <= 0) {
-                    throw new IllegalArgumentException(MCProperties.SPLIT_ROW_COUNT + " must be greater than 0");
-                }
-
-                splitOptions = SplitOptions.newBuilder()
-                        .SplitByRowOffset()
-                        .withCrossPartition(false)
-                        .build();
-            } else {
-                throw new IllegalArgumentException("property " + MCProperties.SPLIT_STRATEGY + "must is "
-                        + MCProperties.SPLIT_BY_BYTE_SIZE_STRATEGY + " or " + MCProperties.SPLIT_BY_ROW_COUNT_STRATEGY);
-            }
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("property " + MCProperties.SPLIT_BYTE_SIZE + "/"
-                    + MCProperties.SPLIT_ROW_COUNT + "must be an integer");
+            splitOptions = SplitOptions.newBuilder()
+                    .SplitByByteSize(splitByteSize)
+                    .withCrossPartition(false)
+                    .build();
+        } else {
+            splitRowCount = Long.parseLong(props.getOrDefault(MCProperties.SPLIT_ROW_COUNT,
+                    MCProperties.DEFAULT_SPLIT_ROW_COUNT));
+            splitOptions = SplitOptions.newBuilder()
+                    .SplitByRowOffset()
+                    .withCrossPartition(false)
+                    .build();
         }
 
-        endpoint = props.getOrDefault(MCProperties.ENDPOINT, "");
-        if (Strings.isNullOrEmpty(endpoint)) {
-            throw new IllegalArgumentException("Missing required property '" + MCProperties.ENDPOINT + "'.");
-        }
-
-        defaultProject = props.get(MCProperties.PROJECT);
-        if (Strings.isNullOrEmpty(defaultProject)) {
-            throw new IllegalArgumentException("Missing required property '" + MCProperties.PROJECT + "'.");
-        }
 
         CloudCredential credential = MCProperties.getCredential(props);
-        if (!credential.isWhole()) {
-            throw new IllegalArgumentException("Max-Compute credential properties '"
-                    + MCProperties.ACCESS_KEY + "' and  '" + MCProperties.SECRET_KEY + "' are required.");
-        }
         accessKey = credential.getAccessKey();
         secretKey = credential.getSecretKey();
+
+
 
         Account account = new AliyunAccount(accessKey, secretKey);
         this.odps = new Odps(account);
@@ -274,10 +252,43 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
+        Map<String, String> props = catalogProperty.getProperties();
         for (String requiredProperty : REQUIRED_PROPERTIES) {
-            if (!catalogProperty.getProperties().containsKey(requiredProperty)) {
+            if (!props.containsKey(requiredProperty)) {
                 throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
+        }
+
+        try {
+            splitStrategy = props.getOrDefault(MCProperties.SPLIT_STRATEGY, MCProperties.DEFAULT_SPLIT_STRATEGY);
+            if (splitStrategy.equals(MCProperties.SPLIT_BY_BYTE_SIZE_STRATEGY)) {
+                splitByteSize = Long.parseLong(props.getOrDefault(MCProperties.SPLIT_BYTE_SIZE,
+                        MCProperties.DEFAULT_SPLIT_BYTE_SIZE));
+
+                if (splitByteSize < 10485760L) {
+                    throw new DdlException(MCProperties.SPLIT_ROW_COUNT + " must be greater than or equal to 10485760");
+                }
+
+            } else if (splitStrategy.equals(MCProperties.SPLIT_BY_ROW_COUNT_STRATEGY)) {
+                splitRowCount = Long.parseLong(props.getOrDefault(MCProperties.SPLIT_ROW_COUNT,
+                        MCProperties.DEFAULT_SPLIT_ROW_COUNT));
+                if (splitRowCount <= 0) {
+                    throw new DdlException(MCProperties.SPLIT_ROW_COUNT + " must be greater than 0");
+                }
+
+            } else {
+                throw new DdlException("property " + MCProperties.SPLIT_STRATEGY + "must is "
+                        + MCProperties.SPLIT_BY_BYTE_SIZE_STRATEGY + " or " + MCProperties.SPLIT_BY_ROW_COUNT_STRATEGY);
+            }
+        } catch (NumberFormatException e) {
+            throw new DdlException("property " + MCProperties.SPLIT_BYTE_SIZE + "/"
+                    + MCProperties.SPLIT_ROW_COUNT + "must be an integer");
+        }
+
+        CloudCredential credential = MCProperties.getCredential(props);
+        if (!credential.isWhole()) {
+            throw new DdlException("Max-Compute credential properties '"
+                    + MCProperties.ACCESS_KEY + "' and  '" + MCProperties.SECRET_KEY + "' are required.");
         }
     }
 }

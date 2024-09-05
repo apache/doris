@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
@@ -29,6 +30,7 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -208,7 +210,9 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         } else if (expr instanceof InPredicate) {
 
             InPredicate inPredicate = (InPredicate) expr;
-
+            if (inPredicate.getChildren().size() > 2) {
+                return Predicate.NO_PREDICATE;
+            }
             com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator odpsOp =
                     inPredicate.isNotIn()
                             ? com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator.IN
@@ -219,6 +223,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
             StringBuilder stringBuilder = new StringBuilder();
 
+
             stringBuilder.append(columnName);
             stringBuilder.append(" ");
             stringBuilder.append(odpsOp.getDescription());
@@ -227,7 +232,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             for (int i = 1; i < inPredicate.getChildren().size(); i++) {
                 stringBuilder.append(convertLiteralToOdpsValues(odpsType, expr.getChild(i)));
                 if (i < inPredicate.getChildren().size() - 1) {
-                    stringBuilder.append(" , ");
+                    stringBuilder.append(", ");
                 }
             }
             stringBuilder.append(" )");
@@ -321,9 +326,21 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             case VARCHAR: {
                 return " \"" + literalExpr.toString() + "\" ";
             }
-            // case DATE:
-            // case TIMESTAMP: {return " \"" + literalExpr.toString() + "\" ";}
-            // Time zone issues need to be taken into consideration.
+            case DATE: {
+                DateLiteral dateLiteral = (DateLiteral) literalExpr;
+                ScalarType dstType = ScalarType.createDateV2Type();
+                return  " \"" + dateLiteral.getStringValue(dstType) + "\" ";
+            }
+            case DATETIME: {
+                DateLiteral dateLiteral = (DateLiteral) literalExpr;
+                ScalarType dstType = ScalarType.createDatetimeV2Type(3);
+                return  " \"" + dateLiteral.getStringValue(dstType) + "\" ";
+            }
+            case TIMESTAMP_NTZ: {
+                DateLiteral dateLiteral = (DateLiteral) literalExpr;
+                ScalarType dstType = ScalarType.createDatetimeV2Type(6);
+                return  " \"" + dateLiteral.getStringValue(dstType) + "\" ";
+            }
             default: {
                 break;
             }

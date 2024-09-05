@@ -16,7 +16,8 @@
 // under the License.
 
 /*
-   drop table mc_all_types;
+
+drop table mc_all_types;
 
 CREATE TABLE `mc_all_types`(
   `id` int,
@@ -33,9 +34,9 @@ CREATE TABLE `mc_all_types`(
   `decimal_col4` decimal(38,12), 
   `string_col` string, 
   `date_col` date, 
-  `timestamp_col1` timestamp, 
-  `timestamp_col2` timestamp, 
-  `timestamp_col3` timestamp, 
+  `datetime_col` datetime, 
+  `timestamp_ntz_col2` timestamp_ntz, 
+  `timestamp_ntz_col3` timestamp_ntz, 
   `char_col1` char(50), 
   `char_col2` char(100), 
   `char_col3` char(255), 
@@ -92,9 +93,9 @@ VALUES (
     CAST(-123456789.012345678901 AS DECIMAL(38,12)), -- decimal_col4
     'str', -- string_col
     cast('2024-03-25' as date), -- date_col
-    cast('2024-03-25 12:00:00' as timestamp), -- timestamp_col1
-    cast('2024-03-25 12:00:00.123456789' as timestamp), -- timestamp_col2
-    cast('2024-03-25 12:00:00.123456789' as timestamp), -- timestamp_col3
+    cast('2024-03-25 12:00:00' as datetime),
+    cast('2024-03-25 12:00:00.123456' as timestamp_ntz), -- timestamp_ntz_col2
+    cast('2024-03-25 12:00:00.123456789' as timestamp_ntz), -- timestamp_ntz_col3
     'char_value11111', -- char_col1
     'char_value22222', -- char_col2
     'char_value33333', -- char_col3
@@ -151,9 +152,9 @@ VALUES (
   CAST(123456789.012345678901 AS DECIMAL(38,12)), -- decimal_col4
   'string_value', -- string_col
   cast('2024-03-20' as date), -- date_col
-  cast('2024-03-20 12:00:00' as TIMESTAMP ), -- timestamp_col1
-  cast('2024-03-20 12:00:00.123456789' as TIMESTAMP ), -- timestamp_col2
-  cast('2024-03-20 12:00:00.123456789' as TIMESTAMP ), -- timestamp_col3
+  cast('2024-03-20 12:00:00' as datetime ),
+  cast('2024-03-20 12:00:00.123456' as TIMESTAMP_ntz ), -- timestamp_ntz_col2
+  cast('2024-03-20 12:00:00.123456789' as TIMESTAMP_ntz ), -- timestamp_ntz_col3
   'char_value1', -- char_col1
   'char_value2', -- char_col2
   'char_value3', -- char_col3
@@ -209,9 +210,9 @@ VALUES
   CAST(-123456789.012345678901 AS DECIMAL(38,12)), -- decimal_col4
   'str', -- string_col
   cast('2024-03-25' as date), -- date_col
-  cast('2024-03-25 12:00:00' as timestamp), -- timestamp_col1
-  cast('2024-03-25 12:00:00.123456789' as timestamp), -- timestamp_col2
-  cast('2024-03-25 12:00:00.123456789' as timestamp), -- timestamp_col3
+  cast('2024-03-25 12:00:00' as datetime),
+  cast('2024-03-25 12:00:00.123456' as timestamp_ntz), -- timestamp_ntz_col2
+  cast('2024-03-25 12:00:00.123456789' as timestamp_ntz), -- timestamp_ntz_col3
   'char_value11111', -- char_col1
   'char_value22222', -- char_col2
   'char_value33333', -- char_col3
@@ -266,9 +267,9 @@ VALUES
   CAST(-123456789.012345678901 AS DECIMAL(38,12)), -- decimal_col4
   'string_value', -- string_col
   cast('2024-03-21' as date), -- date_col
-  cast('2024-03-21 12:00:00' as timestamp), -- timestamp_col1
-  cast('2024-03-21 12:00:00.123456789' as timestamp), -- timestamp_col2
-  cast('2024-03-21 12:00:00.123456789' as timestamp), -- timestamp_col3
+  cast('2024-03-21 12:00:00' as datetime),
+  cast('2024-03-21 12:00:00.123456' as timestamp_ntz), -- timestamp_ntz_col2
+  cast('2024-03-21 12:00:00.123456789' as timestamp_ntz), -- timestamp_ntz_col3
   'char_value1', -- char_col1
   'char_value2', -- char_col2
   'char_value3', -- char_col3
@@ -411,34 +412,34 @@ suite("test_max_compute_all_type", "p0,external,doris,external_docker,external_d
 
 
 
-        qt_test_52 """ select id,timestamp_col1 from ${table_name}   order by id """
-        qt_test_53 """ select id,timestamp_col1 from ${table_name} where  timestamp_col1  != "2024-03-25 12:00:00.000" order by id """
-        qt_test_54 """ select id,timestamp_col1 from ${table_name} where  timestamp_col1  = "2024-03-25 12:00:00.000" order by id """
-        qt_test_55 """ select id,timestamp_col1 from ${table_name} where  timestamp_col1  > "2024-03-25 12:00:00.000" order by id """
-        qt_test_56 """ select id,timestamp_col1 from ${table_name} where  timestamp_col1  < "2024-03-25 12:00:00.000" order by id """
-        qt_test_57 """ select id,timestamp_col1 from ${table_name} where  timestamp_col1  <= "2024-03-25 12:00:00.000" order by id """
+        qt_test_52 """ select id,datetime_col from ${table_name}   order by id """
+        qt_test_53 """ select id,datetime_col from ${table_name} where  datetime_col  != "2024-03-25 12:00:00" order by id """
+        qt_test_54 """ select id,datetime_col from ${table_name} where  datetime_col  = "2024-03-25 12:00:00" order by id """
+        qt_test_55 """ select id,datetime_col from ${table_name} where  datetime_col  > "2024-03-25 12:00:00" order by id """
+        qt_test_56 """ select id,datetime_col from ${table_name} where  datetime_col  < "2024-03-25 12:00:00" order by id """
+        qt_test_57 """ select id,datetime_col from ${table_name} where  datetime_col  <= "2024-03-25 12:00:00" order by id """
 
 
 
-        qt_test_58 """ select id,timestamp_col2 from ${table_name}   order by id """
-        qt_test_59 """ select id,timestamp_col2 from ${table_name} where  timestamp_col2  != "2024-03-25 12:00:00.123456" order by id """
-        qt_test_60 """ select id,timestamp_col2 from ${table_name} where  timestamp_col2  = "2024-03-25 12:00:00.123456" order by id """
-        qt_test_61 """ select id,timestamp_col2 from ${table_name} where  timestamp_col2  > "2024-03-25 12:00:00.123456" order by id """
-        qt_test_62 """ select id,timestamp_col2 from ${table_name} where  timestamp_col2  < "2024-03-25 12:00:00.123456" order by id """
-        qt_test_63 """ select id,timestamp_col2 from ${table_name} where  timestamp_col2  <= "2024-03-25 12:00:00.123456" order by id """
+        qt_test_58 """ select id,timestamp_ntz_col2 from ${table_name}   order by id """
+        qt_test_59 """ select id,timestamp_ntz_col2 from ${table_name} where  timestamp_ntz_col2  != "2024-03-25 12:00:00.123456" order by id """
+        qt_test_60 """ select id,timestamp_ntz_col2 from ${table_name} where  timestamp_ntz_col2  = "2024-03-25 12:00:00.123456" order by id """
+        qt_test_61 """ select id,timestamp_ntz_col2 from ${table_name} where  timestamp_ntz_col2  > "2024-03-25 12:00:00.123456" order by id """
+        qt_test_62 """ select id,timestamp_ntz_col2 from ${table_name} where  timestamp_ntz_col2  < "2024-03-25 12:00:00.123456" order by id """
+        qt_test_63 """ select id,timestamp_ntz_col2 from ${table_name} where  timestamp_ntz_col2  <= "2024-03-25 12:00:00.123456" order by id """
 
-        qt_test_64 """ select id,timestamp_col3 from ${table_name}   order by id """
-        qt_test_65 """ select id,timestamp_col3 from ${table_name} where  timestamp_col3  != "2024-03-25 12:00:00.123456" order by id """
-        qt_test_66 """ select id,timestamp_col3 from ${table_name} where  timestamp_col3  < "2024-03-25 12:00:00.123456" order by id """
-        qt_test_67 """ select id,timestamp_col3 from ${table_name} where  timestamp_col3  = "2024-03-25 12:00:00.123456" order by id """
-        qt_test_68 """ select id,timestamp_col3 from ${table_name} where  timestamp_col3  > "2024-03-25 12:00:00.123456" order by id """
-        qt_test_69 """ select id,timestamp_col3 from ${table_name} where  timestamp_col3  <= "2024-03-25 12:00:00.123456" order by id """
+        qt_test_64 """ select id,timestamp_ntz_col3 from ${table_name}   order by id """
+        qt_test_65 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  != "2024-03-25 12:00:00.123456" order by id """
+        qt_test_66 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  < "2024-03-25 12:00:00.123456" order by id """
+        qt_test_67 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  = "2024-03-25 12:00:00.123456" order by id """
+        qt_test_68 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  > "2024-03-25 12:00:00.123456" order by id """
+        qt_test_69 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  <= "2024-03-25 12:00:00.123456" order by id """
 
-        qt_test_70 """ select id,timestamp_col3 from ${table_name} where  timestamp_col3  != "2024-03-25 12:00:00.124" order by id """
-        qt_test_71 """ select id,timestamp_col3 from ${table_name} where  timestamp_col3  < "2024-03-25 12:00:00.124" order by id """
-        qt_test_72 """ select id,timestamp_col3 from ${table_name} where  timestamp_col3  = "2024-03-25 12:00:00.124" order by id """
-        qt_test_73 """ select id,timestamp_col3 from ${table_name} where  timestamp_col3  > "2024-03-25 12:00:00.124" order by id """
-        qt_test_74 """ select id,timestamp_col3 from ${table_name} where  timestamp_col3  <= "2024-03-25 12:00:00.124" order by id """
+        qt_test_70 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  != "2024-03-25 12:00:00.124" order by id """
+        qt_test_71 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  < "2024-03-25 12:00:00.124" order by id """
+        qt_test_72 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  = "2024-03-25 12:00:00.124" order by id """
+        qt_test_73 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  > "2024-03-25 12:00:00.124" order by id """
+        qt_test_74 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  <= "2024-03-25 12:00:00.124" order by id """
 
 
   
