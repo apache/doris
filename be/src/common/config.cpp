@@ -120,7 +120,12 @@ DEFINE_mInt32(max_fill_rate, "2");
 
 DEFINE_mInt32(double_resize_threshold, "23");
 
-DEFINE_Int64(max_sys_mem_available_low_water_mark_bytes, "6871947673");
+// The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default -1.
+// if it is -1, then low water mark = min(MemTotal - MemLimit, MemTotal * 5%), which is 3.2G on a 64G machine.
+// Turn up max. more memory buffers will be reserved for Memory GC.
+// Turn down max. will use as much memory as possible.
+// note that: `max_` prefix should be removed, but keep it for compatibility.
+DEFINE_Int64(max_sys_mem_available_low_water_mark_bytes, "-1");
 
 DEFINE_Int64(memtable_limiter_reserved_memory_bytes, "838860800");
 
@@ -296,7 +301,7 @@ DEFINE_mInt32(default_num_rows_per_column_file_block, "1024");
 // pending data policy
 DEFINE_mInt32(pending_data_expire_time_sec, "1800");
 // inc_rowset snapshot rs sweep time interval
-DEFINE_mInt32(tablet_rowset_stale_sweep_time_sec, "300");
+DEFINE_mInt32(tablet_rowset_stale_sweep_time_sec, "600");
 // tablet stale rowset sweep by threshold size
 DEFINE_Bool(tablet_rowset_stale_sweep_by_size, "false");
 DEFINE_mInt32(tablet_rowset_stale_sweep_threshold_size, "100");
@@ -965,10 +970,6 @@ DEFINE_Bool(enable_debug_points, "false");
 DEFINE_Int32(pipeline_executor_size, "0");
 DEFINE_Bool(enable_workload_group_for_scan, "false");
 DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
-
-// Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
-// Will remove after fully test.
-DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
 DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");

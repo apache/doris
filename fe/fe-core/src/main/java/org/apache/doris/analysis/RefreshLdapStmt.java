@@ -26,7 +26,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
-public class RefreshLdapStmt extends DdlStmt {
+public class RefreshLdapStmt extends DdlStmt implements NotFallbackInParser {
 
     private boolean isAll;
 

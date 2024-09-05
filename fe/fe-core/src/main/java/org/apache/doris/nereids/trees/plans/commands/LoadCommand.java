@@ -39,6 +39,7 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
+import org.apache.doris.nereids.exceptions.MustFallbackException;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -126,8 +127,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!Config.enable_nereids_load) {
-            ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            throw new AnalysisException("Fallback to legacy planner temporary.");
+            throw new MustFallbackException("Fallback to legacy planner temporary.");
         }
         this.profile = new Profile(
                 ctx.getSessionVariable().enableProfile,

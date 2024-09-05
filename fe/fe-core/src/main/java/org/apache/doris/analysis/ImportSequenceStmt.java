@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-public class ImportSequenceStmt extends StatementBase {
+public class ImportSequenceStmt extends StatementBase implements NotFallbackInParser {
     private String sequenceColName;
 
     public ImportSequenceStmt(String sequenceColName) {

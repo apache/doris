@@ -108,8 +108,11 @@ suite("txn_insert_inject_case", "nonConcurrent") {
     sql """ truncate table ${table}_0 """
 
     // 1. publish timeout
+    def commit_timeout_second_value = getFeConfig("commit_timeout_second")
+    logger.info("commit_timeout_second_value: ${commit_timeout_second_value}")
     def backendId_to_params = get_be_param("pending_data_expire_time_sec")
     try {
+        setFeConfig('commit_timeout_second', '2')
         // test be report tablet and expire txns and fe handle it
         set_be_param.call("pending_data_expire_time_sec", "1")
         GetDebugPoint().enableDebugPointForAllFEs('PublishVersionDaemon.stop_publish')
@@ -131,21 +134,21 @@ suite("txn_insert_inject_case", "nonConcurrent") {
         def result = sql "SELECT COUNT(*) FROM ${table}_0"
         rowCount = result[0][0]
         assertEquals(0, rowCount)
-
-        sleep(10000)
+        // sleep(10000)
     } finally {
+        setFeConfig('commit_timeout_second', commit_timeout_second_value)
         set_original_be_param("pending_data_expire_time_sec", backendId_to_params)
         GetDebugPoint().disableDebugPointForAllFEs('PublishVersionDaemon.stop_publish')
 
         def rowCount = 0
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 600; i++) {
             def result = sql "SELECT COUNT(*) FROM ${table}_0"
             logger.info("select result: ${result}")
             rowCount = result[0][0]
             if (rowCount == 12) {
                 break
             }
-            sleep(2000)
+            sleep(100)
         }
         assertEquals(12, rowCount)
     }
@@ -188,10 +191,13 @@ suite("txn_insert_inject_case", "nonConcurrent") {
     assertTrue(txn_info[0].get("Reason").contains("DebugPoint: DatabaseTransactionMgr.commitTransaction.failed"))
 
     // 3. one txn publish failed
+    def insert_visible_timeout = sql """show variables where variable_name = 'insert_visible_timeout_ms';"""
+    logger.info("insert_visible_timeout: ${insert_visible_timeout}")
     sql """ truncate table ${table}_0 """
     txn_id = 0
     try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
          Statement statement = conn.createStatement()) {
+        statement.execute("ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '2');")
         statement.execute("begin")
         statement.execute("insert into ${table}_0 select * from ${table}_1;")
         txn_id = get_txn_id_from_server_info((((StatementImpl) statement).results).getServerInfo())
@@ -199,23 +205,29 @@ suite("txn_insert_inject_case", "nonConcurrent") {
         statement.execute("insert into ${table}_0 select * from ${table}_2;")
         statement.execute("commit")
 
+        sql "set insert_visible_timeout_ms = 2000"
         sql """insert into ${table}_0 values(100, 2.2, "abc", [], [])"""
         sql """insert into ${table}_1 values(101, 2.2, "abc", [], [])"""
         sql """insert into ${table}_2 values(102, 2.2, "abc", [], [])"""
         order_qt_select2 """select * from ${table}_0"""
         order_qt_select3 """select * from ${table}_1"""
         order_qt_select4 """select * from ${table}_2"""
+    } catch (Exception e) {
+        logger.info("failed", e)
+        assertTrue(false, "should not reach here")
     } finally {
+        setFeConfig('commit_timeout_second', commit_timeout_second_value)
+        sql "set insert_visible_timeout_ms = ${insert_visible_timeout[0][1]}"
         GetDebugPoint().disableDebugPointForAllFEs('PublishVersionDaemon.genPublishTask.failed')
         def rowCount = 0
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < 200; i++) {
             def result = sql "select count(*) from ${table}_0"
             logger.info("rowCount: " + result + ", retry: " + i)
             rowCount =  result[0][0]
             if (rowCount >= 7) {
                 break
             }
-            sleep(1000)
+            sleep(100)
         }
         assertEquals(7, rowCount)
     }

@@ -31,7 +31,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import com.google.common.collect.ImmutableList;
 
 // show data skew from tbl [partition(p1, p2, ...)]
-public class ShowDataSkewStmt extends ShowStmt {
+public class ShowDataSkewStmt extends ShowStmt implements NotFallbackInParser {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("PartitionName").add("BucketIdx").add("AvgRowCount").add("AvgDataSize")
             .add("Graph").add("Percent")
