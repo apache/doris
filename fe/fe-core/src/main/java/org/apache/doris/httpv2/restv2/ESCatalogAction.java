@@ -42,10 +42,10 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 @RestController
-@RequestMapping("/rest/v2/api/es")
-public class ElasticsearchAction extends RestBaseController {
+@RequestMapping("/rest/v2/api/es_catalog")
+public class ESCatalogAction extends RestBaseController {
 
-    private static final Logger LOG = LogManager.getLogger(ElasticsearchAction.class);
+    private static final Logger LOG = LogManager.getLogger(ESCatalogAction.class);
     private static final String CATALOG = "catalog";
     private static final String TABLE = "table";
 
