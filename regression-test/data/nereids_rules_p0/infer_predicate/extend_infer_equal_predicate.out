@@ -25,9 +25,9 @@ PhysicalResultSink
 -- !test_simple_compare_datetimev2 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.d_datetimev2 = t2.d_datetimev2)) otherCondition=()
-----filter((t1.d_datetimev2 = '2024-01-01 00:00:00') and (t1.d_datetimev2 = t1.d_datetimev2))
+----filter((t1.d_datetimev2 = '2024-01-01 00:00:00'))
 ------PhysicalOlapScan[test_cast_infer9]
-----filter((t2.d_datetimev2 = '2024-01-01 00:00:00') and (t2.d_datetimev2 = t2.d_datetimev2))
+----filter((t2.d_datetimev2 = '2024-01-01 00:00:00'))
 ------PhysicalOlapScan[test_cast_infer9]
 
 -- !test_simple_compare_not_equal_datetimev2 --
@@ -80,9 +80,9 @@ PhysicalResultSink
 -- !test_like_to_equal --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.d_char100 = t2.d_char100)) otherCondition=()
-----filter((t1.d_char100 = '012') and (t1.d_char100 = t1.d_char100))
+----filter((t1.d_char100 = '012'))
 ------PhysicalOlapScan[test_cast_infer9]
-----filter((t2.d_char100 = '012') and (t2.d_char100 = t2.d_char100))
+----filter((t2.d_char100 = '012'))
 ------PhysicalOlapScan[test_cast_infer9]
 
 -- !test_func_not_in_and_func_equal_condition --
@@ -165,9 +165,9 @@ PhysicalResultSink
 -- !test_multi_slot_in_predicate2 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.a) and (t1.b = t2.b)) otherCondition=()
+----PhysicalOlapScan[test_like2]
 ----filter(((cast(a as DOUBLE) + cast(b as DOUBLE)) < 10.0))
 ------PhysicalOlapScan[test_like1]
-----PhysicalOlapScan[test_like2]
 
 -- !test_case_when_predicate --
 PhysicalResultSink
@@ -181,7 +181,7 @@ PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.d_datetimev2 = t2.d_datetimev2)) otherCondition=()
 ----filter((convert_tz(date_trunc(d_datetimev2, 'month'), 'Asia/Shanghai', 'Europe/Paris') = '2024-01-01 00:00:00'))
 ------PhysicalOlapScan[test_cast_infer9]
-----filter((convert_tz(date_trunc(d_datetimev2, 'month'), 'Asia/Shanghai', 'Europe/Paris') = '2024-01-01 00:00:00') and (convert_tz(date_trunc(d_datetimev2, 'month'), 'Asia/Shanghai', 'Europe/Paris') = convert_tz(date_trunc(d_datetimev2, 'month'), 'Asia/Shanghai', 'Europe/Paris')))
+----filter((convert_tz(date_trunc(d_datetimev2, 'month'), 'Asia/Shanghai', 'Europe/Paris') = '2024-01-01 00:00:00'))
 ------PhysicalOlapScan[test_cast_infer9]
 
 -- !test_convert_tz_predicate --

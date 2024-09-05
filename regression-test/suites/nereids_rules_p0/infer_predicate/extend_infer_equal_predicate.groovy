@@ -18,6 +18,7 @@ suite("extend_infer_equal_predicate") {
     sql "set enable_fallback_to_original_planner=false"
     sql """SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"""
     sql 'set runtime_filter_mode=off'
+    sql 'set disable_join_reorder=true'
 
     sql """
     drop table if exists test_cast_infer9;

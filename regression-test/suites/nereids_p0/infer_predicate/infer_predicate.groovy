@@ -41,10 +41,11 @@ suite("test_infer_predicate") {
         contains "PREDICATES: (k2"
     }
 
-    explain {
-        sql "select * from infer_tb1 inner join infer_tb2 where cast(infer_tb2.k4 as int) = infer_tb1.k2  and infer_tb2.k4 = 1;"
-        contains "PREDICATES: (CAST(k2"
-    }
+// not support infer predicate downcast
+//    explain {
+//        sql "select * from infer_tb1 inner join infer_tb2 where cast(infer_tb2.k4 as int) = infer_tb1.k2  and infer_tb2.k4 = 1;"
+//        contains "PREDICATES: (CAST(k2"
+//    }
 
     explain {
         sql "select * from infer_tb1 inner join infer_tb3 where infer_tb3.k1 = infer_tb1.k2  and infer_tb3.k1 = '123';"
