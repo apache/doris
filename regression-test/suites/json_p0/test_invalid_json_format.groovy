@@ -23,7 +23,7 @@ suite("test_invalid_json_format", "p0") {
     sql """ set experimental_enable_nereids_planner = true """
     sql """ set enable_fallback_to_original_planner = true """
 
-    def testTable = "tbl_test_json"
+    def testTable = "tbl_test_format_json"
 
     sql "DROP TABLE IF EXISTS ${testTable}"
 
