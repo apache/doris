@@ -65,6 +65,7 @@ suite('test_new_partial_update_delete') {
                     PROPERTIES (
                         "disable_auto_compaction" = "true",
                         "enable_unique_key_merge_on_write" = "false",
+                        "enable_mow_light_delete" = "false",
                         "replication_num" = "1",
                         "store_row_column" = "${use_row_store}"); """
                 sql """alter table ${tableMorName2} set ("enable_mow_light_delete"="true")"""
@@ -85,6 +86,7 @@ suite('test_new_partial_update_delete') {
                 DISTRIBUTED BY HASH(k1) BUCKETS 1
                 PROPERTIES (
                     "disable_auto_compaction" = "true",
+                    "enable_mow_light_delete" = "false",
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
 
@@ -198,6 +200,7 @@ suite('test_new_partial_update_delete') {
                 DISTRIBUTED BY HASH(k1) BUCKETS 1
                 PROPERTIES (
                     "disable_auto_compaction" = "true",
+                    "enable_mow_light_delete" = "false",
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
 
