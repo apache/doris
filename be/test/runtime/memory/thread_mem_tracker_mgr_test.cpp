@@ -181,8 +181,8 @@ TEST_F(ThreadMemTrackerMgrTest, MultiMemTracker) {
 
     bool rt = thread_context->thread_mem_tracker_mgr->push_consumer_tracker(t2.get());
     EXPECT_EQ(rt, true);
-    EXPECT_EQ(t1->consumption(), size1 + size2);
-    EXPECT_EQ(t2->consumption(), -size1); // _untracked_mem = size1
+    EXPECT_EQ(t1->consumption(), size1 + size2); // _untracked_mem = size1
+    EXPECT_EQ(t2->consumption(), 0);
 
     thread_context->consume_memory(size2);
     EXPECT_EQ(t1->consumption(), size1 + size2 + size1 + size2);
@@ -200,13 +200,13 @@ TEST_F(ThreadMemTrackerMgrTest, MultiMemTracker) {
     thread_context->consume_memory(size2);
     thread_context->consume_memory(-size1); // _untracked_mem = -size1
     EXPECT_EQ(t1->consumption(), size1 + size2 + size1 + size2 + size2 + size1 + size2);
-    EXPECT_EQ(t2->consumption(), size2 + size2 + size1 + size2);
-    EXPECT_EQ(t3->consumption(), size1 + size2);
+    EXPECT_EQ(t2->consumption(), size2 + size2 + size2);
+    EXPECT_EQ(t3->consumption(), size2);
 
     thread_context->thread_mem_tracker_mgr->pop_consumer_tracker();
-    EXPECT_EQ(t1->consumption(), size1 + size2 + size1 + size2 + size2 + size1 + size2 - size1);
-    EXPECT_EQ(t2->consumption(), size2 + size2 + size1 + size2 - size1);
-    EXPECT_EQ(t3->consumption(), size1 + size2 - size1);
+    EXPECT_EQ(t1->consumption(), size1 + size2 + size1 + size2 + size2 + size1 + size2);
+    EXPECT_EQ(t2->consumption(), size2 + size2 + size2);
+    EXPECT_EQ(t3->consumption(), size2);
 
     thread_context->consume_memory(-size2);
     thread_context->consume_memory(size2);
@@ -214,14 +214,14 @@ TEST_F(ThreadMemTrackerMgrTest, MultiMemTracker) {
     thread_context->thread_mem_tracker_mgr->pop_consumer_tracker();
     EXPECT_EQ(t1->consumption(),
               size1 + size2 + size1 + size2 + size2 + size1 + size2 - size1 - size2);
-    EXPECT_EQ(t2->consumption(), size2 + size2 + size1 + size2 - size1 - size2);
-    EXPECT_EQ(t3->consumption(), size1 + size2 - size1);
+    EXPECT_EQ(t2->consumption(), size2 + size2);
+    EXPECT_EQ(t3->consumption(), size2);
 
     thread_context->consume_memory(-t1->consumption());
     thread_context->detach_task(); // detach t1
     EXPECT_EQ(t1->consumption(), 0);
-    EXPECT_EQ(t2->consumption(), size2 + size2 + size1 + size2 - size1 - size2);
-    EXPECT_EQ(t3->consumption(), size1 + size2 - size1);
+    EXPECT_EQ(t2->consumption(), size2 + size2);
+    EXPECT_EQ(t3->consumption(), size2);
 }
 
 TEST_F(ThreadMemTrackerMgrTest, ReserveMemory) {
