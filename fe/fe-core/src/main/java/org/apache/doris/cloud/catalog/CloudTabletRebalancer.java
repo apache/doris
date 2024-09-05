@@ -1068,7 +1068,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 newInfo.setPartitionId(partitionId);
                 newInfo.setIndexId(indexId);
                 newInfo.setClusterId(clusterId);
-                // APPR: in unprotectUpdateCloudReplica, use batch must set tabletId = -1
+                // ATTN: in unprotectUpdateCloudReplica, use batch must set tabletId = -1
                 newInfo.setTabletId(-1);
                 rets.add(newInfo);
             });
