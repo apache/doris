@@ -173,6 +173,15 @@ public class AccessControllerManager {
     }
 
     // ==== Column ====
+    // If param has ctx, we can skip auth by isSkipAuth field in ctx
+    public void checkColumnsPriv(ConnectContext ctx, String ctl, String qualifiedDb, String tbl, Set<String> cols,
+            PrivPredicate wanted) throws UserException {
+        if (ctx.isSkipAuth()) {
+            return;
+        }
+        checkColumnsPriv(ctx.getCurrentUserIdentity(), ctl, qualifiedDb, tbl, cols, wanted);
+    }
+
     public void checkColumnsPriv(UserIdentity currentUser, String
             ctl, String qualifiedDb, String tbl, Set<String> cols,
             PrivPredicate wanted) throws UserException {

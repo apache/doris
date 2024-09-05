@@ -49,11 +49,6 @@ public class CheckPrivileges extends ColumnPruning {
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        if (jobContext.getCascadesContext().getStatementContext().isRboForMaterializedViewRewrite()) {
-            // During RBO in materialized view rewrite, should not check privileges, because the table query used
-            // already checked in RBO early, and should not check the privilege of mv which is used in rewrite;
-            return plan;
-        }
         this.jobContext = jobContext;
         super.rewriteRoot(plan, jobContext);
 
