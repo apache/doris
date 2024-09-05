@@ -60,6 +60,7 @@
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
+#include "exprs/runtime_filter.h"
 #include "gutil/ref_counted.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
@@ -976,13 +977,9 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
         return false;
     }
 
-    if (tablet_state() == TABLET_NOTREADY) {
-        // In TABLET_NOTREADY, we keep last 10 versions in new tablet so base tablet max_version
-        // not merged in new tablet and then we can do compaction
-        return true;
-    }
-
-    return true;
+    // In TABLET_NOTREADY, we keep last 10 versions in new tablet so base tablet max_version
+    // not merged in new tablet and then we can do compaction
+    return tablet_state() == TABLET_RUNNING || tablet_state() == TABLET_NOTREADY;
 }
 
 uint32_t Tablet::calc_compaction_score(
