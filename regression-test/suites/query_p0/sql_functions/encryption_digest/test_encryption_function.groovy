@@ -162,17 +162,17 @@ suite("test_encryption_function") {
 
 
 
-    sql """ select to_base64(sm4_encrypt(k,"doris")) from quantile_table2;""" // 7vSaqYqMl9no8trrzbdAEw==
-    qt_sql29 """ select sm4_decrypt(FROM_BASE64("7vSaqYqMl9no8trrzbdAEw=="),"doris") from quantile_table2; """
+    sql """ select to_base64(sm4_encrypt(k,"doris")) from quantile_table;""" // 7vSaqYqMl9no8trrzbdAEw==
+    qt_sql29 """ select sm4_decrypt(FROM_BASE64("7vSaqYqMl9no8trrzbdAEw=="),"doris") from quantile_table; """
 
-    sql """ select to_base64(sm4_encrypt(k,k)) from quantile_table2;""" // PcPR18T6lhMuFTqQtymb8w==
-    qt_sql30 """ select sm4_decrypt(FROM_BASE64("PcPR18T6lhMuFTqQtymb8w=="),k) from quantile_table2; """
+    sql """ select to_base64(sm4_encrypt(k,k)) from quantile_table;""" // PcPR18T6lhMuFTqQtymb8w==
+    qt_sql30 """ select sm4_decrypt(FROM_BASE64("PcPR18T6lhMuFTqQtymb8w=="),k) from quantile_table; """
 
-    sql """ select to_base64(sm4_encrypt("zhang","doris")) from quantile_table2;""" // WY+4o1/cZwAFQ0F6dlyEqQ==
-    qt_sql31 """ select sm4_decrypt(FROM_BASE64("WY+4o1/cZwAFQ0F6dlyEqQ=="),"doris") from quantile_table2; """
+    sql """ select to_base64(sm4_encrypt("zhang","doris")) from quantile_table;""" // WY+4o1/cZwAFQ0F6dlyEqQ==
+    qt_sql31 """ select sm4_decrypt(FROM_BASE64("WY+4o1/cZwAFQ0F6dlyEqQ=="),"doris") from quantile_table; """
 
-    sql """ select to_base64(sm4_encrypt("zhang",k)) from quantile_table2;""" // lhDiiEnRn3PvY6v4sHES0A==
-    qt_sql32 """ select sm4_decrypt(FROM_BASE64("lhDiiEnRn3PvY6v4sHES0A=="),k) from quantile_table2; """
+    sql """ select to_base64(sm4_encrypt("zhang",k)) from quantile_table;""" // lhDiiEnRn3PvY6v4sHES0A==
+    qt_sql32 """ select sm4_decrypt(FROM_BASE64("lhDiiEnRn3PvY6v4sHES0A=="),k) from quantile_table; """
 
 
     sql "DROP TABLE IF EXISTS quantile_table2"
