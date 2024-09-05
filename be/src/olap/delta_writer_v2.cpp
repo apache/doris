@@ -154,7 +154,7 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<ui
         SCOPED_RAW_TIMER(&_wait_flush_limit_time);
         auto memtable_flush_running_count_limit = config::memtable_flush_running_count_limit;
         DBUG_EXECUTE_IF("DeltaWriterV2.write.back_pressure",
-                        { memtable_flush_running_count_limit = 0; });
+                        { std::this_thread::sleep_for(std::chrono::milliseconds(10 * 1000)); });
         while (_memtable_writer->flush_running_count() >= memtable_flush_running_count_limit) {
             if (_state->is_cancelled()) {
                 return _state->cancel_reason();
