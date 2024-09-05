@@ -41,8 +41,12 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hudi.source.HudiCachedPartitionProcessor;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.job.common.JobType;
@@ -117,6 +121,8 @@ public class MetadataGenerator {
 
     private static final ImmutableMap<String, Integer> TABLE_PROPERTIES_COLUMN_TO_INDEX;
 
+    private static final ImmutableMap<String, Integer> META_CACHE_STATS_COLUMN_TO_INDEX;
+
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
         List<Column> activeQueriesColList = SchemaTable.TABLE_MAP.get("active_queries").getFullSchema();
@@ -164,6 +170,13 @@ public class MetadataGenerator {
             propertiesBuilder.put(propertiesColList.get(i).getName().toLowerCase(), i);
         }
         TABLE_PROPERTIES_COLUMN_TO_INDEX = propertiesBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> metaCacheBuilder = new ImmutableMap.Builder();
+        List<Column> metaCacheColList = SchemaTable.TABLE_MAP.get("catalog_meta_cache_statistics").getFullSchema();
+        for (int i = 0; i < metaCacheColList.size(); i++) {
+            metaCacheBuilder.put(metaCacheColList.get(i).getName().toLowerCase(), i);
+        }
+        META_CACHE_STATS_COLUMN_TO_INDEX = metaCacheBuilder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
@@ -254,6 +267,10 @@ public class MetadataGenerator {
             case TABLE_PROPERTIES:
                 result = tablePropertiesMetadataResult(schemaTableParams);
                 columnIndex = TABLE_PROPERTIES_COLUMN_TO_INDEX;
+                break;
+            case CATALOG_META_CACHE_STATS:
+                result = metaCacheStatsMetadataResult(schemaTableParams);
+                columnIndex = META_CACHE_STATS_COLUMN_TO_INDEX;
                 break;
             default:
                 return errorResult("invalid schema table name.");
@@ -1249,5 +1266,51 @@ public class MetadataGenerator {
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
+    }
+
+    private static TFetchSchemaTableDataResult metaCacheStatsMetadataResult(TSchemaTableRequestParams params) {
+        List<TRow> dataBatch = Lists.newArrayList();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        ExternalMetaCacheMgr mgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        for (CatalogIf catalogIf : Env.getCurrentEnv().getCatalogMgr().getCopyOfCatalog()) {
+            if (catalogIf instanceof HMSExternalCatalog) {
+                HMSExternalCatalog catalog = (HMSExternalCatalog) catalogIf;
+                // 1. hive metastore cache
+                HiveMetaStoreCache cache = mgr.getMetaStoreCache(catalog);
+                if (cache != null) {
+                    fillBatch(dataBatch, cache.getStats(), catalog.getName());
+                }
+                // 2. hudi cache
+                HudiCachedPartitionProcessor processor
+                        = (HudiCachedPartitionProcessor) mgr.getHudiPartitionProcess(catalog);
+                fillBatch(dataBatch, processor.getCacheStats(), catalog.getName());
+            } else if (catalogIf instanceof IcebergExternalCatalog) {
+                // 3. iceberg cache
+                IcebergMetadataCache icebergCache = mgr.getIcebergMetadataCache();
+                fillBatch(dataBatch, icebergCache.getCacheStats(), catalogIf.getName());
+            }
+        }
+
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static void fillBatch(List<TRow> dataBatch, Map<String, Map<String, String>> stats,
+            String catalogName) {
+        for (Map.Entry<String, Map<String, String>> entry : stats.entrySet()) {
+            String cacheName = entry.getKey();
+            Map<String, String> cacheStats = entry.getValue();
+            for (Map.Entry<String, String> cacheStatsEntry : cacheStats.entrySet()) {
+                String metricName = cacheStatsEntry.getKey();
+                String metricValue = cacheStatsEntry.getValue();
+                TRow trow = new TRow();
+                trow.addToColumnValue(new TCell().setStringVal(catalogName)); // CATALOG_NAME
+                trow.addToColumnValue(new TCell().setStringVal(cacheName)); // CACHE_NAME
+                trow.addToColumnValue(new TCell().setStringVal(metricName)); // METRIC_NAME
+                trow.addToColumnValue(new TCell().setStringVal(metricValue)); // METRIC_VALUE
+                dataBatch.add(trow);
+            }
+        }
     }
 }

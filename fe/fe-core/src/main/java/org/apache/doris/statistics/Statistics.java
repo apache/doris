@@ -22,6 +22,7 @@ import org.apache.doris.nereids.stats.StatsMathUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.text.DecimalFormat;
 import java.util.HashMap;
@@ -43,15 +44,31 @@ public class Statistics {
     // the byte size of one tuple
     private double tupleSize;
 
-    public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
-        this(rowCount, 1, expressionToColumnStats);
+    private double deltaRowCount = 0.0;
+
+    public Statistics(Statistics another) {
+        this.rowCount = another.rowCount;
+        this.widthInJoinCluster = another.widthInJoinCluster;
+        this.expressionToColumnStats = new HashMap<>(another.expressionToColumnStats);
+        this.tupleSize = another.tupleSize;
+        this.deltaRowCount = another.getDeltaRowCount();
     }
 
     public Statistics(double rowCount, int widthInJoinCluster,
-                      Map<Expression, ColumnStatistic> expressionToColumnStats) {
+            Map<Expression, ColumnStatistic> expressionToColumnStats, double deltaRowCount) {
         this.rowCount = rowCount;
         this.widthInJoinCluster = widthInJoinCluster;
         this.expressionToColumnStats = expressionToColumnStats;
+        this.deltaRowCount = deltaRowCount;
+    }
+
+    public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
+        this(rowCount, 1, expressionToColumnStats, 0);
+    }
+
+    public Statistics(double rowCount, int widthInJoinCluster,
+            Map<Expression, ColumnStatistic> expressionToColumnStats) {
+        this(rowCount, widthInJoinCluster, expressionToColumnStats, 0);
     }
 
     public ColumnStatistic findColumnStatistics(Expression expression) {
@@ -133,7 +150,7 @@ public class Statistics {
             for (Slot slot : slots) {
                 ColumnStatistic s = expressionToColumnStats.get(slot);
                 if (s != null) {
-                    tempSize += Math.max(1, Math.min(20, s.avgSizeByte));
+                    tempSize += Math.max(1, Math.min(CharacterType.DEFAULT_SLOT_SIZE, s.avgSizeByte));
                 }
             }
             tupleSize = Math.max(1, tempSize);
@@ -186,7 +203,11 @@ public class Statistics {
             return "-Infinite";
         }
         DecimalFormat format = new DecimalFormat("#,###.##");
-        return format.format(rowCount);
+        String rows = format.format(rowCount);
+        if (deltaRowCount > 0) {
+            rows = rows + "(" + format.format(deltaRowCount) + ")";
+        }
+        return rows;
     }
 
     public String printColumnStats() {
@@ -262,5 +283,13 @@ public class Statistics {
             }
         }
         return builder.build();
+    }
+
+    public double getDeltaRowCount() {
+        return deltaRowCount;
+    }
+
+    public void setDeltaRowCount(double deltaRowCount) {
+        this.deltaRowCount = deltaRowCount;
     }
 }

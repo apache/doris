@@ -82,7 +82,7 @@ if ldd "${bin}" | grep -Ei 'libfdb_c.*not found' &>/dev/null; then
         exit 1
     fi
     patchelf --set-rpath "${lib_path}" "${bin}"
-    ldd "${bin}"
+    # ldd "${bin}"
 fi
 
 chmod 550 "${DORIS_HOME}/lib/doris_cloud"
@@ -91,7 +91,7 @@ if [[ -z "${JAVA_HOME}" ]]; then
     echo "The JAVA_HOME environment variable is not defined correctly"
     echo "This environment variable is needed to run this program"
     echo "NB: JAVA_HOME should point to a JDK not a JRE"
-    echo "You can set it in be.conf"
+    echo "You can set it in doris_cloud.conf"
     exit 1
 fi
 
@@ -122,7 +122,10 @@ fi
 
 echo "LIBHDFS3_CONF=${LIBHDFS3_CONF}"
 
-export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:5000,dirty_decay_ms:5000,oversize_threshold:0,prof:false,lg_prof_interval:-1"
+# to enable dump jeprof heap stats prodigally, change `prof:false` to `prof:true`
+# to control the dump interval change `lg_prof_interval` to a specific value, it is pow/exponent of 2 in size of bytes, default 34 means 2 ** 34 = 16GB
+# to control the dump path, change `prof_prefix` to a specific path, e.g. /doris_cloud/log/ms_, by default it dumps at the path where the start command called
+export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:5000,dirty_decay_ms:5000,oversize_threshold:0,prof_prefix:ms_,prof:false,lg_prof_interval:34"
 
 if [[ "${RUN_VERSION}" -eq 1 ]]; then
     "${bin}" --version
@@ -131,14 +134,22 @@ fi
 
 mkdir -p "${DORIS_HOME}/log"
 echo "starts ${process} with args: $*"
+out_file=${DORIS_HOME}/log/${process}.out
 if [[ "${RUN_DAEMON}" -eq 1 ]]; then
-    date >>"${DORIS_HOME}/log/${process}.out"
-    nohup "${bin}" "$@" >>"${DORIS_HOME}/log/${process}.out" 2>&1 &
-    # wait for log flush
-    sleep 1.5
-    tail -n10 "${DORIS_HOME}/log/${process}.out" | grep 'working directory' -B1 -A10
-    echo "please check process log for more details"
-    echo ""
+    # append 10 blank lines to ensure the following tail -n10 works correctly
+    printf "\n\n\n\n\n\n\n\n\n\n" >>"${out_file}"
+    echo "$(date +'%F %T') try to start ${process}" >>"${out_file}"
+    nohup "${bin}" "$@" >>"${out_file}" 2>&1 &
+    echo "wait and check ${process} start successfully"
+    sleep 3
+    tail -n10 "${out_file}" | grep 'successfully started brpc'
+    ret=$?
+    if [[ ${ret} -ne 0 ]]; then
+        echo "${process} may not start successfully please check process log for more details"
+        exit 1
+    fi
+    echo "${process} start successfully"
+    exit 0
 elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
     export DORIS_LOG_TO_STDERR=1
     date

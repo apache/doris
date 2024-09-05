@@ -557,6 +557,14 @@ public class SchemaTable extends Table {
                                     .column("REMOTE_SCAN_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
+            .put("catalog_meta_cache_statistics",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "catalog_meta_cache_statistics", TableType.SCHEMA,
+                            builder().column("CATALOG_NAME", ScalarType.createStringType())
+                                    .column("CACHE_NAME", ScalarType.createStringType())
+                                    .column("METRIC_NAME", ScalarType.createStringType())
+                                    .column("METRIC_VALUE", ScalarType.createStringType())
+                                    .build())
+            )
             .build();
 
     private boolean fetchAllFe = false;

@@ -61,7 +61,7 @@ import java.util.HashSet;
  * WEEK | SECOND }
  */
 @Slf4j
-public class CreateJobStmt extends DdlStmt {
+public class CreateJobStmt extends DdlStmt implements NotFallbackInParser {
 
     @Getter
     private StatementBase doStmt;
