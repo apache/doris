@@ -73,7 +73,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         }
         Plan left = join.left();
         Plan right = join.right();
-        Set<Expression> expressions = getAllExpressions(left, right, join.getOnClauseCondition(), join);
+        Set<Expression> expressions = getAllExpressions(left, right, join.getOnClauseCondition());
         switch (join.getJoinType()) {
             case INNER_JOIN:
             case CROSS_JOIN:
