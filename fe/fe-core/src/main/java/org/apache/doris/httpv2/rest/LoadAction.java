@@ -53,6 +53,7 @@ import org.springframework.web.servlet.view.RedirectView;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -298,8 +299,20 @@ public class LoadAction extends RestBaseController {
                     return new RestBaseResult(e.getMessage());
                 }
             } else {
-                long tableId = ((OlapTable) ((Database) Env.getCurrentEnv().getCurrentCatalog().getDb(dbName)
-                        .get()).getTable(tableName).get()).getId();
+                long tableId = -1;
+                if (groupCommit) {
+                    Optional<?> database = Env.getCurrentEnv().getCurrentCatalog().getDb(dbName);
+                    if (!database.isPresent()) {
+                        return new RestBaseResult("Database not found.");
+                    }
+
+                    Optional<?> olapTable = ((Database) database.get()).getTable(tableName);
+                    if (!olapTable.isPresent()) {
+                        return new RestBaseResult("OlapTable not found.");
+                    }
+
+                    tableId = ((OlapTable) olapTable.get()).getId();
+                }
                 redirectAddr = selectRedirectBackend(request, groupCommit, tableId);
             }
 
@@ -355,6 +368,9 @@ public class LoadAction extends RestBaseController {
         if (debugBackendId != -1L) {
             Backend backend = Env.getCurrentSystemInfo().getBackend(debugBackendId);
             return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
+        }
+        if (groupCommit && tableId == -1) {
+            throw new LoadException("Group commit table id wrong.");
         }
         return selectLocalRedirectBackend(groupCommit, request, tableId);
     }
