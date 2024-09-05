@@ -285,6 +285,8 @@ public class Coordinator implements CoordInterface {
 
     private StatsErrorEstimator statsErrorEstimator;
 
+    private int receiverOffset = 0;
+
     // A countdown latch to mark the completion of each instance.
     // use for old pipeline
     // instance id -> dummy value
@@ -1162,7 +1164,8 @@ public class Coordinator implements CoordInterface {
 
         RowBatch resultBatch;
         Status status = new Status();
-        resultBatch = receivers.get(receivers.size() - 1).getNext(status);
+        ResultReceiver receiver = receivers.get(receiverOffset);
+        resultBatch = receiver.getNext(status);
         if (!status.ok()) {
             LOG.warn("Query {} coordinator get next fail, {}, need cancel.",
                     DebugUtil.printId(queryId), status.getErrorMsg());
@@ -1209,7 +1212,7 @@ public class Coordinator implements CoordInterface {
         }
 
         if (resultBatch.isEos()) {
-            receivers.remove(receivers.size() - 1);
+            receivers.remove(receiver);
             if (receivers.isEmpty()) {
                 returnedAllResults = true;
             } else {
@@ -1227,6 +1230,10 @@ public class Coordinator implements CoordInterface {
             }
         }
 
+        if (!returnedAllResults) {
+            receiverOffset += 1;
+            receiverOffset %= receivers.size();
+        }
         return resultBatch;
     }
 
