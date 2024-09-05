@@ -95,6 +95,7 @@ suite("test_encryption_function") {
     // sm4_encrypt sm4_decrypt
     // aes_encrypt aes_decrypt
     //two arg (column/const)
+    sql "set enable_fold_constant_by_be = false;"
     sql """ set block_encryption_mode=""; """ // SM4_128_ECB
     qt_sql1 """ select sm4_decrypt(sm4_encrypt(k,"doris"),"doris") from quantile_table; """
     qt_sql2 """ select sm4_decrypt(sm4_encrypt(k,k),k) from quantile_table; """
