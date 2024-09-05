@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.TimeStampType;
 import org.apache.doris.nereids.util.DateUtils;
@@ -28,7 +27,10 @@ import org.apache.doris.nereids.util.StandardDateFormat;
 
 import com.google.common.base.Preconditions;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.Objects;
 
 /**
@@ -77,6 +79,26 @@ public class TimeStampLiteral extends DateTimeLiteral {
             this.second = localDateTime.getSecond();
             this.microSecond -= 1000000;
         }
+
+        if (!hasZone) {
+            Instant thatTime = ZonedDateTime
+                    .of((int) year, (int) month, (int) day, (int) hour, (int) minute, (int) second,
+                            (int) microSecond, ZoneId.systemDefault())
+                    .toInstant();
+            int offset = DateUtils.getTimeZone().getRules().getOffset(thatTime).getTotalSeconds()
+                    - ZoneId.systemDefault().getRules().getOffset(thatTime).getTotalSeconds();
+
+            if (offset != 0) {
+                DateTimeLiteral result = (DateTimeLiteral) this.plusSeconds(offset);
+                this.second = result.second;
+                this.minute = result.minute;
+                this.hour = result.hour;
+                this.day = result.day;
+                this.month = result.month;
+                this.year = result.year;
+            }
+        }
+
         if (checkRange() || checkDate()) {
             // may fallback to legacy planner. make sure the behaviour of rounding is same.
             throw new AnalysisException("timestamp literal [" + toString() + "] is out of range");
@@ -177,100 +199,6 @@ public class TimeStampLiteral extends DateTimeLiteral {
                 + (scale > 0 ? ".%0" + scale + "d" : ""),
             year, month, day, hour, minute, second,
             (int) (microSecond / Math.pow(10, TimeStampType.MAX_SCALE - scale)));
-    }
-
-    public String getMicrosecondString() {
-        if (microSecond == 0) {
-            return "0";
-        }
-        return String.format("%0" + getDataType().getScale() + "d",
-            (int) (microSecond / Math.pow(10, TimeStampType.MAX_SCALE - getDataType().getScale())));
-    }
-
-    public Expression plusDays(long days) {
-        return fromJavaDateType(toJavaDateType().plusDays(days), getDataType().getScale());
-    }
-
-    public Expression plusMonths(long months) {
-        return fromJavaDateType(toJavaDateType().plusMonths(months), getDataType().getScale());
-    }
-
-    public Expression plusWeeks(long weeks) {
-        return fromJavaDateType(toJavaDateType().plusWeeks(weeks), getDataType().getScale());
-    }
-
-    public Expression plusYears(long years) {
-        return fromJavaDateType(toJavaDateType().plusYears(years), getDataType().getScale());
-    }
-
-    public Expression plusHours(long hours) {
-        return fromJavaDateType(toJavaDateType().plusHours(hours), getDataType().getScale());
-    }
-
-    public Expression plusMinutes(long minutes) {
-        return fromJavaDateType(toJavaDateType().plusMinutes(minutes), getDataType().getScale());
-    }
-
-    public Expression plusSeconds(long seconds) {
-        return fromJavaDateType(toJavaDateType().plusSeconds(seconds), getDataType().getScale());
-    }
-
-    public Expression plusMicroSeconds(long microSeconds) {
-        return fromJavaDateType(toJavaDateType().plusNanos(microSeconds * 1000L), getDataType().getScale());
-    }
-
-    /**
-     * roundCeiling
-     */
-    public TimeStampLiteral roundCeiling(int newScale) {
-        long remain = Double.valueOf(microSecond % (Math.pow(10, 6 - newScale))).longValue();
-        long newMicroSecond = microSecond;
-        long newSecond = second;
-        long newMinute = minute;
-        long newHour = hour;
-        long newDay = day;
-        long newMonth = month;
-        long newYear = year;
-        if (remain != 0) {
-            newMicroSecond = Double
-                .valueOf((microSecond + (int) (Math.pow(10, 6 - newScale)))
-                    / (int) (Math.pow(10, 6 - newScale)) * (Math.pow(10, 6 - newScale)))
-                .longValue();
-        }
-        if (newMicroSecond > MAX_MICROSECOND) {
-            newMicroSecond %= newMicroSecond;
-            TimeStampLiteral result = (TimeStampLiteral) this.plusSeconds(1);
-            newSecond = result.second;
-            newMinute = result.minute;
-            newHour = result.hour;
-            newDay = result.day;
-            newMonth = result.month;
-            newYear = result.year;
-        }
-        return new TimeStampLiteral(TimeStampType.of(newScale), newYear, newMonth, newDay,
-            newHour, newMinute, newSecond, newMicroSecond);
-    }
-
-    public TimeStampLiteral roundFloor(int newScale) {
-        return new TimeStampLiteral(TimeStampType.of(newScale), year, month, day, hour, minute, second,
-            microSecond / (int) Math.pow(10, 6 - newScale) * (int) Math.pow(10, 6 - newScale));
-    }
-
-    public static Expression fromJavaDateType(LocalDateTime dateTime) {
-        return fromJavaDateType(dateTime, 6);
-    }
-
-    /**
-     * convert java LocalDateTime object to TimeStampLiteral object.
-     */
-    public static Expression fromJavaDateType(LocalDateTime dateTime, int precision) {
-        long value = (long) Math.pow(10, TimeStampType.MAX_SCALE - precision);
-        return isDateOutOfRange(dateTime)
-            ? new NullLiteral(TimeStampType.of(precision))
-            : new TimeStampLiteral(TimeStampType.of(precision), dateTime.getYear(),
-            dateTime.getMonthValue(), dateTime.getDayOfMonth(), dateTime.getHour(),
-            dateTime.getMinute(), dateTime.getSecond(),
-            (dateTime.getNano() / 1000) / value * value);
     }
 
     @Override
