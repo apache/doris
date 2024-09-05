@@ -481,13 +481,17 @@ public:
     inline bool is_full_compaction_running() const { return _is_full_compaction_running; }
     void clear_cache() override;
 
-    int32_t get_cumu_compaction_score() const { return _cumu_compaction_score.load(std::memory_order_relaxed); }
+    int32_t get_cumu_compaction_score() const {
+        return _cumu_compaction_score.load(std::memory_order_relaxed);
+    }
 
     void set_cumu_compaction_score(int32_t compaction_score) {
         _cumu_compaction_score.store(compaction_score, std::memory_order_relaxed);
     }
 
-    int32_t get_base_compaction_score() const { return _base_compaction_score.load(std::memory_order_relaxed); }
+    int32_t get_base_compaction_score() const {
+        return _base_compaction_score.load(std::memory_order_relaxed);
+    }
 
     void set_base_compaction_score(int32_t compaction_score) {
         _base_compaction_score.store(compaction_score, std::memory_order_relaxed);
@@ -499,7 +503,8 @@ public:
             if (curr_score < 0) {
                 break;
             }
-        } while(!_cumu_compaction_score.compare_exchange_strong(curr_score, curr_score + score, std::memory_order_relaxed));
+        } while (!_cumu_compaction_score.compare_exchange_strong(curr_score, curr_score + score,
+                                                                 std::memory_order_relaxed));
     }
 
 private:

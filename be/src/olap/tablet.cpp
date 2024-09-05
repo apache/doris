@@ -1008,8 +1008,8 @@ uint32_t Tablet::calc_compaction_score(
             int32_t score = _calc_cumulative_compaction_score(cumulative_compaction_policy);
             int32_t cache_score = _cumu_compaction_score.load(std::memory_order_relaxed);
             if (cache_score > 0 && cache_score != score) {
-                LOG(WARNING) << "cumu cache score not equal real score, cache score; " << cache_score
-                             << ", real score: " << score
+                LOG(WARNING) << "cumu cache score not equal real score, cache score; "
+                             << cache_score << ", real score: " << score
                              << ", tablet: " << tablet_id();
             }
             _cumu_compaction_score.store(score, std::memory_order_relaxed);
@@ -1019,8 +1019,8 @@ uint32_t Tablet::calc_compaction_score(
             int32_t score = _calc_base_compaction_score();
             int32_t cache_score = _base_compaction_score.load(std::memory_order_relaxed);
             if (cache_score > 0 && cache_score != score) {
-                LOG(WARNING) << "base cache score not equal real score, cache score; " << cache_score
-                             << ", real score: " << score
+                LOG(WARNING) << "base cache score not equal real score, cache score; "
+                             << cache_score << ", real score: " << score
                              << ", tablet: " << tablet_id();
             }
             _base_compaction_score.store(score, std::memory_order_relaxed);
