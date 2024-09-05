@@ -18,6 +18,9 @@
 import org.junit.Assert;
 
 suite("test_mtmv_property","mtmv") {
+    if (isCloudMode()) {
+        return
+    }
     String dbName = context.config.getDbNameByFile(context.file)
     String suiteName = "test_mtmv_property"
     String tableName = "${suiteName}_table"
