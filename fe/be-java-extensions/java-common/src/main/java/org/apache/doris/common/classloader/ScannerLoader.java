@@ -72,7 +72,7 @@ public class ScannerLoader {
 
     public static synchronized void cacheClassLoader(String functionSignature, UdfClassCache classCache,
             long expirationTime) {
-        LOG.info("cacheClassLoader for: " + functionSignature);
+        LOG.info("Cache UDF for: " + functionSignature);
         udfLoadedClasses.put(functionSignature, classCache, expirationTime * 60 * 1000L);
     }
 

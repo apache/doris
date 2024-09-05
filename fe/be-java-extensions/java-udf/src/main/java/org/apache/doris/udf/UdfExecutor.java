@@ -147,24 +147,19 @@ public class UdfExecutor extends BaseExecutor {
             throws MalformedURLException, FileNotFoundException, ClassNotFoundException, InternalException,
             UdfRuntimeException {
         UdfClassCache cache = null;
-        if (jarPath == null) {
-            // for test
-            // cache = ClassLoader.getSystemClassLoader();
-        } else {
+        if (isStaticLoad) {
+            cache = ScannerLoader.getUdfClassLoader(signature);
+        }
+        if (cache == null) {
+            ClassLoader parent = getClass().getClassLoader();
+            classLoader = UdfUtils.getClassLoader(jarPath, parent);
+            ClassLoader loader = classLoader;
+            cache = new UdfClassCache();
+            cache.udfClass = Class.forName(className, true, loader);
+            cache.methodAccess = MethodAccess.get(cache.udfClass);
+            checkAndCacheUdfClass(className, cache, funcRetType, parameterTypes);
             if (isStaticLoad) {
-                cache = ScannerLoader.getUdfClassLoader(signature);
-            }
-            if (cache == null) {
-                ClassLoader parent = getClass().getClassLoader();
-                classLoader = UdfUtils.getClassLoader(jarPath, parent);
-                ClassLoader loader = classLoader;
-                cache = new UdfClassCache();
-                cache.udfClass = Class.forName(className, true, loader);
-                cache.methodAccess = MethodAccess.get(cache.udfClass);
-                checkAndCacheUdfClass(className, cache, funcRetType, parameterTypes);
-                if (isStaticLoad) {
-                    ScannerLoader.cacheClassLoader(signature, cache, expirationTime);
-                }
+                ScannerLoader.cacheClassLoader(signature, cache, expirationTime);
             }
         }
         return cache;
