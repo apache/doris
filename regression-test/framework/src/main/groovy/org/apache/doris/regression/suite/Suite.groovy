@@ -1789,6 +1789,86 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    def get_instance = { MetaService ms=null ->
+        def jsonOutput = new JsonOutput()
+
+        def get_instance_api = { check_func ->
+            httpTest {
+                op "get"
+                if (ms) {
+                    endpoint ms.host+':'+ms.httpPort
+                } else {
+                    endpoint context.config.metaServiceHttpAddress
+                }
+                uri "/MetaService/http/get_instance?token=${token}&instance_id=${instance_id}"
+                check check_func
+            }
+        }
+
+        def json
+        get_instance_api.call() {
+            respCode, body ->
+                log.info("get instance resp: ${body} ${respCode}".toString())
+                json = parseJson(body)
+                assertTrue(json.code.equalsIgnoreCase("OK"))
+        }
+        json.result
+    }
+
+
+    def drop_node = { unique_id, ip, bePort=0, fePort=0, nodeType,
+                        cluster_name, cluster_id, MetaService ms=null ->
+        def jsonOutput = new JsonOutput()
+        def type
+        if (fePort != 0) {
+            type = "SQL"
+        } else if (bePort != 0) {
+            type = "COMPUTE"
+        }
+        def clusterInfo = [
+                     type: type,
+                     cluster_name : cluster_name,
+                     cluster_id : cluster_id,
+                     nodes: [
+                         [
+                             cloud_unique_id: unique_id,
+                             ip: ip,
+                             node_type: nodeType
+                         ],
+                     ]
+                ]
+        if (bePort != 0) {
+            // drop be
+            clusterInfo['nodes'][0]['heartbeat_port'] = bePort
+        } else if (fePort != 0) {
+            // drop fe
+            clusterInfo['nodes'][0]['edit_log_port'] = fePort
+        }
+        def map = [instance_id: "${instance_id}", cluster: clusterInfo]
+        def js = jsonOutput.toJson(map)
+        log.info("drop node req: ${js} ".toString())
+
+        def drop_node_api = { request_body, check_func ->
+            httpTest {
+                if (ms) {
+                    endpoint ms.host+':'+ms.httpPort
+                } else {
+                    endpoint context.config.metaServiceHttpAddress
+                }
+                uri "/MetaService/http/drop_node?token=${token}"
+                body request_body
+                check check_func
+            }
+        }
+
+        drop_node_api.call(js) {
+            respCode, body ->
+                log.info("drop node resp: ${body} ${respCode}".toString())
+                def json = parseJson(body)
+                assertTrue(json.code.equalsIgnoreCase("OK"))
+        }
+    }
+
     def d_node = { be_unique_id, ip, port, cluster_name, cluster_id ->
         def jsonOutput = new JsonOutput()
         def clusterInfo = [

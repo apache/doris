@@ -380,6 +380,10 @@ class Node(object):
 
 class FE(Node):
 
+    def init(self):
+        super().init()
+        self.init_is_follower()
+
     def get_add_init_config(self):
         cfg = []
         if self.cluster.fe_config:
@@ -397,10 +401,20 @@ class FE(Node):
 
         return cfg
 
+    def init_is_follower(self):
+        if self.cluster.is_cloud and self.cluster.fe_follower:
+            with open(self._is_follower_path(), "w") as f:
+                f.write("true")
+
+    def _is_follower_path(self):
+        return "{}/conf/is_follower".format(self.get_path())
+
     def docker_env(self):
         envs = super().docker_env()
         if self.cluster.is_cloud:
             envs["CLOUD_UNIQUE_ID"] = self.cloud_unique_id()
+        if os.path.exists(self._is_follower_path()):
+            envs["IS_FE_FOLLOWER"] = 1
         return envs
 
     def cloud_unique_id(self):
@@ -613,8 +627,8 @@ class FDB(Node):
 class Cluster(object):
 
     def __init__(self, name, subnet, image, is_cloud, fe_config, be_config,
-                 ms_config, recycle_config, be_disks, be_cluster, reg_be,
-                 coverage_dir, cloud_store_config):
+                 ms_config, recycle_config, fe_follower, be_disks, be_cluster,
+                 reg_be, coverage_dir, cloud_store_config):
         self.name = name
         self.subnet = subnet
         self.image = image
@@ -623,6 +637,7 @@ class Cluster(object):
         self.be_config = be_config
         self.ms_config = ms_config
         self.recycle_config = recycle_config
+        self.fe_follower = fe_follower
         self.be_disks = be_disks
         self.be_cluster = be_cluster
         self.reg_be = reg_be
@@ -635,8 +650,8 @@ class Cluster(object):
 
     @staticmethod
     def new(name, image, is_cloud, fe_config, be_config, ms_config,
-            recycle_config, be_disks, be_cluster, reg_be, coverage_dir,
-            cloud_store_config):
+            recycle_config, fe_follower, be_disks, be_cluster, reg_be,
+            coverage_dir, cloud_store_config):
         if not os.path.exists(LOCAL_DORIS_PATH):
             os.makedirs(LOCAL_DORIS_PATH, exist_ok=True)
             os.chmod(LOCAL_DORIS_PATH, 0o777)
@@ -646,9 +661,9 @@ class Cluster(object):
                 os.chmod(lock_file, 0o666)
             subnet = gen_subnet_prefix16()
             cluster = Cluster(name, subnet, image, is_cloud, fe_config,
-                              be_config, ms_config, recycle_config, be_disks,
-                              be_cluster, reg_be, coverage_dir,
-                              cloud_store_config)
+                              be_config, ms_config, recycle_config,
+                              fe_follower, be_disks, be_cluster, reg_be,
+                              coverage_dir, cloud_store_config)
             os.makedirs(cluster.get_path(), exist_ok=True)
             os.makedirs(get_status_path(name), exist_ok=True)
             cluster._save_meta()
