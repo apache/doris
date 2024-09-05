@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -182,12 +181,15 @@ public class ReplacePredicate {
             if (!(input instanceof EqualTo)) {
                 continue;
             }
-            Set<Slot> leftInputSlots = input.getInputSlots();
-            Set<Slot> rightInputSlots = input.getInputSlots();
+            EqualTo equalTo = (EqualTo) input;
+            Set<Slot> leftInputSlots = equalTo.left().getInputSlots();
+            Set<Slot> rightInputSlots = equalTo.right().getInputSlots();
+            // not support a=1 b=1 -> a=b, because Sometimes there are cases where the predicates a=1 and a=2
+            // are not eliminated in time. After being pulled up, it is wrong to deduce a=b with b=1.
             if (leftInputSlots.isEmpty() || rightInputSlots.isEmpty()) {
                 continue;
             }
-            inferInferInfo((ComparisonPredicate) input)
+            getEqualPair((ComparisonPredicate) input)
                     .ifPresent(pair -> {
                         fromCastEqualSetBuilder.addEqualPair(pair.first, pair.second);
                     });
@@ -266,12 +268,7 @@ public class ReplacePredicate {
         }
     }
 
-    private static Optional<Pair<Expression, Expression>> inferInferInfo(ComparisonPredicate comparisonPredicate) {
-        // a=null b=null should not deduce a=b
-        if (comparisonPredicate.left().anyMatch(e -> e instanceof NullLiteral)
-                || comparisonPredicate.right().anyMatch(e -> e instanceof NullLiteral)) {
-            return Optional.empty();
-        }
+    private static Optional<Pair<Expression, Expression>> getEqualPair(ComparisonPredicate comparisonPredicate) {
         DataType leftType = comparisonPredicate.left().getDataType();
         InferType inferType;
         if (leftType instanceof CharacterType) {
