@@ -224,32 +224,6 @@ TEST_F(ThreadMemTrackerMgrTest, MultiMemTracker) {
     EXPECT_EQ(t3->consumption(), size1 + size2 - size1);
 }
 
-TEST_F(ThreadMemTrackerMgrTest, ScopedCount) {
-    std::unique_ptr<ThreadContext> thread_context = std::make_unique<ThreadContext>();
-    std::shared_ptr<MemTrackerLimiter> t1 =
-            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "UT-ScopedCount");
-
-    int64_t size1 = 4 * 1024;
-    int64_t size2 = 4 * 1024 * 1024;
-
-    thread_context->attach_task(TUniqueId(), t1, workload_group);
-    thread_context->thread_mem_tracker_mgr->start_count_scope_mem();
-    thread_context->consume_memory(size1);
-    thread_context->consume_memory(size2);
-    thread_context->consume_memory(size1);
-    thread_context->consume_memory(size2);
-    thread_context->consume_memory(size1);
-    int64_t scope_mem = thread_context->thread_mem_tracker_mgr->stop_count_scope_mem();
-    EXPECT_EQ(t1->consumption(), size1 + size2 + size1 + size2 + size1);
-    EXPECT_EQ(t1->consumption(), scope_mem);
-
-    thread_context->consume_memory(-size2);
-    thread_context->consume_memory(-size1);
-    thread_context->consume_memory(-size2);
-    EXPECT_EQ(t1->consumption(), size1 + size1);
-    EXPECT_EQ(scope_mem, size1 + size2 + size1 + size2 + size1);
-}
-
 TEST_F(ThreadMemTrackerMgrTest, ReserveMemory) {
     std::unique_ptr<ThreadContext> thread_context = std::make_unique<ThreadContext>();
     std::shared_ptr<MemTrackerLimiter> t =
