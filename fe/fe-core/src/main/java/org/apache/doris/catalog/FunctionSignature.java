@@ -30,7 +30,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.BiFunction;
 
 public class FunctionSignature {
     public final DataType returnType;
@@ -76,21 +75,6 @@ public class FunctionSignature {
 
     public FunctionSignature withArgumentTypes(boolean hasVarArgs, List<? extends DataType> argumentsTypes) {
         return new FunctionSignature(returnType, hasVarArgs, argumentsTypes);
-    }
-
-    /**
-     * change argument type by the signature's type and the corresponding argument's type
-     * @param arguments arguments
-     * @param transform param1: signature's type, param2: argument's type, return new type you want to change
-     * @return
-     */
-    public FunctionSignature withArgumentTypes(List<Expression> arguments,
-            BiFunction<DataType, Expression, DataType> transform) {
-        List<DataType> newTypes = Lists.newArrayList();
-        for (int i = 0; i < arguments.size(); i++) {
-            newTypes.add(transform.apply(getArgType(i), arguments.get(i)));
-        }
-        return withArgumentTypes(hasVarArgs, newTypes);
     }
 
     /**
@@ -143,6 +127,24 @@ public class FunctionSignature {
                 .add("argumentsTypes", argumentsTypes)
                 .add("arity", arity)
                 .toString();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        FunctionSignature signature = (FunctionSignature) o;
+        return hasVarArgs == signature.hasVarArgs && arity == signature.arity && Objects.equals(returnType,
+                signature.returnType) && Objects.equals(argumentsTypes, signature.argumentsTypes);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(returnType, hasVarArgs, argumentsTypes, arity);
     }
 
     public static class FuncSigBuilder {

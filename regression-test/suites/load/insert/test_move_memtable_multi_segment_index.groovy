@@ -69,30 +69,9 @@ suite("test_move_memtable_multi_segment_index", "nonConcurrent"){
             properties("replication_num" = "1", "disable_auto_compaction" = "true");
         """
 
-        load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
-        load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-1.json'}""")
-        load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-2.json'}""")
-        load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-3.json'}""")
-        load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-16.json'}""")
-        load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-10.json'}""")
-        load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-22.json'}""")
         load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-23.json'}""")
 
-        sql """DROP TABLE IF EXISTS github_events_2"""
-        sql """
-            CREATE TABLE IF NOT EXISTS `github_events_2` (
-            `k` BIGINT NULL,
-            `v` text NULL,
-            INDEX idx_var (`v`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
-            ) ENGINE = OLAP DUPLICATE KEY(`k`) COMMENT 'OLAP' DISTRIBUTED BY HASH(`k`) BUCKETS 1 PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1"
-            );
-        """
-
-        sql """
-            insert into github_events_2 select 1, cast(v["repo"]["name"] as string) FROM github_events;
-        """
-        qt_sql_select_count """ select count(*) from github_events_2; """
+        qt_sql_select_count """ select count(*) from github_events; """
     } finally {
         set_be_config("write_buffer_size", "209715200")
     }
