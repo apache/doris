@@ -162,6 +162,9 @@ Status LRUFileCache::initialize() {
                         _normal_queue.get_total_cache_size(cache_lock),
                         _normal_queue.get_elements_num(cache_lock), cost);
             });
+            if (_cache_background_load_thread.joinable()) {
+                _cache_background_load_thread.join();
+            }
         } else {
             std::error_code ec;
             fs::create_directories(_cache_base_path, ec);
@@ -178,6 +181,12 @@ Status LRUFileCache::initialize() {
     LOG(INFO) << fmt::format("After initialize file cache path={}, init cost(ms)={}",
                              _cache_base_path, cost);
     return Status::OK();
+}
+
+void LRUFileCache::wait_lazy_open() {
+    if (!_lazy_open_done && _cache_background_load_thread.joinable()) {
+        _cache_background_load_thread.join();
+    }
 }
 
 void LRUFileCache::use_cell(const FileBlockCell& cell, FileBlocks& result, bool move_iter_flag,
