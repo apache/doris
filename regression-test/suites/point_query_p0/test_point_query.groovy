@@ -265,6 +265,7 @@ suite("test_point_query") {
             DISTRIBUTED BY HASH(`RPTNO`) BUCKETS 3
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
+            "enable_unique_key_merge_on_write" = "true",
             "store_row_column" = "true"
             ); 
         """                
@@ -281,23 +282,24 @@ suite("test_point_query") {
             `col1` smallint NOT NULL,
             `col2` int NOT NULL,
             `loc3` char(10) NOT NULL,
-            `value` char(10) NOT NULL,
+            `value` char(100) NOT NULL,
             INDEX col3 (`loc3`) USING INVERTED,
             INDEX col2 (`col2`) USING INVERTED )
         ENGINE=OLAP UNIQUE KEY(`col1`, `col2`, `loc3`)
         DISTRIBUTED BY HASH(`col1`, `col2`, `loc3`) BUCKETS 1
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "bloom_filter_columns" = "col1", "store_row_column" = "true" );
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "bloom_filter_columns" = "col1", "store_row_column" = "true","enable_unique_key_merge_on_write" = "true");
     """
     sql "insert into table_3821461 values (-10, 20, 'aabc', 'value')"
     sql "insert into table_3821461 values (10, 20, 'aabc', 'value');"
     sql "insert into table_3821461 values (20, 30, 'aabc', 'value');"
+    sql "set enable_nereids_planner = false"
     explain {
-        sql("select * from table_3821461 where col1 = -10 and col2 = 20 and loc3 = 'aabc'")
+        sql("select /*+ SET_VAR(enable_nereids_planner=false) */  * from table_3821461 where col1 = -10 and col2 = 20 and loc3 = 'aabc'")
         contains "SHORT-CIRCUIT"
     } 
-    qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+    qt_sql "select  /*+ SET_VAR(enable_nereids_planner=false) */ * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
     sql "delete from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
-    qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+    qt_sql "select  /*+ SET_VAR(enable_nereids_planner=false) */ * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
     sql "update table_3821461 set value = 'update value' where col1 = -10 or col1 = 20;"
-    qt_sql """select * from table_3821461 where col1 = -10 and col2 = 20 and loc3 = 'aabc'"""
+    qt_sql """select  /*+ SET_VAR(enable_nereids_planner=false) */ * from table_3821461 where col1 = -10 and col2 = 20 and loc3 = 'aabc'"""
 } 
