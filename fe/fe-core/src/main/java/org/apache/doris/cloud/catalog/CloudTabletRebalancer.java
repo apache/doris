@@ -502,7 +502,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     Map<String, List<Long>> clusterToBackends =
                             ((CloudReplica) replica).getClusterToBackends();
                     if (!clusterToBackends.containsKey(cluster)) {
-                        long beId = ((CloudReplica) replica).hashReplicaToBe(cluster, true, true);
+                        long beId = ((CloudReplica) replica).hashReplicaToBe(cluster, true);
+                        ((CloudReplica) replica).updateClusterToBe(cluster, beId, true);
                         if (beId <= 0) {
                             assignedErrNum++;
                             continue;
@@ -729,7 +730,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
     private void updateClusterToBeMap(Tablet pickedTablet, long destBe, String clusterId,
                                       List<UpdateCloudReplicaInfo> infos) {
         CloudReplica cloudReplica = (CloudReplica) pickedTablet.getReplicas().get(0);
-        cloudReplica.updateClusterToBe(clusterId, destBe);
+        cloudReplica.updateClusterToBe(clusterId, destBe, true);
         Database db = Env.getCurrentInternalCatalog().getDbNullable(cloudReplica.getDbId());
         if (db == null) {
             return;
@@ -973,7 +974,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             String clusterId = be.getCloudClusterId();
             String clusterName = be.getCloudClusterName();
             // update replica location info
-            cloudReplica.updateClusterToBe(clusterId, dstBe);
+            cloudReplica.updateClusterToBe(clusterId, dstBe, true);
             LOG.info("cloud be migrate tablet {} from srcBe={} to dstBe={}, clusterId={}, clusterName={}",
                     tablet.getId(), srcBe, dstBe, clusterId, clusterName);
 

@@ -3033,9 +3033,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"存算分离模式下，当tablet分布的be异常，是否立即映射tablet到新的be上，默认true"})
     public static boolean enable_immediate_be_assign = true;
 
-    @ConfField(mutable = true, description = {"存算分离模式下，当tablet分布的be异常，临时映射(secondary) be的有效期，默认60s"})
-    public static int secondary_be_validity_seconds = 60;
-
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
