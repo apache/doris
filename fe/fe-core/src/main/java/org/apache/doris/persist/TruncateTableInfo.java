@@ -106,14 +106,14 @@ public class TruncateTableInfo implements Writable {
 
     @Override
     public String toString() {
-        return "TruncateTableInfo{" +
-                "dbId=" + dbId +
-                ", db='" + db + '\'' +
-                ", tblId=" + tblId +
-                ", table='" + table + '\'' +
-                ", isEntireTable=" + isEntireTable +
-                ", rawSql='" + rawSql + '\'' +
-                ", partitions_size=" + partitions.size() +
-                '}';
+        return "TruncateTableInfo{"
+                + "dbId=" + dbId
+                + ", db='" + db + '\''
+                + ", tblId=" + tblId
+                + ", table='" + table + '\''
+                + ", isEntireTable=" + isEntireTable
+                + ", rawSql='" + rawSql + '\''
+                + ", partitions_size=" + partitions.size()
+                + '}';
     }
 }
