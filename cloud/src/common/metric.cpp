@@ -229,7 +229,7 @@ static void export_fdb_status_details(const std::string& status_str) {
 }
 
 void FdbMetricExporter::export_fdb_metrics(TxnKv* txn_kv) {
-    int busyness = 0.0;
+    int busyness = 0;
     std::string fdb_status = get_fdb_status(txn_kv);
     export_fdb_status_details(fdb_status);
     if (auto* kv = dynamic_cast<FdbTxnKv*>(txn_kv); kv != nullptr) {
