@@ -41,6 +41,7 @@ import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.complex.MapVector;
 import org.apache.arrow.vector.complex.StructVector;
+import org.apache.arrow.vector.holders.NullableTimeStampNanoHolder;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.log4j.Logger;
 
@@ -252,7 +253,12 @@ public class MaxComputeColumnValue implements ColumnValue {
         if (timestampType.getUnit() ==  org.apache.arrow.vector.types.TimeUnit.MILLISECOND) {
             result = convertToLocalDateTime((TimeStampMilliTZVector) column, idx++);
         } else {
-            result = ((TimeStampNanoVector) column).getObject(idx++);
+            NullableTimeStampNanoHolder valueHoder = new NullableTimeStampNanoHolder();
+            ((TimeStampNanoVector) column).get(idx++, valueHoder);
+            long timestampNanos = valueHoder.value;
+
+            result = LocalDateTime.ofEpochSecond(timestampNanos / 1_000_000_000,
+                    (int) (timestampNanos % 1_000_000_000), java.time.ZoneOffset.UTC);
         }
 
         /*
