@@ -481,28 +481,25 @@ public:
     inline bool is_full_compaction_running() const { return _is_full_compaction_running; }
     void clear_cache() override;
 
-    bool is_cumu_compaction_score_obsolete() const { return _cumu_score_obsolete; }
-
-    bool is_base_compaction_score_obsolete() const { return _base_score_obsolete; }
-
-    void set_cumu_compaction_score_obsolete(int32_t compaction_score) {
-        _cumu_score_obsolete = compaction_score;
-    }
-
-    void set_base_compaction_score_obsolete(int32_t compaction_score) {
-        _base_score_obsolete = compaction_score;
-    }
-
-    int32_t get_cumu_compaction_score() const { return _cumu_compaction_score; }
+    int32_t get_cumu_compaction_score() const { return _cumu_compaction_score.load(std::memory_order_relaxed); }
 
     void set_cumu_compaction_score(int32_t compaction_score) {
-        _cumu_compaction_score = compaction_score;
+        _cumu_compaction_score.store(compaction_score, std::memory_order_relaxed);
     }
 
-    int32_t get_base_compaction_score() const { return _base_compaction_score; }
+    int32_t get_base_compaction_score() const { return _base_compaction_score.load(std::memory_order_relaxed); }
 
     void set_base_compaction_score(int32_t compaction_score) {
-        _base_compaction_score = compaction_score;
+        _base_compaction_score.store(compaction_score, std::memory_order_relaxed);
+    }
+
+    void add_cumu_score(int32_t score) {
+        int32_t curr_score = _cumu_compaction_score.load();
+        do {
+            if (curr_score < 0) {
+                break;
+            }
+        } while(!_cumu_compaction_score.compare_exchange_strong(curr_score, curr_score + score, std::memory_order_relaxed));
     }
 
 private:
@@ -632,10 +629,9 @@ private:
 
     std::atomic_bool _is_full_compaction_running = false;
 
-    int32_t _base_compaction_score = -1;
-    int32_t _cumu_compaction_score = -1;
-    bool _cumu_score_obsolete = true;
-    bool _base_score_obsolete = true;
+    std::atomic_int32_t _base_compaction_score = -1;
+    std::atomic_int32_t _cumu_compaction_score = -1;
+    int32_t _score_check_cnt = 0;
 };
 
 inline CumulativeCompactionPolicy* Tablet::cumulative_compaction_policy() {

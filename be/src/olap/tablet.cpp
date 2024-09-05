@@ -989,26 +989,14 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
 uint32_t Tablet::calc_compaction_score(
         CompactionType compaction_type,
         std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
-    if (cumulative_compaction_policy->name() == CUMULATIVE_SIZE_BASED_POLICY) {
+    if (_score_check_cnt++ % config::check_score_rounds_num != 0) {
         if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-            if (_cumu_compaction_score > 0) {
-                return _cumu_compaction_score;
+            if (_cumu_compaction_score.load(std::memory_order_relaxed) > 0) {
+                return _cumu_compaction_score.load(std::memory_order_relaxed);
             }
         } else {
-            if (_base_compaction_score > 0) {
-                return _base_compaction_score;
-            }
-        }
-    }
-
-    if (cumulative_compaction_policy->name() == CUMULATIVE_TIME_SERIES_POLICY) {
-        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-            if (!_cumu_score_obsolete) {
-                return _cumu_compaction_score;
-            }
-        } else {
-            if (!_base_score_obsolete) {
-                return _base_compaction_score;
+            if (_base_compaction_score.load(std::memory_order_relaxed) > 0) {
+                return _base_compaction_score.load(std::memory_order_relaxed);
             }
         }
     }
@@ -1017,15 +1005,26 @@ uint32_t Tablet::calc_compaction_score(
         // Need meta lock, because it will iterator "all_rs_metas" of tablet meta.
         std::shared_lock rdlock(_meta_lock);
         if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-            _cumu_compaction_score =
-                    _calc_cumulative_compaction_score(cumulative_compaction_policy);
-            _cumu_score_obsolete = false;
-            return _cumu_compaction_score;
+            int32_t score = _calc_cumulative_compaction_score(cumulative_compaction_policy);
+            int32_t cache_score = _cumu_compaction_score.load(std::memory_order_relaxed);
+            if (cache_score > 0 && cache_score != score) {
+                LOG(WARNING) << "cumu cache score not equal real score, cache score; " << cache_score
+                             << ", real score: " << score
+                             << ", tablet: " << tablet_id();
+            }
+            _cumu_compaction_score.store(score, std::memory_order_relaxed);
+            return score;
         } else {
             DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
-            _base_compaction_score = _calc_base_compaction_score();
-            _base_score_obsolete = false;
-            return _base_compaction_score;
+            int32_t score = _calc_base_compaction_score();
+            int32_t cache_score = _base_compaction_score.load(std::memory_order_relaxed);
+            if (cache_score > 0 && cache_score != score) {
+                LOG(WARNING) << "base cache score not equal real score, cache score; " << cache_score
+                             << ", real score: " << score
+                             << ", tablet: " << tablet_id();
+            }
+            _base_compaction_score.store(score, std::memory_order_relaxed);
+            return score;
         }
     }
 }

@@ -438,10 +438,7 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
 
     {
         int64_t score = rowset_ptr->rowset_meta()->get_compaction_score();
-        if (tablet->get_cumu_compaction_score() > 0) {
-            tablet->set_cumu_compaction_score(score + tablet->get_cumu_compaction_score());
-        }
-        tablet->set_cumu_compaction_score_obsolete(true);
+        tablet->add_cumu_score(score);
     }
 
     return Status::OK();
