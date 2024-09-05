@@ -352,16 +352,6 @@ Status PipelineTask::execute(bool* eos) {
         _block->clear_column_data(_root->row_desc().num_materialized_slots());
         auto* block = _block.get();
 
-        auto sink_revocable_mem_size = _sink->revocable_mem_size(_state);
-
-        bool is_wg_mem_low_water_mark = false;
-        bool is_wg_mem_high_water_mark = false;
-        if (should_revoke_memory(_state, sink_revocable_mem_size, is_wg_mem_low_water_mark,
-                                 is_wg_mem_high_water_mark)) {
-            RETURN_IF_ERROR(_sink->revoke_memory(_state));
-            continue;
-        }
-
         *eos = _eos;
         DBUG_EXECUTE_IF("fault_inject::PipelineXTask::executing", {
             Status status =
@@ -393,9 +383,7 @@ Status PipelineTask::execute(bool* eos) {
                                << ", try to reserve: " << reserve_size << "(sink reserve size:("
                                << sink_reserve_size << " )"
                                << ", sink name: " << _sink->get_name()
-                               << ", node id: " << _sink->node_id()
-                               << ", is_wg_mem_high_water_mark: " << is_wg_mem_high_water_mark
-                               << " failed: " << st.to_string()
+                               << ", node id: " << _sink->node_id() << " failed: " << st.to_string()
                                << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
                     {
                         _memory_sufficient_dependency->block();
@@ -444,63 +432,6 @@ Status PipelineTask::execute(bool* eos) {
 
     static_cast<void>(get_task_queue()->push_back(this));
     return Status::OK();
-}
-
-bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes,
-                                        bool& is_wg_mem_low_water_mark,
-                                        bool& is_wg_mem_high_water_mark) {
-    auto* query_ctx = state->get_query_ctx();
-    auto wg = query_ctx->workload_group();
-    if (!wg) {
-        LOG_ONCE(INFO) << "no workload group for query " << print_id(state->query_id());
-        return false;
-    }
-    const auto min_revocable_mem_bytes = state->min_revocable_mem();
-
-    if (UNLIKELY(state->enable_force_spill())) {
-        if (revocable_mem_bytes >= min_revocable_mem_bytes) {
-            LOG_ONCE(INFO) << "spill force, query: " << print_id(state->query_id());
-            return true;
-        }
-    }
-
-    wg->check_mem_used(&is_wg_mem_low_water_mark, &is_wg_mem_high_water_mark);
-    if (is_wg_mem_high_water_mark) {
-        if (revocable_mem_bytes > min_revocable_mem_bytes) {
-            VLOG_DEBUG << "query " << print_id(state->query_id())
-                       << " revoke memory, hight water mark";
-            return true;
-        }
-        return false;
-    } else if (is_wg_mem_low_water_mark) {
-        int64_t spill_threshold = query_ctx->spill_threshold();
-        int64_t memory_usage = query_ctx->query_mem_tracker->consumption();
-        if (spill_threshold == 0 || memory_usage < spill_threshold) {
-            return false;
-        }
-        auto big_memory_operator_num = query_ctx->get_running_big_mem_op_num();
-        DCHECK(big_memory_operator_num >= 0);
-        int64_t mem_limit_of_op;
-        if (0 == big_memory_operator_num) {
-            return false;
-        } else {
-            mem_limit_of_op = spill_threshold / big_memory_operator_num;
-        }
-
-        LOG_EVERY_T(INFO, 1) << "query " << print_id(state->query_id())
-                             << " revoke memory, low water mark, revocable_mem_bytes: "
-                             << PrettyPrinter::print_bytes(revocable_mem_bytes)
-                             << ", mem_limit_of_op: " << PrettyPrinter::print_bytes(mem_limit_of_op)
-                             << ", min_revocable_mem_bytes: "
-                             << PrettyPrinter::print_bytes(min_revocable_mem_bytes)
-                             << ", memory_usage: " << PrettyPrinter::print_bytes(memory_usage)
-                             << ", spill_threshold: " << PrettyPrinter::print_bytes(spill_threshold)
-                             << ", big_memory_operator_num: " << big_memory_operator_num;
-        return (revocable_mem_bytes > mem_limit_of_op ||
-                revocable_mem_bytes > min_revocable_mem_bytes);
-    } else {
-        return false;
-    }
 }
 
 void PipelineTask::finalize() {
