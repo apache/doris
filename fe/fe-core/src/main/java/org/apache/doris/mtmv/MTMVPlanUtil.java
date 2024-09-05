@@ -98,38 +98,37 @@ public class MTMVPlanUtil {
     public static MTMVRelation generateMTMVRelation(MTMV mtmv, ConnectContext ctx) {
         // Should not make table without data to empty relation when analyze the related table,
         // so add disable rules
-        SessionVariable sessionVariable = ctx.getSessionVariable();
-        Set<String> tempDisableRules = sessionVariable.getDisableNereidsRuleNames();
-        sessionVariable.setDisableNereidsRules(CreateMTMVInfo.MTMV_PLANER_DISABLE_RULES);
-        if (ctx.getStatementContext() != null) {
-            ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
-        }
-        Plan plan;
-        try {
-            plan = getPlanBySql(mtmv.getQuerySql(), ctx);
-        } finally {
-            sessionVariable.setDisableNereidsRules(String.join(",", tempDisableRules));
-            ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
-        }
+        Plan plan = getPlanBySql(mtmv.getQuerySql(), ctx, ExplainLevel.ANALYZED_PLAN,
+                CreateMTMVInfo.MTMV_PLANER_DISABLE_RULES);
         return generateMTMVRelation(plan);
     }
 
     public static MTMVRelation generateMTMVRelation(Plan plan) {
-        return new MTMVRelation(getBaseTables(plan, true), getBaseTables(plan, false), getBaseViews(plan));
+        return new MTMVRelation(getBaseTables(plan, true, true),
+                getBaseTables(plan, false, true),
+                getBaseViews(plan, true, true));
     }
 
-    private static Set<BaseTableInfo> getBaseTables(Plan plan, boolean expand) {
+    private static Set<BaseTableInfo> getBaseTables(Plan plan, boolean expandMaterializedView,
+            boolean expandView) {
         TableCollectorContext collectorContext =
                 new TableCollector.TableCollectorContext(
                         com.google.common.collect.Sets
-                                .newHashSet(TableType.values()), expand);
+                                .newHashSet(TableType.values()), expandMaterializedView, expandView);
         plan.accept(TableCollector.INSTANCE, collectorContext);
         Set<TableIf> collectedTables = collectorContext.getCollectedTables();
         return transferTableIfToInfo(collectedTables);
     }
 
-    private static Set<BaseTableInfo> getBaseViews(Plan plan) {
-        return Sets.newHashSet();
+    private static Set<BaseTableInfo> getBaseViews(Plan plan, boolean expandMaterializedView,
+            boolean expandView) {
+        TableCollectorContext collectorContext =
+                new TableCollector.TableCollectorContext(
+                        com.google.common.collect.Sets
+                                .newHashSet(TableType.VIEW), expandMaterializedView, expandView);
+        plan.accept(TableCollector.INSTANCE, collectorContext);
+        Set<TableIf> collectedTables = collectorContext.getCollectedTables();
+        return transferTableIfToInfo(collectedTables);
     }
 
     private static Set<BaseTableInfo> transferTableIfToInfo(Set<TableIf> tables) {
@@ -140,7 +139,8 @@ public class MTMVPlanUtil {
         return result;
     }
 
-    private static Plan getPlanBySql(String querySql, ConnectContext ctx) {
+    private static Plan getPlanBySql(String querySql, ConnectContext ctx,
+            ExplainLevel explainLevel, String disableRules) {
         List<StatementBase> statements;
         try {
             statements = new NereidsParser().parseSQL(querySql);
@@ -151,11 +151,19 @@ public class MTMVPlanUtil {
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         StatementContext original = ctx.getStatementContext();
         ctx.setStatementContext(new StatementContext());
+
+        Set<String> tempDisableRules = ctx.getSessionVariable().getDisableNereidsRuleNames();
+        ctx.getSessionVariable().setDisableNereidsRules(disableRules);
+        if (ctx.getStatementContext() != null) {
+            ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+        }
         try {
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-            return planner.planWithLock(logicalPlan, PhysicalProperties.ANY, ExplainLevel.NONE);
+            return planner.planWithLock(logicalPlan, PhysicalProperties.ANY, explainLevel);
         } finally {
             ctx.setStatementContext(original);
+            ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
+            ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         }
     }
 }
