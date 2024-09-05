@@ -200,6 +200,12 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
+        DBUG_EXECUTE_IF("array_contains.skip_expr", {
+            if (input_rows_count > 0) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "array_contains.skip_expr is enabled, but here has input_rows_count {}");
+            }
+        });
         return _execute_dispatch(block, arguments, result, input_rows_count);
     }
 
