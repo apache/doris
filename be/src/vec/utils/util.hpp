@@ -176,7 +176,7 @@ inline ColumnPtr create_always_true_column(size_t size, bool is_nullable) {
     auto res_data_column = ColumnUInt8::create(1, 1);
     if (is_nullable) {
         auto null_map = ColumnVector<UInt8>::create(1, 0);
-        return ColumnNullable::create(std::move(res_data_column), std::move(null_map));
+        res_data_column = ColumnNullable::create(std::move(res_data_column), std::move(null_map));
     }
     return ColumnConst::create(std::move(res_data_column), size);
 }
