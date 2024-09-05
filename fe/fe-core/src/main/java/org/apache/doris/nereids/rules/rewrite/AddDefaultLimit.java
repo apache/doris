@@ -36,10 +36,6 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        if (jobContext.getCascadesContext().getStatementContext().isRboForMaterializedViewRewrite()) {
-            // If RBO in materialized view rewrite, should not add default limit
-            return plan;
-        }
         return plan.accept(this, jobContext.getCascadesContext().getStatementContext());
     }
 

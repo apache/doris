@@ -169,10 +169,6 @@ public class StatementContext implements Closeable {
 
     private List<PlannerHook> plannerHooks = new ArrayList<>();
 
-    // Identify now is RBO during materialized view rewrite or not, such as in rewrite, we should not
-    // add default limit
-    private boolean rboForMaterializedViewRewrite = false;
-
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -430,14 +426,6 @@ public class StatementContext implements Closeable {
     @VisibleForTesting
     public Map<RelationId, Statistics> getRelationIdToStatisticsMap() {
         return relationIdToStatisticsMap;
-    }
-
-    public boolean isRboForMaterializedViewRewrite() {
-        return rboForMaterializedViewRewrite;
-    }
-
-    public void setRboForMaterializedViewRewrite(boolean rboForMaterializedViewRewrite) {
-        this.rboForMaterializedViewRewrite = rboForMaterializedViewRewrite;
     }
 
     /** addTableReadLock */
