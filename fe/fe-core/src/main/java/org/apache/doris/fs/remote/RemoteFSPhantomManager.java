@@ -94,7 +94,6 @@ public class RemoteFSPhantomManager {
                     CustomThreadFactory threadFactory = new CustomThreadFactory("remote-fs-phantom-cleanup");
                     cleanupExecutor = Executors.newScheduledThreadPool(1, threadFactory);
                     cleanupExecutor.scheduleAtFixedRate(() -> {
-                        System.gc();
                         Reference<? extends RemoteFileSystem> ref;
                         while ((ref = referenceQueue.poll()) != null) {
                             RemoteFileSystemPhantomReference phantomRef = (RemoteFileSystemPhantomReference) ref;
@@ -109,7 +108,7 @@ public class RemoteFSPhantomManager {
                                 }
                             }
                         }
-                    }, 0, 1, TimeUnit.SECONDS);
+                    }, 0, 1, TimeUnit.MINUTES);
                 }
             }
         }

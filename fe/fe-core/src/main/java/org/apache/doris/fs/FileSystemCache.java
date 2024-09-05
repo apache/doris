@@ -18,13 +18,12 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.common.CacheFactory;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -32,24 +31,21 @@ import java.util.Objects;
 import java.util.OptionalLong;
 
 public class FileSystemCache {
-    private static final Logger LOG = LogManager.getLogger(FileSystemCache.class);
+
     private final LoadingCache<FileSystemCacheKey, RemoteFileSystem> fileSystemCache;
 
     public FileSystemCache() {
         // no need to set refreshAfterWrite, because the FileSystem is created once and never changed
         CacheFactory fsCacheFactory = new CacheFactory(
-                //fixme just for test
-                OptionalLong.of(1L),
+                OptionalLong.of(86400L),
                 OptionalLong.empty(),
-                1L,
+                Config.max_remote_file_system_cache_num,
                 false,
                 null);
         fileSystemCache = fsCacheFactory.buildCache(this::loadFileSystem);
     }
 
     private RemoteFileSystem loadFileSystem(FileSystemCacheKey key) {
-        //fixme test
-        LOG.info("Create new file system: {}", key.getFsProperties());
         return FileSystemFactory.getRemoteFileSystem(key.type, key.getFsProperties(), key.bindBrokerName);
     }
 
