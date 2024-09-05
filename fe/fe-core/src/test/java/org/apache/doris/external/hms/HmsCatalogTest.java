@@ -339,7 +339,6 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         SessionVariable sv = connectContext.getSessionVariable();
         Assertions.assertNotNull(sv);
         sv.setEnableNereidsPlanner(true);
-        sv.enableFallbackToOriginalPlanner = false;
 
         createDbAndTableForHmsCatalog((HMSExternalCatalog) env.getCatalogMgr().getCatalog(HMS_CATALOG));
         queryViews(false);
