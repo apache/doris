@@ -180,17 +180,15 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
     return block;
 }
 
-bool ScannerContext::return_free_block(vectorized::BlockUPtr block) {
+void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
     if (block->mem_reuse() && _block_memory_usage < _max_bytes_in_queue) {
         size_t block_size_to_reuse = block->allocated_bytes();
         _block_memory_usage += block_size_to_reuse;
         block->clear_column_data();
         if (_free_blocks.enqueue(std::move(block))) {
             update_peak_memory_usage(block_size_to_reuse);
-            return true;
         }
     }
-    return false;
 }
 
 bool ScannerContext::empty_in_queue(int id) {
