@@ -1503,35 +1503,36 @@ LGPL -- licenes/LICENSE-LGPL.txt
     * gsasl: 1.10.0/1.8.0
 
 Other dependencies:
-    * libevent: 2.1.12 -- license/LICENSE-libevent.txt
-    * openssl: 1.1.1s -- license/LICENSE-openssl.txt
-    * gflag: 2.2.2 -- license/LICENSE-gflag.txt
-    * glog: 0.4.0 -- license/LICENSE-glog.txt
-    * gtest: 1.11.0 -- license/LICENSE-gtest.txt
-    * snappy: 1.1.8 -- license/LICENSE-snappy.txt
-    * gperftools: 2.9.1 -- license/LICENSE-gperftools.txt
-    * zlib: 1.2.11 -- license/LICENSE-zlib.txt
-    * lz4: 1.9.3 -- license/LICENSE-lz4.txt
-    * bzip2: 1.0.8 -- license/LICENSE-bzip2.txt
-    * rapidjson@1a803826 -- license/LICENSE-rapidjson.txt
-    * curl: 7.79.0 -- license/LICENSE-curl.txt
-    * re2: 2021-02-02 -- license/LICENSE-re2.txt
-    * hyperscan: 5.4.0 -- license/LICENSE-hyperscan.txt
-    * vectorscan: 5.4.7 -- license/LICENSE-vectorscan.txt
-    * boost: 1.73.0 -- license/LICENSE-boost.txt
-    * unixodbc: 2.3.7 -- license/LICENSE-unixodbc.txt
-    * leveldb: 1.23 -- license/LICENSE-leveldb.txt
-    * cyrus-sasl: 2.1.27 -- license/LICENSE-cyrus-sasl.txt
-    * librdkafka: 1.8.2 -- license/LICENSE-librdkafka.txt
-    * zstd: 1.5.2 -- license/LICENSE-zstd.txt
-    * brotli: 1.0.9 -- license/LICENSE-brotli.txt
-    * bitshuffle: 0.5.1 -- license/LICENSE-bigshuffle.txt
-    * fmt: 7.1.3 -- license/LICENSE-fmt.txt
-    * jemalloc: 5.3.0 -- license/LICENSE-jemolloc.txt
-    * lzma@master -- license/LICENSE-lzma.txt
-    * libdivide: 5.0 -- license/LICENSE-libdivide.txt
-    * pdqsort: 0.0.0+git20180419 -- license/LICENSE-pdqsort.txt
-    * breakpad@38ee0be -- license/LICENSE-breakpod.txt
-    * xsimd: xmid@e9234cd6  -- license/LICENSE-xsimd.txt
-    * xxhash: 0.8.1  -- license/LICENSE-xxhash.txt
-    * concurrentqueue: 1.0.3  -- license/LICENSE-concurrentqueue.txt
+    * libevent: 2.1.12 -- licenses/LICENSE-libevent.txt
+    * openssl: 1.1.1s -- licenses/LICENSE-openssl.txt
+    * gflag: 2.2.2 -- licenses/LICENSE-gflag.txt
+    * glog: 0.4.0 -- licenses/LICENSE-glog.txt
+    * gtest: 1.11.0 -- licenses/LICENSE-gtest.txt
+    * snappy: 1.1.8 -- licenses/LICENSE-snappy.txt
+    * gperftools: 2.9.1 -- licenses/LICENSE-gperftools.txt
+    * zlib: 1.2.11 -- licenses/LICENSE-zlib.txt
+    * lz4: 1.9.3 -- licenses/LICENSE-lz4.txt
+    * bzip2: 1.0.8 -- licenses/LICENSE-bzip2.txt
+    * rapidjson@1a803826 -- licenses/LICENSE-rapidjson.txt
+    * curl: 7.79.0 -- licenses/LICENSE-curl.txt
+    * re2: 2021-02-02 -- licenses/LICENSE-re2.txt
+    * hyperscan: 5.4.0 -- licenses/LICENSE-hyperscan.txt
+    * vectorscan: 5.4.7 -- licenses/LICENSE-vectorscan.txt
+    * boost: 1.73.0 -- licenses/LICENSE-boost.txt
+    * unixodbc: 2.3.7 -- licenses/LICENSE-unixodbc.txt
+    * leveldb: 1.23 -- licenses/LICENSE-leveldb.txt
+    * cyrus-sasl: 2.1.27 -- licenses/LICENSE-cyrus-sasl.txt
+    * librdkafka: 1.8.2 -- licenses/LICENSE-librdkafka.txt
+    * zstd: 1.5.2 -- licenses/LICENSE-zstd.txt
+    * brotli: 1.0.9 -- licenses/LICENSE-brotli.txt
+    * bitshuffle: 0.5.1 -- licenses/LICENSE-bigshuffle.txt
+    * fmt: 7.1.3 -- licenses/LICENSE-fmt.txt
+    * jemalloc: 5.3.0 -- licenses/LICENSE-jemolloc.txt
+    * lzma@master -- licenses/LICENSE-lzma.txt
+    * libdivide: 5.0 -- licenses/LICENSE-libdivide.txt
+    * pdqsort: 0.0.0+git20180419 -- licenses/LICENSE-pdqsort.txt
+    * breakpad@38ee0be -- licenses/LICENSE-breakpod.txt
+    * xsimd: xmid@e9234cd6  -- licenses/LICENSE-xsimd.txt
+    * xxhash: 0.8.1  -- licenses/LICENSE-xxhash.txt
+    * concurrentqueue: 1.0.3  -- licenses/LICENSE-concurrentqueue.txt
+    * FlameGraph -- licenses/LICENSE-CDDL-1.0.txt
