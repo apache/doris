@@ -20,10 +20,12 @@ package org.apache.doris.nereids.trees.plans.visitor;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.View;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 import org.apache.doris.qe.ConnectContext;
@@ -69,8 +71,20 @@ public class TableCollector extends DefaultPlanVisitor<Plan, TableCollectorConte
         return catalogRelation;
     }
 
+    @Override
+    public Plan visitLogicalView(LogicalView<? extends Plan> logicalView, TableCollectorContext context) {
+        View view = logicalView.getView();
+        if (context.getTargetTableTypes().isEmpty() || context.getTargetTableTypes().contains(view.getType())) {
+            context.getCollectedTables().add(view);
+        }
+        if (context.isExpandView()) {
+            return super.visit(logicalView, context);
+        }
+        return logicalView;
+    }
+
     private void expandMvAndCollect(MTMV mtmv, TableCollectorContext context) {
-        if (!context.isExpand()) {
+        if (!context.isExpandMaterializedView()) {
             return;
         }
         // Make sure use only one connection context when in query to avoid ConnectionContext.get() wrong
@@ -87,12 +101,15 @@ public class TableCollector extends DefaultPlanVisitor<Plan, TableCollectorConte
         private final Set<TableIf> collectedTables = new HashSet<>();
         private final Set<TableType> targetTableTypes;
         // if expand the mv or not
-        private final boolean expand;
+        private final boolean expandMaterializedView;
+        private final boolean expandView;
         private ConnectContext connectContext;
 
-        public TableCollectorContext(Set<TableType> targetTableTypes, boolean expand) {
+        public TableCollectorContext(Set<TableType> targetTableTypes, boolean expandMaterializedView,
+                boolean expandView) {
             this.targetTableTypes = targetTableTypes;
-            this.expand = expand;
+            this.expandMaterializedView = expandMaterializedView;
+            this.expandView = expandView;
         }
 
         public Set<TableIf> getCollectedTables() {
@@ -103,8 +120,8 @@ public class TableCollector extends DefaultPlanVisitor<Plan, TableCollectorConte
             return targetTableTypes;
         }
 
-        public boolean isExpand() {
-            return expand;
+        public boolean isExpandMaterializedView() {
+            return expandMaterializedView;
         }
 
         public ConnectContext getConnectContext() {
@@ -113,6 +130,10 @@ public class TableCollector extends DefaultPlanVisitor<Plan, TableCollectorConte
 
         public void setConnectContext(ConnectContext connectContext) {
             this.connectContext = connectContext;
+        }
+
+        public boolean isExpandView() {
+            return expandView;
         }
     }
 }
