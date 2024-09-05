@@ -630,7 +630,7 @@ class Config {
             } else if (config.s3Source == "huawei") {
                 s3Provider = "OBS"
             } else if (config.s3Source == "azure") {
-                s3Provider = "AZURE"
+                s3Provider = "Azure" // case insensitive test
             } else if (config.s3Source == "gcp") {
                 s3Provider = "GCP"
             }
