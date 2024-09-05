@@ -50,7 +50,16 @@ public class AesEncrypt extends AesCryptoFunction {
                             VarcharType.SYSTEM_DEFAULT,
                             VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(StringType.INSTANCE)
-                    .args(StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE)
+                    .args(StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                    .args(VarcharType.SYSTEM_DEFAULT,
+                            VarcharType.SYSTEM_DEFAULT,
+                            VarcharType.SYSTEM_DEFAULT,
+                            VarcharType.SYSTEM_DEFAULT,
+                            VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(StringType.INSTANCE)
+                    .args(StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE,
+                            StringType.INSTANCE)
     );
 
     /**
@@ -68,18 +77,25 @@ public class AesEncrypt extends AesCryptoFunction {
         super("aes_encrypt", arg0, arg1, arg2, arg3);
     }
 
+    public AesEncrypt(Expression arg0, Expression arg1, Expression arg2, Expression arg3, Expression arg4) {
+        super("aes_encrypt", arg0, arg1, arg2, arg3, arg4);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public AesEncrypt withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 2 && children.size() <= 4);
+        Preconditions.checkArgument(children.size() >= 2 && children.size() <= 5);
         if (children.size() == 2) {
             return new AesEncrypt(children.get(0), children.get(1));
         } else if (children().size() == 3) {
             return new AesEncrypt(children.get(0), children.get(1), children.get(2));
-        } else {
+        } else if (children().size() == 4) {
             return new AesEncrypt(children.get(0), children.get(1), children.get(2), children.get(3));
+        } else {
+            return new AesEncrypt(children.get(0), children.get(1), children.get(2), children.get(3),
+                    children.get(4));
         }
     }
 
