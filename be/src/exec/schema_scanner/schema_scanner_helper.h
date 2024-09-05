@@ -15,43 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#ifndef _SCHEMA_SCANNER_HELPER_H_
 
-#include <gen_cpp/FrontendService_types.h>
+#include <stdint.h>
 
+#include <string>
 #include <vector>
 
-#include "common/status.h"
-#include "exec/schema_scanner.h"
-
+// this is a util class which can be used by all shema scanner
+// all common functions are added in this class.
 namespace doris {
-class RuntimeState;
+
 namespace vectorized {
 class Block;
 } // namespace vectorized
-
-class SchemaPartitionsScanner : public SchemaScanner {
-    ENABLE_FACTORY_CREATOR(SchemaPartitionsScanner);
-
+class SchemaScannerHelper {
 public:
-    SchemaPartitionsScanner();
-    ~SchemaPartitionsScanner() override;
+    static void insert_string_value(int col_index, std::string str_val, vectorized::Block* block);
+    static void insert_datetime_value(int col_index, const std::vector<void*>& datas,
+                                      vectorized::Block* block);
 
-    Status start(RuntimeState* state) override;
-    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
-
-    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
-
-private:
-    Status get_onedb_info_from_fe(int64_t dbId);
-    bool check_and_mark_eos(bool* eos) const;
-    int _block_rows_limit = 4096;
-    int _db_index = 0;
-    TGetDbsResult _db_result;
-    int _row_idx = 0;
-    int _total_rows = 0;
-    std::unique_ptr<vectorized::Block> _partitions_block = nullptr;
-    int _rpc_timeout_ms = 3000;
+    static void insert_int_value(int col_index, int64_t int_val, vectorized::Block* block);
 };
 
 } // namespace doris
+#endif
