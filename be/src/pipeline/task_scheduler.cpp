@@ -58,6 +58,9 @@ TaskScheduler::~TaskScheduler() {
 
 Status TaskScheduler::start() {
     int cores = _task_queue->cores();
+    // Init the thread pool with cores+1 thread
+    // some for pipeline task running
+    // 1 for spill disk query handler
     RETURN_IF_ERROR(ThreadPoolBuilder(_name)
                             .set_min_threads(cores + 1)
                             .set_max_threads(cores + 1)
@@ -282,7 +285,8 @@ void TaskScheduler::_paused_queries_handler() {
                         continue;
                     }
 
-                    query_ctx->get_revocable_info(revocable_size, memory_usage, has_running_task);
+                    query_ctx->get_revocable_info(&revocable_size, &memory_usage,
+                                                  &has_running_task);
                     if (has_running_task) {
                         has_running_query = true;
                         running_query = query_ctx;
