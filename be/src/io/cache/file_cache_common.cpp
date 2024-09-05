@@ -35,13 +35,13 @@ std::string FileCacheSettings::to_string() const {
        << ", index_queue_size: " << index_queue_size
        << ", index_queue_elements: " << index_queue_elements
        << ", query_queue_size: " << query_queue_size
-       << ", query_queue_elements: " << query_queue_elements;
+       << ", query_queue_elements: " << query_queue_elements << ", storage: " << storage;
     return ss.str();
 }
 
 FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cache_size,
                                           size_t normal_percent, size_t disposable_percent,
-                                          size_t index_percent) {
+                                          size_t index_percent, const std::string& storage) {
     io::FileCacheSettings settings;
     if (capacity == 0) return settings;
     settings.capacity = capacity;
@@ -63,6 +63,7 @@ FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cach
     settings.query_queue_elements =
             std::max(settings.query_queue_size / settings.max_file_block_size,
                      REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
+    settings.storage = storage;
     return settings;
 }
 

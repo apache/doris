@@ -68,8 +68,6 @@ public:
     /// Cache capacity in bytes.
     [[nodiscard]] size_t capacity() const { return _capacity; }
 
-    bool is_in_memory() const { return _is_in_memory; }
-
     // try to release all releasable block
     // it maybe hang the io/system
     size_t try_release();

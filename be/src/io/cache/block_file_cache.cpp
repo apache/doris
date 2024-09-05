@@ -51,8 +51,6 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
           _capacity(cache_settings.capacity),
           _max_file_block_size(cache_settings.max_file_block_size),
           _max_query_cache_size(cache_settings.max_query_cache_size) {
-    _is_in_memory = cache_base_path == "memory";
-
     _cur_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(_cache_base_path.c_str(),
                                                                      "file_cache_cache_size", 0);
     _cur_ttl_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(
@@ -93,6 +91,13 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                              24 * 60 * 60);
     _ttl_queue = LRUQueue(std::numeric_limits<int>::max(), std::numeric_limits<int>::max(),
                           std::numeric_limits<int>::max());
+
+    if (cache_settings.storage == "memory") {
+        _storage = std::make_unique<MemFileCacheStorage>();
+        _cache_base_path = "memory";
+    } else {
+        _storage = std::make_unique<FSFileCacheStorage>();
+    }
 
     LOG(INFO) << "file cache path= " << _cache_base_path << cache_settings.to_string();
 }
@@ -202,11 +207,6 @@ Status BlockFileCache::initialize() {
 Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lock) {
     DCHECK(!_is_initialized);
     _is_initialized = true;
-    if (is_in_memory()) {
-        _storage = std::make_unique<MemFileCacheStorage>();
-    } else {
-        _storage = std::make_unique<FSFileCacheStorage>();
-    }
     RETURN_IF_ERROR(_storage->init(this));
     _cache_background_thread = std::thread(&BlockFileCache::run_background_operation, this);
 
@@ -1512,6 +1512,9 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
 }
 
 void BlockFileCache::check_disk_resource_limit() {
+    if (_cache_base_path == "memory") {
+        return; // if storage is memory, skip the check
+    }
     if (_capacity > _cur_cache_size) {
         _disk_resource_limit_mode = false;
     }
