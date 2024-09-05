@@ -64,9 +64,6 @@ public:
     // Must be fast enough! Thread update_tracker may be called very frequently.
     bool push_consumer_tracker(MemTracker* mem_tracker);
     void pop_consumer_tracker();
-    MemTracker* last_consumer_tracker() {
-        return _consumer_tracker_stack.empty() ? nullptr : _consumer_tracker_stack.back();
-    }
     std::string last_consumer_tracker_label() {
         return _consumer_tracker_stack.empty() ? "" : _consumer_tracker_stack.back()->label();
     }
@@ -100,10 +97,6 @@ public:
         CHECK(init());
         return _limiter_tracker;
     }
-    MemTrackerLimiter* limiter_mem_tracker_raw() {
-        CHECK(init());
-        return _limiter_tracker_raw;
-    }
 
     void enable_wait_gc() { _wait_gc = true; }
     void disable_wait_gc() { _wait_gc = false; }
@@ -118,7 +111,7 @@ public:
         return fmt::format(
                 "ThreadMemTrackerMgr debug, _untracked_mem:{}, "
                 "_limiter_tracker:<{}>, _consumer_tracker_stack:<{}>",
-                std::to_string(_untracked_mem), _limiter_tracker_raw->log_usage(),
+                std::to_string(_untracked_mem), _limiter_tracker->log_usage(),
                 fmt::to_string(consumer_tracker_buf));
     }
 
@@ -143,7 +136,6 @@ private:
     bool _wait_gc = false;
 
     std::shared_ptr<MemTrackerLimiter> _limiter_tracker;
-    MemTrackerLimiter* _limiter_tracker_raw = nullptr;
     std::vector<MemTracker*> _consumer_tracker_stack;
     std::weak_ptr<WorkloadGroup> _wg_wptr;
 
@@ -159,7 +151,6 @@ inline bool ThreadMemTrackerMgr::init() {
     if (_init) return true;
     if (ExecEnv::GetInstance()->orphan_mem_tracker() != nullptr) {
         _limiter_tracker = ExecEnv::GetInstance()->orphan_mem_tracker();
-        _limiter_tracker_raw = ExecEnv::GetInstance()->orphan_mem_tracker_raw();
         _wait_gc = true;
         _init = true;
         return true;
@@ -271,26 +262,26 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
         return;
     }
     _stop_consume = true;
-    DCHECK(_limiter_tracker_raw);
+    DCHECK(_limiter_tracker);
 
     _old_untracked_mem = _untracked_mem;
-    _limiter_tracker_raw->consume(_old_untracked_mem);
+    _limiter_tracker->consume(_old_untracked_mem);
     _untracked_mem -= _old_untracked_mem;
     _stop_consume = false;
 }
 
 inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
-    DCHECK(_limiter_tracker_raw);
+    DCHECK(_limiter_tracker);
     DCHECK(size >= 0);
     CHECK(init());
     // if _reserved_mem not equal to 0, repeat reserve,
     // _untracked_mem store bytes that not synchronized to process reserved memory.
     flush_untracked_mem();
-    if (!_limiter_tracker_raw->try_consume(size)) {
+    if (!_limiter_tracker->try_consume(size)) {
         auto err_msg = fmt::format(
                 "reserve memory failed, size: {}, because memory tracker consumption: {}, limit: "
                 "{}",
-                size, _limiter_tracker_raw->consumption(), _limiter_tracker_raw->limit());
+                size, _limiter_tracker->consumption(), _limiter_tracker->limit());
         return doris::Status::MemoryLimitExceeded(err_msg);
     }
     auto wg_ptr = _wg_wptr.lock();
@@ -298,14 +289,14 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
         if (!wg_ptr->add_wg_refresh_interval_memory_growth(size)) {
             auto err_msg = fmt::format("reserve memory failed, size: {}, because {}", size,
                                        wg_ptr->memory_debug_string());
-            _limiter_tracker_raw->release(size); // rollback
+            _limiter_tracker->release(size); // rollback
             return doris::Status::MemoryLimitExceeded(err_msg);
         }
     }
     if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
         auto err_msg = fmt::format("reserve memory failed, size: {}, because {}", size,
                                    GlobalMemoryArbitrator::process_mem_log_str());
-        _limiter_tracker_raw->release(size); // rollback
+        _limiter_tracker->release(size); // rollback
         if (wg_ptr) {
             wg_ptr->sub_wg_refresh_interval_memory_growth(size); // rollback
         }
@@ -319,7 +310,7 @@ inline void ThreadMemTrackerMgr::release_reserved() {
     if (_reserved_mem != 0) {
         doris::GlobalMemoryArbitrator::release_process_reserved_memory(_reserved_mem +
                                                                        _untracked_mem);
-        _limiter_tracker_raw->release(_reserved_mem);
+        _limiter_tracker->release(_reserved_mem);
         auto wg_ptr = _wg_wptr.lock();
         if (wg_ptr) {
             wg_ptr->sub_wg_refresh_interval_memory_growth(_reserved_mem);
