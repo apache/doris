@@ -62,7 +62,7 @@ TEST(AggBitmapTest, bitmap_union_test) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_bitmap(factory);
     DataTypes data_types = {data_type};
-    auto agg_function = factory.get(function_name, data_types);
+    auto agg_function = factory.get(function_name, data_types, false, -1);
     agg_function->set_version(3);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
