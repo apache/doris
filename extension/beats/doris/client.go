@@ -238,10 +238,17 @@ func (client *client) publishEvents(lable string, events []publisher.Event) ([]p
 		return events, requestErr
 	}
 
-	request.Header.Set("label", lable)
+	var groupCommit bool = false
 	for k, v := range client.headers {
 		request.Header.Set(k, v)
+		if k == "group_commit" && v != "off_mode" {
+			groupCommit = true
+		}
 	}
+	if !groupCommit {
+		request.Header.Set("label", lable)
+	}
+
 	response, responseErr := client.httpClient.Do(request)
 	if responseErr != nil {
 		client.logger.Errorf("Failed to stream-load request: %v", responseErr)
