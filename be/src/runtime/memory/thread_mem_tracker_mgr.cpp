@@ -55,7 +55,6 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
         _untracked_mem = 0;
     }
     _limiter_tracker = mem_tracker;
-    _limiter_tracker_raw = mem_tracker.get();
 }
 
 void ThreadMemTrackerMgr::detach_limiter_tracker(
@@ -67,7 +66,6 @@ void ThreadMemTrackerMgr::detach_limiter_tracker(
     _reserved_mem = _reserved_mem_stack.back();
     _reserved_mem_stack.pop_back();
     _limiter_tracker = old_mem_tracker;
-    _limiter_tracker_raw = old_mem_tracker.get();
 }
 
 void ThreadMemTrackerMgr::cancel_query(const std::string& exceed_msg) {
