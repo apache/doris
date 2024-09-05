@@ -178,11 +178,11 @@ DECLARE_mInt32(max_fill_rate);
 
 DECLARE_mInt32(double_resize_threshold);
 
-// The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 6.4G,
-// actual low water mark=min(6.4G, MemTotal * 5%), avoid wasting too much memory on machines
-// with large memory larger than 128G.
-// Turn up max. On machines with more than 128G memory, more memory buffers will be reserved for Full GC.
+// The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default -1.
+// if it is -1, then low water mark = min(MemTotal - MemLimit, MemTotal * 5%), which is 3.2G on a 64G machine.
+// Turn up max. more memory buffers will be reserved for Memory GC.
 // Turn down max. will use as much memory as possible.
+// note that: `max_` prefix should be removed, but keep it for compatibility.
 DECLARE_Int64(max_sys_mem_available_low_water_mark_bytes);
 
 // reserve a small amount of memory so we do not trigger MinorGC

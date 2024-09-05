@@ -317,12 +317,12 @@ void MemInfo::init() {
         // https://serverfault.com/questions/940196/why-is-memavailable-a-lot-less-than-memfreebufferscached
         // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=34e431b0ae398fc54ea69ff85ec700722c9da773
         //
-        // upper sys_mem_available_low_water_mark, avoid wasting too much memory.
-        _s_sys_mem_available_low_water_mark = std::max<int64_t>(
-                std::min<int64_t>(std::min<int64_t>(_s_physical_mem - _s_mem_limit,
-                                                    int64_t(_s_physical_mem * 0.05)),
-                                  config::max_sys_mem_available_low_water_mark_bytes),
-                0);
+        // smaller sys_mem_available_low_water_mark can avoid wasting too much memory.
+        _s_sys_mem_available_low_water_mark =
+                config::max_sys_mem_available_low_water_mark_bytes != -1
+                        ? config::max_sys_mem_available_low_water_mark_bytes
+                        : std::min<int64_t>(_s_physical_mem - _s_mem_limit,
+                                            int64_t(_s_physical_mem * 0.05));
         _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark * 2;
     }
 
