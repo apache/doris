@@ -27,6 +27,7 @@
 #include "olap/compaction.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "service/backend_options.h"
+#include "util/debug_points.h"
 #include "util/trace.h"
 #include "util/uuid_generator.h"
 

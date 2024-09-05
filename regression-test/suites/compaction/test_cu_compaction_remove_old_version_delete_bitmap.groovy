@@ -124,7 +124,7 @@ suite("test_cu_compaction_remove_old_version_delete_bitmap", "nonConcurrent") {
     }
 
     def testTable = "test_cu_compaction_remove_old_version_delete_bitmap"
-    def timeout = 1000
+    def timeout = 10000
     sql """ DROP TABLE IF EXISTS ${testTable}"""
     def testTableDDL = """
         create table ${testTable} 
@@ -190,7 +190,7 @@ suite("test_cu_compaction_remove_old_version_delete_bitmap", "nonConcurrent") {
         sql """ INSERT INTO ${testTable} VALUES (0,0,'0'),(1,13,'13'); """
 
         def time_diff = System.currentTimeMillis() - now
-        logger.info("tiem_diff:" + time_diff)
+        logger.info("time_diff:" + time_diff)
         assertTrue(time_diff <= timeout, "wait_for_insert_into_values timeout")
 
         qt_sql "select * from ${testTable} order by plan_id"
@@ -218,7 +218,7 @@ suite("test_cu_compaction_remove_old_version_delete_bitmap", "nonConcurrent") {
         sql """ INSERT INTO ${testTable} VALUES (0,0,'0'),(1,18,'18'); """
 
         time_diff = System.currentTimeMillis() - now
-        logger.info("tiem_diff:" + time_diff)
+        logger.info("time_diff:" + time_diff)
         assertTrue(time_diff <= timeout, "wait_for_insert_into_values timeout")
 
         qt_sql "select * from ${testTable} order by plan_id"
@@ -247,7 +247,7 @@ suite("test_cu_compaction_remove_old_version_delete_bitmap", "nonConcurrent") {
         sql """ INSERT INTO ${testTable} VALUES (0,0,'0'),(1,23,'23'); """
 
         time_diff = System.currentTimeMillis() - now
-        logger.info("tiem_diff:" + time_diff)
+        logger.info("time_diff:" + time_diff)
         assertTrue(time_diff <= timeout, "wait_for_insert_into_values timeout")
 
         qt_sql "select * from ${testTable} order by plan_id"
@@ -277,7 +277,7 @@ suite("test_cu_compaction_remove_old_version_delete_bitmap", "nonConcurrent") {
         sql """ INSERT INTO ${testTable} VALUES (0,0,'0'),(1,28,'28'); """
 
         time_diff = System.currentTimeMillis() - now
-        logger.info("tiem_diff:" + time_diff)
+        logger.info("time_diff:" + time_diff)
         assertTrue(time_diff <= timeout, "wait_for_insert_into_values timeout")
 
         qt_sql "select * from ${testTable} order by plan_id"
@@ -304,7 +304,7 @@ suite("test_cu_compaction_remove_old_version_delete_bitmap", "nonConcurrent") {
         sql """ INSERT INTO ${testTable} VALUES (0,0,'0'),(1,30,'30'); """
 
         time_diff = System.currentTimeMillis() - now
-        logger.info("tiem_diff:" + time_diff)
+        logger.info("time_diff:" + time_diff)
         assertTrue(time_diff >= timeout, "wait_for_insert_into_values timeout")
 
         qt_sql "select * from ${testTable} order by plan_id"
