@@ -64,7 +64,7 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         if (_is_analytic_sort) {
-            return _is_colocate && _require_bucket_distribution
+            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_join
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         } else if (_merge_by_exchange) {
@@ -73,6 +73,7 @@ public:
         }
         return DataSinkOperatorX<SortSinkLocalState>::required_data_distribution();
     }
+    bool require_shuffled_data_distribution() const override { return _is_analytic_sort; }
     bool require_data_distribution() const override { return _is_colocate; }
 
     size_t get_revocable_mem_size(RuntimeState* state) const;

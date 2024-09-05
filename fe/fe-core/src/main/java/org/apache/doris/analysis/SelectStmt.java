@@ -80,7 +80,7 @@ import java.util.stream.Collectors;
  * clauses.
  */
 @Deprecated
-public class SelectStmt extends QueryStmt {
+public class SelectStmt extends QueryStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(SelectStmt.class);
     public static final String DEFAULT_VALUE = "__DEFAULT_VALUE__";
     private UUID id = UUID.randomUUID();

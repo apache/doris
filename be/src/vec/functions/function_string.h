@@ -2630,6 +2630,8 @@ public:
         return std::make_shared<DataTypeString>();
     }
 
+    bool use_default_implementation_for_constants() const final { return false; }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         auto res = ColumnString::create();
@@ -2637,24 +2639,28 @@ public:
         auto& res_chars = res->get_chars();
         res_offsets.resize(input_rows_count);
 
-        ColumnPtr argument_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const auto* length_col = assert_cast<const ColumnInt32*>(argument_column.get());
+        auto [arg_col, arg_const] = unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto* length_col = assert_cast<const ColumnInt32*>(arg_col.get());
+
+        if (arg_const) {
+            res_chars.reserve(input_rows_count * (length_col->get_element(0) + 2));
+        }
 
         std::vector<uint8_t, Allocator_<uint8_t>> random_bytes;
         std::random_device rd;
         std::mt19937 gen(rd());
 
+        std::uniform_int_distribution<unsigned short> distribution(0, 255);
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (length_col->get_element(i) < 0) [[unlikely]] {
+            size_t index = index_check_const(i, arg_const);
+            if (length_col->get_element(index) < 0) [[unlikely]] {
                 return Status::InvalidArgument("argument {} of function {} at row {} was invalid.",
-                                               length_col->get_element(i), name, i);
+                                               length_col->get_element(index), name, index);
             }
-            random_bytes.resize(length_col->get_element(i));
+            random_bytes.resize(length_col->get_element(index));
 
-            std::uniform_int_distribution<uint8_t> distribution(0, 255);
             for (auto& byte : random_bytes) {
-                byte = distribution(gen);
+                byte = distribution(gen) & 0xFF;
             }
 
             std::basic_ostringstream<char, std::char_traits<char>, Allocator_<char>> oss;

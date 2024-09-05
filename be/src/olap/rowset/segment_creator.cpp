@@ -47,6 +47,7 @@
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/json/json_parser.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -82,7 +83,7 @@ Status SegmentFlusher::flush_single_block(const vectorized::Block* block, int32_
     return Status::OK();
 }
 
-Status SegmentFlusher::_parse_variant_columns(vectorized::Block& block) {
+Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block) {
     size_t num_rows = block.rows();
     if (num_rows == 0) {
         return Status::OK();
@@ -100,9 +101,10 @@ Status SegmentFlusher::_parse_variant_columns(vectorized::Block& block) {
         return Status::OK();
     }
 
-    vectorized::schema_util::ParseContext ctx;
-    ctx.record_raw_json_column = _context.tablet_schema->has_row_store_for_all_columns();
-    RETURN_IF_ERROR(vectorized::schema_util::parse_variant_columns(block, variant_column_pos, ctx));
+    vectorized::ParseConfig config;
+    config.enable_flatten_nested = _context.tablet_schema->variant_flatten_nested();
+    RETURN_IF_ERROR(
+            vectorized::schema_util::parse_variant_columns(block, variant_column_pos, config));
     return Status::OK();
 }
 

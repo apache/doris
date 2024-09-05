@@ -713,7 +713,7 @@ public class StmtExecutor {
         if (context.isTxnModel()) {
             if (!(logicalPlan instanceof BatchInsertIntoTableCommand || logicalPlan instanceof InsertIntoTableCommand
                     || logicalPlan instanceof UpdateCommand || logicalPlan instanceof DeleteFromUsingCommand
-                    || logicalPlan instanceof DeleteFromCommand)) {
+                    || logicalPlan instanceof DeleteFromCommand || logicalPlan instanceof UnsupportedCommand)) {
                 String errMsg = "This is in a transaction, only insert, update, delete, "
                         + "commit, rollback is acceptable.";
                 throw new NereidsException(errMsg, new AnalysisException(errMsg));
@@ -1783,6 +1783,11 @@ public class StmtExecutor {
                 sendResultSet(resultSet.get(), ((Queriable) parsedStmt).getFieldInfos());
                 isHandleQueryInFe = true;
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
+                if (context.getSessionVariable().enableProfile()) {
+                    if (profile != null) {
+                        this.profile.getSummaryProfile().setExecutedByFrontend(true);
+                    }
+                }
                 return;
             }
         }
@@ -2061,6 +2066,7 @@ public class StmtExecutor {
                     .setTxnConf(new TTxnParams().setNeedTxn(true).setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("")
                             .setTbl("").setMaxFilterRatio(context.getSessionVariable().getEnableInsertStrict() ? 0
                                     : context.getSessionVariable().getInsertMaxFilterRatio()));
+            context.getTxnEntry().setFirstTxnInsert(true);
             StringBuilder sb = new StringBuilder();
             sb.append("{'label':'").append(context.getTxnEntry().getLabel()).append("', 'status':'")
                     .append(TransactionStatus.PREPARE.name());

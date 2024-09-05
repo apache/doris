@@ -63,7 +63,8 @@ public:
 
     // Finish building the current page, return the encoded data.
     // This api should be followed by reset() before reusing the builder
-    virtual OwnedSlice finish() = 0;
+    // It will return error status when memory allocated failed during finish
+    virtual Status finish(OwnedSlice* owned_slice) = 0;
 
     // Get the dictionary page for dictionary encoding mode column.
     virtual Status get_dictionary_page(OwnedSlice* dictionary_page) {

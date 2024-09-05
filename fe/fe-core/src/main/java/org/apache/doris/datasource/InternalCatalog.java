@@ -1132,7 +1132,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         Tablet tablet = materializedIndex.getTablet(info.getTabletId());
         Replica replica = tablet.getReplicaById(info.getReplicaId());
         Preconditions.checkNotNull(replica, info);
-        replica.updateVersion(info.getVersion());
+        replica.updateVersionWithFailed(info.getVersion(), info.getLastFailedVersion(),
+                info.getLastSuccessVersion());
         replica.setDataSize(info.getDataSize());
         replica.setRemoteDataSize(info.getRemoteDataSize());
         replica.setRowCount(info.getRowCount());
@@ -1611,6 +1612,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION,
                         olapTable.disableAutoCompaction().toString());
+            }
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
+                        olapTable.variantEnableFlattenNested().toString());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION,
@@ -2154,7 +2159,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.getTimeSeriesCompactionLevelThreshold(),
                             tbl.storeRowColumn(), binlogConfig,
                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                            objectPool, tbl.rowStorePageSize());
+                            objectPool, tbl.rowStorePageSize(),
+                            tbl.variantEnableFlattenNested());
 
                     task.setStorageFormat(tbl.getStorageFormat());
                     task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
@@ -2586,6 +2592,14 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionLevelThreshold);
 
+        boolean variantEnableFlattenNested  = false;
+        try {
+            variantEnableFlattenNested = PropertyAnalyzer.analyzeVariantFlattenNested(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.setVariantEnableFlattenNested(variantEnableFlattenNested);
+
         // get storage format
         TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2
         try {
@@ -2641,7 +2655,8 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         boolean enableDeleteOnDeletePredicate = false;
         try {
-            enableDeleteOnDeletePredicate = PropertyAnalyzer.analyzeEnableDeleteOnDeletePredicate(properties);
+            enableDeleteOnDeletePredicate = PropertyAnalyzer.analyzeEnableDeleteOnDeletePredicate(properties,
+                    enableUniqueKeyMergeOnWrite);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
@@ -3059,8 +3074,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                             .getDynamicPartitionProperty();
                     if (dynamicProperty.isExist() && dynamicProperty.getEnable()
                             && partitionDesc.isAutoCreatePartitions()) {
-                        throw new AnalysisException(
-                                "Can't use Dynamic Partition and Auto Partition at the same time");
+                        String dynamicUnit = dynamicProperty.getTimeUnit();
+                        ArrayList<Expr> autoExprs = partitionDesc.getPartitionExprs();
+                        // check same interval. fail will leading to AnalysisException
+                        DynamicPartitionUtil.partitionIntervalCompatible(dynamicUnit, autoExprs);
                     }
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());
