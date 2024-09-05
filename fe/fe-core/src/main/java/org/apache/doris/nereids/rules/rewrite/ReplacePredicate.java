@@ -202,7 +202,8 @@ public class ReplacePredicate {
     }
 
     private static boolean expressionCompare(Expression left, Expression right) {
-        Comparator<Expression> comparator = Comparator.comparingInt(Expression::hashCode).thenComparing(Expression::toSql);
+        Comparator<Expression> comparator = Comparator.comparingInt(Expression::hashCode)
+                .thenComparing(Expression::toSql);
         return comparator.compare(left, right) < 0;
     }
 
