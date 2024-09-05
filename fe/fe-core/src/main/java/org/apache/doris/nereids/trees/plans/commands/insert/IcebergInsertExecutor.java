@@ -53,6 +53,11 @@ public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
     }
 
     @Override
+    protected void clearCollectCommitInfoFunc() {
+        coordinator.setIcebergCommitDataFunc(null);
+    }
+
+    @Override
     protected void beforeExec() {
         String dbName = ((IcebergExternalTable) table).getDbName();
         String tbName = table.getName();

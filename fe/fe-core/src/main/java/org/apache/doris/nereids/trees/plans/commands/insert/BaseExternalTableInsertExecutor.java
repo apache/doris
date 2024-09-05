@@ -81,6 +81,11 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
     protected abstract void setCollectCommitInfoFunc();
 
     /**
+     * clear function for gc
+     */
+    protected abstract void clearCollectCommitInfoFunc();
+
+    /**
      * At this time, FE has successfully collected all commit information from BEs.
      * Before commit this txn, commit information need to be analyzed and processed.
      */
@@ -107,6 +112,7 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
             transactionManager.commit(txnId);
             summaryProfile.ifPresent(SummaryProfile::setTransactionEndTime);
             txnStatus = TransactionStatus.COMMITTED;
+            clearCollectCommitInfoFunc();
             Env.getCurrentEnv().getRefreshManager().refreshTable(
                     catalogName,
                     table.getDatabase().getFullName(),
@@ -127,6 +133,7 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
     @Override
     protected void onFail(Throwable t) {
         errMsg = t.getMessage() == null ? "unknown reason" : t.getMessage();
+        clearCollectCommitInfoFunc();
         String queryId = DebugUtil.printId(ctx.queryId());
         // if any throwable being thrown during insert operation, first we should abort this txn
         LOG.warn("insert [{}] with query id {} failed", labelName, queryId, t);
