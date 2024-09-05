@@ -816,7 +816,7 @@ class Suite implements GroovyInterceptable {
 
     String getS3Url() {
         String s3BucketName = context.config.otherConfigs.get("s3BucketName");
-        if (context.config.otherConfigs.get("s3Provider") == "AZURE") {
+        if (context.config.otherConfigs.get("s3Provider").toUpperCase() == "AZURE") {
             String accountName = context.config.otherConfigs.get("ak");
             String s3Url = "http://${accountName}.blob.core.windows.net/${s3BucketName}"
             return s3Url
