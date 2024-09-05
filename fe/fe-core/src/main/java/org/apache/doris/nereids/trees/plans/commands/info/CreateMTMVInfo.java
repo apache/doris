@@ -61,7 +61,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.AnalyzerForCreateView;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.PlanSlotFinder;
@@ -243,9 +242,6 @@ public class CreateMTMVInfo {
         // must disable constant folding by be, because be constant folding may return wrong type
         ctx.getSessionVariable().disableConstantFoldingByBEOnce();
         Plan plan = planner.planWithLock(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
-        if (plan.anyMatch(node -> node instanceof OneRowRelation)) {
-            throw new AnalysisException("at least contain one table");
-        }
         // can not contain VIEW or MTMV
         analyzeBaseTables(planner.getAnalyzedPlan());
         // can not contain Random function
