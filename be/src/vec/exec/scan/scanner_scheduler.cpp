@@ -302,8 +302,8 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                             std::move(mutable_block.mutable_columns()));
                     // If block can be reused, its memory usage will be added back.
                     ctx->return_free_block(std::move(free_block));
-                    ctx->inc_block_usage(
-                            scan_task->cached_blocks.back().first->allocated_bytes() - block_size);
+                    ctx->inc_block_usage(scan_task->cached_blocks.back().first->allocated_bytes() -
+                                         block_size);
                     // Return block succeed or not, this free_block is not used by this scan task any more.
                     ctx->update_peak_memory_usage(-free_block_bytes);
                 } else {

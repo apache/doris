@@ -122,9 +122,7 @@ public:
 
     vectorized::BlockUPtr get_free_block(bool force);
     void return_free_block(vectorized::BlockUPtr block);
-    inline void inc_block_usage(size_t usage) {
-        _block_memory_usage += usage;
-    }
+    inline void inc_block_usage(size_t usage) { _block_memory_usage += usage; }
 
     // Caller should make sure the pipeline task is still running when calling this function
     void update_peak_running_scanner(int num);

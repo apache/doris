@@ -328,8 +328,7 @@ void ScannerContext::_try_to_scale_up() {
         int num_add = int(std::min(_num_running_scanners * SCALE_UP_RATIO,
                                    _max_thread_num * MAX_SCALE_UP_RATIO - _num_running_scanners));
         if (_estimated_block_size > 0) {
-            int most_add =
-                    (_max_bytes_in_queue - _block_memory_usage) / _estimated_block_size;
+            int most_add = (_max_bytes_in_queue - _block_memory_usage) / _estimated_block_size;
             num_add = std::min(num_add, most_add);
         }
         for (int i = 0; i < num_add; ++i) {
