@@ -1704,8 +1704,10 @@ Status PipelineFragmentContext::send_report(bool done) {
             req, std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
 }
 
-size_t PipelineFragmentContext::get_revocable_size(bool& has_running_task) const {
-    size_t revocable_size = 0;
+size_t PipelineFragmentContext::get_revocable_size(bool* has_running_task) const {
+    size_t res = 0;
+    // _tasks will be cleared during ~PipelineFragmentContext, so that it's safe
+    // here to traverse the vector.
     for (const auto& task_instances : _tasks) {
         for (const auto& task : task_instances) {
             if (task->is_running() || task->is_revoking()) {
@@ -1713,17 +1715,17 @@ size_t PipelineFragmentContext::get_revocable_size(bool& has_running_task) const
                                       << " is running, task: " << (void*)task.get()
                                       << ", task->is_revoking(): " << task->is_revoking() << ", "
                                       << task->is_running();
-                has_running_task = true;
+                *has_running_task = true;
                 return 0;
             }
 
-            size_t revocable_size_ = task->get_revocable_size();
-            if (revocable_size_ > _runtime_state->min_revocable_mem()) {
-                revocable_size += revocable_size_;
+            size_t revocable_size = task->get_revocable_size();
+            if (revocable_size > _runtime_state->min_revocable_mem()) {
+                res += revocable_size;
             }
         }
     }
-    return revocable_size;
+    return res;
 }
 
 std::vector<PipelineTask*> PipelineFragmentContext::get_revocable_tasks() const {

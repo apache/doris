@@ -234,8 +234,8 @@ public:
 
     int get_revoking_tasks_count() const { return _revoking_tasks_count.load(); }
 
-    void get_revocable_info(size_t& revocable_size, size_t& memory_usage,
-                            bool& has_running_task) const;
+    void get_revocable_info(size_t* revocable_size, size_t* memory_usage,
+                            bool* has_running_task) const;
     size_t get_revocable_size() const;
 
     void set_spill_threshold(int64_t spill_threshold) { _spill_threshold = spill_threshold; }

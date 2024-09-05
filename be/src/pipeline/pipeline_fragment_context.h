@@ -117,7 +117,7 @@ public:
 
     [[nodiscard]] int next_sink_operator_id() { return _sink_operator_id--; }
 
-    [[nodiscard]] size_t get_revocable_size(bool& has_running_task) const;
+    [[nodiscard]] size_t get_revocable_size(bool* has_running_task) const;
 
     [[nodiscard]] std::vector<PipelineTask*> get_revocable_tasks() const;
 
