@@ -70,7 +70,7 @@ public class LoadAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_load", method = RequestMethod.PUT)
     public Object load(HttpServletRequest request, HttpServletResponse response,
-                       @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
+            @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
         if (needRedirect(request.getScheme())) {
             return redirectToHttps(request);
         }
@@ -87,20 +87,28 @@ public class LoadAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_stream_load", method = RequestMethod.PUT)
     public Object streamLoad(HttpServletRequest request,
-                             HttpServletResponse response,
-                             @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
+            HttpServletResponse response,
+            @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
         boolean groupCommit = false;
         String groupCommitStr = request.getHeader("group_commit");
-        if (groupCommitStr != null && groupCommitStr.equalsIgnoreCase("async_mode")) {
-            groupCommit = true;
-            try {
-                if (isGroupCommitBlock(db, table)) {
-                    String msg = "insert table " + table + " is blocked on schema change";
-                    return new RestBaseResult(msg);
+        if (groupCommitStr != null) {
+            if (!groupCommitStr.equalsIgnoreCase("async_mode") && !groupCommitStr.equalsIgnoreCase("sync_mode")
+                    && !groupCommitStr.equalsIgnoreCase("off_mode")) {
+                return new RestBaseResult("Header `group_commit` can only be `sync_mode`, `async_mode` or `off_mode`.");
+            }
+            if (!groupCommitStr.equalsIgnoreCase("off_mode")) {
+                groupCommit = true;
+                if (groupCommitStr.equalsIgnoreCase("async_mode")) {
+                    try {
+                        if (isGroupCommitBlock(db, table)) {
+                            String msg = "insert table " + table + " is blocked on schema change";
+                            return new RestBaseResult(msg);
+                        }
+                    } catch (Exception e) {
+                        LOG.info("exception:" + e);
+                        return new RestBaseResult(e.getMessage());
+                    }
                 }
-            } catch (Exception e) {
-                LOG.info("exception:" + e);
-                return new RestBaseResult(e.getMessage());
             }
         }
         if (needRedirect(request.getScheme())) {
@@ -131,21 +139,32 @@ public class LoadAction extends RestBaseController {
         boolean groupCommit = false;
         long tableId = -1;
         String groupCommitStr = request.getHeader("group_commit");
-        if (groupCommitStr != null && groupCommitStr.equalsIgnoreCase("async_mode")) {
-            groupCommit = true;
-            try {
-                String[] pair = parseDbAndTb(sql);
-                Database db = Env.getCurrentInternalCatalog()
-                        .getDbOrException(pair[0], s -> new TException("database is invalid for dbName: " + s));
-                Table tbl = db.getTableOrException(pair[1], s -> new TException("table is invalid: " + s));
-                tableId = tbl.getId();
-                if (isGroupCommitBlock(pair[0], pair[1])) {
-                    String msg = "insert table " + pair[1] + " is blocked on schema change";
-                    return new RestBaseResult(msg);
+        if (groupCommitStr != null) {
+            if (!groupCommitStr.equalsIgnoreCase("async_mode") && !groupCommitStr.equalsIgnoreCase("sync_mode")
+                    && !groupCommitStr.equalsIgnoreCase("off_mode")) {
+                return new RestBaseResult("Header `group_commit` can only be `sync_mode`, `async_mode` or `off_mode`.");
+            }
+            if (!groupCommitStr.equalsIgnoreCase("off_mode")) {
+                try {
+                    groupCommit = true;
+                    String[] pair = parseDbAndTb(sql);
+                    Database db = Env.getCurrentInternalCatalog()
+                            .getDbOrException(pair[0], s -> new TException("database is invalid for dbName: " + s));
+                    Table tbl = db.getTableOrException(pair[1], s -> new TException("table is invalid: " + s));
+                    tableId = tbl.getId();
+
+                    // async mode needs to write WAL, we need to block load during waiting WAL.
+                    if (groupCommitStr.equalsIgnoreCase("async_mode")) {
+                        if (isGroupCommitBlock(pair[0], pair[1])) {
+                            String msg = "insert table " + pair[1] + " is blocked on schema change";
+                            return new RestBaseResult(msg);
+                        }
+
+                    }
+                } catch (Exception e) {
+                    LOG.info("exception:" + e);
+                    return new RestBaseResult(e.getMessage());
                 }
-            } catch (Exception e) {
-                LOG.info("exception:" + e);
-                return new RestBaseResult(e.getMessage());
             }
         }
         executeCheckPassword(request, response);
@@ -207,8 +226,8 @@ public class LoadAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_stream_load_2pc", method = RequestMethod.PUT)
     public Object streamLoad2PC(HttpServletRequest request,
-                                   HttpServletResponse response,
-                                   @PathVariable(value = DB_KEY) String db) {
+            HttpServletResponse response,
+            @PathVariable(value = DB_KEY) String db) {
         if (needRedirect(request.getScheme())) {
             return redirectToHttps(request);
         }
@@ -219,9 +238,9 @@ public class LoadAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_stream_load_2pc", method = RequestMethod.PUT)
     public Object streamLoad2PC_table(HttpServletRequest request,
-                                      HttpServletResponse response,
-                                      @PathVariable(value = DB_KEY) String db,
-                                      @PathVariable(value = TABLE_KEY) String table) {
+            HttpServletResponse response,
+            @PathVariable(value = DB_KEY) String db,
+            @PathVariable(value = TABLE_KEY) String table) {
         if (needRedirect(request.getScheme())) {
             return redirectToHttps(request);
         }
@@ -361,21 +380,7 @@ public class LoadAction extends RestBaseController {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
         if (groupCommit) {
-            ConnectContext ctx = new ConnectContext();
-            ctx.setEnv(Env.getCurrentEnv());
-            ctx.setThreadLocalInfo();
-            ctx.setRemoteIP(request.getRemoteAddr());
-            // We set this variable to fulfill required field 'user' in
-            // TMasterOpRequest(FrontendService.thrift)
-            ctx.setQualifiedUser(Auth.ADMIN_USER);
-            ctx.setThreadLocalInfo();
-
-            try {
-                backend = Env.getCurrentEnv().getGroupCommitManager()
-                        .selectBackendForGroupCommit(tableId, ctx, false);
-            } catch (DdlException e) {
-                throw new RuntimeException(e);
-            }
+            backend = selectBackendForGroupCommit(request, tableId);
         } else {
             backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
         }
@@ -402,7 +407,7 @@ public class LoadAction extends RestBaseController {
     // temporarily addressing the users' needs for audit logs.
     // So this function is not widely tested under general scenario
     private Object executeWithClusterToken(HttpServletRequest request, String db,
-                                          String table, boolean isStreamLoad) {
+            String table, boolean isStreamLoad) {
         try {
             ConnectContext ctx = new ConnectContext();
             ctx.setEnv(Env.getCurrentEnv());
@@ -472,5 +477,26 @@ public class LoadAction extends RestBaseController {
         } finally {
             ConnectContext.remove();
         }
+    }
+
+    private Backend selectBackendForGroupCommit(HttpServletRequest req, long tableId)
+            throws LoadException {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setThreadLocalInfo();
+        ctx.setRemoteIP(req.getRemoteAddr());
+        // We set this variable to fulfill required field 'user' in
+        // TMasterOpRequest(FrontendService.thrift)
+        ctx.setQualifiedUser(Auth.ADMIN_USER);
+        ctx.setThreadLocalInfo();
+
+        Backend backend = null;
+        try {
+            backend = Env.getCurrentEnv().getGroupCommitManager()
+                    .selectBackendForGroupCommit(tableId, ctx);
+        } catch (DdlException e) {
+            throw new LoadException(e.getMessage(), e);
+        }
+        return backend;
     }
 }

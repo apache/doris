@@ -181,7 +181,7 @@ public class GroupCommitManager {
         return size;
     }
 
-    public Backend selectBackendForGroupCommit(long tableId, ConnectContext context, boolean isCloud)
+    public Backend selectBackendForGroupCommit(long tableId, ConnectContext context)
             throws LoadException, DdlException {
         // If a group commit request is sent to the follower FE, we will send this request to the master FE. master FE
         // can select a BE and return this BE id to follower FE.
