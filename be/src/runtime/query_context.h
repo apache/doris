@@ -30,6 +30,7 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/object_pool.h"
+#include "pipeline/dependency.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/query_statistics.h"
@@ -45,6 +46,7 @@ namespace doris {
 
 namespace pipeline {
 class PipelineFragmentContext;
+class PipelineTask;
 } // namespace pipeline
 
 struct ReportStatusRequest {
@@ -76,7 +78,7 @@ const std::string toString(QuerySource query_source);
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
 class DescriptorTbl;
-class QueryContext {
+class QueryContext : public std::enable_shared_from_this<QueryContext> {
     ENABLE_FACTORY_CREATOR(QueryContext);
 
 public:
@@ -117,6 +119,8 @@ public:
     [[nodiscard]] Status exec_status() { return _exec_status.status(); }
 
     void set_execution_dependency_ready();
+
+    void set_memory_sufficient(bool sufficient);
 
     void set_ready_to_execute_only();
 
@@ -181,6 +185,12 @@ public:
 
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
 
+    pipeline::Dependency* get_memory_sufficient_dependency() {
+        return _memory_sufficient_dependency.get();
+    }
+
+    std::vector<pipeline::PipelineTask*> get_revocable_tasks() const;
+
     void register_query_statistics(std::shared_ptr<QueryStatistics> qs);
 
     std::shared_ptr<QueryStatistics> get_query_statistics();
@@ -218,6 +228,16 @@ public:
         return _running_big_mem_op_num.load(std::memory_order_relaxed);
     }
 
+    void increase_revoking_tasks_count() { _revoking_tasks_count.fetch_add(1); }
+
+    void decrease_revoking_tasks_count() { _revoking_tasks_count.fetch_sub(1); }
+
+    int get_revoking_tasks_count() const { return _revoking_tasks_count.load(); }
+
+    void get_revocable_info(size_t& revocable_size, size_t& memory_usage,
+                            bool& has_running_task) const;
+    size_t get_revocable_size() const;
+
     void set_spill_threshold(int64_t spill_threshold) { _spill_threshold = spill_threshold; }
     int64_t spill_threshold() { return _spill_threshold; }
     DescriptorTbl* desc_tbl = nullptr;
@@ -253,6 +273,7 @@ private:
     bool _is_pipeline = false;
     bool _is_nereids = false;
     std::atomic<int> _running_big_mem_op_num = 0;
+    std::atomic<int> _revoking_tasks_count = 0;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
@@ -279,6 +300,9 @@ private:
     ThreadPool* _memtable_flush_pool = nullptr;
     vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
+
+    std::unique_ptr<pipeline::Dependency> _memory_sufficient_dependency;
+    std::vector<std::weak_ptr<pipeline::PipelineTask>> _pipeline_tasks;
 
     std::shared_ptr<QueryStatistics> _cpu_statistics = nullptr;
     // This shared ptr is never used. It is just a reference to hold the object.

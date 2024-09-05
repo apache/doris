@@ -117,6 +117,10 @@ public:
 
     [[nodiscard]] int next_sink_operator_id() { return _sink_operator_id--; }
 
+    [[nodiscard]] size_t get_revocable_size(bool& has_running_task) const;
+
+    [[nodiscard]] std::vector<PipelineTask*> get_revocable_tasks() const;
+
     void instance_ids(std::vector<TUniqueId>& ins_ids) const {
         ins_ids.resize(_fragment_instance_ids.size());
         for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {

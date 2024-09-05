@@ -17,10 +17,9 @@
 
 #pragma once
 
-#include <stddef.h>
-
 #include <atomic>
 #include <condition_variable>
+#include <cstddef>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -30,6 +29,7 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "pipeline_task.h"
+#include "runtime/query_context.h"
 #include "runtime/workload_group/workload_group.h"
 #include "util/thread.h"
 
@@ -49,7 +49,6 @@ public:
     TaskScheduler(ExecEnv* exec_env, std::shared_ptr<TaskQueue> task_queue, std::string name,
                   CgroupCpuCtl* cgroup_cpu_ctl)
             : _task_queue(std::move(task_queue)),
-              _shutdown(false),
               _name(std::move(name)),
               _cgroup_cpu_ctl(cgroup_cpu_ctl) {}
 
@@ -63,14 +62,22 @@ public:
 
     std::vector<int> thread_debug_info() { return _fix_thread_pool->debug_info(); }
 
+    void add_paused_task(PipelineTask* task);
+
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;
     std::shared_ptr<TaskQueue> _task_queue;
-    std::vector<bool> _markers;
-    bool _shutdown;
+    bool _need_to_stop = false;
+    bool _shutdown = false;
     std::string _name;
     CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
 
+    std::map<WorkloadGroupPtr, std::set<std::shared_ptr<QueryContext>>> _paused_queries_list;
+    std::mutex _paused_queries_lock;
+    std::condition_variable _paused_queries_cv;
+
     void _do_work(size_t index);
+
+    void _paused_queries_handler();
 };
 } // namespace doris::pipeline

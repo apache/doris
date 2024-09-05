@@ -48,6 +48,8 @@ Status PartitionedAggLocalState::open(RuntimeState* state) {
         return Status::OK();
     }
     _opened = true;
+    _spill_dependency = state->get_spill_dependency();
+    DCHECK(_spill_dependency != nullptr);
     RETURN_IF_ERROR(setup_in_memory_agg_op(state));
     return Status::OK();
 }
@@ -205,7 +207,7 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
                << " merge spilled agg data";
 
     RETURN_IF_ERROR(Base::_shared_state->in_mem_shared_state->reset_hash_table());
-    _dependency->Dependency::block();
+    _spill_dependency->Dependency::block();
 
     auto query_id = state->query_id();
 
@@ -227,7 +229,7 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
             }
             Base::_shared_state->in_mem_shared_state->aggregate_data_container->init_once();
             _is_merging = false;
-            _dependency->Dependency::set_ready();
+            _spill_dependency->Dependency::set_ready();
         }};
         bool has_agg_data = false;
         auto& parent = Base::_parent->template cast<Parent>();

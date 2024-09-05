@@ -204,7 +204,7 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
 
     // TODO: spill thread may set_ready before the task::execute thread put the task to blocked state
     if (!_eos) {
-        Base::_dependency->Dependency::block();
+        Base::_spill_dependency->Dependency::block();
     }
     auto query_id = state->query_id();
 
@@ -235,8 +235,10 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
                 _dependency->set_ready_to_read();
                 _finish_dependency->set_ready();
             } else {
-                _dependency->Dependency::set_ready();
+                _spill_dependency->Dependency::set_ready();
             }
+
+            state->get_query_ctx()->decrease_revoking_tasks_count();
         }};
 
         _shared_state->sink_status =
@@ -287,15 +289,17 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
                 "revoke_memory submit_func failed");
     });
     if (status.ok()) {
+        state->get_query_ctx()->increase_revoking_tasks_count();
         status = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
                 std::make_shared<SpillRunnable>(state, _shared_state->shared_from_this(),
                                                 exception_catch_func));
     }
     if (!status.ok()) {
         if (!_eos) {
-            Base::_dependency->Dependency::set_ready();
+            Base::_spill_dependency->Dependency::set_ready();
         }
     }
     return status;
 }
+
 } // namespace doris::pipeline

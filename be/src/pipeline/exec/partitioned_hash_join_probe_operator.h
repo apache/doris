@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/dependency.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
@@ -87,6 +88,8 @@ private:
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
 
     bool _need_to_setup_internal_operators {true};
+
+    Dependency* _spill_dependency {nullptr};
 
     RuntimeProfile::Counter* _spill_and_partition_label = nullptr;
     RuntimeProfile::Counter* _partition_timer = nullptr;

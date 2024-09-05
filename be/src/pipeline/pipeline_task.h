@@ -17,8 +17,7 @@
 
 #pragma once
 
-#include <stdint.h>
-
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -141,6 +140,8 @@ public:
         std::unique_lock<std::mutex> lc(_dependency_lock);
         if (!_finalized) {
             _execution_dep->set_always_ready();
+            _memory_sufficient_dependency->set_always_ready();
+            _spill_dependency->set_always_ready();
             for (auto* dep : _filter_dependencies) {
                 dep->set_always_ready();
             }
@@ -180,10 +181,14 @@ public:
     /**
      * Return true if:
      * 1. `enable_force_spill` is true which forces this task to spill data.
-     * 2. Or memory consumption reaches the high water mark of current workload group (80% of memory limitation by default) and revocable_mem_bytes is bigger than min_revocable_mem_bytes.
-     * 3. Or memory consumption is higher than the low water mark of current workload group (50% of memory limitation by default) and `query_weighted_consumption >= query_weighted_limit` and revocable memory is big enough.
+     * 2. Or memory consumption reaches the high water mark of current workload group (80% of memory limitation by default) 
+        and revocable_mem_bytes is bigger than min_revocable_mem_bytes.
+     * 3. Or memory consumption is higher than the low water mark of current workload group (50% of memory limitation by default) 
+        and `query_weighted_consumption >= query_weighted_limit` and revocable memory is big enough.
      */
-    static bool should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes);
+    static bool should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes,
+                                     bool& is_wg_mem_low_water_mark,
+                                     bool& is_wg_mem_high_water_mark);
 
     void put_in_runnable_queue() {
         _schedule_time++;
@@ -193,7 +198,8 @@ public:
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
 
     bool is_running() { return _running.load(); }
-    void set_running(bool running) { _running = running; }
+    bool is_revoking() { return _spill_dependency->is_blocked_by(nullptr) != nullptr; }
+    bool set_running(bool running) { return _running.exchange(running); }
 
     bool is_exceed_debug_timeout() {
         if (_has_exceed_timeout) {
@@ -230,6 +236,9 @@ public:
             clear_blocking_state();
         }
     }
+
+    [[nodiscard]] size_t get_revocable_size() const;
+    [[nodiscard]] Status revoke_memory();
 
 private:
     friend class RuntimeFilterDependency;
@@ -306,11 +315,16 @@ private:
 
     Dependency* _execution_dep = nullptr;
 
+    Dependency* _memory_sufficient_dependency = nullptr;
+
+    std::shared_ptr<Dependency> _spill_dependency;
+
     std::atomic<bool> _finalized {false};
     std::mutex _dependency_lock;
 
     std::atomic<bool> _running {false};
     std::atomic<bool> _eos {false};
+    std::atomic<bool> _revoking {false};
 };
 
 } // namespace doris::pipeline

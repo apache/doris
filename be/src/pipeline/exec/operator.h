@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -32,8 +33,10 @@
 #include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/local_exchange/local_exchanger.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/runtime/vdata_stream_recvr.h"
@@ -184,11 +187,21 @@ public:
 
     std::shared_ptr<QueryStatistics> get_query_statistics_ptr() { return _query_statistics; }
 
+    Status filter_block(const vectorized::VExprContextSPtrs& expr_contexts,
+                        vectorized::Block* block, int column_to_keep);
+
+    void update_estimate_memory_usage(size_t usage) { _estimate_memory_usage += usage; }
+
+    size_t& estimate_memory_usage() { return _estimate_memory_usage; }
+
+    void reset_estimate_memory_usage() { _estimate_memory_usage = 0; }
+
 protected:
     friend class OperatorXBase;
 
     ObjectPool* _pool = nullptr;
     int64_t _num_rows_returned {0};
+    size_t _estimate_memory_usage {0};
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
 
@@ -219,6 +232,24 @@ protected:
 
     bool _closed = false;
     vectorized::Block _origin_block;
+};
+
+class ScopedMemTracker {
+public:
+    ScopedMemTracker(size_t& counter) : _counter(counter), _mem_tracker("ScopedMemTracker") {
+        thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(&_mem_tracker);
+        _peak_usage = _mem_tracker.peak_consumption();
+    }
+
+    ~ScopedMemTracker() {
+        thread_context()->thread_mem_tracker_mgr->pop_consumer_tracker();
+        _counter += (_mem_tracker.peak_consumption() - _peak_usage);
+    }
+
+private:
+    size_t& _counter;
+    size_t _peak_usage = 0;
+    MemTracker _mem_tracker;
 };
 
 template <typename SharedStateArg = FakeSharedState>
@@ -392,7 +423,11 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
-    Status open(RuntimeState* state) override { return Status::OK(); }
+    Status open(RuntimeState* state) override {
+        _spill_dependency = state->get_spill_dependency();
+        DCHECK(_spill_dependency != nullptr);
+        return Status::OK();
+    }
 
     Status close(RuntimeState* state, Status exec_status) override;
 
@@ -420,6 +455,7 @@ public:
 
 protected:
     Dependency* _dependency = nullptr;
+    Dependency* _spill_dependency = nullptr;
     SharedStateType* _shared_state = nullptr;
 
 private:
@@ -430,13 +466,13 @@ private:
 class DataSinkOperatorXBase : public OperatorBase {
 public:
     DataSinkOperatorXBase(const int operator_id, const int node_id)
-            : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id({1}) {}
+            : _operator_id(operator_id), _node_id(node_id), _dests_id({1}) {}
 
     DataSinkOperatorXBase(const int operator_id, const int node_id, const int dest_id)
-            : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id({dest_id}) {}
+            : _operator_id(operator_id), _node_id(node_id), _dests_id({dest_id}) {}
 
     DataSinkOperatorXBase(const int operator_id, const int node_id, std::vector<int>& sources)
-            : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id(sources) {}
+            : _operator_id(operator_id), _node_id(node_id), _dests_id(sources) {}
 
     ~DataSinkOperatorXBase() override = default;
 
@@ -518,6 +554,13 @@ public:
 
     [[nodiscard]] std::string get_name() const override { return _name; }
 
+    [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state) { return 0; }
+
+    [[nodiscard]] virtual bool try_reserve_memory(RuntimeState* state, vectorized::Block* block,
+                                                  bool eos) {
+        return true;
+    }
+
     virtual bool should_dry_run(RuntimeState* state) { return false; }
 
 protected:
@@ -587,6 +630,11 @@ public:
         _spill_read_wait_io_timer =
                 ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadWaitIOTime", "Spill", 1);
         return Status::OK();
+    }
+
+    std::vector<Dependency*> dependencies() const override {
+        auto dependencies = Base::dependencies();
+        return dependencies;
     }
 
     RuntimeProfile::Counter* _spill_counters = nullptr;
@@ -748,6 +796,10 @@ public:
     void set_parallel_tasks(int parallel_tasks) { _parallel_tasks = parallel_tasks; }
     int parallel_tasks() const { return _parallel_tasks; }
 
+    [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state) { return 0; }
+
+    virtual void reset_reserve_mem_size(RuntimeState* state) {}
+
 protected:
     template <typename Dependency>
     friend class PipelineXLocalState;
@@ -779,6 +831,7 @@ protected:
     int64_t _limit; // -1: no limit
 
     uint32_t _debug_point_count = 0;
+    std::atomic_uint32_t _bytes_per_row = 0;
 
     std::string _op_name;
     bool _ignore_data_distribution = false;
@@ -803,6 +856,24 @@ public:
     using LocalState = LocalStateType;
     [[nodiscard]] LocalState& get_local_state(RuntimeState* state) const {
         return state->get_local_state(operator_id())->template cast<LocalState>();
+    }
+
+    size_t get_reserve_mem_size(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+        auto estimated_size = local_state.estimate_memory_usage();
+        if (!is_source() && _child_x) {
+            estimated_size += _child_x->get_reserve_mem_size(state);
+        }
+        return estimated_size;
+    }
+
+    void reset_reserve_mem_size(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+        local_state.reset_estimate_memory_usage();
+
+        if (!is_source() && _child_x) {
+            _child_x->reset_reserve_mem_size(state);
+        }
     }
 };
 

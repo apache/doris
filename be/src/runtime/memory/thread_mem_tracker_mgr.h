@@ -303,18 +303,22 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
     // if _reserved_mem not equal to 0, repeat reserve,
     // _untracked_mem store bytes that not synchronized to process reserved memory.
     flush_untracked_mem();
+    auto wg_ptr = _wg_wptr.lock();
     if (!_limiter_tracker_raw->try_consume(size)) {
         auto err_msg = fmt::format(
                 "reserve memory failed, size: {}, because memory tracker consumption: {}, limit: "
-                "{}",
-                size, _limiter_tracker_raw->consumption(), _limiter_tracker_raw->limit());
+                "{}; {}; {}",
+                size, _limiter_tracker_raw->consumption(), _limiter_tracker_raw->limit(),
+                wg_ptr->memory_debug_string(), GlobalMemoryArbitrator::process_mem_log_str());
         return doris::Status::MemoryLimitExceeded(err_msg);
     }
-    auto wg_ptr = _wg_wptr.lock();
     if (wg_ptr) {
         if (!wg_ptr->add_wg_refresh_interval_memory_growth(size)) {
-            auto err_msg = fmt::format("reserve memory failed, size: {}, because {}", size,
-                                       wg_ptr->memory_debug_string());
+            auto err_msg = fmt::format(
+                    "reserve memory failed, size: {}, because {}; memory tracker consumption: {}, "
+                    "limit: {}; {}",
+                    size, wg_ptr->memory_debug_string(), _limiter_tracker_raw->consumption(),
+                    _limiter_tracker_raw->limit(), GlobalMemoryArbitrator::process_mem_log_str());
             _limiter_tracker_raw->release(size); // rollback
             return doris::Status::MemoryLimitExceeded(err_msg);
         }

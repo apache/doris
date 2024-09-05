@@ -96,6 +96,8 @@ protected:
     Status _create_agg_status(vectorized::AggregateDataPtr data);
     size_t _memory_usage() const;
 
+    size_t get_reserve_mem_size(RuntimeState* state) const;
+
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_limit_compute_timer = nullptr;
@@ -123,6 +125,8 @@ protected:
     std::unique_ptr<vectorized::Arena> _agg_profile_arena;
 
     std::unique_ptr<ExecutorBase> _executor = nullptr;
+
+    size_t _memory_usage_last_executing = 0;
 };
 
 class AggSinkOperatorX final : public DataSinkOperatorX<AggSinkLocalState> {
@@ -163,6 +167,8 @@ public:
     }
 
     Status reset_hash_table(RuntimeState* state);
+
+    size_t get_reserve_mem_size(RuntimeState* state) override;
 
     using DataSinkOperatorX<AggSinkLocalState>::node_id;
     using DataSinkOperatorX<AggSinkLocalState>::operator_id;

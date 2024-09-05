@@ -16,7 +16,10 @@
 // under the License.
 
 #pragma once
+#include <memory>
+
 #include "aggregation_sink_operator.h"
+#include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vexpr.h"
@@ -323,6 +326,8 @@ public:
     size_t revocable_mem_size(RuntimeState* state) const override;
 
     Status revoke_memory(RuntimeState* state) override;
+
+    size_t get_reserve_mem_size(RuntimeState* state) override;
 
 private:
     friend class PartitionedAggSinkLocalState;
