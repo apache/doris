@@ -666,9 +666,8 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
      * shuffled local exchanger will be used before join so it is not followed by shuffle join.
      */
     auto require_shuffled_data_distribution =
-            cur_pipe->operator_xs().empty()
-                    ? cur_pipe->sink_x()->require_shuffled_data_distribution()
-                    : op->require_shuffled_data_distribution();
+            cur_pipe->operators().empty() ? cur_pipe->sink()->require_shuffled_data_distribution()
+                                          : op->require_shuffled_data_distribution();
     current_followed_by_shuffled_join =
             (followed_by_shuffled_join || op->is_shuffled_hash_join()) &&
             require_shuffled_data_distribution;
