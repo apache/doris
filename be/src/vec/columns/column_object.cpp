@@ -1877,6 +1877,10 @@ void ColumnObject::for_each_imutable_subcolumn(ImutableColumnCallback callback) 
     }
 }
 
+bool ColumnObject::is_exclusive() const {
+    for_each_imutable_subcolumn([](const auto& subcolumn) { return subcolumn.is_exclusive(); });
+}
+
 void ColumnObject::update_hash_with_value(size_t n, SipHash& hash) const {
     for_each_imutable_subcolumn(
             [&](const auto& subcolumn) { return subcolumn.update_hash_with_value(n, hash); });
