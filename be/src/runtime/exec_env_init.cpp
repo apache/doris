@@ -527,7 +527,6 @@ void ExecEnv::init_mem_tracker() {
     _s_tracking_memory = true;
     _orphan_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "Orphan");
-    _orphan_mem_tracker_raw = _orphan_mem_tracker.get();
     _details_mem_tracker_set =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "DetailsTrackerSet");
     _page_no_cache_mem_tracker =

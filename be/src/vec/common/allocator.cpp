@@ -62,7 +62,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
                 size, doris::thread_context()->thread_mem_tracker()->label(),
                 doris::thread_context()->thread_mem_tracker()->peak_consumption(),
                 doris::thread_context()->thread_mem_tracker()->consumption(),
-                doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(),
+                doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker_label(),
                 doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
 
         if (doris::config::stacktrace_in_alloc_large_memory_bytes > 0 &&

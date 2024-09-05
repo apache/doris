@@ -526,7 +526,7 @@ std::string MemTrackerLimiter::tracker_limit_exceeded_str() {
         err_msg += fmt::format(
                 " exec node:<{}>, can `set exec_mem_limit=8G` to change limit, details see "
                 "be.INFO.",
-                doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker());
+                doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker_label());
     } else if (_type == Type::SCHEMA_CHANGE) {
         err_msg += fmt::format(
                 " can modify `memory_limitation_per_thread_for_schema_change_bytes` in be.conf to "
