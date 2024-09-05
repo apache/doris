@@ -128,7 +128,6 @@ Status ScannerContext::init() {
     _scanner_sched_counter = _local_state->_scanner_sched_counter;
     _newly_create_free_blocks_num = _local_state->_newly_create_free_blocks_num;
     _scanner_wait_batch_timer = _local_state->_scanner_wait_batch_timer;
-    _free_blocks_memory_usage_mark = _local_state->_free_blocks_memory_usage;
     _scanner_ctx_sched_time = _local_state->_scanner_ctx_sched_time;
     _scale_up_scanners_counter = _local_state->_scale_up_scanners_counter;
 
@@ -169,12 +168,11 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
     vectorized::BlockUPtr block = nullptr;
     if (_free_blocks.try_dequeue(block)) {
         DCHECK(block->mem_reuse());
-        _free_blocks_memory_usage -= block->allocated_bytes();
-        _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
+        _block_memory_usage -= block->allocated_bytes();
         // A free block is reused, so the memory usage should be decreased
         // The caller of get_free_block will increase the memory usage
         update_peak_memory_usage(-block->allocated_bytes());
-    } else if (_free_blocks_memory_usage < _max_bytes_in_queue || force) {
+    } else if (_block_memory_usage < _max_bytes_in_queue || force) {
         _newly_create_free_blocks_num->update(1);
         block = vectorized::Block::create_unique(_output_tuple_desc->slots(), 0,
                                                  true /*ignore invalid slots*/);
@@ -183,10 +181,9 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
 }
 
 bool ScannerContext::return_free_block(vectorized::BlockUPtr block) {
-    if (block->mem_reuse() && _free_blocks_memory_usage < _max_bytes_in_queue) {
+    if (block->mem_reuse() && _block_memory_usage < _max_bytes_in_queue) {
         size_t block_size_to_reuse = block->allocated_bytes();
-        _free_blocks_memory_usage += block_size_to_reuse;
-        _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
+        _block_memory_usage += block_size_to_reuse;
         block->clear_column_data();
         if (_free_blocks.enqueue(std::move(block))) {
             update_peak_memory_usage(block_size_to_reuse);
@@ -262,8 +259,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             if (_estimated_block_size > block_size) {
                 _estimated_block_size = block_size;
             }
-            _free_blocks_memory_usage -= block_size;
-            _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
+            _block_memory_usage -= block_size;
             update_peak_memory_usage(-current_block->allocated_bytes());
             // consume current block
             block->swap(*current_block);
@@ -284,8 +280,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
                     for (int i = 0; i < free_blocks_for_each; ++i) {
                         vectorized::BlockUPtr removed_block;
                         if (_free_blocks.try_dequeue(removed_block)) {
-                            _free_blocks_memory_usage -= block->allocated_bytes();
-                            _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
+                            _block_memory_usage -= block->allocated_bytes();
                         }
                     }
                 }
@@ -336,7 +331,7 @@ void ScannerContext::_try_to_scale_up() {
                                    _max_thread_num * MAX_SCALE_UP_RATIO - _num_running_scanners));
         if (_estimated_block_size > 0) {
             int most_add =
-                    (_max_bytes_in_queue - _free_blocks_memory_usage) / _estimated_block_size;
+                    (_max_bytes_in_queue - _block_memory_usage) / _estimated_block_size;
             num_add = std::min(num_add, most_add);
         }
         for (int i = 0; i < num_add; ++i) {

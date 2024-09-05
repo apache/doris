@@ -284,7 +284,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     break;
                 }
                 raw_bytes_read += free_block_bytes;
-
                 if (!scan_task->cached_blocks.empty() &&
                     scan_task->cached_blocks.back().first->rows() + free_block->rows() <=
                             ctx->batch_size()) {
@@ -304,9 +303,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     ctx->return_free_block(std::move(free_block));
                     // Return block succeed or not, this free_block is not used by this scan task any more.
                     ctx->update_peak_memory_usage(-free_block_bytes);
-                    ctx->inc_free_block_usage(free_block_bytes);
+                    ctx->inc_block_usage(free_block_bytes);
                 } else {
-                    ctx->inc_free_block_usage(free_block_bytes);
+                    ctx->inc_block_usage(free_block_bytes);
                     scan_task->cached_blocks.emplace_back(std::move(free_block), free_block_bytes);
                 }
             } // end for while
