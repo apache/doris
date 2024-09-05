@@ -345,7 +345,8 @@ void TaskScheduler::_paused_queries_handler() {
                                  "the query: "
                               << query_id << ", usage: " << max_memory_usage
                               << ", wg info: " << wg->debug_string();
-                    max_memory_usage_query->cancel(Status::InternalError(
+                    // Should use memory exceed error code, so that FE may do retry for this error
+                    max_memory_usage_query->cancel(Status::MemoryLimitExceeded(
                             "memory insufficient and cannot find revocable query, cancel "
                             "the "
                             "biggest usage({}) query({})",

@@ -388,7 +388,6 @@ Status PipelineTask::execute(bool* eos) {
                     {
                         _memory_sufficient_dependency->block();
                         _state->get_query_ctx()->get_pipe_exec_scheduler()->add_paused_task(this);
-                        RETURN_IF_ERROR(_sink->revoke_memory(_state));
                         continue;
                     }
                     has_enough_memory = false;
