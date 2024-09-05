@@ -114,8 +114,8 @@ public:
 
     // Subclass can override this method to determine whether to do the minor or full gc
     virtual bool exceed_prune_limit() {
-        return _lru_cache_type == LRUCacheType::SIZE ? mem_consumption() > CACHE_MIN_SIZE
-                                                     : get_usage() > CACHE_MIN_NUMBER;
+        return _lru_cache_type == LRUCacheType::SIZE ? mem_consumption() > CACHE_MIN_PRUNE_SIZE
+                                                     : get_usage() > CACHE_MIN_PRUNE_NUMBER;
     }
 
     // Try to prune the cache if expired.
@@ -154,14 +154,14 @@ public:
                 LOG(INFO) << fmt::format(
                         "[MemoryGC] {} not need prune stale, LRUCacheType::SIZE consumption {} "
                         "less "
-                        "than CACHE_MIN_SIZE {}",
-                        type_string(_type), mem_consumption(), CACHE_MIN_SIZE);
+                        "than CACHE_MIN_PRUNE_SIZE {}",
+                        type_string(_type), mem_consumption(), CACHE_MIN_PRUNE_SIZE);
             } else if (_lru_cache_type == LRUCacheType::NUMBER) {
                 LOG(INFO) << fmt::format(
                         "[MemoryGC] {} not need prune stale, LRUCacheType::NUMBER usage {} less "
                         "than "
-                        "CACHE_MIN_NUMBER {}",
-                        type_string(_type), get_usage(), CACHE_MIN_NUMBER);
+                        "CACHE_MIN_PRUNE_NUMBER {}",
+                        type_string(_type), get_usage(), CACHE_MIN_PRUNE_NUMBER);
             }
         }
     }
@@ -195,27 +195,25 @@ public:
                 LOG(INFO) << fmt::format(
                         "[MemoryGC] {} not need prune all, force is {}, LRUCacheType::SIZE "
                         "consumption {}, "
-                        "CACHE_MIN_SIZE {}",
-                        type_string(_type), force, mem_consumption(), CACHE_MIN_SIZE);
+                        "CACHE_MIN_PRUNE_SIZE {}",
+                        type_string(_type), force, mem_consumption(), CACHE_MIN_PRUNE_SIZE);
             } else if (_lru_cache_type == LRUCacheType::NUMBER) {
                 LOG(INFO) << fmt::format(
                         "[MemoryGC] {} not need prune all, force is {}, LRUCacheType::NUMBER "
-                        "usage {}, CACHE_MIN_NUMBER {}",
-                        type_string(_type), force, get_usage(), CACHE_MIN_NUMBER);
+                        "usage {}, CACHE_MIN_PRUNE_NUMBER {}",
+                        type_string(_type), force, get_usage(), CACHE_MIN_PRUNE_NUMBER);
             }
         }
     }
 
-    void set_capacity(double adjust_weighted) override {
+    int64_t adjust_capacity_weighted(double adjust_weighted) override {
         std::lock_guard<std::mutex> l(_lock);
-        auto capacity = std::min<size_t>(
-                static_cast<size_t>(_initial_capacity * adjust_weighted),
-                _lru_cache_type == LRUCacheType::SIZE ? CACHE_MIN_SIZE : CACHE_MIN_NUMBER);
+        auto capacity = static_cast<size_t>(_initial_capacity * adjust_weighted);
         COUNTER_SET(_freed_entrys_counter, (int64_t)0);
         COUNTER_SET(_freed_memory_counter, (int64_t)0);
         COUNTER_SET(_cost_timer, (int64_t)0);
         if (_cache == ExecEnv::GetInstance()->get_dummy_lru_cache()) {
-            return;
+            return 0;
         }
 
         size_t old_capacity = get_capacity();
@@ -227,7 +225,7 @@ public:
             COUNTER_SET(_freed_entrys_counter, pruned_info.pruned_count);
             COUNTER_SET(_freed_memory_counter, pruned_info.pruned_size);
         }
-        COUNTER_UPDATE(_set_capacity_number_counter, 1);
+        COUNTER_UPDATE(_adjust_capacity_weighted_number_counter, 1);
         LOG(INFO) << fmt::format(
                 "[MemoryGC] {} update capacity, old <capacity {}, consumption {}, usage {}>, "
                 "adjust_weighted {}, new <capacity {}, consumption {}, usage {}>, prune {} "
@@ -235,7 +233,8 @@ public:
                 type_string(_type), old_capacity, old_mem_consumption, old_usage, adjust_weighted,
                 get_capacity(), mem_consumption(), get_usage(), _freed_entrys_counter->value(),
                 _freed_memory_counter->value(), _cost_timer->value(),
-                _set_capacity_number_counter->value());
+                _adjust_capacity_weighted_number_counter->value());
+        return _freed_entrys_counter->value();
     }
 
 protected:

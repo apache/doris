@@ -72,7 +72,7 @@ int64_t CacheManager::for_each_cache_refresh_capacity(double adjust_weighted,
         if (!cache_policy->enable_prune()) {
             continue;
         }
-        cache_policy->set_capacity(adjust_weighted);
+        cache_policy->adjust_capacity_weighted(adjust_weighted);
         freed_size += cache_policy->profile()->get_counter("FreedMemory")->value();
         if (cache_policy->profile()->get_counter("FreedMemory")->value() != 0 && profile) {
             profile->add_child(cache_policy->profile(), true, nullptr);

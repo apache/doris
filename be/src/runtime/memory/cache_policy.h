@@ -21,8 +21,8 @@
 
 namespace doris {
 
-static constexpr int32_t CACHE_MIN_SIZE = 67108864; // 64M
-static constexpr int32_t CACHE_MIN_NUMBER = 1024;
+static constexpr int32_t CACHE_MIN_PRUNE_SIZE = 67108864; // 64M
+static constexpr int32_t CACHE_MIN_PRUNE_NUMBER = 1024;
 
 // Base of all caches. register to CacheManager when cache is constructed.
 class CachePolicy {
@@ -41,12 +41,13 @@ public:
         TABLET_VERSION_CACHE = 10,
         LAST_SUCCESS_CHANNEL_CACHE = 11,
         COMMON_OBJ_LRU_CACHE = 12,
-        FOR_UT = 13,
+        FOR_UT_CACHE_SIZE = 13,
         TABLET_SCHEMA_CACHE = 14,
         CREATE_TABLET_RR_IDX_CACHE = 15,
         CLOUD_TABLET_CACHE = 16,
         CLOUD_TXN_DELETE_BITMAP_CACHE = 17,
         NONE = 18, // not be used
+        FOR_UT_CACHE_NUMBER = 19,
     };
 
     static std::string type_string(CacheType type) {
@@ -77,8 +78,8 @@ public:
             return "LastSuccessChannelCache";
         case CacheType::COMMON_OBJ_LRU_CACHE:
             return "CommonObjLRUCache";
-        case CacheType::FOR_UT:
-            return "ForUT";
+        case CacheType::FOR_UT_CACHE_SIZE:
+            return "ForUTCacheSize";
         case CacheType::TABLET_SCHEMA_CACHE:
             return "TabletSchemaCache";
         case CacheType::CREATE_TABLET_RR_IDX_CACHE:
@@ -87,6 +88,8 @@ public:
             return "CloudTabletCache";
         case CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE:
             return "CloudTxnDeleteBitmapCache";
+        case CacheType::FOR_UT_CACHE_NUMBER:
+            return "ForUTCacheNumber";
         default:
             LOG(FATAL) << "not match type of cache policy :" << static_cast<int>(type);
         }
@@ -108,11 +111,12 @@ public:
             {"MowTabletVersionCache", CacheType::TABLET_VERSION_CACHE},
             {"LastSuccessChannelCache", CacheType::LAST_SUCCESS_CHANNEL_CACHE},
             {"CommonObjLRUCache", CacheType::COMMON_OBJ_LRU_CACHE},
-            {"ForUT", CacheType::FOR_UT},
+            {"ForUTCacheSize", CacheType::FOR_UT_CACHE_SIZE},
             {"TabletSchemaCache", CacheType::TABLET_SCHEMA_CACHE},
             {"CreateTabletRRIdxCache", CacheType::CREATE_TABLET_RR_IDX_CACHE},
             {"CloudTabletCache", CacheType::CLOUD_TABLET_CACHE},
-            {"CloudTxnDeleteBitmapCache", CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE}};
+            {"CloudTxnDeleteBitmapCache", CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE},
+            {"ForUTCacheNumber", CacheType::FOR_UT_CACHE_NUMBER}};
 
     static CacheType string_to_type(std::string type) {
         if (StringToType.contains(type)) {
@@ -127,7 +131,7 @@ public:
 
     virtual void prune_stale() = 0;
     virtual void prune_all(bool force) = 0;
-    virtual void set_capacity(double adjust_weighted) = 0;
+    virtual int64_t adjust_capacity_weighted(double adjust_weighted) = 0;
     virtual size_t get_capacity() = 0;
 
     CacheType type() { return _type; }
@@ -141,7 +145,8 @@ protected:
                 std::make_unique<RuntimeProfile>(fmt::format("Cache type={}", type_string(_type)));
         _prune_stale_number_counter = ADD_COUNTER(_profile, "PruneStaleNumber", TUnit::UNIT);
         _prune_all_number_counter = ADD_COUNTER(_profile, "PruneAllNumber", TUnit::UNIT);
-        _set_capacity_number_counter = ADD_COUNTER(_profile, "SetCapacityNumber", TUnit::UNIT);
+        _adjust_capacity_weighted_number_counter =
+                ADD_COUNTER(_profile, "SetCapacityNumber", TUnit::UNIT);
         _freed_memory_counter = ADD_COUNTER(_profile, "FreedMemory", TUnit::BYTES);
         _freed_entrys_counter = ADD_COUNTER(_profile, "FreedEntrys", TUnit::UNIT);
         _cost_timer = ADD_TIMER(_profile, "CostTime");
@@ -153,7 +158,7 @@ protected:
     std::unique_ptr<RuntimeProfile> _profile;
     RuntimeProfile::Counter* _prune_stale_number_counter = nullptr;
     RuntimeProfile::Counter* _prune_all_number_counter = nullptr;
-    RuntimeProfile::Counter* _set_capacity_number_counter = nullptr;
+    RuntimeProfile::Counter* _adjust_capacity_weighted_number_counter = nullptr;
     // Reset before each gc
     RuntimeProfile::Counter* _freed_memory_counter = nullptr;
     RuntimeProfile::Counter* _freed_entrys_counter = nullptr;

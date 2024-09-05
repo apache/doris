@@ -73,6 +73,12 @@
 namespace doris {
 namespace {
 
+int64_t last_print_proc_mem = 0;
+int32_t refresh_cache_capacity_sleep_time_ms = 0;
+#ifdef USE_JEMALLOC
+int32_t je_purge_dirty_pages_sleep_time_ms = 0;
+#endif
+
 void update_rowsets_and_segments_num_metrics() {
     if (config::is_cloud_mode()) {
         // TODO(plat1ko): CloudStorageEngine
@@ -212,7 +218,7 @@ void refresh_process_memory_metrics() {
             butil::IOBuf::block_memory());
 }
 
-void refresh_allocator_memory_metrics() {
+void refresh_common_allocator_metrics() {
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
     doris::MemInfo::refresh_allocator_mem();
     if (config::enable_system_metrics) {
@@ -222,7 +228,7 @@ void refresh_allocator_memory_metrics() {
     MemInfo::refresh_memory_bvar();
 }
 
-void refresh_memory_state_after_memory_change(int64_t& last_print_proc_mem) {
+void refresh_memory_state_after_memory_change() {
     if (abs(last_print_proc_mem - PerfCounters::get_vm_rss()) > 268435456) {
         last_print_proc_mem = PerfCounters::get_vm_rss();
         doris::MemTrackerLimiter::clean_tracker_limiter_group();
@@ -234,7 +240,7 @@ void refresh_memory_state_after_memory_change(int64_t& last_print_proc_mem) {
     }
 }
 
-void refresh_cache_capacity(int32_t& refresh_cache_capacity_sleep_time_ms) {
+void refresh_cache_capacity() {
     if (refresh_cache_capacity_sleep_time_ms <= 0) {
         auto cache_capacity_reduce_mem_limit = uint64_t(
                 doris::MemInfo::soft_mem_limit() * config::cache_capacity_reduce_mem_limit_frac);
@@ -258,7 +264,7 @@ void refresh_cache_capacity(int32_t& refresh_cache_capacity_sleep_time_ms) {
     refresh_cache_capacity_sleep_time_ms -= config::memory_maintenance_sleep_time_ms;
 }
 
-void je_purge_dirty_pages(int32_t& je_purge_dirty_pages_sleep_time_ms) {
+void je_purge_dirty_pages() {
 #ifdef USE_JEMALLOC
     if (je_purge_dirty_pages_sleep_time_ms <= 0 &&
         doris::MemInfo::je_dirty_pages_mem() > doris::MemInfo::je_dirty_pages_mem_limit() &&
@@ -271,23 +277,20 @@ void je_purge_dirty_pages(int32_t& je_purge_dirty_pages_sleep_time_ms) {
 }
 
 void Daemon::memory_maintenance_thread() {
-    int64_t last_print_proc_mem = PerfCounters::get_vm_rss();
-    int32_t refresh_cache_capacity_sleep_time_ms = 0;
-    int32_t je_purge_dirty_pages_sleep_time_ms = 0;
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(config::memory_maintenance_sleep_time_ms))) {
         // step 1. Refresh process memory metrics.
         refresh_process_memory_metrics();
 
-        // step 2. Refresh allocator memory metrics.
-        refresh_allocator_memory_metrics();
+        // step 2. Refresh jemalloc/tcmalloc metrics.
+        refresh_common_allocator_metrics();
 
         // step 3. Update and print memory stat when the memory changes by 256M.
-        refresh_memory_state_after_memory_change(last_print_proc_mem);
+        refresh_memory_state_after_memory_change();
 
         // step 4. Asyn Refresh cache capacity
         // TODO adjust cache capacity based on smoothstep (smooth gradient).
-        refresh_cache_capacity(refresh_cache_capacity_sleep_time_ms);
+        refresh_cache_capacity();
 
         // step 5. Cancel top memory task when process memory exceed hard limit.
         // TODO replace memory_gc_thread.
@@ -304,7 +307,7 @@ void Daemon::memory_maintenance_thread() {
         // TODO notify flush memtable
 
         // step 9. Jemalloc purge all arena dirty pages
-        je_purge_dirty_pages(je_purge_dirty_pages_sleep_time_ms);
+        je_purge_dirty_pages();
     }
 }
 
@@ -473,7 +476,6 @@ void Daemon::je_purge_dirty_pages_thread() const {
 }
 
 void Daemon::cache_adjust_capacity_thread() {
-    std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
     do {
         std::unique_lock<std::mutex> l(doris::GlobalMemoryArbitrator::cache_adjust_capacity_lock);
         while (_stop_background_threads_latch.count() != 0 &&
@@ -482,14 +484,16 @@ void Daemon::cache_adjust_capacity_thread() {
             doris::GlobalMemoryArbitrator::cache_adjust_capacity_cv.wait_for(
                     l, std::chrono::seconds(1));
         }
+        double adjust_weighted = GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted;
         if (_stop_background_threads_latch.count() == 0) {
             break;
         }
         if (config::disable_memory_gc) {
             continue;
         }
-        auto freed_mem = CacheManager::instance()->for_each_cache_refresh_capacity(
-                GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted, profile.get());
+        std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
+        auto freed_mem = CacheManager::instance()->for_each_cache_refresh_capacity(adjust_weighted,
+                                                                                   profile.get());
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
