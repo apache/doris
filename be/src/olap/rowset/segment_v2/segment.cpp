@@ -189,6 +189,9 @@ Status Segment::_open_inverted_index() {
 
 Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
+    if (read_options.runtime_state != nullptr) {
+        _be_exec_version = read_options.runtime_state->be_exec_version();
+    }
     RETURN_IF_ERROR(_create_column_readers_once());
 
     read_options.stats->total_segment_number++;
@@ -502,6 +505,7 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
 
         ColumnReaderOptions opts {
                 .kept_in_memory = _tablet_schema->is_in_memory(),
+                .be_exec_version = _be_exec_version,
         };
         std::unique_ptr<ColumnReader> reader;
         RETURN_IF_ERROR(ColumnReader::create(opts, footer.columns(iter->second), footer.num_rows(),
@@ -522,8 +526,10 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
             continue;
         }
         const ColumnMetaPB& column_pb = footer.columns(iter->second);
-        ColumnReaderOptions opts;
-        opts.kept_in_memory = _tablet_schema->is_in_memory();
+        ColumnReaderOptions opts {
+                .kept_in_memory = _tablet_schema->is_in_memory(),
+                .be_exec_version = _be_exec_version,
+        };
         std::unique_ptr<ColumnReader> reader;
         RETURN_IF_ERROR(
                 ColumnReader::create(opts, column_pb, footer.num_rows(), _file_reader, &reader));
@@ -736,6 +742,9 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
 Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                     std::unique_ptr<ColumnIterator>* iter,
                                     const StorageReadOptions* opt) {
+    if (opt != nullptr && opt->runtime_state != nullptr) {
+        _be_exec_version = opt->runtime_state->be_exec_version();
+    }
     RETURN_IF_ERROR(_create_column_readers_once());
 
     // init column iterator by path info
@@ -809,6 +818,9 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
                                             const TabletIndex* index_meta,
                                             const StorageReadOptions& read_options,
                                             std::unique_ptr<InvertedIndexIterator>* iter) {
+    if (read_options.runtime_state != nullptr) {
+        _be_exec_version = read_options.runtime_state->be_exec_version();
+    }
     RETURN_IF_ERROR(_create_column_readers_once());
     ColumnReader* reader = _get_column_reader(tablet_column);
     if (reader != nullptr && index_meta) {

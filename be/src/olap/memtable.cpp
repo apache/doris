@@ -108,10 +108,11 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
             // the aggregate function manually.
             function = vectorized::AggregateFunctionSimpleFactory::instance().get(
                     "replace_load", {block->get_data_type(cid)},
-                    block->get_data_type(cid)->is_nullable());
+                    block->get_data_type(cid)->is_nullable(),
+                    BeExecVersionManager::get_newest_version());
         } else {
-            function =
-                    _tablet_schema->column(cid).get_aggregate_function(vectorized::AGG_LOAD_SUFFIX);
+            function = _tablet_schema->column(cid).get_aggregate_function(
+                    vectorized::AGG_LOAD_SUFFIX, _tablet_schema->column(cid).get_be_exec_version());
             if (function == nullptr) {
                 LOG(WARNING) << "column get aggregate function failed, column="
                              << _tablet_schema->column(cid).name();

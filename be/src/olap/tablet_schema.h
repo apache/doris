@@ -122,8 +122,9 @@ public:
     void set_path_info(const vectorized::PathInData& path);
     FieldAggregationMethod aggregation() const { return _aggregation; }
     vectorized::AggregateFunctionPtr get_aggregate_function_union(
-            vectorized::DataTypePtr type) const;
-    vectorized::AggregateFunctionPtr get_aggregate_function(std::string suffix) const;
+            vectorized::DataTypePtr type, int current_be_exec_version) const;
+    vectorized::AggregateFunctionPtr get_aggregate_function(std::string suffix,
+                                                            int current_be_exec_version) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
