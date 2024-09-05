@@ -1001,4 +1001,14 @@ void ColumnObject::insert_indices_from(const IColumn& src, const int* indices_be
                                    });
 }
 
+bool ColumnObject::is_exclusive() const {
+    bool is_exclusive = IColumn::is_exclusive();
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        if (!subcolumn.is_exclusive()) {
+            is_exclusive = false;
+        }
+    });
+    return is_exclusive;
+}
+
 } // namespace doris::vectorized
