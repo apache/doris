@@ -469,7 +469,12 @@ void convert_from_decimals(RealTo* dst, const RealFrom* src, UInt32 precicion_fr
                                                          OrigToDataType {}.get_name());
             }
         }
-        dst[i] = tmp;
+
+        if constexpr (std::is_same_v<OrigToDataType, DataTypeUInt8>) {
+            dst[i] = static_cast<bool>(tmp);
+        } else {
+            dst[i] = tmp;
+        }
     }
 }
 
