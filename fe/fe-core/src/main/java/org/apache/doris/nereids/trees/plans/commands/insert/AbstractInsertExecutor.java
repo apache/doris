@@ -198,7 +198,9 @@ public abstract class AbstractInsertExecutor {
                     break;
                 } catch (UserException e) {
                     LOG.warn("failed to commit txn", e);
-                    if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
+                    if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR
+                            && retryTimes + 1 < Config.mow_insert_into_commit_retry_times) {
+                        // should throw exception after running out of retry times
                         retryTimes++;
                     } else {
                         throw e;
