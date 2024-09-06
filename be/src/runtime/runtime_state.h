@@ -603,10 +603,6 @@ public:
         return _partial_update_auto_inc_column;
     }
 
-    void set_spill_dependency(pipeline::Dependency* dependency) { _spill_dependency = dependency; }
-
-    pipeline::Dependency* get_spill_dependency() { return _spill_dependency; }
-
 private:
     Status create_error_log_file();
 
@@ -701,8 +697,6 @@ private:
     pipeline::PipelineTask* _task = nullptr;
     int _task_id = -1;
     int _task_num = 0;
-
-    pipeline::Dependency* _spill_dependency;
 
     std::vector<THivePartitionUpdate> _hive_partition_updates;
 

@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 
 #include "common/status.h"
 #include "operator.h"
@@ -46,7 +47,7 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
-    Status spill_probe_blocks(RuntimeState* state);
+    Status spill_probe_blocks(RuntimeState* state, bool force = false);
 
     Status recovery_build_blocks_from_disk(RuntimeState* state, uint32_t partition_index,
                                            bool& has_data);
@@ -89,7 +90,7 @@ private:
 
     bool _need_to_setup_internal_operators {true};
 
-    Dependency* _spill_dependency {nullptr};
+    std::shared_ptr<Dependency> _spill_dependency;
 
     RuntimeProfile::Counter* _spill_and_partition_label = nullptr;
     RuntimeProfile::Counter* _partition_timer = nullptr;
@@ -187,8 +188,12 @@ public:
         return _inner_probe_operator->require_data_distribution();
     }
 
+    Status revoke_memory(RuntimeState* state) override;
+
 private:
     Status _revoke_memory(RuntimeState* state);
+
+    size_t _revocable_mem_size(RuntimeState* state, bool force = false) const;
 
     friend class PartitionedHashJoinProbeLocalState;
 

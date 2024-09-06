@@ -23,6 +23,7 @@
 
 #include "common/logging.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/pipeline_task.h"
 #include "runtime/fragment_mgr.h"
 #include "util/mem_info.h"
 #include "util/runtime_profile.h"
@@ -38,6 +39,10 @@ Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     _shared_state->partitioned_build_blocks.resize(p._partition_count);
     _shared_state->spilled_streams.resize(p._partition_count);
+
+    _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                  "HashJoinBuildSpillDependency", true);
+    state->get_task()->add_spill_dependency(_spill_dependency.get());
 
     _internal_runtime_profile.reset(new RuntimeProfile("internal_profile"));
 
@@ -551,6 +556,8 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
                            << ", task id: " << state->task_id() << ", nonspill build usage: "
                            << _inner_sink_operator->get_memory_usage(
                                       local_state._shared_state->inner_runtime_state.get());
+            } else {
+                return revoke_memory(state);
             }
 
             std::for_each(local_state._shared_state->partitioned_build_blocks.begin(),
@@ -568,6 +575,9 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (need_to_spill) {
         RETURN_IF_ERROR(local_state._partition_block(state, in_block, 0, rows));
+        if (eos) {
+            return revoke_memory(state);
+        }
     } else {
         if (UNLIKELY(!local_state._shared_state->inner_runtime_state)) {
             RETURN_IF_ERROR(_setup_internal_operator(state));
@@ -579,18 +589,12 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
         });
         RETURN_IF_ERROR(_inner_sink_operator->sink(
                 local_state._shared_state->inner_runtime_state.get(), in_block, eos));
-    }
 
-    if (eos) {
-        LOG(INFO) << "hash join sink " << node_id() << " sink eos, set_ready_to_read"
-                  << ", task id: " << state->task_id() << ", need spil: " << need_to_spill;
-        std::for_each(local_state._shared_state->partitioned_build_blocks.begin(),
-                      local_state._shared_state->partitioned_build_blocks.end(), [&](auto& block) {
-                          if (block) {
-                              COUNTER_UPDATE(local_state._in_mem_rows_counter, block->rows());
-                          }
-                      });
-        local_state._dependency->set_ready_to_read();
+        if (eos) {
+            LOG(INFO) << "hash join sink " << node_id() << " sink eos, set_ready_to_read"
+                      << ", task id: " << state->task_id();
+            local_state._dependency->set_ready_to_read();
+        }
     }
 
     return Status::OK();

@@ -423,11 +423,7 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
-    Status open(RuntimeState* state) override {
-        _spill_dependency = state->get_spill_dependency();
-        DCHECK(_spill_dependency != nullptr);
-        return Status::OK();
-    }
+    Status open(RuntimeState* state) override { return Status::OK(); }
 
     Status close(RuntimeState* state, Status exec_status) override;
 
@@ -455,7 +451,7 @@ public:
 
 protected:
     Dependency* _dependency = nullptr;
-    Dependency* _spill_dependency = nullptr;
+    std::shared_ptr<Dependency> _spill_dependency;
     SharedStateType* _shared_state = nullptr;
 
 private:
@@ -741,6 +737,17 @@ public:
         } else {
             return _intermediate_output_row_descriptor.back();
         }
+    }
+
+    size_t revocable_mem_size(RuntimeState* state) const override {
+        return (_child_x and !is_source()) ? _child_x->revocable_mem_size(state) : 0;
+    }
+
+    Status revoke_memory(RuntimeState* state) override {
+        if (_child_x and !is_source()) {
+            return _child_x->revoke_memory(state);
+        }
+        return Status::OK();
     }
 
     virtual std::string debug_string(int indentation_level = 0) const;
