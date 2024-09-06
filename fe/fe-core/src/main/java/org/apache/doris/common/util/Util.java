@@ -647,7 +647,12 @@ public class Util {
         String rootCause = "unknown";
         Throwable p = t;
         while (p != null) {
-            rootCause = p.getClass().getName() + ": " + p.getMessage();
+            String message = p.getMessage();
+            if (message == null) {
+                rootCause = p.getClass().getName();
+            } else {
+                rootCause = p.getClass().getName() + ": " + p.getMessage();
+            }
             p = p.getCause();
         }
         return rootCause;
