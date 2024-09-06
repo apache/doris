@@ -72,9 +72,6 @@ PipelineTask::PipelineTask(
                   state->get_query_ctx()->get_memory_sufficient_dependency()) {
     _pipeline_task_watcher.start();
 
-    _spill_dependency = Dependency::create_shared(-1, -1, "PipelineTaskSpillDependency", true);
-
-    _state->set_spill_dependency(_spill_dependency.get());
     auto shared_state = _sink->create_shared_state();
     if (shared_state) {
         _sink_shared_state = shared_state;
@@ -250,10 +247,12 @@ bool PipelineTask::_wait_to_start() {
 }
 
 bool PipelineTask::_is_blocked() {
-    _blocked_dep = _spill_dependency->is_blocked_by(this);
-    if (_blocked_dep != nullptr) {
-        _blocked_dep->start_watcher();
-        return true;
+    for (auto* spill_dependency : _spill_dependencies) {
+        _blocked_dep = spill_dependency->is_blocked_by(this);
+        if (_blocked_dep != nullptr) {
+            _blocked_dep->start_watcher();
+            return true;
+        }
     }
 
     _blocked_dep = _memory_sufficient_dependency->is_blocked_by(this);
@@ -528,11 +527,19 @@ std::string PipelineTask::debug_string() {
 }
 
 size_t PipelineTask::get_revocable_size() const {
-    return (_running || _eos) ? 0 : _sink->revocable_mem_size(_state);
+    if (_running || _eos) {
+        return 0;
+    }
+
+    auto revocable_size = _root->revocable_mem_size(_state);
+    revocable_size += _sink->revocable_mem_size(_state);
+
+    return revocable_size;
 }
 
 Status PipelineTask::revoke_memory() {
-    return _sink->revoke_memory(_state);
+    RETURN_IF_ERROR(_sink->revoke_memory(_state));
+    return _root->revoke_memory(_state);
 }
 
 void PipelineTask::wake_up() {

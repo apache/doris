@@ -41,6 +41,10 @@ Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateI
     _partitioned_blocks.resize(p._partition_count);
     _probe_spilling_streams.resize(p._partition_count);
 
+    _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                  "HashJoinProbeSpillDependency", true);
+    state->get_task()->add_spill_dependency(_spill_dependency.get());
+
     _spill_and_partition_label = ADD_LABEL_COUNTER(profile(), "Partition");
     _partition_timer = ADD_CHILD_TIMER(profile(), "PartitionTime", "Partition");
     _partition_shuffle_timer = ADD_CHILD_TIMER(profile(), "PartitionShuffleTime", "Partition");
@@ -144,8 +148,6 @@ void PartitionedHashJoinProbeLocalState::update_probe_profile(RuntimeProfile* ch
 
 Status PartitionedHashJoinProbeLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(PipelineXSpillLocalState::open(state));
-    _spill_dependency = state->get_spill_dependency();
-    DCHECK(_spill_dependency != nullptr);
     return _parent->cast<PartitionedHashJoinProbeOperatorX>()._partitioner->clone(state,
                                                                                   _partitioner);
 }
@@ -160,13 +162,16 @@ Status PartitionedHashJoinProbeLocalState::close(RuntimeState* state) {
     return Status::OK();
 }
 
-Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* state) {
+Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* state, bool force) {
     auto* spill_io_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
     auto query_id = state->query_id();
 
+    const auto spill_size_threshold = force ? vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM
+                                            : vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM;
+
     MonotonicStopWatch submit_timer;
     submit_timer.start();
-    auto spill_func = [query_id, state, submit_timer, this] {
+    auto spill_func = [query_id, state, submit_timer, spill_size_threshold, this] {
         _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
         SCOPED_TIMER(_spill_probe_timer);
 
@@ -175,8 +180,7 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
              ++partition_index) {
             auto& blocks = _probe_blocks[partition_index];
             auto& partitioned_block = _partitioned_blocks[partition_index];
-            if (partitioned_block && partitioned_block->allocated_bytes() >=
-                                             vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+            if (partitioned_block && partitioned_block->allocated_bytes() >= spill_size_threshold) {
                 blocks.emplace_back(partitioned_block->to_block());
                 partitioned_block.reset();
             }
@@ -756,6 +760,22 @@ bool PartitionedHashJoinProbeOperatorX::need_more_input_data(RuntimeState* state
 
 size_t PartitionedHashJoinProbeOperatorX::revocable_mem_size(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
+    if (local_state._child_eos) {
+        return 0;
+    }
+
+    auto revocable_size = _revocable_mem_size(state, true);
+    if (_child_x) {
+        revocable_size += _child_x->revocable_mem_size(state);
+    }
+    return revocable_size;
+}
+
+size_t PartitionedHashJoinProbeOperatorX::_revocable_mem_size(RuntimeState* state,
+                                                              bool force) const {
+    const auto spill_size_threshold = force ? vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM
+                                            : vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM;
+    auto& local_state = get_local_state(state);
     size_t mem_size = 0;
     auto& probe_blocks = local_state._probe_blocks;
     for (uint32_t i = 0; i < _partition_count; ++i) {
@@ -766,12 +786,29 @@ size_t PartitionedHashJoinProbeOperatorX::revocable_mem_size(RuntimeState* state
         auto& partitioned_block = local_state._partitioned_blocks[i];
         if (partitioned_block) {
             auto block_bytes = partitioned_block->allocated_bytes();
-            if (block_bytes >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+            if (block_bytes >= spill_size_threshold) {
                 mem_size += block_bytes;
             }
         }
     }
     return mem_size;
+}
+
+Status PartitionedHashJoinProbeOperatorX::revoke_memory(RuntimeState* state) {
+    auto& local_state = get_local_state(state);
+    VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", hash probe node: " << node_id()
+               << ", task: " << state->task_id() << ", child eos: " << local_state._child_eos;
+
+    if (local_state._child_eos) {
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(local_state.spill_probe_blocks(state, true));
+
+    if (_child_x) {
+        return _child_x->revoke_memory(state);
+    }
+    return Status::OK();
 }
 
 Status PartitionedHashJoinProbeOperatorX::_revoke_memory(RuntimeState* state) {
@@ -786,7 +823,7 @@ Status PartitionedHashJoinProbeOperatorX::_revoke_memory(RuntimeState* state) {
 bool PartitionedHashJoinProbeOperatorX::_should_revoke_memory(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
     if (local_state._shared_state->need_to_spill) {
-        const auto revocable_size = revocable_mem_size(state);
+        const auto revocable_size = _revocable_mem_size(state);
         const auto min_revocable_size = state->min_revocable_mem();
         return revocable_size > min_revocable_size;
     }

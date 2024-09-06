@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/spill_utils.h"
+#include "pipeline/pipeline_task.h"
 #include "runtime/fragment_mgr.h"
 #include "util/runtime_profile.h"
 #include "vec/spill/spill_stream_manager.h"
@@ -38,6 +39,10 @@ Status PartitionedAggLocalState::init(RuntimeState* state, LocalStateInfo& info)
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     _init_counters();
+    _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                  "AggSourceSpillDependency", true);
+    state->get_task()->add_spill_dependency(_spill_dependency.get());
+
     return Status::OK();
 }
 
@@ -48,8 +53,6 @@ Status PartitionedAggLocalState::open(RuntimeState* state) {
         return Status::OK();
     }
     _opened = true;
-    _spill_dependency = state->get_spill_dependency();
-    DCHECK(_spill_dependency != nullptr);
     RETURN_IF_ERROR(setup_in_memory_agg_op(state));
     return Status::OK();
 }
