@@ -52,9 +52,9 @@ Status RepeatOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status RepeatOperatorX::prepare(RuntimeState* state) {
-    VLOG_CRITICAL << "VRepeatNode::prepare";
-    RETURN_IF_ERROR(OperatorXBase::prepare(state));
+Status RepeatOperatorX::open(RuntimeState* state) {
+    VLOG_CRITICAL << "VRepeatNode::open";
+    RETURN_IF_ERROR(OperatorXBase::open(state));
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     if (_output_tuple_desc == nullptr) {
         return Status::InternalError("Failed to get tuple descriptor.");
@@ -63,13 +63,6 @@ Status RepeatOperatorX::prepare(RuntimeState* state) {
     for (const auto& slot_desc : _output_tuple_desc->slots()) {
         _output_slots.push_back(slot_desc);
     }
-
-    return Status::OK();
-}
-
-Status RepeatOperatorX::open(RuntimeState* state) {
-    VLOG_CRITICAL << "VRepeatNode::open";
-    RETURN_IF_ERROR(OperatorXBase::open(state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_expr_ctxs, state));
     return Status::OK();
 }

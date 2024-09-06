@@ -270,9 +270,8 @@ Status TableFunctionOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
     return Status::OK();
 }
 
-Status TableFunctionOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::prepare(state));
-
+Status TableFunctionOperatorX::open(doris::RuntimeState* state) {
+    RETURN_IF_ERROR(Base::open(state));
     for (auto* fn : _fns) {
         RETURN_IF_ERROR(fn->prepare());
     }
@@ -300,11 +299,6 @@ Status TableFunctionOperatorX::prepare(RuntimeState* state) {
         }
     }
 
-    return Status::OK();
-}
-
-Status TableFunctionOperatorX::open(doris::RuntimeState* state) {
-    RETURN_IF_ERROR(Base::open(state));
     return vectorized::VExpr::open(_vfn_ctxs, state);
 }
 
