@@ -122,10 +122,12 @@ public:
 
     vectorized::BlockUPtr get_free_block(bool force);
     void return_free_block(vectorized::BlockUPtr block);
-    inline void inc_free_block_usage(size_t usage) {
-        _free_blocks_memory_usage += usage;
-        _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
-    }
+    inline void inc_block_usage(size_t usage) { _block_memory_usage += usage; }
+
+    // Caller should make sure the pipeline task is still running when calling this function
+    void update_peak_running_scanner(int num);
+    // Caller should make sure the pipeline task is still running when calling this function
+    void update_peak_memory_usage(int64_t usage);
 
     // Get next block from blocks queue. Called by ScanNode/ScanOperator
     // Set eos to true if there is no more data to read.
@@ -223,7 +225,6 @@ protected:
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage_mark = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     QueryThreadContext _query_thread_context;
@@ -231,7 +232,7 @@ protected:
 
     // for scaling up the running scanners
     size_t _estimated_block_size = 0;
-    std::atomic_long _free_blocks_memory_usage = 0;
+    std::atomic_long _block_memory_usage = 0;
     int64_t _last_scale_up_time = 0;
     int64_t _last_fetch_time = 0;
     int64_t _total_wait_block_time = 0;
