@@ -161,7 +161,7 @@ Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Sl
                                         key.offset, key.meta.type);
         Status s = fs->open_file(file, &file_reader);
         if (!s.ok()) {
-            if (key.meta.type != FileCacheType::TTL) {
+            if (!s.is<ErrorCode::NOT_FOUND>() || key.meta.type != FileCacheType::TTL) {
                 return s;
             }
             std::string file_old_format = get_path_in_local_cache_old_ttl_format(
@@ -475,20 +475,6 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.
             if (_mgr->_files.contains(args.hash) && _mgr->_files[args.hash].contains(args.offset)) {
-                /*
-                FileBlockSPtr file_block = _mgr->get_blocks_by_key(args.hash)[args.offset];
-                if (file_block->expiration_time() != args.ctx.expiration_time ||
-                    file_block->cache_type() != args.ctx.cache_type) [[unlikely]] {
-                    LOG(WARNING) << "duplicate hash with different expiration_time or cache_type"
-                                 << " hash=" << args.hash.to_string() << " offset=" << args.offset
-                                 << " existing expiration_time=" << args.ctx.expiration_time
-                                 << " existing cache_type="
-                                 << BlockFileCache::cache_type_to_string(args.ctx.cache_type)
-                                 << " new expiration_time=" << file_block->expiration_time()
-                                 << " new cache_type="
-                                 << BlockFileCache::cache_type_to_string(file_block->cache_type());
-                }
-                 */
                 return;
             }
             // if the file is tmp, it means it is the old file and it should be removed
