@@ -99,6 +99,12 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       @request_headers = make_request_headers
       @logger.info("request headers: ", @request_headers)
 
+      @group_commit = false
+      if http_headers.has_key?("group_commit") && http_headers["group_commit"] != "off_mode"
+         @group_commit = true
+      end
+      @logger.info("group_commit: ", @group_commit)
+
       @init_time = Time.now.to_i # seconds
       @total_bytes = java.util.concurrent.atomic.AtomicLong.new(0)
       @total_rows = java.util.concurrent.atomic.AtomicLong.new(0)
@@ -188,9 +194,11 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       hosts = get_host_addresses()
 
       http_headers = @request_headers.dup
-      http_headers["label"] = label_prefix + "_" + @db + "_" + @table + "_" + Time.now.strftime('%Y%m%d_%H%M%S_%L_' + SecureRandom.uuid)
+      if !@group_commit
+         # only set label if group_commit is off_mode or not set, since lable can not be used with group_commit
+         http_headers["label"] = label_prefix + "_" + @db + "_" + @table + "_" + Time.now.strftime('%Y%m%d_%H%M%S_%L_' + SecureRandom.uuid)
+      end
 
-      # @request_headers["label"] = label_prefix + "_" + @db + "_" + @table + "_" + Time.now.strftime('%Y%m%d%H%M%S_%L')
       req_count = 0
       sleep_for = 1
       while true
