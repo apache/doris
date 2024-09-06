@@ -31,8 +31,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.LogBuilder;
-import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
@@ -647,12 +645,8 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
 
     @Override
     public void onReplayCreate() throws JobException {
-        JobExecutionConfiguration jobConfig = new JobExecutionConfiguration();
-        jobConfig.setExecuteType(JobExecuteType.INSTANT);
-        setJobConfig(jobConfig);
         onRegister();
-        checkJobParams();
-        log.info(new LogBuilder(LogKey.LOAD_JOB, getJobId()).add("msg", "replay create load job").build());
+        super.onReplayCreate();
     }
 
     @Override
@@ -662,8 +656,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         }
         InsertJob insertJob = (InsertJob) replayJob;
         unprotectReadEndOperation(insertJob);
-        log.info(new LogBuilder(LogKey.LOAD_JOB,
-                insertJob.getJobId()).add("operation", insertJob).add("msg", "replay end load job").build());
+        super.onReplayEnd(replayJob);
     }
 
     public int getProgress() {
