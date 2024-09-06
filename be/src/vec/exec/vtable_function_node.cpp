@@ -200,7 +200,7 @@ Status VTableFunctionNode::_get_expanded_block(RuntimeState* state, Block* outpu
 
             DCHECK_LE(1, _fn_num);
             auto repeat_times = _fns[_fn_num - 1]->get_value(
-                    columns[_child_slots.size()],
+                    columns[_child_slots.size() + _fn_num - 1],
                     state->batch_size() - columns[_child_slots.size()]->size());
             _current_row_insert_times += repeat_times;
             for (int i = 0; i < _fn_num - 1; i++) {
