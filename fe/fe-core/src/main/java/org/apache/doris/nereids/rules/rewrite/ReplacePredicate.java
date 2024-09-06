@@ -152,10 +152,10 @@ public class ReplacePredicate {
         }
     }
 
-    // replaceToThis: find all predicates that replaceToThis can deduce (e.g. replaceToThis = b)
-    // equalSet: the equivalent set of replaceToThis (e.g. equalSet: a=b)
-    // exprPredicates: expression and all its corresponding predicates (e.g. such as {a: [a<10, a>1], b: [b in (1, 2)]})
-    // return: all predicates that replaceToThis can deduce (return b<10, b>1)
+    /* replaceToThis: find all predicates that replaceToThis can deduce (e.g. replaceToThis = b)
+     equalSet: the equivalent set of replaceToThis (e.g. equalSet: a=b)
+     exprPredicates: expression and all its corresponding predicates (e.g. such as {a: [a<10, a>1], b: [b in (1, 2)]})
+     return: all predicates that replaceToThis can deduce (return b<10, b>1) */
     private static <T extends Expression> Set<Expression> getEqualSetAndDoReplace(T replaceToThis, Set<T> equalSet,
             Map<? extends Expression, Set<Expression>> exprPredicates) {
         ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of()), null, false, false);
@@ -174,12 +174,12 @@ public class ReplacePredicate {
         return res;
     }
 
-    // Extract the equivalence relationship a=b, and when case (d_tinyint as int)=d_int is encountered,
-    // remove the cast and extract d_tinyint=d_int
-    // EqualPairs is the output parameter and the equivalent pair of predicate derivation input,
-    // which is used to ensure that the derivation
-    // does not generate repeated equivalent conditions, such as a=b and b=a
-    private static <T extends Expression> AbstractEqualSet<Expression> findEqual(Set<Expression> inputs,
+    /* Extract the equivalence relationship a=b, and when case (d_tinyint as int)=d_int is encountered,
+    remove the cast and extract d_tinyint=d_int
+    EqualPairs is the output parameter and the equivalent pair of predicate derivation input,
+    which is used to ensure that the derivation
+    does not generate repeated equivalent conditions, such as a=b and b=a */
+    private static AbstractEqualSet<Expression> findEqual(Set<Expression> inputs,
             Set<Pair<Expression, Expression>> equalPairs) {
         AbstractEqualSet.Builder<Expression> fromCastEqualSetBuilder = new ImmutableEqualSet.Builder<>();
         for (Expression input : inputs) {
@@ -212,7 +212,7 @@ public class ReplacePredicate {
 
     /** This is the exposed interface. Inputs are the input predicates for derivation.
      * The return value is the derived predicates*/
-    public static <T extends Expression> Set<Expression> infer(Set<Expression> inputs) {
+    public static Set<Expression> infer(Set<Expression> inputs) {
         Set<Pair<Expression, Expression>> equalPairsInput = new HashSet<>();
         AbstractEqualSet<Expression> hasCastEqualSet = findEqual(inputs, equalPairsInput);
         Set<Expression> targetExprs = hasCastEqualSet.getAllItemSet();
@@ -272,6 +272,7 @@ public class ReplacePredicate {
             return Optional.empty();
         }
         return Optional.of(Pair.of(left.get(), right.get()));
+
     }
 
     private static Optional<Expression> validForInfer(Expression expression, InferType inferType) {
@@ -318,8 +319,8 @@ public class ReplacePredicate {
         return Optional.empty();
     }
 
-    // This function is used to input a=b b=c to derive a=c, and return a=b b=c a=c.
-    // This function is not called temporarily
+    /* This function is used to input a=b b=c to derive a=c, and return a=b b=c a=c.
+     This function is not called temporarily */
     private static Set<Expression> deduceTransitiveEquality(AbstractEqualSet<Expression> equalSet,
             Set<Pair<Expression, Expression>> equalPairsInput) {
         List<Set<Expression>> equalSetList = equalSet.calEqualSetList();
