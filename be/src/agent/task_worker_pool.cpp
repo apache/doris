@@ -93,6 +93,7 @@
 #include "util/threadpool.h"
 #include "util/time.h"
 #include "util/trace.h"
+#include "vec/sink/autoinc_buffer.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -2076,4 +2077,9 @@ void clean_udf_cache_callback(const TAgentTaskRequest& req) {
     }
 }
 
+void clear_auto_inc_cache(const TAgentTaskRequest& req) {
+    const auto& clear_auto_inc_cache_req = req.clear_auto_inc_cache_req;
+    vectorized::GlobalAutoIncBuffers::GetInstance()->clear_cache(clear_auto_inc_cache_req.db_id,
+                                                                 clear_auto_inc_cache_req.table_id);
+}
 } // namespace doris

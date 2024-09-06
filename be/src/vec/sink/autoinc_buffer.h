@@ -62,6 +62,7 @@ public:
     AutoIncIDBuffer(int64_t _db_id, int64_t _table_id, int64_t column_id);
     void set_batch_size_at_least(size_t batch_size);
     Status sync_request_ids(size_t request_length, std::vector<std::pair<int64_t, size_t>>* result);
+    void clear();
 
     struct AutoIncRange {
         int64_t start;
@@ -138,6 +139,15 @@ public:
             _buffers.emplace(key, AutoIncIDBuffer::create_shared(db_id, table_id, column_id));
         }
         return _buffers[{db_id, table_id, column_id}];
+    }
+
+    void clear_cache(int64_t db_id, int64_t table_id) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        auto it = _buffers.lower_bound({db_id, table_id, -1});
+        if (it != _buffers.end() && std::get<0>(it->first) == db_id &&
+            std::get<1>(it->first) == table_id) {
+            it->second->clear();
+        }
     }
 
 private:
