@@ -44,6 +44,9 @@ Status Decompressor::create_decompressor(CompressType type,
     case CompressType::BZIP2:
         decompressor->reset(new Bzip2Decompressor());
         break;
+    case CompressType::ZSTD:
+        decompressor->reset(new ZstdDecompressor());
+        break;
     case CompressType::LZ4FRAME:
         decompressor->reset(new Lz4FrameDecompressor());
         break;
@@ -85,6 +88,9 @@ Status Decompressor::create_decompressor(TFileCompressType::type type,
         break;
     case TFileCompressType::BZ2:
         compress_type = CompressType::BZIP2;
+        break;
+    case TFileCompressType::ZSTD:
+        compress_type = CompressType::ZSTD;
         break;
     case TFileCompressType::LZ4FRAME:
         compress_type = CompressType::LZ4FRAME;
@@ -297,6 +303,50 @@ Status Bzip2Decompressor::decompress(uint8_t* input, size_t input_len, size_t* i
 std::string Bzip2Decompressor::debug_info() {
     std::stringstream ss;
     ss << "Bzip2Decompressor.";
+    return ss.str();
+}
+
+ZstdDecompressor::~ZstdDecompressor() {
+    ZSTD_freeDStream(_zstd_strm);
+}
+
+Status ZstdDecompressor::init() {
+    _zstd_strm = ZSTD_createDStream();
+    if (!_zstd_strm) {
+        std::stringstream ss;
+        return Status::InternalError("ZSTD_dctx creation error");
+    }
+    auto ret = ZSTD_initDStream(_zstd_strm);
+    if (ZSTD_isError(ret)) {
+        return Status::InternalError("ZSTD_initDStream error: {}", ZSTD_getErrorName(ret));
+    }
+    return Status::OK();
+}
+
+Status ZstdDecompressor::decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
+                                    uint8_t* output, size_t output_max_len,
+                                    size_t* decompressed_len, bool* stream_end,
+                                    size_t* more_input_bytes, size_t* more_output_bytes) {
+    // 1. set input and output
+    ZSTD_inBuffer inputBuffer = {input, input_len, 0};
+    ZSTD_outBuffer outputBuffer = {output, output_max_len, 0};
+
+    // decompress
+    int ret = ZSTD_decompressStream(_zstd_strm, &outputBuffer, &inputBuffer);
+    *input_bytes_read = inputBuffer.pos;
+    *decompressed_len = outputBuffer.pos;
+
+    if (ZSTD_isError(ret)) {
+        return Status::InternalError("Failed to zstd decompress: {}", ZSTD_getErrorName(ret));
+    }
+
+    *stream_end = ret == 0;
+    return Status::OK();
+}
+
+std::string ZstdDecompressor::debug_info() {
+    std::stringstream ss;
+    ss << "ZstdDecompressor.";
     return ss.str();
 }
 
