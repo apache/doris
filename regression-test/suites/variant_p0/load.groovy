@@ -426,6 +426,11 @@ suite("regression_test_variant", "p0"){
             exception("errCode = 2, detailMessage = Variant type should not be used in key")
         }
 
+        test {
+            sql """select * from ghdata where cast(v['actor']['url'] as ipv4) = '127.0.0.1'""" 
+            exception("Invalid type for variant column: 36")
+        }
+
     } finally {
         // reset flags
     }
