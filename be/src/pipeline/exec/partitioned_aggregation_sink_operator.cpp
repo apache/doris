@@ -22,7 +22,9 @@
 
 #include "aggregation_sink_operator.h"
 #include "common/status.h"
+#include "pipeline/dependency.h"
 #include "pipeline/exec/spill_utils.h"
+#include "pipeline/pipeline_task.h"
 #include "runtime/fragment_mgr.h"
 #include "vec/spill/spill_stream_manager.h"
 
@@ -57,6 +59,10 @@ Status PartitionedAggSinkLocalState::init(doris::RuntimeState* state,
         value_data_types_.emplace_back(aggregate_evaluator->function()->get_serialized_type());
         value_columns_.emplace_back(aggregate_evaluator->function()->create_serialize_column());
     }
+
+    _spill_dependency = Dependency::create_shared(parent.operator_id(), parent.node_id(),
+                                                  "AggSinkSpillDependency", true);
+    state->get_task()->add_spill_dependency(_spill_dependency.get());
 
     _finish_dependency->block();
     return Status::OK();

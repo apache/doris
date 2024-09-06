@@ -141,7 +141,10 @@ public:
         if (!_finalized) {
             _execution_dep->set_always_ready();
             _memory_sufficient_dependency->set_always_ready();
-            _spill_dependency->set_always_ready();
+            for (auto* dep : _spill_dependencies) {
+                dep->set_always_ready();
+            }
+
             for (auto* dep : _filter_dependencies) {
                 dep->set_always_ready();
             }
@@ -198,7 +201,14 @@ public:
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
 
     bool is_running() { return _running.load(); }
-    bool is_revoking() { return _spill_dependency->is_blocked_by(nullptr) != nullptr; }
+    bool is_revoking() {
+        for (auto* dep : _spill_dependencies) {
+            if (dep->is_blocked_by(nullptr) != nullptr) {
+                return true;
+            }
+        }
+        return false;
+    }
     bool set_running(bool running) { return _running.exchange(running); }
 
     bool is_exceed_debug_timeout() {
@@ -239,6 +249,10 @@ public:
 
     [[nodiscard]] size_t get_revocable_size() const;
     [[nodiscard]] Status revoke_memory();
+
+    void add_spill_dependency(Dependency* dependency) {
+        _spill_dependencies.emplace_back(dependency);
+    }
 
 private:
     friend class RuntimeFilterDependency;
@@ -298,6 +312,7 @@ private:
 
     // `_read_dependencies` is stored as same order as `_operators`
     std::vector<std::vector<Dependency*>> _read_dependencies;
+    std::vector<Dependency*> _spill_dependencies;
     std::vector<Dependency*> _write_dependencies;
     std::vector<Dependency*> _finish_dependencies;
     std::vector<Dependency*> _filter_dependencies;
@@ -316,8 +331,6 @@ private:
     Dependency* _execution_dep = nullptr;
 
     Dependency* _memory_sufficient_dependency = nullptr;
-
-    std::shared_ptr<Dependency> _spill_dependency;
 
     std::atomic<bool> _finalized {false};
     std::mutex _dependency_lock;

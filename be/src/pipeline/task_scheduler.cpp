@@ -331,26 +331,30 @@ void TaskScheduler::_paused_queries_handler() {
                     bool new_is_high_wartermark = false;
                     const auto query_id = print_id(max_memory_usage_query->query_id());
                     wg->check_mem_used(&new_is_low_wartermark, &new_is_high_wartermark);
-                    if (!new_is_low_wartermark || it_to_remove->elapsed_time() < 2000) {
-                        LOG(INFO) << "memory insufficient and cannot find revocable query, "
-                                     "the max usage query: "
-                                  << query_id << ", usage: " << max_memory_usage
-                                  << ", elapsed: " << it_to_remove->elapsed_time()
-                                  << ", wg info: " << wg->debug_string();
-                        continue;
-                    }
+                    if (new_is_high_wartermark) {
+                        if (it_to_remove->elapsed_time() < 2000) {
+                            LOG(INFO) << "memory insufficient and cannot find revocable query, "
+                                         "the max usage query: "
+                                      << query_id << ", usage: " << max_memory_usage
+                                      << ", elapsed: " << it_to_remove->elapsed_time()
+                                      << ", wg info: " << wg->debug_string();
+                            continue;
+                        }
+                        max_memory_usage_query->cancel(Status::InternalError(
+                                "memory insufficient and cannot find revocable query, cancel "
+                                "the "
+                                "biggest usage({}) query({})",
+                                max_memory_usage, query_id));
+                        queries_list.erase(it_to_remove);
 
-                    LOG(INFO) << "memory insufficient and cannot find revocable query, "
-                                 "cancel "
-                                 "the query: "
-                              << query_id << ", usage: " << max_memory_usage
-                              << ", wg info: " << wg->debug_string();
-                    // Should use memory exceed error code, so that FE may do retry for this error
-                    max_memory_usage_query->cancel(Status::MemoryLimitExceeded(
-                            "memory insufficient and cannot find revocable query, cancel "
-                            "the "
-                            "biggest usage({}) query({})",
-                            max_memory_usage, query_id));
+                    } else {
+                        LOG(INFO) << "non high water mark, resume "
+                                     "the query: "
+                                  << query_id << ", usage: " << max_memory_usage
+                                  << ", wg info: " << wg->debug_string();
+                        max_memory_usage_query->set_memory_sufficient(true);
+                        queries_list.erase(it_to_remove);
+                    }
                 }
             }
         }

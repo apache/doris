@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "pipeline/exec/spill_utils.h"
+#include "pipeline/pipeline_task.h"
 #include "runtime/fragment_mgr.h"
 #include "sort_source_operator.h"
 #include "util/runtime_profile.h"
@@ -37,6 +38,11 @@ Status SpillSortLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
+
+    _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                  "SortSourceSpillDependency", true);
+    state->get_task()->add_spill_dependency(_spill_dependency.get());
+
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
     _spill_timer = ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillMergeSortTime", "Spill", 1);
     _spill_merge_sort_timer =
@@ -60,9 +66,6 @@ Status SpillSortLocalState::open(RuntimeState* state) {
     if (_opened) {
         return Status::OK();
     }
-
-    _spill_dependency = state->get_spill_dependency();
-    DCHECK(_spill_dependency != nullptr);
 
     RETURN_IF_ERROR(setup_in_memory_sort_op(state));
     return Base::open(state);

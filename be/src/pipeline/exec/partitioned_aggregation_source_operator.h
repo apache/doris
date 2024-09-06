@@ -59,7 +59,7 @@ protected:
     bool _current_partition_eos = true;
     bool _is_merging = false;
 
-    Dependency* _spill_dependency {nullptr};
+    std::shared_ptr<Dependency> _spill_dependency;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
     RuntimeProfile::Counter* _get_results_timer = nullptr;
