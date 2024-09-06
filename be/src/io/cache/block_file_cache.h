@@ -40,6 +40,7 @@ class FSFileCacheStorage;
 // The current strategies are lru and ttl.
 class BlockFileCache {
     friend class FSFileCacheStorage;
+    friend class MemFileCacheStorage;
     friend class FileBlock;
     friend struct FileBlocksHolder;
 

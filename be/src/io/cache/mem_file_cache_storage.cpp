@@ -34,6 +34,7 @@ MemFileCacheStorage::~MemFileCacheStorage() {}
 
 Status MemFileCacheStorage::init(BlockFileCache* _mgr) {
     LOG_INFO("init in-memory file cache storage");
+    _mgr->_lazy_open_done = true; // no data to load for memory storage
     return Status::OK();
 }
 

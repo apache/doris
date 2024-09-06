@@ -1031,6 +1031,7 @@ void test_file_cache_memory_storage(io::FileCacheType cache_type) {
     //                   0          9  17   20       24  26 27   30 31
     {
         /// Test LRUCache::restore().
+        // storage will restore nothing
 
         io::BlockFileCache cache2(cache_base_path, settings);
         ASSERT_TRUE(cache2.initialize().ok());
@@ -1043,16 +1044,7 @@ void test_file_cache_memory_storage(io::FileCacheType cache_type) {
         auto holder1 = cache2.get_or_set(key, 2, 28, context); /// Get [2, 29]
 
         auto blocks1 = fromHolder(holder1);
-        ASSERT_EQ(blocks1.size(), 10);
-
-        assert_range(44, blocks1[0], io::FileBlock::Range(0, 9), io::FileBlock::State::DOWNLOADED);
-        assert_range(45, blocks1[1], io::FileBlock::Range(10, 14), io::FileBlock::State::EMPTY);
-        assert_range(45, blocks1[2], io::FileBlock::Range(15, 16),
-                     io::FileBlock::State::DOWNLOADED);
-        assert_range(46, blocks1[3], io::FileBlock::Range(17, 20),
-                     io::FileBlock::State::DOWNLOADED);
-        assert_range(47, blocks1[4], io::FileBlock::Range(21, 21),
-                     io::FileBlock::State::DOWNLOADED);
+        ASSERT_EQ(blocks1.size(), 1);
     }
 }
 
@@ -1524,6 +1516,7 @@ TEST_F(BlockFileCacheTest, change_cache_type_memory_storage) {
     settings.max_file_block_size = 10;
     settings.max_query_cache_size = 15;
     settings.capacity = 30;
+    settings.storage = "memory";
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
