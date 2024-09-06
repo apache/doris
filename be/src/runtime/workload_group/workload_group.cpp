@@ -438,7 +438,7 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
                 _cgroup_cpu_ctl = std::move(cgroup_cpu_ctl);
                 LOG(INFO) << "[upsert wg thread pool] cgroup init success, wg_id=" << tg_id;
             } else {
-                LOG(INFO) << "[upsert wg thread pool] cgroup init failed, wg_id= " << tg_id
+                LOG(INFO) << "[upsert wg thread pool] cgroup init failed, wg_id=" << tg_id
                           << ", reason=" << ret.to_string();
             }
         } else {
