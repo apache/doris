@@ -1261,7 +1261,7 @@ public class ConnectContext {
             choseWay = "default cluster";
         } else {
             CloudClusterResult cloudClusterTypeAndName = getCloudClusterByPolicy();
-            if (!Strings.isNullOrEmpty(cloudClusterTypeAndName.clusterName)) {
+            if (cloudClusterTypeAndName != null && !Strings.isNullOrEmpty(cloudClusterTypeAndName.clusterName)) {
                 cluster = cloudClusterTypeAndName.clusterName;
                 choseWay = "authorized cluster";
             }
