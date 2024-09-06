@@ -28,6 +28,10 @@ suite("test_backup_restore_atomic", "backup_restore") {
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql "CREATE DATABASE IF NOT EXISTS ${dbName1}"
 
+    // 1. restore to not exists table_0
+    // 2. restore partial data to table_1
+    // 3. restore less data to table_2
+    // 4. restore incremental data to table_3
     int numTables = 4;
     List<String> tables = []
     for (int i = 0; i < numTables; ++i) {
@@ -58,21 +62,46 @@ suite("test_backup_restore_atomic", "backup_restore") {
             """
     }
 
+    // 5. the len of table name equals to the config table_name_length_limit
+    def maxLabelLen = getFeConfig("table_name_length_limit").toInteger()
+    def maxTableName = "".padRight(maxLabelLen, "x")
+    logger.info("config table_name_length_limit = ${maxLabelLen}, table name = ${maxTableName}")
+    sql "DROP TABLE IF EXISTS ${dbName}.${maxTableName}"
+    sql """
+        CREATE TABLE ${dbName}.${maxTableName} (
+            `id` LARGEINT NOT NULL,
+            `count` LARGEINT SUM DEFAULT "0"
+        )
+        AGGREGATE KEY(`id`)
+        PARTITION BY RANGE(`id`)
+        (
+            PARTITION p1 VALUES LESS THAN ("10"),
+            PARTITION p2 VALUES LESS THAN ("20"),
+            PARTITION p3 VALUES LESS THAN ("30"),
+            PARTITION p4 VALUES LESS THAN ("40"),
+            PARTITION p5 VALUES LESS THAN ("50"),
+            PARTITION p6 VALUES LESS THAN ("60"),
+            PARTITION p7 VALUES LESS THAN ("120")
+        )
+        DISTRIBUTED BY HASH(`id`) BUCKETS 2
+        PROPERTIES
+        (
+            "replication_num" = "1"
+        )
+        """
+    tables.add(maxTableName)
+
     int numRows = 10;
     List<String> values = []
     for (int j = 1; j <= numRows; ++j) {
         values.add("(${j}0, ${j}0)")
     }
 
-    // 1. restore to not exists table_0
-    // 2. restore partial data to table_1
-    // 3. restore less data to table_2
-    // 4. restore incremental data to table_3
-
     sql "INSERT INTO ${dbName}.${tableNamePrefix}_0 VALUES ${values.join(",")}"
     sql "INSERT INTO ${dbName}.${tableNamePrefix}_1 VALUES ${values.join(",")}"
     sql "INSERT INTO ${dbName}.${tableNamePrefix}_2 VALUES ${values.join(",")}"
     sql "INSERT INTO ${dbName}.${tableNamePrefix}_3 VALUES ${values.join(",")}"
+    sql "INSERT INTO ${dbName}.${maxTableName} VALUES ${values.join(",")}"
 
     // the other partitions of table_1 will be drop
     sql """
@@ -82,7 +111,8 @@ suite("test_backup_restore_atomic", "backup_restore") {
             ${tableNamePrefix}_0,
             ${tableNamePrefix}_1 PARTITION (p1, p2, p3),
             ${tableNamePrefix}_2,
-            ${tableNamePrefix}_3
+            ${tableNamePrefix}_3,
+            ${maxTableName}
         )
     """
 
