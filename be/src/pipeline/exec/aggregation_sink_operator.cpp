@@ -769,7 +769,8 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status AggSinkOperatorX::prepare(RuntimeState* state) {
+Status AggSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<AggSinkLocalState>::open(state));
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
@@ -824,10 +825,6 @@ Status AggSinkOperatorX::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(vectorized::AggFnEvaluator::check_agg_fn_output(
                 _probe_expr_ctxs.size(), _aggregate_evaluators, _agg_fn_output_row_descriptor));
     }
-    return Status::OK();
-}
-
-Status AggSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(vectorized::VExpr::open(_probe_expr_ctxs, state));
 
     for (auto& _aggregate_evaluator : _aggregate_evaluators) {
