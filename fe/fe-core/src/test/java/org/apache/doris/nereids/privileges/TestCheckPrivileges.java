@@ -26,7 +26,6 @@ import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.test.TestExternalCatalog.TestCatalogProvider;
-import org.apache.doris.mysql.privilege.AccessControllerFactory;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
@@ -92,7 +91,7 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
         String catalogProvider
                 = "org.apache.doris.nereids.privileges.TestCheckPrivileges$CustomCatalogProvider";
         String accessControllerFactory
-                = "org.apache.doris.nereids.privileges.TestCheckPrivileges$CustomAccessControllerFactory";
+                = "org.apache.doris.nereids.privileges.CustomAccessControllerFactory";
 
         String catalog = "custom_catalog";
         String db = "test_db";
@@ -311,13 +310,6 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
         @Override
         public Map<String, Map<String, List<Column>>> getMetadata() {
             return CATALOG_META;
-        }
-    }
-
-    public static class CustomAccessControllerFactory implements AccessControllerFactory {
-        @Override
-        public CatalogAccessController createAccessController(Map<String, String> prop) {
-            return new SimpleCatalogAccessController();
         }
     }
 

@@ -1,0 +1,2 @@
+org.apache.doris.mysql.privilege.RangerDorisAccessControllerFactory
+org.apache.doris.catalog.authorizer.ranger.hive.RangerHiveAccessControllerFactory
