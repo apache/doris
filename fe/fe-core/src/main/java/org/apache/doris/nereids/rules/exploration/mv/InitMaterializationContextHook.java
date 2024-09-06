@@ -131,8 +131,8 @@ public class InitMaterializationContextHook implements PlannerHook {
             Set<TableIf> usedTables) {
         Set<MTMV> availableMTMVs = getAvailableMTMVs(usedTables, cascadesContext);
         if (availableMTMVs.isEmpty()) {
-            LOG.debug(String.format("Enable materialized view rewrite but availableMTMVs is empty, current queryId "
-                    + "is %s", cascadesContext.getConnectContext().getQueryIdentifier()));
+            LOG.debug("Enable materialized view rewrite but availableMTMVs is empty, current queryId "
+                    + "is {}", cascadesContext.getConnectContext().getQueryIdentifier());
             return ImmutableList.of();
         }
         List<MaterializationContext> asyncMaterializationContext = new ArrayList<>();
@@ -145,9 +145,8 @@ public class InitMaterializationContextHook implements PlannerHook {
                 String usedForRewrite = materializedView.getMvProperties().get(
                         PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE);
                 if (!StringUtils.isEmpty(usedForRewrite) && !Boolean.parseBoolean(usedForRewrite)) {
-                    LOG.debug(String.format("mv doesn't part in query rewrite process because "
-                            + "use_for_rewrite is false, mv is %s",
-                            materializedView.getName()));
+                    LOG.debug("mv doesn't part in query rewrite process because "
+                            + "use_for_rewrite is false, mv is {}", materializedView.getName());
                     continue;
                 }
                 if (mtmvCache == null) {
