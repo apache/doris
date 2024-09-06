@@ -649,16 +649,6 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         super.onReplayCreate();
     }
 
-    @Override
-    public void onReplayEnd(AbstractJob<?, Map<Object, Object>> replayJob) throws JobException {
-        if (!(replayJob instanceof InsertJob)) {
-            return;
-        }
-        InsertJob insertJob = (InsertJob) replayJob;
-        unprotectReadEndOperation(insertJob);
-        super.onReplayEnd(replayJob);
-    }
-
     public int getProgress() {
         return progress;
     }
