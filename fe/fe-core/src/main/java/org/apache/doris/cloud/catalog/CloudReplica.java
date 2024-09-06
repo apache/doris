@@ -214,35 +214,47 @@ public class CloudReplica extends Replica {
             }
         }
 
-        if (primaryClusterToBackends.containsKey(clusterId)) {
-            long backendId = primaryClusterToBackends.get(clusterId).get(0);
-            Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
-            if (be != null && be.isQueryAvailable()) {
-                // be normal
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("backendId={} ", backendId);
-                }
-                return backendId;
-            }
-            // be abnormal but use secondary
-            if (!Config.enable_immediate_be_assign && be != null) {
-                Long secondaryBe = -1L;
-                if (!secondaryClusterToBackends.containsKey(clusterId)) {
-                    secondaryBe = hashReplicaToBe(clusterId, false);
-                    updateClusterToBe(clusterId, secondaryBe, false);
-                } else {
-                    secondaryBe = secondaryClusterToBackends.get(clusterId).get(0);
-                }
-                return secondaryBe;
+        // use primaryClusterToBackends, if find be normal
+        long pickBeId = getAvaliableBeId(clusterId, primaryClusterToBackends);
+        if (pickBeId != -1) {
+            return pickBeId;
+        }
+
+        if (!Config.enable_immediate_be_assign) {
+            // use secondaryClusterToBackends, if find be normal
+            pickBeId = getAvaliableBeId(clusterId, secondaryClusterToBackends);
+            if (pickBeId != -1) {
+                return pickBeId;
             }
         }
+
         if (DebugPointUtil.isEnable("CloudReplica.getBackendIdImpl.primaryClusterToBackends")) {
             LOG.info("Debug Point enable CloudReplica.getBackendIdImpl.primaryClusterToBackends");
             return -1;
         }
-        long pickBeId = hashReplicaToBe(clusterId, false);
-        updateClusterToBe(clusterId, pickBeId, false);
+
+        // be abnormal, rehash it. configure settings to different maps
+        pickBeId = hashReplicaToBe(clusterId, false);
+        updateClusterToBe(clusterId, pickBeId, Config.enable_immediate_be_assign);
         return pickBeId;
+    }
+
+    private long getAvaliableBeId(String clusterId, Map<String, List<Long>> clusterToBackends) {
+        List<Long> backendIds = clusterToBackends.get(clusterId);
+        if (backendIds == null || backendIds.isEmpty()) {
+            return -1;
+        }
+
+        long backendId = backendIds.get(0);
+        Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
+        if (be != null && be.isQueryAvailable()) {
+            // be normal
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("backendId={} ", backendId);
+            }
+            return backendId;
+        }
+        return -1;
     }
 
     public long hashReplicaToBe(String clusterId, boolean isBackGround) {
@@ -420,7 +432,7 @@ public class CloudReplica extends Replica {
         // write lock
         List<Long> bes = new ArrayList<Long>();
         bes.add(beId);
-        if (isUpdatePrimary || Config.enable_immediate_be_assign) {
+        if (isUpdatePrimary) {
             primaryClusterToBackends.put(cluster, bes);
         } else {
             secondaryClusterToBackends.put(cluster, bes);
