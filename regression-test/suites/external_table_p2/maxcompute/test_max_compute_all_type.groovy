@@ -320,7 +320,7 @@ suite("test_max_compute_all_type", "p0,external,doris,external_docker,external_d
         String mc_catalog_name = "test_max_compute_all_type"
         sql """drop catalog if exists ${mc_catalog_name} """
         
-        String defaultProject = "mc_datalake" 
+        String defaultProject = "jz_datalake" 
         sql """
         CREATE CATALOG IF NOT EXISTS ${mc_catalog_name} PROPERTIES (
                 "type" = "max_compute",
@@ -335,7 +335,7 @@ suite("test_max_compute_all_type", "p0,external,doris,external_docker,external_d
         logger.info("catalog " + mc_catalog_name + " created")
         sql """switch ${mc_catalog_name};"""
         logger.info("switched to catalog " + mc_catalog_name)
-        qt_show_db """ show databases; """
+        sql """ show databases; """
         sql """ use ${defaultProject} """
 
         String table_name = "mc_all_types"

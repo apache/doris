@@ -155,6 +155,11 @@ public class MaxComputeExternalTable extends ExternalTable {
         }
 
         List<com.aliyun.odps.Column> partitionColumns = odpsTable.getSchema().getPartitionColumns();
+
+        for (com.aliyun.odps.Column partitionColumn : partitionColumns) {
+            columnNameToOdpsColumn.put(partitionColumn.getName(), partitionColumn);
+        }
+
         List<String> partitionSpecs;
         if (!partitionColumns.isEmpty()) {
             partitionSpecs = odpsTable.getPartitions().stream()

@@ -26,7 +26,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -115,21 +114,26 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
 
         List<String> requiredPartitionColumns = new ArrayList<>();
-        List<String> requiredDataColumns = new ArrayList<>();
+        List<String> orderedRequiredDataColumns = new ArrayList<>();
 
-        ArrayList<SlotDescriptor> requiredSlots = desc.getSlots();
+        Set<String> requiredSlots =
+                desc.getSlots().stream().map(e -> e.getColumn().getName()).collect(Collectors.toSet());
+
         Set<String> partitionColumns =
                 table.getPartitionColumns().stream().map(Column::getName).collect(Collectors.toSet());
-        Set<String> columnNames =
-                table.getColumns().stream().map(Column::getName).collect(Collectors.toSet());
-        for (SlotDescriptor slot  : requiredSlots) {
-            String slotName = slot.getColumn().getName();
-            if (partitionColumns.contains(slotName)) {
-                requiredPartitionColumns.add(slotName);
-            } else if (columnNames.contains(slotName)) {
-                requiredDataColumns.add(slotName);
+
+        for (Column column : table.getColumns()) {
+            String columnName =  column.getName();
+            if (!requiredSlots.contains(columnName)) {
+                continue;
+            }
+            if (partitionColumns.contains(columnName)) {
+                requiredPartitionColumns.add(columnName);
+            } else {
+                orderedRequiredDataColumns.add(columnName);
             }
         }
+
 
 
         MaxComputeExternalCatalog mcCatalog = (MaxComputeExternalCatalog) table.getCatalog();
@@ -141,7 +145,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                             .withSettings(mcCatalog.getSettings())
                             .withSplitOptions(mcCatalog.getSplitOption())
                             .requiredPartitionColumns(requiredPartitionColumns)
-                            .requiredDataColumns(requiredDataColumns)
+                            .requiredDataColumns(orderedRequiredDataColumns)
                             .withArrowOptions(
                                     ArrowOptions.newBuilder()
                                             .withDatetimeUnit(TimestampUnit.MILLI)
