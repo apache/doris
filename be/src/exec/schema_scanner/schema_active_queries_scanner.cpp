@@ -17,6 +17,7 @@
 
 #include "exec/schema_scanner/schema_active_queries_scanner.h"
 
+#include "exec/schema_scanner/schema_scanner_helper.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -98,41 +99,29 @@ Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
         }
     }
 
-    // todo(wb) reuse this callback function
-    auto insert_string_value = [&](int col_index, std::string str_val, vectorized::Block* block) {
-        vectorized::MutableColumnPtr mutable_col_ptr;
-        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-        auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
-        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_val.data(),
-                                                                          str_val.size());
-        nullable_column->get_null_map_data().emplace_back(0);
-    };
-    auto insert_int_value = [&](int col_index, int64_t int_val, vectorized::Block* block) {
-        vectorized::MutableColumnPtr mutable_col_ptr;
-        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-        auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
-        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(
-                int_val);
-        nullable_column->get_null_map_data().emplace_back(0);
-    };
-
     for (int i = 0; i < result_data.size(); i++) {
         TRow row = result_data[i];
 
-        insert_string_value(0, row.column_value[0].stringVal, _active_query_block.get());
-        insert_string_value(1, row.column_value[1].stringVal, _active_query_block.get());
-        insert_int_value(2, row.column_value[2].longVal, _active_query_block.get());
-        insert_int_value(3, row.column_value[3].longVal, _active_query_block.get());
-        insert_string_value(4, row.column_value[4].stringVal, _active_query_block.get());
-        insert_string_value(5, row.column_value[5].stringVal, _active_query_block.get());
-        insert_string_value(6, row.column_value[6].stringVal, _active_query_block.get());
-        insert_string_value(7, row.column_value[7].stringVal, _active_query_block.get());
-        insert_string_value(8, row.column_value[8].stringVal, _active_query_block.get());
-        insert_string_value(9, row.column_value[9].stringVal, _active_query_block.get());
+        SchemaScannerHelper::insert_string_value(0, row.column_value[0].stringVal,
+                                                 _active_query_block.get());
+        SchemaScannerHelper::insert_string_value(1, row.column_value[1].stringVal,
+                                                 _active_query_block.get());
+        SchemaScannerHelper::insert_int_value(2, row.column_value[2].longVal,
+                                              _active_query_block.get());
+        SchemaScannerHelper::insert_int_value(3, row.column_value[3].longVal,
+                                              _active_query_block.get());
+        SchemaScannerHelper::insert_string_value(4, row.column_value[4].stringVal,
+                                                 _active_query_block.get());
+        SchemaScannerHelper::insert_string_value(5, row.column_value[5].stringVal,
+                                                 _active_query_block.get());
+        SchemaScannerHelper::insert_string_value(6, row.column_value[6].stringVal,
+                                                 _active_query_block.get());
+        SchemaScannerHelper::insert_string_value(7, row.column_value[7].stringVal,
+                                                 _active_query_block.get());
+        SchemaScannerHelper::insert_string_value(8, row.column_value[8].stringVal,
+                                                 _active_query_block.get());
+        SchemaScannerHelper::insert_string_value(9, row.column_value[9].stringVal,
+                                                 _active_query_block.get());
     }
     return Status::OK();
 }
