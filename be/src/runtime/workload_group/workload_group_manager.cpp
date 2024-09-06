@@ -22,6 +22,7 @@
 #include <mutex>
 #include <unordered_map>
 
+#include "exec/schema_scanner/schema_scanner_helper.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/workload_group/workload_group.h"
@@ -246,28 +247,6 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
 }
 
 void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
-    auto insert_int_value = [&](int col_index, int64_t int_val, vectorized::Block* block) {
-        vectorized::MutableColumnPtr mutable_col_ptr;
-        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-        auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
-        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(
-                int_val);
-        nullable_column->get_null_map_data().emplace_back(0);
-    };
-
-    auto insert_double_value = [&](int col_index, double double_val, vectorized::Block* block) {
-        vectorized::MutableColumnPtr mutable_col_ptr;
-        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-        auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
-        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Float64>*>(col_ptr)->insert_value(
-                double_val);
-        nullable_column->get_null_map_data().emplace_back(0);
-    };
-
     int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
     int cpu_num = CpuInfo::num_cores();
     cpu_num = cpu_num <= 0 ? 1 : cpu_num;
@@ -276,18 +255,18 @@ void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
     block->reserve(_workload_groups.size());
     for (const auto& [id, wg] : _workload_groups) {
-        insert_int_value(0, be_id, block);
-        insert_int_value(1, wg->id(), block);
-        insert_int_value(2, wg->get_mem_used(), block);
+        SchemaScannerHelper::insert_int_value(0, be_id, block);
+        SchemaScannerHelper::insert_int_value(1, wg->id(), block);
+        SchemaScannerHelper::insert_int_value(2, wg->get_mem_used(), block);
 
         double cpu_usage_p =
                 (double)wg->get_cpu_usage() / (double)total_cpu_time_ns_per_second * 100;
         cpu_usage_p = std::round(cpu_usage_p * 100.0) / 100.0;
 
-        insert_double_value(3, cpu_usage_p, block);
+        SchemaScannerHelper::insert_double_value(3, cpu_usage_p, block);
 
-        insert_int_value(4, wg->get_local_scan_bytes_per_second(), block);
-        insert_int_value(5, wg->get_remote_scan_bytes_per_second(), block);
+        SchemaScannerHelper::insert_int_value(4, wg->get_local_scan_bytes_per_second(), block);
+        SchemaScannerHelper::insert_int_value(5, wg->get_remote_scan_bytes_per_second(), block);
     }
 }
 

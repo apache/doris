@@ -36,6 +36,7 @@ public:
                                       vectorized::Block* block);
 
     static void insert_int_value(int col_index, int64_t int_val, vectorized::Block* block);
+    static void insert_double_value(int col_index, double double_val, vectorized::Block* block);
 };
 
 } // namespace doris
