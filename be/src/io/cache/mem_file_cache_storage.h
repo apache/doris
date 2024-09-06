@@ -27,7 +27,7 @@
 namespace doris::io {
 
 struct MemBlock {
-    std::shared_ptr<char> addr;
+    std::shared_ptr<char[]> addr;
 };
 
 class MemFileCacheStorage : public FileCacheStorage {

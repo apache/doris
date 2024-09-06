@@ -53,7 +53,7 @@ Status MemFileCacheStorage::append(const FileCacheKey& key, const Slice& value) 
     }
     // TODO(zhengyu): allocate in mempool
     auto mem_block =
-            MemBlock {std::shared_ptr<char>(new char[value.size], std::default_delete<char[]>())};
+            MemBlock {std::shared_ptr<char[]>(new char[value.size], std::default_delete<char[]>())};
     DCHECK(mem_block.addr != nullptr);
     _cache_map[map_key] = mem_block;
     char* dst = mem_block.addr.get();
