@@ -453,6 +453,7 @@ typedef std::underlying_type<JsonbType>::type JsonbTypeUnder;
  */
 class JsonbKeyValue {
 public:
+    // now we use sMaxKeyId to represent an empty key
     static const int sMaxKeyId = 65535;
     typedef uint16_t keyid_type;
 

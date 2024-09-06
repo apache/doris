@@ -29,6 +29,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group_manager.h"
 
 namespace doris {
 
@@ -46,7 +47,8 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
             ExecEnv::GetInstance()->fragment_mgr()->get_or_erase_query_ctx_with_lock(
                     _load_id.to_thrift());
     if (query_context != nullptr) {
-        _query_thread_context = {_load_id.to_thrift(), query_context->query_mem_tracker};
+        _query_thread_context = {_load_id.to_thrift(), query_context->query_mem_tracker,
+                                 query_context->workload_group()};
     } else {
         _query_thread_context = {
                 _load_id.to_thrift(),

@@ -627,7 +627,7 @@ public class NodeAction extends RestBaseController {
             } else if ("DROP".equals(action)) {
                 currentSystemInfo.dropBackends(hostInfos);
             } else if ("DECOMMISSION".equals(action)) {
-                ImmutableMap<Long, Backend> backendsInCluster = currentSystemInfo.getAllBackendsMap();
+                ImmutableMap<Long, Backend> backendsInCluster = currentSystemInfo.getAllBackendsByAllCluster();
                 backendsInCluster.forEach((k, v) -> {
                     hostInfos.stream()
                             .filter(h -> v.getHost().equals(h.getHost()) && v.getHeartbeatPort() == h.getPort())

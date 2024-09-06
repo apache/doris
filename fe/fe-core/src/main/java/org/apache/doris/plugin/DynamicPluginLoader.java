@@ -18,6 +18,7 @@
 package org.apache.doris.plugin;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 
 import org.apache.commons.io.FileUtils;
@@ -158,6 +159,10 @@ public class DynamicPluginLoader extends PluginLoader {
      * @throws PluginException
      */
     public void reload() throws IOException, UserException {
+        if (Config.enable_check_compatibility_mode) {
+            return;
+        }
+
         if (Env.isCheckpointThread()) {
             /*
              * No need to reload the plugin when this is a checkpoint thread.

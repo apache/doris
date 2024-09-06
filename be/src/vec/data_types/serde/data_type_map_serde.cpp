@@ -138,7 +138,7 @@ Status DataTypeMapSerDe::deserialize_column_from_hive_text_vector(
     return Status::OK();
 }
 
-void DataTypeMapSerDe::serialize_one_cell_to_hive_text(
+Status DataTypeMapSerDe::serialize_one_cell_to_hive_text(
         const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
         int hive_text_complex_type_delimiter_level) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -163,12 +163,13 @@ void DataTypeMapSerDe::serialize_one_cell_to_hive_text(
         if (i != start) {
             bw.write(collection_delimiter);
         }
-        key_serde->serialize_one_cell_to_hive_text(nested_keys_column, i, bw, options,
-                                                   hive_text_complex_type_delimiter_level + 2);
+        RETURN_IF_ERROR(key_serde->serialize_one_cell_to_hive_text(
+                nested_keys_column, i, bw, options, hive_text_complex_type_delimiter_level + 2));
         bw.write(map_kv_delimiter);
-        value_serde->serialize_one_cell_to_hive_text(nested_values_column, i, bw, options,
-                                                     hive_text_complex_type_delimiter_level + 2);
+        RETURN_IF_ERROR(value_serde->serialize_one_cell_to_hive_text(
+                nested_values_column, i, bw, options, hive_text_complex_type_delimiter_level + 2));
     }
+    return Status::OK();
 }
 
 Status DataTypeMapSerDe::deserialize_column_from_json_vector(IColumn& column,
@@ -397,7 +398,8 @@ void DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Arra
 template <bool is_binary_format>
 Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
                                                 MysqlRowBuffer<is_binary_format>& result,
-                                                int row_idx, bool col_const) const {
+                                                int row_idx, bool col_const,
+                                                const FormatOptions& options) const {
     auto& map_column = assert_cast<const ColumnMap&>(column);
     const IColumn& nested_keys_column = map_column.get_keys();
     const IColumn& nested_values_column = map_column.get_values();
@@ -417,46 +419,44 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
             }
         }
         if (nested_keys_column.is_null_at(j)) {
-            if (0 != result.push_string(NULL_IN_COMPLEX_TYPE.c_str(),
-                                        strlen(NULL_IN_COMPLEX_TYPE.c_str()))) {
+            if (0 != result.push_string(options.null_format, options.null_len)) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
-            if (is_key_string) {
-                if (0 != result.push_string("\"", 1)) {
+            if (is_key_string && options.wrapper_len > 0) {
+                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
-                RETURN_IF_ERROR(
-                        key_serde->write_column_to_mysql(nested_keys_column, result, j, false));
-                if (0 != result.push_string("\"", 1)) {
+                RETURN_IF_ERROR(key_serde->write_column_to_mysql(nested_keys_column, result, j,
+                                                                 false, options));
+                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
             } else {
-                RETURN_IF_ERROR(
-                        key_serde->write_column_to_mysql(nested_keys_column, result, j, false));
+                RETURN_IF_ERROR(key_serde->write_column_to_mysql(nested_keys_column, result, j,
+                                                                 false, options));
             }
         }
-        if (0 != result.push_string(":", 1)) {
+        if (0 != result.push_string(&options.map_key_delim, 1)) {
             return Status::InternalError("pack mysql buffer failed.");
         }
         if (nested_values_column.is_null_at(j)) {
-            if (0 != result.push_string(NULL_IN_COMPLEX_TYPE.c_str(),
-                                        strlen(NULL_IN_COMPLEX_TYPE.c_str()))) {
+            if (0 != result.push_string(options.null_format, options.null_len)) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
-            if (is_val_string) {
-                if (0 != result.push_string("\"", 1)) {
+            if (is_val_string && options.wrapper_len > 0) {
+                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
-                RETURN_IF_ERROR(
-                        value_serde->write_column_to_mysql(nested_values_column, result, j, false));
-                if (0 != result.push_string("\"", 1)) {
+                RETURN_IF_ERROR(value_serde->write_column_to_mysql(nested_values_column, result, j,
+                                                                   false, options));
+                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
             } else {
-                RETURN_IF_ERROR(
-                        value_serde->write_column_to_mysql(nested_values_column, result, j, false));
+                RETURN_IF_ERROR(value_serde->write_column_to_mysql(nested_values_column, result, j,
+                                                                   false, options));
             }
         }
     }
@@ -469,14 +469,14 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
 
 Status DataTypeMapSerDe::write_column_to_mysql(const IColumn& column,
                                                MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                               bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                               bool col_const, const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeMapSerDe::write_column_to_mysql(const IColumn& column,
                                                MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                               bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                               bool col_const, const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,

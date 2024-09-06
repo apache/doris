@@ -27,6 +27,7 @@
 #include "udf/udf.h"
 #include "vec/core/column_numbers.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/functions/function.h"
 
@@ -51,12 +52,7 @@ public:
     Status execute_runtime_fitler(doris::vectorized::VExprContext* context,
                                   doris::vectorized::Block* block, int* result_column_id,
                                   std::vector<size_t>& args) override;
-    Status eval_inverted_index(
-            VExprContext* context,
-            const std::unordered_map<ColumnId, std::pair<vectorized::IndexFieldNameAndTypePair,
-                                                         segment_v2::InvertedIndexIterator*>>&
-                    colid_to_inverted_index_iter,
-            uint32_t num_rows, roaring::Roaring* bitmap) const override;
+    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -73,9 +69,11 @@ public:
     }
     static std::string debug_string(const std::vector<VectorizedFnCall*>& exprs);
 
+    bool can_push_down_to_index() const override;
+    bool equals(const VExpr& other) override;
+
 protected:
     FunctionBasePtr _function;
-    bool _can_fast_execute = false;
     std::string _expr_name;
     std::string _function_name;
 
@@ -83,4 +81,5 @@ private:
     Status _do_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
                        int* result_column_id, std::vector<size_t>& args);
 };
+
 } // namespace doris::vectorized

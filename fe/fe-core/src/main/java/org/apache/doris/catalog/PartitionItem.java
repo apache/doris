@@ -28,6 +28,9 @@ public abstract class PartitionItem implements Comparable<PartitionItem> {
     public static final Comparator<Map.Entry<Long, PartitionItem>> ITEM_MAP_ENTRY_COMPARATOR =
             Comparator.comparing(o -> ((ListPartitionItem) o.getValue()).getItems().iterator().next());
 
+    // get the unique string of the partition item.
+    public abstract String getItemsString();
+
     public abstract <T> T getItems();
 
     public abstract PartitionItem getIntersect(PartitionItem newItem);
@@ -59,4 +62,8 @@ public abstract class PartitionItem implements Comparable<PartitionItem> {
     public abstract boolean isGreaterThanSpecifiedTime(int pos, Optional<String> dateFormatOptional,
             long nowTruncSubSec)
             throws AnalysisException;
+
+
+    //get the unique string of the partition item in sql format
+    public abstract String getItemsSql();
 }

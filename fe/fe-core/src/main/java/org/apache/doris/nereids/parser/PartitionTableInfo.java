@@ -28,6 +28,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -63,10 +64,14 @@ public class PartitionTableInfo {
                 null);
 
     private boolean isAutoPartition;
+    // for PartitionType
     private String partitionType;
-    private List<String> partitionColumns;
     private List<PartitionDefinition> partitionDefs;
+    // save all list partition expressions, including identifier and function
     private List<Expression> partitionList;
+    // save identifier expressions in partitionList,
+    // facilitates subsequent verification process
+    private List<String> identifierPartitionColumns;
 
     /**
      * struct for partition definition
@@ -85,7 +90,7 @@ public class PartitionTableInfo {
         this.partitionDefs = partitionDefs;
         this.partitionList = partitionFields;
         if (this.partitionList != null) {
-            this.partitionColumns = this.partitionList.stream()
+            this.identifierPartitionColumns = this.partitionList.stream()
                 .filter(UnboundSlot.class::isInstance)
                 .map(partition -> ((UnboundSlot) partition).getName())
                 .collect(Collectors.toList());
@@ -98,10 +103,6 @@ public class PartitionTableInfo {
 
     public String getPartitionType() {
         return partitionType;
-    }
-
-    public List<String> getPartitionColumns() {
-        return partitionColumns;
     }
 
     /**
@@ -169,16 +170,16 @@ public class PartitionTableInfo {
             boolean isEnableMergeOnWrite,
             boolean isExternal) {
 
-        if (partitionColumns != null) {
+        if (identifierPartitionColumns != null) {
 
-            if (partitionColumns.size() != partitionList.size()) {
+            if (identifierPartitionColumns.size() != partitionList.size()) {
                 if (!isExternal && partitionType.equalsIgnoreCase(PartitionType.LIST.name())) {
                     throw new AnalysisException("internal catalog does not support functions in 'LIST' partition");
                 }
                 isAutoPartition = true;
             }
 
-            partitionColumns.forEach(p -> {
+            identifierPartitionColumns.forEach(p -> {
                 if (!columnMap.containsKey(p)) {
                     throw new AnalysisException(
                             String.format("partition key %s is not exists", p));
@@ -187,7 +188,7 @@ public class PartitionTableInfo {
             });
 
             Set<String> partitionColumnSets = Sets.newHashSet();
-            List<String> duplicatesKeys = partitionColumns.stream()
+            List<String> duplicatesKeys = identifierPartitionColumns.stream()
                     .filter(c -> !partitionColumnSets.add(c)).collect(Collectors.toList());
             if (!duplicatesKeys.isEmpty()) {
                 throw new AnalysisException(
@@ -199,16 +200,16 @@ public class PartitionTableInfo {
                 // 2. The partition field must be at the end of the schema
                 // 3. The order of partition fields in the schema
                 //    must be consistent with the order defined in `PARTITIONED BY LIST()`
-                if (partitionColumns.size() == columns.size()) {
+                if (identifierPartitionColumns.size() == columns.size()) {
                     throw new AnalysisException("Cannot set all columns as partitioning columns.");
                 }
                 List<ColumnDefinition> partitionInSchema = columns.subList(
-                        columns.size() - partitionColumns.size(), columns.size());
-                if (partitionInSchema.stream().anyMatch(p -> !partitionColumns.contains(p.getName()))) {
+                        columns.size() - identifierPartitionColumns.size(), columns.size());
+                if (partitionInSchema.stream().anyMatch(p -> !identifierPartitionColumns.contains(p.getName()))) {
                     throw new AnalysisException("The partition field must be at the end of the schema.");
                 }
                 for (int i = 0; i < partitionInSchema.size(); i++) {
-                    if (!partitionInSchema.get(i).getName().equals(partitionColumns.get(i))) {
+                    if (!partitionInSchema.get(i).getName().equals(identifierPartitionColumns.get(i))) {
                         throw new AnalysisException("The order of partition fields in the schema "
                             + "must be consistent with the order defined in `PARTITIONED BY LIST()`");
                     }
@@ -234,7 +235,7 @@ public class PartitionTableInfo {
                     partitionNames.add(partitionName);
                 }
                 partitionDefs.forEach(p -> {
-                    p.setPartitionTypes(partitionColumns.stream()
+                    p.setPartitionTypes(identifierPartitionColumns.stream()
                             .map(s -> columnMap.get(s).getType()).collect(Collectors.toList()));
                     p.validate(Maps.newHashMap(properties));
                 });
@@ -269,18 +270,26 @@ public class PartitionTableInfo {
 
             try {
                 ArrayList<Expr> exprs = convertToLegacyAutoPartitionExprs(partitionList);
-                // here we have already extracted partitionColumns
+
+                // only auto partition support partition expr
+                if (!isAutoPartition) {
+                    if (exprs.stream().anyMatch(expr -> expr instanceof FunctionCallExpr)) {
+                        throw new DdlException("Non-auto partition table not support partition expr!");
+                    }
+                }
+
+                // here we have already extracted identifierPartitionColumns
                 if (partitionType.equals(PartitionType.RANGE.name())) {
                     if (isAutoPartition) {
-                        partitionDesc = new RangePartitionDesc(exprs, partitionColumns, partitionDescs);
+                        partitionDesc = new RangePartitionDesc(exprs, identifierPartitionColumns, partitionDescs);
                     } else {
-                        partitionDesc = new RangePartitionDesc(partitionColumns, partitionDescs);
+                        partitionDesc = new RangePartitionDesc(identifierPartitionColumns, partitionDescs);
                     }
                 } else {
                     if (isAutoPartition) {
-                        partitionDesc = new ListPartitionDesc(exprs, partitionColumns, partitionDescs);
+                        partitionDesc = new ListPartitionDesc(exprs, identifierPartitionColumns, partitionDescs);
                     } else {
-                        partitionDesc = new ListPartitionDesc(partitionColumns, partitionDescs);
+                        partitionDesc = new ListPartitionDesc(identifierPartitionColumns, partitionDescs);
                     }
                 }
             } catch (Exception e) {
@@ -319,7 +328,7 @@ public class PartitionTableInfo {
     }
 
     /**
-     *  Get column names and put in partitionColumns
+     *  Get column names and put in identifierPartitionColumns
      */
     public void extractPartitionColumns() throws AnalysisException {
         if (partitionList == null) {
@@ -327,10 +336,14 @@ public class PartitionTableInfo {
         }
         ArrayList<Expr> exprs = convertToLegacyAutoPartitionExprs(partitionList);
         try {
-            partitionColumns = PartitionDesc.getColNamesFromExpr(exprs,
+            identifierPartitionColumns = PartitionDesc.getColNamesFromExpr(exprs,
                     partitionType.equalsIgnoreCase(PartitionType.LIST.name()), isAutoPartition);
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
+    }
+
+    public boolean inIdentifierPartitions(String columnName) {
+        return identifierPartitionColumns != null && identifierPartitionColumns.contains(columnName);
     }
 }

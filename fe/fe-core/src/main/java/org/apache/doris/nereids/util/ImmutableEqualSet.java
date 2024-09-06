@@ -20,7 +20,9 @@ package org.apache.doris.nereids.util;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -69,6 +71,27 @@ public class ImmutableEqualSet<T> {
                         replaceMap.getOrDefault(entry.getValue(), entry.getValue()));
             }
             parent = newMap;
+        }
+
+        /**
+         * Remove all not contain in containSet
+         * @param containSet the set to contain
+         */
+        public void removeNotContain(Set<T> containSet) {
+            List<Set<T>> equalSetList = calEqualSetList();
+            this.parent.clear();
+            for (Set<T> equalSet : equalSetList) {
+                Set<T> intersect = Sets.intersection(containSet, equalSet);
+                if (intersect.size() <= 1) {
+                    continue;
+                }
+                Iterator<T> iterator = intersect.iterator();
+                T first = intersect.iterator().next();
+                while (iterator.hasNext()) {
+                    T next = iterator.next();
+                    this.addEqualPair(first, next);
+                }
+            }
         }
 
         /**

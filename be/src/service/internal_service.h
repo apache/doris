@@ -225,6 +225,15 @@ public:
                               PJdbcTestConnectionResult* result,
                               google::protobuf::Closure* done) override;
 
+    void fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
+                                    const PFetchRemoteSchemaRequest* request,
+                                    PFetchRemoteSchemaResponse* response,
+                                    google::protobuf::Closure* done) override;
+
+    void get_be_resource(google::protobuf::RpcController* controller,
+                         const PGetBeResourceRequest* request, PGetBeResourceResponse* response,
+                         google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,
@@ -246,7 +255,7 @@ private:
     void _transmit_block(::google::protobuf::RpcController* controller,
                          const ::doris::PTransmitDataParams* request,
                          ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done,
-                         const Status& extract_st);
+                         const Status& extract_st, const int64_t wait_for_worker);
 
     Status _tablet_fetch_data(const PTabletKeyLookupRequest* request,
                               PTabletKeyLookupResponse* response);
@@ -285,11 +294,6 @@ public:
     void get_tablet_rowset_versions(google::protobuf::RpcController* controller,
                                     const PGetTabletVersionsRequest* request,
                                     PGetTabletVersionsResponse* response,
-                                    google::protobuf::Closure* done) override;
-
-    void fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
-                                    const PFetchRemoteSchemaRequest* request,
-                                    PFetchRemoteSchemaResponse* response,
                                     google::protobuf::Closure* done) override;
 
 private:

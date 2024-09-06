@@ -78,8 +78,6 @@ public:
     ~SpillSortSourceOperatorX() override = default;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
-
     Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
@@ -90,7 +88,6 @@ public:
 
 private:
     friend class SpillSortLocalState;
-    Status _initiate_merge_spill_partition_agg_data(RuntimeState* state);
 
     std::unique_ptr<SortSourceOperatorX> _sort_source_operator;
 };

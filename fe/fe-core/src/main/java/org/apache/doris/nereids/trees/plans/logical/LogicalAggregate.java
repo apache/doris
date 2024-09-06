@@ -19,14 +19,10 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
-import org.apache.doris.nereids.properties.FdFactory;
-import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.properties.TableFdItem;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
@@ -159,6 +155,10 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
 
     public List<NamedExpression> getOutputExpressions() {
         return outputExpressions;
+    }
+
+    public NamedExpression getOutputExpression(int index) {
+        return outputExpressions.get(index);
     }
 
     public String getOutputExprsSql() {
@@ -375,27 +375,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 }
             }
         }
-    }
-
-    @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
-
-        ImmutableSet<SlotReference> groupByExprs = getGroupByExpressions().stream()
-                .filter(SlotReference.class::isInstance)
-                .map(SlotReference.class::cast)
-                .collect(ImmutableSet.toImmutableSet());
-
-        // inherit from child
-        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getTrait().getFdItems();
-        builder.addAll(childItems);
-
-        // todo: fill the table sets
-        TableFdItem fdItem = FdFactory.INSTANCE.createTableFdItem(groupByExprs, true,
-                false, ImmutableSet.of());
-        builder.add(fdItem);
-
-        return builder.build();
     }
 
     @Override

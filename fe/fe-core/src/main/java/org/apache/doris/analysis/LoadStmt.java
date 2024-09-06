@@ -21,10 +21,14 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
 import org.apache.doris.cloud.security.SecurityChecker;
+import org.apache.doris.cloud.storage.RemoteBase;
+import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
@@ -81,7 +85,7 @@ import java.util.Map.Entry;
 //      resource_desc:
 //          WITH RESOURCE name
 //          (key3=value3, ...)
-public class LoadStmt extends DdlStmt {
+public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(LoadStmt.class);
 
     public static final String TIMEOUT_PROPERTY = "timeout";
@@ -500,7 +504,7 @@ public class LoadStmt extends DdlStmt {
             }
         } else if (brokerDesc != null) {
             etlJobType = EtlJobType.BROKER;
-            checkWhiteList();
+            checkS3Param();
         } else if (isMysqlLoad) {
             etlJobType = EtlJobType.LOCAL_FILE;
         } else {
@@ -516,6 +520,27 @@ public class LoadStmt extends DdlStmt {
         }
 
         user = ConnectContext.get().getQualifiedUser();
+    }
+
+
+    private String getProviderFromEndpoint() {
+        Map<String, String> properties = brokerDesc.getProperties();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (entry.getKey().equalsIgnoreCase(S3Properties.PROVIDER)) {
+                // S3 Provider properties should be case insensitive.
+                return entry.getValue().toUpperCase();
+            }
+        }
+        return S3Properties.S3_PROVIDER;
+    }
+
+    private String getBucketFromFilePath(String filePath) throws Exception {
+        String[] parts = filePath.split("\\/\\/");
+        if (parts.length < 2) {
+            throw new Exception("filePath is not valid");
+        }
+        String buckt = parts[1].split("\\/")[0];
+        return buckt;
     }
 
     public String getComment() {
@@ -554,7 +579,7 @@ public class LoadStmt extends DdlStmt {
 
         if (properties != null && !properties.isEmpty()) {
             sb.append("\nPROPERTIES (");
-            sb.append(new PrintableMap<String, String>(properties, "=", true, false));
+            sb.append(new PrintableMap<>(properties, "=", true, false, true));
             sb.append(")");
         }
         return sb.toString();
@@ -583,21 +608,28 @@ public class LoadStmt extends DdlStmt {
             connection.setConnectTimeout(10000);
             connection.connect();
         } catch (Exception e) {
-            LOG.warn("Failed to connect endpoint={}", endpoint, e);
-            throw new UserException("Incorrect object storage info: " + e.getMessage());
+            LOG.warn("Failed to connect endpoint={}, err={}", endpoint, e);
+            String msg;
+            if (e instanceof UserException) {
+                msg = ((UserException) e).getDetailMessage();
+            } else {
+                msg = e.getMessage();
+            }
+            throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                    "Failed to access object storage, message=" + msg, e);
         } finally {
             if (connection != null) {
                 try {
                     connection.disconnect();
                 } catch (Exception e) {
-                    LOG.warn("Failed to disconnect connection, endpoint={}", endpoint, e);
+                    LOG.warn("Failed to disconnect connection, endpoint={}, err={}", endpoint, e);
                 }
             }
             SecurityChecker.getInstance().stopSSRFChecking();
         }
     }
 
-    public void checkWhiteList() throws UserException {
+    public void checkS3Param() throws UserException {
         Map<String, String> brokerDescProperties = brokerDesc.getProperties();
         if (brokerDescProperties.containsKey(S3Properties.Env.ENDPOINT)
                 && brokerDescProperties.containsKey(S3Properties.Env.ACCESS_KEY)
@@ -606,17 +638,68 @@ public class LoadStmt extends DdlStmt {
             String endpoint = brokerDescProperties.get(S3Properties.Env.ENDPOINT);
             endpoint = endpoint.replaceFirst("^http://", "");
             endpoint = endpoint.replaceFirst("^https://", "");
-            List<String> whiteList = new ArrayList<>(Arrays.asList(Config.s3_load_endpoint_white_list));
-            whiteList.removeIf(String::isEmpty);
-            if (!whiteList.isEmpty() && !whiteList.contains(endpoint)) {
-                throw new UserException("endpoint: " + endpoint
-                    + " is not in s3 load endpoint white list: " + String.join(",", whiteList));
-            }
             brokerDescProperties.put(S3Properties.Env.ENDPOINT, endpoint);
-            if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
+            checkWhiteList(endpoint);
+            if (AzureProperties.checkAzureProviderPropertyExist(brokerDescProperties)) {
                 return;
             }
             checkEndpoint(endpoint);
+            checkAkSk();
         }
+    }
+
+    public void checkWhiteList(String endpoint) throws UserException {
+        List<String> whiteList = new ArrayList<>(Arrays.asList(Config.s3_load_endpoint_white_list));
+        whiteList.removeIf(String::isEmpty);
+        if (!whiteList.isEmpty() && !whiteList.contains(endpoint)) {
+            throw new UserException("endpoint: " + endpoint
+                    + " is not in s3 load endpoint white list: " + String.join(",", whiteList));
+        }
+    }
+
+    private void checkAkSk() throws UserException {
+        RemoteBase remote = null;
+        ObjectInfo objectInfo = null;
+        String curFile = null;
+        try {
+            Map<String, String> brokerDescProperties = brokerDesc.getProperties();
+            String provider = getProviderFromEndpoint();
+            for (DataDescription dataDescription : dataDescriptions) {
+                for (String filePath : dataDescription.getFilePaths()) {
+                    curFile = filePath;
+                    String bucket = getBucketFromFilePath(filePath);
+                    objectInfo = new ObjectInfo(ObjectStoreInfoPB.Provider.valueOf(provider.toUpperCase()),
+                            brokerDescProperties.get(S3Properties.Env.ACCESS_KEY),
+                            brokerDescProperties.get(S3Properties.Env.SECRET_KEY),
+                            bucket, brokerDescProperties.get(S3Properties.Env.ENDPOINT),
+                            brokerDescProperties.get(S3Properties.Env.REGION), "");
+                    remote = RemoteBase.newInstance(objectInfo);
+                    // RemoteBase#headObject does not throw exception if key does not exist.
+                    remote.headObject("1");
+                    remote.listObjects(null);
+                    remote.close();
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to access object storage, file={}, proto={}, err={}", curFile, objectInfo, e.toString());
+            String msg;
+            if (e instanceof UserException) {
+                msg = ((UserException) e).getDetailMessage();
+            } else {
+                msg = e.getMessage();
+            }
+            throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                    "Failed to access object storage, message=" + msg, e);
+        } finally {
+            if (remote != null) {
+                remote.close();
+            }
+        }
+
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.LOAD;
     }
 }

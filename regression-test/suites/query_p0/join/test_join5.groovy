@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_join5", "query,p0") {
+    sql "set runtime_filter_wait_time_ms = 5"
     def DBname = "regression_test_join5"
     sql "DROP DATABASE IF EXISTS ${DBname}"
     sql "CREATE DATABASE IF NOT EXISTS ${DBname}"

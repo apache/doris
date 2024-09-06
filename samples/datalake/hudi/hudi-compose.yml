@@ -1,0 +1,109 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+version: "3.9"
+services:
+  metastore_db:
+    image: postgres:11
+    hostname: metastore_db
+    environment:
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hive
+      POSTGRES_DB: metastore
+
+  hive-metastore:
+    hostname: hive-metastore
+    container_name: spark-hudi-hive
+    image: 'starburstdata/hive:3.1.2-e.18'
+    volumes:
+      - './packages/spark-3.4.2-bin-hadoop3:/opt/spark-3.4.2-bin-hadoop3'
+      - './scripts:/opt/scripts'
+    ports:
+      - '${HIVE_THRIFT_PORT}:9083' # Metastore Thrift
+    environment:
+      HIVE_METASTORE_DRIVER: org.postgresql.Driver
+      HIVE_METASTORE_JDBC_URL: jdbc:postgresql://metastore_db:5432/metastore
+      HIVE_METASTORE_USER: hive
+      HIVE_METASTORE_PASSWORD: hive
+      HIVE_METASTORE_WAREHOUSE_DIR: s3://datalake/
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minio
+      S3_SECRET_KEY: minio123
+      S3_PATH_STYLE_ACCESS: "true"
+      REGION: ""
+      GOOGLE_CLOUD_KEY_FILE_PATH: ""
+      AZURE_ADL_CLIENT_ID: ""
+      AZURE_ADL_CREDENTIAL: ""
+      AZURE_ADL_REFRESH_URL: ""
+      AZURE_ABFS_STORAGE_ACCOUNT: ""
+      AZURE_ABFS_ACCESS_KEY: ""
+      AZURE_WASB_STORAGE_ACCOUNT: ""
+      AZURE_ABFS_OAUTH: ""
+      AZURE_ABFS_OAUTH_TOKEN_PROVIDER: ""
+      AZURE_ABFS_OAUTH_CLIENT_ID: ""
+      AZURE_ABFS_OAUTH_SECRET: ""
+      AZURE_ABFS_OAUTH_ENDPOINT: ""
+      AZURE_WASB_ACCESS_KEY: ""
+      HIVE_METASTORE_USERS_IN_ADMIN_ROLE: "hive"
+    depends_on:
+      - metastore_db
+
+  doris-hudi-env:
+    hostname: doris-hudi-env
+    container_name: doris-hudi-env
+    image: 'apache/hadoop:3.3.6'
+    environment:
+      LD_LIBRARY_PATH: /opt/doris/be/lib
+    ports:
+      - '${DORIS_QUERY_PORT}:9030'
+    volumes:
+      - './packages/jdk-17.0.2:/opt/jdk-17.0.2'
+      - './packages/doris-bin:/opt/doris-bin'
+      - './scripts:/opt/scripts'
+    command: sh /opt/scripts/start_doris.sh
+
+  minio:
+    hostname: minio
+    image: 'minio/minio:RELEASE.2022-05-26T05-48-41Z'
+    container_name: minio-hudi-storage
+    ports:
+      - '${MINIO_SERVICE_PORT}:9000'
+    environment:
+      MINIO_ACCESS_KEY: minio
+      MINIO_SECRET_KEY: minio123
+    command: server /data --console-address ":9001"
+
+  # This job will create the "datalake" bucket on Minio
+  mc-job:
+    image: 'minio/mc:RELEASE.2022-05-09T04-08-26Z'
+    volumes:
+      - './data:/data'
+    entrypoint: |
+      /bin/bash -c "
+      sleep 5;
+      /usr/bin/mc config --quiet host add myminio http://minio:9000 minio minio123;
+      /usr/bin/mc mb --quiet myminio/datalake;
+      /usr/bin/mc mb --quiet myminio/data;
+      /usr/bin/mc mirror /data myminio/data 
+      "
+    depends_on:
+      - minio
+
+networks:
+  default:
+    name: hudi-net
+    external: true

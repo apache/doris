@@ -40,12 +40,14 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterProje
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterProjectScanRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterScanRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewOnlyJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewOnlyScanRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectAggregateRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterAggregateRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterScanRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectScanRule;
+import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
@@ -86,7 +88,9 @@ import org.apache.doris.nereids.rules.implementation.LogicalUnionToPhysicalUnion
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow;
 import org.apache.doris.nereids.rules.rewrite.ConvertOuterJoinToAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
+import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.EliminateOuterJoin;
+import org.apache.doris.nereids.rules.rewrite.MaxMinFilterPushDown;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeGenerates;
 import org.apache.doris.nereids.rules.rewrite.MergeLimits;
@@ -131,6 +135,7 @@ public class RuleSet {
             .build();
 
     public static final List<RuleFactory> PUSH_DOWN_FILTERS = ImmutableList.of(
+            new MaxMinFilterPushDown(),
             new CreatePartitionTopNFromWindow(),
             new PushDownFilterThroughProject(),
             new PushDownFilterThroughSort(),
@@ -151,7 +156,12 @@ public class RuleSet {
             new PushDownAliasThroughJoin(),
             new PushDownFilterThroughWindow(),
             new PushDownFilterThroughPartitionTopN(),
-            new ExpressionOptimization()
+            new ExpressionOptimization(),
+            // some useless predicates(e.g. 1=1) can be inferred by InferPredicates,
+            // the FoldConstantRule in ExpressionNormalization can fold 1=1 to true
+            // and EliminateFilter can eliminate the useless filter
+            new ExpressionNormalization(),
+            new EliminateFilter()
     );
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
@@ -240,6 +250,7 @@ public class RuleSet {
             .add(MaterializedViewProjectScanRule.INSTANCE)
             .add(MaterializedViewProjectFilterScanRule.INSTANCE)
             .add(MaterializedViewAggregateOnNoneAggregateRule.INSTANCE)
+            .add(MaterializedViewOnlyScanRule.INSTANCE)
             .build();
 
     public static final List<Rule> DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()

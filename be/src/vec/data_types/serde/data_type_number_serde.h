@@ -70,6 +70,12 @@ public:
                                                int* num_deserialized,
                                                const FormatOptions& options) const override;
 
+    Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
+                                              int* num_deserialized,
+                                              const FormatOptions& options) const override;
+
+    void insert_column_last_value_multiple_times(IColumn& column, int times) const override;
+
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
@@ -86,9 +92,11 @@ public:
                                 int end, const cctz::time_zone& ctz) const override;
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const) const override;
+                                 int row_idx, bool col_const,
+                                 const FormatOptions& options) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const) const override;
+                                 int row_idx, bool col_const,
+                                 const FormatOptions& options) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
@@ -102,7 +110,7 @@ public:
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int row_idx, bool col_const) const;
+                                  int row_idx, bool col_const, const FormatOptions& options) const;
 };
 
 template <typename T>
@@ -311,7 +319,8 @@ Status DataTypeNumberSerDe<T>::write_one_cell_to_json(const IColumn& column,
     } else if constexpr (std::is_same_v<T, double>) {
         result.SetDouble(data[row_num]);
     } else {
-        LOG(FATAL) << "unknown column type " << column.get_name() << " for writing to jsonb";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "unknown column type {} for writing to jsonb " + column.get_name());
         __builtin_unreachable();
     }
     return Status::OK();

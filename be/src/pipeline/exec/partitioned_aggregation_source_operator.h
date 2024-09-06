@@ -82,7 +82,6 @@ public:
     ~PartitionedAggSourceOperatorX() override = default;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
 
     Status open(RuntimeState* state) override;
 
@@ -94,7 +93,6 @@ public:
 
 private:
     friend class PartitionedAggLocalState;
-    Status _initiate_merge_spill_partition_agg_data(RuntimeState* state);
 
     std::unique_ptr<AggSourceOperatorX> _agg_source_operator;
 };

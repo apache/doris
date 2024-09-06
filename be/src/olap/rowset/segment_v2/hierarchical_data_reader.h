@@ -24,6 +24,7 @@
 #include "olap/field.h"
 #include "olap/iterators.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/stream_reader.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "vec/columns/column.h"
@@ -31,44 +32,30 @@
 #include "vec/columns/column_object.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/assert_cast.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/functions/function_helpers.h"
 #include "vec/json/path_in_data.h"
 
-namespace doris {
-namespace segment_v2 {
-
-struct StreamReader {
-    vectorized::MutableColumnPtr column;
-    std::unique_ptr<ColumnIterator> iterator;
-    std::shared_ptr<const vectorized::IDataType> type;
-    bool inited = false;
-    size_t rows_read = 0;
-    StreamReader() = default;
-    StreamReader(vectorized::MutableColumnPtr&& col, std::unique_ptr<ColumnIterator>&& it,
-                 std::shared_ptr<const vectorized::IDataType> t)
-            : column(std::move(col)), iterator(std::move(it)), type(t) {}
-};
-
-// path -> StreamReader
-using SubstreamReaderTree = vectorized::SubcolumnsTree<StreamReader>;
-
-// path -> SubcolumnReader
-struct SubcolumnReader {
-    std::unique_ptr<ColumnReader> reader;
-    std::shared_ptr<const vectorized::IDataType> file_column_type;
-};
-using SubcolumnColumnReaders = vectorized::SubcolumnsTree<SubcolumnReader>;
+namespace doris::segment_v2 {
 
 // Reader for hierarchical data for variant, merge with root(sparse encoded columns)
 class HierarchicalDataReader : public ColumnIterator {
 public:
+    // Currently two types of read, merge sparse columns with root columns, or read directly
+    enum class ReadType { MERGE_SPARSE, READ_DIRECT };
+
     HierarchicalDataReader(const vectorized::PathInData& path) : _path(path) {}
 
     static Status create(std::unique_ptr<ColumnIterator>* reader, vectorized::PathInData path,
                          const SubcolumnColumnReaders::Node* target_node,
-                         const SubcolumnColumnReaders::Node* root);
+                         const SubcolumnColumnReaders::Node* root, ReadType read_type);
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -85,11 +72,11 @@ public:
 
     Status add_stream(const SubcolumnColumnReaders::Node* node);
 
-    void set_root(std::unique_ptr<StreamReader>&& root) { _root_reader = std::move(root); }
+    void set_root(std::unique_ptr<SubstreamIterator>&& root) { _root_reader = std::move(root); }
 
 private:
     SubstreamReaderTree _substream_reader;
-    std::unique_ptr<StreamReader> _root_reader;
+    std::unique_ptr<SubstreamIterator> _root_reader;
     size_t _rows_read = 0;
     vectorized::PathInData _path;
 
@@ -103,18 +90,21 @@ private:
     // process read
     template <typename ReadFunction>
     Status process_read(ReadFunction&& read_func, vectorized::MutableColumnPtr& dst, size_t nrows) {
+        using namespace vectorized;
         // // Read all sub columns, and merge with root column
-        vectorized::ColumnNullable* nullable_column = nullptr;
+        ColumnNullable* nullable_column = nullptr;
         if (dst->is_nullable()) {
-            nullable_column = assert_cast<vectorized::ColumnNullable*>(dst.get());
+            nullable_column = assert_cast<ColumnNullable*>(dst.get());
         }
-        auto& variant = nullable_column == nullptr ? assert_cast<vectorized::ColumnObject&>(*dst)
-                                                   : assert_cast<vectorized::ColumnObject&>(
-                                                             nullable_column->get_nested_column());
+        auto& variant = nullable_column == nullptr
+                                ? assert_cast<ColumnObject&>(*dst)
+                                : assert_cast<ColumnObject&>(nullable_column->get_nested_column());
 
         // read data
         // read root first if it is not read before
-        RETURN_IF_ERROR(read_func(*_root_reader, {}, _root_reader->type));
+        if (_root_reader) {
+            RETURN_IF_ERROR(read_func(*_root_reader, {}, _root_reader->type));
+        }
 
         // read container columns
         RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
@@ -123,11 +113,11 @@ private:
         }));
 
         // build variant as container
-        auto container = vectorized::ColumnObject::create(true, false);
-        auto& container_variant = assert_cast<vectorized::ColumnObject&>(*container);
+        auto container = ColumnObject::create(true, false);
+        auto& container_variant = assert_cast<ColumnObject&>(*container);
 
         // add root first
-        if (_path.get_parts().size() == 1) {
+        if (_path.get_parts().empty() && _root_reader) {
             auto& root_var =
                     _root_reader->column->is_nullable()
                             ? assert_cast<vectorized::ColumnObject&>(
@@ -139,18 +129,87 @@ private:
             auto type = root_var.get_root_type();
             container_variant.add_sub_column({}, std::move(column), type);
         }
-
+        // parent path -> subcolumns
+        std::map<PathInData, PathsWithColumnAndType> nested_subcolumns;
+        PathsWithColumnAndType non_nested_subcolumns;
         RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
-            vectorized::MutableColumnPtr column = node.data.column->get_ptr();
-            bool add = container_variant.add_sub_column(
-                    node.path.copy_pop_nfront(_path.get_parts().size()), std::move(column),
-                    node.data.type);
-            if (!add) {
-                return Status::InternalError("Duplicated {}, type {}", node.path.get_path(),
-                                             node.data.type->get_name());
+            MutableColumnPtr column = node.data.column->get_ptr();
+            PathInData relative_path = node.path.copy_pop_nfront(_path.get_parts().size());
+
+            if (node.path.has_nested_part()) {
+                CHECK_EQ(getTypeName(remove_nullable(node.data.type)->get_type_id()),
+                         getTypeName(TypeIndex::Array));
+                PathInData parent_path = node.path.get_nested_prefix_path().copy_pop_nfront(
+                        _path.get_parts().size());
+                nested_subcolumns[parent_path].emplace_back(relative_path, column->get_ptr(),
+                                                            node.data.type);
+            } else {
+                non_nested_subcolumns.emplace_back(relative_path, column->get_ptr(),
+                                                   node.data.type);
             }
             return Status::OK();
         }));
+
+        for (auto& entry : non_nested_subcolumns) {
+            DCHECK(!entry.path.has_nested_part());
+            bool add = container_variant.add_sub_column(entry.path, entry.column->assume_mutable(),
+                                                        entry.type);
+            if (!add) {
+                return Status::InternalError("Duplicated {}, type {}", entry.path.get_path(),
+                                             entry.type->get_name());
+            }
+        }
+        // Iterate nested subcolumns and flatten them, the entry contains the nested subcolumns of the same nested parent
+        // first we pick the first subcolumn as base array and using it's offset info. Then we flatten all nested subcolumns
+        // into a new object column and wrap it with array column using the first element offsets.The wrapped array column
+        // will type the type of ColumnObject::NESTED_TYPE, whih is Nullable<ColumnArray<NULLABLE(ColumnObject)>>.
+        for (auto& entry : nested_subcolumns) {
+            MutableColumnPtr nested_object = ColumnObject::create(true, false);
+            const auto* base_array =
+                    check_and_get_column<ColumnArray>(remove_nullable(entry.second[0].column));
+            MutableColumnPtr offset = base_array->get_offsets_ptr()->assume_mutable();
+            auto* nested_object_ptr = assert_cast<ColumnObject*>(nested_object.get());
+            // flatten nested arrays
+            for (const auto& subcolumn : entry.second) {
+                const auto& column = subcolumn.column;
+                const auto& type = subcolumn.type;
+                if (!remove_nullable(column)->is_column_array()) {
+                    return Status::InvalidArgument(
+                            "Meet none array column when flatten nested array, path {}, type {}",
+                            subcolumn.path.get_path(), subcolumn.type->get_name());
+                }
+                const auto* target_array =
+                        check_and_get_column<ColumnArray>(remove_nullable(subcolumn.column).get());
+#ifndef NDEBUG
+                if (!base_array->has_equal_offsets(*target_array)) {
+                    return Status::InvalidArgument(
+                            "Meet none equal offsets array when flatten nested array, path {}, "
+                            "type {}",
+                            subcolumn.path.get_path(), subcolumn.type->get_name());
+                }
+#endif
+                MutableColumnPtr flattend_column = target_array->get_data_ptr()->assume_mutable();
+                DataTypePtr flattend_type =
+                        check_and_get_data_type<DataTypeArray>(remove_nullable(type).get())
+                                ->get_nested_type();
+                // add sub path without parent prefix
+                nested_object_ptr->add_sub_column(
+                        subcolumn.path.copy_pop_nfront(entry.first.get_parts().size()),
+                        std::move(flattend_column), std::move(flattend_type));
+            }
+            nested_object = make_nullable(nested_object->get_ptr())->assume_mutable();
+            auto array =
+                    make_nullable(ColumnArray::create(std::move(nested_object), std::move(offset)));
+            PathInDataBuilder builder;
+            // add parent prefix
+            builder.append(entry.first.get_parts(), false);
+            PathInData parent_path = builder.build();
+            // unset nested parts
+            parent_path.unset_nested();
+            DCHECK(!parent_path.has_nested_part());
+            container_variant.add_sub_column(parent_path, array->assume_mutable(),
+                                             ColumnObject::NESTED_TYPE);
+        }
 
         // TODO select v:b -> v.b / v.b.c but v.d maybe in v
         // copy container variant to dst variant, todo avoid copy
@@ -168,26 +227,34 @@ private:
             return Status::OK();
         }));
         container->clear();
-        if (_root_reader->column->is_nullable()) {
-            // fill nullmap
-            DCHECK(dst->is_nullable());
-            vectorized::ColumnUInt8& dst_null_map =
-                    assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
-            vectorized::ColumnUInt8& src_null_map =
-                    assert_cast<vectorized::ColumnNullable&>(*_root_reader->column)
-                            .get_null_map_column();
-            dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
-            // clear nullmap and inner data
-            src_null_map.clear();
-            assert_cast<vectorized::ColumnObject&>(
-                    assert_cast<vectorized::ColumnNullable&>(*_root_reader->column)
-                            .get_nested_column())
-                    .clear_subcolumns_data();
+        if (_root_reader) {
+            if (_root_reader->column->is_nullable()) {
+                // fill nullmap
+                DCHECK(dst->is_nullable());
+                ColumnUInt8& dst_null_map =
+                        assert_cast<ColumnNullable&>(*dst).get_null_map_column();
+                ColumnUInt8& src_null_map =
+                        assert_cast<ColumnNullable&>(*_root_reader->column).get_null_map_column();
+                dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
+                // clear nullmap and inner data
+                src_null_map.clear();
+                assert_cast<ColumnObject&>(
+                        assert_cast<ColumnNullable&>(*_root_reader->column).get_nested_column())
+                        .clear_subcolumns_data();
+            } else {
+                ColumnObject& root_column = assert_cast<ColumnObject&>(*_root_reader->column);
+                root_column.clear_subcolumns_data();
+            }
         } else {
-            vectorized::ColumnObject& root_column =
-                    assert_cast<vectorized::ColumnObject&>(*_root_reader->column);
-            root_column.clear_subcolumns_data();
+            if (dst->is_nullable()) {
+                // No nullable info exist in hirearchical data, fill nullmap with all none null
+                ColumnUInt8& dst_null_map =
+                        assert_cast<ColumnNullable&>(*dst).get_null_map_column();
+                auto fake_nullable_column = ColumnUInt8::create(nrows, 0);
+                dst_null_map.insert_range_from(*fake_nullable_column, 0, nrows);
+            }
         }
+
         return Status::OK();
     }
 };
@@ -196,7 +263,7 @@ private:
 // encodes sparse columns that are not materialized
 class ExtractReader : public ColumnIterator {
 public:
-    ExtractReader(const TabletColumn& col, std::unique_ptr<StreamReader>&& root_reader,
+    ExtractReader(const TabletColumn& col, std::unique_ptr<SubstreamIterator>&& root_reader,
                   vectorized::DataTypePtr target_type_hint)
             : _col(col),
               _root_reader(std::move(root_reader)),
@@ -220,9 +287,8 @@ private:
 
     TabletColumn _col;
     // may shared among different column iterators
-    std::unique_ptr<StreamReader> _root_reader;
+    std::unique_ptr<SubstreamIterator> _root_reader;
     vectorized::DataTypePtr _target_type_hint;
 };
 
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2

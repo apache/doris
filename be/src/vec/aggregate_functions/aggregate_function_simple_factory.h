@@ -61,7 +61,7 @@ private:
     std::unordered_map<std::string, std::string> function_alias;
     /// @TEMPORARY: for be_exec_version=4
     /// in order to solve agg of sum/count is not compatibility during the upgrade process
-    constexpr static int AGG_FUNCTION_NEW = 5;
+    constexpr static int AGG_FUNCTION_NEW = 7;
     /// @TEMPORARY: for be_exec_version < AGG_FUNCTION_NEW. replace function to old version.
     std::unordered_map<std::string, std::string> function_to_replace;
 
@@ -123,8 +123,7 @@ public:
     }
 
     AggregateFunctionPtr get(const std::string& name, const DataTypes& argument_types,
-                             const bool result_is_nullable = false,
-                             int be_version = BeExecVersionManager::get_newest_version(),
+                             const bool result_is_nullable, int be_version,
                              bool enable_decima256 = false) {
         bool nullable = false;
         for (const auto& type : argument_types) {

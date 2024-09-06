@@ -59,11 +59,6 @@ public class TimeUtilsTest {
         Assert.assertNotNull(TimeUtils.getCurrentFormatTime());
         Assert.assertNotNull(TimeUtils.getStartTimeMs());
         Assert.assertTrue(TimeUtils.getElapsedTimeMs(0L) > 0);
-
-        Assert.assertEquals(-62135625600000L, TimeUtils.MIN_DATE.getTime());
-        Assert.assertEquals(253402185600000L, TimeUtils.MAX_DATE.getTime());
-        Assert.assertEquals(-62135625600000L, TimeUtils.MIN_DATETIME.getTime());
-        Assert.assertEquals(253402271999000L, TimeUtils.MAX_DATETIME.getTime());
     }
 
     @Test

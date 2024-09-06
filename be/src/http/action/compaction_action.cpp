@@ -59,7 +59,7 @@ constexpr std::string_view HEADER_JSON = "application/json";
 CompactionAction::CompactionAction(CompactionActionType ctype, ExecEnv* exec_env,
                                    StorageEngine& engine, TPrivilegeHier::type hier,
                                    TPrivilegeType::type ptype)
-        : HttpHandlerWithAuth(exec_env, hier, ptype), _engine(engine), _type(ctype) {}
+        : HttpHandlerWithAuth(exec_env, hier, ptype), _engine(engine), _compaction_type(ctype) {}
 
 /// check param and fetch tablet_id & table_id from req
 static Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* table_id) {
@@ -202,7 +202,7 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
 
     if (tablet_id == 0) {
         // overall compaction status
-        RETURN_IF_ERROR(_engine.get_compaction_status_json(json_result));
+        _engine.get_compaction_status_json(json_result);
         return Status::OK();
     } else {
         // fetch the tablet by tablet_id
@@ -345,7 +345,7 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
 void CompactionAction::handle(HttpRequest* req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.data());
 
-    if (_type == CompactionActionType::SHOW_INFO) {
+    if (_compaction_type == CompactionActionType::SHOW_INFO) {
         std::string json_result;
         Status st = _handle_show_compaction(req, &json_result);
         if (!st.ok()) {
@@ -353,7 +353,7 @@ void CompactionAction::handle(HttpRequest* req) {
         } else {
             HttpChannel::send_reply(req, HttpStatus::OK, json_result);
         }
-    } else if (_type == CompactionActionType::RUN_COMPACTION) {
+    } else if (_compaction_type == CompactionActionType::RUN_COMPACTION) {
         std::string json_result;
         Status st = _handle_run_compaction(req, &json_result);
         if (!st.ok()) {

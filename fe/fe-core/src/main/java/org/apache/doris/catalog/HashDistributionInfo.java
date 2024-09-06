@@ -66,6 +66,7 @@ public class HashDistributionInfo extends DistributionInfo {
         this.bucketNum = bucketNum;
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
@@ -167,5 +168,9 @@ public class HashDistributionInfo extends DistributionInfo {
 
     public RandomDistributionInfo toRandomDistributionInfo() {
         return new RandomDistributionInfo(bucketNum);
+    }
+
+    public void setDistributionColumns(List<Column> column) {
+        this.distributionColumns = column;
     }
 }

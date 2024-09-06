@@ -18,9 +18,9 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
@@ -53,6 +54,7 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -114,7 +116,7 @@ public class StatementContext implements Closeable {
     private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new HashMap<>();
     private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
     // Used to update consumer's stats
-    private final Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
+    private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteProducer = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteConsumer = new HashMap<>();
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
@@ -135,7 +137,7 @@ public class StatementContext implements Closeable {
     private final Map<Slot, Relation> slotToRelation = Maps.newHashMap();
 
     // the columns in Plan.getExpressions(), such as columns in join condition or filter condition, group by expression
-    private final Set<Column> keyColumns = Sets.newHashSet();
+    private final Set<SlotReference> keySlots = Sets.newHashSet();
     private BitSet disableRules;
 
     // table locks
@@ -162,6 +164,10 @@ public class StatementContext implements Closeable {
     private boolean isShortCircuitQuery;
 
     private ShortCircuitQueryContext shortCircuitQueryContext;
+
+    private FormatOptions formatOptions = FormatOptions.getDefault();
+
+    private List<PlannerHook> plannerHooks = new ArrayList<>();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -352,7 +358,7 @@ public class StatementContext implements Closeable {
         return idToPlaceholderRealExpr;
     }
 
-    public Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> getCteIdToConsumerGroup() {
+    public Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> getCteIdToConsumerGroup() {
         return cteIdToConsumerGroup;
     }
 
@@ -480,6 +486,22 @@ public class StatementContext implements Closeable {
         this.placeholders = placeholders;
     }
 
+    public void setFormatOptions(FormatOptions options) {
+        this.formatOptions = options;
+    }
+
+    public FormatOptions getFormatOptions() {
+        return formatOptions;
+    }
+
+    public List<PlannerHook> getPlannerHooks() {
+        return plannerHooks;
+    }
+
+    public void addPlannerHook(PlannerHook plannerHook) {
+        this.plannerHooks.add(plannerHook);
+    }
+
     private static class CloseableResource implements Closeable {
         public final String resourceName;
         public final String threadName;
@@ -516,12 +538,12 @@ public class StatementContext implements Closeable {
         }
     }
 
-    public void addKeyColumn(Column column) {
-        keyColumns.add(column);
+    public void addKeySlot(SlotReference slot) {
+        keySlots.add(slot);
     }
 
-    public boolean isKeyColumn(Column column) {
-        return keyColumns.contains(column);
+    public boolean isKeySlot(SlotReference slot) {
+        return keySlots.contains(slot);
     }
 
     /** Get table id with lazy */

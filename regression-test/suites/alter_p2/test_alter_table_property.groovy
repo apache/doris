@@ -46,11 +46,16 @@ suite ("test_alter_table_property") {
         }
         sum
     }
+    def replication_num = 1
+    def forceReplicaNum = getFeConfig('force_olap_table_replication_num').toInteger()
+    if (forceReplicaNum > 0) {
+        replication_num = forceReplicaNum
+    }
 
-    assertEquals(1, queryReplicaCount("p1"))
+    assertEquals(replication_num, queryReplicaCount("p1"))
 
     sql """ ALTER TABLE ${tableName} ADD PARTITION p2 VALUES LESS THAN ("200") """
-    assertEquals(1, queryReplicaCount("p2"))
+    assertEquals(replication_num, queryReplicaCount("p2"))
 
     if (!isCloudMode()) {
         sql """ ALTER TABLE ${tableName} SET ( "default.replication_allocation" = "tag.location.default: 2" ) """
@@ -67,7 +72,7 @@ suite ("test_alter_table_property") {
         }
         assertEquals(2, queryReplicaCount("p1"))
     }
-    assertEquals(1, queryReplicaCount("p2"))
+    assertEquals(replication_num, queryReplicaCount("p2"))
 
     sql "DROP TABLE ${tableName}"
 }

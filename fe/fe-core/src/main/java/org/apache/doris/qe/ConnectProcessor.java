@@ -17,12 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.AlterViewStmt;
-import org.apache.doris.analysis.CreateTableAsSelectStmt;
-import org.apache.doris.analysis.CreateTableLikeStmt;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.CreateViewStmt;
-import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
@@ -31,7 +25,6 @@ import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.analysis.UpdateStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -59,6 +52,8 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
+import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -264,13 +259,15 @@ public abstract class ConnectProcessor {
         Exception nereidsSyntaxException = null;
         long parseSqlStartTime = System.currentTimeMillis();
         List<StatementBase> cachedStmts = null;
-        // Currently we add a config to decide whether using PREPARED/EXECUTE command for nereids
-        // TODO: after implemented full prepared, we could remove this flag
-        boolean nereidsUseServerPrep = sessionVariable.enableServeSidePreparedStatement
-                        || mysqlCommand == MysqlCommand.COM_QUERY;
-        if (nereidsUseServerPrep && sessionVariable.isEnableNereidsPlanner()) {
+        CacheKeyType cacheKeyType = null;
+        if (sessionVariable.isEnableNereidsPlanner()) {
             if (wantToParseSqlFromSqlCache) {
                 cachedStmts = parseFromSqlCache(originStmt);
+                Optional<SqlCacheContext> sqlCacheContext = ConnectContext.get()
+                        .getStatementContext().getSqlCacheContext();
+                if (sqlCacheContext.isPresent()) {
+                    cacheKeyType = sqlCacheContext.get().getCacheKeyType();
+                }
                 if (cachedStmts != null) {
                     stmts = cachedStmts;
                 }
@@ -302,10 +299,37 @@ public abstract class ConnectProcessor {
                     nereidsSyntaxException = e;
                 }
             }
+
+            if (stmts == null && !ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
+                String errMsg;
+                Throwable exception = null;
+                if (nereidsParseException != null) {
+                    errMsg = nereidsParseException.getMessage();
+                    exception = nereidsParseException;
+                } else if (nereidsSyntaxException != null) {
+                    errMsg = nereidsSyntaxException.getMessage();
+                    exception = nereidsSyntaxException;
+                } else {
+                    errMsg = "Nereids parse statements failed. " + originStmt;
+                }
+                if (exception == null) {
+                    exception = new AnalysisException(errMsg);
+                } else {
+                    exception = new AnalysisException(errMsg, exception);
+                }
+                handleQueryException(exception, originStmt, null, null);
+                return;
+            }
         }
 
         // stmts == null when Nereids cannot planner this query or Nereids is disabled.
         if (stmts == null) {
+            if (mysqlCommand == MysqlCommand.COM_STMT_PREPARE) {
+                // avoid fall back to legacy planner
+                ctx.getState().setError(ErrorCode.ERR_UNSUPPORTED_PS, "Not supported such prepared statement");
+                ctx.getState().setErrType(QueryState.ErrType.OTHER_ERR);
+                return;
+            }
             try {
                 stmts = parse(convertedStmt);
             } catch (Throwable throwable) {
@@ -319,38 +343,6 @@ public abstract class ConnectProcessor {
                 handleQueryException(throwable, convertedStmt, null, null);
                 return;
             }
-        }
-
-        if (mysqlCommand == MysqlCommand.COM_QUERY
-                && ctx.getSessionVariable().isEnableNereidsPlanner()
-                && !ctx.getSessionVariable().enableFallbackToOriginalPlanner
-                && stmts.stream().allMatch(s -> s instanceof QueryStmt
-                || s instanceof InsertStmt
-                || s instanceof UpdateStmt
-                || s instanceof DeleteStmt
-                || s instanceof CreateTableAsSelectStmt
-                || s instanceof CreateTableStmt
-                || s instanceof CreateTableLikeStmt
-                || s instanceof CreateViewStmt
-                || s instanceof AlterViewStmt)) {
-            String errMsg;
-            Throwable exception = null;
-            if (nereidsParseException != null) {
-                errMsg = nereidsParseException.getMessage();
-                exception = nereidsParseException;
-            } else if (nereidsSyntaxException != null) {
-                errMsg = nereidsSyntaxException.getMessage();
-                exception = nereidsSyntaxException;
-            } else {
-                errMsg = "Nereids parse DQL failed. " + originStmt;
-            }
-            if (exception == null) {
-                exception = new AnalysisException(errMsg);
-            } else {
-                exception = new AnalysisException(errMsg, exception);
-            }
-            handleQueryException(exception, originStmt, null, null);
-            return;
         }
 
         List<String> origSingleStmtList = null;
@@ -374,12 +366,18 @@ public abstract class ConnectProcessor {
                 }
 
                 StatementBase parsedStmt = stmts.get(i);
-                parsedStmt.setOrigStmt(new OriginStatement(convertedStmt, i));
+                parsedStmt.setOrigStmt(new OriginStatement(auditStmt, usingOrigSingleStmt ? 0 : i));
                 parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
                 executor = new StmtExecutor(ctx, parsedStmt);
                 executor.getProfile().getSummaryProfile().setParseSqlStartTime(parseSqlStartTime);
                 executor.getProfile().getSummaryProfile().setParseSqlFinishTime(parseSqlFinishTime);
                 ctx.setExecutor(executor);
+
+                if (cacheKeyType != null) {
+                    SqlCacheContext sqlCacheContext =
+                            executor.getContext().getStatementContext().getSqlCacheContext().get();
+                    sqlCacheContext.setCacheKeyType(cacheKeyType);
+                }
 
                 try {
                     executor.execute();
@@ -387,7 +385,13 @@ public abstract class ConnectProcessor {
                         if (i != stmts.size() - 1) {
                             ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
                             if (ctx.getState().getStateType() != MysqlStateType.ERR) {
-                                finalizeCommand();
+                                // here, doris do different with mysql.
+                                // when client not request CLIENT_MULTI_STATEMENTS, mysql treat all query as
+                                // single statement. Doris treat it with multi statement, but only return
+                                // the last statement result.
+                                if (getConnectContext().getMysqlChannel().clientMultiStatements()) {
+                                    finalizeCommand();
+                                }
                             }
                         }
                     } else if (connectType.equals(ConnectType.ARROW_FLIGHT_SQL)) {
@@ -453,6 +457,7 @@ public abstract class ConnectProcessor {
                 logicalPlanAdapter.setColLabels(
                         Lists.newArrayList(logicalSqlCache.getColumnLabels())
                 );
+                logicalPlanAdapter.setFieldInfos(Lists.newArrayList(logicalSqlCache.getFieldInfos()));
                 logicalPlanAdapter.setResultExprs(logicalSqlCache.getResultExprs());
                 logicalPlanAdapter.setOrigStmt(statementContext.getOriginStatement());
                 logicalPlanAdapter.setUserInfo(ctx.getCurrentUserIdentity());
@@ -766,8 +771,7 @@ public abstract class ConnectProcessor {
                 UUID uuid = UUID.randomUUID();
                 queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
             }
-
-            executor.execute(queryId);
+            executor.queryRetry(queryId);
         } catch (IOException e) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", e);

@@ -26,6 +26,8 @@
 #include <limits>
 
 #include "common/status.h"
+#include "util/jsonb_parser.h"
+#include "util/jsonb_utils.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
@@ -50,6 +52,7 @@ Status VExplodeJsonArrayTableFunction<DataImpl>::process_init(Block* block, Runt
     RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
                                                                   &text_column_idx));
     _text_column = block->get_by_position(text_column_idx).column;
+    _text_datatype = remove_nullable(block->get_by_position(text_column_idx).type);
     return Status::OK();
 }
 
@@ -59,10 +62,20 @@ void VExplodeJsonArrayTableFunction<DataImpl>::process_row(size_t row_idx) {
 
     StringRef text = _text_column->get_data_at(row_idx);
     if (text.data != nullptr) {
-        rapidjson::Document document;
-        document.Parse(text.data, text.size);
-        if (!document.HasParseError() && document.IsArray() && document.GetArray().Size()) {
-            _cur_size = _parsed_data.set_output(document, document.GetArray().Size());
+        if (WhichDataType(_text_datatype).is_json()) {
+            JsonbDocument* doc = JsonbDocument::createDocument(text.data, text.size);
+            if (doc && doc->getValue() && doc->getValue()->isArray()) {
+                auto* a = (ArrayVal*)doc->getValue();
+                if (a->numElem() > 0) {
+                    _cur_size = _parsed_data.set_output(*a, a->numElem());
+                }
+            }
+        } else {
+            rapidjson::Document document;
+            document.Parse(text.data, text.size);
+            if (!document.HasParseError() && document.IsArray() && document.GetArray().Size()) {
+                _cur_size = _parsed_data.set_output(document, document.GetArray().Size());
+            }
         }
     }
 }
@@ -70,6 +83,7 @@ void VExplodeJsonArrayTableFunction<DataImpl>::process_row(size_t row_idx) {
 template <typename DataImpl>
 void VExplodeJsonArrayTableFunction<DataImpl>::process_close() {
     _text_column = nullptr;
+    _text_datatype = nullptr;
     _parsed_data.reset();
 }
 

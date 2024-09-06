@@ -48,7 +48,7 @@ bvar::Adder<int64_t> g_memtable_input_block_allocated_size("memtable_input_block
 
 using namespace ErrorCode;
 
-MemTable::MemTable(int64_t tablet_id, const TabletSchema* tablet_schema,
+MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
                    bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
                    const std::shared_ptr<MemTracker>& insert_mem_tracker,
@@ -108,10 +108,11 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
             // the aggregate function manually.
             function = vectorized::AggregateFunctionSimpleFactory::instance().get(
                     "replace_load", {block->get_data_type(cid)},
-                    block->get_data_type(cid)->is_nullable());
+                    block->get_data_type(cid)->is_nullable(),
+                    BeExecVersionManager::get_newest_version());
         } else {
-            function =
-                    _tablet_schema->column(cid).get_aggregate_function(vectorized::AGG_LOAD_SUFFIX);
+            function = _tablet_schema->column(cid).get_aggregate_function(
+                    vectorized::AGG_LOAD_SUFFIX, _tablet_schema->column(cid).get_be_exec_version());
             if (function == nullptr) {
                 LOG(WARNING) << "column get aggregate function failed, column="
                              << _tablet_schema->column(cid).name();
@@ -180,23 +181,23 @@ int RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* r
 
 Status MemTable::insert(const vectorized::Block* input_block,
                         const std::vector<uint32_t>& row_idxs) {
-    vectorized::Block target_block = *input_block;
-    target_block = input_block->copy_block(_column_offset);
     if (_is_first_insertion) {
         _is_first_insertion = false;
-        auto cloneBlock = target_block.clone_without_columns();
-        _input_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+        auto clone_block = input_block->clone_without_columns(&_column_offset);
+        _input_mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
         _vec_row_comparator->set_block(&_input_mutable_block);
-        _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+        _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
         if (_keys_type != KeysType::DUP_KEYS) {
-            _init_agg_functions(&target_block);
+            // there may be additional intermediate columns in input_block
+            // we only need columns indicated by column offset in the output
+            RETURN_IF_CATCH_EXCEPTION(_init_agg_functions(&clone_block));
         }
         if (_tablet_schema->has_sequence_col()) {
             if (_is_partial_update) {
                 // for unique key partial update, sequence column index in block
                 // may be different with the index in `_tablet_schema`
-                for (size_t i = 0; i < cloneBlock.columns(); i++) {
-                    if (cloneBlock.get_by_position(i).name == SEQUENCE_COL) {
+                for (size_t i = 0; i < clone_block.columns(); i++) {
+                    if (clone_block.get_by_position(i).name == SEQUENCE_COL) {
                         _seq_col_idx_in_block = i;
                         break;
                     }
@@ -210,11 +211,11 @@ Status MemTable::insert(const vectorized::Block* input_block,
     auto num_rows = row_idxs.size();
     size_t cursor_in_mutableblock = _input_mutable_block.rows();
     auto block_size0 = _input_mutable_block.allocated_bytes();
-    RETURN_IF_ERROR(_input_mutable_block.add_rows(&target_block, row_idxs.data(),
-                                                  row_idxs.data() + num_rows));
+    RETURN_IF_ERROR(_input_mutable_block.add_rows(input_block, row_idxs.data(),
+                                                  row_idxs.data() + num_rows, &_column_offset));
     auto block_size1 = _input_mutable_block.allocated_bytes();
     g_memtable_input_block_allocated_size << block_size1 - block_size0;
-    auto input_size = size_t(target_block.bytes() * num_rows / target_block.rows() *
+    auto input_size = size_t(input_block->bytes() * num_rows / input_block->rows() *
                              config::memtable_insert_memory_ratio);
     _mem_usage += input_size;
     _insert_mem_tracker->consume(input_size);
@@ -348,7 +349,7 @@ Status MemTable::_sort_by_cluster_keys() {
         row_pos_vec.emplace_back(row_in_blocks[i]->_row_pos);
     }
     return _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
-                                          row_pos_vec.data() + in_block.rows());
+                                          row_pos_vec.data() + in_block.rows(), &_column_offset);
 }
 
 void MemTable::_sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
@@ -505,7 +506,7 @@ bool MemTable::need_agg() const {
     return false;
 }
 
-Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
+Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
     size_t same_keys_num = _sort();
     if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
         if (_keys_type == KeysType::DUP_KEYS && _tablet_schema->num_key_columns() == 0) {
@@ -526,6 +527,11 @@ Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
     _insert_mem_tracker->release(_mem_usage);
     _mem_usage = 0;
     *res = vectorized::Block::create_unique(_output_mutable_block.to_block());
+    return Status::OK();
+}
+
+Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_to_block(res));
     return Status::OK();
 }
 

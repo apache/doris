@@ -214,7 +214,9 @@ class PartitionSortSinkLocalState : public PipelineXSinkLocalState<PartitionSort
 
 public:
     PartitionSortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<PartitionSortNodeSharedState>(parent, state) {}
+            : PipelineXSinkLocalState<PartitionSortNodeSharedState>(parent, state),
+              _partitioned_data(std::make_unique<PartitionedHashMapVariants>()),
+              _agg_arena_pool(std::make_unique<vectorized::Arena>()) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
@@ -224,7 +226,7 @@ private:
     // Expressions and parameters used for build _sort_description
     vectorized::VSortExecExprs _vsort_exec_exprs;
     vectorized::VExprContextSPtrs _partition_expr_ctxs;
-    int64_t child_input_rows = 0;
+    int64_t _sorted_partition_input_rows = 0;
     std::vector<PartitionDataPtr> _value_places;
     int _num_partition = 0;
     std::vector<const vectorized::IColumn*> _partition_columns;
@@ -238,6 +240,7 @@ private:
     RuntimeProfile::Counter* _selector_block_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     RuntimeProfile::Counter* _passthrough_rows_counter = nullptr;
+    RuntimeProfile::Counter* _sorted_partition_input_rows_counter = nullptr;
     Status _init_hash_method();
 };
 
@@ -252,7 +255,6 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {

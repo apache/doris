@@ -27,7 +27,12 @@ namespace doris::pipeline {
 GroupCommitBlockSinkLocalState::~GroupCommitBlockSinkLocalState() {
     if (_load_block_queue) {
         _remove_estimated_wal_bytes();
-        _load_block_queue->remove_load_id(_parent->cast<GroupCommitBlockSinkOperatorX>()._load_id);
+        [[maybe_unused]] auto st = _load_block_queue->remove_load_id(
+                _parent->cast<GroupCommitBlockSinkOperatorX>()._load_id);
+    } else {
+        _state->exec_env()->group_commit_mgr()->remove_load_id(
+                _parent->cast<GroupCommitBlockSinkOperatorX>()._table_id,
+                _parent->cast<GroupCommitBlockSinkOperatorX>()._load_id);
     }
 }
 
@@ -56,7 +61,7 @@ Status GroupCommitBlockSinkLocalState::open(RuntimeState* state) {
                                                         "CreateGroupCommitPlanDependency", true);
     _put_block_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                       "GroupCommitPutBlockDependency", true);
-    WARN_IF_ERROR(_initialize_load_queue(), "");
+    [[maybe_unused]] auto st = _initialize_load_queue();
     return Status::OK();
 }
 
@@ -67,6 +72,8 @@ Status GroupCommitBlockSinkLocalState::_initialize_load_queue() {
                 p._db_id, p._table_id, p._base_schema_version, p._load_id, _load_block_queue,
                 _state->be_exec_version(), _state->query_mem_tracker(), _create_plan_dependency,
                 _put_block_dependency));
+        _state->set_import_label(_load_block_queue->label);
+        _state->set_wal_id(_load_block_queue->txn_id); // wal_id is txn_id
         return Status::OK();
     } else {
         return Status::InternalError("be is stopping");
@@ -217,7 +224,7 @@ Status GroupCommitBlockSinkLocalState::_add_blocks(RuntimeState* state,
         if (dp->param<int64_t>("table_id", -1) == _table_id) {
             if (_load_block_queue) {
                 _remove_estimated_wal_bytes();
-                _load_block_queue->remove_load_id(p._load_id);
+                [[maybe_unused]] auto st = _load_block_queue->remove_load_id(p._load_id);
             }
             if (ExecEnv::GetInstance()->group_commit_mgr()->debug_future.wait_for(
                         std ::chrono ::seconds(60)) == std ::future_status ::ready) {
@@ -252,19 +259,15 @@ Status GroupCommitBlockSinkOperatorX::init(const TDataSink& t_sink) {
     return Status::OK();
 }
 
-Status GroupCommitBlockSinkOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::prepare(state));
+Status GroupCommitBlockSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::open(state));
     // get table's tuple descriptor
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_desc_id);
     if (_output_tuple_desc == nullptr) {
         LOG(WARNING) << "unknown destination tuple descriptor, id=" << _tuple_desc_id;
         return Status::InternalError("unknown destination tuple descriptor");
     }
-    return vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc);
-}
-
-Status GroupCommitBlockSinkOperatorX::open(RuntimeState* state) {
-    // Prepare the exprs to run.
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
 
@@ -300,7 +303,7 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
                 RETURN_IF_ERROR(local_state._add_blocks(state, true));
             }
             local_state._remove_estimated_wal_bytes();
-            local_state._load_block_queue->remove_load_id(_load_id);
+            [[maybe_unused]] auto st = local_state._load_block_queue->remove_load_id(_load_id);
         }
         return Status::OK();
     };
@@ -330,13 +333,25 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
             local_state._vpartition->find_partition(block.get(), index,
                                                     local_state._partitions[index]);
         }
+        bool stop_processing = false;
         for (int row_index = 0; row_index < rows; row_index++) {
             if (local_state._partitions[row_index] == nullptr) [[unlikely]] {
                 local_state._filter_bitmap.Set(row_index, true);
                 LOG(WARNING) << "no partition for this tuple. tuple="
                              << block->dump_data(row_index, 1);
+                RETURN_IF_ERROR(state->append_error_msg_to_file(
+                        []() -> std::string { return ""; },
+                        [&]() -> std::string {
+                            fmt::memory_buffer buf;
+                            fmt::format_to(buf, "no partition for this tuple. tuple=\n{}",
+                                           block->dump_data(row_index, 1));
+                            return fmt::to_string(buf);
+                        },
+                        &stop_processing));
+                local_state._has_filtered_rows = true;
+                state->update_num_rows_load_filtered(1);
+                state->update_num_rows_load_total(-1);
             }
-            local_state._has_filtered_rows = true;
         }
     }
 

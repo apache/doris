@@ -84,6 +84,7 @@ public abstract class DistributionInfo {
         throw new NotImplementedException("toDistributionDesc not implemented");
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         type = DistributionInfoType.valueOf(Text.readString(in));
     }

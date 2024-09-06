@@ -22,6 +22,7 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.obj.S3ObjStorage;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import com.amazonaws.services.s3.model.AmazonS3Exception;
 import com.google.common.annotations.VisibleForTesting;
@@ -57,10 +58,17 @@ public class S3FileSystem extends ObjFileSystem {
 
     @Override
     protected FileSystem nativeFileSystem(String remotePath) throws UserException {
+        //todo Extracting a common method to achieve logic reuse
+        if (closed.get()) {
+            throw new UserException("FileSystem is closed.");
+        }
         if (dfsFileSystem == null) {
             synchronized (this) {
+                if (closed.get()) {
+                    throw new UserException("FileSystem is closed.");
+                }
                 if (dfsFileSystem == null) {
-                    Configuration conf = new Configuration();
+                    Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth());
                     System.setProperty("com.amazonaws.services.s3.enableV4", "true");
                     // the entry value in properties may be null, and
                     PropertyConverter.convertToHadoopFSProperties(properties).entrySet().stream()
@@ -71,6 +79,7 @@ public class S3FileSystem extends ObjFileSystem {
                     } catch (Exception e) {
                         throw new UserException("Failed to get S3 FileSystem for " + e.getMessage(), e);
                     }
+                    RemoteFSPhantomManager.registerPhantomReference(this);
                 }
             }
         }

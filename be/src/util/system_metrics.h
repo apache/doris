@@ -57,6 +57,8 @@ public:
                              const std::map<std::string, int64_t>& lst_rcv_map,
                              int64_t interval_sec, int64_t* send_rate, int64_t* rcv_rate);
 
+    double get_load_average_1_min();
+
     void update_max_disk_io_util_percent(const std::map<std::string, int64_t>& lst_value,
                                          int64_t interval_sec);
     void update_max_network_send_bytes_rate(int64_t max_send_bytes_rate);

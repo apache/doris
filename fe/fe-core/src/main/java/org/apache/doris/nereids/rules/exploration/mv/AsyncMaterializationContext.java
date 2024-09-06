@@ -27,6 +27,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -56,7 +57,8 @@ public class AsyncMaterializationContext extends MaterializationContext {
      */
     public AsyncMaterializationContext(MTMV mtmv, Plan mvPlan, Plan mvOriginalPlan, List<Table> baseTables,
             List<Table> baseViews, CascadesContext cascadesContext, StructInfo structInfo) {
-        super(mvPlan, mvOriginalPlan, MaterializedViewUtils.generateMvScanPlan(mtmv, cascadesContext),
+        super(mvPlan, mvOriginalPlan, MaterializedViewUtils.generateMvScanPlan(mtmv, mtmv.getBaseIndexId(),
+                        mtmv.getPartitionIds(), PreAggStatus.on(), cascadesContext),
                 cascadesContext, structInfo);
         this.mtmv = mtmv;
     }
@@ -67,12 +69,16 @@ public class AsyncMaterializationContext extends MaterializationContext {
 
     @Override
     Plan doGenerateScanPlan(CascadesContext cascadesContext) {
-        return MaterializedViewUtils.generateMvScanPlan(this.mtmv, cascadesContext);
+        return MaterializedViewUtils.generateMvScanPlan(this.mtmv, this.mtmv.getBaseIndexId(),
+                this.mtmv.getPartitionIds(), PreAggStatus.on(), cascadesContext);
     }
 
     @Override
-    List<String> getMaterializationQualifier() {
-        return this.mtmv.getFullQualifiers();
+    List<String> generateMaterializationIdentifier() {
+        if (super.identifier == null) {
+            super.identifier = MaterializationContext.generateMaterializationIdentifier(mtmv, null);
+        }
+        return super.identifier;
     }
 
     @Override
@@ -88,7 +94,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
             }
         }
         failReasonBuilder.append("\n").append("]");
-        return Utils.toSqlString("MaterializationContext[" + getMaterializationQualifier() + "]",
+        return Utils.toSqlString("MaterializationContext[" + generateMaterializationIdentifier() + "]",
                 "rewriteSuccess", this.success,
                 "failReason", failReasonBuilder.toString());
     }
@@ -100,11 +106,12 @@ public class AsyncMaterializationContext extends MaterializationContext {
             mtmvCache = mtmv.getOrGenerateCache(cascadesContext.getConnectContext());
         } catch (AnalysisException e) {
             LOG.warn(String.format("get mv plan statistics fail, materialization qualifier is %s",
-                    getMaterializationQualifier()), e);
+                    generateMaterializationIdentifier()), e);
             return Optional.empty();
         }
         RelationId relationId = null;
-        Optional<LogicalOlapScan> logicalOlapScan = this.getScanPlan().collectFirst(LogicalOlapScan.class::isInstance);
+        Optional<LogicalOlapScan> logicalOlapScan = this.getScanPlan(null)
+                .collectFirst(LogicalOlapScan.class::isInstance);
         if (logicalOlapScan.isPresent()) {
             relationId = logicalOlapScan.get().getRelationId();
         }
@@ -116,10 +123,16 @@ public class AsyncMaterializationContext extends MaterializationContext {
         if (!(relation instanceof PhysicalCatalogRelation)) {
             return false;
         }
-        return ((PhysicalCatalogRelation) relation).getTable() instanceof MTMV;
+        if (!(((PhysicalCatalogRelation) relation).getTable() instanceof MTMV)) {
+            return false;
+        }
+        return ((PhysicalCatalogRelation) relation).getTable().getFullQualifiers().equals(
+                this.generateMaterializationIdentifier()
+        );
     }
 
-    public Plan getScanPlan() {
+    @Override
+    public Plan getScanPlan(StructInfo queryInfo) {
         return scanPlan;
     }
 

@@ -88,6 +88,9 @@ struct RowsetWriterContext {
     std::shared_ptr<FileWriterCreator> file_writer_creator;
     std::shared_ptr<SegmentCollector> segment_collector;
 
+    // memtable_on_sink_support_index_v2 = true, we will create SinkFileWriter to send inverted index file
+    bool memtable_on_sink_support_index_v2 = false;
+
     /// begin file cache opts
     bool write_file_cache = false;
     bool is_hot_data = false;
@@ -136,6 +139,16 @@ struct RowsetWriterContext {
         } else {
             return *storage_resource->fs;
         }
+    }
+
+    io::FileWriterOptions get_file_writer_options() const {
+        io::FileWriterOptions opts {
+                .write_file_cache = write_file_cache,
+                .is_cold_data = is_hot_data,
+                .file_cache_expiration = file_cache_ttl_sec > 0 && newest_write_timestamp > 0
+                                                 ? newest_write_timestamp + file_cache_ttl_sec
+                                                 : 0};
+        return opts;
     }
 };
 

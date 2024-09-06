@@ -27,11 +27,14 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -255,6 +258,43 @@ public class PlanUtils {
                     return false;
                 }
             });
+        }
+    }
+
+    /**OutermostPlanFinderContext*/
+    public static class OutermostPlanFinderContext {
+        public Plan outermostPlan = null;
+        public boolean found = false;
+    }
+
+    /**OutermostPlanFinder*/
+    public static class OutermostPlanFinder extends
+            DefaultPlanVisitor<Void, OutermostPlanFinderContext> {
+        public static final OutermostPlanFinder INSTANCE = new OutermostPlanFinder();
+
+        @Override
+        public Void visit(Plan plan, OutermostPlanFinderContext ctx) {
+            if (ctx.found) {
+                return null;
+            }
+            ctx.outermostPlan = plan;
+            ctx.found = true;
+            return null;
+        }
+
+        @Override
+        public Void visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
+                OutermostPlanFinderContext ctx) {
+            if (ctx.found) {
+                return null;
+            }
+            return super.visit(cteAnchor, ctx);
+        }
+
+        @Override
+        public Void visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer,
+                OutermostPlanFinderContext ctx) {
+            return null;
         }
     }
 }

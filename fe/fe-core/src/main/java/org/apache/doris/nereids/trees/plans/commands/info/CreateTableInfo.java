@@ -225,6 +225,21 @@ public class CreateTableInfo {
         return ImmutableList.of(tableName);
     }
 
+    private void checkEngineWithCatalog() {
+        if (engineName.equals(ENGINE_OLAP)) {
+            if (!ctlName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+                throw new AnalysisException("Cannot create olap table out of internal catalog."
+                    + " Make sure 'engine' type is specified when use the catalog: " + ctlName);
+            }
+        }
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
+        if (catalog instanceof HMSExternalCatalog && !engineName.equals(ENGINE_HIVE)) {
+            throw new AnalysisException("Hms type catalog can only use `hive` engine.");
+        } else if (catalog instanceof IcebergExternalCatalog && !engineName.equals(ENGINE_ICEBERG)) {
+            throw new AnalysisException("Iceberg type catalog can only use `iceberg` engine.");
+        }
+    }
+
     /**
      * analyze create table info
      */
@@ -262,12 +277,7 @@ public class CreateTableInfo {
             throw new AnalysisException(e.getMessage(), e);
         }
 
-        if (engineName.equals(ENGINE_OLAP)) {
-            if (!ctlName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-                throw new AnalysisException("Cannot create olap table out of internal catalog."
-                    + " Make sure 'engine' type is specified when use the catalog: " + ctlName);
-            }
-        }
+        checkEngineWithCatalog();
 
         // analyze table name
         if (Strings.isNullOrEmpty(dbName)) {
@@ -293,6 +303,11 @@ public class CreateTableInfo {
 
         //check datev1 and decimalv2
         for (ColumnDefinition columnDef : columns) {
+            String columnNameUpperCase = columnDef.getName().toUpperCase();
+            if (columnNameUpperCase.startsWith("__DORIS_")) {
+                throw new AnalysisException(
+                        "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
+            }
             if (columnDef.getType().isDateType() && Config.disable_datev1) {
                 throw new AnalysisException(
                         "Disable to create table with `DATE` type columns, please use `DATEV2`.");
@@ -408,10 +423,15 @@ public class CreateTableInfo {
             }
 
             validateKeyColumns();
-            if (!clusterKeysColumnNames.isEmpty() && !isEnableMergeOnWrite) {
-                throw new AnalysisException(
-                        "Cluster keys only support unique keys table which enabled "
-                                + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+            if (!clusterKeysColumnNames.isEmpty()) {
+                if (Config.isCloudMode()) {
+                    throw new AnalysisException("Cluster key is not supported in cloud mode");
+                }
+                if (!isEnableMergeOnWrite) {
+                    throw new AnalysisException(
+                            "Cluster keys only support unique keys table which enabled "
+                                    + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+                }
             }
             for (int i = 0; i < keys.size(); ++i) {
                 columns.get(i).setIsKey(true);
@@ -553,7 +573,9 @@ public class CreateTableInfo {
         final boolean finalEnableMergeOnWrite = isEnableMergeOnWrite;
         Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         keysSet.addAll(keys);
-        columns.forEach(c -> c.validate(engineName.equals(ENGINE_OLAP), keysSet, finalEnableMergeOnWrite,
+        Set<String> clusterKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        clusterKeySet.addAll(clusterKeysColumnNames);
+        columns.forEach(c -> c.validate(engineName.equals(ENGINE_OLAP), keysSet, clusterKeySet, finalEnableMergeOnWrite,
                 keysType));
 
         // validate index
@@ -689,7 +711,7 @@ public class CreateTableInfo {
             if (!newProperties.containsKey(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE)) {
                 distributionDesc.updateBucketNum(FeConstants.default_bucket_num);
             } else {
-                long partitionSize = ParseUtil.analyzeDataVolumn(
+                long partitionSize = ParseUtil.analyzeDataVolume(
                         newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
                 distributionDesc.updateBucketNum(AutoBucketUtils.getBucketsNum(partitionSize,
                         Config.autobucket_min_buckets));
@@ -715,6 +737,9 @@ public class CreateTableInfo {
         }
 
         if (!clusterKeysColumnNames.isEmpty()) {
+            if (Config.isCloudMode()) {
+                throw new AnalysisException("Cluster key is not supported in cloud mode");
+            }
             if (keysType != KeysType.UNIQUE_KEYS) {
                 throw new AnalysisException("Cluster keys only support unique keys table.");
             }
@@ -874,7 +899,6 @@ public class CreateTableInfo {
             slotRef.setType(column.getType().toCatalogDataType());
             translateMap.put(slot, new SlotRefAndIdx(slotRef, i, column.getGeneratedColumnDesc().isPresent()));
         }
-        ExpressionToExpr.initializeslotRefMap(translateMap);
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         List<Slot> slots = Lists.newArrayList(columnToSlotReference.values());
         List<GeneratedColumnUtil.ExprAndname> exprAndnames = Lists.newArrayList();
@@ -898,7 +922,7 @@ public class CreateTableInfo {
             }
             checkExpressionInGeneratedColumn(expr, column, nameToColumnDefinition);
             TypeCoercionUtils.checkCanCastTo(expr.getDataType(), column.getType());
-            ExpressionToExpr translator = new ExpressionToExpr(i);
+            ExpressionToExpr translator = new ExpressionToExpr(i, translateMap);
             Expr e = expr.accept(translator, planTranslatorContext);
             info.get().setExpr(e);
             exprAndnames.add(new GeneratedColumnUtil.ExprAndname(e.clone(), column.getName()));
@@ -998,15 +1022,12 @@ public class CreateTableInfo {
     }
 
     private static class ExpressionToExpr extends ExpressionTranslator {
-        private static Map<Slot, SlotRefAndIdx> slotRefMap;
+        private final Map<Slot, SlotRefAndIdx> slotRefMap;
         private final int index;
 
-        public ExpressionToExpr(int index) {
+        public ExpressionToExpr(int index, Map<Slot, SlotRefAndIdx> slotRefMap) {
             this.index = index;
-        }
-
-        public static void initializeslotRefMap(Map<Slot, SlotRefAndIdx> map) {
-            slotRefMap = map;
+            this.slotRefMap = slotRefMap;
         }
 
         @Override
@@ -1047,6 +1068,14 @@ public class CreateTableInfo {
         public boolean isGeneratedColumn() {
             return isGeneratedColumn;
         }
+    }
+
+    public PartitionTableInfo getPartitionTableInfo() {
+        return partitionTableInfo;
+    }
+
+    public DistributionDescriptor getDistribution() {
+        return distribution;
     }
 }
 

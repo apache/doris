@@ -199,6 +199,8 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.DeleteHandler;
@@ -230,6 +232,7 @@ import org.apache.doris.statistics.query.QueryStatsUtil;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
+import org.apache.doris.system.NodeType;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentClient;
@@ -256,6 +259,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.JSONArray;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -529,6 +533,7 @@ public class ShowExecutor {
             try {
                 TShowProcessListRequest request = new TShowProcessListRequest();
                 request.setShowFullSql(isShowFullSql);
+                request.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentity().toThrift());
                 List<Pair<String, Integer>> frontends = FrontendsProcNode.getFrontendWithRpcPort(Env.getCurrentEnv(),
                         false);
                 FrontendService.Client client = null;
@@ -970,13 +975,13 @@ public class ShowExecutor {
             }
             if (showTableStmt.isVerbose()) {
                 String storageFormat = "NONE";
-                String invertedIndexStorageFormat = "NONE";
+                String invertedIndexFileStorageFormat = "NONE";
                 if (tbl instanceof OlapTable) {
                     storageFormat = ((OlapTable) tbl).getStorageFormat().toString();
-                    invertedIndexStorageFormat = ((OlapTable) tbl).getInvertedIndexStorageFormat().toString();
+                    invertedIndexFileStorageFormat = ((OlapTable) tbl).getInvertedIndexFileStorageFormat().toString();
                 }
                 rows.add(Lists.newArrayList(tbl.getName(), tbl.getMysqlType(), storageFormat,
-                        invertedIndexStorageFormat));
+                        invertedIndexFileStorageFormat));
             } else {
                 rows.add(Lists.newArrayList(tbl.getName()));
             }
@@ -1099,6 +1104,12 @@ public class ShowExecutor {
                     .append(" LOCATION '")
                     .append(db.getLocationUri())
                     .append("'");
+        } else if (catalog instanceof IcebergExternalCatalog) {
+            IcebergExternalDatabase db = (IcebergExternalDatabase) catalog.getDbOrAnalysisException(showStmt.getDb());
+            sb.append("CREATE DATABASE `").append(showStmt.getDb()).append("`")
+                .append(" LOCATION '")
+                .append(db.getLocation())
+                .append("'");
         } else {
             DatabaseIf db = catalog.getDbOrAnalysisException(showStmt.getDb());
             sb.append("CREATE DATABASE `").append(ClusterNamespace.getNameFromFullName(showStmt.getDb())).append("`");
@@ -2381,17 +2392,80 @@ public class ShowExecutor {
 
     private void handleAdminShowConfig() throws AnalysisException {
         ShowConfigStmt showStmt = (ShowConfigStmt) stmt;
-        List<List<String>> results;
+        if (showStmt.getType() == NodeType.FRONTEND) {
+            List<List<String>> results;
+            PatternMatcher matcher = null;
+            if (showStmt.getPattern() != null) {
+                matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
+                        CaseSensibility.CONFIG.getCaseSensibility());
+            }
+            results = ConfigBase.getConfigInfo(matcher);
+            // Sort all configs by config key.
+            results.sort(Comparator.comparing(o -> o.get(0)));
+            resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+        } else {
+            handShowBackendConfig(showStmt);
+        }
+    }
+
+    private void handShowBackendConfig(ShowConfigStmt stmt) throws AnalysisException {
+        List<List<String>> results = new ArrayList<>();
+        List<Long> backendIds;
+        final SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+        if (stmt.isShowSingleBackend()) {
+            long backendId = stmt.getBackendId();
+            if (systemInfoService.getBackend(backendId) == null) {
+                throw new AnalysisException("Backend " + backendId + " not exists");
+            }
+            Backend backend = systemInfoService.getBackend(backendId);
+            if (!backend.isAlive()) {
+                throw new AnalysisException("Backend " + backendId + " is not alive");
+            }
+            backendIds = Lists.newArrayList(backendId);
+        } else {
+            backendIds = systemInfoService.getAllBackendIds(true);
+        }
 
         PatternMatcher matcher = null;
-        if (showStmt.getPattern() != null) {
-            matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
+        if (stmt.getPattern() != null) {
+            matcher = PatternMatcherWrapper.createMysqlPattern(stmt.getPattern(),
                     CaseSensibility.CONFIG.getCaseSensibility());
         }
-        results = ConfigBase.getConfigInfo(matcher);
-        // Sort all configs by config key.
-        results.sort(Comparator.comparing(o -> o.get(0)));
-        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+        for (long beId : backendIds) {
+            Backend backend = systemInfoService.getBackend(beId);
+            String host = backend.getHost();
+            int httpPort = backend.getHttpPort();
+            String urlString = String.format("http://%s:%d/api/show_config", host, httpPort);
+            try {
+                URL url = new URL(urlString);
+                URLConnection urlConnection = url.openConnection();
+                InputStream inputStream = urlConnection.getInputStream();
+                BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
+                while (reader.ready()) {
+                    // line's format like [["k1","v1"], ["k2","v2"]]
+                    String line = reader.readLine();
+                    JSONArray outer = new JSONArray(line);
+                    for (int i = 0; i < outer.length(); ++i) {
+                        // [key, type, value, isMutable]
+                        JSONArray inner = outer.getJSONArray(i);
+                        if (matcher == null || matcher.match(inner.getString(0))) {
+                            List<String> rows = Lists.newArrayList();
+                            rows.add(String.valueOf(beId));
+                            rows.add(host);
+                            rows.add(inner.getString(0));  // key
+                            rows.add(inner.getString(2));  // value
+                            rows.add(inner.getString(1));  // Type
+                            rows.add(inner.getString(3));  // isMutable
+                            results.add(rows);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                throw new AnalysisException(
+                        String.format("Can’t get backend config, backendId: %d, host: %s", beId, host));
+            }
+        }
+        resultSet = new ShowResultSet(stmt.getMetaData(), results);
     }
 
     private void handleShowSmallFiles() throws AnalysisException {
@@ -2639,14 +2713,25 @@ public class ShowExecutor {
     private void handleShowTableStats() {
         ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
         TableIf tableIf = showTableStatsStmt.getTable();
+        // Handle use table id to show table stats. Mainly for online debug.
+        if (showTableStatsStmt.isUseTableId()) {
+            long tableId = showTableStatsStmt.getTableId();
+            TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableId);
+            if (tableStats == null) {
+                resultSet = showTableStatsStmt.constructEmptyResultSet();
+            } else {
+                resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
+            }
+            return;
+        }
         TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
         /*
            tableStats == null means it's not analyzed, in this case show the estimated row count.
          */
         if (tableStats == null) {
-            resultSet = showTableStatsStmt.constructResultSet(tableIf.getCachedRowCount());
+            resultSet = showTableStatsStmt.constructResultSet(tableIf);
         } else {
-            resultSet = showTableStatsStmt.constructResultSet(tableStats);
+            resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
         }
     }
 
@@ -2695,7 +2780,14 @@ public class ShowExecutor {
             if (indexName == null) {
                 continue;
             }
-            columnStatistics.add(Pair.of(Pair.of(indexName, row.get(5)), ColumnStatistic.fromResultRow(row)));
+            try {
+                columnStatistics.add(Pair.of(Pair.of(indexName, row.get(5)), ColumnStatistic.fromResultRow(row)));
+            } catch (Exception e) {
+                LOG.warn("Failed to deserialize column statistics. reason: [{}]. Row [{}]", e.getMessage(), row);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(e);
+                }
+            }
         }
     }
 
@@ -2824,7 +2916,7 @@ public class ShowExecutor {
 
     private void handleAdminShowTabletStorageFormat() throws AnalysisException {
         List<List<String>> resultRowSet = Lists.newArrayList();
-        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+        for (Backend be : Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values()) {
             if (be.isQueryAvailable() && be.isLoadAvailable()) {
                 AgentClient client = new AgentClient(be.getHost(), be.getBePort());
                 TCheckStorageFormatResult result = client.checkStorageFormat();
@@ -2914,7 +3006,7 @@ public class ShowExecutor {
 
     private void handleShowAnalyze() {
         ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
-        List<AnalysisInfo> results = Env.getCurrentEnv().getAnalysisManager().showAnalysisJob(showStmt);
+        List<AnalysisInfo> results = Env.getCurrentEnv().getAnalysisManager().findAnalysisJobs(showStmt);
         List<List<String>> resultRows = Lists.newArrayList();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         for (AnalysisInfo analysisInfo : results) {
@@ -2936,7 +3028,7 @@ public class ShowExecutor {
                 row.add(analysisInfo.jobType.toString());
                 row.add(analysisInfo.analysisType.toString());
                 row.add(analysisInfo.message);
-                row.add(TimeUtils.DATETIME_FORMAT.format(
+                row.add(TimeUtils.getDatetimeFormatWithTimeZone().format(
                         LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                                 ZoneId.systemDefault())));
                 row.add(analysisInfo.state.toString());
@@ -2951,6 +3043,7 @@ public class ShowExecutor {
                 row.add(startTime.format(formatter));
                 row.add(endTime.format(formatter));
                 row.add(analysisInfo.priority.name());
+                row.add(String.valueOf(analysisInfo.enablePartition));
                 resultRows.add(row);
             } catch (Exception e) {
                 LOG.warn("Failed to get analyze info for table {}.{}.{}, reason: {}",
@@ -3204,7 +3297,7 @@ public class ShowExecutor {
                 row.add(table.getName());
             }
             row.add(analysisInfo.message);
-            row.add(TimeUtils.DATETIME_FORMAT.format(
+            row.add(TimeUtils.getDatetimeFormatWithTimeZone().format(
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                             ZoneId.systemDefault())));
             row.add(String.valueOf(analysisInfo.timeCostInMs));

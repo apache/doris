@@ -27,10 +27,8 @@
 #include <glog/logging.h>
 #include <stdint.h>
 
-#include <functional>
 #include <future>
 #include <map>
-#include <memory>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -68,19 +66,13 @@ bvar::LatencyRecorder g_stream_load_precommit_txn_latency("stream_load", "precom
 bvar::LatencyRecorder g_stream_load_commit_txn_latency("stream_load", "commit_txn");
 
 Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadContext> ctx) {
-    return execute_plan_fragment(ctx, [](std::shared_ptr<StreamLoadContext> ctx) {});
-}
-
-Status StreamLoadExecutor::execute_plan_fragment(
-        std::shared_ptr<StreamLoadContext> ctx,
-        const std::function<void(std::shared_ptr<StreamLoadContext> ctx)>& cb) {
 // submit this params
 #ifndef BE_TEST
     ctx->start_write_data_nanos = MonotonicNanos();
     LOG(INFO) << "begin to execute stream load. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << ctx->id;
     Status st;
-    auto exec_fragment = [ctx, cb, this](RuntimeState* state, Status* status) {
+    auto exec_fragment = [ctx, this](RuntimeState* state, Status* status) {
         if (ctx->group_commit) {
             ctx->label = state->import_label();
             ctx->txn_id = state->wal_id();
@@ -98,9 +90,7 @@ Status StreamLoadExecutor::execute_plan_fragment(
             // some users may rely on this error message.
             *status = Status::DataQualityError("too many filtered rows");
         }
-        if (ctx->number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
-            ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
-        }
+        ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
 
         if (status->ok()) {
             DorisMetrics::instance()->stream_receive_bytes_total->increment(ctx->receive_bytes);
@@ -150,14 +140,18 @@ Status StreamLoadExecutor::execute_plan_fragment(
                   << (ctx->receive_and_read_data_cost_nanos - ctx->read_data_cost_nanos) / 1000000
                   << ", read_data_cost_ms=" << ctx->read_data_cost_nanos / 1000000
                   << ", write_data_cost_ms=" << ctx->write_data_cost_nanos / 1000000;
-        cb(ctx);
     };
 
+    // Reset thread memory tracker, otherwise SCOPED_ATTACH_TASK will be called nested, nesting is
+    // not allowed, first time in on_chunk_data, second time in StreamLoadExecutor::execute_plan_fragment.
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+
     if (ctx->put_result.__isset.params) {
-        st = _exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.params, exec_fragment);
+        st = _exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.params,
+                                                           QuerySource::STREAM_LOAD, exec_fragment);
     } else {
         st = _exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.pipeline_params,
-                                                           exec_fragment);
+                                                           QuerySource::STREAM_LOAD, exec_fragment);
     }
 
     if (!st.ok()) {
@@ -175,9 +169,9 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
 
     TLoadTxnBeginRequest request;
     set_request_auth(&request, ctx->auth);
-    request.db = ctx->db;
-    request.tbl = ctx->table;
-    request.label = ctx->label;
+    request.__set_db(ctx->db);
+    request.__set_tbl(ctx->table);
+    request.__set_label(ctx->label);
     // set timestamp
     request.__set_timestamp(GetCurrentTimeMicros());
     if (ctx->timeout_second != -1) {
@@ -295,27 +289,23 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
 void StreamLoadExecutor::get_commit_request(StreamLoadContext* ctx,
                                             TLoadTxnCommitRequest& request) {
     set_request_auth(&request, ctx->auth);
-    request.db = ctx->db;
+    request.__set_db(ctx->db);
     if (ctx->db_id > 0) {
-        request.db_id = ctx->db_id;
-        request.__isset.db_id = true;
+        request.__set_db_id(ctx->db_id);
     }
-    request.tbl = ctx->table;
-    request.txnId = ctx->txn_id;
-    request.sync = true;
-    request.commitInfos = ctx->commit_infos;
-    request.__isset.commitInfos = true;
+    request.__set_tbl(ctx->table);
+    request.__set_txnId(ctx->txn_id);
+    request.__set_sync(true);
+    request.__set_commitInfos(ctx->commit_infos);
     request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
-    request.tbls = ctx->table_list;
-    request.__isset.tbls = true;
+    request.__set_tbls(ctx->table_list);
 
     VLOG_DEBUG << "commit txn request:" << apache::thrift::ThriftDebugString(request);
 
     // set attachment if has
     TTxnCommitAttachment attachment;
     if (collect_load_stat(ctx, &attachment)) {
-        request.txnCommitAttachment = attachment;
-        request.__isset.txnCommitAttachment = true;
+        request.__set_txnCommitAttachment(attachment);
     }
 }
 
@@ -362,22 +352,20 @@ void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxnRollbackRequest request;
     set_request_auth(&request, ctx->auth);
-    request.db = ctx->db;
+    request.__set_db(ctx->db);
     if (ctx->db_id > 0) {
-        request.db_id = ctx->db_id;
-        request.__isset.db_id = true;
+        request.__set_db_id(ctx->db_id);
     }
-    request.tbl = ctx->table;
-    request.txnId = ctx->txn_id;
+    request.__set_tbl(ctx->table);
+    request.__set_txnId(ctx->txn_id);
     request.__set_reason(ctx->status.to_string());
-    request.tbls = ctx->table_list;
-    request.__isset.tbls = true;
+    request.__set_tbls(ctx->table_list);
+    request.__set_label(ctx->label);
 
     // set attachment if has
     TTxnCommitAttachment attachment;
     if (collect_load_stat(ctx, &attachment)) {
-        request.txnCommitAttachment = attachment;
-        request.__isset.txnCommitAttachment = true;
+        request.__set_txnCommitAttachment(attachment);
     }
 
     TLoadTxnRollbackResult result;

@@ -113,7 +113,6 @@ protected:
     bool _is_close;
     std::atomic_bool _is_cancelled;
     Status _status;
-    std::atomic_int _buffer_rows;
     const int _buffer_limit;
     int64_t _packet_num;
 
@@ -123,6 +122,10 @@ protected:
 
     // protects all subsequent data in this block
     std::mutex _lock;
+
+    // get arrow flight result is a sync method, need wait for data ready and return result.
+    // TODO, waiting for data will block pipeline, so use a request pool to save requests waiting for data.
+    std::condition_variable _arrow_data_arrival;
 
     std::deque<GetResultBatchCtx*> _waiting_rpc;
 

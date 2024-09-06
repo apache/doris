@@ -33,7 +33,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
-public class CreateViewStmt extends BaseViewStmt {
+@Deprecated
+public class CreateViewStmt extends BaseViewStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CreateViewStmt.class);
 
     private final boolean ifNotExists;
@@ -102,5 +103,10 @@ public class CreateViewStmt extends BaseViewStmt {
 
     public void setFinalColumns(List<Column> columns) {
         finalCols.addAll(columns);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

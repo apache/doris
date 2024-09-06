@@ -45,7 +45,8 @@ void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFacto
         }
         auto nested_function_name = name.substr(0, name.size() - suffix.size());
         auto nested_function =
-                factory.get(nested_function_name, transform_arguments, result_is_nullable);
+                factory.get(nested_function_name, transform_arguments, result_is_nullable,
+                            BeExecVersionManager::get_newest_version(), false);
         if (!nested_function) {
             throw Exception(
                     ErrorCode::INTERNAL_ERROR,
@@ -53,8 +54,7 @@ void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFacto
                     "name {} , args {}",
                     nested_function_name, types_name(types));
         }
-        return creator_without_type::create<AggregateFunctionForEach>(transform_arguments, true,
-                                                                      nested_function);
+        return creator_without_type::create<AggregateFunctionForEach>(types, true, nested_function);
     };
     factory.register_foreach_function_combinator(
             creator, AggregateFunctionForEach::AGG_FOREACH_SUFFIX, true);

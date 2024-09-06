@@ -36,6 +36,7 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/json/json_parser.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris {
@@ -79,21 +80,12 @@ struct ExtraInfo {
 TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
                                 const ExtraInfo& ext_info);
 
-TabletColumn get_least_type_column(const TabletColumn& original, const DataTypePtr& new_type,
-                                   const ExtraInfo& ext_info, bool* changed);
-
-struct ParseContext {
-    // record an extract json column, used for encoding row store
-    bool record_raw_json_column = false;
-};
 // three steps to parse and encode variant columns into flatterned columns
 // 1. parse variant from raw json string
 // 2. finalize variant column to each subcolumn least commn types, default ignore sparse sub columns
 // 3. encode sparse sub columns
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                             const ParseContext& ctx);
-void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                              bool ignore_sparse = true);
+                             const ParseConfig& config);
 Status encode_variant_sparse_subcolumns(ColumnObject& column);
 
 // Pick the tablet schema with the highest schema version as the reference.
@@ -123,14 +115,6 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
 // get sorted subcolumns of variant
 vectorized::ColumnObject::Subcolumns get_sorted_subcolumns(
         const vectorized::ColumnObject::Subcolumns& subcolumns);
-
-// Rebuild schema from original schema by extend dynamic columns generated from ColumnObject.
-// Block consists of two parts, dynamic part of columns and static part of columns.
-//     static     extracted
-// | --------- | ----------- |
-// The static ones are original tablet_schame columns
-void rebuild_schema_and_block(const TabletSchemaSPtr& original, const std::vector<int>& variant_pos,
-                              Block& flush_block, TabletSchemaSPtr& flush_schema);
 
 // Extract json data from source with path
 Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst);

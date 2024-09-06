@@ -20,6 +20,7 @@ package org.apache.doris.system;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
@@ -37,7 +38,9 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,9 +48,12 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -147,8 +153,6 @@ public class Backend implements Writable {
     // send some queries to this BE, it is not an important problem.
     private AtomicBoolean isShutDown = new AtomicBoolean(false);
 
-    private long fileCacheCapactiyBytes = 0;
-
     public Backend() {
         this.host = "";
         this.version = "";
@@ -184,7 +188,7 @@ public class Backend implements Writable {
     }
 
     public String getCloudClusterStatus() {
-        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_STATUS, "");
+        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_STATUS, String.valueOf(Cloud.ClusterStatus.UNKNOWN));
     }
 
     public void setCloudClusterStatus(final String clusterStatus) {
@@ -238,14 +242,6 @@ public class Backend implements Writable {
 
     public int getHeartbeatPort() {
         return heartbeatPort;
-    }
-
-    public void setfileCacheCapacityBytes(long fileCacheCapactiyBytes) {
-        this.fileCacheCapactiyBytes = fileCacheCapactiyBytes;
-    }
-
-    public long getfileCacheCapactiyBytes() {
-        return fileCacheCapactiyBytes;
     }
 
     public int getHttpPort() {
@@ -939,6 +935,38 @@ public class Backend implements Writable {
 
     public void setPublishTaskLastTimeAccumulated(Long accumulatedNum) {
         this.lastPublishTaskAccumulatedNum = accumulatedNum;
+    }
+
+    public Set<String> getBeWorkloadGroupTagSet() {
+        Set<String> beTagSet = Sets.newHashSet();
+        String beTagStr = this.tagMap.get(Tag.WORKLOAD_GROUP);
+        if (StringUtils.isEmpty(beTagStr)) {
+            return beTagSet;
+        }
+
+        String[] beTagArr = beTagStr.split(",");
+        for (String beTag : beTagArr) {
+            beTagSet.add(beTag.trim());
+        }
+
+        return beTagSet;
+    }
+
+    public static boolean isMatchWorkloadGroupTag(String wgTagStr, Set<String> beTagSet) {
+        if (StringUtils.isEmpty(wgTagStr)) {
+            return true;
+        }
+        if (beTagSet.isEmpty()) {
+            return false;
+        }
+
+        String[] wgTagArr = wgTagStr.split(",");
+        Set<String> wgTagSet = new HashSet<>();
+        for (String wgTag : wgTagArr) {
+            wgTagSet.add(wgTag.trim());
+        }
+
+        return !Collections.disjoint(wgTagSet, beTagSet);
     }
 
 }

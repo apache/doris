@@ -38,9 +38,8 @@ public class MicroSecondsSub extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE)
-    );
+            FunctionSignature.ret(DateTimeV2Type.MAX)
+                    .args(DateTimeV2Type.MAX, IntegerType.INSTANCE));
 
     public MicroSecondsSub(Expression arg0, Expression arg1) {
         super("microseconds_sub", arg0, arg1);
@@ -55,6 +54,12 @@ public class MicroSecondsSub extends ScalarFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        signature = super.computeSignature(signature);
+        return signature.withArgumentType(0, DateTimeV2Type.MAX).withReturnType(DateTimeV2Type.MAX);
     }
 
     @Override

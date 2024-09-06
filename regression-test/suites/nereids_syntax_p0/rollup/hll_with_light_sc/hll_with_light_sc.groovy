@@ -36,6 +36,15 @@ suite("hll_with_light_sc", "rollup") {
     sql "insert into test_materialized_view_hll_with_light_sc1 values(2, 1, 1, '2020-05-30',100);"
     qt_sql "SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM test_materialized_view_hll_with_light_sc1 GROUP BY store_id;"
 
+    sql "analyze table test_materialized_view_hll_with_light_sc1 with sync;"
+    sql """set enable_stats=false;"""
+
+    explain {
+        sql("SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM test_materialized_view_hll_with_light_sc1 GROUP BY store_id;")
+        contains "(amt_count1)"
+    }
+
+    sql """set enable_stats=true;"""
     explain {
         sql("SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM test_materialized_view_hll_with_light_sc1 GROUP BY store_id;")
         contains "(amt_count1)"

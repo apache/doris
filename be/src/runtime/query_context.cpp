@@ -55,20 +55,38 @@ public:
     std::unique_ptr<ThreadPoolToken> token_;
 };
 
+const std::string toString(QuerySource queryType) {
+    switch (queryType) {
+    case QuerySource::INTERNAL_FRONTEND:
+        return "INTERNAL_FRONTEND";
+    case QuerySource::STREAM_LOAD:
+        return "STREAM_LOAD";
+    case QuerySource::GROUP_COMMIT_LOAD:
+        return "EXTERNAL_QUERY";
+    case QuerySource::ROUTINE_LOAD:
+        return "ROUTINE_LOAD";
+    case QuerySource::EXTERNAL_CONNECTOR:
+        return "EXTERNAL_CONNECTOR";
+    default:
+        return "UNKNOWN";
+    }
+}
+
 QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
                            const TQueryOptions& query_options, TNetworkAddress coord_addr,
-                           bool is_pipeline, bool is_nereids, TNetworkAddress current_connect_fe)
+                           bool is_pipeline, bool is_nereids, TNetworkAddress current_connect_fe,
+                           QuerySource query_source)
         : _timeout_second(-1),
           _query_id(query_id),
           _exec_env(exec_env),
           _is_pipeline(is_pipeline),
           _is_nereids(is_nereids),
-          _query_options(query_options) {
+          _query_options(query_options),
+          _query_source(query_source) {
     _init_query_mem_tracker();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker);
     _query_watcher.start();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
-    _shared_scanner_controller.reset(new vectorized::SharedScannerController());
     _execution_dependency = pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency");
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
             TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker);
@@ -89,7 +107,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
                 !this->current_connect_fe.hostname.empty() && this->current_connect_fe.port != 0;
         DCHECK_EQ(is_report_fe_addr_valid, true);
     }
-
+    clock_gettime(CLOCK_MONOTONIC, &this->_query_arrival_timestamp);
     register_memory_statistics();
     register_cpu_statistics();
 }
@@ -174,10 +192,10 @@ QueryContext::~QueryContext() {
     _runtime_filter_mgr.reset();
     _execution_dependency.reset();
     _shared_hash_table_controller.reset();
-    _shared_scanner_controller.reset();
     _runtime_predicates.clear();
     file_scan_range_params_map.clear();
     obj_pool.clear();
+    _merge_controller_handler.reset();
 
     _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
 
@@ -186,24 +204,14 @@ QueryContext::~QueryContext() {
 
 void QueryContext::set_ready_to_execute(Status reason) {
     set_execution_dependency_ready();
-    {
-        std::lock_guard<std::mutex> l(_start_lock);
-        _exec_status.update(reason);
-        _ready_to_execute = true;
-    }
+    _exec_status.update(reason);
     if (query_mem_tracker && !reason.ok()) {
         query_mem_tracker->set_is_query_cancelled(!reason.ok());
     }
-    _start_cond.notify_all();
 }
 
 void QueryContext::set_ready_to_execute_only() {
     set_execution_dependency_ready();
-    {
-        std::lock_guard<std::mutex> l(_start_lock);
-        _ready_to_execute = true;
-    }
-    _start_cond.notify_all();
 }
 
 void QueryContext::set_execution_dependency_ready() {
@@ -264,21 +272,6 @@ std::string QueryContext::print_all_pipeline_context() {
     return fmt::to_string(debug_string_buffer);
 }
 
-Status QueryContext::cancel_pipeline_context(const int fragment_id, const Status& reason) {
-    std::weak_ptr<pipeline::PipelineFragmentContext> ctx_to_cancel;
-    {
-        std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
-        if (!_fragment_id_to_pipeline_ctx.contains(fragment_id)) {
-            return Status::InternalError("fragment_id_to_pipeline_ctx is empty!");
-        }
-        ctx_to_cancel = _fragment_id_to_pipeline_ctx[fragment_id];
-    }
-    if (auto pipeline_ctx = ctx_to_cancel.lock()) {
-        pipeline_ctx->cancel(reason);
-    }
-    return Status::OK();
-}
-
 void QueryContext::set_pipeline_context(
         const int fragment_id, std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx) {
     std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
@@ -326,9 +319,9 @@ doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
     return _exec_env->pipeline_task_scheduler();
 }
 
-ThreadPool* QueryContext::get_non_pipe_exec_thread_pool() {
+ThreadPool* QueryContext::get_memtable_flush_pool() {
     if (_workload_group) {
-        return _non_pipe_thread_pool;
+        return _memtable_flush_pool;
     } else {
         return nullptr;
     }
@@ -340,7 +333,7 @@ Status QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
     // see task_group_manager::delete_workload_group_by_ids
     _workload_group->add_mem_tracker_limiter(query_mem_tracker);
     _workload_group->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
-                                         &_non_pipe_thread_pool, &_remote_scan_task_scheduler);
+                                         &_memtable_flush_pool, &_remote_scan_task_scheduler);
     return Status::OK();
 }
 

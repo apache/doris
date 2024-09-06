@@ -50,6 +50,7 @@ bindAction("streamLoad", "org.apache.doris.regression.action.StreamLoadAction")
 bindAction("httpTest", "org.apache.doris.regression.action.HttpCliAction")
 bindAction("benchmark", "org.apache.doris.regression.action.BenchmarkAction")
 bindAction("waitForSchemaChangeDone", "org.apache.doris.regression.action.WaitForAction")
+bindAction("profile", "org.apache.doris.regression.action.ProfileAction")
 
 // bind qt_xxx and order_qt_xxx methods
 contributor([suiteContext]) {
@@ -81,7 +82,8 @@ contributor([suiteContext]) {
                         !enclosingCall("explain") &&
                         !enclosingCall("streamLoad") &&
                         !enclosingCall("httpTest") &&
-                        !enclosingCall("waitForSchemaChangeDone"))) {
+                        !enclosingCall("waitForSchemaChangeDone") &&
+                        !enclosingCall("profile"))) {
             // bind other suite method and field
             def suiteClass = findClass(suiteClassName)
             delegatesTo(suiteClass)

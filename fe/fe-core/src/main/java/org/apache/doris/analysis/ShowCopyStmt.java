@@ -38,7 +38,7 @@ import java.util.Set;
 //
 // syntax:
 //      SHOW COPY [FROM db] [LIKE mask]
-public class ShowCopyStmt extends ShowLoadStmt {
+public class ShowCopyStmt extends ShowLoadStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(ShowCopyStmt.class);
 
     public ShowCopyStmt(String db, Expr labelExpr, List<OrderByElement> orderByElements, LimitElement limitElement) {
@@ -197,7 +197,7 @@ public class ShowCopyStmt extends ShowLoadStmt {
         }
     }
 
-    protected void analyzeCompoundPredicate(Expr expr, List<Expr> exprs) throws AnalysisException {
+    private void analyzeCompoundPredicate(Expr expr, List<Expr> exprs) throws AnalysisException {
         if (expr instanceof CompoundPredicate) {
             CompoundPredicate cp = (CompoundPredicate) expr;
             if (cp.getOp() != CompoundPredicate.Operator.AND) {

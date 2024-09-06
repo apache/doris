@@ -144,10 +144,10 @@ public class CreateFunctionTest {
         queryStr = "select db1.decimal(k3, 4, 1) from db1.tbl1;";
         if (Config.enable_decimal_conversion) {
             Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
-                    "CAST(`k3` AS DECIMALV3(4, 1))"));
+                    "CAST(`k3` AS decimalv3(4,1))"));
         } else {
             Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
-                    "CAST(`k3` AS DECIMAL(4, 1))"));
+                    "CAST(`k3` AS decimal(4,1))"));
         }
 
         // cast any type to varchar with fixed length
@@ -176,7 +176,7 @@ public class CreateFunctionTest {
 
         queryStr = "select db1.varchar(k1, 4) from db1.tbl1;";
         Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
-                "CAST(`k1` AS VARCHAR(65533))"));
+                "CAST(`k1` AS varchar(65533))"));
 
         // cast any type to char with fixed length
         createFuncStr = "create alias function db1.to_char(all, int) with parameter(text, length) as "
@@ -204,7 +204,7 @@ public class CreateFunctionTest {
 
         queryStr = "select db1.to_char(k1, 4) from db1.tbl1;";
         Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
-                "CAST(`k1` AS CHARACTER"));
+                "CAST(`k1` AS character"));
     }
 
     @Test
@@ -241,7 +241,7 @@ public class CreateFunctionTest {
 
         queryStr = "select id_masking(k1) from db2.tbl1";
         Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
-                "concat(left(CAST(`k1` AS VARCHAR(65533)), 3), '****', right(CAST(`k1` AS VARCHAR(65533)), 4))"));
+                "concat(left(CAST(`k1` AS varchar(65533)), 3), '****', right(CAST(`k1` AS varchar(65533)), 4))"));
 
         // 4. create alias function with cast
         // cast any type to decimal with specific precision and scale
@@ -259,10 +259,10 @@ public class CreateFunctionTest {
         queryStr = "select decimal(k3, 4, 1) from db2.tbl1;";
         if (Config.enable_decimal_conversion) {
             Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
-                    "CAST(`k3` AS DECIMALV3(4, 1))"));
+                    "CAST(`k3` AS decimalv3(4,1))"));
         } else {
             Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
-                    "CAST(`k3` AS DECIMAL(4, 1))"));
+                    "CAST(`k3` AS decimal(4,1))"));
         }
 
         // 5. cast any type to varchar with fixed length
@@ -279,7 +279,7 @@ public class CreateFunctionTest {
 
         queryStr = "select varchar(k1, 4) from db2.tbl1;";
         Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
-                "CAST(`k1` AS VARCHAR(65533))"));
+                "CAST(`k1` AS varchar(65533))"));
 
         // 6. cast any type to char with fixed length
         createFuncStr = "create global alias function db2.to_char(all, int) with parameter(text, length) as "
@@ -295,7 +295,7 @@ public class CreateFunctionTest {
 
         queryStr = "select to_char(k1, 4) from db2.tbl1;";
         Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
-                "CAST(`k1` AS CHARACTER)"));
+                "CAST(`k1` AS character(255))"));
     }
 
     private void testFunctionQuery(ConnectContext ctx, String queryStr, Boolean isStringLiteral) throws Exception {

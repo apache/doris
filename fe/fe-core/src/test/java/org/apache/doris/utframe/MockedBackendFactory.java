@@ -21,6 +21,7 @@ import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.PBackendServiceGrpc;
@@ -40,6 +41,7 @@ import org.apache.doris.thrift.TCheckStorageFormatResult;
 import org.apache.doris.thrift.TCheckWarmUpCacheAsyncRequest;
 import org.apache.doris.thrift.TCheckWarmUpCacheAsyncResponse;
 import org.apache.doris.thrift.TCloneReq;
+import org.apache.doris.thrift.TCreateTabletReq;
 import org.apache.doris.thrift.TDiskTrashInfo;
 import org.apache.doris.thrift.TDropTabletReq;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -94,7 +96,9 @@ import org.apache.thrift.TException;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.BlockingQueue;
+import java.util.stream.Collectors;
 
 /*
  * This class is used to create mock backends.
@@ -202,6 +206,9 @@ public class MockedBackendFactory {
                             TTaskType taskType = request.getTaskType();
                             switch (taskType) {
                                 case CREATE:
+                                    ++reportVersion;
+                                    handleCreateTablet(request, finishTaskRequest);
+                                    break;
                                 case ALTER:
                                     ++reportVersion;
                                     break;
@@ -209,6 +216,7 @@ public class MockedBackendFactory {
                                     handleDropTablet(request, finishTaskRequest);
                                     break;
                                 case CLONE:
+                                    ++reportVersion;
                                     handleCloneTablet(request, finishTaskRequest);
                                     break;
                                 case STORAGE_MEDIUM_MIGRATE:
@@ -234,6 +242,30 @@ public class MockedBackendFactory {
                     }
                 }
 
+                private void handleCreateTablet(TAgentTaskRequest request, TFinishTaskRequest finishTaskRequest) {
+                    TCreateTabletReq req = request.getCreateTabletReq();
+                    List<DiskInfo> candDisks = backendInFe.getDisks().values().stream()
+                            .filter(disk -> req.storage_medium == disk.getStorageMedium() && disk.isAlive())
+                            .collect(Collectors.toList());
+                    if (candDisks.isEmpty()) {
+                        candDisks = backendInFe.getDisks().values().stream()
+                                .filter(DiskInfo::isAlive)
+                                .collect(Collectors.toList());
+                    }
+                    DiskInfo choseDisk = candDisks.isEmpty() ? null
+                            : candDisks.get(new Random().nextInt(candDisks.size()));
+
+                    List<TTabletInfo> tabletInfos = Lists.newArrayList();
+                    TTabletInfo tabletInfo = new TTabletInfo();
+                    tabletInfo.setTabletId(req.tablet_id);
+                    tabletInfo.setVersion(req.version);
+                    tabletInfo.setPathHash(choseDisk == null ? -1L : choseDisk.getPathHash());
+                    tabletInfo.setReplicaId(req.replica_id);
+                    tabletInfo.setUsed(true);
+                    tabletInfos.add(tabletInfo);
+                    finishTaskRequest.setFinishTabletInfos(tabletInfos);
+                }
+
                 private void handleDropTablet(TAgentTaskRequest request, TFinishTaskRequest finishTaskRequest) {
                     TDropTabletReq req = request.getDropTabletReq();
                     long dataSize = Math.max(1, CatalogTestUtil.getTabletDataSize(req.tablet_id));
@@ -247,6 +279,13 @@ public class MockedBackendFactory {
                 }
 
                 private void handleCloneTablet(TAgentTaskRequest request, TFinishTaskRequest finishTaskRequest) {
+                    while (DebugPointUtil.isEnable("MockedBackendFactory.handleCloneTablet.block")) {
+                        try {
+                            Thread.sleep(10);
+                        } catch (InterruptedException e) {
+                            // ignore
+                        }
+                    }
                     TCloneReq req = request.getCloneReq();
                     long dataSize = Math.max(1, CatalogTestUtil.getTabletDataSize(req.tablet_id));
                     long pathHash = req.dest_path_hash;

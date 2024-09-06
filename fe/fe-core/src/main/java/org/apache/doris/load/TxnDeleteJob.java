@@ -44,7 +44,7 @@ public class TxnDeleteJob extends DeleteJob {
     @Override
     public long beginTxn() throws Exception {
         TransactionEntry txnEntry = ConnectContext.get().getTxnEntry();
-        this.transactionId = txnEntry.beginTransaction(targetTbl);
+        this.transactionId = txnEntry.beginTransaction(targetTbl, SubTransactionType.DELETE);
         this.label = txnEntry.getLabel();
         return this.transactionId;
     }

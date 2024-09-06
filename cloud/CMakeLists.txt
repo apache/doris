@@ -85,6 +85,7 @@ else()
     set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed-$ENV{DORIS_BRANCH}")
 endif()
 set(GENSRC_DIR "${BASE_DIR}/../gensrc/build/")
+set(COMMON_SRC_DIR "${BASE_DIR}/../common")
 set(SRC_DIR "${BASE_DIR}/src/")
 set(TEST_DIR "${CMAKE_SOURCE_DIR}/test/")
 set(OUTPUT_DIR "${BASE_DIR}/output")
@@ -164,7 +165,7 @@ if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
 endif()
 
 if (USE_LIBCPP AND COMPILER_CLANG)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++ -lstdc++")
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++")
     add_definitions(-DUSE_LIBCPP)
 endif()
 
@@ -213,7 +214,7 @@ set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
 #   -O3: Enable all compiler optimizations
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
 set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -DNDEBUG")
-SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -O1 -fsanitize=address -DADDRESS_SANITIZER")
+SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -O0 -fsanitize=address -DADDRESS_SANITIZER")
 SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O0 -fsanitize=leak -DLEAK_SANITIZER")
 
 # Set the flags to the undefined behavior sanitizer, also known as "ubsan"
@@ -260,6 +261,7 @@ include_directories(
 include_directories(
     SYSTEM
     ${GENSRC_DIR}/
+    ${COMMON_SRC_DIR}
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
 )
@@ -329,19 +331,28 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     Recycler
     RateLimiter
     ${WL_END_GROUP}
+    CommonCPP
     ${DORIS_DEPENDENCIES}
     -static-libstdc++
     -static-libgcc
-    -lstdc++fs
     -lresolv
     -L${DORIS_JAVA_HOME}/lib/server
     -ljvm
 )
+if (NOT (USE_LIBCPP AND COMPILER_CLANG))
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -lstdc++fs)
+endif()
 
 if (USE_JEMALLOC)
     set(MALLOCLIB jemalloc)
 else ()
     set(MALLOCLIB tcmalloc)
+endif()
+
+option(BUILD_AZURE "ON for building azure support for BE or OFF for not" OFF)
+message(STATUS "build azure: ${BUILD_AZURE}")
+if(BUILD_AZURE STREQUAL "ON")
+    add_definitions(-DUSE_AZURE)
 endif()
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
@@ -424,7 +435,7 @@ endif()
 
 if (NOT EXISTS "${THIRDPARTY_SRC}/${FDB_LIB}")
     file(MAKE_DIRECTORY ${THIRDPARTY_SRC})
-    execute_process(COMMAND "curl" "${FDB_LIB_URL}"
+    execute_process(COMMAND "curl --retry 10 --retry-delay 2 --retry-max-time 30" "${FDB_LIB_URL}"
                             "-o" "${THIRDPARTY_SRC}/${FDB_LIB}" "-k"
                     RESULTS_VARIABLE DOWNLOAD_RET)
     if (NOT ${DOWNLOAD_RET} STREQUAL "0")
@@ -446,6 +457,11 @@ if (NOT EXISTS ${THIRDPARTY_DIR}/include/foundationdb)
     execute_process(COMMAND "tar" "xf" "${THIRDPARTY_SRC}/${FDB_LIB}" "-C" "${THIRDPARTY_DIR}/")
 endif ()
 
+# enable glog custom prefix
+add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
+
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lfdb_c -L${THIRDPARTY_DIR}/lib")
+
 add_subdirectory(${SRC_DIR}/common)
 add_subdirectory(${SRC_DIR}/gen-cpp)
 add_subdirectory(${SRC_DIR}/meta-service)
@@ -457,9 +473,9 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR})
 endif ()
 
-if (${MAKE_TEST} STREQUAL "OFF")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lfdb_c -L${THIRDPARTY_DIR}/lib")
+add_subdirectory(${COMMON_SRC_DIR}/cpp ${BUILD_DIR}/src/common_cpp)
 
+if (${MAKE_TEST} STREQUAL "OFF")
     add_executable(doris_cloud src/main.cpp)
 
     # This permits libraries loaded by dlopen to link to the symbols in the program.

@@ -105,14 +105,14 @@ public class MTMVJobManager implements MTMVHookService {
                 .setInterval(mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getInterval());
         timerDefinition
                 .setIntervalUnit(mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getTimeUnit());
-        if (mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
-            jobExecutionConfiguration.setImmediate(true);
-        } else if (mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.DEFERRED) && !StringUtils
+        if (!StringUtils
                 .isEmpty(mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getStartTime())) {
             timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(
                     mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getStartTime()));
         }
-
+        if (mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
+            jobExecutionConfiguration.setImmediate(true);
+        }
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
     }
 
@@ -188,7 +188,7 @@ public class MTMVJobManager implements MTMVHookService {
     }
 
     @Override
-    public void alterTable(Table table) {
+    public void alterTable(Table table, String oldTableName) {
 
     }
 

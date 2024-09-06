@@ -23,7 +23,8 @@ import org.apache.doris.regression.suite.client.BackendClientImpl
 import org.apache.doris.regression.suite.client.FrontendClientImpl
 import org.apache.doris.thrift.TTabletCommitInfo
 import org.apache.doris.thrift.TGetSnapshotResult
-import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TNetworkAddress
+import org.apache.doris.thrift.TSubTxnInfo
 import com.google.gson.annotations.SerializedName
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -127,6 +128,12 @@ class SyncerContext {
     public String db
     public long txnId
     public long seq
+
+    public boolean txnInsert = false
+    public List<Long> sourceSubTxnIds = new ArrayList<Long>()
+    public List<Long> targetSubTxnIds = new ArrayList<Long>()
+    public Map<Long, Long> sourceToTargetSubTxnId = new HashMap<Long, Long>()
+    public List<TSubTxnInfo> subTxnInfos = new ArrayList<TSubTxnInfo>()
 
     SyncerContext(Suite suite, String dbName, Config config) {
         this.suite = suite

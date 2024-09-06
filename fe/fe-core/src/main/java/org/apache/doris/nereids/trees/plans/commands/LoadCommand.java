@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
+import org.apache.doris.nereids.exceptions.MustFallbackException;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -125,11 +127,12 @@ public class LoadCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!Config.enable_nereids_load) {
-            ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            throw new AnalysisException("Fallback to legacy planner temporary.");
+            throw new MustFallbackException("Fallback to legacy planner temporary.");
         }
-        this.profile = new Profile("Query", ctx.getSessionVariable().enableProfile,
-                ctx.getSessionVariable().profileLevel);
+        this.profile = new Profile(
+                ctx.getSessionVariable().enableProfile,
+                ctx.getSessionVariable().profileLevel,
+                ctx.getSessionVariable().getAutoProfileThresholdMs());
         profile.getSummaryProfile().setQueryBeginTime();
         if (sourceInfos.size() == 1) {
             plans = ImmutableList.of(new InsertIntoTableCommand(completeQueryPlan(ctx, sourceInfos.get(0)),
@@ -499,5 +502,10 @@ public class LoadCommand extends Command implements ForwardWithSync {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLoadCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.LOAD;
     }
 }

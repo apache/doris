@@ -693,15 +693,19 @@ public class CacheAnalyzer {
         CatalogIf catalog = database.getCatalog();
         ScanTable scanTable = new ScanTable(
                 new FullTableName(catalog.getName(), database.getFullName(), olapTable.getName()),
-                olapTable.getVisibleVersionTime(), olapTable.getVisibleVersion());
+                olapTable.getVisibleVersion());
         scanTables.add(scanTable);
+
+        Collection<Long> partitionIds = node.getSelectedPartitionIds();
+        olapTable.getVersionInBatchForCloudMode(partitionIds);
+
         for (Long partitionId : node.getSelectedPartitionIds()) {
             Partition partition = olapTable.getPartition(partitionId);
             scanTable.addScanPartition(partitionId);
             if (partition.getVisibleVersionTime() >= cacheTable.latestPartitionTime) {
                 cacheTable.latestPartitionId = partition.getId();
                 cacheTable.latestPartitionTime = partition.getVisibleVersionTime();
-                cacheTable.latestPartitionVersion = partition.getVisibleVersion();
+                cacheTable.latestPartitionVersion = partition.getVisibleVersion(true);
             }
         }
         return cacheTable;
@@ -710,14 +714,13 @@ public class CacheAnalyzer {
     private CacheTable buildCacheTableForHiveScanNode(HiveScanNode node) {
         CacheTable cacheTable = new CacheTable();
         cacheTable.table = node.getTargetTable();
-        cacheTable.partitionNum = node.getReadPartitionNum();
+        cacheTable.partitionNum = node.getSelectedPartitionNum();
         cacheTable.latestPartitionTime = cacheTable.table.getUpdateTime();
         TableIf tableIf = cacheTable.table;
         DatabaseIf database = tableIf.getDatabase();
         CatalogIf catalog = database.getCatalog();
         ScanTable scanTable = new ScanTable(new FullTableName(
-                catalog.getName(), database.getFullName(), tableIf.getName()
-        ), cacheTable.latestPartitionTime, 0);
+                catalog.getName(), database.getFullName(), tableIf.getName()), 0);
         scanTables.add(scanTable);
         return cacheTable;
     }

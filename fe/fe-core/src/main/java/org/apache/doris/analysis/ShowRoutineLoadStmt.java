@@ -62,7 +62,7 @@ import java.util.List;
         show routine load in all of database
         please use show proc
  */
-public class ShowRoutineLoadStmt extends ShowStmt {
+public class ShowRoutineLoadStmt extends ShowStmt implements NotFallbackInParser {
 
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
@@ -125,8 +125,8 @@ public class ShowRoutineLoadStmt extends ShowStmt {
     }
 
     private void checkLabelName(Analyzer analyzer) throws AnalysisException {
-        String dbName = labelName == null ? null : labelName.getDbName();
-        if (Strings.isNullOrEmpty(dbName)) {
+        dbFullName = labelName == null ? null : labelName.getDbName();
+        if (Strings.isNullOrEmpty(dbFullName)) {
             dbFullName = analyzer.getContext().getDatabase();
             if (Strings.isNullOrEmpty(dbFullName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);

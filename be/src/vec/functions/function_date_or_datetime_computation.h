@@ -712,16 +712,17 @@ public:
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         if (arguments.size() != 2 && arguments.size() != 3) {
-            LOG(FATAL) << fmt::format(
-                    "Number of arguments for function {} doesn't match: passed {} , should be 2 or "
-                    "3",
-                    get_name(), arguments.size());
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Number of arguments for function {} doesn't match: passed {} , "
+                                   "should be 2 or 3",
+                                   get_name(), arguments.size());
         }
 
         if (arguments.size() == 2) {
             if (!is_date_or_datetime(remove_nullable(arguments[0].type)) &&
                 !is_date_v2_or_datetime_v2(remove_nullable(arguments[0].type))) {
-                LOG(FATAL) << fmt::format(
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
                         "Illegal type {} of argument of function {}. Should be a date or a date "
                         "with time",
                         arguments[0].type->get_name(), get_name());
@@ -730,7 +731,8 @@ public:
             if (!WhichDataType(remove_nullable(arguments[0].type)).is_date_time() ||
                 !WhichDataType(remove_nullable(arguments[0].type)).is_date_time_v2() ||
                 !WhichDataType(remove_nullable(arguments[2].type)).is_string()) {
-                LOG(FATAL) << fmt::format(
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
                         "Function {} supports 2 or 3 arguments. The 1st argument must be of type "
                         "Date or DateTime. The 2nd argument must be number. The 3rd argument "
                         "(optional) must be a constant string with timezone name. The timezone "

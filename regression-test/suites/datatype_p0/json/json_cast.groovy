@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_json_type_cast", "p0") {
-    sql """ set enable_fold_constant_by_be = false;"""
     qt_sql1 "SELECT CAST(CAST(10 AS JSON) as INT)"
     qt_sql2 "SELECT CAST(CAST(102423 AS JSON) as TINYINT)"
     qt_sql3 "SELECT CAST(CAST(102423 AS JSON) as SMALLINT)"
@@ -32,4 +31,23 @@ suite("test_json_type_cast", "p0") {
     qt_sql12 """select cast("111111" as json)"""
     qt_sql13 """select cast(111111 as json)"""
     qt_sql14 """select cast(1.1111 as json)"""
+
+    qt_sql15 """select cast("+" as int);"""
+    qt_sql16 """select cast("-" as int);"""
+    qt_sql17 """select cast("a" as int);"""
+    qt_sql18 """select cast("/" as int);"""
+
+    qt_sql19 "SELECT CAST(CAST(CAST(1 AS BOOLEAN) AS JSON) as INT)"
+    qt_sql19 "SELECT CAST(CAST(CAST(0 AS BOOLEAN) AS JSON) as INT)"
+    qt_sql20 "SELECT CAST(CAST(CAST(1 AS BOOLEAN) AS JSON) as DOUBLE)"
+    qt_sql20 "SELECT CAST(CAST(CAST(0 AS BOOLEAN) AS JSON) as DOUBLE)"
+    qt_sql21 "SELECT CAST(CAST(CAST(1 AS BOOLEAN) AS JSON) as BOOLEAN)"
+
+    qt_sql22 "SELECT CAST(CAST(CAST(1024 AS INT) AS JSON) as DOUBLE)"
+    qt_sql23 "SELECT CAST(CAST(CAST(1024 AS INT) AS JSON) as FLOAT)"
+    qt_sql24 "SELECT CAST(CAST(CAST(1024.0 AS DOUBLE) AS JSON) as DOUBLE)"
+
+    qt_sql24 "SELECT CAST(CAST(CAST('[1, 2, 3]' AS TEXT) AS JSON) as TEXT)"
+    qt_sql25 "SELECT CAST(CAST(CAST('[1, 2, 3]' AS TEXT) AS JSON) as TEXT)"
+    qt_sql26 """SELECT CAST(CAST(CAST('["2020-01-01"]' AS TEXT) AS JSON) as TEXT)"""
 }

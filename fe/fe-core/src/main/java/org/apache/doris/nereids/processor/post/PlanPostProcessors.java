@@ -65,6 +65,9 @@ public class PlanPostProcessors {
         builder.add(new AddOffsetIntoDistribute());
         builder.add(new CommonSubExpressionOpt());
         // DO NOT replace PLAN NODE from here
+        if (cascadesContext.getConnectContext().getSessionVariable().pushTopnToAgg) {
+            builder.add(new PushTopnToAgg());
+        }
         builder.add(new TopNScanOpt());
         builder.add(new FragmentProcessor());
         if (!cascadesContext.getConnectContext().getSessionVariable().getRuntimeFilterMode()

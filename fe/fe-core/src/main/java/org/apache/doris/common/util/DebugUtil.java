@@ -71,17 +71,17 @@ public class DebugUtil {
             boolean hour = false;
             boolean minute = false;
             if (newValue >= HOUR) {
-                builder.append(newValue / HOUR).append("h");
+                builder.append(newValue / HOUR).append("hour");
                 newValue %= HOUR;
                 hour = true;
             }
             if (newValue >= MINUTE) {
-                builder.append(newValue / MINUTE).append("m");
+                builder.append(newValue / MINUTE).append("min");
                 newValue %= MINUTE;
                 minute = true;
             }
             if (!hour && newValue >= SECOND) {
-                builder.append(newValue / SECOND).append("s");
+                builder.append(newValue / SECOND).append("sec");
                 newValue %= SECOND;
             }
             if (!hour && !minute) {

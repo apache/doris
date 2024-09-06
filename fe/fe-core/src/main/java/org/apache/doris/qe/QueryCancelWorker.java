@@ -22,9 +22,14 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.List;
 
+
 public class QueryCancelWorker extends MasterDaemon {
+    private static final Logger LOG = LogManager.getLogger(QueryCancelWorker.class);
     private SystemInfoService systemInfoService;
 
     public QueryCancelWorker(SystemInfoService systemInfoService) {
@@ -33,7 +38,13 @@ public class QueryCancelWorker extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        List<Backend> allBackends = systemInfoService.getAllBackends();
+        List<Backend> allBackends;
+        try {
+            allBackends = systemInfoService.getAllBackendsByAllCluster().values().asList();
+        } catch (Exception e) {
+            LOG.warn("failed to get backends by current cluster", e);
+            return;
+        }
 
         for (Coordinator co : QeProcessorImpl.INSTANCE.getAllCoordinators()) {
             Status status = co.shouldCancel(allBackends);

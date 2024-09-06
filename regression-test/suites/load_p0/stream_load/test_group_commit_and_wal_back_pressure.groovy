@@ -15,12 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_group_commit_and_wal_back_pressure", "p2") {
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
+
+suite("test_group_commit_and_wal_back_pressure") {
+
+    def getRowCount = { table, expectedRowCount ->
+        Awaitility.await().atMost(90, SECONDS).pollInterval(2, SECONDS).until(
+            {
+                def result = sql "select count(*) from ${table}"
+                logger.info("table: ${table}, rowCount: ${result}")
+                return result[0][0] == expectedRowCount
+            }
+        )
+    }
 
     def tableName = "test_group_commit_and_wal_back_pressure"
-    sql """ DROP TABLE IF EXISTS ${tableName}1 """
-    sql """
-            CREATE TABLE ${tableName}1 (
+    for (int j = 1; j <= 3; j++) {
+        sql """ DROP TABLE IF EXISTS ${tableName}${j} """
+        sql """
+            CREATE TABLE ${tableName}${j} (
                 k bigint,  
                 v string
                 )  
@@ -29,33 +43,8 @@ suite("test_group_commit_and_wal_back_pressure", "p2") {
                 PROPERTIES(  
                 "replication_num" = "1"
             );
-    """
-
-    sql """ DROP TABLE IF EXISTS ${tableName}2 """
-    sql """
-            CREATE TABLE ${tableName}2 (
-                k bigint,  
-                v string
-                )  
-                UNIQUE KEY(k)  
-                DISTRIBUTED BY HASH (k) BUCKETS 32  
-                PROPERTIES(  
-                "replication_num" = "1"
-            );
-    """
-
-    sql """ DROP TABLE IF EXISTS ${tableName}3 """
-    sql """
-            CREATE TABLE ${tableName}3 (
-                k bigint,  
-                v string
-                )  
-                UNIQUE KEY(k)  
-                DISTRIBUTED BY HASH (k) BUCKETS 32  
-                PROPERTIES(  
-                "replication_num" = "1"
-            );
-    """
+        """
+    }
 
     def t1 = []
     for (int i = 0; i < 20; i++) {
@@ -122,13 +111,8 @@ suite("test_group_commit_and_wal_back_pressure", "p2") {
     for (Thread th in t3) {
         th.join()
     }
-
     sql "sync"
-
-    qt_1 """ select count(*) from ${tableName}1;"""
-
-    qt_2 """ select count(*) from ${tableName}2;"""
-
-    qt_3 """ select count(*) from ${tableName}3;"""
-
+    getRowCount "${tableName}1", 1
+    getRowCount "${tableName}2", 1
+    getRowCount "${tableName}3", 1
 }

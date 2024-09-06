@@ -41,7 +41,8 @@ import java.util.List;
  * CREATE TABLE table_name [( column_name_list )]
  * opt_engine opt_partition opt_properties KW_AS query_stmt
  */
-public class CreateTableAsSelectStmt extends DdlStmt {
+@Deprecated
+public class CreateTableAsSelectStmt extends DdlStmt implements NotFallbackInParser {
 
     @Getter
     private final CreateTableStmt createTableStmt;
@@ -124,5 +125,10 @@ public class CreateTableAsSelectStmt extends DdlStmt {
     public void reset() {
         super.reset();
         queryStmt.reset();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

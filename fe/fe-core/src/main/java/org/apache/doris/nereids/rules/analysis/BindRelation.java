@@ -26,7 +26,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.es.EsExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.nereids.CTEContext;
@@ -183,16 +182,17 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return getLogicalPlan(table, unboundRelation, qualifiedTablName, cascadesContext);
     }
 
-    private LogicalPlan makeOlapScan(TableIf table, UnboundRelation unboundRelation, List<String> qualifiedTableName) {
+    private LogicalPlan makeOlapScan(TableIf table, UnboundRelation unboundRelation, List<String> qualifier) {
         LogicalOlapScan scan;
-        List<Long> partIds = getPartitionIds(table, unboundRelation, qualifiedTableName);
+        List<Long> partIds = getPartitionIds(table, unboundRelation, qualifier);
         List<Long> tabletIds = unboundRelation.getTabletIds();
-        if (!CollectionUtils.isEmpty(partIds)) {
+        if (!CollectionUtils.isEmpty(partIds) && !unboundRelation.getIndexName().isPresent()) {
             scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, qualifiedTableName, partIds,
+                    (OlapTable) table, qualifier, partIds,
                     tabletIds, unboundRelation.getHints(), unboundRelation.getTableSample());
         } else {
             Optional<String> indexName = unboundRelation.getIndexName();
+            // For direct mv scan.
             if (indexName.isPresent()) {
                 OlapTable olapTable = (OlapTable) table;
                 Long indexId = olapTable.getIndexIdByName(indexName.get());
@@ -204,16 +204,26 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         : PreAggStatus.off("For direct index scan on mor/agg.");
 
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, qualifiedTableName, tabletIds, indexId,
-                    preAggStatus, unboundRelation.getHints(), unboundRelation.getTableSample());
+                    (OlapTable) table, qualifier, tabletIds,
+                    CollectionUtils.isEmpty(partIds) ? ((OlapTable) table).getPartitionIds() : partIds, indexId,
+                    preAggStatus, CollectionUtils.isEmpty(partIds) ? ImmutableList.of() : partIds,
+                    unboundRelation.getHints(), unboundRelation.getTableSample());
             } else {
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, qualifiedTableName, tabletIds, unboundRelation.getHints(),
+                    (OlapTable) table, qualifier, tabletIds, unboundRelation.getHints(),
                     unboundRelation.getTableSample());
             }
         }
+        return checkAndAddDeleteSignFilter(scan, ConnectContext.get(), (OlapTable) table);
+    }
+
+    /**
+     * Add delete sign filter on olap scan if need.
+     */
+    public static LogicalPlan checkAndAddDeleteSignFilter(LogicalOlapScan scan, ConnectContext connectContext,
+            OlapTable olapTable) {
         if (!Util.showHiddenColumns() && scan.getTable().hasDeleteSign()
-                && !ConnectContext.get().getSessionVariable().skipDeleteSign()) {
+                && !connectContext.getSessionVariable().skipDeleteSign()) {
             // table qualifier is catalog.db.table, we make db.table.column
             Slot deleteSlot = null;
             for (Slot slot : scan.getOutput()) {
@@ -224,7 +234,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             }
             Preconditions.checkArgument(deleteSlot != null);
             Expression conjunct = new EqualTo(new TinyIntLiteral((byte) 0), deleteSlot);
-            if (!((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
+            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
                 scan = scan.withPreAggStatus(PreAggStatus.off(
                         Column.DELETE_SIGN + " is used as conjuncts."));
             }
@@ -280,6 +290,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 case PAIMON_EXTERNAL_TABLE:
                 case MAX_COMPUTE_EXTERNAL_TABLE:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
+                case LAKESOUl_EXTERNAL_TABLE:
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
                             qualifierWithoutTableName, unboundRelation.getTableSample(),
                             unboundRelation.getTableSnapshot());
@@ -291,17 +302,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 case ODBC:
                     return new LogicalOdbcScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
                 case ES_EXTERNAL_TABLE:
-                    return new LogicalEsScan(unboundRelation.getRelationId(), (EsExternalTable) table,
-                            qualifierWithoutTableName);
+                case ELASTICSEARCH:
+                    return new LogicalEsScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
                 case TEST_EXTERNAL_TABLE:
                     return new LogicalTestScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
                 default:
-                    try {
-                        // TODO: support other type table, such as ELASTICSEARCH
-                        cascadesContext.getConnectContext().getSessionVariable().enableFallbackToOriginalPlannerOnce();
-                    } catch (Exception e) {
-                        // ignore
-                    }
                     throw new AnalysisException("Unsupported tableType " + table.getType());
             }
         } finally {
@@ -344,14 +349,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
         CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
         viewContext.keepOrShowPlanProcess(parentContext.showPlanProcess(), () -> {
-            viewContext.newAnalyzer(true, customTableResolver).analyze();
+            viewContext.newAnalyzer(customTableResolver).analyze();
         });
         parentContext.addPlanProcesses(viewContext.getPlanProcesses());
         // we should remove all group expression of the plan which in other memo, so the groupId would not conflict
         return viewContext.getRewritePlan();
     }
 
-    private List<Long> getPartitionIds(TableIf t, UnboundRelation unboundRelation, List<String> qualifiedTableName) {
+    private List<Long> getPartitionIds(TableIf t, UnboundRelation unboundRelation, List<String> qualifier) {
         List<String> parts = unboundRelation.getPartNames();
         if (CollectionUtils.isEmpty(parts)) {
             return ImmutableList.of();
@@ -364,12 +369,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return parts.stream().map(name -> {
             Partition part = ((OlapTable) t).getPartition(name, unboundRelation.isTempPart());
             if (part == null) {
-                String qualified;
-                if (!CollectionUtils.isEmpty(qualifiedTableName)) {
-                    qualified = String.join(".", qualifiedTableName);
+                List<String> qualified;
+                if (!CollectionUtils.isEmpty(qualifier)) {
+                    qualified = qualifier;
                 } else {
-                    qualified = unboundRelation.getTableName();
+                    qualified = Lists.newArrayList();
                 }
+                qualified.add(unboundRelation.getTableName());
                 throw new AnalysisException(String.format("Partition: %s is not exists on table %s",
                         name, String.join(".", qualified)));
             }

@@ -47,10 +47,15 @@ CONF_Int32(warn_log_filenum_quota, "1");
 CONF_Bool(log_immediate_flush, "false");
 CONF_Strings(log_verbose_modules, ""); // Comma seprated list: a.*,b.*
 CONF_Int32(log_verbose_level, "5");
+// Whether to use file to record log. When starting Cloud with --console,
+// all logs will be written to both standard output and file.
+// Disable this option will no longer use file to record log.
+// Only works when starting Cloud with --console.
+CONF_Bool(enable_file_logger, "true");
 
 // recycler config
 CONF_mInt64(recycle_interval_seconds, "3600");
-CONF_mInt64(retention_seconds, "259200"); // 72h
+CONF_mInt64(retention_seconds, "259200"); // 72h, global retention time
 CONF_Int32(recycle_concurrency, "16");
 CONF_Int32(recycle_job_lease_expired_ms, "60000");
 CONF_mInt64(compacted_rowset_retention_seconds, "10800");  // 3h
@@ -60,8 +65,10 @@ CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 CONF_Strings(recycle_whitelist, ""); // Comma seprated list
 // These instances will not be recycled, only effective when whitelist is empty.
 CONF_Strings(recycle_blacklist, ""); // Comma seprated list
-CONF_mInt32(instance_recycler_worker_pool_size, "1");
+CONF_mInt32(instance_recycler_worker_pool_size, "8");
 CONF_Bool(enable_checker, "false");
+// The parallelism for parallel recycle operation
+CONF_Int32(recycle_pool_parallelism, "10");
 // Currently only used for recycler test
 CONF_Bool(enable_inverted_check, "false");
 // interval for scanning instances to do checks and inspections
@@ -70,16 +77,19 @@ CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 CONF_mInt32(check_object_interval_seconds, "43200"); // 12hours
 
 CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
-CONF_mInt64(recycle_task_threshold_seconds, "10800");    // 3h
+CONF_mInt64(recycler_sleep_before_scheduling_seconds, "60");
+// log a warning if a recycle task takes longer than this duration
+CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 
-CONF_String(test_s3_ak, "ak");
-CONF_String(test_s3_sk, "sk");
-CONF_String(test_s3_endpoint, "endpoint");
-CONF_String(test_s3_region, "region");
-CONF_String(test_s3_bucket, "bucket");
+CONF_String(test_s3_ak, "");
+CONF_String(test_s3_sk, "");
+CONF_String(test_s3_endpoint, "");
+CONF_String(test_s3_region, "");
+CONF_String(test_s3_bucket, "");
+CONF_String(test_s3_prefix, "");
 
-CONF_String(test_hdfs_prefix, "prefix");
-CONF_String(test_hdfs_fs_name, "fs_name");
+CONF_String(test_hdfs_prefix, "");
+CONF_String(test_hdfs_fs_name, "");
 // CONF_Int64(a, "1073741824");
 // CONF_Bool(b, "true");
 
@@ -189,4 +199,20 @@ CONF_String(priority_networks, "");
 
 CONF_Bool(enable_cluster_name_check, "false");
 
+// http scheme in S3Client to use. E.g. http or https
+CONF_String(s3_client_http_scheme, "http");
+CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
+    return config == "http" || config == "https";
+});
+
+// Max retry times for object storage request
+CONF_mInt64(max_s3_client_retry, "10");
+
+CONF_Bool(enable_cloud_txn_lazy_commit, "true");
+CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
+CONF_Int32(txn_lazy_commit_num_threads, "8");
+CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
+
+// max TabletIndexPB num for batch get
+CONF_Int32(max_tablet_index_num_per_batch, "1000");
 } // namespace doris::cloud::config

@@ -41,6 +41,10 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 
+namespace doris::segment_v2 {
+struct FuncExprParams;
+} // namespace doris::segment_v2
+
 namespace doris::vectorized {
 
 #define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                                       \
@@ -60,6 +64,7 @@ namespace doris::vectorized {
     }
 
 class Field;
+class VExpr;
 
 // Only use dispose the variadic argument
 template <typename T>
@@ -185,12 +190,12 @@ public:
                 ->execute(context, block, arguments, result, input_rows_count, dry_run);
     }
 
-    virtual Status eval_inverted_index(
-            FunctionContext* context,
-            const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
-            segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
-            roaring::Roaring* bitmap) const {
-        return Status::NotSupported("eval_inverted_index is not supported in function: ",
+    virtual Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
+        return Status::NotSupported("evaluate_inverted_index is not supported in function: ",
                                     get_name());
     }
 
@@ -199,8 +204,6 @@ public:
     virtual Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
         return Status::OK();
     }
-
-    virtual bool can_fast_execute() const { return false; }
 
     virtual bool is_use_default_implementation_for_constants() const = 0;
 
@@ -225,10 +228,13 @@ public:
     virtual Monotonicity get_monotonicity_for_range(const IDataType& /*type*/,
                                                     const Field& /*left*/,
                                                     const Field& /*right*/) const {
-        LOG(FATAL) << fmt::format("Function {} has no information about its monotonicity.",
-                                  get_name());
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Function {} has no information about its monotonicity.",
+                               get_name());
         return Monotonicity {};
     }
+
+    virtual bool can_push_down_to_index() const { return false; }
 };
 
 using FunctionBasePtr = std::shared_ptr<IFunctionBase>;
@@ -322,13 +328,15 @@ protected:
     // whether to wrap in nullable type will be automatically decided.
     virtual DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const {
         DataTypes data_types(arguments.size());
-        for (size_t i = 0; i < arguments.size(); ++i) data_types[i] = arguments[i].type;
-
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            data_types[i] = arguments[i].type;
+        }
         return get_return_type_impl(data_types);
     }
 
     virtual DataTypePtr get_return_type_impl(const DataTypes& /*arguments*/) const {
-        LOG(FATAL) << fmt::format("get_return_type is not implemented for {}", get_name());
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "get_return_type is not implemented for {}", get_name());
         return nullptr;
     }
 
@@ -374,6 +382,7 @@ class IFunction : public std::enable_shared_from_this<IFunction>,
 public:
     String get_name() const override = 0;
 
+    /// Notice: We should not change the column in the block, because the column may be shared by multiple expressions or exec nodes.
     virtual Status execute_impl(FunctionContext* context, Block& block,
                                 const ColumnNumbers& arguments, size_t result,
                                 size_t input_rows_count) const override = 0;
@@ -402,7 +411,8 @@ public:
                                              const Block& /*sample_block*/,
                                              const ColumnNumbers& /*arguments*/,
                                              size_t /*result*/) const final {
-        LOG(FATAL) << "prepare is not implemented for IFunction";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "prepare is not implemented for IFunction {}", get_name());
         __builtin_unreachable();
     }
 
@@ -410,29 +420,24 @@ public:
         return Status::OK();
     }
 
-    // here are lots of function not extends eval_inverted_index.
-    Status eval_inverted_index(FunctionContext* context,
-                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
-                               segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
-                               roaring::Roaring* bitmap) const override {
-        return Status::NotSupported("eval_inverted_index is not supported in function: ",
-                                    get_name());
-    }
-
     [[noreturn]] const DataTypes& get_argument_types() const final {
-        LOG(FATAL) << "get_argument_types is not implemented for IFunction";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "get_argument_types is not implemented for IFunction {}",
+                               get_name());
         __builtin_unreachable();
     }
 
     [[noreturn]] const DataTypePtr& get_return_type() const final {
-        LOG(FATAL) << "get_return_type is not implemented for IFunction";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "get_return_type is not implemented for IFunction {}", get_name());
         __builtin_unreachable();
     }
 
 protected:
     FunctionBasePtr build_impl(const ColumnsWithTypeAndName& /*arguments*/,
                                const DataTypePtr& /*return_type*/) const final {
-        LOG(FATAL) << "build_impl is not implemented for IFunction";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "build_impl is not implemented for IFunction {}", get_name());
         __builtin_unreachable();
         return {};
     }
@@ -453,11 +458,13 @@ protected:
         return function->execute_impl(context, block, arguments, result, input_rows_count);
     }
 
-    Status eval_inverted_index(FunctionContext* context,
-                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
-                               segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
-                               roaring::Roaring* bitmap) const {
-        return function->eval_inverted_index(context, data_type_with_name, iter, num_rows, bitmap);
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
+        return function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
+                                                 num_rows, bitmap_result);
     }
 
     Status execute_impl_dry_run(FunctionContext* context, Block& block,
@@ -517,18 +524,13 @@ public:
         return function->close(context, scope);
     }
 
-    bool can_fast_execute() const override {
-        auto function_name = function->get_name();
-        return function_name == "eq" || function_name == "ne" || function_name == "lt" ||
-               function_name == "gt" || function_name == "le" || function_name == "ge" ||
-               function_name == "in";
-    }
-
-    Status eval_inverted_index(FunctionContext* context,
-                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
-                               segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
-                               roaring::Roaring* bitmap) const override {
-        return function->eval_inverted_index(context, data_type_with_name, iter, num_rows, bitmap);
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& args,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+        return function->evaluate_inverted_index(args, data_type_with_names, iterators, num_rows,
+                                                 bitmap_result);
     }
 
     IFunctionBase::Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
@@ -539,6 +541,8 @@ public:
     bool is_use_default_implementation_for_constants() const override {
         return function->is_use_default_implementation_for_constants();
     }
+
+    bool can_push_down_to_index() const override { return function->can_push_down_to_index(); }
 
 private:
     std::shared_ptr<IFunction> function;

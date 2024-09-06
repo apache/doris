@@ -329,6 +329,7 @@ struct TPaimonFileDesc {
     10: optional i64 last_update_time
     11: optional string file_format
     12: optional TPaimonDeletionFileDesc deletion_file;
+    13: optional map<string, string> hadoop_conf
 }
 
 struct TTrinoConnectorFileDesc {
@@ -528,6 +529,12 @@ struct TMaterializedViewsMetadataParams {
   2: optional Types.TUserIdentity current_user_ident
 }
 
+struct TPartitionsMetadataParams {
+  1: optional string catalog
+  2: optional string database
+  3: optional string table
+}
+
 struct TJobsMetadataParams {
   1: optional string type
   2: optional Types.TUserIdentity current_user_ident
@@ -544,6 +551,10 @@ struct TQueriesMetadataParams {
   3: optional TMaterializedViewsMetadataParams materialized_views_params
   4: optional TJobsMetadataParams jobs_params
   5: optional TTasksMetadataParams tasks_params
+  6: optional TPartitionsMetadataParams partitions_params
+}
+
+struct TMetaCacheStatsParams {
 }
 
 struct TMetaScanRange {
@@ -555,6 +566,8 @@ struct TMetaScanRange {
   6: optional TMaterializedViewsMetadataParams materialized_views_params
   7: optional TJobsMetadataParams jobs_params
   8: optional TTasksMetadataParams tasks_params
+  9: optional TPartitionsMetadataParams partitions_params
+  10: optional TMetaCacheStatsParams meta_cache_stats_params
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -690,6 +703,7 @@ struct TSchemaScanNode {
   12: optional bool show_hidden_cloumns = false
   // 13: optional list<TSchemaTableStructure> table_structure // deprecated
   14: optional string catalog
+  15: optional list<Types.TNetworkAddress> fe_addr_list
 }
 
 struct TMetaScanNode {
@@ -936,6 +950,12 @@ struct TPreAggregationNode {
   2: required list<Exprs.TExpr> aggregate_exprs
 }
 
+enum TSortAlgorithm {
+   HEAP_SORT,
+   TOPN_SORT,
+   FULL_SORT
+ }
+
 struct TSortNode {
   1: required TSortInfo sort_info
   // Indicates whether the backend service should use topn vs. sorting
@@ -949,6 +969,7 @@ struct TSortNode {
   8: optional bool merge_by_exchange
   9: optional bool is_analytic_sort
   10: optional bool is_colocate
+  11: optional TSortAlgorithm algorithm
 }
 
 enum TopNAlgorithm {

@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class ShortCircuitQueryContext {
     // Cached for better CPU performance, since serialize DescriptorTable and
@@ -66,8 +67,15 @@ public class ShortCircuitQueryContext {
         this.serializedQueryOptions = ByteString.copyFrom(
                 new TSerializer().serialize(options));
         List<TExpr> exprs = new ArrayList<>();
-        for (Expr expr : planner.getFragments().get(1).getPlanRoot().getProjectList()) {
-            exprs.add(expr.treeToThrift());
+        OlapScanNode olapScanNode = (OlapScanNode) planner.getFragments().get(1).getPlanRoot();
+        if (olapScanNode.getProjectList() != null) {
+            // project on scan node
+            exprs.addAll(olapScanNode.getProjectList().stream()
+                    .map(Expr::treeToThrift).collect(Collectors.toList()));
+        } else {
+            // add output slots
+            exprs.addAll(planner.getFragments().get(0).getOutputExprs().stream()
+                    .map(Expr::treeToThrift).collect(Collectors.toList()));
         }
         TExprList exprList = new TExprList(exprs);
         serializedOutputExpr = ByteString.copyFrom(

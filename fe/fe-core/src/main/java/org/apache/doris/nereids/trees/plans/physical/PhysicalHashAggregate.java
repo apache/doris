@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequireProperties;
 import org.apache.doris.nereids.properties.RequirePropertiesSupplier;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
@@ -188,15 +190,18 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public String toString() {
+        TopnPushInfo topnPushInfo = (TopnPushInfo) getMutableState(
+                MutableState.KEY_PUSH_TOPN_TO_AGG).orElseGet(() -> null);
         return Utils.toSqlString("PhysicalHashAggregate[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "aggPhase", aggregateParam.aggPhase,
                 "aggMode", aggregateParam.aggMode,
+                "stats", statistics,
                 "maybeUseStreaming", maybeUsingStream,
                 "groupByExpr", groupByExpressions,
                 "outputExpr", outputExpressions,
                 "partitionExpr", partitionExpressions,
                 "requireProperties", requireProperties,
-                "stats", statistics
+                "topnOpt", topnPushInfo != null
         );
     }
 
@@ -298,5 +303,31 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 aggregateParam, maybeUsingStream, groupExpression, null,
                 requireProperties, physicalProperties, statistics,
                 child());
+    }
+
+    /**
+     * used to push limit down to localAgg
+     */
+    public static class TopnPushInfo {
+        public List<OrderKey> orderkeys;
+        public long limit;
+
+        public TopnPushInfo(List<OrderKey> orderkeys, long limit) {
+            this.orderkeys = ImmutableList.copyOf(orderkeys);
+            this.limit = limit;
+        }
+    }
+
+    public TopnPushInfo getTopnPushInfo() {
+        Optional<Object> obj = getMutableState(MutableState.KEY_PUSH_TOPN_TO_AGG);
+        if (obj.isPresent() && obj.get() instanceof TopnPushInfo) {
+            return (TopnPushInfo) obj.get();
+        }
+        return null;
+    }
+
+    public PhysicalHashAggregate<CHILD_TYPE> setTopnPushInfo(TopnPushInfo topnPushInfo) {
+        setMutableState(MutableState.KEY_PUSH_TOPN_TO_AGG, topnPushInfo);
+        return this;
     }
 }

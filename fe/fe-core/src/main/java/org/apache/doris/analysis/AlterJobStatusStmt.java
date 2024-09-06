@@ -24,7 +24,7 @@ import org.apache.doris.job.common.JobStatus;
 import com.google.common.base.Strings;
 import lombok.Getter;
 
-public class AlterJobStatusStmt extends DdlStmt {
+public class AlterJobStatusStmt extends DdlStmt implements NotFallbackInParser {
 
     private Expr expr;
 
@@ -73,5 +73,10 @@ public class AlterJobStatusStmt extends DdlStmt {
         if (CreateJobStmt.isInnerJob(jobName)) {
             throw new AnalysisException("Can't alter inner job status");
         }
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 }

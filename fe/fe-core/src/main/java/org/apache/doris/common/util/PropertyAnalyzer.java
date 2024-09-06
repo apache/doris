@@ -42,7 +42,7 @@ import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCompressionType;
-import org.apache.doris.thrift.TInvertedIndexStorageFormat;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -95,6 +95,10 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_TIMEOUT = "timeout";
     public static final String PROPERTIES_COMPRESSION = "compression";
 
+    // row store page size, default 16KB
+    public static final String PROPERTIES_ROW_STORE_PAGE_SIZE = "row_store_page_size";
+    public static final long ROW_STORE_PAGE_SIZE_DEFAULT_VALUE = 16384L;
+
     public static final String PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE = "light_schema_change";
 
     public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
@@ -120,7 +124,6 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_STRICT_RANGE = "strict_range";
     public static final String PROPERTIES_USE_TEMP_PARTITION_NAME = "use_temp_partition_name";
-
     public static final String PROPERTIES_TYPE = "type";
     // This is common prefix for function column
     public static final String PROPERTIES_FUNCTION_COLUMN = "function_column";
@@ -138,6 +141,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_STORAGE_POLICY = "storage_policy";
 
     public static final String PROPERTIES_DISABLE_AUTO_COMPACTION = "disable_auto_compaction";
+
+    public static final String PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED = "variant_enable_flatten_nested";
 
     public static final String PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION = "enable_single_replica_compaction";
 
@@ -208,6 +213,16 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_GROUP_COMMIT_DATA_BYTES = "group_commit_data_bytes";
     public static final int PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE
             = Config.group_commit_data_bytes_default_value;
+
+    public static final String PROPERTIES_ENABLE_MOW_LIGHT_DELETE =
+            "enable_mow_light_delete";
+    public static final boolean PROPERTIES_ENABLE_MOW_LIGHT_DELETE_DEFAULT_VALUE
+            = Config.enable_mow_light_delete;
+
+    public static final String PROPERTIES_AUTO_ANALYZE_POLICY = "auto_analyze_policy";
+    public static final String ENABLE_AUTO_ANALYZE_POLICY = "enable";
+    public static final String DISABLE_AUTO_ANALYZE_POLICY = "disable";
+    public static final String USE_CATALOG_AUTO_ANALYZE_POLICY = "base_on_catalog";
 
     // compaction policy
     public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
@@ -735,6 +750,24 @@ public class PropertyAnalyzer {
                 + " must be `true` or `false`");
     }
 
+    public static Boolean analyzeVariantFlattenNested(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED);
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED
+                + " must be `true` or `false`");
+    }
+
     public static Boolean analyzeEnableSingleReplicaCompaction(Map<String, String> properties)
             throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
@@ -1008,6 +1041,31 @@ public class PropertyAnalyzer {
         }
     }
 
+    public static long alignTo4K(long size) {
+        return (size + 4095) & ~4095;
+    }
+
+    // analyzeRowStorePageSize will parse the row_store_page_size from properties
+    public static long analyzeRowStorePageSize(Map<String, String> properties) throws AnalysisException {
+        long rowStorePageSize = ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_ROW_STORE_PAGE_SIZE)) {
+            String rowStorePageSizeStr = properties.get(PROPERTIES_ROW_STORE_PAGE_SIZE);
+            try {
+                rowStorePageSize = alignTo4K(Long.parseLong(rowStorePageSizeStr));
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid row store page size: " + rowStorePageSizeStr);
+            }
+
+            if (rowStorePageSize <= 0) {
+                throw new AnalysisException("Row store page size should larger than 0.");
+            }
+
+            properties.remove(PROPERTIES_ROW_STORE_PAGE_SIZE);
+        }
+
+        return rowStorePageSize;
+    }
+
     // analyzeStorageFormat will parse the storage format from properties
     // sql: alter table tablet_name set ("storage_format" = "v2")
     // Use this sql to convert all tablets(base and rollup index) to a new format segment
@@ -1032,32 +1090,32 @@ public class PropertyAnalyzer {
         }
     }
 
-    public static TInvertedIndexStorageFormat analyzeInvertedIndexStorageFormat(Map<String, String> properties)
+    public static TInvertedIndexFileStorageFormat analyzeInvertedIndexFileStorageFormat(Map<String, String> properties)
             throws AnalysisException {
-        String invertedIndexStorageFormat = "";
+        String invertedIndexFileStorageFormat = "";
         if (properties != null && properties.containsKey(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT)) {
-            invertedIndexStorageFormat = properties.get(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
+            invertedIndexFileStorageFormat = properties.get(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
             properties.remove(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
         } else {
             if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
-                return TInvertedIndexStorageFormat.V1;
+                return TInvertedIndexFileStorageFormat.V1;
             } else {
-                return TInvertedIndexStorageFormat.V2;
+                return TInvertedIndexFileStorageFormat.V2;
             }
         }
 
-        if (invertedIndexStorageFormat.equalsIgnoreCase("v1")) {
-            return TInvertedIndexStorageFormat.V1;
-        } else if (invertedIndexStorageFormat.equalsIgnoreCase("v2")) {
-            return TInvertedIndexStorageFormat.V2;
-        } else if (invertedIndexStorageFormat.equalsIgnoreCase("default")) {
+        if (invertedIndexFileStorageFormat.equalsIgnoreCase("v1")) {
+            return TInvertedIndexFileStorageFormat.V1;
+        } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v2")) {
+            return TInvertedIndexFileStorageFormat.V2;
+        } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("default")) {
             if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
-                return TInvertedIndexStorageFormat.V1;
+                return TInvertedIndexFileStorageFormat.V1;
             } else {
-                return TInvertedIndexStorageFormat.V2;
+                return TInvertedIndexFileStorageFormat.V2;
             }
         } else {
-            throw new AnalysisException("unknown inverted index storage format: " + invertedIndexStorageFormat);
+            throw new AnalysisException("unknown inverted index storage format: " + invertedIndexFileStorageFormat);
         }
     }
 
@@ -1411,6 +1469,26 @@ public class PropertyAnalyzer {
             return false;
         }
         throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " must be `true` or `false`");
+    }
+
+    public static boolean analyzeEnableDeleteOnDeletePredicate(Map<String, String> properties,
+            boolean enableUniqueKeyMergeOnWrite)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return enableUniqueKeyMergeOnWrite ? Config.enable_mow_light_delete : false;
+        }
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
+        if (value == null) {
+            return enableUniqueKeyMergeOnWrite ? Config.enable_mow_light_delete : false;
+        }
+        properties.remove(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
+        if (value.equals("true")) {
+            return true;
+        } else if (value.equals("false")) {
+            return false;
+        }
+        throw new AnalysisException(
+                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE + " must be `true` or `false`");
     }
 
     /**

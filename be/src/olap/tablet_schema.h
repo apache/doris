@@ -36,6 +36,7 @@
 #include "common/status.h"
 #include "gutil/stringprintf.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/options.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "util/string_util.h"
@@ -121,8 +122,9 @@ public:
     void set_path_info(const vectorized::PathInData& path);
     FieldAggregationMethod aggregation() const { return _aggregation; }
     vectorized::AggregateFunctionPtr get_aggregate_function_union(
-            vectorized::DataTypePtr type) const;
-    vectorized::AggregateFunctionPtr get_aggregate_function(std::string suffix) const;
+            vectorized::DataTypePtr type, int current_be_exec_version) const;
+    vectorized::AggregateFunctionPtr get_aggregate_function(std::string suffix,
+                                                            int current_be_exec_version) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
@@ -160,6 +162,9 @@ public:
     bool is_extracted_column() const {
         return _column_path != nullptr && !_column_path->empty() && _parent_col_unique_id > 0;
     };
+    bool is_nested_subcolumn() const {
+        return _column_path != nullptr && _column_path->has_nested_part();
+    }
     int32_t parent_unique_id() const { return _parent_col_unique_id; }
     void set_parent_unique_id(int32_t col_unique_id) { _parent_col_unique_id = col_unique_id; }
     void set_is_bf_column(bool is_bf_column) { _is_bf_column = is_bf_column; }
@@ -317,6 +322,7 @@ public:
     const TabletColumn& column(size_t ordinal) const;
     Result<const TabletColumn*> column(const std::string& field_name) const;
     Status have_column(const std::string& field_name) const;
+    bool exist_column(const std::string& field_name) const;
     const TabletColumn& column_by_uid(int32_t col_unique_id) const;
     TabletColumn& mutable_column_by_uid(int32_t col_unique_id);
     TabletColumn& mutable_column(size_t ordinal);
@@ -342,6 +348,10 @@ public:
         _disable_auto_compaction = disable_auto_compaction;
     }
     bool disable_auto_compaction() const { return _disable_auto_compaction; }
+    void set_variant_enable_flatten_nested(bool flatten_nested) {
+        _variant_enable_flatten_nested = flatten_nested;
+    }
+    bool variant_flatten_nested() const { return _variant_enable_flatten_nested; }
     void set_enable_single_replica_compaction(bool enable_single_replica_compaction) {
         _enable_single_replica_compaction = enable_single_replica_compaction;
     }
@@ -359,6 +369,8 @@ public:
     void set_version_col_idx(int32_t version_col_idx) { _version_col_idx = version_col_idx; }
     int32_t version_col_idx() const { return _version_col_idx; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
+    void set_row_store_page_size(long page_size) { _row_store_page_size = page_size; }
+    long row_store_page_size() const { return _row_store_page_size; }
 
     const std::vector<TabletIndex>& indexes() const { return _indexes; }
     bool has_inverted_index() const {
@@ -473,7 +485,7 @@ public:
         return str;
     }
 
-    vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
+    vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids) const;
 
     std::shared_ptr<TabletSchema> copy_without_variant_extracted_columns();
     InvertedIndexStorageFormatPB get_inverted_index_storage_format() const {
@@ -508,6 +520,7 @@ private:
     size_t _num_rows_per_row_block = 0;
     CompressKind _compress_kind = COMPRESS_NONE;
     segment_v2::CompressionTypePB _compression_type = segment_v2::CompressionTypePB::LZ4F;
+    long _row_store_page_size = segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     size_t _next_column_unique_id = 0;
     std::string _auto_increment_column;
 
@@ -530,6 +543,7 @@ private:
     // Contains column ids of which columns should be encoded into row store.
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
+    bool _variant_enable_flatten_nested = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

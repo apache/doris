@@ -183,9 +183,22 @@ struct ResultOfIntegerDivision {
     */
 template <typename A, typename B>
 struct ResultOfModulo {
-    using Type = typename Construct<std::is_signed_v<A> || std::is_signed_v<B>,
-                                    std::is_floating_point_v<A> || std::is_floating_point_v<B>,
-                                    max(sizeof(A), sizeof(B))>::Type;
+    constexpr static auto has_float = std::is_floating_point_v<A> || std::is_floating_point_v<B>;
+    consteval static auto result_size() {
+        if constexpr (!has_float) {
+            return max(sizeof(A), sizeof(B));
+        }
+        size_t max_float_size = 0;
+        if constexpr (std::is_floating_point_v<A>) {
+            max_float_size = max(max_float_size, sizeof(A));
+        }
+        if constexpr (std::is_floating_point_v<B>) {
+            max_float_size = max(max_float_size, sizeof(B));
+        }
+        return max_float_size;
+    }
+    using Type = typename Construct<std::is_signed_v<A> || std::is_signed_v<B>, has_float,
+                                    result_size()>::Type;
 };
 
 template <typename A>

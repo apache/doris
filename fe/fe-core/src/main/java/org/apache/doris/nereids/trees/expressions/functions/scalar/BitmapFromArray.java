@@ -42,10 +42,10 @@ public class BitmapFromArray extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BitmapType.INSTANCE).args(ArrayType.of(TinyIntType.INSTANCE)),
-            FunctionSignature.ret(BitmapType.INSTANCE).args(ArrayType.of(SmallIntType.INSTANCE)),
+            FunctionSignature.ret(BitmapType.INSTANCE).args(ArrayType.of(BigIntType.INSTANCE)),
             FunctionSignature.ret(BitmapType.INSTANCE).args(ArrayType.of(IntegerType.INSTANCE)),
-            FunctionSignature.ret(BitmapType.INSTANCE).args(ArrayType.of(BigIntType.INSTANCE))
+            FunctionSignature.ret(BitmapType.INSTANCE).args(ArrayType.of(SmallIntType.INSTANCE)),
+            FunctionSignature.ret(BitmapType.INSTANCE).args(ArrayType.of(TinyIntType.INSTANCE))
     );
 
     /**

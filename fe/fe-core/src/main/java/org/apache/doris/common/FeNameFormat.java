@@ -30,6 +30,8 @@ import com.google.common.base.Strings;
 
 public class FeNameFormat {
     private static final String LABEL_REGEX = "^[-_A-Za-z0-9:]{1," + Config.label_regex_length + "}$";
+    // if modify the matching length of a regular expression,
+    // please modify error msg when FeNameFormat.checkCommonName throw exception in CreateRoutineLoadStmt
     private static final String COMMON_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9-_]{0,63}$";
     private static final String UNDERSCORE_COMMON_NAME_REGEX = "^[_a-zA-Z][a-zA-Z0-9-_]{0,63}$";
     private static final String TABLE_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9-_]*$";
@@ -148,14 +150,16 @@ public class FeNameFormat {
     }
 
     public static void checkCommonName(String type, String name) throws AnalysisException {
-        if (Strings.isNullOrEmpty(name) || !name.matches(getCommonNameRegex())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name);
+        final String regex = getCommonNameRegex();
+        if (Strings.isNullOrEmpty(name) || !name.matches(regex)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name, regex);
         }
     }
 
     public static void checkOutfileSuccessFileName(String type, String name) throws AnalysisException {
-        if (Strings.isNullOrEmpty(name) || !name.matches(getOutfileSuccessFileNameRegex())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name);
+        final String regex = getOutfileSuccessFileNameRegex();
+        if (Strings.isNullOrEmpty(name) || !name.matches(regex)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name, regex);
         }
     }
 

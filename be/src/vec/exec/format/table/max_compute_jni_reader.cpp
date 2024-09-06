@@ -81,11 +81,7 @@ MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_des
 }
 
 Status MaxComputeJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    RETURN_IF_ERROR(_jni_connector->get_next_block(block, read_rows, eof));
-    if (*eof) {
-        RETURN_IF_ERROR(_jni_connector->close());
-    }
-    return Status::OK();
+    return _jni_connector->get_next_block(block, read_rows, eof);
 }
 
 Status MaxComputeJniReader::get_columns(

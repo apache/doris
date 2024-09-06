@@ -36,21 +36,13 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
     }
 
     def getAlterTableState = {
-        def retry = 0
-        while (true) {
-            sleep(2000)
-            def state = sql "show alter table column where tablename = '${table}' order by CreateTime desc "
-            logger.info("alter table state: ${state}")
-            if (state.size()> 0 && state[0][9] == "FINISHED") {
-                return true
-            }
-            retry++
-            if (retry >= 10) {
-                return false
-            }
+        waitForSchemaChangeDone {
+            sql """ SHOW ALTER TABLE COLUMN WHERE tablename='${table}' ORDER BY createtime DESC LIMIT 1 """
+            time 600
         }
-        return false
+        return true
     }
+
     for (item in ["legacy", "nereids"]) {
         try {
             // create table
@@ -71,12 +63,11 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
 
             sql """ set group_commit = async_mode; """
             if (item == "nereids") {
-                sql """ set enable_nereids_dml = true; """
                 sql """ set enable_nereids_planner=true; """
                 sql """ set enable_fallback_to_original_planner=false; """
                 sql "set global enable_server_side_prepared_statement = true"
             } else {
-                sql """ set enable_nereids_dml = false; """
+                sql """ set enable_nereids_planner = false; """
                 sql "set global enable_server_side_prepared_statement = false"
             }
 
@@ -135,12 +126,11 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
                 statement.execute("use ${db}");
                 statement.execute("set group_commit = eventual_consistency;");
                 if (item == "nereids") {
-                    statement.execute("set enable_nereids_dml = true;");
                     statement.execute("set enable_nereids_planner=true;");
                     statement.execute("set enable_fallback_to_original_planner=false;");
                     sql "set global enable_server_side_prepared_statement = true"
                 } else {
-                    statement.execute("set enable_nereids_dml = false;");
+                    statement.execute("set enable_nereids_planner = false;")
                     sql "set global enable_server_side_prepared_statement = false"
                 }
                 // without column

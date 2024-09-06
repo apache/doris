@@ -26,7 +26,6 @@ import org.apache.doris.transaction.TxnCommitAttachment;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
 // {"progress": "", "backendId": "", "taskSignature": "", "numOfErrorData": "",
@@ -145,17 +144,7 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
                 + ", progress=" + progress.toString() + "]";
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeLong(filteredRows);
-        out.writeLong(loadedRows);
-        out.writeLong(unselectedRows);
-        out.writeLong(receivedBytes);
-        out.writeLong(taskExecutionTimeMs);
-        progress.write(out);
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         filteredRows = in.readLong();

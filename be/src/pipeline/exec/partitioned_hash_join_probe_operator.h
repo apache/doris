@@ -24,14 +24,12 @@
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
-#include "vec/runtime/partitioner.h"
+#include "pipeline/exec/spill_utils.h"
 
 namespace doris {
 class RuntimeState;
 
 namespace pipeline {
-
-using PartitionerType = vectorized::Crc32HashPartitioner<vectorized::SpillPartitionChannelIds>;
 
 class PartitionedHashJoinProbeOperatorX;
 
@@ -145,7 +143,6 @@ public:
     PartitionedHashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                       const DescriptorTbl& descs, uint32_t partition_count);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     [[nodiscard]] Status get_block(RuntimeState* state, vectorized::Block* block,
@@ -168,6 +165,9 @@ public:
                                            _distribution_partition_exprs));
     }
 
+    bool require_shuffled_data_distribution() const override {
+        return _join_op != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
+    }
     bool is_shuffled_hash_join() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED;
     }

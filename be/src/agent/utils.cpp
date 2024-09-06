@@ -89,21 +89,21 @@ Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMaste
     try {
         try {
             client->finishTask(*result, request);
-        } catch (TTransportException& e) {
+        } catch ([[maybe_unused]] TTransportException& e) {
 #ifdef ADDRESS_SANITIZER
-            return Status::RpcError<false>("Master client finish task failed due to {}", e.what());
-#else
             LOG(WARNING) << "master client, retry finishTask: " << e.what();
+#endif
             client_status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!client_status.ok()) {
+#ifdef ADDRESS_SANITIZER
                 LOG(WARNING) << "fail to get master client from cache. "
                              << "host=" << _master_info.network_address.hostname
                              << ", port=" << _master_info.network_address.port
                              << ", code=" << client_status.code();
+#endif
                 return Status::RpcError("Master client finish task failed");
             }
             client->finishTask(*result, request);
-#endif
         }
     } catch (std::exception& e) {
         RETURN_IF_ERROR(client.reopen(config::thrift_rpc_timeout_ms));
@@ -133,20 +133,21 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
         try {
             client->report(*result, request);
         } catch (TTransportException& e) {
-#ifdef ADDRESS_SANITIZER
-            return Status::RpcError<false>("Master client report failed due to {}", e.what());
-#else
             TTransportException::TTransportExceptionType type = e.getType();
             if (type != TTransportException::TTransportExceptionType::TIMED_OUT) {
+#ifdef ADDRESS_SANITIZER
                 // if not TIMED_OUT, retry
                 LOG(WARNING) << "master client, retry finishTask: " << e.what();
+#endif
 
                 client_status = client.reopen(config::thrift_rpc_timeout_ms);
                 if (!client_status.ok()) {
+#ifdef ADDRESS_SANITIZER
                     LOG(WARNING) << "fail to get master client from cache. "
                                  << "host=" << _master_info.network_address.hostname
                                  << ", port=" << _master_info.network_address.port
                                  << ", code=" << client_status.code();
+#endif
                     return Status::InternalError("Fail to get master client from cache");
                 }
 
@@ -154,10 +155,11 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
             } else {
                 // TIMED_OUT exception. do not retry
                 // actually we don't care what FE returns.
+#ifdef ADDRESS_SANITIZER
                 LOG(WARNING) << "fail to report to master: " << e.what();
+#endif
                 return Status::InternalError("Fail to report to master");
             }
-#endif
         }
     } catch (std::exception& e) {
         RETURN_IF_ERROR(client.reopen(config::thrift_rpc_timeout_ms));

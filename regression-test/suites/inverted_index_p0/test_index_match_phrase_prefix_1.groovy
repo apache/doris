@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_index_match_phrase_prefix_1", "p0"){
+suite("test_index_match_phrase_prefix_1", "nonConcurrent"){
     def indexTbName1 = "test_index_match_phrase_prefix_1"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
@@ -49,6 +49,8 @@ suite("test_index_match_phrase_prefix_1", "p0"){
 
     try {
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true; """
+        GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
 
         qt_sql """ select count() from ${indexTbName1} where c match_phrase_prefix 'O1704361998540E2Cemx9S'; """
         qt_sql """ select count() from ${indexTbName1} where d match_phrase_prefix 'O1704361998540E2Cemx9S'; """
@@ -57,6 +59,6 @@ suite("test_index_match_phrase_prefix_1", "p0"){
         qt_sql """ select count() from ${indexTbName1} where d match_phrase_prefix 'O1704361998540E2Cemx9S=123456789'; """
 
     } finally {
-        //try_sql("DROP TABLE IF EXISTS ${testTable}")
+        GetDebugPoint().disableDebugPointForAllBEs("VMatchPredicate.execute")
     }
 }

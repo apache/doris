@@ -40,6 +40,9 @@ suite ("testAggQueryOnAggMV11") {
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
+    sql "analyze table emps with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from emps order by empid;")
         contains "(emps)"
@@ -51,4 +54,15 @@ suite ("testAggQueryOnAggMV11") {
         contains "(emps)"
     }
     qt_select_mv "select deptno, count(salary) + count(1) from emps group by deptno order by 1;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from emps order by empid;")
+        contains "(emps)"
+    }
+
+    explain {
+        sql("select deptno, count(salary) + count(1) from emps group by deptno;")
+        contains "(emps)"
+    }
 }

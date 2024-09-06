@@ -118,7 +118,8 @@ template <typename A, typename B>
 struct NumIfImpl<A, B, NumberTraits::Error> {
 private:
     [[noreturn]] static void throw_error() {
-        LOG(FATAL) << "Internal logic error: invalid types of arguments 2 and 3 of if";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Internal logic error: invalid types of arguments 2 and 3 of if");
         __builtin_unreachable();
     }
 

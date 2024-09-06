@@ -23,6 +23,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/spill_utils.h"
 #include "runtime/fragment_mgr.h"
 #include "util/runtime_profile.h"
 #include "vec/spill/spill_stream_manager.h"
@@ -35,18 +36,20 @@ PartitionedAggLocalState::PartitionedAggLocalState(RuntimeState* state, Operator
 Status PartitionedAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     _init_counters();
     return Status::OK();
 }
 
 Status PartitionedAggLocalState::open(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::open(state));
+    SCOPED_TIMER(_open_timer);
     if (_opened) {
         return Status::OK();
     }
     _opened = true;
     RETURN_IF_ERROR(setup_in_memory_agg_op(state));
-    return Base::open(state);
+    return Status::OK();
 }
 
 void PartitionedAggLocalState::_init_counters() {
@@ -103,11 +106,6 @@ Status PartitionedAggSourceOperatorX::init(const TPlanNode& tnode, RuntimeState*
     RETURN_IF_ERROR(OperatorXBase::init(tnode, state));
     _op_name = "PARTITIONED_AGGREGATION_OPERATOR";
     return _agg_source_operator->init(tnode, state);
-}
-
-Status PartitionedAggSourceOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorXBase::prepare(state));
-    return _agg_source_operator->prepare(state);
 }
 
 Status PartitionedAggSourceOperatorX::open(RuntimeState* state) {
@@ -171,7 +169,7 @@ Status PartitionedAggLocalState::setup_in_memory_agg_op(RuntimeState* state) {
 
     _runtime_state->set_desc_tbl(&state->desc_tbl());
     _runtime_state->resize_op_id_to_local_state(state->max_operator_id());
-    _runtime_state->set_pipeline_x_runtime_filter_mgr(state->local_runtime_filter_mgr());
+    _runtime_state->set_runtime_filter_mgr(state->local_runtime_filter_mgr());
 
     auto& parent = Base::_parent->template cast<Parent>();
 
@@ -204,18 +202,11 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
     RETURN_IF_ERROR(Base::_shared_state->in_mem_shared_state->reset_hash_table());
     _dependency->Dependency::block();
 
-    auto execution_context = state->get_task_execution_context();
-    /// Resources in shared state will be released when the operator is closed,
-    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
-    /// So, we need hold the pointer of shared state.
-    std::weak_ptr<PartitionedAggSharedState> shared_state_holder =
-            _shared_state->shared_from_this();
     auto query_id = state->query_id();
-    auto mem_tracker = state->get_query_ctx()->query_mem_tracker;
 
     MonotonicStopWatch submit_timer;
     submit_timer.start();
-    auto spill_func = [this, state, query_id, execution_context, submit_timer] {
+    auto spill_func = [this, state, query_id, submit_timer] {
         _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
         Defer defer {[&]() {
             if (!_status.ok() || state->is_cancelled()) {
@@ -276,19 +267,7 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
         return _status;
     };
 
-    auto exception_catch_func = [spill_func, query_id, mem_tracker, shared_state_holder,
-                                 execution_context, this]() {
-        SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
-        std::shared_ptr<TaskExecutionContext> execution_context_lock;
-        auto shared_state_sptr = shared_state_holder.lock();
-        if (shared_state_sptr) {
-            execution_context_lock = execution_context.lock();
-        }
-        if (!shared_state_sptr || !execution_context_lock) {
-            LOG(INFO) << "query " << print_id(query_id)
-                      << " execution_context released, maybe query was cancelled.";
-            return;
-        }
+    auto exception_catch_func = [spill_func, query_id, this]() {
         DBUG_EXECUTE_IF("fault_inject::partitioned_agg_source::merge_spill_data_cancel", {
             auto st = Status::InternalError(
                     "fault_inject partitioned_agg_source "
@@ -308,7 +287,8 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
         return Status::Error<INTERNAL_ERROR>(
                 "fault_inject partitioned_agg_source submit_func failed");
     });
-    return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
-            exception_catch_func);
+    return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
+            std::make_shared<SpillRunnable>(state, _shared_state->shared_from_this(),
+                                            exception_catch_func));
 }
 } // namespace doris::pipeline

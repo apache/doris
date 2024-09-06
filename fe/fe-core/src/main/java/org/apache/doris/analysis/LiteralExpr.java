@@ -25,6 +25,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.thrift.TExprNode;
@@ -113,30 +114,29 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         return literalExpr;
     }
 
-
-    public static String getStringLiteralForComplexType(Expr v) {
+    public static String getStringLiteralForComplexType(Expr v, FormatOptions options) {
         if (!(v instanceof NullLiteral) && v.getType().isScalarType()
                 && (Type.getNumericTypes().contains((ScalarType) v.getActualScalarType(v.getType()))
                 || v.getType() == Type.BOOLEAN)) {
-            return v.getStringValueInFe();
+            return v.getStringValueInFe(options);
         } else if (v.getType().isComplexType()) {
             // these type should also call getStringValueInFe which should handle special case for itself
-            return v.getStringValueInFe();
+            return v.getStringValueInFe(options);
         } else {
-            return v.getStringValueForArray();
+            return v.getStringValueForArray(options);
         }
     }
 
-    public static String getStringLiteralForStreamLoad(Expr v) {
+    public static String getStringLiteralForStreamLoad(Expr v, FormatOptions options) {
         if (!(v instanceof NullLiteral) && v.getType().isScalarType()
                 && (Type.getNumericTypes().contains((ScalarType) v.getActualScalarType(v.getType()))
                 || v.getType() == Type.BOOLEAN)) {
-            return v.getStringValueInFe();
+            return v.getStringValueInFe(options);
         } else if (v.getType().isComplexType()) {
             // these type should also call getStringValueInFe which should handle special case for itself
-            return v.getStringValueForStreamLoad();
+            return v.getStringValueForStreamLoad(options);
         } else {
-            return v.getStringValueForArray();
+            return v.getStringValueForArray(options);
         }
     }
 
@@ -265,12 +265,12 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     @Override
     public abstract String getStringValue();
 
-    public String getStringValueInFe() {
+    public String getStringValueInFe(FormatOptions options) {
         return getStringValue();
     }
 
     @Override
-    public abstract String getStringValueForArray();
+    public abstract String getStringValueForArray(FormatOptions options);
 
     public long getLongValue() {
         return 0;

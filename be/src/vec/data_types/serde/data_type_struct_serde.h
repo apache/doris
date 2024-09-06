@@ -134,7 +134,7 @@ public:
             IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
             const FormatOptions& options,
             int hive_text_complex_type_delimiter_level = 1) const override;
-    void serialize_one_cell_to_hive_text(
+    Status serialize_one_cell_to_hive_text(
             const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
             int hive_text_complex_type_delimiter_level = 1) const override;
 
@@ -153,9 +153,11 @@ public:
                                 int end, const cctz::time_zone& ctz) const override;
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const) const override;
+                                 int row_idx, bool col_const,
+                                 const FormatOptions& options) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const) const override;
+                                 int row_idx, bool col_const,
+                                 const FormatOptions& options) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
@@ -175,10 +177,11 @@ private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
                                   std::vector<MysqlRowBuffer<is_binary_format>>& result,
-                                  int row_idx, int start, int end, bool col_const) const;
+                                  int row_idx, int start, int end, bool col_const,
+                                  const FormatOptions& options) const;
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int row_idx, bool col_const) const;
+                                  int row_idx, bool col_const, const FormatOptions& options) const;
 
     DataTypeSerDeSPtrs elem_serdes_ptrs;
     Strings elem_names;

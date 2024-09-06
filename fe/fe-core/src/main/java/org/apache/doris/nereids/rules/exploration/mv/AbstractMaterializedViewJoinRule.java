@@ -49,7 +49,6 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
                 queryStructInfo.getTopPlan(),
                 materializationContext.getShuttledExprToScanExprMapping(),
                 targetToSourceMapping,
-                true,
                 queryStructInfo.getTableBitSet()
         );
         // Can not rewrite, bail out

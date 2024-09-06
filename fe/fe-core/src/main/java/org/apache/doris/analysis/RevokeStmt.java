@@ -43,7 +43,7 @@ import java.util.stream.Collectors;
 // REVOKE privilege[(col1,col2...)] [, privilege] ON db.tbl FROM user_identity [ROLE 'role'];
 // REVOKE privilege [, privilege] ON resource 'resource' FROM user_identity [ROLE 'role'];
 // REVOKE role [, role] FROM user_identity
-public class RevokeStmt extends DdlStmt {
+public class RevokeStmt extends DdlStmt implements NotFallbackInParser {
     private UserIdentity userIdent;
     // Indicates which permissions are revoked from this role
     private String role;
@@ -208,5 +208,10 @@ public class RevokeStmt extends DdlStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.REVOKE;
     }
 }

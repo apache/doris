@@ -245,6 +245,13 @@ class UpCommand(Command):
                             type=str,
                             help="Specify recycle configs for doris_cloud.conf. "\
                                     "Example: --recycle-config \"log_level = warn\".")
+        group1.add_argument(
+            "--fe-follower",
+            default=False,
+            action=self._get_parser_bool_action(True),
+            help=
+            "The new added fe is follower but not observer. Only support in cloud mode."
+        )
         group1.add_argument("--be-disks",
                             nargs="*",
                             default=["HDD=1"],
@@ -383,17 +390,19 @@ class UpCommand(Command):
                 args.add_ms_num = 0
                 args.add_recycle_num = 0
 
-            cluster = CLUSTER.Cluster.new(args.NAME, args.IMAGE, args.cloud,
-                                          args.fe_config, args.be_config,
-                                          args.ms_config, args.recycle_config,
-                                          args.be_disks, args.be_cluster,
-                                          args.reg_be, args.coverage_dir,
-                                          cloud_store_config)
+            cluster = CLUSTER.Cluster.new(
+                args.NAME, args.IMAGE, args.cloud, args.fe_config,
+                args.be_config, args.ms_config, args.recycle_config,
+                args.fe_follower, args.be_disks, args.be_cluster, args.reg_be,
+                args.coverage_dir, cloud_store_config)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
 
         if args.be_cluster and cluster.is_cloud:
             cluster.be_cluster = args.be_cluster
+
+        if cluster.is_cloud:
+            cluster.fe_follower = args.fe_follower
 
         _, related_nodes, _ = get_ids_related_nodes(cluster, args.fe_id,
                                                     args.be_id, args.ms_id,
@@ -702,16 +711,21 @@ class ListNode(object):
         if detail:
             query_port = ""
             http_port = ""
+            node_path = CLUSTER.get_node_path(self.cluster_name,
+                                              self.node_type, self.id)
             if self.node_type == CLUSTER.Node.TYPE_FE:
                 query_port = CLUSTER.FE_QUERY_PORT
                 http_port = CLUSTER.FE_HTTP_PORT
             elif self.node_type == CLUSTER.Node.TYPE_BE:
                 http_port = CLUSTER.BE_WEBSVR_PORT
+            elif self.node_type == CLUSTER.Node.TYPE_MS or self.node_type == CLUSTER.Node.TYPE_RECYCLE:
+                http_port = CLUSTER.MS_PORT
             else:
                 pass
             result += [
                 query_port,
                 http_port,
+                node_path,
             ]
         return result
 
@@ -965,6 +979,7 @@ class ListCommand(Command):
             header += [
                 "query_port",
                 "http_port",
+                "path",
             ]
 
         rows = []

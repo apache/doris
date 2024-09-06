@@ -26,12 +26,14 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -54,6 +56,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * normalize aggregate's group keys and AggregateFunction's child to SlotReference
@@ -170,6 +173,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 // should not push down literal under aggregate
                 // e.g. group_concat(distinct xxx, ','), the ',' literal show stay in aggregate
                 .filter(arg -> !(arg instanceof Literal))
+                .flatMap(arg -> arg instanceof OrderExpression ? arg.getInputSlots().stream() : Stream.of(arg))
                 .collect(
                         Collectors.groupingBy(
                                 child -> !(child instanceof SlotReference),
@@ -255,7 +259,15 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 normalizedAggFuncsToSlotContext.pushDownToNamedExpression(normalizedAggFuncs)
         );
         // create new agg node
-        ImmutableList<NamedExpression> normalizedAggOutput = normalizedAggOutputBuilder.build();
+        ImmutableList<NamedExpression> aggOutput = normalizedAggOutputBuilder.build();
+        ImmutableList.Builder<NamedExpression> newAggOutputBuilder
+                = ImmutableList.builderWithExpectedSize(aggOutput.size());
+        for (NamedExpression output : aggOutput) {
+            Expression rewrittenExpr = output.rewriteDownShortCircuit(
+                    e -> e instanceof MultiDistinction ? ((MultiDistinction) e).withMustUseMultiDistinctAgg(true) : e);
+            newAggOutputBuilder.add((NamedExpression) rewrittenExpr);
+        }
+        ImmutableList<NamedExpression> normalizedAggOutput = newAggOutputBuilder.build();
         LogicalAggregate<?> newAggregate =
                 aggregate.withNormalized(normalizedGroupExprs, normalizedAggOutput, bottomPlan);
 

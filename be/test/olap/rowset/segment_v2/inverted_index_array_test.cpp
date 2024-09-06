@@ -58,10 +58,21 @@ class InvertedIndexArrayTest : public testing::Test {
 public:
     const std::string kTestDir = "./ut_dir/inverted_index_array_test";
 
-    void check_terms_stats(string dir_str, string file_str) {
-        auto fs = io::global_local_filesystem();
-        std::unique_ptr<DorisCompoundReader> reader = std::make_unique<DorisCompoundReader>(
-                DorisFSDirectoryFactory::getDirectory(fs, dir_str.c_str()), file_str.c_str(), 4096);
+    void check_terms_stats(string file_str) {
+        std::unique_ptr<DorisCompoundReader> reader;
+        try {
+            CLuceneError err;
+            CL_NS(store)::IndexInput* index_input = nullptr;
+            auto ok = DorisFSDirectory::FSIndexInput::open(
+                    io::global_local_filesystem(), file_str.c_str(), index_input, err, 4096);
+            if (!ok) {
+                throw err;
+            }
+            reader = std::make_unique<DorisCompoundReader>(index_input, 4096);
+        } catch (...) {
+            EXPECT_TRUE(false);
+        }
+
         std::cout << "Term statistics for " << file_str << std::endl;
         std::cout << "==================================" << std::endl;
         lucene::store::Directory* dir = reader.get();
@@ -95,7 +106,6 @@ public:
         ASSERT_TRUE(st.ok()) << st;
         st = io::global_local_filesystem()->create_directory(kTestDir);
         ASSERT_TRUE(st.ok()) << st;
-        config::enable_write_index_searcher_cache = false;
         std::vector<StorePath> paths;
         paths.emplace_back(kTestDir, 1024);
         auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
@@ -119,8 +129,6 @@ public:
                 InvertedIndexDescriptor::get_index_file_path_v1(index_path_prefix, index_id, "");
         auto fs = io::global_local_filesystem();
 
-        io::FileWriterPtr file_writer;
-        EXPECT_TRUE(fs->create_file(index_path, &file_writer).ok());
         auto index_meta_pb = std::make_unique<TabletIndexPB>();
         index_meta_pb->set_index_type(IndexType::INVERTED);
         index_meta_pb->set_index_id(index_id);
@@ -202,7 +210,7 @@ public:
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
         EXPECT_EQ(index_file_writer->close(), Status::OK());
 
-        check_terms_stats(file_writer->path().parent_path(), file_writer->path().filename());
+        check_terms_stats(index_path);
     }
 };
 

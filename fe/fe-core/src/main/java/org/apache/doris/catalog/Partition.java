@@ -60,24 +60,24 @@ public class Partition extends MetaObject {
 
     @SerializedName(value = "id")
     private long id;
-    @SerializedName(value = "name")
+    @SerializedName(value = "nm", alternate = {"name"})
     private String name;
-    @SerializedName(value = "state")
+    @SerializedName(value = "st", alternate = {"state"})
     private PartitionState state;
-    @SerializedName(value = "baseIndex")
+    @SerializedName(value = "bi", alternate = {"baseIndex"})
     private MaterializedIndex baseIndex;
     /**
      * Visible rollup indexes are indexes which are visible to user.
      * User can do query on them, show them in related 'show' stmt.
      */
-    @SerializedName(value = "idToVisibleRollupIndex")
+    @SerializedName(value = "ivr", alternate = {"idToVisibleRollupIndex"})
     private Map<Long, MaterializedIndex> idToVisibleRollupIndex = Maps.newHashMap();
     /**
      * Shadow indexes are indexes which are not visible to user.
      * Query will not run on these shadow indexes, and user can not see them neither.
      * But load process will load data into these shadow indexes.
      */
-    @SerializedName(value = "idToShadowIndex")
+    @SerializedName(value = "isi", alternate = {"idToShadowIndex"})
     private Map<Long, MaterializedIndex> idToShadowIndex = Maps.newHashMap();
 
     /**
@@ -88,21 +88,21 @@ public class Partition extends MetaObject {
 
     // not have committedVersion because committedVersion = nextVersion - 1
     @Deprecated
-    @SerializedName(value = "committedVersionHash")
+    @SerializedName(value = "cvh", alternate = {"committedVersionHash"})
     private long committedVersionHash;
-    @SerializedName(value = "visibleVersion")
+    @SerializedName(value = "vv", alternate = {"visibleVersion"})
     private long visibleVersion;
-    @SerializedName(value = "visibleVersionTime")
+    @SerializedName(value = "vvt", alternate = {"visibleVersionTime"})
     private long visibleVersionTime;
     @Deprecated
-    @SerializedName(value = "visibleVersionHash")
+    @SerializedName(value = "vvh", alternate = {"visibleVersionHash"})
     private long visibleVersionHash;
-    @SerializedName(value = "nextVersion")
+    @SerializedName(value = "nv", alternate = {"nextVersion"})
     protected long nextVersion;
     @Deprecated
-    @SerializedName(value = "nextVersionHash")
+    @SerializedName(value = "nvh", alternate = {"nextVersionHash"})
     private long nextVersionHash;
-    @SerializedName(value = "distributionInfo")
+    @SerializedName(value = "di", alternate = {"distributionInfo"})
     private DistributionInfo distributionInfo;
 
     protected Partition() {
@@ -151,8 +151,8 @@ public class Partition extends MetaObject {
     public void updateVersionForRestore(long visibleVersion) {
         this.setVisibleVersion(visibleVersion);
         this.nextVersion = this.visibleVersion + 1;
-        LOG.info("update partition {} version for restore: visible: {}, next: {}",
-                name, visibleVersion, nextVersion);
+        LOG.info("update partition {}({}) version for restore: visible: {}, next: {}",
+                name, id, visibleVersion, nextVersion);
     }
 
     public void updateVisibleVersion(long visibleVersion) {
@@ -161,6 +161,13 @@ public class Partition extends MetaObject {
 
     public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
         this.setVisibleVersionAndTime(visibleVersion, visibleVersionTime);
+    }
+
+    /* fromCache is only used in CloudPartition
+     * make it overrided here to avoid rewrite all the usages with ugly Config.isCloudConfig() branches
+     */
+    public long getVisibleVersion(Boolean fromCache) {
+        return visibleVersion;
     }
 
     public long getVisibleVersion() {
@@ -341,12 +348,14 @@ public class Partition extends MetaObject {
         return true;
     }
 
+    @Deprecated
     public static Partition read(DataInput in) throws IOException {
         Partition partition = EnvFactory.getInstance().createPartition();
         partition.readFields(in);
         return partition;
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
@@ -436,5 +445,28 @@ public class Partition extends MetaObject {
         if (distributionInfo.getType() == DistributionInfoType.HASH) {
             distributionInfo = ((HashDistributionInfo) distributionInfo).toRandomDistributionInfo();
         }
+    }
+
+    public boolean isRollupIndex(long id) {
+        return idToVisibleRollupIndex.containsKey(id);
+    }
+
+
+    public long getRowCount() {
+        return getBaseIndex().getRowCount();
+    }
+
+    public long getAvgRowLength() {
+        long rowCount = getBaseIndex().getRowCount();
+        long dataSize = getBaseIndex().getDataSize(false);
+        if (rowCount > 0) {
+            return dataSize / rowCount;
+        } else {
+            return 0;
+        }
+    }
+
+    public long getDataLength() {
+        return getBaseIndex().getDataSize(false);
     }
 }

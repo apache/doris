@@ -104,7 +104,7 @@ public:
         T value = input;
         for (int i = 0; i < sizeof(value); ++i) {
             // Applies a mask for a byte range on the input.
-            char value_to_save = value & 0XFF;
+            signed char value_to_save = value & 0XFF;
             buffer.push_back(value_to_save);
             // Remove the just processed part from the input so that we can exit early if there
             // is nothing left to process.

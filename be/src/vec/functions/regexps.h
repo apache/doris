@@ -21,9 +21,9 @@
 #pragma once
 
 #include <hs/hs.h>
+#include <hs/hs_common.h>
 
 #include <boost/container_hash/hash.hpp>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -31,11 +31,10 @@
 #include <utility>
 #include <vector>
 
+#include "common/exception.h"
 #include "vec/common/string_ref.h"
 
-namespace doris::vectorized {
-
-namespace multiregexps {
+namespace doris::vectorized::multiregexps {
 
 template <typename Deleter, Deleter deleter>
 struct HyperscanDeleter {
@@ -75,7 +74,9 @@ public:
 
     Regexps* get() {
         std::lock_guard lock(mutex);
-        if (regexps) return &*regexps;
+        if (regexps) {
+            return &*regexps;
+        }
         regexps = constructor();
         return &*regexps;
     }
@@ -136,7 +137,9 @@ Regexps constructRegexps(const std::vector<String>& str_patterns,
     /// We mark the patterns to provide the callback results.
     if constexpr (save_indices) {
         ids.reset(new unsigned int[patterns.size()]);
-        for (size_t i = 0; i < patterns.size(); ++i) ids[i] = static_cast<unsigned>(i + 1);
+        for (size_t i = 0; i < patterns.size(); ++i) {
+            ids[i] = static_cast<unsigned>(i + 1);
+        }
     }
 
     for (auto& pattern : patterns) {
@@ -144,24 +147,28 @@ Regexps constructRegexps(const std::vector<String>& str_patterns,
     }
 
     hs_error_t err;
-    if constexpr (!WithEditDistance)
+    if constexpr (!WithEditDistance) {
         err = hs_compile_multi(patterns.data(), flags.data(), ids.get(),
                                static_cast<unsigned>(patterns.size()), HS_MODE_BLOCK, nullptr, &db,
                                &compile_error);
-    else
+    } else {
         err = hs_compile_ext_multi(patterns.data(), flags.data(), ids.get(), ext_exprs_ptrs.data(),
                                    static_cast<unsigned>(patterns.size()), HS_MODE_BLOCK, nullptr,
                                    &db, &compile_error);
+    }
 
-    if (err != HS_SUCCESS) {
+    if (err != HS_SUCCESS) [[unlikely]] {
         /// CompilerError is a unique_ptr, so correct memory free after the exception is thrown.
         CompilerError error(compile_error);
 
-        if (error->expression < 0)
-            LOG(FATAL) << "Logical error: " + String(error->message);
-        else
-            LOG(FATAL) << "Bad arguments: Pattern " + str_patterns[error->expression] +
-                                  "failed with error " + String(error->message);
+        if (error->expression < 0) { // error has nothing to do with the patterns themselves
+            throw doris::Exception(Status::InternalError("Compile regexp expression failed. got {}",
+                                                         error->message));
+        } else {
+            throw doris::Exception(Status::InvalidArgument(
+                    "Compile regexp expression failed. got {}. some expressions may be illegal",
+                    error->message));
+        }
     }
 
     /// We allocate the scratch space only once, then copy it across multiple threads with hs_clone_scratch
@@ -169,8 +176,15 @@ Regexps constructRegexps(const std::vector<String>& str_patterns,
     hs_scratch_t* scratch = nullptr;
     err = hs_alloc_scratch(db, &scratch);
 
-    /// If not HS_SUCCESS, it is guaranteed that the memory would not be allocated for scratch.
-    if (err != HS_SUCCESS) LOG(FATAL) << "Could not allocate scratch space for hyperscan";
+    if (err != HS_SUCCESS) [[unlikely]] {
+        if (err == HS_NOMEM) [[unlikely]] {
+            throw doris::Exception(Status::MemoryAllocFailed(
+                    "Allocating memory failed on compiling regexp expressions."));
+        } else {
+            throw doris::Exception(Status::InvalidArgument(
+                    "Compile regexp expression failed with unexpected arguments perhaps"));
+        }
+    }
 
     return {db, scratch};
 }
@@ -196,7 +210,9 @@ struct GlobalCacheTable {
     static size_t getBucketIndexFor(const std::vector<String> patterns,
                                     std::optional<UInt32> edit_distance) {
         size_t hash = 0;
-        for (const auto& pattern : patterns) boost::hash_combine(hash, pattern);
+        for (const auto& pattern : patterns) {
+            boost::hash_combine(hash, pattern);
+        }
         boost::hash_combine(hash, edit_distance);
         return hash % CACHE_SIZE;
     }
@@ -212,7 +228,9 @@ DeferredConstructedRegexpsPtr getOrSet(const std::vector<StringRef>& patterns,
 
     std::vector<String> str_patterns;
     str_patterns.reserve(patterns.size());
-    for (const auto& pattern : patterns) str_patterns.emplace_back(pattern.to_string());
+    for (const auto& pattern : patterns) {
+        str_patterns.emplace_back(pattern.to_string());
+    }
 
     size_t bucket_idx = GlobalCacheTable::getBucketIndexFor(str_patterns, edit_distance);
 
@@ -249,6 +267,4 @@ DeferredConstructedRegexpsPtr getOrSet(const std::vector<StringRef>& patterns,
     return bucket.regexps;
 }
 
-} // namespace multiregexps
-
-} // namespace doris::vectorized
+} // namespace doris::vectorized::multiregexps

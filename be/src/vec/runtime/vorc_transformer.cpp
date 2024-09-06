@@ -31,6 +31,7 @@
 #include "orc/OrcFile.hh"
 #include "orc/Vector.hh"
 #include "runtime/define_primitive_type.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/binary_cast.hpp"
@@ -107,39 +108,27 @@ void VOrcOutputStream::set_written_len(int64_t written_len) {
 }
 
 VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                                 const VExprContextSPtrs& output_vexpr_ctxs,
-                                 const std::string& schema, bool output_object_data)
-        : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
-          _file_writer(file_writer),
-          _write_options(new orc::WriterOptions()),
-          _schema_str(&schema),
-          _iceberg_schema(nullptr) {
-    _write_options->setTimezoneName(_state->timezone());
-    _write_options->setUseTightNumericVector(true);
-}
-
-VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                                 const VExprContextSPtrs& output_vexpr_ctxs,
+                                 const VExprContextSPtrs& output_vexpr_ctxs, std::string schema,
                                  std::vector<std::string> column_names, bool output_object_data,
-                                 orc::CompressionKind compression,
+                                 TFileCompressType::type compress_type,
                                  const iceberg::Schema* iceberg_schema)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _file_writer(file_writer),
           _column_names(std::move(column_names)),
           _write_options(new orc::WriterOptions()),
-          _schema_str(nullptr),
+          _schema_str(std::move(schema)),
           _iceberg_schema(iceberg_schema) {
     _write_options->setTimezoneName(_state->timezone());
     _write_options->setUseTightNumericVector(true);
-    _write_options->setCompression(compression);
+    set_compression_type(compress_type);
 }
 
 Status VOrcTransformer::open() {
-    if (_schema_str != nullptr) {
+    if (!_schema_str.empty()) {
         try {
-            _schema = orc::Type::buildTypeFromString(*_schema_str);
+            _schema = orc::Type::buildTypeFromString(_schema_str);
         } catch (const std::exception& e) {
-            return Status::InternalError("Orc build schema from \"{}\" failed: {}", *_schema_str,
+            return Status::InternalError("Orc build schema from \"{}\" failed: {}", _schema_str,
                                          e.what());
         }
     } else {
@@ -163,12 +152,37 @@ Status VOrcTransformer::open() {
 
     _output_stream = std::make_unique<VOrcOutputStream>(_file_writer);
     try {
+        _write_options->setMemoryPool(ExecEnv::GetInstance()->orc_memory_pool());
         _writer = orc::createWriter(*_schema, _output_stream.get(), *_write_options);
     } catch (const std::exception& e) {
         return Status::InternalError("failed to create writer: {}", e.what());
     }
     _writer->addUserMetadata("CreatedBy", doris::get_short_version());
     return Status::OK();
+}
+
+void VOrcTransformer::set_compression_type(const TFileCompressType::type& compress_type) {
+    switch (compress_type) {
+    case TFileCompressType::PLAIN: {
+        _write_options->setCompression(orc::CompressionKind::CompressionKind_NONE);
+        break;
+    }
+    case TFileCompressType::SNAPPYBLOCK: {
+        _write_options->setCompression(orc::CompressionKind::CompressionKind_SNAPPY);
+        break;
+    }
+    case TFileCompressType::ZLIB: {
+        _write_options->setCompression(orc::CompressionKind::CompressionKind_ZLIB);
+        break;
+    }
+    case TFileCompressType::ZSTD: {
+        _write_options->setCompression(orc::CompressionKind::CompressionKind_ZSTD);
+        break;
+    }
+    default: {
+        _write_options->setCompression(orc::CompressionKind::CompressionKind_ZLIB);
+    }
+    }
 }
 
 std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
@@ -302,15 +316,15 @@ int64_t VOrcTransformer::written_len() {
 }
 
 Status VOrcTransformer::close() {
-    if (_writer != nullptr) {
-        try {
+    try {
+        if (_writer != nullptr) {
             _writer->close();
-        } catch (const std::exception& e) {
-            return Status::IOError(e.what());
         }
-    }
-    if (_output_stream) {
-        _output_stream->close();
+        if (_output_stream) {
+            _output_stream->close();
+        }
+    } catch (const std::exception& e) {
+        return Status::IOError(e.what());
     }
     return Status::OK();
 }
@@ -341,13 +355,13 @@ Status VOrcTransformer::write(const Block& block) {
             RETURN_IF_ERROR(_serdes[i]->write_column_to_orc(
                     _state->timezone(), *raw_column, nullptr, root->fields[i], 0, sz, buffer_list));
         }
+        root->numElements = sz;
+        _writer->add(*row_batch);
+        _cur_written_rows += sz;
     } catch (const std::exception& e) {
         LOG(WARNING) << "Orc write error: " << e.what();
         return Status::InternalError(e.what());
     }
-    root->numElements = sz;
-    _writer->add(*row_batch);
-    _cur_written_rows += sz;
 
     return Status::OK();
 }

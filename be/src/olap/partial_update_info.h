@@ -16,81 +16,41 @@
 // under the License.
 
 #pragma once
+#include <cstdint>
+#include <map>
+#include <set>
+#include <string>
+#include <vector>
 
-#include "olap/tablet_schema.h"
+#include "common/status.h"
+#include "olap/rowset/rowset_fwd.h"
+#include "olap/tablet_fwd.h"
 
 namespace doris {
+class TabletSchema;
+class PartialUpdateInfoPB;
+struct RowLocation;
+namespace vectorized {
+class Block;
+}
+struct RowsetWriterContext;
+struct RowsetId;
 
 struct PartialUpdateInfo {
     void init(const TabletSchema& tablet_schema, bool partial_update,
-              const std::set<string>& partial_update_cols, bool is_strict_mode,
+              const std::set<std::string>& partial_update_cols, bool is_strict_mode,
               int64_t timestamp_ms, const std::string& timezone,
-              const std::string& auto_increment_column) {
-        is_partial_update = partial_update;
-        partial_update_input_columns = partial_update_cols;
-
-        this->timestamp_ms = timestamp_ms;
-        this->timezone = timezone;
-        missing_cids.clear();
-        update_cids.clear();
-        for (auto i = 0; i < tablet_schema.num_columns(); ++i) {
-            auto tablet_column = tablet_schema.column(i);
-            if (!partial_update_input_columns.contains(tablet_column.name())) {
-                missing_cids.emplace_back(i);
-                if (!tablet_column.has_default_value() && !tablet_column.is_nullable() &&
-                    tablet_schema.auto_increment_column() != tablet_column.name()) {
-                    can_insert_new_rows_in_partial_update = false;
-                }
-            } else {
-                update_cids.emplace_back(i);
-            }
-            if (auto_increment_column == tablet_column.name()) {
-                is_schema_contains_auto_inc_column = true;
-            }
-        }
-        this->is_strict_mode = is_strict_mode;
-        is_input_columns_contains_auto_inc_column =
-                is_partial_update && partial_update_input_columns.contains(auto_increment_column);
-        _generate_default_values_for_missing_cids(tablet_schema);
-    }
+              const std::string& auto_increment_column, int64_t cur_max_version = -1);
+    void to_pb(PartialUpdateInfoPB* partial_update_info) const;
+    void from_pb(PartialUpdateInfoPB* partial_update_info);
+    std::string summary() const;
 
 private:
-    void _generate_default_values_for_missing_cids(const TabletSchema& tablet_schema) {
-        for (auto i = 0; i < missing_cids.size(); ++i) {
-            auto cur_cid = missing_cids[i];
-            const auto& column = tablet_schema.column(cur_cid);
-            if (column.has_default_value()) {
-                std::string default_value;
-                if (UNLIKELY(tablet_schema.column(cur_cid).type() ==
-                                     FieldType::OLAP_FIELD_TYPE_DATETIMEV2 &&
-                             to_lower(tablet_schema.column(cur_cid).default_value())
-                                             .find(to_lower("CURRENT_TIMESTAMP")) !=
-                                     std::string::npos)) {
-                    DateV2Value<DateTimeV2ValueType> dtv;
-                    dtv.from_unixtime(timestamp_ms / 1000, timezone);
-                    default_value = dtv.debug_string();
-                } else if (UNLIKELY(tablet_schema.column(cur_cid).type() ==
-                                            FieldType::OLAP_FIELD_TYPE_DATEV2 &&
-                                    to_lower(tablet_schema.column(cur_cid).default_value())
-                                                    .find(to_lower("CURRENT_DATE")) !=
-                                            std::string::npos)) {
-                    DateV2Value<DateV2ValueType> dv;
-                    dv.from_unixtime(timestamp_ms / 1000, timezone);
-                    default_value = dv.debug_string();
-                } else {
-                    default_value = tablet_schema.column(cur_cid).default_value();
-                }
-                default_values.emplace_back(default_value);
-            } else {
-                // place an empty string here
-                default_values.emplace_back();
-            }
-        }
-        CHECK_EQ(missing_cids.size(), default_values.size());
-    }
+    void _generate_default_values_for_missing_cids(const TabletSchema& tablet_schema);
 
 public:
     bool is_partial_update {false};
+    int64_t max_version_in_flush_phase {-1};
     std::set<std::string> partial_update_input_columns;
     std::vector<uint32_t> missing_cids;
     std::vector<uint32_t> update_cids;
@@ -106,4 +66,31 @@ public:
     // default values for missing cids
     std::vector<std::string> default_values;
 };
+
+// used in mow partial update
+struct RidAndPos {
+    uint32_t rid;
+    // pos in block
+    size_t pos;
+};
+
+class PartialUpdateReadPlan {
+public:
+    void prepare_to_read(const RowLocation& row_location, size_t pos);
+    Status read_columns_by_plan(const TabletSchema& tablet_schema,
+                                const std::vector<uint32_t> cids_to_read,
+                                const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+                                vectorized::Block& block, std::map<uint32_t, uint32_t>* read_index,
+                                const signed char* __restrict skip_map = nullptr) const;
+    Status fill_missing_columns(RowsetWriterContext* rowset_ctx,
+                                const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+                                const TabletSchema& tablet_schema, vectorized::Block& full_block,
+                                const std::vector<bool>& use_default_or_null_flag,
+                                bool has_default_or_nullable, const size_t& segment_start_pos,
+                                const vectorized::Block* block) const;
+
+private:
+    std::map<RowsetId, std::map<uint32_t, std::vector<RidAndPos>>> plan;
+};
+
 } // namespace doris

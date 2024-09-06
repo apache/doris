@@ -182,12 +182,11 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescrip
     return DecimalType(value);
 }
 
-Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const TypeDescriptor& type,
-                                                 bool is_nullable, vectorized::ColumnPtr column,
-                                                 size_t slot_index, bool* stop_processing,
-                                                 fmt::memory_buffer& error_prefix,
-                                                 const uint32_t row_count,
-                                                 vectorized::IColumn::Permutation* rows) {
+Status OlapTableBlockConvertor::_internal_validate_column(
+        RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
+        vectorized::ColumnPtr column, size_t slot_index, bool* stop_processing,
+        fmt::memory_buffer& error_prefix, const uint32_t row_count,
+        vectorized::IColumn::Permutation* rows) {
     DCHECK((rows == nullptr) || (rows->size() == row_count));
     fmt::memory_buffer error_msg;
     auto set_invalid_and_append_error_msg = [&](int row) {
@@ -505,8 +504,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
     vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
 
     vectorized::ColumnPtr src_column_ptr = block->get_by_position(idx).column;
-    if (const vectorized::ColumnConst* const_column =
-                check_and_get_column<vectorized::ColumnConst>(src_column_ptr)) {
+    if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(src_column_ptr)) {
         // for insert stmt like "insert into tbl1 select null,col1,col2,... from tbl2" or
         // "insert into tbl1 select 1,col1,col2,... from tbl2", the type of literal's column
         // will be `ColumnConst`
@@ -529,7 +527,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
             int64_t value = const_column->get_int(0);
             dst_values.resize_fill(rows, value);
         }
-    } else if (const vectorized::ColumnNullable* src_nullable_column =
+    } else if (const auto* src_nullable_column =
                        check_and_get_column<vectorized::ColumnNullable>(src_column_ptr)) {
         auto src_nested_column_ptr = src_nullable_column->get_nested_column_ptr();
         const auto& null_map_data = src_nullable_column->get_null_map_data();

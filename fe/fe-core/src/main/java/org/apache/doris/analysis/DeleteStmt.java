@@ -52,7 +52,8 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
-public class DeleteStmt extends DdlStmt {
+@Deprecated
+public class DeleteStmt extends DdlStmt implements NotFallbackInParser {
 
     private static final List<ExprRewriteRule> EXPR_NORMALIZE_RULES = ImmutableList.of(
             BetweenToCompoundRule.INSTANCE
@@ -122,7 +123,8 @@ public class DeleteStmt extends DdlStmt {
         }
 
         // analyze predicate
-        if (fromClause == null) {
+        if ((fromClause == null && !((OlapTable) targetTable).getEnableUniqueKeyMergeOnWrite())
+                || (fromClause == null && ((OlapTable) targetTable).getEnableMowLightDelete())) {
             if (wherePredicate == null) {
                 throw new AnalysisException("Where clause is not set");
             }
@@ -167,6 +169,7 @@ public class DeleteStmt extends DdlStmt {
         }
 
         FromClause fromUsedInInsert;
+        targetTableRef.setPartitionNames(partitionNames);
         if (fromClause == null) {
             fromUsedInInsert = new FromClause(Lists.newArrayList(targetTableRef));
         } else {
@@ -460,5 +463,10 @@ public class DeleteStmt extends DdlStmt {
         }
         sb.append(" WHERE ").append(wherePredicate.toSql());
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DELETE;
     }
 }

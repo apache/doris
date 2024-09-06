@@ -653,7 +653,8 @@ Status BaseBackendService::start_plan_fragment_execution(
     if (!exec_params.fragment.__isset.output_sink) {
         return Status::InternalError("missing sink in plan fragment");
     }
-    return _exec_env->fragment_mgr()->exec_plan_fragment(exec_params);
+    return _exec_env->fragment_mgr()->exec_plan_fragment(exec_params,
+                                                         QuerySource::INTERNAL_FRONTEND);
 }
 
 void BaseBackendService::cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
@@ -923,27 +924,8 @@ void BaseBackendService::close_scanner(TScanCloseResult& result_, const TScanClo
 
 void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
                                             int64_t last_stream_record_time) {
-    auto stream_load_recorder = _engine.get_stream_load_recorder();
-    if (stream_load_recorder != nullptr) {
-        std::map<std::string, std::string> records;
-        auto st = stream_load_recorder->get_batch(std::to_string(last_stream_record_time),
-                                                  config::stream_load_record_batch_size, &records);
-        if (st.ok()) {
-            LOG(INFO) << "get_batch stream_load_record rocksdb successfully. records size: "
-                      << records.size()
-                      << ", last_stream_load_timestamp: " << last_stream_record_time;
-            std::map<std::string, TStreamLoadRecord> stream_load_record_batch;
-            auto it = records.begin();
-            for (; it != records.end(); ++it) {
-                TStreamLoadRecord stream_load_item;
-                StreamLoadContext::parse_stream_load_record(it->second, stream_load_item);
-                stream_load_record_batch.emplace(it->first.c_str(), stream_load_item);
-            }
-            result.__set_stream_load_record(stream_load_record_batch);
-        }
-    } else {
-        LOG(WARNING) << "stream_load_recorder is null.";
-    }
+    BaseBackendService::get_stream_load_record(result, last_stream_record_time,
+                                               _engine.get_stream_load_recorder());
 }
 
 void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
@@ -1197,6 +1179,31 @@ int64_t BaseBackendService::get_trash_used_capacity() {
 void BaseBackendService::get_stream_load_record(TStreamLoadRecordResult& result,
                                                 int64_t last_stream_record_time) {
     LOG(ERROR) << "get_stream_load_record is not implemented";
+}
+
+void BaseBackendService::get_stream_load_record(
+        TStreamLoadRecordResult& result, int64_t last_stream_record_time,
+        std::shared_ptr<StreamLoadRecorder> stream_load_recorder) {
+    if (stream_load_recorder != nullptr) {
+        std::map<std::string, std::string> records;
+        auto st = stream_load_recorder->get_batch(std::to_string(last_stream_record_time),
+                                                  config::stream_load_record_batch_size, &records);
+        if (st.ok()) {
+            LOG(INFO) << "get_batch stream_load_record rocksdb successfully. records size: "
+                      << records.size()
+                      << ", last_stream_load_timestamp: " << last_stream_record_time;
+            std::map<std::string, TStreamLoadRecord> stream_load_record_batch;
+            auto it = records.begin();
+            for (; it != records.end(); ++it) {
+                TStreamLoadRecord stream_load_item;
+                StreamLoadContext::parse_stream_load_record(it->second, stream_load_item);
+                stream_load_record_batch.emplace(it->first.c_str(), stream_load_item);
+            }
+            result.__set_stream_load_record(stream_load_record_batch);
+        }
+    } else {
+        LOG(WARNING) << "stream_load_recorder is null.";
+    }
 }
 
 void BaseBackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) {

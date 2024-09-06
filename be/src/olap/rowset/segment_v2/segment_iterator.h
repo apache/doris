@@ -69,7 +69,6 @@ class BitmapIndexIterator;
 class ColumnIterator;
 class InvertedIndexIterator;
 class RowRanges;
-
 struct ColumnPredicateInfo {
     ColumnPredicateInfo() = default;
 
@@ -107,6 +106,15 @@ struct ColumnPredicateInfo {
     int32_t column_id;
 };
 
+class SegmentIterator;
+struct FuncExprParams {
+    ColumnId _column_id = 0;
+    uint32_t _unique_id = 0;
+    std::string _column_name;
+    SegmentIterator* _segment_iterator = nullptr;
+    std::shared_ptr<roaring::Roaring> result;
+};
+
 class SegmentIterator : public RowwiseIterator {
 public:
     SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr schema);
@@ -123,6 +131,8 @@ public:
             std::vector<RowLocation>* block_row_locations) override;
 
     const Schema& schema() const override { return *_schema; }
+    Segment& segment() { return *_segment; }
+    StorageReadOptions& storage_read_options() { return _opts; }
     bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
     uint64_t data_id() const override { return _segment->id(); }
     RowsetId rowset_id() const { return _segment->rowset_id(); }
@@ -140,6 +150,10 @@ public:
         }
 
         return updated;
+    }
+
+    std::vector<std::unique_ptr<InvertedIndexIterator>>& inverted_index_iterators() {
+        return _inverted_index_iterators;
     }
 
 private:
@@ -164,7 +178,6 @@ private:
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_bitmap_index_iterators();
     [[nodiscard]] Status _init_inverted_index_iterators();
-
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
     [[nodiscard]] Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
@@ -187,20 +200,10 @@ private:
     [[nodiscard]] Status _apply_inverted_index_on_column_predicate(
             ColumnPredicate* pred, std::vector<ColumnPredicate*>& remaining_predicates,
             bool* continue_apply);
-    [[nodiscard]] Status _apply_inverted_index_on_block_column_predicate(
-            ColumnId column_id, MutilColumnBlockPredicate* pred,
-            std::set<const ColumnPredicate*>& no_need_to_pass_column_predicate_set,
-            bool* continue_apply);
-    [[nodiscard]] Status _apply_index_except_leafnode_of_andnode();
-    [[nodiscard]] Status _apply_inverted_index_except_leafnode_of_andnode(
-            ColumnPredicate* pred, roaring::Roaring* output_result);
+    [[nodiscard]] Status _apply_index_expr();
     bool _column_has_fulltext_index(int32_t cid);
     bool _downgrade_without_index(Status res, bool need_remaining = false);
     inline bool _inverted_index_not_support_pred_type(const PredicateType& type);
-    bool _can_filter_by_preds_except_leafnode_of_andnode();
-    [[nodiscard]] Status _execute_predicates_except_leafnode_of_andnode(
-            const vectorized::VExprSPtr& expr);
-    [[nodiscard]] Status _execute_compound_fn(const std::string& function_name);
     bool _is_literal_node(const TExprNodeType::type& node_type);
 
     Status _vec_init_lazy_materialization();
@@ -222,7 +225,8 @@ private:
                                                 bool set_block_rowid);
     void _replace_version_col(size_t num_rows);
     Status _init_current_block(vectorized::Block* block,
-                               std::vector<vectorized::MutableColumnPtr>& non_pred_vector);
+                               std::vector<vectorized::MutableColumnPtr>& non_pred_vector,
+                               uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     void _output_non_pred_columns(vectorized::Block* block);
@@ -254,7 +258,12 @@ private:
                 continue;
             }
             vectorized::DataTypePtr storage_type = _segment->get_data_type_of(
-                    _schema->column(cid)->path(), _schema->column(cid)->is_nullable(), false);
+                    Segment::ColumnIdentifier {
+                            .unique_id = _schema->column(cid)->unique_id(),
+                            .parent_unique_id = _schema->column(cid)->parent_unique_id(),
+                            .path = _schema->column(cid)->path(),
+                            .is_nullable = _schema->column(cid)->is_nullable()},
+                    false);
             if (storage_type && !storage_type->equals(*block->get_by_position(block_cid).type)) {
                 // Do additional cast
                 vectorized::MutableColumnPtr tmp = storage_type->create_column();
@@ -279,7 +288,6 @@ private:
 
     [[nodiscard]] Status _extract_common_expr_columns(const vectorized::VExprSPtr& expr);
     // same with _extract_common_expr_columns, but only extract columns that can be used for index
-    [[nodiscard]] Status _extract_common_expr_columns_for_index(const vectorized::VExprSPtr& expr);
     [[nodiscard]] Status _execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
                                               vectorized::Block* block);
     uint16_t _evaluate_common_expr_filter(uint16_t* sel_rowid_idx, uint16_t selected_size,
@@ -290,26 +298,16 @@ private:
 
     void _convert_dict_code_for_predicate_if_necessary_impl(ColumnPredicate* predicate);
 
-    bool _check_apply_by_inverted_index(ColumnId col_id);
-    bool _check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound = false);
+    bool _check_apply_by_inverted_index(ColumnPredicate* pred);
 
-    std::string _gen_predicate_result_sign(ColumnPredicate* predicate);
-    std::string _gen_predicate_result_sign(ColumnPredicateInfo* predicate_info);
-
-    void _build_index_result_column(const uint16_t* sel_rowid_idx, uint16_t select_size,
-                                    vectorized::Block* block, const std::string& pred_result_sign,
-                                    const roaring::Roaring& index_result);
-    void _output_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
-                                     vectorized::Block* block);
+    void _output_index_result_column_for_expr(uint16_t* sel_rowid_idx, uint16_t select_size,
+                                              vectorized::Block* block);
 
     bool _need_read_data(ColumnId cid);
     bool _prune_column(ColumnId cid, vectorized::MutableColumnPtr& column, bool fill_defaults,
                        size_t num_of_defaults);
 
-    // return true means one column's predicates all pushed down
-    bool _check_column_pred_all_push_down(const std::string& column_name, bool in_compound = false,
-                                          bool is_match = false);
-    void _calculate_pred_in_remaining_conjunct_root(const vectorized::VExprSPtr& expr);
+    Status _construct_compound_expr_context();
 
     // todo(wb) remove this method after RowCursor is removed
     void _convert_rowcursor_to_short_key(const RowCursor& key, size_t num_keys) {
@@ -387,7 +385,13 @@ private:
 
     bool _has_delete_predicate(ColumnId cid);
 
-    bool _can_opt_topn_reads() const;
+    bool _can_opt_topn_reads();
+
+    void _initialize_predicate_results();
+    bool _check_all_conditions_passed_inverted_index_for_column(ColumnId cid,
+                                                                bool default_return = false);
+
+    void _calculate_expr_in_remaining_conjunct_root();
 
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
@@ -403,8 +407,6 @@ private:
     std::vector<std::unique_ptr<InvertedIndexIterator>> _inverted_index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
-    // "column_name+operator+value-> <in_compound_query, rowid_result>
-    std::unordered_map<std::string, std::pair<bool, roaring::Roaring>> _rowid_result_for_index;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
     std::unique_ptr<BitmapRangeIterator> _range_iter;
     // the next rowid to read
@@ -416,7 +418,6 @@ private:
     // columns to read after predicate evaluation and remaining expr execute
     std::vector<ColumnId> _non_predicate_columns;
     std::set<ColumnId> _common_expr_columns;
-    std::set<ColumnId> _common_expr_columns_for_index;
     // remember the rowids we've read for the current row block.
     // could be a local variable of next_batch(), kept here to reuse vector memory
     std::vector<rowid_t> _block_rowids;
@@ -454,14 +455,9 @@ private:
     StorageReadOptions _opts;
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<ColumnPredicate*> _col_predicates;
-    std::vector<ColumnPredicate*> _col_preds_except_leafnode_of_andnode;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
     bool _enable_common_expr_pushdown = false;
     std::vector<vectorized::VExprSPtr> _remaining_conjunct_roots;
-    std::vector<roaring::Roaring> _pred_except_leafnode_of_andnode_evaluate_result;
-    std::unique_ptr<ColumnPredicateInfo> _column_predicate_info;
-    std::unordered_map<std::string, std::vector<ColumnPredicateInfo>>
-            _column_pred_in_remaining_vconjunct;
     std::set<ColumnId> _not_apply_index_pred;
 
     // row schema of the key to seek
@@ -495,9 +491,13 @@ private:
     int64_t _tablet_id = 0;
     std::set<int32_t> _output_columns;
 
-    std::unique_ptr<HierarchicalDataReader> _path_reader;
-
     std::vector<uint8_t> _ret_flags;
+
+    std::unordered_map<ColumnId, std::unordered_map<ColumnPredicate*, bool>>
+            _column_predicate_inverted_index_status;
+
+    std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>
+            _common_expr_inverted_index_status;
 };
 
 } // namespace segment_v2

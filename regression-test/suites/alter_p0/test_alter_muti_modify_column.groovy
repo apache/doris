@@ -39,6 +39,8 @@ suite('test_alter_muti_modify_column') {
         (3, 30, 'pqr', 'lmn');
     """
 
+    sql """ SYNC """
+
     def expectedResults = [
         [1, 10, 'abc', 'def'],
         [2, 20, 'xyz', 'uvw'],
@@ -60,14 +62,16 @@ suite('test_alter_muti_modify_column') {
         MODIFY COLUMN `v3` VARCHAR(512) NULL AFTER `v2`;
     """
 
-    // Wait for ALTER TABLE to take effect
-    Thread.sleep(5000)
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tbl}' ORDER BY createtime DESC LIMIT 1 """
+        time 600
+    }
 
     // Check table structure after ALTER TABLE
     def resultCreate = sql """ SHOW CREATE TABLE ${tbl} """
     def createTbl = resultCreate[0][1].toString()
-    assertTrue(createTbl.indexOf("`v2` VARCHAR(512) NULL") > 0)
-    assertTrue(createTbl.indexOf("`v3` VARCHAR(512) NULL") > 0)
+    assertTrue(createTbl.indexOf("`v2` varchar(512) NULL") > 0)
+    assertTrue(createTbl.indexOf("`v3` varchar(512) NULL") > 0)
 
     // Check data after ALTER TABLE
     def resultAfter = sql """ SELECT * FROM ${tbl} ORDER BY id """

@@ -209,6 +209,7 @@ public:
     void add_address_sanitizers(void* buf, size_t size);
     void remove_address_sanitizers(void* buf, size_t size);
     std::string print_address_sanitizers();
+    bool is_group_commit_load {false};
 #endif
 
     std::string debug_string() override {
@@ -221,7 +222,7 @@ public:
     }
 
     // Iterator into mem_tracker_limiter_pool for this object. Stored to have O(1) remove.
-    std::list<std::weak_ptr<MemTrackerLimiter>>::iterator tg_tracker_limiter_group_it;
+    std::list<std::weak_ptr<MemTrackerLimiter>>::iterator wg_tracker_limiter_group_it;
 
 private:
     friend class ThreadMemTrackerMgr;
@@ -260,6 +261,7 @@ private:
 
     std::mutex _address_sanitizers_mtx;
     std::unordered_map<void*, AddressSanitizer> _address_sanitizers;
+    std::vector<std::string> _error_address_sanitizers;
 #endif
 };
 

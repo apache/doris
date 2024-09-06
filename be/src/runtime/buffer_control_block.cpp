@@ -24,6 +24,7 @@
 #include <google/protobuf/stubs/callback.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <limits>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -80,6 +81,13 @@ void GetResultBatchCtx::on_data(const std::unique_ptr<TFetchDataResult>& t_resul
         result->set_packet_seq(packet_seq);
         result->set_eos(eos);
     }
+
+    /// The size limit of proto buffer message is 2G
+    if (result->ByteSizeLong() > std::numeric_limits<int32_t>::max()) {
+        st = Status::InternalError("Message size exceeds 2GB: {}", result->ByteSizeLong());
+        result->clear_row_batch();
+        result->set_empty_batch(true);
+    }
     st.to_protobuf(result->mutable_status());
     { done->Run(); }
     delete this;
@@ -89,7 +97,6 @@ BufferControlBlock::BufferControlBlock(const TUniqueId& id, int buffer_size, int
         : _fragment_id(id),
           _is_close(false),
           _is_cancelled(false),
-          _buffer_rows(0),
           _buffer_limit(buffer_size),
           _packet_num(0),
           _batch_size(batch_size) {
@@ -127,7 +134,6 @@ Status BufferControlBlock::add_batch(RuntimeState* state,
             _instance_rows_in_queue.emplace_back();
             _fe_result_batch_queue.push_back(std::move(result));
         }
-        _buffer_rows += num_rows;
         _instance_rows[state->fragment_instance_id()] += num_rows;
         _instance_rows_in_queue.back()[state->fragment_instance_id()] += num_rows;
     } else {
@@ -151,17 +157,13 @@ Status BufferControlBlock::add_arrow_batch(RuntimeState* state,
 
     int num_rows = result->num_rows();
 
-    if (_is_cancelled) {
-        return Status::Cancelled("Cancelled");
-    }
-
     // TODO: merge RocordBatch, ToStructArray -> Make again
 
     _arrow_flight_batch_queue.push_back(std::move(result));
-    _buffer_rows += num_rows;
     _instance_rows_in_queue.emplace_back();
     _instance_rows[state->fragment_instance_id()] += num_rows;
     _instance_rows_in_queue.back()[state->fragment_instance_id()] += num_rows;
+    _arrow_data_arrival.notify_one();
     _update_dependency();
     return Status::OK();
 }
@@ -182,7 +184,6 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
         // get result
         std::unique_ptr<TFetchDataResult> result = std::move(_fe_result_batch_queue.front());
         _fe_result_batch_queue.pop_front();
-        _buffer_rows -= result->result_batch.rows.size();
         for (auto it : _instance_rows_in_queue.front()) {
             _instance_rows[it.first] -= it.second;
         }
@@ -212,6 +213,10 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* 
         return Status::Cancelled("Cancelled");
     }
 
+    while (_arrow_flight_batch_queue.empty() && !_is_cancelled && !_is_close) {
+        _arrow_data_arrival.wait_for(l, std::chrono::seconds(1));
+    }
+
     if (_is_cancelled) {
         return Status::Cancelled("Cancelled");
     }
@@ -219,7 +224,6 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* 
     if (!_arrow_flight_batch_queue.empty()) {
         *result = std::move(_arrow_flight_batch_queue.front());
         _arrow_flight_batch_queue.pop_front();
-        _buffer_rows -= (*result)->num_rows();
         for (auto it : _instance_rows_in_queue.front()) {
             _instance_rows[it.first] -= it.second;
         }
@@ -234,11 +238,16 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* 
         _update_dependency();
         return Status::OK();
     }
-    return Status::InternalError("Abnormal Ending");
+    return Status::InternalError("Get Arrow Batch Abnormal Ending");
 }
 
 Status BufferControlBlock::close(const TUniqueId& id, Status exec_status) {
     std::unique_lock<std::mutex> l(_lock);
+    // close will be called multiple times and error status needs to be collected.
+    if (!exec_status.ok()) {
+        _status = exec_status;
+    }
+
     auto it = _result_sink_dependencys.find(id);
     if (it != _result_sink_dependencys.end()) {
         it->second->set_always_ready();
@@ -249,7 +258,7 @@ Status BufferControlBlock::close(const TUniqueId& id, Status exec_status) {
     }
 
     _is_close = true;
-    _status = exec_status;
+    _arrow_data_arrival.notify_all();
 
     if (!_waiting_rpc.empty()) {
         if (_status.ok()) {
@@ -269,6 +278,7 @@ Status BufferControlBlock::close(const TUniqueId& id, Status exec_status) {
 void BufferControlBlock::cancel() {
     std::unique_lock<std::mutex> l(_lock);
     _is_cancelled = true;
+    _arrow_data_arrival.notify_all();
     for (auto& ctx : _waiting_rpc) {
         ctx->on_failure(Status::Cancelled("Cancelled"));
     }

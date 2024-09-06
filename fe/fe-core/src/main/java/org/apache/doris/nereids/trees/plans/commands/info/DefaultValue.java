@@ -24,6 +24,7 @@ import org.apache.doris.catalog.ScalarType;
  * default value of a column.
  */
 public class DefaultValue {
+    public static String PI = "PI";
     public static String CURRENT_DATE = "CURRENT_DATE";
     public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
     public static String NOW = "now";
@@ -40,6 +41,10 @@ public class DefaultValue {
     public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(ZERO);
     // default "value", "[]" means empty array
     public static DefaultValue ARRAY_EMPTY_DEFAULT_VALUE = new DefaultValue("[]");
+    // default "value", "3.14159265358979323846" means pi, refer to M_PI in <math.h>.
+    // M_PI is enough for type double because the precision of type double is 15~16 digits.
+    // but it is not adequate for computation using long double. in this case, use M_PIl in <math.h>.
+    public static DefaultValue PI_DEFAULT_VALUE = new DefaultValue("3.14159265358979323846", PI);
 
     private final String value;
     // used for column which defaultValue is an expression.

@@ -54,6 +54,8 @@ suite("test_date_function") {
     qt_sql """ SELECT convert_tz('2022-2-29 13:21:03', '+08:00', 'America/London') result; """
     qt_sql """ SELECT convert_tz('2022-02-29 13:21:03', '+08:00', 'America/London') result; """
     qt_sql """ SELECT convert_tz('1900-00-00 13:21:03', '+08:00', 'America/London') result; """
+    qt_lower_bound """ select convert_tz('0000-01-01 00:00:00', '+08:00', '-02:00'); """
+    qt_lower_bound """ select convert_tz('0000-01-01 00:00:00', '+08:00', '+08:00'); """
 
     // bug fix
     sql """ insert into ${tableName} values 
@@ -350,11 +352,11 @@ suite("test_date_function") {
     qt_sql """ select from_days(1) """
 
     // FROM_UNIXTIME
-    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(1196440219) """
-    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(1196440219, 'yyyy-MM-dd HH:mm:ss') """
-    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(1196440219, '%Y-%m-%d') """
-    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(1196440219, '%Y-%m-%d %H:%i:%s') """
-    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(253402272000, '%Y-%m-%d %H:%i:%s') """
+    qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(1196440219) """
+    qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(1196440219, 'yyyy-MM-dd HH:mm:ss') """
+    qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(1196440219, '%Y-%m-%d') """
+    qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(1196440219, '%Y-%m-%d %H:%i:%s') """
+    qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(253402272000, '%Y-%m-%d %H:%i:%s') """
 
     // HOUR
     qt_sql """ select hour('2018-12-31 23:59:59') """

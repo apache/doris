@@ -105,7 +105,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         double scaleFactor = (double) totalRowCount / (double) pair.second;
         // might happen if row count in fe metadata hasn't been updated yet
         if (Double.isInfinite(scaleFactor) || Double.isNaN(scaleFactor)) {
-            LOG.warn("Scale factor is infinite or Nan, will set scale factor to 1.");
+            LOG.debug("Scale factor is infinite or Nan, will set scale factor to 1.");
             scaleFactor = 1;
             tabletIds = Collections.emptyList();
             pair.second = totalRowCount;
@@ -210,9 +210,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     @Override
     protected void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException {
         TableStatsMeta tableStats = Env.getServingEnv().getAnalysisManager().findTableStatsStatus(tbl.getId());
-        // When a partition was dropped, newPartitionLoaded will set to true.
-        // So we don't need to check dropped partition if newPartitionLoaded is false.
-        if (tableStats == null || !tableStats.partitionChanged.get()) {
+        if (tableStats == null) {
             return;
         }
         OlapTable table = (OlapTable) tbl;
@@ -220,6 +218,12 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         ColStatsMeta columnStats = tableStats.findColumnStatsMeta(indexName, info.colName);
         if (columnStats == null || columnStats.partitionUpdateRows == null
                 || columnStats.partitionUpdateRows.isEmpty()) {
+            return;
+        }
+        // When a partition was dropped, partitionChanged will be set to true.
+        // So we don't need to check dropped partition if partitionChanged is false.
+        if (!tableStats.partitionChanged.get()
+                && columnStats.partitionUpdateRows.size() == table.getPartitions().size()) {
             return;
         }
         Set<Long> expiredPartition = Sets.newHashSet();

@@ -134,21 +134,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
     }
     VLOG_NOTICE << "read columns size: " << read_columns.size();
-    std::string schema_key = SchemaCache::get_schema_key(
-            _read_options.tablet_id, _read_context->tablet_schema, read_columns,
-            _read_context->tablet_schema->schema_version(), SchemaCache::Type::SCHEMA);
-    // It is necessary to ensure that there is a schema version when using a cache
-    // because the absence of a schema version can result in reading a stale version
-    // of the schema after a schema change.
-    // For table contains variants, it's schema is unstable and variable so we could not use schema cache here
-    if (_read_context->tablet_schema->schema_version() < 0 ||
-        _read_context->tablet_schema->num_variant_columns() > 0 ||
-        (_input_schema = SchemaCache::instance()->get_schema<SchemaSPtr>(schema_key)) == nullptr) {
-        _input_schema =
-                std::make_shared<Schema>(_read_context->tablet_schema->columns(), read_columns);
-        SchemaCache::instance()->insert_schema(schema_key, _input_schema);
-    }
-
+    _input_schema = std::make_shared<Schema>(_read_context->tablet_schema->columns(), read_columns);
     if (_read_context->predicates != nullptr) {
         _read_options.column_predicates.insert(_read_options.column_predicates.end(),
                                                _read_context->predicates->begin(),
@@ -160,27 +146,6 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             }
             _read_options.col_id_to_predicates[pred->column_id()]->add_column_predicate(
                     SingleColumnBlockPredicate::create_unique(pred));
-        }
-    }
-
-    if (_read_context->predicates_except_leafnode_of_andnode != nullptr) {
-        bool should_push_down = true;
-        bool should_push_down_value_predicates = _should_push_down_value_predicates();
-        for (auto pred : *_read_context->predicates_except_leafnode_of_andnode) {
-            if (_rowset->keys_type() == UNIQUE_KEYS && !should_push_down_value_predicates &&
-                !_read_context->tablet_schema->column(pred->column_id()).is_key()) {
-                VLOG_DEBUG << "do not push down except_leafnode_of_andnode value pred "
-                           << pred->debug_string();
-                should_push_down = false;
-                break;
-            }
-        }
-
-        if (should_push_down) {
-            _read_options.column_predicates_except_leafnode_of_andnode.insert(
-                    _read_options.column_predicates_except_leafnode_of_andnode.end(),
-                    _read_context->predicates_except_leafnode_of_andnode->begin(),
-                    _read_context->predicates_except_leafnode_of_andnode->end());
         }
     }
 
@@ -249,10 +214,20 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     }
 
     // load segments
-    bool should_use_cache = use_cache || _read_context->reader_type == ReaderType::READER_QUERY;
+    bool enable_segment_cache = true;
+    auto* state = read_context->runtime_state;
+    if (state != nullptr) {
+        enable_segment_cache = state->query_options().__isset.enable_segment_cache
+                                       ? state->query_options().enable_segment_cache
+                                       : true;
+    }
+    // When reader type is for query, session variable `enable_segment_cache` should be respected.
+    bool should_use_cache = use_cache || (_read_context->reader_type == ReaderType::READER_QUERY &&
+                                          enable_segment_cache);
     SegmentCacheHandle segment_cache_handle;
     RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(_rowset, &segment_cache_handle,
-                                                             should_use_cache));
+                                                             should_use_cache,
+                                                             /*need_load_pk_index_and_bf*/ false));
 
     // create iterator for each segment
     auto& segments = segment_cache_handle.get_segments();

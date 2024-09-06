@@ -37,7 +37,7 @@ HashJoinBuildSinkLocalState::HashJoinBuildSinkLocalState(DataSinkOperatorXBase* 
 Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
 
@@ -423,18 +423,6 @@ HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int ope
                                    : std::vector<TExpr> {}),
           _need_local_merge(need_local_merge) {}
 
-Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
-    if (_is_broadcast_join) {
-        if (state->enable_share_hash_table_for_broadcast_join()) {
-            _shared_hashtable_controller =
-                    state->get_query_ctx()->get_shared_hash_table_controller();
-            _shared_hash_table_context = _shared_hashtable_controller->get_context(node_id());
-        }
-    }
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_build_expr_ctxs, state, _child_x->row_desc()));
-    return Status::OK();
-}
-
 Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX::init(tnode, state));
     DCHECK(tnode.__isset.hash_join_node);
@@ -492,6 +480,15 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
 }
 
 Status HashJoinBuildSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::open(state));
+    if (_is_broadcast_join) {
+        if (state->enable_share_hash_table_for_broadcast_join()) {
+            _shared_hashtable_controller =
+                    state->get_query_ctx()->get_shared_hash_table_controller();
+            _shared_hash_table_context = _shared_hashtable_controller->get_context(node_id());
+        }
+    }
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_build_expr_ctxs, state, _child_x->row_desc()));
     return vectorized::VExpr::open(_build_expr_ctxs, state);
 }
 
@@ -518,7 +515,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                     vectorized::MutableBlock::build_mutable_block(&tmp_build_block);
         }
 
-        if (in_block->rows() != 0) {
+        if (!in_block->empty()) {
             std::vector<int> res_col_ids(_build_expr_ctxs.size());
             RETURN_IF_ERROR(local_state._do_evaluate(*in_block, local_state._build_expr_ctxs,
                                                      *local_state._build_expr_call_timer,
@@ -533,27 +530,15 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
             local_state._mem_tracker->consume(in_block->bytes());
             COUNTER_UPDATE(local_state._build_blocks_memory_usage, in_block->bytes());
-            local_state._build_blocks.emplace_back(std::move(*in_block));
+
+            SCOPED_TIMER(local_state._build_side_merge_block_timer);
+            RETURN_IF_ERROR(local_state._build_side_mutable_block.merge_ignore_overflow(
+                    std::move(*in_block)));
         }
     }
 
     if (local_state._should_build_hash_table && eos) {
         DCHECK(!local_state._build_side_mutable_block.empty());
-
-        for (auto& column : local_state._build_side_mutable_block.mutable_columns()) {
-            column->reserve(local_state._build_side_rows);
-        }
-
-        {
-            SCOPED_TIMER(local_state._build_side_merge_block_timer);
-            for (auto& block : local_state._build_blocks) {
-                RETURN_IF_ERROR(local_state._build_side_mutable_block.merge_ignore_overflow(block));
-
-                vectorized::Block temp;
-                std::swap(block, temp);
-            }
-        }
-
         local_state._shared_state->build_block = std::make_shared<vectorized::Block>(
                 local_state._build_side_mutable_block.to_block());
 
@@ -579,7 +564,11 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     } else if (!local_state._should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
-        CHECK(_shared_hash_table_context->signaled);
+        // the instance which is not build hash table, it's should wait the signal of hash table build finished.
+        // but if it's running and signaled == false, maybe the source operator have closed caused by some short circuit,
+        if (!_shared_hash_table_context->signaled) {
+            return Status::Error<ErrorCode::END_OF_FILE>("source have closed");
+        }
 
         if (!_shared_hash_table_context->status.ok()) {
             return _shared_hash_table_context->status;

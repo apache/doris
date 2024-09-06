@@ -80,6 +80,8 @@ public class TransactionEntry {
     private List<InternalService.PDataRow> dataToSend = new ArrayList<>();
     private long rowsInTransaction = 0;
     private Types.PUniqueId pLoadId;
+    private boolean isFirstTxnInsert = false;
+    private volatile int txnSchemaVersion = -1;
 
     // for insert into select for multi tables
     private boolean isTransactionBegan = false;
@@ -181,8 +183,24 @@ public class TransactionEntry {
         this.pLoadId = pLoadId;
     }
 
+    public boolean isFirstTxnInsert() {
+        return isFirstTxnInsert;
+    }
+
+    public void setFirstTxnInsert(boolean firstTxnInsert) {
+        isFirstTxnInsert = firstTxnInsert;
+    }
+
+    public int getTxnSchemaVersion() {
+        return txnSchemaVersion;
+    }
+
+    public void setTxnSchemaVersion(int txnSchemaVersion) {
+        this.txnSchemaVersion = txnSchemaVersion;
+    }
+
     // Used for insert into select, return the sub_txn_id for this insert
-    public long beginTransaction(TableIf table) throws Exception {
+    public long beginTransaction(TableIf table, SubTransactionType subTransactionType) throws Exception {
         if (isInsertValuesTxnBegan()) {
             // FIXME: support mix usage of `insert into values` and `insert into select`
             throw new AnalysisException(
@@ -225,6 +243,12 @@ public class TransactionEntry {
             if (this.database.getId() != database.getId()) {
                 throw new AnalysisException(
                         "Transaction insert must be in the same database, expect db_id=" + this.database.getId());
+            }
+            // for delete type, make sure there is no insert for the same table
+            if (subTransactionType == SubTransactionType.DELETE && subTransactionStates.stream()
+                    .anyMatch(s -> s.getTable().getId() == table.getId()
+                            && s.getSubTransactionType() == SubTransactionType.INSERT)) {
+                throw new AnalysisException("Can not delete because there is a insert operation for the same table");
             }
             long subTxnId;
             if (Config.isCloudMode()) {
@@ -348,17 +372,6 @@ public class TransactionEntry {
                         .collect(Collectors.toList());
                 transactionState.setTableIdList(tableIds);
             }
-            subTransactionStates.sort((s1, s2) -> {
-                if (s1.getSubTransactionType() == SubTransactionType.INSERT
-                        && s2.getSubTransactionType() == SubTransactionType.DELETE) {
-                    return 1;
-                } else if (s1.getSubTransactionType() == SubTransactionType.DELETE
-                        && s2.getSubTransactionType() == SubTransactionType.INSERT) {
-                    return -1;
-                } else {
-                    return Long.compare(s1.getSubTransactionId(), s2.getSubTransactionId());
-                }
-            });
             LOG.info("subTransactionStates={}", subTransactionStates);
             transactionState.setSubTxnIds(subTransactionStates.stream().map(SubTransactionState::getSubTransactionId)
                     .collect(Collectors.toList()));

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
+
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -61,11 +63,14 @@ public:
 
     Status init();
 
-    Status append_data(uint32_t segid, uint64_t offset, butil::IOBuf buf);
+    Status append_data(uint32_t segid, uint64_t offset, butil::IOBuf buf,
+                       FileType file_type = FileType::SEGMENT_FILE);
 
-    Status close_segment(uint32_t segid);
+    Status close_writer(uint32_t segid, FileType file_type);
 
     Status add_segment(uint32_t segid, const SegmentStatistics& stat, TabletSchemaSPtr flush_chema);
+
+    Status _calc_file_size(uint32_t segid, FileType file_type, size_t* file_size);
 
     // wait for all memtables to be flushed.
     Status close();
@@ -81,6 +86,7 @@ private:
     std::unordered_map<uint32_t /*segid*/, SegmentStatisticsSharedPtr> _segment_stat_map;
     std::mutex _segment_stat_map_lock;
     std::vector<io::FileWriterPtr> _segment_file_writers;
+    std::vector<io::FileWriterPtr> _inverted_file_writers;
     QueryThreadContext _query_thread_context;
 };
 

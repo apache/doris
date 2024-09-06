@@ -33,6 +33,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
@@ -41,6 +42,7 @@ import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.InternalService;
@@ -69,7 +71,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
@@ -95,23 +97,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     public static final String PROP_TABLE_ID = "table_id";
 
-    protected static final ImmutableSet<String> FILE_FORMAT_PROPERTIES = new ImmutableSet.Builder<String>()
-            .add(FileFormatConstants.PROP_FORMAT)
-            .add(FileFormatConstants.PROP_JSON_ROOT)
-            .add(FileFormatConstants.PROP_JSON_PATHS)
-            .add(FileFormatConstants.PROP_STRIP_OUTER_ARRAY)
-            .add(FileFormatConstants.PROP_READ_JSON_BY_LINE)
-            .add(FileFormatConstants.PROP_NUM_AS_STRING)
-            .add(FileFormatConstants.PROP_FUZZY_PARSE)
-            .add(FileFormatConstants.PROP_COLUMN_SEPARATOR)
-            .add(FileFormatConstants.PROP_LINE_DELIMITER)
-            .add(FileFormatConstants.PROP_TRIM_DOUBLE_QUOTES)
-            .add(FileFormatConstants.PROP_SKIP_LINES)
-            .add(FileFormatConstants.PROP_CSV_SCHEMA)
-            .add(FileFormatConstants.PROP_COMPRESS_TYPE)
-            .add(FileFormatConstants.PROP_PATH_PARTITION_KEYS)
-            .build();
-
     // Columns got from file and path(if has)
     protected List<Column> columns = null;
     // User specified csv columns, it will override columns got from file
@@ -125,6 +110,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected String filePath;
 
     protected TFileFormatType fileFormatType;
+
+    protected Optional<String> resourceName = Optional.empty();
+
     private TFileCompressType compressionType;
     private String headerType = "";
 
@@ -181,6 +169,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             if (resource == null) {
                 throw new AnalysisException("Can not find resource: " + properties.get("resource"));
             }
+            this.resourceName = Optional.of(properties.get("resource"));
             mergedProperties = resource.getCopiedProperties();
         }
         mergedProperties.putAll(properties);
@@ -390,9 +379,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     protected Backend getBackend() {
         // For the http stream task, we should obtain the be for processing the task
+        ImmutableMap<Long, Backend> beIdToBe;
+        try {
+            beIdToBe = Env.getCurrentSystemInfo().getBackendsByCurrentCluster();
+        } catch (AnalysisException e) {
+            LOG.warn("get backend failed, ", e);
+            return null;
+        }
+
         if (getTFileType() == TFileType.FILE_STREAM) {
             long backendId = ConnectContext.get().getBackendId();
-            Backend be = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
+            Backend be = beIdToBe.get(backendId);
             if (be == null || !be.isAlive()) {
                 LOG.warn("Backend {} is not alive", backendId);
                 return null;
@@ -400,7 +397,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 return be;
             }
         }
-        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+        for (Backend be : beIdToBe.values()) {
             if (be.isAlive()) {
                 return be;
             }
@@ -465,7 +462,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // HACK(tsy): path columns are all treated as STRING type now, after BE supports reading all columns
         //  types by all format readers from file meta, maybe reading path columns types from BE then.
         for (String colName : pathPartitionKeys) {
-            columns.add(new Column(colName, Type.STRING, false));
+            columns.add(new Column(colName, ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH), false));
         }
     }
 
@@ -563,6 +560,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             }
         }
         return false;
+    }
+
+    public void checkAuth(ConnectContext ctx) {
+        if (resourceName.isPresent()) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkResourcePriv(ctx, resourceName.get(), PrivPredicate.USAGE)) {
+                String message = ErrorCode.ERR_RESOURCE_ACCESS_DENIED_ERROR.formatErrorMsg(
+                        PrivPredicate.USAGE.getPrivs().toString(), resourceName.get());
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(message);
+            }
+        }
     }
 }
 

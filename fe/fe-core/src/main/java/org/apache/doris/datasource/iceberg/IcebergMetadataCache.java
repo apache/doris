@@ -22,16 +22,18 @@ import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.thrift.TIcebergMetadataParams;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.SerializableTable;
 import org.apache.iceberg.Snapshot;
@@ -55,18 +57,18 @@ public class IcebergMetadataCache {
 
     public IcebergMetadataCache(ExecutorService executor) {
         CacheFactory snapshotListCacheFactory = new CacheFactory(
-                OptionalLong.of(86400L),
+                OptionalLong.of(28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
-                Config.max_hive_table_cache_num,
-                false,
+                Config.max_external_table_cache_num,
+                true,
                 null);
         this.snapshotListCache = snapshotListCacheFactory.buildCache(key -> loadSnapshots(key), null, executor);
 
         CacheFactory tableCacheFactory = new CacheFactory(
-                OptionalLong.of(86400L),
+                OptionalLong.of(28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
-                Config.max_hive_table_cache_num,
-                false,
+                Config.max_external_table_cache_num,
+                true,
                 null);
         this.tableCache = tableCacheFactory.buildCache(key -> loadTable(key), null, executor);
     }
@@ -177,7 +179,8 @@ public class IcebergMetadataCache {
 
     private Catalog createIcebergHiveCatalog(String uri, Map<String, String> hdfsConf, Map<String, String> props) {
         // set hdfs configure
-        Configuration conf = new HdfsConfiguration();
+        Configuration conf = DFSFileSystem.getHdfsConf(
+                hdfsConf.getOrDefault(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "").isEmpty());
         for (Map.Entry<String, String> entry : hdfsConf.entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
         }
@@ -244,5 +247,14 @@ public class IcebergMetadataCache {
         public int hashCode() {
             return Objects.hash(catalog.getId(), dbName, tableName);
         }
+    }
+
+    public Map<String, Map<String, String>> getCacheStats() {
+        Map<String, Map<String, String>> res = Maps.newHashMap();
+        res.put("iceberg_snapshot_cache", ExternalMetaCacheMgr.getCacheStats(snapshotListCache.stats(),
+                snapshotListCache.estimatedSize()));
+        res.put("iceberg_table_cache", ExternalMetaCacheMgr.getCacheStats(tableCache.stats(),
+                tableCache.estimatedSize()));
+        return res;
     }
 }
