@@ -81,6 +81,14 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
 
     VExpr::register_function_context(state, context);
     _prepare_finished = true;
+
+    if (state->query_options().__isset.in_list_value_count_threshold) {
+        _in_list_value_count_threshold = state->query_options().in_list_value_count_threshold;
+    }
+
+    const auto in_list_value_count = _children.size() - 1;
+    // When the number of values in the IN condition exceeds this threshold, fast_execute will not be used
+    _can_fast_execute = in_list_value_count <= _in_list_value_count_threshold;
     return Status::OK();
 }
 
@@ -94,8 +102,22 @@ Status VInPredicate::open(RuntimeState* state, VExprContext* context,
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
+
+    _is_args_all_constant = std::all_of(_children.begin() + 1, _children.end(),
+                                        [](const VExprSPtr& expr) { return expr->is_constant(); });
     _open_finished = true;
     return Status::OK();
+}
+
+size_t VInPredicate::skip_constant_args_size() const {
+    if (_is_args_all_constant && !_can_fast_execute) {
+        // This is an optimization. For expressions like colA IN (1, 2, 3, 4),
+        // where all values inside the IN clause are constants,
+        // a hash set is created during open, and it will not be accessed again during execute
+        //  Here, _children[0] is colA
+        return 1;
+    }
+    return _children.size();
 }
 
 void VInPredicate::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
@@ -116,9 +138,8 @@ Status VInPredicate::execute(VExprContext* context, Block* block, int* result_co
         return Status::OK();
     }
     DCHECK(_open_finished || _getting_const_col);
-    // TODO: not execute const expr again, but use the const column in function context
-    doris::vectorized::ColumnNumbers arguments(_children.size());
-    for (int i = 0; i < _children.size(); ++i) {
+    doris::vectorized::ColumnNumbers arguments(skip_constant_args_size());
+    for (int i = 0; i < skip_constant_args_size(); ++i) {
         int column_id = -1;
         RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
         arguments[i] = column_id;

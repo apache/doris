@@ -64,6 +64,7 @@ int main(int argc, char** argv) {
 
     using namespace std::chrono;
     current_time = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+    config::recycler_sleep_before_scheduling_seconds = 0; // we dont have to wait in UT
 
     ::testing::InitGoogleTest(&argc, argv);
     auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
