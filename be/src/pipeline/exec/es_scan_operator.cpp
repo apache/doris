@@ -138,8 +138,8 @@ Status EsScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status EsScanOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(ScanOperatorX<EsScanLocalState>::prepare(state));
+Status EsScanOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(ScanOperatorX<EsScanLocalState>::open(state));
 
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == nullptr) {
