@@ -654,9 +654,7 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(Parent->_total_segment_counter, stats.total_segment_number);
 
     // Update counters for NewOlapScanner
-    // Update counters from tablet reader's stats
     auto& stats = _tablet_reader->stats();
-
     auto* local_state = (pipeline::OlapScanLocalState*)_local_state;
     INCR_COUNTER(local_state);
 
@@ -669,11 +667,20 @@ void NewOlapScanner::_collect_profile_before_close() {
     tablet->query_scan_bytes->increment(_compressed_bytes_read);
     tablet->query_scan_rows->increment(_raw_rows_read);
     tablet->query_scan_count->increment(1);
+}
+
+void NewOlapScanner::_update_bytes_and_rows_read() {
+    VScanner::_update_bytes_and_rows_read();
     if (_query_statistics) {
-        _query_statistics->add_scan_bytes_from_local_storage(
-                stats.file_cache_stats.bytes_read_from_local);
-        _query_statistics->add_scan_bytes_from_remote_storage(
-                stats.file_cache_stats.bytes_read_from_remote);
+        auto& stats = _tablet_reader->stats();
+        int64_t delta_local = stats.file_cache_stats.bytes_read_from_local - _bytes_read_from_local;
+        int64_t delta_remote =
+                stats.file_cache_stats.bytes_read_from_remote - _bytes_read_from_remote;
+        _query_statistics->add_scan_bytes_from_local_storage(delta_local);
+        _query_statistics->add_scan_bytes_from_remote_storage(delta_remote);
+        _query_statistics->add_scan_bytes(delta_local + delta_remote);
+        _bytes_read_from_local = stats.file_cache_stats.bytes_read_from_local;
+        _bytes_read_from_remote = stats.file_cache_stats.bytes_read_from_remote;
     }
 }
 

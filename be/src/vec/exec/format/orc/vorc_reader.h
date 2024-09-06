@@ -657,7 +657,6 @@ public:
                           std::vector<bool> selected_columns) override;
 
 protected:
-    void _collect_profile_at_runtime() override {};
     void _collect_profile_before_close() override;
 
 private:
