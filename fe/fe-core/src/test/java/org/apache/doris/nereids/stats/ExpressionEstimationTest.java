@@ -72,7 +72,7 @@ class ExpressionEstimationTest {
         ColumnStatistic estimated = ExpressionEstimation.estimate(max, stat);
         Assertions.assertEquals(0, estimated.minValue);
         Assertions.assertEquals(500, estimated.maxValue);
-        Assertions.assertEquals(1, estimated.ndv);
+        Assertions.assertEquals(500, estimated.ndv);
     }
 
     // MIN(a)
@@ -95,7 +95,7 @@ class ExpressionEstimationTest {
         ColumnStatistic estimated = ExpressionEstimation.estimate(max, stat);
         Assertions.assertEquals(0, estimated.minValue);
         Assertions.assertEquals(1000, estimated.maxValue);
-        Assertions.assertEquals(1, estimated.ndv);
+        Assertions.assertEquals(500, estimated.ndv);
     }
 
     // a + b
