@@ -174,8 +174,11 @@ public class ReplacePredicate {
         return res;
     }
 
-    // 提取等值关系a=b，当遇到cast(d_tinyint as int)=d_int时，将cast去掉提取d_tinyint=d_int
-    // equalPairs为输出参数
+    // Extract the equivalence relationship a=b, and when case (d_tinyint as int)=d_int is encountered,
+    // remove the cast and extract d_tinyint=d_int
+    // EqualPairs is the output parameter and the equivalent pair of predicate derivation input,
+    // which is used to ensure that the derivation
+    // does not generate repeated equivalent conditions, such as a=b and b=a
     private static <T extends Expression> AbstractEqualSet<Expression> findEqual(Set<Expression> inputs,
             Set<Pair<Expression, Expression>> equalPairs) {
         AbstractEqualSet.Builder<Expression> fromCastEqualSetBuilder = new ImmutableEqualSet.Builder<>();

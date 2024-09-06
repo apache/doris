@@ -194,4 +194,21 @@ suite("extend_infer_equal_predicate") {
     select * from test_cast_infer9 t1 inner join test_cast_infer9 t2 on cast(t1.d_char100 as char(50))=cast(t2.d_char10 as char(50)) and t2.d_char10>'abc';"""
     qt_test_char_different_type4 """explain shape plan
     select * from test_cast_infer9 t1 inner join test_cast_infer9 t2 on cast(t1.d_char100 as char(200))=cast(t2.d_char10 as char(200)) and t2.d_char10>'abc';"""
+
+    qt_test_cast_and_func """explain shape plan
+    select * from test_cast_infer9 t1 inner join test_cast_infer9 t2 on abs(t1.d_int)=t2.d_tinyint where t2.d_tinyint<10 ;"""
+    qt_test_cast_and_func2 """explain shape plan
+    select * from test_cast_infer9 t1 inner join test_cast_infer9 t2 on cast(abs(t1.d_int) as tinyint)=t2.d_tinyint where t2.d_tinyint<10;"""
+    qt_test_cast_and_func3 """explain shape plan
+    select * from test_cast_infer9 t1 inner join test_cast_infer9 t2 on cast(t1.d_int as tinyint)=abs(t2.d_tinyint) where abs(t2.d_tinyint)<10;"""
+    qt_test_cast_and_func4 """explain shape plan
+    select * from test_cast_infer9 t1 inner join test_cast_infer9 t2 on t1.d_int =abs(t2.d_tinyint) where abs(t2.d_tinyint)<10;"""
+    qt_test_func_equal_and_nest_func_pred1 """explain shape plan
+    select * from test_cast_infer9 t1 inner join test_cast_infer8 t2
+    on convert_tz(t1.d_datetimev2,'Asia/Shanghai','Europe/Paris') =convert_tz(t2.d_datetimev2,'Asia/Shanghai','Europe/Paris') 
+    and day(hours_add(convert_tz(t1.d_datetimev2,'Asia/Shanghai','Europe/Paris'),10))>10;"""
+    qt_test_func_equal_and_nest_func_pred2 """explain shape plan
+    select * from test_cast_infer9 t1 inner join test_cast_infer8 t2
+    on convert_tz(t1.d_datetimev2,'Asia/Shanghai','Europe/Paris') =convert_tz(t2.d_datetimev2,'Asia/Shanghai','Europe/Paris') 
+    and day(convert_tz(t1.d_datetimev2,'Asia/Shanghai','Europe/Paris'))>10;"""
 }

@@ -300,3 +300,51 @@ PhysicalResultSink
 ----filter((t2.d_char10 > 'abc'))
 ------PhysicalOlapScan[test_cast_infer9]
 
+-- !test_cast_and_func --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((expr_abs(d_int) = expr_cast(d_tinyint as BIGINT))) otherCondition=()
+----filter((abs(d_int) < 10))
+------PhysicalOlapScan[test_cast_infer9]
+----filter((cast(d_tinyint as BIGINT) < 10) and (t2.d_tinyint < 10))
+------PhysicalOlapScan[test_cast_infer9]
+
+-- !test_cast_and_func2 --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((expr_cast(abs(d_int) as TINYINT) = t2.d_tinyint)) otherCondition=()
+----filter((cast(abs(d_int) as TINYINT) < 10))
+------PhysicalOlapScan[test_cast_infer9]
+----filter((t2.d_tinyint < 10))
+------PhysicalOlapScan[test_cast_infer9]
+
+-- !test_cast_and_func3 --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((expr_cast(cast(d_int as TINYINT) as SMALLINT) = expr_abs(d_tinyint))) otherCondition=()
+----filter((cast(cast(d_int as TINYINT) as SMALLINT) < 10))
+------PhysicalOlapScan[test_cast_infer9]
+----filter((abs(d_tinyint) < 10))
+------PhysicalOlapScan[test_cast_infer9]
+
+-- !test_cast_and_func4 --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((t1.d_int = expr_cast(abs(d_tinyint) as INT))) otherCondition=()
+----filter((t1.d_int < 10))
+------PhysicalOlapScan[test_cast_infer9]
+----filter((abs(d_tinyint) < 10) and (cast(abs(d_tinyint) as INT) < 10))
+------PhysicalOlapScan[test_cast_infer9]
+
+-- !test_func_equal_and_nest_func_pred1 --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((expr_convert_tz(d_datetimev2, 'Asia/Shanghai', 'Europe/Paris') = expr_convert_tz(d_datetimev2, 'Asia/Shanghai', 'Europe/Paris'))) otherCondition=()
+----filter((dayofmonth(hours_add(convert_tz(d_datetimev2, 'Asia/Shanghai', 'Europe/Paris'), 10)) > 10))
+------PhysicalOlapScan[test_cast_infer9]
+----filter((dayofmonth(hours_add(convert_tz(d_datetimev2, 'Asia/Shanghai', 'Europe/Paris'), 10)) > 10))
+------PhysicalOlapScan[test_cast_infer8]
+
+-- !test_func_equal_and_nest_func_pred2 --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((expr_convert_tz(d_datetimev2, 'Asia/Shanghai', 'Europe/Paris') = expr_convert_tz(d_datetimev2, 'Asia/Shanghai', 'Europe/Paris'))) otherCondition=()
+----filter((dayofmonth(convert_tz(d_datetimev2, 'Asia/Shanghai', 'Europe/Paris')) > 10))
+------PhysicalOlapScan[test_cast_infer9]
+----filter((dayofmonth(convert_tz(d_datetimev2, 'Asia/Shanghai', 'Europe/Paris')) > 10))
+------PhysicalOlapScan[test_cast_infer8]
+
