@@ -213,12 +213,6 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
         _function = transform_to_sort_agg_function(_function, _argument_types_with_sort,
                                                    _sort_description, state);
     }
-    if (!_function->get_return_type()->equals(*_data_type)) {
-        return Status::InternalError(
-                "Agg Function {} return type is not equal: FE plan return type: {}, BE get return "
-                "type: {} ",
-                _fn.signature, _data_type->get_name(), _function->get_return_type()->get_name());
-    }
     _expr_name = fmt::format("{}({})", _fn.name.function_name, child_expr_name);
     return Status::OK();
 }
