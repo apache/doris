@@ -93,6 +93,7 @@ import org.apache.doris.thrift.TEsScanRange;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TFragmentInstanceReport;
 import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -2458,11 +2459,21 @@ public class Coordinator implements CoordInterface {
         }
 
         if (params.isSetLoadedRows() && jobId != -1) {
-            Env.getCurrentEnv().getLoadManager().updateJobProgress(
-                    jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
-                    params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
-            Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
-                    params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
+            if (params.isSetFragmentInstanceReports()) {
+                for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
+                    Env.getCurrentEnv().getLoadManager().updateJobProgress(
+                            jobId, params.getBackendId(), params.getQueryId(), report.getFragmentInstanceId(),
+                            params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+                    Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
+                            params.getQueryId(), report.getFragmentInstanceId(), report.getNumFinishedRange());
+                }
+            } else {
+                Env.getCurrentEnv().getLoadManager().updateJobProgress(
+                        jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
+                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+                Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
+                        params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
+            }
         }
     }
 

@@ -90,7 +90,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
                 size, doris::thread_context()->thread_mem_tracker()->label(),
                 doris::thread_context()->thread_mem_tracker()->peak_consumption(),
                 doris::thread_context()->thread_mem_tracker()->consumption(),
-                doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(),
+                doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker_label(),
                 doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
 
         if (doris::config::stacktrace_in_alloc_large_memory_bytes > 0 &&
@@ -211,43 +211,14 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::consume_memory(
-        size_t size) {
-    // Usually, an object that inherits Allocator has the same TLS tracker for each alloc.
-    // If an object that inherits Allocator needs to be reused by multiple queries,
-    // it is necessary to switch the same tracker to TLS when calling alloc.
-    // However, in ORC Reader, ORC DataBuffer will be reused, but we cannot switch TLS tracker,
-    // so we update the Allocator tracker when the TLS tracker changes.
-    // note that the tracker in thread context when object that inherit Allocator is constructed may be
-    // no attach memory tracker in tls. usually the memory tracker is attached in tls only during the first alloc.
-    if (mem_tracker_ == nullptr ||
-        mem_tracker_->label() != doris::thread_context()->thread_mem_tracker()->label()) {
-        mem_tracker_ = doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
-    }
+        size_t size) const {
     CONSUME_THREAD_MEM_TRACKER(size);
 }
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::release_memory(
         size_t size) const {
-    doris::ThreadContext* thread_context = doris::thread_context(true);
-    if ((thread_context && thread_context->thread_mem_tracker()->label() != "Orphan") ||
-        mem_tracker_ == nullptr) {
-        // If thread_context exist and the label of thread_mem_tracker not equal to `Orphan`,
-        // this means that in the scope of SCOPED_ATTACH_TASK,
-        // so thread_mem_tracker should be used to release memory.
-        // If mem_tracker_ is nullptr there is a scenario where an object that inherits Allocator
-        // has never called alloc, but free memory.
-        // in phmap, the memory alloced by an object may be transferred to another object and then free.
-        // in this case, thread context must attach a memory tracker other than Orphan,
-        // otherwise memory tracking will be wrong.
-        RELEASE_THREAD_MEM_TRACKER(size);
-    } else {
-        // if thread_context does not exist or the label of thread_mem_tracker is equal to
-        // `Orphan`, it usually happens during object destruction. This means that
-        // the scope of SCOPED_ATTACH_TASK has been left,  so release memory using Allocator tracker.
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker_);
-        RELEASE_THREAD_MEM_TRACKER(size);
-    }
+    RELEASE_THREAD_MEM_TRACKER(size);
 }
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>

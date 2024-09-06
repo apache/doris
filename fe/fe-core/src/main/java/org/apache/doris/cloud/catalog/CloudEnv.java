@@ -48,6 +48,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -140,12 +141,24 @@ public class CloudEnv extends Env {
                 .stream().filter(NodeInfoPB::hasNodeType).collect(Collectors.toList());
 
         helperNodes.clear();
-        helperNodes.addAll(allNodes.stream()
-                .filter(nodeInfoPB -> nodeInfoPB.getNodeType() == NodeInfoPB.NodeType.FE_MASTER)
-                .map(nodeInfoPB -> new HostInfo(
-                Config.enable_fqdn_mode ? nodeInfoPB.getHost() : nodeInfoPB.getIp(), nodeInfoPB.getEditLogPort()))
-                .collect(Collectors.toList()));
-        // check only have one master node.
+        if (allNodes.stream().anyMatch(n -> n.getNodeType() == NodeInfoPB.NodeType.FE_FOLLOWER)) {
+            // multi followers mode, select first
+            Optional<HostInfo> helperNode = allNodes.stream()
+                    .filter(nodeInfoPB -> nodeInfoPB.getNodeType() == NodeInfoPB.NodeType.FE_FOLLOWER)
+                    .map(nodeInfoPB -> new HostInfo(
+                    Config.enable_fqdn_mode ? nodeInfoPB.getHost() : nodeInfoPB.getIp(), nodeInfoPB.getEditLogPort()))
+                    .min(Comparator.comparing(HostInfo::getHost));
+            helperNode.ifPresent(hostInfo -> helperNodes.add(hostInfo));
+        } else {
+            // master observers mode
+            // helper node select follower's first, just one
+            helperNodes.addAll(allNodes.stream()
+                    .filter(nodeInfoPB -> nodeInfoPB.getNodeType() == NodeInfoPB.NodeType.FE_MASTER)
+                    .map(nodeInfoPB -> new HostInfo(
+                    Config.enable_fqdn_mode ? nodeInfoPB.getHost() : nodeInfoPB.getIp(), nodeInfoPB.getEditLogPort()))
+                    .collect(Collectors.toList()));
+            // check only have one master node.
+        }
         Preconditions.checkState(helperNodes.size() == 1);
 
         Optional<NodeInfoPB> local = allNodes.stream().filter(n -> ((Config.enable_fqdn_mode ? n.getHost() : n.getIp())
@@ -178,6 +191,7 @@ public class CloudEnv extends Env {
         }
 
         LOG.info("current fe's role is {}", type == NodeInfoPB.NodeType.FE_MASTER ? "MASTER" :
+                type == NodeInfoPB.NodeType.FE_FOLLOWER ? "FOLLOWER" :
                 type == NodeInfoPB.NodeType.FE_OBSERVER ? "OBSERVER" : "UNKNOWN");
         if (type == NodeInfoPB.NodeType.UNKNOWN) {
             LOG.warn("type current not support, please check it");
