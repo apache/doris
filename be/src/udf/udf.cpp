@@ -130,6 +130,10 @@ int FunctionContext::get_num_args() const {
     return _arg_types.size();
 }
 
+bool FunctionContext::enable_strict_cast_mode() const {
+    return state()->enable_strict_cast_mode();
+}
+
 const doris::TypeDescriptor& FunctionContext::get_return_type() const {
     return _return_type;
 }

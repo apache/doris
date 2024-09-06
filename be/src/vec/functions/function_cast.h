@@ -43,10 +43,12 @@
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/logging.h"
 #include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "runtime/type_limit.h"
 #include "udf/udf.h"
+#include "util/encryption_util.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_stream.h"
 #include "util/jsonb_writer.h"
@@ -248,6 +250,23 @@ struct TimeCast {
     }
 };
 
+Status strict_cast_check(const ColumnWithTypeAndName& named_from,
+                         const ColumnWithTypeAndName& named_to) {
+    if (named_to.column->is_nullable()) {
+        const auto* null_coumn = assert_cast<const ColumnNullable*>(named_to.column.get());
+        const auto& null_map = null_coumn->get_null_map_column().get_data();
+        for (size_t i = 0; i < null_map.size(); i++) {
+            if (null_map[i]) {
+                return Status::InvalidArgument("Bad cast from {} to {} with value : {}",
+                                               remove_nullable(named_from.type)->get_name(),
+                                               remove_nullable(named_to.type)->get_name(),
+                                               named_from.type->to_string(*named_from.column, i));
+            }
+        }
+    }
+    return Status::OK();
+}
+
 /** Conversion of number types to each other, enums to numbers, dates and datetimes to numbers and back: done by straight assignment.
   *  (Date is represented internally as number of days from some day; DateTime - as unix timestamp)
   */
@@ -439,8 +458,21 @@ struct ConvertImpl {
                         map_ipv4_to_ipv6(vec_from[i], reinterpret_cast<UInt8*>(&vec_to[i]));
                     }
                 } else {
-                    for (size_t i = 0; i < size; ++i) {
-                        vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
+                    if (context->enable_strict_cast_mode()) {
+                        for (size_t i = 0; i < size; ++i) {
+                            if (min_result <= vec_from[i] && vec_from[i] <= max_result) {
+                                vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
+                            } else {
+                                return Status::InvalidArgument(
+                                        "Cast to type {} ,out of range {}",
+                                        block.get_by_position(result).type->get_name(),
+                                        vec_from[i]);
+                            }
+                        }
+                    } else {
+                        for (size_t i = 0; i < size; ++i) {
+                            vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
+                        }
                     }
                 }
             }
@@ -1293,6 +1325,16 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
+        RETURN_IF_ERROR(_execute_impl(context, block, arguments, result, input_rows_count));
+        if (context->enable_strict_cast_mode()) {
+            RETURN_IF_ERROR(strict_cast_check(block.get_by_position(arguments[0]),
+                                              block.get_by_position(result)));
+        }
+        return Status::OK();
+    }
+
+    Status _execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                         size_t result, size_t input_rows_count) const {
         if (!arguments.size()) {
             return Status::RuntimeError("Function {} expects at least 1 arguments", get_name());
         }
@@ -1644,6 +1686,16 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
+        RETURN_IF_ERROR(_execute_impl(context, block, arguments, result, input_rows_count));
+        if (context->enable_strict_cast_mode()) {
+            RETURN_IF_ERROR(strict_cast_check(block.get_by_position(arguments[0]),
+                                              block.get_by_position(result)));
+        }
+        return Status::OK();
+    }
+
+    Status _execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                         size_t result, size_t input_rows_count) const {
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
 
         if (check_and_get_data_type<DataTypeString>(from_type)) {
