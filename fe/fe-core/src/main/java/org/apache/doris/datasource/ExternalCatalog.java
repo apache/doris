@@ -33,6 +33,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
@@ -672,13 +673,22 @@ public abstract class ExternalCatalog
      */
     protected ExternalDatabase<? extends ExternalTable> buildDbForInit(String dbName, long dbId,
             InitCatalogLog.Type logType, boolean checkExists) {
-        if (checkExists) {
-            List<String> dbNames = getDbNames();
-            if (!dbNames.contains(dbName)) {
-                dbNames = listDatabaseNames();
+        // When running ut, disable this check to make ut pass.
+        // Because in ut, the database is not created in remote system.
+        if (checkExists && !FeConstants.runningUnitTest) {
+            try {
+                List<String> dbNames = getDbNames();
                 if (!dbNames.contains(dbName)) {
-                    return null;
+                    dbNames = listDatabaseNames();
+                    if (!dbNames.contains(dbName)) {
+                        return null;
+                    }
                 }
+            } catch (Throwable t) {
+                // If connection failed, it will throw exception.
+                // ignore it and treat it as not exist.
+                LOG.warn("Failed to check db {} exist in remote system, ignore it.", dbName, t);
+                return null;
             }
         }
 
