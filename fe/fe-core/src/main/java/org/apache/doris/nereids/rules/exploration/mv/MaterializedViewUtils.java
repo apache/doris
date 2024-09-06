@@ -435,7 +435,7 @@ public class MaterializedViewUtils {
                         + "mv partition column is %s", context.getMvPartitionColumn()));
                 return null;
             }
-            // Check the table which mv partition column which is belonged to is same as the current check relation
+            // Check the table which mv partition column belonged to is same as the current check relation or not
             if (!((LogicalCatalogRelation) relation).getTable().getFullQualifiers().equals(
                     contextPartitionColumn.getTable().map(TableIf::getFullQualifiers).orElse(ImmutableList.of()))) {
                 context.addFailReason(String.format("mv partition column name is not belonged to current check , "
