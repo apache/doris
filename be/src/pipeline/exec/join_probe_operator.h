@@ -80,11 +80,11 @@ public:
 
     [[nodiscard]] bool is_source() const override { return false; }
 
-    void set_build_side_child(OperatorXPtr& build_side_child) {
+    void set_build_side_child(OperatorPtr& build_side_child) {
         _build_side_child = build_side_child;
     }
 
-    Status set_child(OperatorXPtr child) override {
+    Status set_child(OperatorPtr child) override {
         if (OperatorX<LocalStateType>::_child_x && _build_side_child == nullptr) {
             // when there already (probe) child, others is build child.
             set_build_side_child(child);
@@ -114,7 +114,7 @@ protected:
     std::unique_ptr<RowDescriptor> _intermediate_row_desc;
     // output expr
     vectorized::VExprContextSPtrs _output_expr_ctxs;
-    OperatorXPtr _build_side_child = nullptr;
+    OperatorPtr _build_side_child = nullptr;
     const bool _short_circuit_for_null_in_build_side;
     // In the Old planner, there is a plan for two columns of tuple is null,
     // but in the Nereids planner, this logic does not exist.

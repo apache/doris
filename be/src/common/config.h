@@ -159,11 +159,11 @@ DECLARE_mInt32(max_fill_rate);
 
 DECLARE_mInt32(double_resize_threshold);
 
-// The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 6.4G,
-// actual low water mark=min(6.4G, MemTotal * 5%), avoid wasting too much memory on machines
-// with large memory larger than 128G.
-// Turn up max. On machines with more than 128G memory, more memory buffers will be reserved for Full GC.
+// The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default -1.
+// if it is -1, then low water mark = min(MemTotal - MemLimit, MemTotal * 5%), which is 3.2G on a 64G machine.
+// Turn up max. more memory buffers will be reserved for Memory GC.
 // Turn down max. will use as much memory as possible.
+// note that: `max_` prefix should be removed, but keep it for compatibility.
 DECLARE_Int64(max_sys_mem_available_low_water_mark_bytes);
 
 // reserve a small amount of memory so we do not trigger MinorGC
@@ -288,6 +288,12 @@ DECLARE_Int32(sys_log_verbose_level);
 DECLARE_Int32(sys_log_verbose_flags_v);
 // log buffer level
 DECLARE_String(log_buffer_level);
+// log enable custom date time format
+DECLARE_Bool(sys_log_enable_custom_date_time_format);
+// log custom date time format (https://en.cppreference.com/w/cpp/io/manip/put_time)
+DECLARE_String(sys_log_custom_date_time_format);
+// log custom date time milliseconds format (fmt::format)
+DECLARE_String(sys_log_custom_date_time_ms_format);
 
 // number of threads available to serve backend execution requests
 DECLARE_Int32(be_service_threads);

@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/status.h"
 #include "exprs/function_filter.h"
 #include "gutil/strings/substitute.h"
@@ -106,6 +107,13 @@ public:
                     rs_splits[0].rs_reader->rowset()->rowset_meta()->num_rows() == 0 &&
                     rs_splits[1].rs_reader->rowset()->start_version() == 2 &&
                     !rs_splits[1].rs_reader->rowset()->rowset_meta()->is_segments_overlapping());
+        }
+
+        int get_be_exec_version() const {
+            if (runtime_state) {
+                return runtime_state->be_exec_version();
+            }
+            return BeExecVersionManager::get_newest_version();
         }
 
         void set_read_source(ReadSource read_source) {

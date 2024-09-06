@@ -154,13 +154,10 @@ Status PartitionSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
     return Status::OK();
 }
 
-Status PartitionSortSinkOperatorX::prepare(RuntimeState* state) {
+Status PartitionSortSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<PartitionSortSinkLocalState>::open(state));
     RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child_x->row_desc(), _row_descriptor));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_partition_expr_ctxs, state, _child_x->row_desc()));
-    return Status::OK();
-}
-
-Status PartitionSortSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_partition_expr_ctxs, state));
     return Status::OK();

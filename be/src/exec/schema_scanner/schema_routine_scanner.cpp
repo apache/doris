@@ -17,6 +17,7 @@
 
 #include "exec/schema_scanner/schema_routine_scanner.h"
 
+#include "exec/schema_scanner/schema_scanner_helper.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -99,28 +100,6 @@ Status SchemaRoutinesScanner::get_block_from_fe() {
             return Status::InternalError<false>("routine table schema is not match for FE and BE");
         }
     }
-    auto insert_string_value = [&](int col_index, std::string str_val, vectorized::Block* block) {
-        vectorized::MutableColumnPtr mutable_col_ptr;
-        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-        auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
-        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_val.data(),
-                                                                          str_val.size());
-        nullable_column->get_null_map_data().emplace_back(0);
-    };
-    auto insert_datetime_value = [&](int col_index, const std::vector<void*>& datas,
-                                     vectorized::Block* block) {
-        vectorized::MutableColumnPtr mutable_col_ptr;
-        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-        auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
-        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-        auto data = datas[0];
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
-                reinterpret_cast<char*>(data), 0);
-        nullable_column->get_null_map_data().emplace_back(0);
-    };
 
     for (int i = 0; i < result_data.size(); i++) {
         TRow row = result_data[i];
@@ -132,9 +111,10 @@ Status SchemaRoutinesScanner::get_block_from_fe() {
                 src[0].from_date_str(row.column_value[j].stringVal.data(),
                                      row.column_value[j].stringVal.size());
                 datas[0] = src;
-                insert_datetime_value(j, datas, _routines_block.get());
+                SchemaScannerHelper::insert_datetime_value(j, datas, _routines_block.get());
             } else {
-                insert_string_value(j, row.column_value[j].stringVal, _routines_block.get());
+                SchemaScannerHelper::insert_string_value(j, row.column_value[j].stringVal,
+                                                         _routines_block.get());
             }
         }
     }
