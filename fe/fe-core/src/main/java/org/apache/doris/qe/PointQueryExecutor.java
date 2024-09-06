@@ -28,7 +28,6 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionKey;
-import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
@@ -68,6 +67,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -77,6 +77,7 @@ import java.util.stream.Collectors;
 
 public class PointQueryExecutor implements CoordInterface {
     private static final Logger LOG = LogManager.getLogger(PointQueryExecutor.class);
+    private static Map<Class<? extends Expr>, ConjunctHandler> handlers = null;
     private List<Long> tabletIDs = new ArrayList<>();
     private long timeoutMs = Config.point_query_timeout_ms; // default 10s
 
@@ -93,9 +94,12 @@ public class PointQueryExecutor implements CoordInterface {
 
     Map<PartitionKey, Set<Long>> distributionKeys2TabletID = null;
 
+    // Maps partition column names to a RangeMap that associates ColumnBound ranges with lists of partition IDs,
+    // similar to the implementation in PartitionPrunerV2Base.
     Map<String, RangeMap<ColumnBound, List<Long>>> partitionCol2PartitionID = null;
 
     List<Set<Long>> keyTupleID2TabletID = null;  // key tuple id is the index in array
+    // List<Long> keyTupleID2TabletID = null;  // key tuple id is the index in array
 
     List<List<String>> allKeyTuples = null;
 
@@ -148,16 +152,16 @@ public class PointQueryExecutor implements CoordInterface {
         }
 
         candidateBackends = new ArrayList<>();
-        this.backendId2TabletIds = scanNode.getBackendId2TabletIds();
+        // this.backendId2TabletIds = scanNode.getBackendId2TabletIds();
         for (Long backendID : scanNode.getScanBackendIds()) {
             Backend backend = Env.getCurrentSystemInfo().getBackend(backendID);
             if (SimpleScheduler.isAvailable(backend)) {
                 candidateBackends.add(backend);
-                if (backendId2TabletIds.containsKey(backendID)) {
-                    backendId2TabletIds.get(backendID).retainAll(tabletIDs);
-                } else {
-                    throw new AnalysisException("Backend " + backendID + " not found in backendId2TabletIds");
-                }
+                // if (backendId2TabletIds.containsKey(backendID)) {
+                //     backendId2TabletIds.get(backendID).retainAll(tabletIDs);
+                // } else {
+                //     throw new AnalysisException("Backend " + backendID + " not found in backendId2TabletIds");
+                // }
             }
         }
         // Random read replicas
@@ -195,46 +199,46 @@ public class PointQueryExecutor implements CoordInterface {
      * Interface for handling different conjunct types
      */
     private interface ConjunctHandler {
-        int handle(Expr expr, List<Expr> conjunctVals, int conjunctValsBegin) throws AnalysisException;
+        int handle(Expr expr, List<Expr> conjunctVals, int handledConjunctVals) throws AnalysisException;
     }
 
     private static class InPredicateHandler implements ConjunctHandler {
         @Override
-        public int handle(Expr expr, List<Expr> conjunctVals, int conjunctValsBegin) throws AnalysisException {
+        public int handle(Expr expr, List<Expr> conjunctVals, int handledConjunctVals) throws AnalysisException {
             InPredicate inPredicate = (InPredicate) expr;
             if (inPredicate.isNotIn()) {
                 throw new AnalysisException("Not support NOT IN predicate in point query");
             }
             for (int j = 1; j < inPredicate.getChildren().size(); ++j) {
                 if (inPredicate.getChild(j) instanceof LiteralExpr) {
-                    inPredicate.setChild(j, conjunctVals.get(conjunctValsBegin++));
+                    inPredicate.setChild(j, conjunctVals.get(handledConjunctVals++));
                 } else {
                     Preconditions.checkState(false, "Should contains literal in " + inPredicate.toSqlImpl());
                 }
             }
-            return conjunctValsBegin;
+            return handledConjunctVals;
         }
     }
 
     private static class BinaryPredicateHandler implements ConjunctHandler {
         @Override
-        public int handle(Expr expr, List<Expr> conjunctVals, int conjunctValsBegin) throws AnalysisException {
+        public int handle(Expr expr, List<Expr> conjunctVals, int handledConjunctVals) throws AnalysisException {
             BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
             Expr left = binaryPredicate.getChild(0);
             Expr right = binaryPredicate.getChild(1);
 
             if (isDeleteSign(left) || isDeleteSign(right)) {
-                return conjunctValsBegin;
+                return handledConjunctVals;
             }
 
             if (isLiteralExpr(left)) {
-                binaryPredicate.setChild(0, conjunctVals.get(conjunctValsBegin++));
+                binaryPredicate.setChild(0, conjunctVals.get(handledConjunctVals++));
             } else if (isLiteralExpr(right)) {
-                binaryPredicate.setChild(1, conjunctVals.get(conjunctValsBegin++));
+                binaryPredicate.setChild(1, conjunctVals.get(handledConjunctVals++));
             } else {
                 Preconditions.checkState(false, "Should contains literal in " + binaryPredicate.toSqlImpl());
             }
-            return conjunctValsBegin;
+            return handledConjunctVals;
         }
 
         private boolean isLiteralExpr(Expr expr) {
@@ -246,36 +250,134 @@ public class PointQueryExecutor implements CoordInterface {
         }
     }
 
-    private static void updateScanNodeConjuncts(OlapScanNode scanNode, List<Expr> conjunctVals) {
-        List<Expr> conjuncts = scanNode.getConjuncts();
-        Map<Class<? extends Expr>, ConjunctHandler> handlers = Maps.newHashMap();
+    private static void initHandler() {
+        handlers = Maps.newHashMap();
         handlers.put(InPredicate.class, new InPredicateHandler());
         handlers.put(BinaryPredicate.class, new BinaryPredicateHandler());
-        int conjunctValsBegin = 0;
+    }
+
+    private static void updateScanNodeConjuncts(OlapScanNode scanNode, List<Expr> conjunctVals) {
+        List<Expr> conjuncts = scanNode.getConjuncts();
+        initHandler();
+        int handledConjunctVals = 0;
         for (Expr expr : conjuncts) {
             ConjunctHandler handler = handlers.get(expr.getClass());
             if (handler == null) {
                 throw new AnalysisException("Not support conjunct type " + expr.getClass().getName());
             }
-            conjunctValsBegin = handler.handle(expr, conjunctVals, conjunctValsBegin);
+            handledConjunctVals = handler.handle(expr, conjunctVals, handledConjunctVals);
         }
 
-        Preconditions.checkState(conjunctValsBegin == conjunctVals.size());
-    }
-
-    public static byte[] appendBytes(byte[] original, byte[] toAppend) {
-        byte[] result = new byte[original.length + toAppend.length];
-        System.arraycopy(original, 0, result, 0, original.length);
-        System.arraycopy(toAppend, 0, result, original.length, toAppend.length);
-        return result;
+        Preconditions.checkState(handledConjunctVals == conjunctVals.size());
     }
 
     public void setTimeout(long timeoutMs) {
         this.timeoutMs = timeoutMs;
     }
 
+    // todo: add comment
+    private Set<Long> getLeftMostPartitionIDs(List<String> orderedKeyTuple,
+                                            List<Column> keyColumns) {
+        Set<Long> leftMostPartitionIDs = Sets.newHashSet();
+        for (int i = 0; i < partitionKeyColumns.size(); ++i) {
+            int colIdx = partitionKeyColumns.get(i);
+            String partitionColName = keyColumns.get(colIdx).getName();
+            try {
+                ColumnBound partitionKey = ColumnBound.of(LiteralExpr.create(orderedKeyTuple.get(colIdx),
+                        keyColumns.get(colIdx).getType()));
+                List<Long> partitionIDs = Lists.newArrayList(
+                        Objects.requireNonNullElse(
+                            partitionCol2PartitionID.get(partitionColName).get(partitionKey),
+                            Collections.emptyList()
+                        )
+                );
+                // Add the first partition column directly
+                if (i == 0) {
+                    leftMostPartitionIDs.addAll(partitionIDs);
+                    continue;
+                }
+                if (leftMostPartitionIDs.isEmpty() || partitionIDs == null) {
+                    break;
+                }
+                partitionIDs.retainAll(leftMostPartitionIDs);
+                if (partitionIDs.isEmpty()) {
+                    break;
+                }
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage());
+            }
+        }
+        return leftMostPartitionIDs;
+    }
+
+    // todo: add comment
+    private void addTabletIDsForKeyTuple(List<String> orderedKeyTuple, List<Column> keyColumns,
+                                         OlapTable olapTable, Set<Long> leftMostPartitionIDs) {
+        List<String> keyTupleForDistributionPrune =
+                    Lists.newArrayList(distributionKeyColumns.stream().map((idx) -> {
+                        return orderedKeyTuple.get(idx);
+                    }).collect(Collectors.toList()));
+        Set<Long> tabletIDs = Sets.newHashSet();
+        for (PartitionKey key : distributionKeys2TabletID.keySet()) {
+            List<String> distributionKeys = Lists.newArrayList();
+            for (LiteralExpr expr : key.getKeys()) {
+                distributionKeys.add(expr.getStringValue());
+            }
+            if (distributionKeys.equals(keyTupleForDistributionPrune)) {
+                Set<Long> originTabletIDs = Sets.newHashSet(distributionKeys2TabletID.get(key));
+                if (leftMostPartitionIDs.isEmpty()) {
+                    tabletIDs.addAll(originTabletIDs);
+                } else {
+                    Set<Long> prunedTabletIDs = Sets.newHashSet();
+                    for (Long partitionID : leftMostPartitionIDs) {
+                        Partition partition = olapTable.getPartition(partitionID);
+                        MaterializedIndex selectedTable =
+                                partition.getIndex(shortCircuitQueryContext.scanNode.getSelectedIndexId());
+                        selectedTable.getTablets().forEach(tablet -> {
+                            if (originTabletIDs.contains(tablet.getId())) {
+                                prunedTabletIDs.add(tablet.getId());
+                            }
+                        });
+                        tabletIDs.addAll(prunedTabletIDs);
+                    }
+                }
+                break;
+            }
+        }
+        // if all key columns are distribution columns, then we don't need to prune
+        // if (distributionKeyColumns.size() == keyColumns.size()) {
+        //     // keyTupleID2TabletID.add(Sets.newHashSet(tabletIDs));
+        //     keyTupleID2TabletID.add(tabletIDs);
+        //     return;
+        // }
+        keyTupleID2TabletID.add(tabletIDs);
+        /*
+         * Every key column in the `partitionKeyColumns` is not distribution column,
+         * so it is possible to filter out buckets that do not belong to the partition.
+        */
+        // for (Integer colIdx : partitionKeyColumns) {
+        //     String partitionColName = keyColumns.get(colIdx).getName();
+        //     String keyColValue = orderedKeyTuple.get(colIdx);
+        //     try {
+        //         ColumnBound bound =
+        //                 ColumnBound.of(LiteralExpr.create(keyColValue, keyColumns.get(colIdx).getType()));
+        //         List<Long> partitionID = partitionCol2PartitionID.get(partitionColName).get(bound);
+        //         Preconditions.checkState(partitionID.size() == 1);
+        //         Partition partition = olapTable.getPartition(partitionID.get(0));
+        //         MaterializedIndex selectedTable =
+        //                 partition.getIndex(shortCircuitQueryContext.scanNode.getSelectedIndexId());
+        //         tabletIDs.retainAll(selectedTable.getTablets()
+        //                             .stream().map(Tablet::getId)
+        //                             .collect(Collectors.toList()));
+        //     } catch (Exception e) {
+        //         throw new AnalysisException(e.getMessage());
+        //     }
+        // }
+        // keyTupleID2TabletID.add(Sets.newHashSet(tabletIDs));
+    }
+
     void getAllKeyTupleCombination(List<Expr> conjuncts, int index,
-                        List<String> currentKeyTuple,   // current key tuple
+                        List<String> currentKeyTuple,
                         List<List<String>> result,
                         List<String> columnExpr,
                         List<Column> keyColumns) {
@@ -289,47 +391,9 @@ public class PointQueryExecutor implements CoordInterface {
                 String currentKey = currentKeyTuple.get(colIdx);
                 orderedKeyTuple.add(currentKey);
             }
-            List<String> keyTupleForDistributionPrune =
-                    Lists.newArrayList(distributionKeyColumns.stream().map((idx) -> {
-                        return orderedKeyTuple.get(idx);
-                    }).collect(Collectors.toList()));
             result.add(Lists.newArrayList(orderedKeyTuple));
-            Set<Long> tabletIDs = Sets.newHashSet();
-            for (PartitionKey key : distributionKeys2TabletID.keySet()) {
-                List<String> distributionKeys = Lists.newArrayList();
-                for (LiteralExpr expr : key.getKeys()) {
-                    distributionKeys.add(expr.getStringValue());
-                }
-                if (distributionKeys.equals(keyTupleForDistributionPrune)) {
-                    tabletIDs.addAll(distributionKeys2TabletID.get(key));
-                    break;
-                }
-            }
-            // if all key columns are distribution columns, then we don't need to prune
-            if (distributionKeyColumns.size() == keyColumns.size()) {
-                keyTupleID2TabletID.add(Sets.newHashSet(tabletIDs));
-                return;
-            }
-            for (Integer colIdx : partitionKeyColumns) {
-                String partitionColName = keyColumns.get(colIdx).getName();
-                String keyColValue = orderedKeyTuple.get(colIdx);
-                try {
-                    ColumnBound bound =
-                            ColumnBound.of(LiteralExpr.create(keyColValue, keyColumns.get(colIdx).getType()));
-                    List<Long> partitionID = partitionCol2PartitionID.get(partitionColName)
-                            .get(bound);
-                    Preconditions.checkState(partitionID.size() == 1);
-                    Partition partition = olapTable.getPartition(partitionID.get(0));
-                    MaterializedIndex selectedTable =
-                            partition.getIndex(shortCircuitQueryContext.scanNode.getSelectedIndexId());
-                    tabletIDs.retainAll(selectedTable.getTablets()
-                                        .stream().map(Tablet::getId)
-                                        .collect(Collectors.toList()));
-                } catch (Exception e) {
-                    throw new AnalysisException(e.getMessage());
-                }
-            }
-            keyTupleID2TabletID.add(Sets.newHashSet(tabletIDs));
+            Set<Long> leftMostPartitionIDs = getLeftMostPartitionIDs(orderedKeyTuple, keyColumns);
+            addTabletIDsForKeyTuple(orderedKeyTuple, keyColumns, olapTable, leftMostPartitionIDs);
             return;
         }
 
@@ -409,14 +473,16 @@ public class PointQueryExecutor implements CoordInterface {
         if (candidateBackends == null || candidateBackends.isEmpty()) {
             return new RowBatch();
         }
-        OlapTable olapTable = shortCircuitQueryContext.scanNode.getOlapTable();
+        OlapScanNode scanNode = shortCircuitQueryContext.scanNode;
+        OlapTable olapTable = scanNode.getOlapTable();
         List<Column> keyColumns = olapTable.getBaseSchemaKeyColumns();
         for (int i = 0; i < keyColumns.size(); ++i) {
             Column column = keyColumns.get(i);
+            if (olapTable.isPartitionColumn(column.getName())) {
+                partitionKeyColumns.add(i);
+            }
             if (olapTable.isDistributionColumn(column.getName())) {
                 distributionKeyColumns.add(i);
-            } else if (olapTable.isPartitionColumn(column.getName())) {
-                partitionKeyColumns.add(i);
             }
         }
         Iterator<Backend> backendIter = candidateBackends.iterator();
@@ -425,6 +491,7 @@ public class PointQueryExecutor implements CoordInterface {
         int maxTry = Math.min(Config.max_point_query_retry_time, candidateBackends.size());
         Status status = new Status();
         this.allKeyTuples = addAllKeyTuples(keyColumns);
+        this.backendId2TabletIds = scanNode.getBackendId2TabletIds();
         TResultBatch resultBatch = new TResultBatch();
         resultBatch.setRows(Lists.newArrayList());
         List<byte[]> batchSerialResult = Lists.newArrayList();
@@ -441,6 +508,7 @@ public class PointQueryExecutor implements CoordInterface {
         } while (backendIter.hasNext());
         distributionKeys2TabletID.clear();
         partitionCol2PartitionID.clear();
+        scanNode.clearBackendId2TabletIds();
         // todo: maybe there is a better way
         if (!batchSerialResult.isEmpty()) {
             TDeserializer deserializer = new TDeserializer(

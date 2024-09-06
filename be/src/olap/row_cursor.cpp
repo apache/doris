@@ -29,7 +29,6 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_schema.h"
-#include "row_cursor.h"
 #include "util/slice.h"
 
 using std::nothrow;

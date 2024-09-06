@@ -83,8 +83,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         for (LiteralExpr expr : other.keys) {
             try {
                 this.keys.add(LiteralExpr.create(expr.getStringValue(), expr.getType()));
-            } catch (AnalysisException e) {
-                e.printStackTrace();
+            } catch (Exception e) {
+                throw new RuntimeException("Create partition key failed: " + e.getMessage());
             }
         }
         this.originHiveKeys = new ArrayList<>(other.originHiveKeys);
@@ -215,6 +215,10 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             throws AnalysisException {
         List<Type> types = columns.stream().map(c -> c.getType()).collect(Collectors.toList());
         return createListPartitionKeyWithTypes(values, types, false);
+    }
+
+    public static PartitionKey clone(PartitionKey other) {
+        return new PartitionKey(other);
     }
 
     public void pushColumn(LiteralExpr keyValue, PrimitiveType keyType) {

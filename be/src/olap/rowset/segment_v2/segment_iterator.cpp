@@ -767,7 +767,6 @@ bool SegmentIterator::_is_literal_node(const TExprNodeType::type& node_type) {
     case TExprNodeType::DECIMAL_LITERAL:
     case TExprNodeType::STRING_LITERAL:
     case TExprNodeType::DATE_LITERAL:
-    case TExprNodeType::NULL_LITERAL:
         return true;
     default:
         return false;
@@ -2472,9 +2471,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         nrows_read_limit = std::min(static_cast<uint32_t>(_opts.topn_limit), nrows_read_limit);
     }
 
-    DBUG_EXECUTE_IF("segment_iterator.topn_opt", {
+    DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
         if (nrows_read_limit != 1) {
-            return Status::Error<ErrorCode::INTERNAL_ERROR>("topn opt execute failed: {}",
+            return Status::Error<ErrorCode::INTERNAL_ERROR>("topn opt 1 execute failed: {}",
                                                             nrows_read_limit);
         }
     })
@@ -2882,7 +2881,7 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
             } else {
                 _column_predicate_info->query_op = "not_in";
             }
-        } else {
+        } else if (node_type != TExprNodeType::COMPOUND_PRED) {
             _column_predicate_info->query_op = expr->fn().name.function_name;
         }
 

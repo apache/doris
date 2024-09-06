@@ -51,10 +51,14 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
     private Map.Entry<Long, PartitionItem> defaultPartition;
 
     /*
-     * For example, if the partition columns are (k1, k2, k3),
-     * and there is a partition p0 [(1, 5, 10), (5, 10, 20)),
-     * then the `partitionCol2PartitionID` should be:
-     * k1 -> [1,5) -> p0
+     * This map maintains the relationship between partition columns and their corresponding partition IDs.
+     * For example, if the partition columns are (k1, k2, k3), and there is a partition `p0` with the range
+     * [(1, 5, 10), (5, 10, 20)), then the `partitionCol2PartitionID` map should be:
+     * k1 -> [1, 5) -> p0
+     * Map structure:
+     * - Key: String, representing the name of a partition column (e.g., k1).
+     * - Value: RangeMap<ColumnBound, List<Long>>, where each range of column bounds is mapped to a list of
+     *          partition IDs. For instance, the range [1, 5) for column `k1` would map to partition ID `p0`.
      */
     // todo: `List<Long>` is not neccessary, `Long` is enough
     protected Map<String, RangeMap<ColumnBound, List<Long>>> partitionCol2PartitionID = Maps.newHashMap();

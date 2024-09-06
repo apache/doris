@@ -123,7 +123,7 @@ suite("test_point_query_cluster_IN_key") {
             sql """ INSERT INTO ${tableName} VALUES(298, 120939.11130, "${generateString(298)}", "laooq", "2030-01-02", "2020-01-01 12:36:38", 298, "7022-01-01 11:30:38", 1, 90696620686827832.374, [], []) """
 
             def result1 = connect(user=user, password=password, url=prepare_url) {
-                def stmt = prepareStatement "SELECT /*+ SET_VAR(enable_nereids_planner=true) */ * FROM ${tableName} WHERE k1 IN (?, ?, ?, ?) AND k2 IN (?, ?, ?) AND k3 IN (?, ?, ?, ?) ORDER BY k1, k2"
+                def stmt = prepareStatement "SELECT /*+ SET_VAR(enable_nereids_planner=true) */ * FROM ${tableName} WHERE k1 IN (?, ?, ?, ?) AND k2 IN (?, ?, ?) AND k3 IN (?, ?, ?, ?)"
                 assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
                 stmt.setInt(1, 1231)
                 stmt.setInt(2, 1237)
@@ -139,7 +139,7 @@ suite("test_point_query_cluster_IN_key") {
                 qe_point_in_select stmt
                 stmt.close()
 
-                stmt = prepareStatement "SELECT /*+ SET_VAR(enable_nereids_planner=true) */ * FROM ${tableName} WHERE k1 = ? AND k2 IN (?, ?) AND k3 IN (?, ?) ORDER BY k1, k2"
+                stmt = prepareStatement "SELECT /*+ SET_VAR(enable_nereids_planner=true) */ * FROM ${tableName} WHERE k1 = ? AND k2 IN (?, ?) AND k3 IN (?, ?)"
                 assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
                 stmt.setInt(1, 1235)
                 stmt.setBigDecimal(2, new BigDecimal("991129292901.11138"))
@@ -148,7 +148,7 @@ suite("test_point_query_cluster_IN_key") {
                 stmt.setString(5, "a    ddd")
                 qe_point_in_select stmt
 
-                def stmt_fn = prepareStatement "SELECT /*+ SET_VAR(enable_nereids_planner=true) */ hex(k3), hex(k4) FROM ${tableName} WHERE k1 IN (?, ?) AND k2 IN (?, ?) AND k3 IN (?, ?) ORDER BY k1, k2"
+                def stmt_fn = prepareStatement "SELECT /*+ SET_VAR(enable_nereids_planner=true) */ hex(k3), hex(k4) FROM ${tableName} WHERE k1 IN (?, ?) AND k2 IN (?, ?) AND k3 IN (?, ?)"
                 assertEquals(stmt_fn.class, com.mysql.cj.jdbc.ServerPreparedStatement);
                 stmt_fn.setInt(1, 1235)
                 stmt_fn.setInt(2, 1231)
@@ -190,7 +190,7 @@ suite("test_point_query_cluster_IN_key") {
             }
             // disable useServerPrepStmts
             def result2 = connect(user=user, password=password, url=context.config.jdbcUrl) {
-                qt_in_sql """
+                order_qt_in_sql """
                         SELECT 
                             /*+ SET_VAR(enable_nereids_planner=true) */ * 
                         FROM 
@@ -199,7 +199,6 @@ suite("test_point_query_cluster_IN_key") {
                             k1 IN (1231, 1237) AND 
                             k2 IN (119291.11, 120939.11130) AND 
                             k3 IN ('ddd', 'a    ddd')
-                        ORDER BY k1, k2
                         """
                 qt_sql """
                         SELECT 

@@ -89,8 +89,13 @@ public class PartitionPruneV2ForShortCircuitPlan extends PartitionPrunerV2Base {
         return false;
     }
 
-    public Collection<Long> prune(Set<Range<ColumnBound>> partitionColumnRange) {
-        return getOverlappingRangeValues(partitionRangeMap, partitionColumnRange);
+    public Collection<Long> prune(Set<Range<ColumnBound>> partitionColumnRange,
+                                  String partitionColName,
+                                  Map<String, RangeMap<ColumnBound, List<Long>>> partitionCol2PartitionID) {
+        Set<Long> overlappingRangeValues = getOverlappingRangeValues(partitionRangeMap, partitionColumnRange);
+        partitionCol2PartitionID.putIfAbsent(
+                        partitionColName, partitionRangeMap);
+        return overlappingRangeValues;
     }
 
     @Override
