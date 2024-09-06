@@ -156,11 +156,8 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     @Override
     public Void visitPhysicalJdbcTableSink(
             PhysicalJdbcTableSink<? extends Plan> jdbcTableSink, PlanContext context) {
-        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
-            addRequestPropertyToChildren(PhysicalProperties.ANY);
-        } else {
-            addRequestPropertyToChildren(jdbcTableSink.getRequirePhysicalProperties());
-        }
+        // Always use gather properties for jdbcTableSink
+        addRequestPropertyToChildren(PhysicalProperties.GATHER);
         return null;
     }
 

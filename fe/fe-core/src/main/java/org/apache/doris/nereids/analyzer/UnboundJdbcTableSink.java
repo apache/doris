@@ -61,7 +61,7 @@ public class UnboundJdbcTableSink<CHILD_TYPE extends Plan> extends UnboundBaseEx
         Preconditions.checkArgument(children.size() == 1,
                 "UnboundJdbcTableSink should have exactly one child");
         return new UnboundJdbcTableSink<>(nameParts, colNames, hints, partitions,
-                dmlCommandType, groupExpression, Optional.empty(), children.get(0));
+                dmlCommandType, Optional.empty(), Optional.empty(), children.get(0));
     }
 
     @Override
