@@ -642,8 +642,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         }
 
-        // the new tablets -> local tablets, used in atomic restore.
-        Map<Long, Long> tabletRefers = new HashMap<>();
+        // the new tablets -> { local tablet, schema hash }, used in atomic restore.
+        Map<Long, Pair<Long, Integer>> tabletBases = null;
 
         // Check and prepare meta objects.
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -801,8 +801,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     remoteOlapTbl.setState(allowLoad ? OlapTableState.RESTORE_WITH_LOAD : OlapTableState.RESTORE);
 
                     if (isAtomicRestore && localTbl != null) {
-                        // bind the backends and refer tablets from local tbl.
-                        tabletRefers = bindLocalAndRemoteOlapTableReplicas((OlapTable) localTbl, remoteOlapTbl);
+                        // bind the backends and base tablets from local tbl.
+                        tabletBases = bindLocalAndRemoteOlapTableReplicas((OlapTable) localTbl, remoteOlapTbl);
                         if (!status.ok()) {
                             return;
                         }
@@ -891,7 +891,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         genFileMapping(restoreOlapTable, restorePart, backupOlapTableInfo.id,
                                 backupOlapTableInfo.getPartInfo(restorePart.getName()),
                                 !allowLoad /* if allow load, do not overwrite when commit */,
-                                tabletRefers);
+                                tabletBases);
                     }
                 }
                 // set restored table's new name after all 'genFileMapping'
@@ -1025,8 +1025,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         // No log here, PENDING state restore job will redo this method
     }
 
-    private Map<Long, Long> bindLocalAndRemoteOlapTableReplicas(OlapTable localOlapTbl, OlapTable remoteOlapTbl) {
-        Map<Long, Long> tabletRefers = new HashMap<>();
+    private Map<Long, Pair<Long, Integer>> bindLocalAndRemoteOlapTableReplicas(
+            OlapTable localOlapTbl, OlapTable remoteOlapTbl) {
+        Map<Long, Pair<Long, Integer>> tabletBases = new HashMap<>();
 
         localOlapTbl.readLock();
         try {
@@ -1042,6 +1043,15 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     if (localIndex == null) {
                         continue;
                     }
+                    int schemaHash = localOlapTbl.getSchemaHashByIndexId(localIndexId);
+                    if (schemaHash == -1) {
+                        status = new Status(ErrCode.COMMON_ERROR, String.format(
+                                "schema hash of local index %d is not found, remote table=%d, remote index=%d, "
+                                + "local table=%d, local index=%d", localIndexId, remoteOlapTbl.getId(), index.getId(),
+                                localOlapTbl.getId(), localIndexId));
+                        return null;
+                    }
+
                     List<Tablet> localTablets = localIndex.getTablets();
                     List<Tablet> remoteTablets = index.getTablets();
                     if (localTablets.size() != remoteTablets.size()) {
@@ -1076,14 +1086,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                         localOlapTbl.getName());
                             }
                         }
-                        tabletRefers.put(remoteTablet.getId(), localTablet.getId());
+                        tabletBases.put(remoteTablet.getId(), Pair.of(localTablet.getId(), schemaHash));
                     }
                 }
             }
         } finally {
             localOlapTbl.readUnlock();
         }
-        return tabletRefers;
+        return tabletBases;
     }
 
     private void prepareAndSendSnapshotTaskForOlapTable(Database db) {
@@ -1203,6 +1213,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private void createReplicas(Database db, AgentBatchTask batchTask, OlapTable localTbl, Partition restorePart) {
+        createReplicas(db, batchTask, localTbl, restorePart, null);
+    }
+
+    private void createReplicas(Database db, AgentBatchTask batchTask, OlapTable localTbl, Partition restorePart,
+            Map<Long, Pair<Long, Integer>> tabletBases) {
         Set<String> bfColumns = localTbl.getCopiedBfColumns();
         double bfFpp = localTbl.getBfFpp();
 
@@ -1255,6 +1270,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.variantEnableFlattenNested());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
+                    if (tabletBases != null && tabletBases.containsKey(restoreTablet.getId())) {
+                        // ensure this replica is bound to the same backend disk as the origin table's replica.
+                        Pair<Long, Integer> baseTablet = tabletBases.get(restoreTablet.getId());
+                        task.setBaseTablet(baseTablet.first, baseTablet.second);
+                    }
                     batchTask.addTask(task);
                 }
             }
@@ -1341,7 +1361,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private void genFileMapping(OlapTable localTbl, Partition localPartition, Long remoteTblId,
-            BackupPartitionInfo backupPartInfo, boolean overwrite, Map<Long, Long> tabletRefers) {
+            BackupPartitionInfo backupPartInfo, boolean overwrite, Map<Long, Pair<Long, Integer>> tabletBases) {
         for (MaterializedIndex localIdx : localPartition.getMaterializedIndices(IndexExtState.VISIBLE)) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get index id: {}, index name: {}", localIdx.getId(),
@@ -1357,8 +1377,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 }
                 for (Replica localReplica : localTablet.getReplicas()) {
                     long refTabletId = -1L;
-                    if (tabletRefers != null && tabletRefers.containsKey(localTablet.getId())) {
-                        refTabletId = tabletRefers.get(localTablet.getId());
+                    if (tabletBases != null && tabletBases.containsKey(localTablet.getId())) {
+                        refTabletId = tabletBases.get(localTablet.getId()).first;
                     }
 
                     long noReplicaId = -1L;
