@@ -1440,6 +1440,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
     int64_t req_cp = request->cumulative_point();
 
     do {
+        TEST_SYNC_POINT_CALLBACK("get_rowset:begin", &tablet_id);
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -1488,6 +1489,8 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                 if (version_pb.pending_txn_ids_size() > 0) {
                     DCHECK(version_pb.pending_txn_ids_size() == 1);
                     txn.reset();
+                    TEST_SYNC_POINT_CALLBACK("get_rowset::advance_last_pending_txn_id",
+                                             &version_pb);
                     std::shared_ptr<TxnLazyCommitTask> task =
                             txn_lazy_committer_->submit(instance_id, version_pb.pending_txn_ids(0));
 
@@ -1588,6 +1591,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                                   response->mutable_rowset_meta());
             if (code != MetaServiceCode::OK) return;
         }
+        TEST_SYNC_POINT_CALLBACK("get_rowset::finish", &response);
         break;
     } while (true);
 }
