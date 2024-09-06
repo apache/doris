@@ -74,6 +74,9 @@ public:
 
     size_t get_file_segments_num(CacheType type) const override;
 
+    // used by LRUFileCache test
+    void wait_lazy_open();
+
 private:
     struct FileBlockCell {
         FileBlockSPtr file_block;
