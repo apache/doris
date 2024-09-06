@@ -65,7 +65,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv","p0,mtmv,restart_fe") {
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT * FROM ${tableName} a inner join ${tableName2} b on a.user_id=b.user_id;
+            SELECT a.* FROM ${tableName} a inner join ${tableName2} b on a.user_id=b.user_id;
     """
     waitingMTMVTaskFinishedByMvName(mvName)
 }
