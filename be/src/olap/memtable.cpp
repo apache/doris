@@ -190,7 +190,7 @@ Status MemTable::insert(const vectorized::Block* input_block,
         if (_keys_type != KeysType::DUP_KEYS) {
             // there may be additional intermediate columns in input_block
             // we only need columns indicated by column offset in the output
-            _init_agg_functions(&clone_block);
+            RETURN_IF_CATCH_EXCEPTION(_init_agg_functions(&clone_block));
         }
         if (_tablet_schema->has_sequence_col()) {
             if (_is_partial_update) {
