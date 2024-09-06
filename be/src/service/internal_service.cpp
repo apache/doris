@@ -133,6 +133,7 @@
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exec/format/rcbinary/rcbinary_jni_reader.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
@@ -809,12 +810,21 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             st = ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
             break;
         }
+        case TFileFormatType::FORMAT_RCBINARY: {
+            // file_slots is no use
+            std::vector<SlotDescriptor*> file_slots;
+            reader = vectorized::RCBinaryJNIReader::create_unique(profile.get(), params, range,
+                                                              file_slots);
+            st = ((vectorized::RCBinaryJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
+            break;
+        }
         default:
             st = Status::InternalError("Not supported file format in fetch table schema: {}",
                                        params.format_type);
             st.to_protobuf(result->mutable_status());
             return;
         }
+        LOG(WARNING) << "after create rcbinary reader";
         if (!st.ok()) {
             LOG(WARNING) << "failed to init reader, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
@@ -822,14 +832,19 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         }
         std::vector<std::string> col_names;
         std::vector<TypeDescriptor> col_types;
+        LOG(WARNING) << "start to get parsed schema";
         st = reader->get_parsed_schema(&col_names, &col_types);
+        LOG(WARNING) << "end getting parsed schema, st = " << st;
         if (!st.ok()) {
             LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
+        LOG(WARNING) << "start to set column nums";
+        LOG(WARNING) << "colnames size = " << col_names.size() << " coltypes size = " << col_types.size();
         result->set_column_nums(col_names.size());
         for (size_t idx = 0; idx < col_names.size(); ++idx) {
+            LOG(WARNING) << "i = " << idx << "col name = " << col_names[idx];
             result->add_column_names(col_names[idx]);
         }
         for (size_t idx = 0; idx < col_types.size(); ++idx) {
@@ -838,6 +853,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         }
         st.to_protobuf(result->mutable_status());
     });
+    LOG(WARNING) << "fet table schema end, ret = " << ret;
     if (!ret) {
         offer_failed(result, done, _heavy_work_pool);
         return;

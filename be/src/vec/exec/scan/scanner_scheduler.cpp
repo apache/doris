@@ -267,6 +267,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 if (free_block == nullptr) {
                     break;
                 }
+                LOG(WARNING) << "status before get block after projects : " << status;
                 status = scanner->get_block_after_projects(state, free_block.get(), &eos);
                 first_read = false;
                 if (!status.ok()) {

@@ -549,6 +549,7 @@ Status CsvReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* n
                               std::unordered_set<std::string>* missing_cols) {
     for (auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
+        LOG(WARNING) << "CSV slot name : " << slot->col_name();
     }
     return Status::OK();
 }

@@ -229,6 +229,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             case "wal":
                 this.fileFormatType = TFileFormatType.FORMAT_WAL;
                 break;
+            case "rcbinary":
+                this.fileFormatType = TFileFormatType.FORMAT_RCBINARY;
+                break;
             default:
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }

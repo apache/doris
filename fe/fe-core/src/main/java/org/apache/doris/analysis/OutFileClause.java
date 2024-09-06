@@ -258,6 +258,9 @@ public class OutFileClause {
                 headerType = FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES;
                 fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
                 break;
+            case "rcbinary":
+                fileFormatType = TFileFormatType.FORMAT_RCBINARY;
+                break;
             default:
                 throw new AnalysisException("format:" + this.format + " is not supported.");
         }

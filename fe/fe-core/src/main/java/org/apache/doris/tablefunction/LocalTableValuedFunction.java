@@ -46,12 +46,11 @@ import java.util.concurrent.TimeUnit;
  * local("file_path" = "path/to/file.txt", "backend_id" = "be_id").
  */
 public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
-    private static final Logger LOG = LogManager.getLogger(LocalTableValuedFunction.class);
     public static final String NAME = "local";
     public static final String PROP_FILE_PATH = "file_path";
     public static final String PROP_BACKEND_ID = "backend_id";
     public static final String PROP_SHARED_STORAGE = "shared_storage";
-
+    private static final Logger LOG = LogManager.getLogger(LocalTableValuedFunction.class);
     private static final ImmutableSet<String> LOCATION_PROPERTIES = new ImmutableSet.Builder<String>()
             .add(PROP_FILE_PATH)
             .build();
@@ -145,16 +144,16 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
     }
 
     @Override
+    protected Backend getBackend() {
+        return Env.getCurrentSystemInfo().getBackend(backendIdForRequest);
+    }
+
+    @Override
     public String getTableName() {
         return "LocalTableValuedFunction";
     }
 
     public Long getBackendId() {
         return backendId;
-    }
-
-    @Override
-    protected Backend getBackend() {
-        return Env.getCurrentSystemInfo().getBackend(backendIdForRequest);
     }
 }

@@ -55,6 +55,7 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/exec/format/arrow/arrow_stream_reader.h"
 #include "vec/exec/format/avro/avro_jni_reader.h"
+#include "vec/exec/format/rcbinary/rcbinary_jni_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
@@ -250,6 +251,7 @@ Status VFileScanner::open(RuntimeState* state) {
 
 Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
     Status st = _get_block_wrapped(state, block, eof);
+    LOG(WARNING) << "get block impl, status : " << st;
     if (!st.ok()) {
         // add cur path in error msg for easy debugging
         return std::move(st.prepend("cur path: " + get_current_scan_range_name() + ". "));
@@ -294,6 +296,7 @@ Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool*
         }
 
         if (_scanner_eof) {
+            LOG(WARNING) << "scanner eof";
             *eof = true;
             return Status::OK();
         }
@@ -301,15 +304,20 @@ Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool*
         // Init src block for load job based on the data file schema (e.g. parquet)
         // For query job, simply set _src_block_ptr to block.
         size_t read_rows = 0;
+        LOG(WARNING) << "start to init src block";
         RETURN_IF_ERROR(_init_src_block(block));
         {
+            LOG(WARNING) << "init src block success";
             SCOPED_TIMER(_get_block_timer);
 
             // Read next block.
             // Some of column in block may not be filled (column not exist in file)
+            LOG(WARNING) << "start to get next block";
             RETURN_IF_ERROR(
                     _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
+            LOG(WARNING) << "end getting next block";
         }
+        LOG(WARNING) << "endding get next block, read rows = " << read_rows;
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
         // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.
         if (read_rows > 0) {
@@ -697,7 +705,9 @@ void VFileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int l
 }
 
 Status VFileScanner::_get_next_reader() {
+    LOG(WARNING) << "Step into VFile get next reader";
     while (true) {
+        LOG(WARNING) << "Start get next header";
         if (_cur_reader) {
             _cur_reader->collect_profile_before_close();
             RETURN_IF_ERROR(_cur_reader->close());
@@ -939,6 +949,14 @@ Status VFileScanner::_get_next_reader() {
                                   ->init_fetch_table_reader(_colname_to_value_range);
             break;
         }
+        case TFileFormatType::FORMAT_RCBINARY: {
+            LOG(WARNING) << "Step into VFile FORMAT RCBINARY";
+            _cur_reader = RCBinaryJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs,
+                                                           range);
+            init_status = ((RCBinaryJNIReader*)(_cur_reader.get()))
+                                            ->init_fetch_table_reader(_colname_to_value_range);
+            break;
+        }
         case TFileFormatType::FORMAT_WAL: {
             _cur_reader.reset(new WalReader(_state));
             init_status = ((WalReader*)(_cur_reader.get()))->init_reader(_output_tuple_desc);
@@ -953,7 +971,7 @@ Status VFileScanner::_get_next_reader() {
         default:
             return Status::InternalError("Not supported file format: {}", _params->format_type);
         }
-
+        LOG(WARNING) << "Break after VFile FORMAT RCBINARY";
         COUNTER_UPDATE(_file_counter, 1);
         // The VFileScanner for external table may try to open not exist files,
         // Because FE file cache for external table may out of date.
@@ -971,12 +989,15 @@ Status VFileScanner::_get_next_reader() {
         } else if (!init_status.ok()) {
             return Status::InternalError("failed to init reader, err: {}", init_status.to_string());
         }
-
+        LOG(WARNING) << "PASS FIND FILE";
         _name_to_col_type.clear();
         _missing_cols.clear();
         RETURN_IF_ERROR(_cur_reader->get_columns(&_name_to_col_type, &_missing_cols));
+        LOG(WARNING) << "PASS get columns";
         _cur_reader->set_push_down_agg_type(_get_push_down_agg_type());
+        LOG(WARNING) << "PASS set push down agg type";
         RETURN_IF_ERROR(_generate_fill_columns());
+        LOG(WARNING) << "PASS generate_fill_columns";
         if (VLOG_NOTICE_IS_ON && !_missing_cols.empty() && _is_load) {
             fmt::memory_buffer col_buf;
             for (auto& col : _missing_cols) {
@@ -985,6 +1006,7 @@ Status VFileScanner::_get_next_reader() {
             VLOG_NOTICE << fmt::format("Unknown columns:{} in file {}", fmt::to_string(col_buf),
                                        range.path);
         }
+        LOG(WARNING) << "PASS VLOG check";
 
         _source_file_col_names.clear();
         _source_file_col_types.clear();
@@ -1001,6 +1023,7 @@ Status VFileScanner::_get_next_reader() {
             }
         }
         _cur_reader_eof = false;
+        LOG(WARNING) << "PASS LAST CHECK";
         break;
     }
     return Status::OK();

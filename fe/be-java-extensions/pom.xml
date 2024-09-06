@@ -31,6 +31,7 @@ under the License.
         <module>lakesoul-scanner</module>
         <module>preload-extensions</module>
         <module>trino-connector-scanner</module>
+        <module>hive-scanner</module>
     </modules>
 
     <parent>
