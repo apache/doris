@@ -715,7 +715,10 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
                                     RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "prepare rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
-
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::prepare_rowset", ret_st);
+    }
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -741,6 +744,10 @@ Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
                                    RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::commit_rowset", ret_st);
+    }
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -841,12 +848,17 @@ static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
 Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
     VLOG_DEBUG << "commit txn, db_id: " << ctx.db_id << ", txn_id: " << ctx.txn_id
                << ", label: " << ctx.label << ", is_2pc: " << is_2pc;
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::commit_txn", ret_st);
+    }
     CommitTxnRequest req;
     CommitTxnResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_db_id(ctx.db_id);
     req.set_txn_id(ctx.txn_id);
     req.set_is_2pc(is_2pc);
+    req.set_enable_txn_lazy_commit(config::enable_cloud_txn_lazy_commit);
     auto st = retry_rpc("commit txn", req, &res, &MetaService_Stub::commit_txn);
 
     if (st.ok()) {
@@ -859,6 +871,10 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
 Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
     VLOG_DEBUG << "abort txn, db_id: " << ctx.db_id << ", txn_id: " << ctx.txn_id
                << ", label: " << ctx.label;
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::abort_txn", ret_st);
+    }
     AbortTxnRequest req;
     AbortTxnResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -878,6 +894,10 @@ Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
 Status CloudMetaMgr::precommit_txn(const StreamLoadContext& ctx) {
     VLOG_DEBUG << "precommit txn, db_id: " << ctx.db_id << ", txn_id: " << ctx.txn_id
                << ", label: " << ctx.label;
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::precommit_txn", ret_st);
+    }
     PrecommitTxnRequest req;
     PrecommitTxnResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);

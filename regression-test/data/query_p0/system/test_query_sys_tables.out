@@ -152,8 +152,6 @@ PARTITION_COMMENT	text	Yes	false	\N
 NODEGROUP	varchar(256)	Yes	false	\N	
 TABLESPACE_NAME	varchar(268)	Yes	false	\N	
 
--- !select_partitions --
-
 -- !schemata --
 internal	test_query_sys_db_1	\N
 internal	test_query_sys_db_2	\N

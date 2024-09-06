@@ -726,3 +726,11 @@ Apache 2.0, Copyright 2023 SAP SE or an SAP affiliate company, Johannes Bechberg
 This project is maintained by the SapMachine team at SAP SE
 
 ----------------------------------------------------------------------------------
+
+be/tools/FlameGraph/*.pl: COMMON DEVELOPMENT AND DISTRIBUTION LICENSE Version 1.0
+
+Unless otherwise noted, all files in this distribution are released
+under the Common Development and Distribution License (CDDL).
+Exceptions are noted within the associated source files.
+
+----------------------------------------------------------------------------------

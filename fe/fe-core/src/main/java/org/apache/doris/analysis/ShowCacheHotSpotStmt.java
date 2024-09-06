@@ -40,7 +40,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-public class ShowCacheHotSpotStmt extends ShowStmt {
+public class ShowCacheHotSpotStmt extends ShowStmt implements NotFallbackInParser {
     public static final ShowResultSetMetaData[] RESULT_SET_META_DATAS = {
         ShowResultSetMetaData.builder()
             .addColumn(new Column("cluster_id", ScalarType.createType(PrimitiveType.BIGINT)))

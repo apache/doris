@@ -93,6 +93,7 @@ import org.apache.doris.thrift.TEsScanRange;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TFragmentInstanceReport;
 import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -284,6 +285,8 @@ public class Coordinator implements CoordInterface {
     private ConnectContext context;
 
     private StatsErrorEstimator statsErrorEstimator;
+
+    private int receiverOffset = 0;
 
     // A countdown latch to mark the completion of each instance.
     // use for old pipeline
@@ -1162,7 +1165,8 @@ public class Coordinator implements CoordInterface {
 
         RowBatch resultBatch;
         Status status = new Status();
-        resultBatch = receivers.get(receivers.size() - 1).getNext(status);
+        ResultReceiver receiver = receivers.get(receiverOffset);
+        resultBatch = receiver.getNext(status);
         if (!status.ok()) {
             LOG.warn("Query {} coordinator get next fail, {}, need cancel.",
                     DebugUtil.printId(queryId), status.getErrorMsg());
@@ -1209,7 +1213,7 @@ public class Coordinator implements CoordInterface {
         }
 
         if (resultBatch.isEos()) {
-            receivers.remove(receivers.size() - 1);
+            receivers.remove(receiver);
             if (receivers.isEmpty()) {
                 returnedAllResults = true;
             } else {
@@ -1227,6 +1231,10 @@ public class Coordinator implements CoordInterface {
             }
         }
 
+        if (!returnedAllResults) {
+            receiverOffset += 1;
+            receiverOffset %= receivers.size();
+        }
         return resultBatch;
     }
 
@@ -1788,7 +1796,6 @@ public class Coordinator implements CoordInterface {
             }
 
             Pair<PlanNode, PlanNode> pairNodes = findLeftmostNode(fragment.getPlanRoot());
-            PlanNode fatherNode = pairNodes.first;
             PlanNode leftMostNode = pairNodes.second;
 
             /*
@@ -1803,25 +1810,8 @@ public class Coordinator implements CoordInterface {
                 // (Case B)
                 // there is no leftmost scan; we assign the same hosts as those of our
                 //  input fragment which has a higher instance_number
-
-                int inputFragmentIndex = 0;
-                int maxParallelism = 0;
-                // If the fragment has three children, then the first child and the second child are
-                // the children(both exchange node) of shuffle HashJoinNode,
-                // and the third child is the right child(ExchangeNode) of broadcast HashJoinNode.
-                // We only need to pay attention to the maximum parallelism among
-                // the two ExchangeNodes of shuffle HashJoinNode.
-                int childrenCount = (fatherNode != null) ? fatherNode.getChildren().size() : 1;
-                for (int j = 0; j < childrenCount; j++) {
-                    int currentChildFragmentParallelism
-                            = fragmentExecParamsMap.get(fragment.getChild(j).getFragmentId()).instanceExecParams.size();
-                    if (currentChildFragmentParallelism > maxParallelism) {
-                        maxParallelism = currentChildFragmentParallelism;
-                        inputFragmentIndex = j;
-                    }
-                }
-
-                PlanFragmentId inputFragmentId = fragment.getChild(inputFragmentIndex).getFragmentId();
+                int maxParallelFragmentIndex = findMaxParallelFragmentIndex(fragment);
+                PlanFragmentId inputFragmentId = fragment.getChild(maxParallelFragmentIndex).getFragmentId();
                 // AddAll() soft copy()
                 int exchangeInstances = -1;
                 if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
@@ -1902,9 +1892,9 @@ public class Coordinator implements CoordInterface {
                         boolean forceToLocalShuffle = context != null
                                 && context.getSessionVariable().isForceToLocalShuffle()
                                 && !fragment.hasNullAwareLeftAntiJoin() && useNereids;
-                        boolean ignoreStorageDataDistribution = forceToLocalShuffle || (node.isPresent()
+                        boolean ignoreStorageDataDistribution = (forceToLocalShuffle || (node.isPresent()
                                 && node.get().ignoreStorageDataDistribution(context, addressToBackendID.size())
-                                && useNereids);
+                                && useNereids)) && fragment.queryCacheParam == null;
                         if (node.isPresent() && ignoreStorageDataDistribution) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
                             // if have limit and no conjuncts, only need 1 instance to save cpu and
@@ -1924,6 +1914,9 @@ public class Coordinator implements CoordInterface {
                             // mem resource
                             if (node.get().shouldUseOneInstance(context)) {
                                 expectedInstanceNum = 1;
+                            }
+                            if (fragment.queryCacheParam != null) {
+                                expectedInstanceNum = perNodeScanRanges.size();
                             }
 
                             perInstanceScanRanges = ListUtil.splitBySize(perNodeScanRanges,
@@ -1976,6 +1969,27 @@ public class Coordinator implements CoordInterface {
                 params.instanceExecParams.add(instanceParam);
             }
         }
+    }
+
+    private int findMaxParallelFragmentIndex(PlanFragment fragment) {
+        Preconditions.checkState(!fragment.getChildren().isEmpty(), "fragment has no children");
+
+        // exclude broadcast join right side's child fragments
+        List<PlanFragment> childFragmentCandidates = fragment.getChildren().stream()
+                .filter(e -> e.getOutputPartition() != DataPartition.UNPARTITIONED)
+                .collect(Collectors.toList());
+
+        int maxParallelism = 0;
+        int maxParaIndex = 0;
+        for (int i = 0; i < childFragmentCandidates.size(); i++) {
+            PlanFragmentId childFragmentId = childFragmentCandidates.get(i).getFragmentId();
+            int currentChildFragmentParallelism = fragmentExecParamsMap.get(childFragmentId).instanceExecParams.size();
+            if (currentChildFragmentParallelism > maxParallelism) {
+                maxParallelism = currentChildFragmentParallelism;
+                maxParaIndex = i;
+            }
+        }
+        return maxParaIndex;
     }
 
     private TNetworkAddress getGroupCommitBackend(Map<TNetworkAddress, Long> addressToBackendID) {
@@ -2445,11 +2459,21 @@ public class Coordinator implements CoordInterface {
         }
 
         if (params.isSetLoadedRows() && jobId != -1) {
-            Env.getCurrentEnv().getLoadManager().updateJobProgress(
-                    jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
-                    params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
-            Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
-                    params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
+            if (params.isSetFragmentInstanceReports()) {
+                for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
+                    Env.getCurrentEnv().getLoadManager().updateJobProgress(
+                            jobId, params.getBackendId(), params.getQueryId(), report.getFragmentInstanceId(),
+                            params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+                    Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
+                            params.getQueryId(), report.getFragmentInstanceId(), report.getNumFinishedRange());
+                }
+            } else {
+                Env.getCurrentEnv().getLoadManager().updateJobProgress(
+                        jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
+                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+                Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
+                        params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
+            }
         }
     }
 
@@ -2730,12 +2754,12 @@ public class Coordinator implements CoordInterface {
          */
         boolean forceToLocalShuffle = context != null
                 && context.getSessionVariable().isForceToLocalShuffle() && !hasNullAwareLeftAntiJoin && useNereids;
-        boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream()
+        boolean ignoreStorageDataDistribution = (forceToLocalShuffle || (scanNodes.stream()
                 .allMatch(node -> node.ignoreStorageDataDistribution(context,
                         addressToBackendID.size()))
                 && addressToScanRanges.entrySet().stream().allMatch(addressScanRange -> {
                     return addressScanRange.getValue().size() < parallelExecInstanceNum;
-                }) && useNereids);
+                }) && useNereids)) && params.fragment.queryCacheParam == null;
 
         FragmentScanRangeAssignment assignment = params.scanRangeAssignment;
         for (Map.Entry<TNetworkAddress, List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>>> addressScanRange
@@ -3099,6 +3123,7 @@ public class Coordinator implements CoordInterface {
             Map<TNetworkAddress, TPipelineFragmentParams> res = new HashMap();
             Map<TNetworkAddress, Integer> instanceIdx = new HashMap();
             TPlanFragment fragmentThrift = fragment.toThrift();
+            fragmentThrift.query_cache_param = fragment.queryCacheParam;
             for (int i = 0; i < instanceExecParams.size(); ++i) {
                 final FInstanceExecParam instanceExecParam = instanceExecParams.get(i);
                 Map<Integer, List<TScanRangeParams>> scanRanges = instanceExecParam.perNodeScanRanges;

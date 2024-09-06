@@ -17,27 +17,17 @@
 
 #include "vec/functions/function_multi_match.h"
 
-#include <gen_cpp/PaloBrokerService_types.h>
 #include <glog/logging.h>
 
-#include <boost/algorithm/string.hpp>
-#include <boost/algorithm/string/classification.hpp>
-#include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <roaring/roaring.hh>
 #include <string>
 #include <vector>
 
 #include "io/fs/file_reader.h"
-#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_prefix_query.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
-#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
-#include "vec/data_types/data_type.h"
-#include "vec/exprs/varray_literal.h"
-#include "vec/exprs/vexpr.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -56,97 +46,42 @@ InvertedIndexQueryType get_query_type(const std::string& query_type) {
     return InvertedIndexQueryType::UNKNOWN_QUERY;
 }
 
-Status FunctionMultiMatch::eval_inverted_index(VExpr* expr, segment_v2::FuncExprParams& params,
-                                               std::shared_ptr<roaring::Roaring>& result) {
-    // fields
-    std::vector<std::string> query_fileds;
-    size_t i = 0;
-    for (; i < expr->get_num_children(); i++) {
-        auto child_expr = expr->get_child(i);
-        if (child_expr->node_type() == TExprNodeType::type::SLOT_REF) {
-            query_fileds.emplace_back(child_expr->expr_name());
-        } else {
-            break;
-        }
-    }
-    if (i != expr->get_num_children() - 2) {
-        return Status::RuntimeError("parameter type incorrect: slot = {}", i);
-    }
-
+Status FunctionMultiMatch::evaluate_inverted_index(
+        const ColumnsWithTypeAndName& arguments,
+        const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+        std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+        segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
+    DCHECK(arguments.size() == 2);
+    std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
+    std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
     // type
-    std::string param1 = std::static_pointer_cast<VLiteral>(expr->get_child(i))->value();
-    auto query_type = get_query_type(param1);
+    auto query_type_value = arguments[0].column->get_data_at(0);
+    auto query_type = get_query_type(query_type_value.to_string());
     if (query_type == InvertedIndexQueryType::UNKNOWN_QUERY) {
-        return Status::RuntimeError("parameter query type incorrect: query_type = {}", query_type);
+        return Status::RuntimeError(
+                "parameter query type incorrect for function multi_match: query_type = {}",
+                query_type);
     }
 
     // query
-    std::string query_str = std::static_pointer_cast<VLiteral>(expr->get_child(i + 1))->value();
-
-    auto& segment_iterator = params._segment_iterator;
-    auto& segment = segment_iterator->segment();
-    auto& opts = segment_iterator->storage_read_options();
-    auto& tablet_schema = opts.tablet_schema;
-    auto& idx_iterators = segment_iterator->inverted_index_iterators();
-
-    // check
-    std::vector<ColumnId> columns_ids;
-    for (const auto& column_name : query_fileds) {
-        auto cid = tablet_schema->field_index(column_name);
-        if (cid < 0) {
-            return Status::RuntimeError("column name is incorrect: {}", column_name);
-        }
-        if (idx_iterators[cid] == nullptr) {
-            return Status::RuntimeError("column idx is incorrect: {}", column_name);
-        }
-        columns_ids.emplace_back(cid);
+    auto query_str = arguments[1].column->get_data_at(0);
+    auto param_type = arguments[1].type->get_type_as_type_descriptor().type;
+    if (!is_string_type(param_type)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+                "arguments for multi_match must be string");
     }
-
-    // cache key
-    roaring::Roaring cids_str;
-    cids_str.addMany(columns_ids.size(), columns_ids.data());
-    cids_str.runOptimize();
-    std::string column_name_binary(cids_str.getSizeInBytes(), 0);
-    cids_str.write(column_name_binary.data());
-
-    InvertedIndexQueryCache::CacheKey cache_key;
-    io::Path index_path = segment.file_reader()->path();
-    cache_key.index_path = index_path.parent_path() / index_path.stem();
-    cache_key.column_name = column_name_binary;
-    cache_key.query_type = query_type;
-    cache_key.value = query_str;
-
-    // query cache
-    auto* cache = InvertedIndexQueryCache::instance();
-    InvertedIndexQueryCacheHandle cache_handler;
-    if (cache->lookup(cache_key, &cache_handler)) {
-        result = cache_handler.get_bitmap();
-        return Status::OK();
-    }
-
     // search
-    for (const auto& column_name : query_fileds) {
-        auto cid = tablet_schema->field_index(column_name);
-        const auto& column = *DORIS_TRY(tablet_schema->column(column_name));
-        const auto& index_reader = idx_iterators[cid]->reader();
-
+    for (int i = 0; i < data_type_with_names.size(); i++) {
+        auto column_name = data_type_with_names[i].first;
+        auto* iter = iterators[i];
         auto single_result = std::make_shared<roaring::Roaring>();
-        StringRef query_value(query_str.data());
-        auto index_version = tablet_schema->get_inverted_index_storage_format();
-        if (index_version == InvertedIndexStorageFormatPB::V1) {
-            RETURN_IF_ERROR(index_reader->query(opts.stats, opts.runtime_state, column_name,
-                                                &query_value, query_type, single_result));
-        } else if (index_version == InvertedIndexStorageFormatPB::V2) {
-            RETURN_IF_ERROR(index_reader->query(opts.stats, opts.runtime_state,
-                                                std::to_string(column.unique_id()), &query_value,
-                                                query_type, single_result));
-        }
-        (*result) |= (*single_result);
+        std::shared_ptr<roaring::Roaring> index = std::make_shared<roaring::Roaring>();
+        RETURN_IF_ERROR(iter->read_from_inverted_index(column_name, &query_str, query_type,
+                                                       num_rows, index));
+        *roaring |= *index;
     }
-
-    result->runOptimize();
-    cache->insert(cache_key, result, &cache_handler);
-
+    segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+    bitmap_result = result;
     return Status::OK();
 }
 

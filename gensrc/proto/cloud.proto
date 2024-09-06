@@ -140,8 +140,10 @@ message ClusterPB {
 message NodeInfoPB {
     enum NodeType {
         UNKNOWN = 0;
+         // lagacy logic for one-master-multi-observer mode
         FE_MASTER = 1;
         FE_OBSERVER = 2;
+        FE_FOLLOWER = 3;
     }
     optional string cloud_unique_id = 1;
     optional string name = 2;
@@ -406,6 +408,8 @@ message TxnRunningPB {
 message VersionPB {
     optional int64 version = 1;
     optional int64 update_time_ms = 2;
+    // now only allow one element
+    repeated int64 pending_txn_ids = 3;
 }
 
 message RecycleTxnPB {
@@ -667,6 +671,7 @@ message CommitTxnRequest {
     // for transaction load
     optional bool is_txn_load = 9;
     repeated SubTxnInfo sub_txn_infos = 10;
+    optional bool enable_txn_lazy_commit = 11;
 }
 
 message SubTxnInfo {
@@ -896,6 +901,7 @@ message CreateTabletsRequest {
     optional string cloud_unique_id = 1; // For auth
     repeated doris.TabletMetaCloudPB tablet_metas = 2;
     optional string storage_vault_name = 3;
+    optional int64 db_id = 4;
 }
 
 message CreateTabletsResponse {

@@ -125,14 +125,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
                 "http_ssl_enabled"="false"
             );
         """
-        order_qt_sql01 """select * from test_v1 where test2='text#1'"""
-        order_qt_sql02 """select * from test_v1 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
-        order_qt_sql03 """select test4,test5,test6,test7,test8 from test_v1 order by test8"""
-        order_qt_sql04 """select message from test_v1 where message != ''"""
-        order_qt_sql05 """select message from test_v1 where message is not null"""
-        order_qt_sql06 """select message from test_v1 where not_null_or_empty(message)"""
-        order_qt_sql07 """select * from test_v1 where esquery(c_datetime, '{"term":{"c_datetime":"2020-01-01 12:00:00"}}');"""
-        order_qt_sql08 """select c_person, c_user, json_extract(c_person, '\$.[0].name'), json_extract(c_user, '\$.[1].last') from test_v1;"""
+        
        sql """
             CREATE TABLE `test_v2` (
                 `c_datetime` array<datetimev2> NULL,
@@ -170,11 +163,6 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
                 "http_ssl_enabled"="false"
             );
         """
-        order_qt_sql20 """select * from test_v2 where test2='text#1'"""
-        order_qt_sql21 """select * from test_v2 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
-        order_qt_sql22 """select test4,test5,test6,test7,test8 from test_v2 order by test8"""
-        order_qt_sql23 """select * from test_v2 where esquery(c_long, '{"term":{"c_long":"-1"}}');"""
-        order_qt_sql24 """select c_person, c_user, json_extract(c_person, '\$.[0].name'), json_extract(c_user, '\$.[1].last') from test_v2;"""
 
         def query_catalogs = { -> 
             sql """switch internal"""
@@ -187,6 +175,8 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql06 """select message from test_v1 where not_null_or_empty(message)"""
             order_qt_sql07 """select * from test_v1 where esquery(c_datetime, '{"term":{"c_datetime":"2020-01-01 12:00:00"}}');"""
             order_qt_sql08 """select c_person, c_user, json_extract(c_person, '\$.[0].name'), json_extract(c_user, '\$.[1].last') from test_v1;"""
+            order_qt_sql09 """select test1 from test_v1;"""
+            order_qt_sql10 """select test2 from test_v1;"""
             
             order_qt_sql20 """select * from test_v2 where test2='text#1'"""
             order_qt_sql21 """select * from test_v2 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
@@ -214,6 +204,10 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_5_18 """select message from test1 where not_null_or_empty(message)"""
             order_qt_sql_5_19 """select * from test1 where esquery(c_unsigned_long, '{"match":{"c_unsigned_long":0}}')"""
             order_qt_sql_5_20 """select c_person, c_user, json_extract(c_person, '\$.[0].name'), json_extract(c_user, '\$.[1].last') from test1;"""
+            order_qt_sql_5_21 """select test6, substring(test6, 1, 13) from test2 where substring(test6, 1, 13) = '2022-08-08 20' limit 4;"""
+            order_qt_sql_5_22 """select test6, substring(test6, 1, 13) from test2 where substring(test6, 1, 13) = '2022-08-08 12' limit 4;"""
+            order_qt_sql_5_23 """select test1 from test1;"""
+            order_qt_sql_5_24 """select test2 from test1;"""
             try {
                 sql """select * from composite_type_array;"""
                 fail("Should not reach here")
@@ -243,6 +237,10 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_6_18 """select message from test1 where not_null_or_empty(message)"""
             order_qt_sql_6_19 """select * from test1 where esquery(c_person, '{"match":{"c_person.name":"Andy"}}')"""
             order_qt_sql_6_20 """select c_person, c_user, json_extract(c_person, '\$.[0].name'), json_extract(c_user, '\$.[1].last') from test1;"""
+            order_qt_sql_6_21 """select test6, substring(test6, 1, 13) from test2 where substring(test6, 1, 13) = '2022-08-08 20' limit 4;"""
+            order_qt_sql_6_22 """select test6, substring(test6, 1, 13) from test2 where substring(test6, 1, 13) = '2022-08-08 12' limit 4;"""
+            order_qt_sql_6_23 """select test1 from test1;"""
+            order_qt_sql_6_24 """select test2 from test1;"""
             try {
                 sql """select * from composite_type_array;"""
                 fail("Should not reach here")
@@ -295,6 +293,12 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_7_23 """select * from test1 where level = 'debug'"""
             order_qt_sql_7_24 """select * from test1 where esquery(c_float, '{"match":{"c_float":1.1}}')"""
             order_qt_sql_7_25 """select c_person, c_user, json_extract(c_person, '\$.[0].name'), json_extract(c_user, '\$.[1].last') from test1;"""
+            order_qt_sql_7_26 """select test7,substring(test7, 1, 10) from test2 where substring(test7, 1, 10)='2022-08-08' limit 2;"""
+            order_qt_sql_7_27 """select test7,substring(test7, 1, 10) from test2 where substring(test7, 1, 10)='2022-08-09' limit 2;"""
+            order_qt_sql_7_28 """select test7,substring(test7, 1, 10) from test2 where substring(test7, 1, 10)='2022-08-10' limit 2;"""
+            order_qt_sql_7_29 """select test7,substring(test7, 1, 10) from test2 where substring(test7, 1, 10)='2022-08-11' limit 2;"""
+            order_qt_sql_7_30 """select test1 from test1;"""
+            order_qt_sql_7_31 """select test2 from test1;"""
             try {
                 sql """select * from composite_type_array;"""
                 fail("Should not reach here")
@@ -321,7 +325,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             }
             assertTrue(containeHide7)
 
-            order_qt_sql_7_26 """select * from test3_20231005"""
+            order_qt_sql_7_50 """select * from test3_20231005"""
 
             sql """switch test_es_query_es8"""
             order_qt_sql_8_01 """select * from test1 where test2='text#1'"""
@@ -347,6 +351,12 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_8_21 """select * from test1 where level = 'debug'"""
             order_qt_sql_8_22 """select * from test1 where esquery(c_ip, '{"match":{"c_ip":"192.168.0.1"}}')"""
             order_qt_sql_8_23 """select c_person, c_user, json_extract(c_person, '\$.[0].name'), json_extract(c_user, '\$.[1].last') from test1;"""
+            order_qt_sql_8_24 """select test7,substring(test7, 1, 10) from test2 where substring(test7, 1, 10)='2022-08-08' limit 2;"""
+            order_qt_sql_8_25 """select test7,substring(test7, 1, 10) from test2 where substring(test7, 1, 10)='2022-08-09' limit 2;"""
+            order_qt_sql_8_26 """select test7,substring(test7, 1, 10) from test2 where substring(test7, 1, 10)='2022-08-10' limit 2;"""
+            order_qt_sql_8_27 """select test7,substring(test7, 1, 10) from test2 where substring(test7, 1, 10)='2022-08-11' limit 2;"""
+            order_qt_sql_8_28 """select test1 from test1;"""
+            order_qt_sql_8_29 """select test2 from test1;"""
             try {
                 sql """select * from composite_type_array;"""
                 fail("Should not reach here")

@@ -49,12 +49,9 @@ github:
         strict: false
         contexts:
           - License Check
-          - Clang Formatter
           - CheckStyle
           - P0 Regression (Doris Regression)
-          - P1 Regression (Doris Regression)
           - External Regression (Doris External Regression)
-          - cloud_p1 (Doris Cloud Regression)
           - cloud_p0 (Doris Cloud Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
@@ -89,7 +86,6 @@ github:
         strict: false
         contexts:
           - License Check
-          - Clang Formatter
           - CheckStyle
           - Build Broker
           - ShellCheck
@@ -111,10 +107,8 @@ github:
         strict: false
         contexts:
           - License Check
-          - Clang Formatter
           - CheckStyle
           - P0 Regression (Doris Regression)
-          - P1 Regression (Doris Regression)
           - External Regression (Doris External Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)

@@ -123,8 +123,7 @@ public:
     }
 
     AggregateFunctionPtr get(const std::string& name, const DataTypes& argument_types,
-                             const bool result_is_nullable = false,
-                             int be_version = BeExecVersionManager::get_newest_version(),
+                             const bool result_is_nullable, int be_version,
                              bool enable_decima256 = false) {
         bool nullable = false;
         for (const auto& type : argument_types) {
