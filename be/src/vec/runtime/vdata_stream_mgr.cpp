@@ -102,7 +102,8 @@ Status VDataStreamMgr::find_recvr(const TUniqueId& fragment_instance_id, PlanNod
 }
 
 Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
-                                      ::google::protobuf::Closure** done) {
+                                      ::google::protobuf::Closure** done,
+                                      const int64_t wait_for_worker) {
     const PUniqueId& finst_id = request->finst_id();
     TUniqueId t_finst_id;
     t_finst_id.hi = finst_id.hi();
@@ -138,7 +139,7 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
     if (request->has_block()) {
         RETURN_IF_ERROR(recvr->add_block(request->block(), request->sender_id(),
                                          request->be_number(), request->packet_seq(),
-                                         eos ? nullptr : done));
+                                         eos ? nullptr : done, wait_for_worker));
     }
 
     if (eos) {
