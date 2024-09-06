@@ -303,9 +303,8 @@ PhysicalResultSink
 -- !test_cast_and_func --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((expr_abs(d_int) = expr_cast(d_tinyint as BIGINT))) otherCondition=()
-----filter((abs(d_int) < 10))
-------PhysicalOlapScan[test_cast_infer9]
-----filter((cast(d_tinyint as BIGINT) < 10) and (t2.d_tinyint < 10))
+----PhysicalOlapScan[test_cast_infer9]
+----filter((t2.d_tinyint < 10))
 ------PhysicalOlapScan[test_cast_infer9]
 
 -- !test_cast_and_func2 --
@@ -327,9 +326,8 @@ PhysicalResultSink
 -- !test_cast_and_func4 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.d_int = expr_cast(abs(d_tinyint) as INT))) otherCondition=()
-----filter((t1.d_int < 10))
-------PhysicalOlapScan[test_cast_infer9]
-----filter((abs(d_tinyint) < 10) and (cast(abs(d_tinyint) as INT) < 10))
+----PhysicalOlapScan[test_cast_infer9]
+----filter((abs(d_tinyint) < 10))
 ------PhysicalOlapScan[test_cast_infer9]
 
 -- !test_func_equal_and_nest_func_pred1 --

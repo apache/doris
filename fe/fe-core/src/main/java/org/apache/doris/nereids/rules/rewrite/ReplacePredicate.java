@@ -46,7 +46,9 @@ import org.apache.doris.nereids.util.ImmutableEqualSet;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -54,7 +56,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**ReplacePredicate*/
 public class ReplacePredicate {
@@ -106,7 +107,7 @@ public class ReplacePredicate {
 
         @Override
         public Void visitInPredicate(InPredicate inPredicate, Map<Expression, Set<Expression>> context) {
-            if (!inPredicate.isLiteralChildren()) {
+            if (!validInPredicate(inPredicate)) {
                 return null;
             }
             for (Expression expr : getAllSubExpressions(inPredicate.getCompareExpr())) {
@@ -118,9 +119,7 @@ public class ReplacePredicate {
         @Override
         public Void visitComparisonPredicate(ComparisonPredicate comparisonPredicate,
                 Map<Expression, Set<Expression>> context) {
-            Set<Slot> leftInputSlots = comparisonPredicate.child(0).getInputSlots();
-            Set<Slot> rightInputSlots = comparisonPredicate.child(1).getInputSlots();
-            if (!leftInputSlots.isEmpty() && !rightInputSlots.isEmpty()) {
+            if (!validComparisonPredicate(comparisonPredicate)) {
                 return null;
             }
             // It is believed that 1<a has been rewritten as a>1
@@ -132,7 +131,9 @@ public class ReplacePredicate {
 
         @Override
         public Void visitNot(Not not, Map<Expression, Set<Expression>> context) {
-            if (not.child(0) instanceof InPredicate || not.child(0) instanceof ComparisonPredicate) {
+            if (not.child(0) instanceof InPredicate && validInPredicate((InPredicate) not.child(0))
+                    || not.child(0) instanceof ComparisonPredicate
+                    && validComparisonPredicate((ComparisonPredicate) not.child(0))) {
                 for (Expression expr : getAllSubExpressions(not.child(0).child(0))) {
                     context.computeIfAbsent(expr, k -> new HashSet<>()).add(not);
                 }
@@ -149,6 +150,14 @@ public class ReplacePredicate {
                 context.computeIfAbsent(expr, k -> new HashSet<>()).add(like);
             }
             return null;
+        }
+
+        private boolean validComparisonPredicate(ComparisonPredicate comparisonPredicate) {
+            return comparisonPredicate.right() instanceof Literal;
+        }
+
+        private boolean validInPredicate(InPredicate inPredicate) {
+            return inPredicate.isLiteralChildren();
         }
     }
 
@@ -179,8 +188,7 @@ public class ReplacePredicate {
     EqualPairs is the output parameter and the equivalent pair of predicate derivation input,
     which is used to ensure that the derivation
     does not generate repeated equivalent conditions, such as a=b and b=a */
-    private static AbstractEqualSet<Expression> findEqual(Set<Expression> inputs,
-            Set<Pair<Expression, Expression>> equalPairs) {
+    private static AbstractEqualSet<Expression> findEqual(Set<Expression> inputs) {
         AbstractEqualSet.Builder<Expression> fromCastEqualSetBuilder = new ImmutableEqualSet.Builder<>();
         for (Expression input : inputs) {
             if (!(input instanceof EqualTo)) {
@@ -195,10 +203,9 @@ public class ReplacePredicate {
                 continue;
             }
             getEqualPair((ComparisonPredicate) input)
+                    .filter(pair -> pair.first instanceof Slot && pair.second instanceof Slot)
                     .ifPresent(pair -> {
                         fromCastEqualSetBuilder.addEqualPair(pair.first, pair.second);
-                        equalPairs.add(expressionCompare(pair.first, pair.second)
-                                ? Pair.of(pair.first, pair.second) : Pair.of(pair.second, pair.first));
                     });
         }
         return fromCastEqualSetBuilder.build();
@@ -213,12 +220,15 @@ public class ReplacePredicate {
     /** This is the exposed interface. Inputs are the input predicates for derivation.
      * The return value is the derived predicates*/
     public static Set<Expression> infer(Set<Expression> inputs) {
-        Set<Pair<Expression, Expression>> equalPairsInput = new HashSet<>();
-        AbstractEqualSet<Expression> hasCastEqualSet = findEqual(inputs, equalPairsInput);
+        AbstractEqualSet<Expression> hasCastEqualSet = findEqual(inputs);
         Set<Expression> targetExprs = hasCastEqualSet.getAllItemSet();
+        if (targetExprs.isEmpty()) {
+            return ImmutableSet.of();
+        }
         Map<Expression, Set<Expression>> exprPredicates = new HashMap<>();
         for (Expression input : inputs) {
-            if (input.anyMatch(expr -> !((ExpressionTrait) expr).isDeterministic())) {
+            if (input.anyMatch(expr -> !((ExpressionTrait) expr).isDeterministic())
+                    || input.getInputSlots().size() != 1) {
                 continue;
             }
             input.accept(PredicatesCollector.INSTANCE, exprPredicates);
@@ -233,7 +243,7 @@ public class ReplacePredicate {
                         exprPredicates));
             }
         }
-        inferPredicates.addAll(deduceTransitiveEquality(hasCastEqualSet, equalPairsInput));
+        inferPredicates.addAll(deduceTransitiveEquality(hasCastEqualSet, inputs));
         return inferPredicates;
     }
 
@@ -322,21 +332,20 @@ public class ReplacePredicate {
     /* This function is used to input a=b b=c to derive a=c, and return a=b b=c a=c.
      This function is not called temporarily */
     private static Set<Expression> deduceTransitiveEquality(AbstractEqualSet<Expression> equalSet,
-            Set<Pair<Expression, Expression>> equalPairsInput) {
+            Set<Expression> inputs) {
         List<Set<Expression>> equalSetList = equalSet.calEqualSetList();
         Set<Expression> derivedEqualities = new HashSet<>();
         for (Set<Expression> es : equalSetList) {
-            List<Expression> el = es.stream()
-                    .sorted(Comparator.comparingInt(Expression::hashCode).thenComparing(Expression::toSql))
-                    .collect(Collectors.toList());
+            List<Expression> el = new ArrayList<>(es);
             for (int i = 0; i < el.size(); i++) {
                 Expression left = el.get(i);
                 for (int j = i + 1; j < el.size(); j++) {
                     Expression right = el.get(j);
-                    if (equalPairsInput.contains(Pair.of(left, right))) {
+                    EqualTo newEqualTo = new EqualTo(left, right);
+                    if (inputs.contains(newEqualTo) || inputs.contains(newEqualTo.commute())) {
                         continue;
                     }
-                    derivedEqualities.add(TypeCoercionUtils.processComparisonPredicate(new EqualTo(left, right))
+                    derivedEqualities.add(TypeCoercionUtils.processComparisonPredicate(newEqualTo)
                             .withInferred(true));
                 }
             }

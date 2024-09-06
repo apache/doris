@@ -76,7 +76,7 @@ public class ReplacePredicateTest {
         Set<Expression> result = ReplacePredicate.infer(inputs);
 
         EqualTo expected = new EqualTo(a, c);
-        Assertions.assertTrue(result.contains(expected), "Expected to find a = c in the result.");
+        Assertions.assertTrue(result.contains(expected) || result.contains(expected.commute()), "Expected to find a = c in the result.");
     }
 
     @Test
@@ -93,7 +93,8 @@ public class ReplacePredicateTest {
         Set<Expression> result = ReplacePredicate.infer(inputs);
 
         EqualTo expected = new EqualTo(a, b);
-        Assertions.assertTrue(result.contains(expected), "Expected to find a = b in the result.");
+        Assertions.assertTrue(result.contains(expected) || result.contains(expected.commute()),
+                "Expected to find a = b in the result.");
     }
 
     @Test
@@ -110,7 +111,7 @@ public class ReplacePredicateTest {
         Set<Expression> result = ReplacePredicate.infer(inputs);
 
         EqualTo expected = new EqualTo(a, b);
-        Assertions.assertTrue(result.contains(expected), "Expected to find a = b in the result.");
+        Assertions.assertTrue(result.contains(expected) || result.contains(expected.commute()), "Expected to find a = b in the result.");
     }
 
     @Test
@@ -128,7 +129,7 @@ public class ReplacePredicateTest {
         Set<Expression> result = ReplacePredicate.infer(inputs);
 
         EqualTo expected = new EqualTo(a, b);
-        Assertions.assertTrue(result.contains(expected), "Expected to find a = b in the result.");
+        Assertions.assertTrue(result.contains(expected) || result.contains(expected.commute()), "Expected to find a = b in the result.");
     }
 
     @Test
@@ -246,9 +247,9 @@ public class ReplacePredicateTest {
         SlotReference a = new SlotReference("a", TinyIntType.INSTANCE);
         Cast castExprA = new Cast(a, IntegerType.INSTANCE);
         SlotReference b = new SlotReference("b", BigIntType.INSTANCE);
-        Cast castExprB = new Cast(a, IntegerType.INSTANCE);
+        Cast castExprB = new Cast(b, IntegerType.INSTANCE);
         SlotReference c = new SlotReference("c", DateType.INSTANCE);
-        Cast castExprC = new Cast(a, IntegerType.INSTANCE);
+        Cast castExprC = new Cast(c, IntegerType.INSTANCE);
 
         EqualTo equalTo1 = new EqualTo(castExprA, castExprB);
         EqualTo equalTo2 = new EqualTo(castExprA, castExprC);
