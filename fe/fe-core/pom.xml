@@ -1202,10 +1202,6 @@ under the License.
                         </configuration>
                     </execution>
                 </executions>
-                <configuration>
-                    <source>14</source>
-                    <target>14</target>
-                </configuration>
             </plugin>
             <!-- add gensrc java build src dir -->
             <plugin>

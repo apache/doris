@@ -192,12 +192,22 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         Predicate odpsPredicate = null;
         if (expr instanceof CompoundPredicate) {
             CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
-            com.aliyun.odps.table.optimizer.predicate.CompoundPredicate.Operator odpsOp = switch (
-                    compoundPredicate.getOp()) {
-                case AND -> com.aliyun.odps.table.optimizer.predicate.CompoundPredicate.Operator.AND;
-                case OR -> com.aliyun.odps.table.optimizer.predicate.CompoundPredicate.Operator.OR;
-                case NOT -> com.aliyun.odps.table.optimizer.predicate.CompoundPredicate.Operator.NOT;
-            };
+
+            com.aliyun.odps.table.optimizer.predicate.CompoundPredicate.Operator odpsOp;
+            switch (compoundPredicate.getOp()) {
+                case AND:
+                    odpsOp = com.aliyun.odps.table.optimizer.predicate.CompoundPredicate.Operator.AND;
+                    break;
+                case OR:
+                    odpsOp = com.aliyun.odps.table.optimizer.predicate.CompoundPredicate.Operator.OR;
+                    break;
+                case NOT:
+                    odpsOp = com.aliyun.odps.table.optimizer.predicate.CompoundPredicate.Operator.NOT;
+                    break;
+                default:
+                    throw new AnalysisException("Unknown operator: " + compoundPredicate.getOp());
+            }
+
             List<Predicate> odpsPredicates = new ArrayList<>();
 
             odpsPredicates.add(convertExprToOdpsPredicate(expr.getChild(0)));
@@ -241,18 +251,41 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
         } else if (expr instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
-            com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator odpsOp = switch (
-                    binaryPredicate.getOp()) {
-                case EQ -> com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.EQUALS;
-                case NE -> com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.NOT_EQUALS;
-                case GE -> com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.GREATER_THAN_OR_EQUAL;
-                case LE -> com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.LESS_THAN_OR_EQUAL;
-                case LT -> com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.LESS_THAN;
-                case GT -> com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.GREATER_THAN;
-                default -> null;
-            };
-            if (odpsOp != null) {
 
+
+            com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator odpsOp;
+            switch (binaryPredicate.getOp()) {
+                case EQ: {
+                    odpsOp = com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.EQUALS;
+                    break;
+                }
+                case NE: {
+                    odpsOp = com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.NOT_EQUALS;
+                    break;
+                }
+                case GE: {
+                    odpsOp = com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.GREATER_THAN_OR_EQUAL;
+                    break;
+                }
+                case LE: {
+                    odpsOp = com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.LESS_THAN_OR_EQUAL;
+                    break;
+                }
+                case LT: {
+                    odpsOp = com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.LESS_THAN;
+                    break;
+                }
+                case GT: {
+                    odpsOp = com.aliyun.odps.table.optimizer.predicate.BinaryPredicate.Operator.GREATER_THAN;
+                    break;
+                }
+                default: {
+                    odpsOp = null;
+                    break;
+                }
+            }
+
+            if (odpsOp != null) {
                 String columnName = convertSlotRefToColumnName(expr.getChild(0));
                 com.aliyun.odps.OdpsType odpsType  =  table.getColumnNameToOdpsColumn().get(columnName).getType();
                 StringBuilder stringBuilder = new StringBuilder();
