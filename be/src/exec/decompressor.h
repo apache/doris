@@ -25,6 +25,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <zlib.h>
+#include <zstd.h>
 
 #include <memory>
 #include <string>
