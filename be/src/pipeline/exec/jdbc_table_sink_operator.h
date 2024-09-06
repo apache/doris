@@ -44,7 +44,6 @@ public:
     JdbcTableSinkOperatorX(const RowDescriptor& row_desc, int operator_id,
                            const std::vector<TExpr>& select_exprs);
     Status init(const TDataSink& thrift_sink) override;
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;

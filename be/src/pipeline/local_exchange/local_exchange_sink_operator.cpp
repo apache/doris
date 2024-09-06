@@ -68,16 +68,10 @@ Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets
     return Status::OK();
 }
 
-Status LocalExchangeSinkOperatorX::prepare(RuntimeState* state) {
+Status LocalExchangeSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<LocalExchangeSinkLocalState>::open(state));
     if (_type == ExchangeType::HASH_SHUFFLE || _type == ExchangeType::BUCKET_HASH_SHUFFLE) {
         RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->row_desc()));
-    }
-
-    return Status::OK();
-}
-
-Status LocalExchangeSinkOperatorX::open(RuntimeState* state) {
-    if (_type == ExchangeType::HASH_SHUFFLE || _type == ExchangeType::BUCKET_HASH_SHUFFLE) {
         RETURN_IF_ERROR(_partitioner->open(state));
     }
 

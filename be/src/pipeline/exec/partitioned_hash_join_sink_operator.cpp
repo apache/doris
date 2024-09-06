@@ -424,13 +424,10 @@ Status PartitionedHashJoinSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
     return Status::OK();
 }
 
-Status PartitionedHashJoinSinkOperatorX::prepare(RuntimeState* state) {
+Status PartitionedHashJoinSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState>::open(state));
     RETURN_IF_ERROR(_inner_sink_operator->set_child(_child_x));
     RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->row_desc()));
-    return _inner_sink_operator->prepare(state);
-}
-
-Status PartitionedHashJoinSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(_partitioner->open(state));
     return _inner_sink_operator->open(state);
 }
