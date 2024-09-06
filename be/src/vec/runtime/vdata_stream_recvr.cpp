@@ -59,6 +59,10 @@ VDataStreamRecvr::SenderQueue::~SenderQueue() {
     DCHECK(_pending_closures.empty());
     for (auto closure_pair : _pending_closures) {
         closure_pair.first->Run();
+        int64_t elapse_time = closure_pair.second.elapsed_time();
+        if (_recvr->_max_wait_to_process_time->value() < elapse_time) {
+            _recvr->_max_wait_to_process_time->set(elapse_time);
+        }
     }
     _pending_closures.clear();
 }
@@ -103,6 +107,10 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block
     if (!_pending_closures.empty()) {
         auto closure_pair = _pending_closures.front();
         closure_pair.first->Run();
+        int64_t elapse_time = closure_pair.second.elapsed_time();
+        if (_recvr->_max_wait_to_process_time->value() < elapse_time) {
+            _recvr->_max_wait_to_process_time->set(elapse_time);
+        }
         _pending_closures.pop_front();
 
         closure_pair.second.stop();
@@ -125,7 +133,8 @@ void VDataStreamRecvr::SenderQueue::try_set_dep_ready_without_lock() {
 
 Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_number,
                                                 int64_t packet_seq,
-                                                ::google::protobuf::Closure** done) {
+                                                ::google::protobuf::Closure** done,
+                                                const int64_t wait_for_worker) {
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_is_cancelled) {
@@ -176,6 +185,9 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
     COUNTER_UPDATE(_recvr->_decompress_bytes, block->get_decompressed_bytes());
     COUNTER_UPDATE(_recvr->_rows_produced_counter, rows);
     COUNTER_UPDATE(_recvr->_blocks_produced_counter, 1);
+    if (_recvr->_max_wait_worker_time->value() < wait_for_worker) {
+        _recvr->_max_wait_worker_time->set(wait_for_worker);
+    }
 
     _block_queue.emplace_back(std::move(block), block_byte_size);
     COUNTER_UPDATE(_recvr->_remote_bytes_received_counter, block_byte_size);
@@ -266,6 +278,10 @@ void VDataStreamRecvr::SenderQueue::cancel(Status cancel_status) {
         std::lock_guard<std::mutex> l(_lock);
         for (auto closure_pair : _pending_closures) {
             closure_pair.first->Run();
+            int64_t elapse_time = closure_pair.second.elapsed_time();
+            if (_recvr->_max_wait_to_process_time->value() < elapse_time) {
+                _recvr->_max_wait_to_process_time->set(elapse_time);
+            }
         }
         _pending_closures.clear();
     }
@@ -282,6 +298,10 @@ void VDataStreamRecvr::SenderQueue::close() {
 
         for (auto closure_pair : _pending_closures) {
             closure_pair.first->Run();
+            int64_t elapse_time = closure_pair.second.elapsed_time();
+            if (_recvr->_max_wait_to_process_time->value() < elapse_time) {
+                _recvr->_max_wait_to_process_time->set(elapse_time);
+            }
         }
         _pending_closures.clear();
     }
@@ -341,6 +361,8 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
     _decompress_bytes = ADD_COUNTER(_profile, "DecompressBytes", TUnit::BYTES);
     _rows_produced_counter = ADD_COUNTER(_profile, "RowsProduced", TUnit::UNIT);
     _blocks_produced_counter = ADD_COUNTER(_profile, "BlocksProduced", TUnit::UNIT);
+    _max_wait_worker_time = ADD_COUNTER(_profile, "MaxWaitForWorkerTime", TUnit::UNIT);
+    _max_wait_to_process_time = ADD_COUNTER(_profile, "MaxWaitToProcessTime", TUnit::UNIT);
 }
 
 VDataStreamRecvr::~VDataStreamRecvr() {
@@ -368,10 +390,12 @@ Status VDataStreamRecvr::create_merger(const VExprContextSPtrs& ordering_expr,
 }
 
 Status VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_number,
-                                   int64_t packet_seq, ::google::protobuf::Closure** done) {
+                                   int64_t packet_seq, ::google::protobuf::Closure** done,
+                                   const int64_t wait_for_worker) {
     SCOPED_ATTACH_TASK(_query_thread_context);
     int use_sender_id = _is_merging ? sender_id : 0;
-    return _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done);
+    return _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done,
+                                                    wait_for_worker);
 }
 
 void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
