@@ -50,8 +50,8 @@ Status DataGenSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
     return Status::OK();
 }
 
-Status DataGenSourceOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<DataGenLocalState>::prepare(state));
+Status DataGenSourceOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(OperatorX<DataGenLocalState>::open(state));
     // get tuple desc
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 

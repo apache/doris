@@ -58,7 +58,7 @@ PipelineTask::PipelineTask(
           _state(state),
           _fragment_context(fragment_context),
           _parent_profile(parent_profile),
-          _operators(pipeline->operator_xs()),
+          _operators(pipeline->operators()),
           _source(_operators.front().get()),
           _root(_operators.back().get()),
           _sink(pipeline->sink_shared_pointer()),

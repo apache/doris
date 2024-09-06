@@ -70,7 +70,6 @@ public:
         _exchange_type = type;
         return Status::OK();
     }
-    Status prepare(RuntimeState* state) override { return Status::OK(); }
     Status open(RuntimeState* state) override { return Status::OK(); }
     const RowDescriptor& intermediate_row_desc() const override {
         return _child_x->intermediate_row_desc();

@@ -198,7 +198,7 @@ Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
     return Status::OK();
 }
 
-Status OperatorXBase::prepare(RuntimeState* state) {
+Status OperatorXBase::open(RuntimeState* state) {
     for (auto& conjunct : _conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, intermediate_row_desc()));
     }
@@ -213,14 +213,6 @@ Status OperatorXBase::prepare(RuntimeState* state) {
                 vectorized::VExpr::check_expr_output_type(_projections, *_output_row_descriptor));
     }
 
-    if (_child_x && !is_source()) {
-        RETURN_IF_ERROR(_child_x->prepare(state));
-    }
-
-    return Status::OK();
-}
-
-Status OperatorXBase::open(RuntimeState* state) {
     for (auto& conjunct : _conjuncts) {
         RETURN_IF_ERROR(conjunct->open(state));
     }
