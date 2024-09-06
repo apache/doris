@@ -95,7 +95,7 @@ public:
     [[nodiscard]] Status append(Slice data);
 
     // read data from cache file
-    [[nodiscard]] Status read(Slice buffer, size_t read_offset);
+    [[nodiscard]] Status read(Slice buffer, size_t read_offset, const IOContext* io_ctx);
 
     // finish write, release the file writer
     [[nodiscard]] Status finalize();

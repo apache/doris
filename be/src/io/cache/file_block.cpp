@@ -157,8 +157,8 @@ Status FileBlock::finalize() {
     return st;
 }
 
-Status FileBlock::read(Slice buffer, size_t read_offset) {
-    return _mgr->_storage->read(_key, read_offset, buffer);
+Status FileBlock::read(Slice buffer, size_t read_offset, const IOContext* io_ctx) {
+    return _mgr->_storage->read(_key, read_offset, buffer, io_ctx);
 }
 
 Status FileBlock::change_cache_type_between_ttl_and_others(FileCacheType new_type) {

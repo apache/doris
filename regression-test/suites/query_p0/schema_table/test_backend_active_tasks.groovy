@@ -22,19 +22,19 @@ suite("test_backend_active_tasks") {
             sql "set experimental_enable_pipeline_engine=false"
             sql "set experimental_enable_pipeline_x_engine=false"
             sql "select * from information_schema.backend_active_tasks"
-            sql "select BE_ID,FE_HOST,QUERY_ID,SCAN_ROWS from information_schema.backend_active_tasks"
+            sql "select BE_ID,FE_HOST,QUERY_ID,SCAN_ROWS,LOCAL_SCAN_BYTES,REMOTE_SCAN_BYTES from information_schema.backend_active_tasks"
 
             // pipeline
             sql "set experimental_enable_pipeline_engine=true"
             sql "set experimental_enable_pipeline_x_engine=false"
             sql "select * from information_schema.backend_active_tasks"
-            sql "select BE_ID,FE_HOST,QUERY_ID,SCAN_ROWS from information_schema.backend_active_tasks"
+            sql "select BE_ID,FE_HOST,QUERY_ID,SCAN_ROWS,LOCAL_SCAN_BYTES,REMOTE_SCAN_BYTES from information_schema.backend_active_tasks"
 
             // pipelinex
             sql "set experimental_enable_pipeline_engine=true"
             sql "set experimental_enable_pipeline_x_engine=true"
             sql "select * from information_schema.backend_active_tasks"
-            sql "select BE_ID,FE_HOST,QUERY_ID,SCAN_ROWS from information_schema.backend_active_tasks"
+            sql "select BE_ID,FE_HOST,QUERY_ID,SCAN_ROWS,LOCAL_SCAN_BYTES,REMOTE_SCAN_BYTES from information_schema.backend_active_tasks"
             Thread.sleep(1000)
         }
     })

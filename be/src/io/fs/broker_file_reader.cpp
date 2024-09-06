@@ -32,6 +32,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/broker_file_system.h"
+#include "io/io_common.h"
 #include "util/doris_metrics.h"
 
 namespace doris::io {
@@ -92,7 +93,7 @@ Status BrokerFileReader::close() {
 }
 
 Status BrokerFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                      const IOContext* /*io_ctx*/) {
+                                      const IOContext* io_ctx) {
     if (closed()) [[unlikely]] {
         return Status::InternalError("read closed file: ", _path.native());
     }
@@ -145,6 +146,9 @@ Status BrokerFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes
 
     *bytes_read = response.data.size();
     memcpy(to, response.data.data(), *bytes_read);
+    if (io_ctx && io_ctx->file_cache_stats) {
+        io_ctx->file_cache_stats->bytes_read_from_remote += bytes_req;
+    }
     return Status::OK();
 }
 

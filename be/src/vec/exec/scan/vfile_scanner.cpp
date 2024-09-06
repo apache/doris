@@ -1238,4 +1238,19 @@ void VFileScanner::_collect_profile_before_close() {
     }
 }
 
+void VFileScanner::_update_bytes_and_rows_read() {
+    VScanner::_update_bytes_and_rows_read();
+    if (_query_statistics && _io_ctx.get() && _io_ctx->file_cache_stats) {
+        int64_t delta_local =
+                _io_ctx->file_cache_stats->bytes_read_from_local - _bytes_read_from_local;
+        int64_t delta_remote =
+                _io_ctx->file_cache_stats->bytes_read_from_remote - _bytes_read_from_remote;
+        _query_statistics->add_scan_bytes_from_local_storage(delta_local);
+        _query_statistics->add_scan_bytes_from_remote_storage(delta_remote);
+        _query_statistics->add_scan_bytes(delta_local + delta_remote);
+        _bytes_read_from_local = _io_ctx->file_cache_stats->bytes_read_from_local;
+        _bytes_read_from_remote = _io_ctx->file_cache_stats->bytes_read_from_remote;
+    }
+}
+
 } // namespace doris::vectorized

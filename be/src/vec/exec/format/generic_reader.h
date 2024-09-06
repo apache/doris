@@ -34,6 +34,7 @@ class Block;
 class GenericReader : public ProfileCollector {
 public:
     GenericReader() : _push_down_agg_type(TPushAggOp::type::NONE) {}
+
     void set_push_down_agg_type(TPushAggOp::type push_down_agg_type) {
         _push_down_agg_type = push_down_agg_type;
     }
