@@ -660,6 +660,16 @@ public abstract class ExternalCatalog
         }
     }
 
+    /**
+     * Build a database instance.
+     * If checkExists is true, it will check if the database exists in the remote system.
+     *
+     * @param dbName
+     * @param dbId
+     * @param logType
+     * @param checkExists
+     * @return
+     */
     protected ExternalDatabase<? extends ExternalTable> buildDbForInit(String dbName, long dbId,
             InitCatalogLog.Type logType, boolean checkExists) {
         if (checkExists) {
