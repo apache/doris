@@ -100,6 +100,5 @@ suite('scanner_profile') {
     assertTrue(queryIdWithLimit1 != "")
     def String profileWithLimit1 = getProfile(queryIdWithLimit1).toString()
     logger.info("query profile {}", profileWithLimit1)
-    assertTrue(profileWithLimit1.contains("- MaxRunningScannerAtSameTime: 1"))
-    assertTrue(profileWithLimit1.contains("- MaxMemoryUsageAtSameTime:"))
+    assertTrue(profileWithLimit1.contains("- PeakRunningScanner: 1"))
 }
