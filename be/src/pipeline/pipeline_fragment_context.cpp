@@ -1626,14 +1626,14 @@ void PipelineFragmentContext::_close_fragment_instance() {
     Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
-    // Print profile content in info log is a tempoeray solution for stream load.
+    // Print profile content in info log is a tempoeray solution for stream load and external_connector.
     // Since stream load does not have someting like coordinator on FE, so
     // backend can not report profile to FE, ant its profile can not be shown
     // in the same way with other query. So we print the profile content to info log.
-    // Print profile content in log is harmful for log readability, info log will be
-    // full of profile content, and not just profile of stream load.
-    // We know it, but currently we do not have a cheap and good solution for this.
-    if (_runtime_state->enable_profile()) {
+
+    if (_runtime_state->enable_profile() &&
+        (_query_ctx->get_query_source() == QuerySource::STREAM_LOAD ||
+         _query_ctx->get_query_source() == QuerySource::EXTERNAL_CONNECTOR)) {
         std::stringstream ss;
         // Compute the _local_time_percent before pretty_print the runtime_profile
         // Before add this operation, the print out like that:
