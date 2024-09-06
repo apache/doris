@@ -254,6 +254,7 @@ public:
             Field key, value;
             columns[0]->get(i, key);
             if (key.is_null()) {
+                col.insert(Map {Array {}, Array {}});
                 continue;
             }
 
