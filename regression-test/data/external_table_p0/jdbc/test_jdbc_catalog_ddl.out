@@ -8,7 +8,19 @@ information_schema
 init_db
 mysql
 show_test_do_not_modify
-temp_database
+
+-- !sql01 --
+12345
+
+-- !show_db --
+DORIS
+Doris
+doris
+doris_test
+information_schema
+init_db
+mysql
+show_test_do_not_modify
 
 -- !sql01 --
 12345
