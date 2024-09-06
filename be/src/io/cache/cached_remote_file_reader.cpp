@@ -123,6 +123,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         *bytes_read = 0;
         return Status::OK();
     }
+
     ReadStatistics stats;
     auto defer_func = [&](int*) {
         if (io_ctx->file_cache_stats) {
@@ -131,7 +132,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         }
     };
     std::unique_ptr<int, decltype(defer_func)> defer((int*)0x01, std::move(defer_func));
-    stats.bytes_read += bytes_req;
+
     if (config::enable_read_cache_file_directly) {
         // read directly
         size_t need_read_size = bytes_req;
@@ -155,7 +156,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                     SCOPED_RAW_TIMER(&stats.local_read_timer);
                     if (!iter->second
                                  ->read(Slice(result.data + (cur_offset - offset), reserve_bytes),
-                                        file_offset)
+                                        file_offset, io_ctx)
                                  .ok()) {
                         break;
                     }
@@ -289,7 +290,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                 size_t file_offset = current_offset - left;
                 SCOPED_RAW_TIMER(&stats.local_read_timer);
                 st = block->read(Slice(result.data + (current_offset - offset), read_size),
-                                 file_offset);
+                                 file_offset, io_ctx);
             }
             if (!st || block_state != FileBlock::State::DOWNLOADED) {
                 LOG(WARNING) << "Read data failed from file cache downloaded by others. err="
@@ -300,7 +301,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                 SCOPED_RAW_TIMER(&stats.remote_read_timer);
                 RETURN_IF_ERROR(_remote_file_reader->read_at(
                         current_offset, Slice(result.data + (current_offset - offset), read_size),
-                        &bytes_read));
+                        &bytes_read, io_ctx));
                 DCHECK(bytes_read == read_size);
             }
         }
@@ -318,10 +319,8 @@ void CachedRemoteFileReader::_update_state(const ReadStatistics& read_stats,
     }
     if (read_stats.hit_cache) {
         statis->num_local_io_total++;
-        statis->bytes_read_from_local += read_stats.bytes_read;
     } else {
         statis->num_remote_io_total++;
-        statis->bytes_read_from_remote += read_stats.bytes_read;
     }
     statis->remote_io_timer += read_stats.remote_read_timer;
     statis->local_io_timer += read_stats.local_read_timer;
@@ -330,7 +329,6 @@ void CachedRemoteFileReader::_update_state(const ReadStatistics& read_stats,
     statis->write_cache_io_timer += read_stats.local_write_timer;
 
     g_skip_cache_num << read_stats.skip_cache;
-    g_skip_cache_sum << read_stats.skip_cache;
 }
 
 } // namespace doris::io

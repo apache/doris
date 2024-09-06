@@ -103,8 +103,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
         }
     }
 
-    int64_t old_scan_rows = _num_rows_read;
-    int64_t old_scan_bytes = _num_byte_read;
+    _prev_num_rows_read = _num_rows_read;
     {
         do {
             // if step 2 filter all rows of block, and block will be reused to get next rows,
@@ -122,7 +121,6 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                     break;
                 }
                 _num_rows_read += block->rows();
-                _num_byte_read += block->allocated_bytes();
             }
 
             // 2. Filter the output block finally.
@@ -136,10 +134,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                  _num_rows_read < rows_read_threshold);
     }
 
-    if (_query_statistics) {
-        _query_statistics->add_scan_rows(_num_rows_read - old_scan_rows);
-        _query_statistics->add_scan_bytes(_num_byte_read - old_scan_bytes);
-    }
+    _update_bytes_and_rows_read();
 
     if (state->is_cancelled()) {
         // TODO: Should return the specific ErrorStatus instead of just Cancelled.
@@ -263,6 +258,13 @@ void VScanner::update_scan_cpu_timer() {
     _query_statistics->add_cpu_nanos(cpu_time);
     if (_state && _state->get_query_ctx()) {
         _state->get_query_ctx()->update_wg_cpu_adder(cpu_time);
+    }
+}
+
+void VScanner::_update_bytes_and_rows_read() {
+    if (_query_statistics) {
+        _query_statistics->add_scan_rows(_num_rows_read - _prev_num_rows_read);
+        _prev_num_rows_read = _num_rows_read;
     }
 }
 

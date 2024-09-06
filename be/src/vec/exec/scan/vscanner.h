@@ -164,6 +164,10 @@ protected:
         _conjuncts.clear();
     }
 
+    // update the bytes and rows read at each round in query statistics.
+    // so that we can get runtime statistics for each query.
+    virtual void _update_bytes_and_rows_read();
+
     RuntimeState* _state = nullptr;
     pipeline::ScanLocalStateBase* _local_state = nullptr;
     QueryStatistics* _query_statistics = nullptr;
@@ -205,8 +209,12 @@ protected:
 
     // num of rows read from scanner
     int64_t _num_rows_read = 0;
-
-    int64_t _num_byte_read = 0;
+    // save the current _num_rows_read before next round,
+    // so that we can get delta rows between each round.
+    int64_t _prev_num_rows_read = 0;
+    // bytes read from local and remote fs
+    int64_t _bytes_read_from_local = 0;
+    int64_t _bytes_read_from_remote = 0;
 
     // num of rows return from scanner, after filter block
     int64_t _num_rows_return = 0;

@@ -152,7 +152,8 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key) {
     return fs->rename(file_writer->path(), true_file);
 }
 
-Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Slice buffer) {
+Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Slice buffer,
+                                const IOContext* io_ctx) {
     AccessKeyAndOffset fd_key = std::make_pair(key.hash, key.offset);
     FileReaderSPtr file_reader = FDCache::instance()->get_file_reader(fd_key);
     if (!file_reader) {
@@ -184,7 +185,7 @@ Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Sl
         FDCache::instance()->insert_file_reader(fd_key, file_reader);
     }
     size_t bytes_read = 0;
-    auto s = file_reader->read_at(value_offset, buffer, &bytes_read);
+    auto s = file_reader->read_at(value_offset, buffer, &bytes_read, io_ctx);
     if (!s.ok()) {
         LOG(WARNING) << "read file failed, file=" << file_reader->path()
                      << ", error=" << s.to_string();

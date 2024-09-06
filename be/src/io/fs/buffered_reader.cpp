@@ -394,7 +394,7 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
 // there exists occasions where the buffer is already closed but
 // some prior tasks are still queued in thread pool, so we have to check whether
 // the buffer is closed each time the condition variable is notified.
-void PrefetchBuffer::reset_offset(size_t offset) {
+void PrefetchBuffer::reset_offset(size_t offset, const IOContext* io_ctx) {
     {
         std::unique_lock lck {_lock};
         if (!_prefetched.wait_for(
@@ -418,8 +418,34 @@ void PrefetchBuffer::reset_offset(size_t offset) {
     } else {
         _exceed = false;
     }
+
+    // The "io_ctx" in the input parameter belongs to the upper caller.
+    // Because PrefetchBuffer actually runs in another thread,
+    // its life cycle may be different from that of the caller.
+    // Therefore, before submitting PrefetchBuffer to the thread pool,
+    // we need to copy io_ctx to _owned_io_ctx to ensure that
+    // the life cycle of IOContext is consistent with that of PrefetchBuffer.
+    // _update_and_reset_io_context(io_ctx);
     _prefetch_status = ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool()->submit_func(
             [buffer_ptr = shared_from_this()]() { buffer_ptr->prefetch_buffer(); });
+}
+
+void PrefetchBuffer::_update_and_reset_io_context(const IOContext* io_ctx) {
+    if (io_ctx) {
+        // If file_cache_stats is set in the input parameter,
+        // first need to update the last statistics in _owned_cache_stats
+        // to the file_cache_stats in the input parameter.
+        // Then reset _owned_cache_stats
+        if (io_ctx->file_cache_stats) {
+            io_ctx->file_cache_stats->update(_owned_cache_stats);
+            LOG(INFO) << "yy debug _update_and_reset_io_context. old: "
+                      << _owned_cache_stats.debug_string() << ", new: " << io_ctx->debug_string();
+            _owned_cache_stats.reset();
+        }
+        // Copy io_ctx
+        _owned_io_ctx = *io_ctx;
+        _owned_io_ctx.file_cache_stats = &_owned_cache_stats;
+    }
 }
 
 // only this function would run concurrently in another thread
@@ -458,7 +484,9 @@ void PrefetchBuffer::prefetch_buffer() {
 
     {
         SCOPED_RAW_TIMER(&_statis.read_time);
-        s = _reader->read_at(_offset, Slice {_buf.get(), buf_size}, &_len, _io_ctx);
+        // Use owned io_ctx here
+        s = _reader->read_at(_offset, Slice {_buf.get(), buf_size}, &_len, nullptr);
+        // LOG(INFO) << "yy debug prefetch_buffer: " << _owned_io_ctx.debug_string();
     }
     if (UNLIKELY(s.ok() && buf_size != _len)) {
         // This indicates that the data size returned by S3 object storage is smaller than what we requested,
@@ -545,15 +573,14 @@ size_t PrefetchBuffer::merge_small_ranges(size_t off, int range_index) const {
     return _size - remaining;
 }
 
-Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
-                                   size_t* bytes_read) {
+Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len, size_t* bytes_read,
+                                   const IOContext* io_ctx) {
     if (UNLIKELY(off >= _file_range.end_offset)) {
-        // Reader can read out of [start_offset, end_offset) by synchronous method.
-        return _reader->read_at(off, Slice {out, buf_len}, bytes_read, _io_ctx);
+        return _reader->read_at(off, Slice {out, buf_len}, bytes_read, io_ctx);
     }
     if (_exceed) {
-        reset_offset((off / _size) * _size);
-        return read_buffer(off, out, buf_len, bytes_read);
+        reset_offset((off / _size) * _size, io_ctx);
+        return read_buffer(off, out, buf_len, bytes_read, io_ctx);
     }
     auto start = std::chrono::steady_clock::now();
     // The baseline time is calculated by dividing the size of each buffer by MB/s.
@@ -584,8 +611,8 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
     // there is only parquet would do not sequence read
     // it would read the end of the file first
     if (UNLIKELY(!contains(off))) {
-        reset_offset((off / _size) * _size);
-        return read_buffer(off, out, buf_len, bytes_read);
+        reset_offset((off / _size) * _size, io_ctx);
+        return read_buffer(off, out, buf_len, bytes_read, io_ctx);
     }
     if (UNLIKELY(0 == _len || _offset + _len < off)) {
         return Status::OK();
@@ -602,9 +629,12 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
         *bytes_read = read_len;
         _statis.request_io += 1;
         _statis.request_bytes += read_len;
+        if (io_ctx && io_ctx->file_cache_stats) {
+            io_ctx->file_cache_stats->bytes_read_from_remote += read_len;
+        }
     }
     if (off + *bytes_read == _offset + _len) {
-        reset_offset(_offset + _whole_buffer_size);
+        reset_offset(_offset + _whole_buffer_size, io_ctx);
     }
     return Status::OK();
 }
@@ -630,9 +660,8 @@ void PrefetchBuffer::_collect_profile_before_close() {
 
 // buffered reader
 PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
-                                               PrefetchRange file_range, const IOContext* io_ctx,
-                                               int64_t buffer_size)
-        : _reader(std::move(reader)), _file_range(file_range), _io_ctx(io_ctx) {
+                                               PrefetchRange file_range, int64_t buffer_size)
+        : _reader(std::move(reader)), _file_range(file_range) {
     if (buffer_size == -1L) {
         buffer_size = config::remote_storage_read_buffer_mb * 1024 * 1024;
     }
@@ -667,7 +696,7 @@ PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::File
     // to make sure the buffer reader will start to read at right position.
     for (int i = 0; i < buffer_num; i++) {
         _pre_buffers.emplace_back(std::make_shared<PrefetchBuffer>(
-                _file_range, s_max_pre_buffer_size, _whole_pre_buffer_size, _reader.get(), _io_ctx,
+                _file_range, s_max_pre_buffer_size, _whole_pre_buffer_size, _reader.get(),
                 sync_buffer));
     }
 }
@@ -692,11 +721,15 @@ Status PrefetchBufferedReader::read_at_impl(size_t offset, Slice result, size_t*
     while (actual_bytes_read < nbytes && offset < size()) {
         size_t read_num = 0;
         auto buffer_pos = get_buffer_pos(offset);
-        RETURN_IF_ERROR(
-                _pre_buffers[buffer_pos]->read_buffer(offset, result.get_data() + actual_bytes_read,
-                                                      nbytes - actual_bytes_read, &read_num));
+        RETURN_IF_ERROR(_pre_buffers[buffer_pos]->read_buffer(
+                offset, result.get_data() + actual_bytes_read, nbytes - actual_bytes_read,
+                &read_num, io_ctx));
         actual_bytes_read += read_num;
         offset += read_num;
+        if (io_ctx) {
+            LOG(INFO) << "yy debug PrefetchBufferedReader::read_at_impl: "
+                      << io_ctx->debug_string();
+        }
     }
     *bytes_read = actual_bytes_read;
     return Status::OK();
@@ -862,7 +895,7 @@ Result<io::FileReaderSPtr> DelegateReader::create_file_reader(
                     if (is_thread_safe) {
                         // PrefetchBufferedReader needs thread-safe reader to prefetch data concurrently.
                         return std::make_shared<io::PrefetchBufferedReader>(
-                                profile, std::move(reader), file_range, io_ctx);
+                                profile, std::move(reader), file_range);
                     }
                 }
 

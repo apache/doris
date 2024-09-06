@@ -256,28 +256,26 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                     ? 0
                                     : rowset_meta->newest_write_timestamp() +
                                               _tablet_meta->ttl_seconds();
+                    io::IOContext io_ctx;
+                    io_ctx.expiration_time = expiration_time;
                     _engine.file_cache_block_downloader().submit_download_task(
                             io::DownloadFileMeta {
                                     .path = storage_resource.value()->remote_segment_path(
                                             *rowset_meta, seg_id),
                                     .file_size = rs->rowset_meta()->segment_file_size(seg_id),
                                     .file_system = storage_resource.value()->fs,
-                                    .ctx =
-                                            {
-                                                    .expiration_time = expiration_time,
-                                            },
+                                    .ctx = io_ctx,
                                     .download_done {},
                             });
 
+                    io::IOContext io_ctx2;
+                    io_ctx2.expiration_time = expiration_time;
                     auto download_idx_file = [&](const io::Path& idx_path) {
                         io::DownloadFileMeta meta {
                                 .path = idx_path,
                                 .file_size = -1,
                                 .file_system = storage_resource.value()->fs,
-                                .ctx =
-                                        {
-                                                .expiration_time = expiration_time,
-                                        },
+                                .ctx = io_ctx2,
                                 .download_done {},
                         };
                         _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
