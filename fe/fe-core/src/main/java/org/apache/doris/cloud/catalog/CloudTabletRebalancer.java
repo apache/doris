@@ -499,9 +499,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
             List<Long> tabletIds = new ArrayList<Long>();
             for (Tablet tablet : index.getTablets()) {
                 for (Replica replica : tablet.getReplicas()) {
-                    Map<String, List<Long>> clusterToBackends =
-                            ((CloudReplica) replica).getClusterToBackends();
-                    if (!clusterToBackends.containsKey(cluster)) {
+                    Map<String, List<Long>> primaryClusterToBackends =
+                            ((CloudReplica) replica).getprimaryClusterToBackends();
+                    if (!primaryClusterToBackends.containsKey(cluster)) {
                         long beId = ((CloudReplica) replica).hashReplicaToBe(cluster, true);
                         ((CloudReplica) replica).updateClusterToBe(cluster, beId, true);
                         if (beId <= 0) {
@@ -510,13 +510,13 @@ public class CloudTabletRebalancer extends MasterDaemon {
                         }
                         List<Long> bes = new ArrayList<Long>();
                         bes.add(beId);
-                        clusterToBackends.put(cluster, bes);
+                        primaryClusterToBackends.put(cluster, bes);
 
                         assigned = true;
                         beIds.add(beId);
                         tabletIds.add(tablet.getId());
                     } else {
-                        beIds.add(clusterToBackends.get(cluster).get(0));
+                        beIds.add(primaryClusterToBackends.get(cluster).get(0));
                         tabletIds.add(tablet.getId());
                     }
                 }
@@ -570,9 +570,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
         loopCloudReplica((Database db, Table table, Partition partition, MaterializedIndex index, String cluster) -> {
             for (Tablet tablet : index.getTablets()) {
                 for (Replica replica : tablet.getReplicas()) {
-                    Map<String, List<Long>> clusterToBackends =
-                            ((CloudReplica) replica).getClusterToBackends();
-                    for (Map.Entry<String, List<Long>> entry : clusterToBackends.entrySet()) {
+                    Map<String, List<Long>> primaryClusterToBackends =
+                            ((CloudReplica) replica).getprimaryClusterToBackends();
+                    for (Map.Entry<String, List<Long>> entry : primaryClusterToBackends.entrySet()) {
                         if (!cluster.equals(entry.getKey())) {
                             continue;
                         }

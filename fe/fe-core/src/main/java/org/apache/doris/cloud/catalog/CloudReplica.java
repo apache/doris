@@ -423,7 +423,7 @@ public class CloudReplica extends Replica {
         return idx;
     }
 
-    public Map<String, List<Long>> getClusterToBackends() {
+    public Map<String, List<Long>> getprimaryClusterToBackends() {
         return primaryClusterToBackends;
     }
 
