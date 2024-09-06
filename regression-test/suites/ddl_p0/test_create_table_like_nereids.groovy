@@ -16,24 +16,6 @@
 // under the License.
 
 suite("test_create_table_like_nereids") {
-    def getMVJobState = { tableName ->
-        def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1 """
-        return jobStateResult[0][8]
-    }
-    def waitForMVJob =  (tbName, timeout) -> {
-        while (timeout--){
-            String result = getMVJobState(tbName)
-            if (result == "FINISHED") {
-                sleep(3000)
-                break
-            } else {
-                sleep(100)
-                if (timeout < 1){
-                    assertEquals(1,2)
-                }
-            }
-        }
-    }
     sql "SET enable_nereids_planner=true;"
     sql "SET enable_fallback_to_original_planner=false;"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
