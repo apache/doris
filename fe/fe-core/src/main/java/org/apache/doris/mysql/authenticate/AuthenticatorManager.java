@@ -17,47 +17,67 @@
 
 package org.apache.doris.mysql.authenticate;
 
+import org.apache.doris.common.EnvUtils;
 import org.apache.doris.mysql.MysqlAuthPacket;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
-import org.apache.doris.mysql.authenticate.ldap.LdapAuthenticator;
 import org.apache.doris.mysql.authenticate.password.Password;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Optional;
+import java.util.Properties;
+import java.util.ServiceLoader;
 
 public class AuthenticatorManager {
     private static final Logger LOG = LogManager.getLogger(AuthenticatorManager.class);
 
-    private Authenticator defaultAuthenticator;
-    private Authenticator authTypeAuthenticator;
+    private static volatile Authenticator defaultAuthenticator = null;
+    private static volatile Authenticator authTypeAuthenticator = null;
 
-    public AuthenticatorManager(AuthenticateType type) {
-        LOG.info("authenticate type: {}", type);
-        this.defaultAuthenticator = new DefaultAuthenticator();
-        switch (type) {
-            case LDAP:
-                this.authTypeAuthenticator = new LdapAuthenticator();
-                break;
-            case DEFAULT:
-            default:
-                this.authTypeAuthenticator = defaultAuthenticator;
-                break;
+    public AuthenticatorManager(String type) {
+        LOG.info("Authenticate type: {}", type);
+
+        if (authTypeAuthenticator == null) {
+            synchronized (AuthenticatorManager.class) {
+                if (authTypeAuthenticator == null) {
+                    try {
+                        authTypeAuthenticator = loadFactoriesByName(type);
+                    } catch (Exception e) {
+                        LOG.warn("Failed to load authenticator by name: {}, using default authenticator", type, e);
+                        authTypeAuthenticator = defaultAuthenticator;
+                    }
+                }
+            }
         }
     }
 
+
+    private Authenticator loadFactoriesByName(String identifier) throws Exception {
+        ServiceLoader<AuthenticatorFactory> loader = ServiceLoader.load(AuthenticatorFactory.class);
+        for (AuthenticatorFactory factory : loader) {
+            LOG.info("Found Authenticator Plugin Factory: {}", factory.factoryIdentifier());
+            if (factory.factoryIdentifier().equalsIgnoreCase(identifier)) {
+                return factory.create(loadConfigFile());
+            }
+        }
+        throw new RuntimeException("No AuthenticatorFactory found for identifier: " + identifier);
+    }
+
     public boolean authenticate(ConnectContext context,
-            String userName,
-            MysqlChannel channel,
-            MysqlSerializer serializer,
-            MysqlAuthPacket authPacket,
-            MysqlHandshakePacket handshakePacket) throws IOException {
+                                String userName,
+                                MysqlChannel channel,
+                                MysqlSerializer serializer,
+                                MysqlAuthPacket authPacket,
+                                MysqlHandshakePacket handshakePacket) throws IOException {
         Authenticator authenticator = chooseAuthenticator(userName);
         Optional<Password> password = authenticator.getPasswordResolver()
                 .resolvePassword(context, channel, serializer, authPacket, handshakePacket);
@@ -79,5 +99,16 @@ public class AuthenticatorManager {
 
     private Authenticator chooseAuthenticator(String userName) {
         return authTypeAuthenticator.canDeal(userName) ? authTypeAuthenticator : defaultAuthenticator;
+    }
+
+    private static Properties loadConfigFile() throws Exception {
+        String configFilePath = EnvUtils.getDorisHome() + "/conf/authenticate.conf";
+        if (new File(configFilePath).exists()) {
+            LOG.info("Loading authenticate configuration file: {}", configFilePath);
+            Properties properties = new Properties();
+            properties.load(Files.newInputStream(Paths.get(configFilePath)));
+            return properties;
+        }
+        return new Properties();
     }
 }
