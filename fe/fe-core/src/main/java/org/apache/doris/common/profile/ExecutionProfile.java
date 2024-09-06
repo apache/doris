@@ -17,17 +17,14 @@
 
 package org.apache.doris.common.profile;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.planner.PlanFragmentId;
-import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDetailedReportParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryProfile;
-import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TRuntimeProfileTree;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
