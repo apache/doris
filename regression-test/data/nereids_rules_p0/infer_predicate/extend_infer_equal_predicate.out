@@ -2,9 +2,9 @@
 -- !test_integer_cast --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.d_int = expr_cast(d_tinyint as INT))) otherCondition=()
-----PhysicalOlapScan[test_cast_infer9]
 ----filter((t1.d_tinyint < 10))
 ------PhysicalOlapScan[test_cast_infer9]
+----PhysicalOlapScan[test_cast_infer9]
 
 -- !test_simple_compare --
 PhysicalResultSink
@@ -112,16 +112,16 @@ PhysicalResultSink
 -- !test_or1 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
-----PhysicalOlapScan[test_like2]
 ----filter(((t1.a < 2) OR (t1.a > 10)))
 ------PhysicalOlapScan[test_like1]
+----PhysicalOlapScan[test_like2]
 
 -- !test_or2 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
-----PhysicalOlapScan[test_like2]
 ----filter(((t1.a < 2) OR (t1.a > 10)))
 ------PhysicalOlapScan[test_like1]
+----PhysicalOlapScan[test_like2]
 
 -- !test_sign_predicate --
 PhysicalResultSink
@@ -165,9 +165,9 @@ PhysicalResultSink
 -- !test_multi_slot_in_predicate2 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.a) and (t1.b = t2.b)) otherCondition=()
-----PhysicalOlapScan[test_like2]
 ----filter(((cast(a as DOUBLE) + cast(b as DOUBLE)) < 10.0))
 ------PhysicalOlapScan[test_like1]
+----PhysicalOlapScan[test_like2]
 
 -- !test_case_when_predicate --
 PhysicalResultSink
@@ -203,16 +203,16 @@ PhysicalResultSink
 -- !test_random_nest_predicate --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.d_datetimev2 = t2.d_datetimev2)) otherCondition=()
-----PhysicalOlapScan[test_cast_infer8]
 ----filter((dayofmonth(hours_add(convert_tz(d_datetimev2, 'Asia/Shanghai', 'Europe/Paris'), cast(random(1, 10) as INT))) > 10))
 ------PhysicalOlapScan[test_cast_infer9]
+----PhysicalOlapScan[test_cast_infer8]
 
 -- !test_random_predicate --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
-----PhysicalOlapScan[test_like2]
 ----filter((cast(a as DOUBLE) > random(10)))
 ------PhysicalOlapScan[test_like1]
+----PhysicalOlapScan[test_like2]
 
 -- !test_predicate_map --
 PhysicalResultSink
@@ -249,10 +249,10 @@ PhysicalResultSink
 -- !test_date_downcast --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.d_datev2 = expr_cast(d_datetimev2 as DATEV2))) otherCondition=()
-----filter((cast(d_datetimev2 as DATEV2) < '2022-01-03'))
-------PhysicalOlapScan[test_cast_infer8]
 ----filter((t1.d_datev2 < '2022-01-03'))
 ------PhysicalOlapScan[test_cast_infer9]
+----filter((cast(d_datetimev2 as DATEV2) < '2022-01-03'))
+------PhysicalOlapScan[test_cast_infer8]
 
 -- !test_date_both_upcast1 --
 PhysicalResultSink
@@ -265,10 +265,10 @@ PhysicalResultSink
 -- !test_date_both_upcast2 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.d_datetime = expr_cast(d_date as DATETIMEV2(0)))) otherCondition=()
-----filter((t2.d_date < '2022-01-03'))
-------PhysicalOlapScan[test_cast_infer8]
 ----filter((t1.d_datetime < '2022-01-03 00:00:00'))
 ------PhysicalOlapScan[test_cast_infer9]
+----filter((t2.d_date < '2022-01-03'))
+------PhysicalOlapScan[test_cast_infer8]
 
 -- !test_char_different_type1 --
 PhysicalResultSink
