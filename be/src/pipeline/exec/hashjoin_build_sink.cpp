@@ -423,18 +423,6 @@ HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int ope
                                    : std::vector<TExpr> {}),
           _need_local_merge(need_local_merge) {}
 
-Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
-    if (_is_broadcast_join) {
-        if (state->enable_share_hash_table_for_broadcast_join()) {
-            _shared_hashtable_controller =
-                    state->get_query_ctx()->get_shared_hash_table_controller();
-            _shared_hash_table_context = _shared_hashtable_controller->get_context(node_id());
-        }
-    }
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_build_expr_ctxs, state, _child_x->row_desc()));
-    return Status::OK();
-}
-
 Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX::init(tnode, state));
     DCHECK(tnode.__isset.hash_join_node);
@@ -492,6 +480,15 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
 }
 
 Status HashJoinBuildSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::open(state));
+    if (_is_broadcast_join) {
+        if (state->enable_share_hash_table_for_broadcast_join()) {
+            _shared_hashtable_controller =
+                    state->get_query_ctx()->get_shared_hash_table_controller();
+            _shared_hash_table_context = _shared_hashtable_controller->get_context(node_id());
+        }
+    }
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_build_expr_ctxs, state, _child_x->row_desc()));
     return vectorized::VExpr::open(_build_expr_ctxs, state);
 }
 

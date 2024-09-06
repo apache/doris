@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "schema_scanner_helper.h"
+#include "exec/schema_scanner/schema_scanner_helper.h"
 
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
@@ -57,6 +57,17 @@ void SchemaScannerHelper::insert_int_value(int col_index, int64_t int_val,
     auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
     vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
     reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(int_val);
+    nullable_column->get_null_map_data().emplace_back(0);
+}
+
+void SchemaScannerHelper::insert_double_value(int col_index, double double_val,
+                                              vectorized::Block* block) {
+    vectorized::MutableColumnPtr mutable_col_ptr;
+    mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
+    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
+    vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
+    reinterpret_cast<vectorized::ColumnVector<vectorized::Float64>*>(col_ptr)->insert_value(
+            double_val);
     nullable_column->get_null_map_data().emplace_back(0);
 }
 } // namespace doris

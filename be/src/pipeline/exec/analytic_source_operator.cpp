@@ -560,8 +560,8 @@ Status AnalyticLocalState::close(RuntimeState* state) {
     return PipelineXLocalState<AnalyticSharedState>::close(state);
 }
 
-Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::prepare(state));
+Status AnalyticSourceOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::open(state));
     DCHECK(_child_x->row_desc().is_prefix_of(_row_descriptor));
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
@@ -595,11 +595,6 @@ Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {
                     alignment_of_next_state * alignment_of_next_state;
         }
     }
-    return Status::OK();
-}
-
-Status AnalyticSourceOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::open(state));
     for (auto* agg_function : _agg_functions) {
         RETURN_IF_ERROR(agg_function->open(state));
     }
