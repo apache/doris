@@ -69,6 +69,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -77,7 +78,7 @@ import java.util.stream.Collectors;
 
 public class PointQueryExecutor implements CoordInterface {
     private static final Logger LOG = LogManager.getLogger(PointQueryExecutor.class);
-    private static Map<Class<? extends Expr>, ConjunctHandler> handlers = null;
+    private static final ConcurrentHashMap<Class<? extends Expr>, ConjunctHandler> handlers = new ConcurrentHashMap<>();
     private List<Long> tabletIDs = new ArrayList<>();
     private long timeoutMs = Config.point_query_timeout_ms; // default 10s
 
@@ -99,7 +100,6 @@ public class PointQueryExecutor implements CoordInterface {
     Map<String, RangeMap<ColumnBound, List<Long>>> partitionCol2PartitionID = null;
 
     List<Set<Long>> keyTupleID2TabletID = null;  // key tuple id is the index in array
-    // List<Long> keyTupleID2TabletID = null;  // key tuple id is the index in array
 
     List<List<String>> allKeyTuples = null;
 
@@ -157,11 +157,6 @@ public class PointQueryExecutor implements CoordInterface {
             Backend backend = Env.getCurrentSystemInfo().getBackend(backendID);
             if (SimpleScheduler.isAvailable(backend)) {
                 candidateBackends.add(backend);
-                // if (backendId2TabletIds.containsKey(backendID)) {
-                //     backendId2TabletIds.get(backendID).retainAll(tabletIDs);
-                // } else {
-                //     throw new AnalysisException("Backend " + backendID + " not found in backendId2TabletIds");
-                // }
             }
         }
         // Random read replicas
@@ -203,6 +198,15 @@ public class PointQueryExecutor implements CoordInterface {
     }
 
     private static class InPredicateHandler implements ConjunctHandler {
+        public static final InPredicateHandler INSTANCE = new InPredicateHandler();
+
+        private InPredicateHandler() {
+        }
+
+        public static InPredicateHandler getInstance() {
+            return INSTANCE;
+        }
+
         @Override
         public int handle(Expr expr, List<Expr> conjunctVals, int handledConjunctVals) throws AnalysisException {
             InPredicate inPredicate = (InPredicate) expr;
@@ -221,6 +225,15 @@ public class PointQueryExecutor implements CoordInterface {
     }
 
     private static class BinaryPredicateHandler implements ConjunctHandler {
+        public static final BinaryPredicateHandler INSTANCE = new BinaryPredicateHandler();
+
+        private BinaryPredicateHandler() {
+        }
+
+        public static BinaryPredicateHandler getInstance() {
+            return INSTANCE;
+        }
+
         @Override
         public int handle(Expr expr, List<Expr> conjunctVals, int handledConjunctVals) throws AnalysisException {
             BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
@@ -251,14 +264,15 @@ public class PointQueryExecutor implements CoordInterface {
     }
 
     private static void initHandler() {
-        handlers = Maps.newHashMap();
-        handlers.put(InPredicate.class, new InPredicateHandler());
-        handlers.put(BinaryPredicate.class, new BinaryPredicateHandler());
+        handlers.put(InPredicate.class, InPredicateHandler.getInstance());
+        handlers.put(BinaryPredicate.class, BinaryPredicateHandler.getInstance());
     }
 
     private static void updateScanNodeConjuncts(OlapScanNode scanNode, List<Expr> conjunctVals) {
         List<Expr> conjuncts = scanNode.getConjuncts();
-        initHandler();
+        if (handlers.isEmpty()) {
+            initHandler();
+        }
         int handledConjunctVals = 0;
         for (Expr expr : conjuncts) {
             ConjunctHandler handler = handlers.get(expr.getClass());
@@ -313,10 +327,10 @@ public class PointQueryExecutor implements CoordInterface {
     // todo: add comment
     private void addTabletIDsForKeyTuple(List<String> orderedKeyTuple, List<Column> keyColumns,
                                          OlapTable olapTable, Set<Long> leftMostPartitionIDs) {
-        List<String> keyTupleForDistributionPrune =
-                    Lists.newArrayList(distributionKeyColumns.stream().map((idx) -> {
-                        return orderedKeyTuple.get(idx);
-                    }).collect(Collectors.toList()));
+        List<String> keyTupleForDistributionPrune = Lists.newArrayList();
+        for (Integer idx : distributionKeyColumns) {
+            keyTupleForDistributionPrune.add(orderedKeyTuple.get(idx));
+        }
         Set<Long> tabletIDs = Sets.newHashSet();
         for (PartitionKey key : distributionKeys2TabletID.keySet()) {
             List<String> distributionKeys = Lists.newArrayList();
@@ -344,36 +358,7 @@ public class PointQueryExecutor implements CoordInterface {
                 break;
             }
         }
-        // if all key columns are distribution columns, then we don't need to prune
-        // if (distributionKeyColumns.size() == keyColumns.size()) {
-        //     // keyTupleID2TabletID.add(Sets.newHashSet(tabletIDs));
-        //     keyTupleID2TabletID.add(tabletIDs);
-        //     return;
-        // }
         keyTupleID2TabletID.add(tabletIDs);
-        /*
-         * Every key column in the `partitionKeyColumns` is not distribution column,
-         * so it is possible to filter out buckets that do not belong to the partition.
-        */
-        // for (Integer colIdx : partitionKeyColumns) {
-        //     String partitionColName = keyColumns.get(colIdx).getName();
-        //     String keyColValue = orderedKeyTuple.get(colIdx);
-        //     try {
-        //         ColumnBound bound =
-        //                 ColumnBound.of(LiteralExpr.create(keyColValue, keyColumns.get(colIdx).getType()));
-        //         List<Long> partitionID = partitionCol2PartitionID.get(partitionColName).get(bound);
-        //         Preconditions.checkState(partitionID.size() == 1);
-        //         Partition partition = olapTable.getPartition(partitionID.get(0));
-        //         MaterializedIndex selectedTable =
-        //                 partition.getIndex(shortCircuitQueryContext.scanNode.getSelectedIndexId());
-        //         tabletIDs.retainAll(selectedTable.getTablets()
-        //                             .stream().map(Tablet::getId)
-        //                             .collect(Collectors.toList()));
-        //     } catch (Exception e) {
-        //         throw new AnalysisException(e.getMessage());
-        //     }
-        // }
-        // keyTupleID2TabletID.add(Sets.newHashSet(tabletIDs));
     }
 
     void getAllKeyTupleCombination(List<Expr> conjuncts, int index,
