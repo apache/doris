@@ -48,7 +48,7 @@ public class CloudReplica extends Replica {
 
     // In the future, a replica may be mapped to multiple BEs in a cluster,
     // so this value is be list
-    private Map<String, List<Long>> clusterToBackends = new ConcurrentHashMap<String, List<Long>>();
+    private Map<String, List<Long>> primaryClusterToBackends = new ConcurrentHashMap<String, List<Long>>();
     @SerializedName(value = "dbId")
     private long dbId = -1;
     @SerializedName(value = "tableId")
@@ -188,8 +188,8 @@ public class CloudReplica extends Replica {
                 backendId = memClusterToBackends.get(clusterId).get(indexRand);
             }
 
-            if (!replicaEnough && !allowColdRead && clusterToBackends.containsKey(clusterId)) {
-                backendId = clusterToBackends.get(clusterId).get(0);
+            if (!replicaEnough && !allowColdRead && primaryClusterToBackends.containsKey(clusterId)) {
+                backendId = primaryClusterToBackends.get(clusterId).get(0);
             }
 
             if (backendId > 0) {
@@ -214,8 +214,8 @@ public class CloudReplica extends Replica {
             }
         }
 
-        if (clusterToBackends.containsKey(clusterId)) {
-            long backendId = clusterToBackends.get(clusterId).get(0);
+        if (primaryClusterToBackends.containsKey(clusterId)) {
+            long backendId = primaryClusterToBackends.get(clusterId).get(0);
             Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
             if (be != null && be.isQueryAvailable()) {
                 // be normal
@@ -236,8 +236,8 @@ public class CloudReplica extends Replica {
                 return secondaryBe;
             }
         }
-        if (DebugPointUtil.isEnable("CloudReplica.getBackendIdImpl.clusterToBackends")) {
-            LOG.info("Debug Point enable CloudReplica.getBackendIdImpl.clusterToBackends");
+        if (DebugPointUtil.isEnable("CloudReplica.getBackendIdImpl.primaryClusterToBackends")) {
+            LOG.info("Debug Point enable CloudReplica.getBackendIdImpl.primaryClusterToBackends");
             return -1;
         }
         long pickBeId = hashReplicaToBe(clusterId, false);
@@ -387,7 +387,7 @@ public class CloudReplica extends Replica {
             long beId = in.readLong();
             List<Long> bes = new ArrayList<Long>();
             bes.add(beId);
-            clusterToBackends.put(clusterId, bes);
+            primaryClusterToBackends.put(clusterId, bes);
         }
     }
 
@@ -412,16 +412,16 @@ public class CloudReplica extends Replica {
     }
 
     public Map<String, List<Long>> getClusterToBackends() {
-        return clusterToBackends;
+        return primaryClusterToBackends;
     }
 
-    // save to clusterToBackends or secondaryClusterToBackends map
-    public void updateClusterToBe(String cluster, long beId, boolean isBalanceChange) {
+    // save to primaryClusterToBackends or secondaryClusterToBackends map
+    public void updateClusterToBe(String cluster, long beId, boolean isUpdatePrimary) {
         // write lock
         List<Long> bes = new ArrayList<Long>();
         bes.add(beId);
-        if (isBalanceChange || Config.enable_immediate_be_assign) {
-            clusterToBackends.put(cluster, bes);
+        if (isUpdatePrimary || Config.enable_immediate_be_assign) {
+            primaryClusterToBackends.put(cluster, bes);
         } else {
             secondaryClusterToBackends.put(cluster, bes);
         }
