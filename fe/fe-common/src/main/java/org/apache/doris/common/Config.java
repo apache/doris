@@ -1201,11 +1201,11 @@ public class Config extends ConfigBase {
     /**
      * the max concurrent routine load task num per BE.
      * This is to limit the num of routine load tasks sending to a BE, and it should also less
-     * than BE config 'max_routine_load_thread_pool_size'(default 1024),
+     * than BE config 'max_routine_load_thread_pool_size'(default 16),
      * which is the routine load task thread pool max size on BE.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_routine_load_task_num_per_be = 1024;
+    public static int max_routine_load_task_num_per_be = 16;
 
     /**
      * the max timeout of get kafka meta.

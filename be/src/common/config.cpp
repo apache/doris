@@ -648,8 +648,8 @@ DEFINE_Bool(enable_metric_calculator, "true");
 DEFINE_mInt32(max_consumer_num_per_group, "3");
 
 // the max size of thread pool for routine load task.
-// this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
-DEFINE_Int32(max_routine_load_thread_pool_size, "1024");
+// this should be larger than FE config 'max_routine_load_task_num_per_be' (default 32)
+DEFINE_Int32(max_routine_load_thread_pool_size, "32");
 
 // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
 // default is 20, batch_size's default value is 1024 means 20 * 1024 rows will be cached
