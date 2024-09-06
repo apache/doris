@@ -221,9 +221,9 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
         std::string path = map.FindMember(CACHE_PATH.c_str())->value.GetString();
         std::string storage = CACHE_STORAGE_DISK; // disk storage by default
         if (map.HasMember(CACHE_STORAGE.c_str())) {
-            std::string storage = map.FindMember(CACHE_STORAGE.c_str())->value.GetString();
+            storage = map.FindMember(CACHE_STORAGE.c_str())->value.GetString();
             if (storage != CACHE_STORAGE_DISK && storage != CACHE_STORAGE_MEMORY) [[unlikely]] {
-                return Status::InvalidArgument("invalid file cache storage type:" + storage);
+                return Status::InvalidArgument("invalid file cache storage type: " + storage);
             }
             if (storage == CACHE_STORAGE_MEMORY) {
                 // set path to "memory" for memory storage
