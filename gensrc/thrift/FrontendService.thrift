@@ -1104,6 +1104,7 @@ struct TRestoreSnapshotRequest {
     12: optional binary job_info
     13: optional bool clean_tables
     14: optional bool clean_partitions
+    15: optional bool atomic_restore
 }
 
 struct TRestoreSnapshotResult {
