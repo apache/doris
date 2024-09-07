@@ -209,6 +209,8 @@ public:
 
     void add_failed_tablet(int64_t tablet_id, Status reason) {
         std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
+        LOG(INFO) << "load_id=" << print_id(_load_id) << ", stream_id=" << _stream_id
+                  << " add failed tablet " << tablet_id << ": " << reason;
         _failed_tablets[tablet_id] = reason;
     }
 

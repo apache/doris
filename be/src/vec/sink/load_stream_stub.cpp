@@ -256,6 +256,10 @@ Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commi
     header.set_opcode(doris::PStreamHeader::CLOSE_LOAD);
     for (const auto& tablet : tablets_to_commit) {
         *header.add_tablets() = tablet;
+        LOG(INFO) << "reporting num segments, load_id=" << print_id(_load_id)
+                    << ", tablet_id=" << tablet.tablet_id()
+                    << ", num_segments=" << tablet.num_segments()
+                    << ", dst_id=" << _dst_id << ", stream_id=" << _stream_id;
     }
     return _encode_and_send(header);
 }

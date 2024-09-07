@@ -3562,6 +3562,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     if (bePathsMap.keySet().size() < quorum) {
                         LOG.warn("auto go quorum exception");
                     }
+                    LOG.info("add tablet partitionName={}, partitionID={}, tabletID={}",
+                            partitionName, partition.getId(), tablet.getId());
                     tablets.add(new TTabletLocation(tablet.getId(), Lists.newArrayList(bePathsMap.keySet())));
                 }
             }

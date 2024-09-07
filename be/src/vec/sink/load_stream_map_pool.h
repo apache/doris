@@ -91,6 +91,10 @@ public:
     void save_tablets_to_commit(int64_t dst_id, const std::vector<PTabletID>& tablets_to_commit);
 
     void save_segments_for_tablet(const std::unordered_map<int64_t, int32_t>& segments_for_tablet) {
+        for (auto [k, v] : segments_for_tablet) {
+            LOG(INFO) << "saving segments for tablet, load_id=" << _load_id << " tablet_id=" << k
+                      << ", segments=" << v;
+        }
         _segments_for_tablet.insert(segments_for_tablet.cbegin(), segments_for_tablet.cend());
     }
 

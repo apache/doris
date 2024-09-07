@@ -118,9 +118,15 @@ Status LoadStreamMap::close_load(bool incremental) {
                 continue;
             }
             if (first) {
+                LOG(INFO) << "sending CLOSE_LOAD with tablets to commit, load_id=" << _load_id
+                          << ", dst_id=" << stream->dst_id()
+                          << ", stream_id=" << stream->stream_id();
                 RETURN_IF_ERROR(stream->close_load(tablets_to_commit));
                 first = false;
             } else {
+                LOG(INFO) << "sending CLOSE_LOAD without tablets to commit, load_id=" << _load_id
+                          << ", dst_id=" << stream->dst_id()
+                          << ", stream_id=" << stream->stream_id();
                 RETURN_IF_ERROR(stream->close_load({}));
             }
         }

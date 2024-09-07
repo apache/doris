@@ -52,7 +52,11 @@ public:
 
     Status append_data(const PStreamHeader& header, butil::IOBuf* data);
     Status add_segment(const PStreamHeader& header, butil::IOBuf* data);
-    void add_num_segments(int64_t num_segments) { _num_segments += num_segments; }
+    void add_num_segments(int64_t num_segments) {
+        _num_segments += num_segments;
+        LOG(INFO) << "adding num segments, load_id=" << print_id(_load_id) << ", tablet_id=" << _id
+                  << ", num_segments=" << num_segments << ", total_segments=" << _num_segments;
+    }
     Status close();
     int64_t id() const { return _id; }
 
