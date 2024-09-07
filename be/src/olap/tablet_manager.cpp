@@ -279,9 +279,11 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     // we need use write lock on shard-1 and then use read lock on shard-2
     // if there have create rollup tablet C(assume on shard-2) from tablet D(assume on shard-1) at the same time, we will meet deadlock
     std::unique_lock two_tablet_lock(_two_tablet_mtx, std::defer_lock);
-    bool is_schema_change = request.__isset.base_tablet_id && request.base_tablet_id > 0;
-    bool need_two_lock = is_schema_change && ((_tablets_shards_mask & request.base_tablet_id) !=
-                                              (_tablets_shards_mask & tablet_id));
+    bool is_schema_change_or_atomic_restore =
+            request.__isset.base_tablet_id && request.base_tablet_id > 0;
+    bool need_two_lock =
+            is_schema_change_or_atomic_restore &&
+            ((_tablets_shards_mask & request.base_tablet_id) != (_tablets_shards_mask & tablet_id));
     if (need_two_lock) {
         SCOPED_TIMER(ADD_TIMER(profile, "GetTwoTableLock"));
         two_tablet_lock.lock();
@@ -310,7 +312,7 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
 
     TabletSharedPtr base_tablet = nullptr;
     // If the CreateTabletReq has base_tablet_id then it is a alter-tablet request
-    if (is_schema_change) {
+    if (is_schema_change_or_atomic_restore) {
         // if base_tablet_id's lock diffrent with new_tablet_id, we need lock it.
         if (need_two_lock) {
             SCOPED_TIMER(ADD_TIMER(profile, "GetBaseTablet"));
@@ -327,7 +329,7 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
                     "new_tablet_id={}, base_tablet_id={}",
                     tablet_id, request.base_tablet_id);
         }
-        // If we are doing schema-change, we should use the same data dir
+        // If we are doing schema-change or atomic-restore, we should use the same data dir
         // TODO(lingbin): A litter trick here, the directory should be determined before
         // entering this method
         if (request.storage_medium == base_tablet->data_dir()->storage_medium()) {
@@ -337,8 +339,8 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     }
 
     // set alter type to schema-change. it is useless
-    TabletSharedPtr tablet = _internal_create_tablet_unlocked(request, is_schema_change,
-                                                              base_tablet.get(), stores, profile);
+    TabletSharedPtr tablet = _internal_create_tablet_unlocked(
+            request, is_schema_change_or_atomic_restore, base_tablet.get(), stores, profile);
     if (tablet == nullptr) {
         DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
         return Status::Error<CE_CMD_PARAMS_ERROR>("fail to create tablet. tablet_id={}",
