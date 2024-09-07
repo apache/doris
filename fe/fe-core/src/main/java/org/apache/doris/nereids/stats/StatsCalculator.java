@@ -366,7 +366,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private Statistics computeOlapScan(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
-        double tableRowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId());
+        double tableRowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
         if (tableRowCount <= 0) {
             AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
             TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());

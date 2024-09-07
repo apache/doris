@@ -3319,6 +3319,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             partitionNames = new PartitionNames(false, new ArrayList<>(target.partitions));
         }
         if (target.isTruncate) {
+            if (partitionNames == null || partitionNames.isStar() || partitionNames.getPartitionNames() == null) {
+                tableStats.clearIndexesRowCount();
+            }
             analysisManager.submitAsyncDropStatsTask(target.catalogId, target.dbId,
                     target.tableId, tableStats, partitionNames);
         } else {
