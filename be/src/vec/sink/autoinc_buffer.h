@@ -17,6 +17,7 @@
 
 #pragma once
 #include <list>
+#include <vector>
 
 #include "common/config.h"
 #include "common/factory_creator.h"
@@ -141,12 +142,16 @@ public:
         return _buffers[{db_id, table_id, column_id}];
     }
 
-    void clear_cache(int64_t db_id, int64_t table_id) {
+    void clear_cache(std::vector<int64_t> db_ids, std::vector<int64_t> table_ids) {
         std::lock_guard<std::mutex> lock(_mutex);
-        auto it = _buffers.lower_bound({db_id, table_id, -1});
-        if (it != _buffers.end() && std::get<0>(it->first) == db_id &&
-            std::get<1>(it->first) == table_id) {
-            it->second->clear();
+        for (std::size_t i {0}; i < db_ids.size(); i++) {
+            auto db_id = db_ids[i];
+            auto table_id = table_ids[i];
+            auto it = _buffers.lower_bound({db_id, table_id, -1});
+            if (it != _buffers.end() && std::get<0>(it->first) == db_id &&
+                std::get<1>(it->first) == table_id) {
+                it->second->clear();
+            }
         }
     }
 

@@ -31,6 +31,7 @@ import org.apache.doris.thrift.TCheckConsistencyReq;
 import org.apache.doris.thrift.TCleanTrashReq;
 import org.apache.doris.thrift.TCleanUDFCacheReq;
 import org.apache.doris.thrift.TClearAlterTaskRequest;
+import org.apache.doris.thrift.TClearAutoIncCacheReq;
 import org.apache.doris.thrift.TClearTransactionTaskRequest;
 import org.apache.doris.thrift.TCloneReq;
 import org.apache.doris.thrift.TCompactionReq;
@@ -430,6 +431,15 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setCleanUdfCacheReq(request);
+                return tAgentTaskRequest;
+            }
+            case CLEAR_AUTO_INC_CACHE: {
+                ClearAutoIncCacheTask clearAutoIncCacheTask = (ClearAutoIncCacheTask) task;
+                TClearAutoIncCacheReq request = clearAutoIncCacheTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setClearAutoIncCacheReq(request);
                 return tAgentTaskRequest;
             }
             default:

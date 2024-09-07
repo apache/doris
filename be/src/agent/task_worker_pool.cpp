@@ -2079,7 +2079,30 @@ void clean_udf_cache_callback(const TAgentTaskRequest& req) {
 
 void clear_auto_inc_cache(const TAgentTaskRequest& req) {
     const auto& clear_auto_inc_cache_req = req.clear_auto_inc_cache_req;
-    vectorized::GlobalAutoIncBuffers::GetInstance()->clear_cache(clear_auto_inc_cache_req.db_id,
-                                                                 clear_auto_inc_cache_req.table_id);
+    LOG(INFO) << "get clear auto inc cache task. signature=" << req.signature;
+
+    auto* global_autoinc_buffers = vectorized::GlobalAutoIncBuffers::GetInstance();
+    const auto& db_ids = clear_auto_inc_cache_req.db_ids;
+    const auto& table_ids = clear_auto_inc_cache_req.table_ids;
+
+    Status status {};
+    if (db_ids.size() == table_ids.size()) {
+        global_autoinc_buffers->clear_cache(db_ids, table_ids);
+    } else {
+        status = Status::InternalError<false>(
+                "db_ids and table_ids can't match, db_ids.size()={}, "
+                "table_ids.size()={}",
+                db_ids.size(), table_ids.size());
+        LOG_WARNING("failed to clear auto inc cache").tag("signature", req.signature).error(status);
+    }
+
+    TFinishTaskRequest finish_task_request;
+    finish_task_request.__set_task_status(status.to_thrift());
+    finish_task_request.__set_backend(BackendOptions::get_local_backend());
+    finish_task_request.__set_task_type(req.task_type);
+    finish_task_request.__set_signature(req.signature);
+
+    finish_task(finish_task_request);
+    remove_task_info(req.task_type, req.signature);
 }
 } // namespace doris

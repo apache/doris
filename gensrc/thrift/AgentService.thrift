@@ -122,8 +122,8 @@ struct TCleanUDFCacheReq {
 }
 
 struct TClearAutoIncCacheReq {
-    1: optional i64 db_id
-    2: optional i64 table_id
+    1: optional list<i64> db_ids
+    2: optional list<i64> table_ids
 }
 
 enum TCompressionType {
