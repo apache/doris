@@ -823,6 +823,9 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
                         ColumnValueRange<T>::add_fixed_value_range, fn_name));
             }
             range.intersection(temp_range);
+        } else {
+            _eos = true;
+            return Status::OK();
         }
         *pdt = temp_pdt;
     }
@@ -926,6 +929,9 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
                             ColumnValueRange<T>::add_fixed_value_range, fn_name));
                 }
             }
+        } else {
+            _eos = true;
+            return Status::OK();
         }
     } else {
         return Status::OK();
@@ -1004,6 +1010,9 @@ Status VScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContext* e
                             ColumnValueRange<T>::add_value_range, fn_name, slot_ref_child));
                 }
                 *pdt = temp_pdt;
+            } else {
+                _eos = true;
+                return Status::OK();
             }
         }
     }
