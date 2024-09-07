@@ -450,7 +450,7 @@ public:
     /// Notice: We should not change the column in the block, because the column may be shared by multiple expressions or exec nodes.
     virtual Status execute_impl(FunctionContext* context, Block& block,
                                 const ColumnNumbers& arguments, size_t result,
-                                size_t input_rows_count) const override = 0;
+                                size_t input_rows_count) override = 0;
 
     /// Override this functions to change default implementation behavior. See details in IMyFunction.
     bool use_default_implementation_for_nulls() const override { return true; }
