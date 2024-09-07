@@ -204,7 +204,7 @@ public:
                          << "(" << data_types[0]->get_name() << ")";
 
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
-        auto agg_function = factory.get("linear_histogram", data_types);
+        auto agg_function = factory.get("linear_histogram", data_types, false, -1, true);
         EXPECT_NE(agg_function, nullptr);
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
@@ -241,6 +241,9 @@ public:
         std::string result2 = column_result2->get_data_at(0).to_string();
 
         expect_eq(input_rows, interval, offset, result1, result2);
+
+        agg_function->destroy(place);
+        agg_function->destroy(place2);
     }
 
     void expect_eq(size_t input_rows, double interval, double offset, std::string& result1,
