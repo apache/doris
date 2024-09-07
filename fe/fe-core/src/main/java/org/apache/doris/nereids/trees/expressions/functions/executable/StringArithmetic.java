@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.JsonLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -37,9 +36,6 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
 
 import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
@@ -50,7 +46,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 
 /**
@@ -81,18 +76,18 @@ public class StringArithmetic {
             return new VarcharLiteral("");
         } else if (second.getValue() < 0) {
             leftIndex = stringLength + second.getValue();
-        } else if (second.getValue() < stringLength) {
-            leftIndex = second.getValue();
+        } else if (second.getValue() <= stringLength) {
+            leftIndex = second.getValue() - 1;
         } else {
             return new VarcharLiteral("");
         }
         int rightIndex = 0;
-        if (third.getValue() < 0) {
+        if (third.getValue() <= 0) {
             return new VarcharLiteral("");
-        } else if (third.getValue() > stringLength) {
+        } else if ((third.getValue() + leftIndex) > stringLength) {
             rightIndex = stringLength;
         } else {
-            rightIndex = third.getValue();
+            rightIndex = third.getValue() + leftIndex;
         }
         return new VarcharLiteral(first.getValue().substring(leftIndex, rightIndex));
     }
@@ -176,13 +171,18 @@ public class StringArithmetic {
      */
     @ExecFunction(varArgs = false, name = "right", argTypes = {"VARCHAR", "INT"}, returnType = "VARCHAR")
     public static Expression right(VarcharLiteral first, IntegerLiteral second) {
-        if (second.getValue() <= 0) {
+        if (second.getValue() < (- first.getValue().length()) || Math.abs(second.getValue()) == 0) {
             return new VarcharLiteral("");
-        } else if (second.getValue() < first.getValue().length()) {
-            int length = first.getValue().length();
-            return new VarcharLiteral(first.getValue().substring(length - second.getValue(), length));
-        } else {
+        } else if (second.getValue() > first.getValue().length()) {
             return first;
+        } else {
+            if (second.getValue() > 0) {
+                return new VarcharLiteral(first.getValue().substring(
+                    first.getValue().length() - second.getValue(), first.getValue().length()));
+            } else {
+                return new VarcharLiteral(first.getValue().substring(
+                    Math.abs(second.getValue()) - 1, first.getValue().length()));
+            }
         }
     }
 
@@ -191,7 +191,7 @@ public class StringArithmetic {
      */
     @ExecFunction(varArgs = false, name = "locate", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "INT")
     public static Expression locate(VarcharLiteral first, VarcharLiteral second) {
-        return new IntegerLiteral(first.getValue().strip().indexOf(second.getValue()));
+        return new IntegerLiteral(second.getValue().strip().indexOf(first.getValue()) + 1);
     }
 
     /**
@@ -220,30 +220,6 @@ public class StringArithmetic {
     @ExecFunction(varArgs = false, name = "bin", argTypes = {"BIGINT"}, returnType = "VARCHAR")
     public static Expression bin(BigIntLiteral first) {
         return new VarcharLiteral(Long.toBinaryString(first.getValue()));
-    }
-
-    /**
-     * Executable arithmetic functions Hex
-     */
-    @ExecFunction(varArgs = false, name = "hex", argTypes = {"BIGINT"}, returnType = "VARCHAR")
-    public static Expression hexBigInt(BigIntLiteral first) {
-        return new VarcharLiteral(Long.toHexString(first.getValue()));
-    }
-
-    /**
-     * Executable arithmetic functions Hex
-     */
-    @ExecFunction(varArgs = false, name = "hex", argTypes = {"VARCHAR"}, returnType = "VARCHAR")
-    public static Expression hexVarchar(VarcharLiteral first) {
-        return new VarcharLiteral(Long.toHexString(Long.valueOf(first.getValue())));
-    }
-
-    /**
-     * Executable arithmetic functions UnHex
-     */
-    @ExecFunction(varArgs = false, name = "unhex", argTypes = {"VARCHAR"}, returnType = "VARCHAR")
-    public static Expression unHexVarchar(VarcharLiteral first) {
-        return new VarcharLiteral(Long.toBinaryString(Long.valueOf(first.getValue())));
     }
 
     /**
@@ -277,30 +253,19 @@ public class StringArithmetic {
     }
 
     /**
-     * Executable arithmetic functions Char
-     */
-    @ExecFunction(varArgs = true, name = "char", argTypes = {"STRING", "INT"}, returnType = "STRING")
-    public static Expression charStringInt(StringLiteral first, IntegerLiteral... second) {
-        StringBuilder sb = new StringBuilder();
-        for (IntegerLiteral item : second) {
-            int itemValue = item.getValue();
-            byte[] itemBytes = new byte[]{(byte) itemValue};
-            try {
-                String itemString = new String(itemBytes, first.getValue());
-                sb.append(itemString);
-            } catch (UnsupportedEncodingException e) {
-                throw new RuntimeException(e);
-            }
-        }
-        return new StringLiteral(sb.toString());
-    }
-
-    /**
      * Executable arithmetic functions CharacterLength
      */
     @ExecFunction(varArgs = false, name = "character_length", argTypes = {"VARCHAR"}, returnType = "INT")
     public static Expression characterLength(VarcharLiteral first) {
         return new IntegerLiteral(first.getValue().length());
+    }
+
+    private static boolean isSeparator(char c) {
+        if (".$|()[{^?*+\\".indexOf(c) == -1) {
+            return false;
+        } else {
+            return true;
+        }
     }
 
     /**
@@ -312,7 +277,7 @@ public class StringArithmetic {
         boolean capitalizeNext = true;
 
         for (char c : first.getValue().toCharArray()) {
-            if (Character.isWhitespace(c)) {
+            if (Character.isWhitespace(c) || isSeparator(c)) {
                 result.append(c);
                 capitalizeNext = true;  // Next character should be capitalized
             } else if (capitalizeNext) {
@@ -383,202 +348,6 @@ public class StringArithmetic {
             sb.append(String.format("%02x", b));
         }
         return sb.toString();
-    }
-
-    private static Object jsonExtractUnit(JSONObject jsonObject, String unitKey) {
-        String[] keys = unitKey.replace("$.", "").split("\\.");
-        Object currentObject = jsonObject;
-        for (int i = 0; i < keys.length; i++) {
-            String key = keys[i];
-
-            if (key.endsWith("]")) { // Handle array index access
-                int arrayStartIndex = key.indexOf('[');
-                String arrayKey = key.substring(0, arrayStartIndex);
-                int arrayIndex = Integer.parseInt(key.substring(arrayStartIndex + 1, key.length() - 1));
-
-                if (currentObject instanceof JSONObject) {
-                    currentObject = ((JSONObject) currentObject).getJSONArray(arrayKey).get(arrayIndex);
-                }
-            } else {
-                if (currentObject instanceof JSONObject) {
-                    currentObject = ((JSONObject) currentObject).get(key);
-                }
-            }
-        }
-        return currentObject;
-    }
-
-    private static List<String> jsonExtract(String jsonString, String... jsonPaths) {
-        List<String> extractedValues = new ArrayList<>();
-        JSONObject jsonObject = new JSONObject(jsonString);
-
-        for (String jsonPath : jsonPaths) {
-            Object currentObject = jsonExtractUnit(jsonObject, jsonPath);
-            extractedValues.add(currentObject.toString());
-        }
-
-        return extractedValues;
-    }
-
-    /**
-     * Executable arithmetic functions jsonContains
-     */
-    @ExecFunction(varArgs = true, name = "json_extract", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
-    public static Expression jsonExtract(VarcharLiteral first, VarcharLiteral... second) {
-        StringBuilder sb = new StringBuilder();
-        List<String> keys = new ArrayList<>();
-        for (VarcharLiteral item : second) {
-            keys.add(item.getValue());
-        }
-        List<String> extractedValues = jsonExtract(first.getValue(), keys.toArray(new String[0]));
-        sb.append(extractedValues);
-        return new VarcharLiteral(sb.toString());
-    }
-
-    /**
-     * Executable arithmetic functions jsonb_extract_string
-     */
-    @ExecFunction(varArgs = false, name = "jsonb_extract_string", argTypes = {"JSON", "VARCHAR"}, returnType = "STRING")
-    public static Expression jsonbExtractstring(JsonLiteral first, VarcharLiteral second) {
-        StringBuilder sb = new StringBuilder();
-        JSONObject jsonObject = new JSONObject(first.getValue());
-        Object currentObject = jsonExtractUnit(jsonObject, second.getValue());
-        sb.append(currentObject.toString());
-        return new StringLiteral(sb.toString());
-    }
-
-    /**
-     * Checks if a JSON string contains a specific value at a specified path or anywhere in the JSON.
-     * @param jsonString the input JSON string
-     * @param value the value to check for
-     * @param jsonPath (optional) the path to check the value at
-     * @return true if the JSON contains the value, false otherwise
-     */
-    private static boolean jsonContains(String jsonString, String value, String jsonPath) {
-        Object jsonObject = null;
-        // Determine if the input is a JSONArray or JSONObject
-        if (jsonString.trim().startsWith("[")) {
-            jsonObject = new JSONArray(jsonString); // Input is a JSONArray
-        } else {
-            jsonObject = new JSONObject(jsonString);
-        }
-
-        if (!jsonPath.equals("$")) {
-            // If a JSON path is provided, search at that specific path
-            String[] keys = jsonPath.replace("$.", "").split("\\.");
-            Object currentObject = jsonObject;
-
-            for (int i = 0; i < keys.length; i++) {
-                String key = keys[i];
-
-                if (key.endsWith("]")) { // Handle array index access
-                    int arrayStartIndex = key.indexOf('[');
-                    String arrayKey = key.substring(0, arrayStartIndex);
-                    int arrayIndex = Integer.parseInt(key.substring(arrayStartIndex + 1, key.length() - 1));
-
-                    if (currentObject instanceof JSONObject) {
-                        JSONArray jsonArray = ((JSONObject) currentObject).getJSONArray(arrayKey);
-                        if (i == keys.length - 1) {
-                            // At the last key in the path, check if the value matches the array element
-                            return jsonArray.get(arrayIndex).toString().equals(value);
-                        } else {
-                            currentObject = jsonArray.get(arrayIndex);
-                        }
-                    }
-                } else {
-                    if (currentObject instanceof JSONObject) {
-                        if (!((JSONObject) currentObject).has(key)) {
-                            return false;
-                        }
-                        currentObject = ((JSONObject) currentObject).get(key);
-                    }
-                }
-            }
-            return currentObject.toString().equals(value);
-        } else {
-            // If no JSON path is provided, search for the value anywhere in the JSON
-            return jsonContainsAnywhere(jsonObject, value);
-        }
-    }
-
-    /**
-     * Recursively checks if the value exists anywhere in the JSON object.
-     * @param jsonObject the input JSONObject
-     * @param value the value to check for
-     * @return true if the value is found, false otherwise
-     */
-    private static boolean jsonContainsAnywhere(Object jsonObject, String value) {
-        if (jsonObject.toString().equals(value)) {
-            return true;
-        }
-        if (jsonObject instanceof JSONObject) {
-            JSONObject json = (JSONObject) jsonObject;
-            for (String key : json.keySet()) {
-                Object currentValue = json.get(key);
-                if (jsonContainsAnywhere(currentValue, value)) {
-                    return true;
-                }
-            }
-        } else if (jsonObject instanceof JSONArray) {
-            JSONArray jsonArray = (JSONArray) jsonObject;
-            for (int i = 0; i < jsonArray.length(); i++) {
-                if (jsonContainsAnywhere(jsonArray.get(i), value)) {
-                    return true;
-                }
-            }
-        } else {
-            return jsonObject.toString().equals(value);
-        }
-        return false;
-    }
-
-    /**
-     * Executable arithmetic functions jsonContains
-     */
-    @ExecFunction(varArgs = false, name = "json_contains",
-            argTypes = {"JSON", "JSON", "STRING"}, returnType = "BOOLEAN")
-    public static Expression jsonContainsString(JsonLiteral first, JsonLiteral second, StringLiteral third) {
-        if (jsonContains(first.getValue(), second.getValue(), third.getValue())) {
-            return BooleanLiteral.TRUE;
-        } else {
-            return BooleanLiteral.FALSE;
-        }
-    }
-
-    /**
-     * Executable arithmetic functions jsonContains
-     */
-    @ExecFunction(varArgs = false, name = "json_length", argTypes = {"JSON", "VARCHAR"}, returnType = "INT")
-    public static Expression jsonLengthVarchar(JsonLiteral first, VarcharLiteral second) {
-        if (second.getValue().equals("$")) {
-            return new IntegerLiteral(first.getValue().length());
-        }
-        Object jsonObject = null;
-        // Determine if the input is a JSONArray or JSONObject
-        if (second.getValue().trim().startsWith("[")) {
-            jsonObject = new JSONArray(second.getValue()); // Input is a JSONArray
-        } else {
-            jsonObject = new JSONObject(second.getValue());
-        }
-        return new IntegerLiteral(jsonObject.toString().length());
-    }
-
-    /**
-     * Executable arithmetic functions jsonContains
-     */
-    @ExecFunction(varArgs = false, name = "json_length", argTypes = {"JSON", "STRING"}, returnType = "INT")
-    public static Expression jsonLengthString(JsonLiteral first, StringLiteral second) {
-        if (second.getValue().equals("$")) {
-            return new IntegerLiteral(first.getValue().length());
-        }
-        Object jsonObject = null;
-        // Determine if the input is a JSONArray or JSONObject
-        if (second.getValue().trim().startsWith("[")) {
-            jsonObject = new JSONArray(second.getValue()); // Input is a JSONArray
-        } else {
-            jsonObject = new JSONObject(second.getValue());
-        }
-        return new IntegerLiteral(jsonObject.toString().length());
     }
 
     private static int compareLiteral(Literal first, Literal... second) {
@@ -768,8 +537,8 @@ public class StringArithmetic {
      * Executable arithmetic functions split_by_char
      */
     @ExecFunction(varArgs = false, name = "split_by_char",
-            argTypes = {"STRING", "STRING"}, returnType = "ARRAY<VARCHAR>")
-    public static Expression splitByChar(StringLiteral first, StringLiteral second) {
+            argTypes = {"VARCHAR", "VARCHAR"}, returnType = "ARRAY<VARCHAR>")
+    public static Expression splitByChar(VarcharLiteral first, VarcharLiteral second) {
         String[] result = first.getValue().split(second.getValue());
         List<Literal> items = new ArrayList<>();
         for (int i = 1; i < result.length; i++) {
@@ -798,11 +567,39 @@ public class StringArithmetic {
     @ExecFunction(varArgs = false, name = "split_part",
             argTypes = {"VARCHAR", "VARCHAR", "INT"}, returnType = "VARCHAR")
     public static Expression splitPart(VarcharLiteral literal, VarcharLiteral chr, IntegerLiteral number) {
-        String[] parts = literal.getValue().split(chr.getValue());
-        if (parts.length < number.getValue() || number.getValue() < (- parts.length) || number.getValue() == 0) {
-            return new VarcharLiteral("");
+        if (literal.getValue().equals(chr.getValue())) {
+            if (Math.abs(number.getValue()) == 1 || Math.abs(number.getValue()) == 2) {
+                return new VarcharLiteral("");
+            }
+        }
+        String separator = chr.getValue();
+        String[] parts = null;
+        if (number.getValue() < 0) {
+            StringBuilder sb = new StringBuilder(literal.getValue());
+            StringBuilder seperatorBuilder = new StringBuilder(separator);
+            separator = seperatorBuilder.reverse().toString();
+            if (".$|()[{^?*+\\".indexOf(separator) != -1 || separator.startsWith("\\")) {
+                separator = "\\" + separator;
+            }
+            parts = sb.reverse().toString().split(separator);
+        } else {
+            if (".$|()[{^?*+\\".indexOf(separator) != -1 || separator.startsWith("\\")) {
+                separator = "\\" + separator;
+            }
+            parts = literal.getValue().split(separator);
+        }
+
+        if (parts.length < Math.abs(number.getValue()) || number.getValue() == 0) {
+            if (parts.length == Math.abs(number.getValue()) - 1) {
+                if (number.getValue() < 0 && literal.getValue().startsWith(chr.getValue())
+                        || number.getValue() > 0 && literal.getValue().endsWith(chr.getValue())) {
+                    return new VarcharLiteral("");
+                }
+            }
+            return new NullLiteral();
         } else if (number.getValue() < 0) {
-            return new VarcharLiteral(parts[parts.length + number.getValue()]);
+            StringBuilder result = new StringBuilder(parts[Math.abs(number.getValue()) - 1]);
+            return new VarcharLiteral(result.reverse().toString());
         } else {
             return new VarcharLiteral(parts[number.getValue() - 1]);
         }
@@ -815,6 +612,9 @@ public class StringArithmetic {
             argTypes = {"VARCHAR", "VARCHAR", "INT"}, returnType = "VARCHAR")
     public static Expression substringIndex(VarcharLiteral literal, VarcharLiteral chr, IntegerLiteral number) {
         String[] parts = literal.getValue().split(chr.getValue());
+        if (Math.abs(number.getValue()) >= parts.length) {
+            return literal;
+        }
         int leftIndex;
         int rightIndex;
         if (parts.length < number.getValue() || number.getValue() < (- parts.length) || number.getValue() == 0) {
@@ -840,10 +640,13 @@ public class StringArithmetic {
      */
     @ExecFunction(varArgs = false, name = "strcmp", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "TINYINT")
     public static Expression strcmp(VarcharLiteral first, VarcharLiteral second) {
-        if (first.getValue().equals(second.getValue())) {
-            return new TinyIntLiteral((byte) 1);
-        } else {
+        int result = first.getValue().compareTo(second.getValue());
+        if (result == 0) {
             return new TinyIntLiteral((byte) 0);
+        } else if (result < 0) {
+            return new TinyIntLiteral((byte) -1);
+        } else {
+            return new TinyIntLiteral((byte) 1);
         }
     }
 
@@ -866,13 +669,18 @@ public class StringArithmetic {
      */
     @ExecFunction(varArgs = false, name = "strright", argTypes = {"VARCHAR", "INT"}, returnType = "VARCHAR")
     public static Expression strRight(VarcharLiteral first, IntegerLiteral second) {
-        if (second.getValue() <= 0) {
+        if (second.getValue() < (- first.getValue().length()) || Math.abs(second.getValue()) == 0) {
             return new VarcharLiteral("");
         } else if (second.getValue() > first.getValue().length()) {
             return first;
         } else {
-            return new VarcharLiteral(first.getValue().substring(
+            if (second.getValue() > 0) {
+                return new VarcharLiteral(first.getValue().substring(
                     first.getValue().length() - second.getValue(), first.getValue().length()));
+            } else {
+                return new VarcharLiteral(first.getValue().substring(
+                    Math.abs(second.getValue()) - 1, first.getValue().length()));
+            }
         }
     }
 
@@ -885,7 +693,7 @@ public class StringArithmetic {
                                         IntegerLiteral second, IntegerLiteral third, VarcharLiteral four) {
         StringBuilder sb = new StringBuilder();
         if (second.getValue() <= 0 || second.getValue() > first.getValue().length()) {
-            return new VarcharLiteral("");
+            return first;
         } else {
             if (third.getValue() < 0 || third.getValue() > (first.getValue().length() - third.getValue())) {
                 sb.append(first.getValue().substring(0, second.getValue() - 1));
@@ -969,38 +777,6 @@ public class StringArithmetic {
     }
 
     /**
-     * Executable arithmetic functions decodeasvarchar
-     */
-    @ExecFunction(varArgs = false, name = "decode_as_varchar", argTypes = {"SMALLINT"}, returnType = "VARCHAR")
-    public static Expression decodeasvarcharSmallint(SmallIntLiteral first) {
-        return new VarcharLiteral(first.getValue().toString());
-    }
-
-    /**
-     * Executable arithmetic functions decodeasvarchar
-     */
-    @ExecFunction(varArgs = false, name = "decode_as_varchar", argTypes = {"INT"}, returnType = "VARCHAR")
-    public static Expression decodeasvarcharInt(IntegerLiteral first) {
-        return new VarcharLiteral(first.getValue().toString());
-    }
-
-    /**
-     * Executable arithmetic functions decodeasvarchar
-     */
-    @ExecFunction(varArgs = false, name = "decode_as_varchar", argTypes = {"BIGINT"}, returnType = "VARCHAR")
-    public static Expression decodeasvarcharBigint(BigIntLiteral first) {
-        return new VarcharLiteral(first.getValue().toString());
-    }
-
-    /**
-     * Executable arithmetic functions decodeasvarchar
-     */
-    @ExecFunction(varArgs = false, name = "decode_as_varchar", argTypes = {"LARGEINT"}, returnType = "VARCHAR")
-    public static Expression decodeasvarcharLargeint(LargeIntLiteral first) {
-        return new VarcharLiteral(first.getValue().toString());
-    }
-
-    /**
      * Executable arithmetic functions append_trailing_char_if_absent
      */
     @ExecFunction(varArgs = false, name = "append_trailing_char_if_absent",
@@ -1056,18 +832,6 @@ public class StringArithmetic {
     @ExecFunction(varArgs = false, name = "quote", argTypes = {"VARCHAR"}, returnType = "VARCHAR")
     public static Expression quote(VarcharLiteral first) {
         return new VarcharLiteral("\'" + first.getValue() + "\'");
-    }
-
-    /**
-     * Executable arithmetic functions toBase64
-     */
-    @ExecFunction(varArgs = false, name = "to_base64", argTypes = {"STRING"}, returnType = "STRING")
-    public static Expression toBase64(VarcharLiteral first) {
-        // Convert the string to bytes
-        byte[] strBytes = first.getValue().getBytes();
-        // Encode the bytes to Base64
-        String encodedStr = Base64.getEncoder().encodeToString(strBytes);
-        return new VarcharLiteral(encodedStr);
     }
 
     /**

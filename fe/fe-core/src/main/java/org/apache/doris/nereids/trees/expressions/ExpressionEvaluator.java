@@ -111,7 +111,9 @@ public enum ExpressionEvaluator {
                     Class<?> componentType = parameterType.getComponentType();
                     Object varArgs = Array.newInstance(componentType, totalSize - fixedArgsSize);
                     for (int i = fixedArgsSize; i < totalSize; i++) {
-                        Array.set(varArgs, i - fixedArgsSize, expression.children().get(i));
+                        if (!(expression.children().get(i) instanceof NullLiteral)) {
+                            Array.set(varArgs, i - fixedArgsSize, expression.children().get(i));
+                        }
                     }
                     Object[] objects = new Object[fixedArgsSize + 1];
                     for (int i = 0; i < fixedArgsSize; i++) {
