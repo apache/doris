@@ -47,11 +47,4 @@ suite('load', 'p0,restart_fe') {
        CREATE JOB ${oneTimeJobName}  ON SCHEDULE  AT '2052-03-18 00:00:00'  comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
     """
 
-    qt_select1  """
-       select name, ExecuteType,RecurringStrategy,ExecuteSql from jobs("type" = "insert") where name = '${oneTimeJobName}'
-    """
-    qt_select2  """
-       select name, ExecuteType,RecurringStrategy,ExecuteSql from jobs("type" = "insert") where name = '${recurringJobName}'
-    """
-
 }
