@@ -76,8 +76,6 @@ Status RCBinaryJNIReader::init_fetch_table_reader(
     TFileType::type type = get_file_type();
     std::map<String, String> required_params = {
             {"uri", _range.path},
-            {"required_fields", "col_tinyint"}, 
-            {"columns_types", columns_types.str()},
             {"file_type", std::to_string(type)},
             {"is_get_table_schema", "false"},
     };
