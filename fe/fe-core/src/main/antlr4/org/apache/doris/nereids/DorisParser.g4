@@ -447,7 +447,7 @@ unsupportedRecoverStatement
     | RECOVER TABLE name=multipartIdentifier
         id=INTEGER_VALUE? (AS alias=identifier)?                                    #recoverTable
     | RECOVER PARTITION name=identifier id=INTEGER_VALUE? (AS alias=identifier)?
-        FROM tableName=multipartIdentifier                                          #recoverPartition
+        FROM tableName=multipartIdentifier  (AS alias=identifier)?                 #recoverPartition
     ;
 
 unsupportedAdminStatement

@@ -82,6 +82,7 @@ import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.binlog.BinlogGcer;
 import org.apache.doris.binlog.BinlogManager;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
+import org.apache.doris.catalog.CatalogRecycleBin.RecyclePartitionInfo;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -125,6 +126,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.SmallFileMgr;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.consistency.ConsistencyChecker;
@@ -6640,5 +6642,109 @@ public class Env {
         }
 
         System.exit(0);
+    }
+
+    /**
+     * Get table ddl stmt from partition Info.
+     *  Only olap table
+     *
+     */
+    public static String getDdlStmtFromPartitionInfo(TableIf table,
+                RecyclePartitionInfo recovRecyclePartitionInfo) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("CREATE ");
+
+        sb.append(table.getType() != TableType.MATERIALIZED_VIEW ? "TABLE " : "MATERIALIZED VIEW ");
+        sb.append("`").append(table.getName()).append("`");
+        sb.append(" (\n");
+        int idx = 0;
+        OlapTable olapTable = (OlapTable) table;
+
+        // this getting always latest column set.
+        // how to get old one?
+        long oldIndex = recovRecyclePartitionInfo.getPartition().getBaseIndex().getId();
+        List<Column> columns = olapTable.getSchemaByIndexId(oldIndex);
+        for (Column column : columns) {
+            if (idx++ != 0) {
+                sb.append(",\n");
+            }
+            // There MUST BE 2 space in front of each column description line
+            // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
+            if (table.isManagedTable()) {
+                sb.append("  ").append(
+                        column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
+            } else {
+                sb.append("  ").append(column.toSql());
+            }
+        }
+        if (table instanceof OlapTable) {
+            if (CollectionUtils.isNotEmpty(olapTable.getIndexes())) {
+                for (Index index : olapTable.getIndexes()) {
+                    sb.append(",\n");
+                    sb.append("  ").append(index.toSql());
+                }
+            }
+        }
+        sb.append("\n) ENGINE=");
+        sb.append(table.getType().name());
+
+        if (table instanceof OlapTable) {
+            // keys
+            String keySql = olapTable.getKeysType().toSql();
+            if (olapTable.isDuplicateWithoutKey()) {
+                // after #18621, use can create a DUP_KEYS olap table without key columns
+                // and get a ddl schema without key type and key columns
+            } else {
+                sb.append("\n").append(keySql).append("(");
+                List<String> keysColumnNames = Lists.newArrayList();
+                Map<Integer, String> clusterKeysColumnNamesToId = new TreeMap<>();
+                for (Column column : olapTable.getBaseSchema()) {
+                    if (column.isKey()) {
+                        keysColumnNames.add("`" + column.getName() + "`");
+                    }
+                    if (column.isClusterKey()) {
+                        clusterKeysColumnNamesToId.put(column.getClusterKeyId(), column.getName());
+                    }
+                }
+                sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
+                // show cluster keys
+                if (!clusterKeysColumnNamesToId.isEmpty()) {
+                    sb.append("\n").append("CLUSTER BY (`");
+                    sb.append(Joiner.on("`, `").join(clusterKeysColumnNamesToId.values())).append("`)");
+                }
+            }
+
+            // partition
+            PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+            List<Long> partitionId = null;
+            if ((partitionInfo.getType() == PartitionType.RANGE
+                    || partitionInfo.getType() == PartitionType.LIST)) {
+                sb.append("\n").append(partitionInfo.toSql(olapTable, partitionId));
+            }
+
+            // distribution
+            DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+            sb.append("\n").append(distributionInfo.toSql());
+
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            addOlapTablePropertyInfo(olapTable, sb, false, false, partitionId);
+            sb.append("\n)");
+        }
+        sb.append(";");
+        String createTableStmt = sb.toString();
+        return createTableStmt;
+    }
+
+    public void createTableUsingPartitionInfo(String newTableName,
+            RecyclePartitionInfo recovRecyclePartitionInfo, OlapTable origTable) throws UserException {
+
+        String createTableStmt = Env.getDdlStmtFromPartitionInfo(origTable, recovRecyclePartitionInfo);
+        LOG.info("create table stmt: {}", createTableStmt);
+        CreateTableStmt parsedCreateTableStmt = (CreateTableStmt) SqlParserUtils.parseAndAnalyzeStmt(
+                createTableStmt, ConnectContext.get());
+        parsedCreateTableStmt.setTableName(newTableName);
+        parsedCreateTableStmt.setIfNotExists(true);
+        createTable(parsedCreateTableStmt);
     }
 }

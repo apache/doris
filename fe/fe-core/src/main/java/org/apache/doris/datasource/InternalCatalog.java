@@ -685,31 +685,46 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
+        boolean needCreateNewTable = false;
         String dbName = recoverStmt.getDbName();
         String tableName = recoverStmt.getTableName();
 
         Database db = getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
-        olapTable.writeLockOrDdlException();
+        String newTableName = recoverStmt.getNewTableName();
+        if (!Strings.isNullOrEmpty(newTableName)) {
+            needCreateNewTable = true;
+        }
         try {
+            // if we are going to create a new table , then we need to take writelock
+            // on db level. else just need table level.
             String partitionName = recoverStmt.getPartitionName();
             String newPartitionName = recoverStmt.getNewPartitionName();
-            if (Strings.isNullOrEmpty(newPartitionName)) {
-                if (olapTable.getPartition(partitionName) != null) {
-                    throw new DdlException("partition[" + partitionName + "] "
-                            + "already exist in table[" + tableName + "]");
-                }
+
+            if (needCreateNewTable) {
+                db.writeLockOrDdlException();
             } else {
-                if (olapTable.getPartition(newPartitionName) != null) {
-                    throw new DdlException("partition[" + newPartitionName + "] "
-                            + "already exist in table[" + tableName + "]");
+                olapTable.writeLockOrDdlException();
+                if (Strings.isNullOrEmpty(newPartitionName)) {
+                    if (olapTable.getPartition(partitionName) != null) {
+                        throw new DdlException("partition[" + partitionName + "] "
+                                + "already exist in table[" + tableName + "]");
+                    }
+                } else {
+                    if (olapTable.getPartition(newPartitionName) != null) {
+                        throw new DdlException("partition[" + newPartitionName + "] "
+                                + "already exist in table[" + tableName + "]");
+                    }
                 }
             }
-
             Env.getCurrentRecycleBin().recoverPartition(db.getId(), olapTable, partitionName,
-                    recoverStmt.getPartitionId(), newPartitionName);
+                    recoverStmt.getPartitionId(), newPartitionName, newTableName, db);
         } finally {
-            olapTable.writeUnlock();
+            if (needCreateNewTable) {
+                db.writeUnlock();
+            } else {
+                olapTable.writeUnlock();
+            }
         }
     }
 

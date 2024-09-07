@@ -3309,9 +3309,9 @@ recover_stmt ::=
     {:
         RESULT = new RecoverTableStmt(dbTblName, tableId, alias);
     :}
-    | KW_RECOVER KW_PARTITION ident:partitionName opt_id:partitionId opt_alias:alias KW_FROM table_name:dbTblName
+    | KW_RECOVER KW_PARTITION ident:partitionName opt_id:partitionId opt_alias:alias KW_FROM table_name:dbTblName opt_alias:newTableName
     {:
-        RESULT = new RecoverPartitionStmt(dbTblName, partitionName, partitionId, alias);
+        RESULT = new RecoverPartitionStmt(dbTblName, partitionName, partitionId, alias, newTableName);
     :}
     ;
 

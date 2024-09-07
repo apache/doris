@@ -24,6 +24,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
@@ -57,6 +58,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -787,8 +789,58 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable, GsonPos
         return true;
     }
 
+    public synchronized void recoverPartitionUsingNewTable(String newTableName,
+            RecyclePartitionInfo recoverPartitionInfo, PartitionItem recoverItem,
+            OlapTable origTable, String newPartitionName, Database db) throws DdlException {
+        try {
+            Optional<Table> newTable = db.getTable(newTableName);
+            if (!newTable.isPresent()) {
+                Env.getCurrentEnv().createTableUsingPartitionInfo(newTableName,
+                        recoverPartitionInfo, origTable);
+                newTable = db.getTable(newTableName);
+            }
+            if (!newTable.isPresent()) {
+                // raise exeception
+                throw new DdlException("Unable to create " + newTableName);
+            }
+
+            OlapTable table = (OlapTable) newTable.get();
+            Partition recoverPartition = recoverPartitionInfo.getPartition();
+            // check if partition name exists
+            if (!Strings.isNullOrEmpty(newPartitionName)) {
+                if (table.checkPartitionNameExist(newPartitionName)) {
+                    throw new DdlException("Partition name[" + newPartitionName + "] is already used");
+                }
+                recoverPartition.setName(newPartitionName);
+            }
+            // recover partition
+            table.addPartition(recoverPartition);
+
+            PartitionInfo partitionInfo = table.getPartitionInfo();
+            // recover partition info
+            long partitionId = recoverPartition.getId();
+            partitionInfo.setItem(partitionId, false, recoverItem);
+            partitionInfo.setDataProperty(partitionId, recoverPartitionInfo.getDataProperty());
+            partitionInfo.setReplicaAllocation(partitionId, recoverPartitionInfo.getReplicaAlloc());
+            partitionInfo.setIsInMemory(partitionId, recoverPartitionInfo.isInMemory());
+            partitionInfo.setIsMutable(partitionId, recoverPartitionInfo.isMutable());
+
+            // remove from recycle bin
+            idToPartition.remove(partitionId);
+            idToRecycleTime.remove(partitionId);
+
+            // log
+            long dbId = db.getId();
+            RecoverInfo recoverInfo = new RecoverInfo(dbId, table.getId(), partitionId, "", "", newPartitionName);
+            Env.getCurrentEnv().getEditLog().logRecoverPartition(recoverInfo);
+            LOG.info("recover partition[{}]", partitionId);
+        } catch (UserException e) {
+            throw new DdlException(e.getMessage());
+        }
+    }
+
     public synchronized void recoverPartition(long dbId, OlapTable table, String partitionName,
-            long partitionIdToRecover, String newPartitionName) throws DdlException {
+            long partitionIdToRecover, String newPartitionName, String newTableName, Database db) throws DdlException {
         if (table.getType() == TableType.MATERIALIZED_VIEW) {
             throw new DdlException("Can not recover partition in materialized view: " + table.getName());
         }
@@ -833,49 +885,54 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable, GsonPos
         } else if (partitionInfo.getType() == PartitionType.LIST) {
             recoverItem = recoverPartitionInfo.getListPartitionItem();
         }
-        // check if partition item is invalid
-        if (partitionInfo.getAnyIntersectItem(recoverItem, false) != null) {
-            throw new DdlException("Can not recover partition[" + partitionName + "]. Partition item conflict.");
-        }
-
-        // check if schema change
-        Partition recoverPartition = recoverPartitionInfo.getPartition();
-        Set<Long> tableIndex = table.getIndexIdToMeta().keySet();
-        Set<Long> partitionIndex = recoverPartition.getMaterializedIndices(IndexExtState.ALL).stream()
-                .map(i -> i.getId()).collect(Collectors.toSet());
-        if (!tableIndex.equals(partitionIndex)) {
-            throw new DdlException("table's index not equal with partition's index. table's index=" + tableIndex
-                    + ", partition's index=" + partitionIndex);
-        }
-
-        // check if partition name exists
-        Preconditions.checkState(recoverPartition.getName().equalsIgnoreCase(partitionName));
-        if (!Strings.isNullOrEmpty(newPartitionName)) {
-            if (table.checkPartitionNameExist(newPartitionName)) {
-                throw new DdlException("Partition name[" + newPartitionName + "] is already used");
+        if (newTableName != null) {
+            // use new table to recover
+            recoverPartitionUsingNewTable(newTableName, recoverPartitionInfo, recoverItem, table, newPartitionName, db);
+        } else {
+            // check if partition item is invalid
+            if (partitionInfo.getAnyIntersectItem(recoverItem, false) != null) {
+                throw new DdlException("Can not recover partition[" + partitionName + "]. Partition item conflict.");
             }
-            recoverPartition.setName(newPartitionName);
+            // check if schema change
+            Partition recoverPartition = recoverPartitionInfo.getPartition();
+            Set<Long> tableIndex = table.getIndexIdToMeta().keySet();
+            Set<Long> partitionIndex = recoverPartition.getMaterializedIndices(IndexExtState.ALL).stream()
+                    .map(i -> i.getId()).collect(Collectors.toSet());
+            if (!tableIndex.equals(partitionIndex)) {
+                throw new DdlException("table's index not equal with partition's index. table's index=" + tableIndex
+                        + ", partition's index=" + partitionIndex);
+            }
+
+            // check if partition name exists
+            Preconditions.checkState(recoverPartition.getName().equalsIgnoreCase(partitionName));
+            if (!Strings.isNullOrEmpty(newPartitionName)) {
+                if (table.checkPartitionNameExist(newPartitionName)) {
+                    throw new DdlException("Partition name[" + newPartitionName + "] is already used");
+                }
+                recoverPartition.setName(newPartitionName);
+            }
+
+            // recover partition
+            table.addPartition(recoverPartition);
+
+            // recover partition info
+            long partitionId = recoverPartition.getId();
+            partitionInfo.setItem(partitionId, false, recoverItem);
+            partitionInfo.setDataProperty(partitionId, recoverPartitionInfo.getDataProperty());
+            partitionInfo.setReplicaAllocation(partitionId, recoverPartitionInfo.getReplicaAlloc());
+            partitionInfo.setIsInMemory(partitionId, recoverPartitionInfo.isInMemory());
+            partitionInfo.setIsMutable(partitionId, recoverPartitionInfo.isMutable());
+
+            // remove from recycle bin
+            idToPartition.remove(partitionId);
+            idToRecycleTime.remove(partitionId);
+
+            // log
+            RecoverInfo recoverInfo = new RecoverInfo(dbId, table.getId(), partitionId, "", "", newPartitionName);
+            Env.getCurrentEnv().getEditLog().logRecoverPartition(recoverInfo);
+            LOG.info("recover partition[{}]", partitionId);
         }
 
-        // recover partition
-        table.addPartition(recoverPartition);
-
-        // recover partition info
-        long partitionId = recoverPartition.getId();
-        partitionInfo.setItem(partitionId, false, recoverItem);
-        partitionInfo.setDataProperty(partitionId, recoverPartitionInfo.getDataProperty());
-        partitionInfo.setReplicaAllocation(partitionId, recoverPartitionInfo.getReplicaAlloc());
-        partitionInfo.setIsInMemory(partitionId, recoverPartitionInfo.isInMemory());
-        partitionInfo.setIsMutable(partitionId, recoverPartitionInfo.isMutable());
-
-        // remove from recycle bin
-        idToPartition.remove(partitionId);
-        idToRecycleTime.remove(partitionId);
-
-        // log
-        RecoverInfo recoverInfo = new RecoverInfo(dbId, table.getId(), partitionId, "", "", newPartitionName);
-        Env.getCurrentEnv().getEditLog().logRecoverPartition(recoverInfo);
-        LOG.info("recover partition[{}]", partitionId);
     }
 
     // The caller should keep table write lock
