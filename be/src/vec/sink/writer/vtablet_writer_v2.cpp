@@ -64,7 +64,23 @@ VTabletWriterV2::~VTabletWriterV2() = default;
 Status VTabletWriterV2::on_partitions_created(TCreatePartitionResult* result) {
     // add new tablet locations. it will use by address. so add to pool
     auto* new_locations = _pool->add(new std::vector<TTabletLocation>(result->tablets));
+    for (auto loc : result->tablets) {
+        std::stringstream ss;
+        loc.printTo(ss);
+        LOG(INFO) << "add location " << ss.str() << " load_id=" << print_id(_load_id);
+    }
     _location->add_locations(*new_locations);
+    for (auto loc : result->tablets) {
+        const auto* location = _location->find_tablet(loc.tablet_id);
+        if (location->node_ids.size() > 3) {
+            std::stringstream ss;
+            for (const auto& node_id : location->node_ids) {
+                ss << node_id << " ";
+            }
+            LOG(WARNING) << "tablet location > 3, load_id=" << print_id(_load_id)
+                         << ", tablet_id=" << loc.tablet_id << ", dst_id=[" << ss.str() << "]";
+        }
+    }
 
     // update new node info
     _nodes_info->add_nodes(result->nodes);
@@ -98,6 +114,7 @@ Status VTabletWriterV2::_incremental_open_streams(
                     if (!_load_stream_map->contains(node)) {
                         new_backends.insert(node);
                     }
+                    LOG(INFO) << "incremental add tablets_for_node node=" << node << ", tablet_id=" << tablet_id;
                     _tablets_for_node[node].emplace(tablet_id, tablet);
                     if (known_indexes.contains(index.index_id)) [[likely]] {
                         continue;
@@ -317,6 +334,7 @@ Status VTabletWriterV2::_build_tablet_node_mapping() {
                     tablet.set_partition_id(partition->id);
                     tablet.set_index_id(index.index_id);
                     tablet.set_tablet_id(tablet_id);
+                    LOG(INFO) << "build_tablets_for_node node=" << node << ", tablet_id=" << tablet_id;
                     _tablets_for_node[node].emplace(tablet_id, tablet);
                     constexpr int64_t DUMMY_TABLET_ID = 0;
                     if (tablet_id == DUMMY_TABLET_ID) [[unlikely]] {
@@ -365,6 +383,14 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
     DBUG_EXECUTE_IF("VTabletWriterV2._select_streams.location_null", { location = nullptr; });
     if (location == nullptr) {
         return Status::InternalError("unknown tablet location, tablet id = {}", tablet_id);
+    }
+    if (location->node_ids.size() > 3) {
+        std::stringstream ss;
+        for (const auto& node_id : location->node_ids) {
+            ss << node_id << " ";
+        }
+        LOG(WARNING) << "tablet location > 3, load_id=" << print_id(_load_id)
+                     << ", tablet_id=" << tablet_id << ", dst_id=[" << ss.str() << "]";
     }
     for (const auto& node_id : location->node_ids) {
         PTabletID tablet;
@@ -700,6 +726,8 @@ Status VTabletWriterV2::_create_commit_info(std::vector<TTabletCommitInfo>& tabl
                 if (known_tablets.contains(tablet_id)) {
                     continue;
                 }
+                LOG(INFO) << "tablet " << tablet_id << " failed on backend " << dst_id
+                          << ": " << failed_reason[tablet_id];
                 known_tablets.insert(tablet_id);
                 failed_tablets[tablet_id]++;
                 failed_reason[tablet_id] = reason;

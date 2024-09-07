@@ -155,7 +155,7 @@ Status LoadStreamWriter::close_segment(uint32_t segid) {
     }
     g_load_stream_file_writer_cnt << -1;
     LOG(INFO) << "segment " << segid << " path " << file_writer->path().native()
-              << "closed, written " << file_writer->bytes_appended() << " bytes";
+              << " closed, written " << file_writer->bytes_appended() << " bytes";
     if (file_writer->bytes_appended() == 0) {
         return Status::Corruption("segment {} closed with 0 bytes", file_writer->path().native());
     }

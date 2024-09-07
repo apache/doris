@@ -211,7 +211,7 @@ DEFINE_mString(sys_log_level, "INFO");
 // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
 DEFINE_String(sys_log_roll_mode, "SIZE-MB-1024");
 // log roll num
-DEFINE_Int32(sys_log_roll_num, "10");
+DEFINE_Int32(sys_log_roll_num, "50");
 // verbose log
 DEFINE_Strings(sys_log_verbose_modules, "");
 // verbose log level

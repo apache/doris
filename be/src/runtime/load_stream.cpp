@@ -403,6 +403,11 @@ Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_t
     LOG(INFO) << "received CLOSE_LOAD from sender " << src_id << ", remaining "
               << _total_streams - _close_load_cnt << " senders, " << *this;
 
+    for (const auto& tablet : tablets_to_commit) {
+        LOG(INFO) << "received tablets commit info from src_id=" << src_id
+                  << ", load_id=" << print_id(_load_id) << " tablet_id=" << tablet.tablet_id()
+                  << ", num_segments=" << tablet.num_segments();
+    }
     _tablets_to_commit.insert(_tablets_to_commit.end(), tablets_to_commit.begin(),
                               tablets_to_commit.end());
 
