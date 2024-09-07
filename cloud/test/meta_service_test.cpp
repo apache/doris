@@ -1326,6 +1326,73 @@ TEST(MetaServiceTest, BeginTxnTest) {
             ASSERT_GT(res.txn_id(), txn_id);
         }
     }
+
+    {
+        // test reuse label exceed max_num_aborted_txn
+
+        std::string cloud_unique_id = "test_cloud_unique_id";
+        int64_t db_id = 124343989;
+        int64_t table_id = 12897811;
+        int64_t txn_id = -1;
+        std::string label = "test_max_num_aborted_txn_label";
+        for (int i = 0; i < config::max_num_aborted_txn; i++) {
+            {
+                brpc::Controller cntl;
+                BeginTxnRequest req;
+                req.set_cloud_unique_id(cloud_unique_id);
+                TxnInfoPB txn_info;
+                txn_info.set_db_id(db_id);
+                txn_info.set_label(label);
+                txn_info.add_table_ids(table_id);
+                txn_info.set_timeout_ms(36000);
+                UniqueIdPB unique_id_pb;
+                unique_id_pb.set_hi(100);
+                unique_id_pb.set_lo(10);
+                txn_info.mutable_request_id()->CopyFrom(unique_id_pb);
+                req.mutable_txn_info()->CopyFrom(txn_info);
+                BeginTxnResponse res;
+                meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                        &req, &res, nullptr);
+                ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+                txn_id = res.txn_id();
+            }
+            // abort txn
+            {
+                brpc::Controller cntl;
+                AbortTxnRequest req;
+                req.set_cloud_unique_id(cloud_unique_id);
+                ASSERT_GT(txn_id, 0);
+                req.set_txn_id(txn_id);
+                req.set_reason("test");
+                AbortTxnResponse res;
+                meta_service->abort_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                        &req, &res, nullptr);
+                ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+                ASSERT_EQ(res.txn_info().status(), TxnStatusPB::TXN_STATUS_ABORTED);
+            }
+        }
+        {
+            brpc::Controller cntl;
+            BeginTxnRequest req;
+            req.set_cloud_unique_id(cloud_unique_id);
+            TxnInfoPB txn_info;
+            txn_info.set_db_id(db_id);
+            txn_info.set_label(label);
+            txn_info.add_table_ids(table_id);
+            UniqueIdPB unique_id_pb;
+            unique_id_pb.set_hi(100);
+            unique_id_pb.set_lo(10);
+            txn_info.mutable_request_id()->CopyFrom(unique_id_pb);
+            txn_info.set_timeout_ms(36000);
+            req.mutable_txn_info()->CopyFrom(txn_info);
+            BeginTxnResponse res;
+            meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+            ASSERT_TRUE(res.status().msg().find("too many aborted txn for label") !=
+                        std::string::npos);
+        }
+    }
 }
 
 TEST(MetaServiceTest, PrecommitTest1) {
