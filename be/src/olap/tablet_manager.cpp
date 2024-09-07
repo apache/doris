@@ -1049,6 +1049,7 @@ Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>
         t_tablet_stat.__set_remote_data_size(tablet_info.remote_data_size);
         t_tablet_stat.__set_row_num(tablet_info.row_count);
         t_tablet_stat.__set_version_count(tablet_info.version_count);
+        t_tablet_stat.__set_visible_version(tablet_info.version);
     };
     for_each_tablet(handler, filter_all_tablets);
 

@@ -2488,21 +2488,12 @@ public class ShowExecutor {
             if (tableStats == null) {
                 resultSet = showTableStatsStmt.constructEmptyResultSet();
             } else {
-                resultSet = showTableStatsStmt.constructResultSet(tableStats);
+                resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
             }
             return;
         }
         TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
-        /*
-           HMSExternalTable table will fetch row count from HMS
-           or estimate with file size and schema if it's not analyzed.
-           tableStats == null means it's not analyzed, in this case show the estimated row count.
-         */
-        if (tableStats == null) {
-            resultSet = showTableStatsStmt.constructResultSet(tableIf.getRowCount());
-        } else {
-            resultSet = showTableStatsStmt.constructResultSet(tableStats);
-        }
+        resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
     }
 
     private void handleShowColumnStats() throws AnalysisException {
