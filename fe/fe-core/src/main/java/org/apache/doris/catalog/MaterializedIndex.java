@@ -73,6 +73,8 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
     @SerializedName(value = "rollupFinishedVersion")
     private long rollupFinishedVersion;
 
+    private boolean rowCountReported = false;
+
     public MaterializedIndex() {
         this.state = IndexState.NORMAL;
         this.idToTablets = new HashMap<>();
@@ -204,6 +206,14 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
             idx++;
         }
         return -1;
+    }
+
+    public void setRowCountReported(boolean reported) {
+        this.rowCountReported = reported;
+    }
+
+    public boolean getRowCountReported() {
+        return this.rowCountReported;
     }
 
     @Override

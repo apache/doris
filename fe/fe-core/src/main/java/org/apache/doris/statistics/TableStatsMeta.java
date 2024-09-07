@@ -95,7 +95,7 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
     public boolean userInjected;
 
     @SerializedName("irc")
-    public ConcurrentMap<Long, Long> indexesRowCount = new ConcurrentHashMap<>();
+    private ConcurrentMap<Long, Long> indexesRowCount = new ConcurrentHashMap<>();
 
     @VisibleForTesting
     public TableStatsMeta() {
@@ -210,6 +210,10 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
 
     public long getRowCount(long indexId) {
         return indexesRowCount.getOrDefault(indexId, -1L);
+    }
+
+    public void clearIndexesRowCount() {
+        indexesRowCount.clear();
     }
 
     private void clearStaleIndexRowCount(OlapTable table) {
