@@ -208,4 +208,7 @@ CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
 // Max retry times for object storage request
 CONF_mInt64(max_s3_client_retry, "10");
 
+// Max aborted txn num for the same label name
+CONF_mInt64(max_num_aborted_txn, "100");
+
 } // namespace doris::cloud::config
