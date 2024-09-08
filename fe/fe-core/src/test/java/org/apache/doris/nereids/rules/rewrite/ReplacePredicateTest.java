@@ -145,7 +145,6 @@ public class ReplacePredicateTest {
         inputs.add(equalTo);
 
         Set<Expression> result = ReplacePredicate.infer(inputs);
-        InPredicate expected = new InPredicate(new Abs(b), ImmutableList.of(new IntegerLiteral(1), new IntegerLiteral(2), new IntegerLiteral(3)));
         Assertions.assertEquals(1, result.size());
     }
 
