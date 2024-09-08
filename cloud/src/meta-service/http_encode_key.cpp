@@ -163,7 +163,7 @@ static std::string parse_tablet_stats(const ValueBuf& buf) {
     TabletStats detached_stats;
     int ret = get_detached_tablet_stats(stats_kvs, detached_stats);
     if (ret != 0) {
-        json += "failed to get detached_stats\n";
+        json += "failed to get detached_stats, ret=" + std::to_string(ret) + "\n";
         return json;
     }
     TabletStatsPB detached_stats_pb;

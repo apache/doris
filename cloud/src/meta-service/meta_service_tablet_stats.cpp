@@ -98,13 +98,13 @@ int get_detached_tablet_stats(const std::vector<std::pair<std::string, std::stri
         auto* suffix = std::get_if<std::string>(&std::get<0>(out.back()));
         if (!suffix) [[unlikely]] {
             LOG(WARNING) << "malformed tablet stats key. key=" << hex(k);
-            return -1;
+            return -2;
         }
 
         int64_t val = 0;
         if (v.size() != sizeof(val)) [[unlikely]] {
-            LOG(WARNING) << "malformed tablet stats value. key=" << hex(k);
-            return -1;
+            LOG(WARNING) << "malformed tablet stats value v.size=" << v.size() << " key=" << hex(k);
+            return -3;
         }
         std::memcpy(&val, v.data(), sizeof(val));
         if constexpr (std::endian::native == std::endian::big) {
