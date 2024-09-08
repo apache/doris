@@ -75,8 +75,9 @@ public class ShowTableStatsStmt extends ShowStmt implements NotFallbackInParser 
             new ImmutableList.Builder<String>()
             .add("table_name")
             .add("index_name")
-            .add("row_count")
-            .add("update_time")
+            .add("analyze_row_count")
+            .add("report_row_count")
+            .add("report_row_count_for_nereids")
             .build();
 
     private static final ImmutableList<String> COLUMN_PARTITION_TITLE_NAMES =
@@ -200,15 +201,15 @@ public class ShowTableStatsStmt extends ShowStmt implements NotFallbackInParser 
 
     public ShowResultSet constructResultSet(TableStatsMeta tableStatistic, TableIf table) {
         if (indexName != null) {
-            return constructIndexResultSet(tableStatistic);
+            return constructIndexResultSet(tableStatistic, table);
         }
         if (partitionNames == null) {
             return constructTableResultSet(tableStatistic, table);
         }
         if (columnNames == null) {
-            return constructPartitionResultSet(tableStatistic);
+            return constructPartitionResultSet(tableStatistic, table);
         } else {
-            return constructColumnPartitionResultSet(tableStatistic);
+            return constructColumnPartitionResultSet(tableStatistic, table);
         }
     }
 
@@ -216,31 +217,23 @@ public class ShowTableStatsStmt extends ShowStmt implements NotFallbackInParser 
         return new ShowResultSet(getMetaData(), new ArrayList<>());
     }
 
-    public ShowResultSet constructResultSet(TableIf table) {
-        List<List<String>> result = Lists.newArrayList();
-        if (partitionNames != null) {
-            // For partition, return empty result if table stats not exist.
+    public ShowResultSet constructTableResultSet(TableStatsMeta tableStatistic, TableIf table) {
+        if (tableStatistic == null) {
+            List<List<String>> result = Lists.newArrayList();
+            List<String> row = Lists.newArrayList();
+            row.add("");
+            row.add("");
+            row.add(String.valueOf(table.getCachedRowCount()));
+            row.add("");
+            row.add("");
+            row.add("");
+            row.add("");
+            row.add("");
+            row.add(String.valueOf(table.autoAnalyzeEnabled()));
+            result.add(row);
             return new ShowResultSet(getMetaData(), result);
         }
-        List<String> row = Lists.newArrayList();
-        row.add("");
-        row.add("");
-        row.add(String.valueOf(table.getCachedRowCount()));
-        row.add("");
-        row.add("");
-        row.add("");
-        row.add("");
-        row.add("");
-        row.add(String.valueOf(table.autoAnalyzeEnabled()));
-        result.add(row);
-        return new ShowResultSet(getMetaData(), result);
-    }
-
-    public ShowResultSet constructTableResultSet(TableStatsMeta tableStatistic, TableIf table) {
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        if (tableStatistic == null) {
-            return new ShowResultSet(getMetaData(), new ArrayList<>());
-        }
         List<List<String>> result = Lists.newArrayList();
         List<String> row = Lists.newArrayList();
         row.add(String.valueOf(tableStatistic.updatedRows));
@@ -260,9 +253,9 @@ public class ShowTableStatsStmt extends ShowStmt implements NotFallbackInParser 
         return new ShowResultSet(getMetaData(), result);
     }
 
-    public ShowResultSet constructPartitionResultSet(TableStatsMeta tableStatistic) {
+    public ShowResultSet constructPartitionResultSet(TableStatsMeta tableStatistic, TableIf table) {
         List<List<String>> result = Lists.newArrayList();
-        if (!(table instanceof OlapTable)) {
+        if (!(table instanceof OlapTable) || tableStatistic == null) {
             return new ShowResultSet(getMetaData(), result);
         }
         Collection<String> partitions = partitionNames.isStar()
@@ -286,7 +279,7 @@ public class ShowTableStatsStmt extends ShowStmt implements NotFallbackInParser 
         return new ShowResultSet(getMetaData(), result);
     }
 
-    public ShowResultSet constructIndexResultSet(TableStatsMeta tableStatistic) {
+    public ShowResultSet constructIndexResultSet(TableStatsMeta tableStatistic, TableIf table) {
         List<List<String>> result = Lists.newArrayList();
         if (!(table instanceof OlapTable)) {
             return new ShowResultSet(getMetaData(), result);
@@ -296,23 +289,20 @@ public class ShowTableStatsStmt extends ShowStmt implements NotFallbackInParser 
         if (indexId == null) {
             throw new RuntimeException(String.format("Index %s not exist.", indexName));
         }
-        long rowCount = tableStatistic.getRowCount(olapTable.getIndexIdByName(indexName));
-        if (rowCount == -1) {
-            return new ShowResultSet(getMetaData(), result);
-        }
-        long updateTime = tableStatistic.getRowCountUpdateTime(olapTable.getIndexIdByName(indexName));
+        long rowCount = tableStatistic == null ? -1 : tableStatistic.getRowCount(olapTable.getIndexIdByName(indexName));
         List<String> row = Lists.newArrayList();
         row.add(table.getName());
         row.add(indexName);
         row.add(String.valueOf(rowCount));
-        row.add(String.valueOf(updateTime));
+        row.add(String.valueOf(olapTable.getRowCountForIndex(indexId, false)));
+        row.add(String.valueOf(olapTable.getRowCountForIndex(indexId, true)));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
     }
 
-    public ShowResultSet constructColumnPartitionResultSet(TableStatsMeta tableStatistic) {
+    public ShowResultSet constructColumnPartitionResultSet(TableStatsMeta tableStatistic, TableIf table) {
         List<List<String>> result = Lists.newArrayList();
-        if (!(table instanceof OlapTable)) {
+        if (!(table instanceof OlapTable) || tableStatistic == null) {
             return new ShowResultSet(getMetaData(), result);
         }
         OlapTable olapTable = (OlapTable) table;
