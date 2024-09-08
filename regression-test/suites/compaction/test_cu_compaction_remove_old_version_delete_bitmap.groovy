@@ -124,7 +124,7 @@ suite("test_cu_compaction_remove_old_version_delete_bitmap", "nonConcurrent") {
     }
 
     def testTable = "test_cu_compaction_remove_old_version_delete_bitmap"
-    def timeout = 10000
+    def timeout = 5000
     sql """ DROP TABLE IF EXISTS ${testTable}"""
     def testTableDDL = """
         create table ${testTable} 
