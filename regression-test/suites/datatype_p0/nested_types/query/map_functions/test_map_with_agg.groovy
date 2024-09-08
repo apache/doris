@@ -11,8 +11,7 @@
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
-// specific language governing permissions and limitations
+// KIND, either express or implied.  See the License for the // specific language governing permissions and limitations
 // under the License.
 
 suite("test_map_with_agg", "p0") {
@@ -45,11 +44,4 @@ suite("test_map_with_agg", "p0") {
                           union all
                           SELECT id, c_char, map('exp_seac', count(CASE WHEN et = 'page_l' THEN uid END )) as m FROM t_map_count  WHERE  p1 = 'consumer-un' AND p2 = '17469174857s957ssf'  GROUP BY 1,2;"""
 
-
-    // test in nereids planner
-    sql """set enable_nereids_planner=true"""
-    sql """ set enable_fallback_to_original_planner=false"""
-    order_qt_nereid_sql """  SELECT id, c_char, map('exp_sea', 1) as m  FROM t_map_count  WHERE p1 = 'comr' AND p2 = 'ex'  GROUP BY 1,2
-                             union all
-                             SELECT id, c_char, map('exp_seac', count(CASE WHEN et = 'page_l' THEN uid END )) as m FROM t_map_count  WHERE  p1 = 'consumer-un' AND p2 = '17469174857s957ssf'  GROUP BY 1,2;"""
 }
