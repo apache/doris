@@ -29,6 +29,8 @@ import org.apache.hadoop.hive.serde2.objectinspector.StructField;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.DateObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.TimestampObjectInspector;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -42,17 +44,19 @@ import java.util.Map.Entry;
 
 public class HiveColumnValue implements ColumnValue {
 
+    private static final Logger LOG = LogManager.getLogger(HiveColumnValue.class);
     private final Object fieldData;
     private final ObjectInspector fieldInspector;
     private final String timeZone;
 
-    public HiveColumnValue(ObjectInspector fieldInspector, Object fieldData, String timeZone) {
-        this.fieldInspector = fieldInspector;
+    public HiveColumnValue(Object fieldData) {
+        this.fieldInspector = null;
         this.fieldData = fieldData;
-        this.timeZone = timeZone;
+        this.timeZone = null;
     }
 
     private Object inspectObject() {
+        assert fieldInspector != null;
         return ((PrimitiveObjectInspector) fieldInspector).getPrimitiveJavaObject(fieldData);
     }
 
@@ -117,7 +121,7 @@ public class HiveColumnValue implements ColumnValue {
 
     @Override
     public String getString() {
-        return inspectObject().toString();
+        return this.fieldData.toString();
     }
 
     @Override
@@ -127,6 +131,7 @@ public class HiveColumnValue implements ColumnValue {
 
     @Override
     public LocalDate getDate() {
+        assert fieldInspector != null;
         return LocalDate.ofEpochDay(
                 ((DateObjectInspector) fieldInspector).getPrimitiveJavaObject(fieldData).toEpochDay());
     }
@@ -136,11 +141,14 @@ public class HiveColumnValue implements ColumnValue {
         if (fieldData instanceof Timestamp) {
             return ((Timestamp) fieldData).toLocalDateTime();
         } else if (fieldData instanceof TimestampWritableV2) {
+            assert fieldInspector != null;
+            assert timeZone != null;
             return LocalDateTime.ofInstant(Instant.ofEpochSecond(
                             ((TimestampObjectInspector) fieldInspector)
                                     .getPrimitiveJavaObject(fieldData).toEpochSecond()),
                     ZoneId.of(timeZone));
         }
+        assert fieldInspector != null;
         org.apache.hadoop.hive.common.type.Timestamp timestamp
                 = ((TimestampObjectInspector) fieldInspector).getPrimitiveJavaObject(fieldData);
         return LocalDateTime.of(timestamp.getYear(), timestamp.getMonth(), timestamp.getDay(), timestamp.getHours(),
@@ -155,12 +163,12 @@ public class HiveColumnValue implements ColumnValue {
     @Override
     public void unpackArray(List<ColumnValue> values) {
         ListObjectInspector inspector = (ListObjectInspector) fieldInspector;
+        assert inspector != null;
         List<?> items = inspector.getList(fieldData);
-        ObjectInspector itemInspector = inspector.getListElementObjectInspector();
         for (Object item : items) {
             HiveColumnValue hiveColumnValue = null;
             if (item != null) {
-                hiveColumnValue = new HiveColumnValue(itemInspector, item, timeZone);
+                hiveColumnValue = new HiveColumnValue(item);
             }
             values.add(hiveColumnValue);
         }
@@ -169,16 +177,15 @@ public class HiveColumnValue implements ColumnValue {
     @Override
     public void unpackMap(List<ColumnValue> keys, List<ColumnValue> values) {
         MapObjectInspector inspector = (MapObjectInspector) fieldInspector;
-        ObjectInspector keyObjectInspector = inspector.getMapKeyObjectInspector();
-        ObjectInspector valueObjectInspector = inspector.getMapValueObjectInspector();
+        assert inspector != null;
         for (Entry kv : inspector.getMap(fieldData).entrySet()) {
             HiveColumnValue key = null;
             HiveColumnValue value = null;
             if (kv.getKey() != null) {
-                key = new HiveColumnValue(keyObjectInspector, kv.getKey(), timeZone);
+                key = new HiveColumnValue(kv.getKey());
             }
             if (kv.getValue() != null) {
-                value = new HiveColumnValue(valueObjectInspector, kv.getValue(), timeZone);
+                value = new HiveColumnValue(kv.getValue());
             }
             keys.add(key);
             values.add(value);
@@ -188,6 +195,7 @@ public class HiveColumnValue implements ColumnValue {
     @Override
     public void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values) {
         StructObjectInspector inspector = (StructObjectInspector) fieldInspector;
+        assert inspector != null;
         List<? extends StructField> fields = inspector.getAllStructFieldRefs();
         for (Integer idx : structFieldIndex) {
             HiveColumnValue hiveColumnValue = null;
@@ -195,7 +203,7 @@ public class HiveColumnValue implements ColumnValue {
                 StructField field = fields.get(idx);
                 Object object = inspector.getStructFieldData(fieldData, field);
                 if (object != null) {
-                    hiveColumnValue = new HiveColumnValue(field.getFieldObjectInspector(), object, timeZone);
+                    hiveColumnValue = new HiveColumnValue(object);
                 }
             }
             values.add(hiveColumnValue);

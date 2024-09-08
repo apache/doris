@@ -25,6 +25,8 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPrimitiveType;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.JavaUtils;
 import org.apache.hadoop.hive.ql.io.RCFile;
 import org.apache.hadoop.hive.serde2.Deserializer;
@@ -61,6 +63,7 @@ public class HiveJNIScanner extends JniScanner {
     private final ColumnType[] requiredTypes;
     private final StructField[] structFields;
     private final ObjectInspector[] fieldInspectors;
+    private final LazyBinaryColumnarSerDe serde;
     private StructObjectInspector rowInspector;
     private Deserializer deserializer;
     // private String serde;
@@ -69,7 +72,6 @@ public class HiveJNIScanner extends JniScanner {
     private RCFile.Reader reader;
     private Long splitStartOffset;
     private Long splitSize;
-    private LazyBinaryColumnarSerDe serde;
 
     public HiveJNIScanner(int fetchSize, Map<String, String> requiredParams) {
         this.classLoader = this.getClass().getClassLoader();
@@ -118,21 +120,6 @@ public class HiveJNIScanner extends JniScanner {
         };
         this.requiredFields = new String[] {
                 "col_tinyint",
-                "col_smallint",
-                "col_int",
-                "col_bigint",
-                "col_float",
-                "col_double",
-                "col_decimal",
-                "col_string",
-                "col_char",
-                "col_varchar",
-                "col_boolean",
-                "col_timestamp",
-                "col_date",
-                "col_array",
-                "col_map",
-                "col_struct"
         };
         this.serde = new LazyBinaryColumnarSerDe();
         this.uri = requiredParams.get(HiveProperties.URI);
@@ -234,13 +221,13 @@ public class HiveJNIScanner extends JniScanner {
         serde.initialize(new Configuration(), properties);
         // deserializer = getDeserializer(new Configuration(), properties, );
         // rowInspector = (StructObjectInspector) deserializer.getObjectInspector();
-        rowInspector = (StructObjectInspector) serde.getObjectInspector();
+        // rowInspector = (StructObjectInspector) serde.getObjectInspector();
 
-        for (int i = 0; i < requiredFields.length; i++) {
-            StructField field = rowInspector.getStructFieldRef(requiredFields[i]);
-            structFields[i] = field;
-            fieldInspectors[i] = field.getFieldObjectInspector();
-        }
+        // for (int i = 0; i < requiredFields.length; i++) {
+        // StructField field = rowInspector.getStructFieldRef(requiredFields[i]);
+        // structFields[i] = field;
+        // fieldInspectors[i] = field.getFieldObjectInspector();
+        // }
     }
 
     private Properties createProperties() {
@@ -274,6 +261,10 @@ public class HiveJNIScanner extends JniScanner {
         try {
             initFieldInspector();
             initTableInfo(requiredTypes, requiredFields, fetchSize);
+            Configuration conf = new Configuration();
+            FileSystem fs = FileSystem.get(conf);
+            Path path = new Path(this.uri);
+            this.reader = new RCFile.Reader(fs, path, conf);
         } catch (Exception e) {
             LOG.error("Failed to init hive scanner.", e);
             throw new IOException("Failed to init hive scanner.", e);
@@ -297,8 +288,9 @@ public class HiveJNIScanner extends JniScanner {
         try {
             while (reader.next(key)) {
                 if (numRows >= batchSize) {
-                    break;
+                    return numRows;
                 }
+                numRows++;
                 reader.getCurrentRow(cols);
                 final LazyBinaryColumnarStruct row = (LazyBinaryColumnarStruct) serde.deserialize(cols);
                 final ArrayList<Object> objects = row.getFieldsAsList();
@@ -308,15 +300,14 @@ public class HiveJNIScanner extends JniScanner {
                     if (fieldData == null) {
                         appendData(i, null);
                     } else {
-                        HiveColumnValue fieldValue = new HiveColumnValue(fieldInspectors[i], fieldData,
-                                "Asia/Shanghai");
-                        appendData(i, fieldValue);
+                        LOG.error("field data = " + fieldData.toString());
+                        // HiveColumnValue fieldValue = new HiveColumnValue(fieldData);
+                        appendData(i, null);
                     }
                 }
             }
             return numRows;
         } catch (Exception e) {
-            close();
             LOG.error("Failed to get data.", e);
             throw new IOException("Failed to get data.", e);
         }
@@ -333,10 +324,9 @@ public class HiveJNIScanner extends JniScanner {
         List<SchemaColumn> schemaColumns = new ArrayList<>();
         for (int i = 0; i < requiredFields.length; i++) {
             SchemaColumn schemaColumn = new SchemaColumn();
-            LOG.error("get type " + requiredTypes[i].getName());
-            TPrimitiveType tPrimitiveType = typeFromColumnType(requiredTypes[i], schemaColumn);
+            // TPrimitiveType tPrimitiveType = typeFromColumnType(requiredTypes[i], schemaColumn);
             schemaColumn.setName(requiredFields[i]);
-            schemaColumn.setType(tPrimitiveType);
+            schemaColumn.setType(TPrimitiveType.STRING);
             LOG.error("type value = " + schemaColumn.getType());
             schemaColumns.add(schemaColumn);
         }
