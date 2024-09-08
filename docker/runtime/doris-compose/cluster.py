@@ -396,6 +396,7 @@ class FE(Node):
                 "# For regression-test",
                 "ignore_unsupported_properties_in_cloud_mode = true",
                 "merge_on_write_forced_to_false = true",
+                "deploy_mode = disaggregated"
             ]
 
         if self.cluster.sql_mode_node_mgr:
@@ -403,7 +404,7 @@ class FE(Node):
                 "cloud_instance_id = " + self.cloud_instance_id(),
             ]
         else:
-                        cfg += [
+            cfg += [
                 "cloud_unique_id = " + self.cloud_unique_id(),
             ]
         return cfg
@@ -460,20 +461,24 @@ class BE(Node):
             cfg += self.cluster.be_config
         if self.cluster.is_cloud:
             cfg += [
-                "meta_service_endpoint = {}".format(
-                    self.cluster.get_meta_server_addr()),
                 'tmp_file_dirs = [ {"path":"./storage/tmp","max_cache_bytes":10240000, "max_upload_bytes":10240000}]',
                 'enable_file_cache = true',
                 'file_cache_path = [ {{"path": "{}/storage/file_cache", "total_size":53687091200, "query_limit": 10737418240}}]'
                 .format(self.docker_home_dir()),
+                "deploy_mode = disaggregated",
             ]
 
-        if self.cluster.sql_mode_node_mgr:
+        if self.cluster.is_cloud and not self.cluster.no_be_metaservice_endpoint:
+            cfg += [
+                "meta_service_endpoint = {}".format(
+                    self.cluster.get_meta_server_addr()),
+            ]
+        if self.cluster.is_cloud and not self.cluster.no_be_cloud_instanceid:
             cfg += [
                 "cloud_instance_id = " + self.cloud_instance_id(),
             ]
-        else:
-                        cfg += [
+        if self.cluster.is_cloud and not self.cluster.sql_mode_node_mgr:
+            cfg += [
                 "cloud_unique_id = " + self.cloud_unique_id(),
             ]
         return cfg
@@ -649,7 +654,8 @@ class Cluster(object):
 
     def __init__(self, name, subnet, image, is_cloud, fe_config, be_config,
                  ms_config, recycle_config, fe_follower, be_disks, be_cluster,
-                 reg_be, coverage_dir, cloud_store_config, sql_mode_node_mgr):
+                 reg_be, coverage_dir, cloud_store_config, sql_mode_node_mgr,
+                 no_be_metaservice_endpoint, no_be_cloud_instanceid):
         self.name = name
         self.subnet = subnet
         self.image = image
@@ -669,11 +675,14 @@ class Cluster(object):
             for node_type in Node.TYPE_ALL
         }
         self.sql_mode_node_mgr = sql_mode_node_mgr
+        self.no_be_metaservice_endpoint = no_be_metaservice_endpoint
+        self.no_be_cloud_instanceid = no_be_cloud_instanceid
 
     @staticmethod
     def new(name, image, is_cloud, fe_config, be_config, ms_config,
             recycle_config, fe_follower, be_disks, be_cluster, reg_be,
-            coverage_dir, cloud_store_config, sql_mode_node_mgr):
+            coverage_dir, cloud_store_config, sql_mode_node_mgr,
+            be_metaservice_endpoint, be_cloud_instanceid):
         if not os.path.exists(LOCAL_DORIS_PATH):
             os.makedirs(LOCAL_DORIS_PATH, exist_ok=True)
             os.chmod(LOCAL_DORIS_PATH, 0o777)
@@ -685,7 +694,8 @@ class Cluster(object):
             cluster = Cluster(name, subnet, image, is_cloud, fe_config,
                               be_config, ms_config, recycle_config,
                               fe_follower, be_disks, be_cluster, reg_be,
-                              coverage_dir, cloud_store_config, sql_mode_node_mgr)
+                              coverage_dir, cloud_store_config, sql_mode_node_mgr,
+                              be_metaservice_endpoint, be_cloud_instanceid)
             os.makedirs(cluster.get_path(), exist_ok=True)
             os.makedirs(get_status_path(name), exist_ok=True)
             cluster._save_meta()

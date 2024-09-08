@@ -302,6 +302,16 @@ class UpCommand(Command):
                             action=self._get_parser_bool_action(True),
                             help="Manager fe be via sql instead of http")
 
+        parser.add_argument("--no-be-metaservice-endpoint",
+                            default=False,
+                            action=self._get_parser_bool_action(True),
+                            help="Do not set BE meta service endpoint in conf. Default is False.")
+
+        parser.add_argument("--no-be-cloud-instanceid",
+                            default=True,
+                            action=self._get_parser_bool_action(True),
+                            help="Do not set BE cloud instance ID in conf. Default is False.")
+
         parser.add_argument(
             "--fdb-version",
             type=str,
@@ -399,7 +409,8 @@ class UpCommand(Command):
                 args.NAME, args.IMAGE, args.cloud, args.fe_config,
                 args.be_config, args.ms_config, args.recycle_config,
                 args.fe_follower, args.be_disks, args.be_cluster, args.reg_be,
-                args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr)
+                args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr,
+                args.no_be_metaservice_endpoint, args.no_be_cloud_instanceid)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
 
@@ -488,6 +499,46 @@ class UpCommand(Command):
                     "Not up cluster cause specific --no-start, related node num {}"
                     .format(related_node_num)))
         else:
+            LOG.info("Using SQL mode for node management ? {}".format(args.sql_mode_node_mgr));
+
+            # Wait for FE master to be elected
+            LOG.info("Waiting for FE master to be elected...")
+            expire_ts = time.time() + 30
+            while expire_ts > time.time():
+                db_mgr = database.get_db_mgr(args.NAME, False)
+                for id in add_fe_ids:
+                    fe_state = db_mgr.get_fe(id)
+                    if fe_state is not None and fe_state.alive:
+                        break;
+                    LOG.info("there is no fe ready")
+                time.sleep(5)
+
+            if cluster.is_cloud and args.sql_mode_node_mgr:
+                db_mgr = database.get_db_mgr(args.NAME, False)
+                master_fe_endpoint = CLUSTER.get_master_fe_endpoint(cluster.name)
+                # Add FEs except master_fe
+                for fe in cluster.get_all_nodes(CLUSTER.Node.TYPE_FE):
+                    fe_endpoint = f"{fe.get_ip()}:{CLUSTER.FE_EDITLOG_PORT}"
+                    if fe_endpoint != master_fe_endpoint:
+                        try:
+                            db_mgr.add_fe(fe_endpoint)
+                            LOG.info(f"Added FE {fe_endpoint} successfully.")
+                        except Exception as e:
+                            LOG.error(f"Failed to add FE {fe_endpoint}: {str(e)}")
+
+                # Add BEs
+                for be in cluster.get_all_nodes(CLUSTER.Node.TYPE_BE):
+                    be_endpoint = f"{be.get_ip()}:{CLUSTER.BE_HEARTBEAT_PORT}"
+                    try:
+                        db_mgr.add_be(be_endpoint)
+                        LOG.info(f"Added BE {be_endpoint} successfully.")
+                    except Exception as e:
+                        LOG.error(f"Failed to add BE {be_endpoint}: {str(e)}")
+
+                cloud_store_config = self._get_cloud_store_config()
+
+                db_mgr.create_default_storage_vault(cloud_store_config)
+
             if args.wait_timeout != 0:
                 if args.wait_timeout == -1:
                     args.wait_timeout = 1000000000
@@ -514,6 +565,8 @@ class UpCommand(Command):
                             err += "dead be: " + str(dead_backends) + ". "
                         raise Exception(err)
                     time.sleep(1)
+
+            
             LOG.info(
                 utils.render_green(
                     "Up cluster {} succ, related node num {}".format(
@@ -620,6 +673,8 @@ class DownCommand(Command):
             args.fdb_id,
             ignore_not_exists=True)
 
+        LOG.info("down cluster " + args.NAME + " for all " + str(for_all))
+
         if for_all:
             if os.path.exists(cluster.get_compose_file()):
                 try:
@@ -705,6 +760,8 @@ class ListNode(object):
         self.tablet_num = ""
         self.last_heartbeat = ""
         self.err_msg = ""
+        self.edit_log_port = 0
+        self.heartbeat_port = 0
 
     def info(self, detail):
         result = [
@@ -716,13 +773,17 @@ class ListNode(object):
         if detail:
             query_port = ""
             http_port = ""
+            heartbeat_port = ""
+            edit_log_port = ""
             node_path = CLUSTER.get_node_path(self.cluster_name,
                                               self.node_type, self.id)
             if self.node_type == CLUSTER.Node.TYPE_FE:
                 query_port = CLUSTER.FE_QUERY_PORT
                 http_port = CLUSTER.FE_HTTP_PORT
+                edit_log_port = CLUSTER.FE_EDITLOG_PORT
             elif self.node_type == CLUSTER.Node.TYPE_BE:
                 http_port = CLUSTER.BE_WEBSVR_PORT
+                heartbeat_port = CLUSTER.BE_HEARTBEAT_PORT
             elif self.node_type == CLUSTER.Node.TYPE_MS or self.node_type == CLUSTER.Node.TYPE_RECYCLE:
                 http_port = CLUSTER.MS_PORT
             else:
@@ -731,6 +792,8 @@ class ListNode(object):
                 query_port,
                 http_port,
                 node_path,
+                edit_log_port,
+                heartbeat_port
             ]
         return result
 
@@ -743,6 +806,7 @@ class ListNode(object):
                 self.query_port = fe.query_port
                 self.last_heartbeat = fe.last_heartbeat
                 self.err_msg = fe.err_msg
+                self.edit_log_port = fe.edit_log_port
         elif self.node_type == CLUSTER.Node.TYPE_BE:
             self.backend_id = -1
             be = db_mgr.get_be(self.id)
@@ -752,6 +816,7 @@ class ListNode(object):
                 self.tablet_num = be.tablet_num
                 self.last_heartbeat = be.last_heartbeat
                 self.err_msg = be.err_msg
+                self.heartbeat_port = be.heartbeat_port
 
 
 class GenConfCommand(Command):
@@ -877,7 +942,6 @@ cloudUniqueId= "{fe_cloud_unique_id}"
                         f.write(line + "\n")
 
         print("\nWrite succ: " + regression_conf_custom)
-
 
 class ListCommand(Command):
 
@@ -1011,6 +1075,8 @@ class ListCommand(Command):
                 "query_port",
                 "http_port",
                 "path",
+                "edit_log_port",
+                "heartbeat_port",
             ]
 
         rows = []
@@ -1086,6 +1152,51 @@ class ListCommand(Command):
 
         return self._handle_data(header, rows)
 
+class GetCloudIniCommand(Command):
+
+    def add_parser(self, args_parsers):
+        parser = args_parsers.add_parser(
+            "get-cloud-ini", help="Get cloud.init")
+        parser.add_argument(
+            "NAME",
+            nargs="*",
+            help=
+            "Specify multiple clusters, if specific, show all their containers."
+        )
+        self._add_parser_output_json(parser)
+        parser.add_argument("--detail",
+                            default=False,
+                            action=self._get_parser_bool_action(True),
+                            help="Print more detail fields.")
+
+    def _handle_data(self, header, datas):
+        if utils.is_enable_log():
+            table = prettytable.PrettyTable(
+                [utils.render_green(field) for field in header])
+            for row in datas:
+                table.add_row(row)
+            print(table)
+            return ""
+        else:
+            datas.insert(0, header)
+            return datas
+
+    def run(self, args):
+
+        header = [
+            "key", "value"
+        ]
+
+        rows = []
+
+        with open(CLUSTER.CLOUD_CFG_FILE, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    key, value = line.split('=', 1)
+                    rows.append([key.strip(), value.strip()])
+
+        return self._handle_data(header, rows)
 
 ALL_COMMANDS = [
     UpCommand("up"),
@@ -1095,6 +1206,7 @@ ALL_COMMANDS = [
     SimpleCommand("restart", "Restart the doris containers. "),
     SimpleCommand("pause", "Pause the doris containers. "),
     SimpleCommand("unpause", "Unpause the doris containers. "),
+    GetCloudIniCommand("get-cloud-ini"),
     GenConfCommand("config"),
     ListCommand("ls"),
 ]

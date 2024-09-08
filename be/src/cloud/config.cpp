@@ -19,6 +19,7 @@
 
 namespace doris::config {
 
+DEFINE_String(deploy_mode, "");
 DEFINE_mString(cloud_instance_id, "");
 DEFINE_mString(cloud_unique_id, "");
 DEFINE_mString(meta_service_endpoint, "");

@@ -311,6 +311,9 @@ public class CloudSystemInfoService extends SystemInfoService {
 
     private void alterBackendCluster(List<HostInfo> hostInfos, String clusterName,
                                      Cloud.AlterClusterRequest.Operation operation) throws DdlException {
+        if (Strings.isNullOrEmpty(Config.cloud_instance_id)) {
+            throw new DdlException("unable to alter backends due to empty cloud_instance_id");
+        }
         // Issue rpc to meta to alter node, then fe master would add this node to its frontends
         Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()
                 .setClusterName(clusterName)
@@ -336,6 +339,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         Cloud.AlterClusterResponse response;
         try {
             response = MetaServiceProxy.getInstance().alterCluster(request);
+            LOG.info("alter cluster, request: {}, response: {}", request, response);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("alter backends not ok, response: {}", response);
                 throw new DdlException("failed to alter backends errorCode: " + response.getStatus().getCode()
@@ -736,6 +740,10 @@ public class CloudSystemInfoService extends SystemInfoService {
     // FrontendCluster = SqlServerCluster
     private void alterFrontendCluster(FrontendNodeType role, String host, int editLogPort,
             Cloud.AlterClusterRequest.Operation op) throws DdlException {
+        if (Strings.isNullOrEmpty(Config.cloud_instance_id)) {
+            throw new DdlException("unable to alter frontend due to empty cloud_instance_id");
+        }
+
         // Issue rpc to meta to add this node, then fe master would add this node to its frontends
         Cloud.NodeInfoPB nodeInfoPB = Cloud.NodeInfoPB.newBuilder()
                 .setIp(host)
@@ -762,6 +770,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         Cloud.AlterClusterResponse response;
         try {
             response = MetaServiceProxy.getInstance().alterCluster(request);
+            LOG.info("alter cluster, request: {}, response: {}", request, response);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("alter frontend not ok, response: {}", response);
                 throw new DdlException("failed to alter frontend errorCode: " + response.getStatus().getCode()
@@ -773,10 +782,6 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
-        if (role != FrontendNodeType.MASTER && role != FrontendNodeType.OBSERVER) {
-            throw new DdlException("unsupported frontend role: " + role);
-        }
-
         Cloud.AlterClusterRequest.Operation op;
         op = role == FrontendNodeType.MASTER ? Cloud.AlterClusterRequest.Operation.ADD_CLUSTER
                             : Cloud.AlterClusterRequest.Operation.ADD_NODE;
@@ -788,6 +793,10 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     private void tryCreateCluster(String clusterName, String clusterId) throws UserException {
+        if (Strings.isNullOrEmpty(Config.cloud_instance_id)) {
+            throw new DdlException("unable to create cluster due to empty cloud_instance_id");
+        }
+
         Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()
                 .setClusterId(clusterId)
                 .setClusterName(clusterName)
@@ -803,6 +812,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         Cloud.AlterClusterResponse response;
         try {
             response = MetaServiceProxy.getInstance().alterCluster(request);
+            LOG.info("alter cluster, request: {}, response: {}", request, response);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK
                     && response.getStatus().getCode() != Cloud.MetaServiceCode.ALREADY_EXISTED) {
                 LOG.warn("create cluster not ok, response: {}", response);
@@ -929,7 +939,9 @@ public class CloudSystemInfoService extends SystemInfoService {
 
             Cloud.AlterClusterResponse response;
             try {
-                response = MetaServiceProxy.getInstance().alterCluster(builder.build());
+                Cloud.AlterClusterRequest request = builder.build();
+                response = MetaServiceProxy.getInstance().alterCluster(request);
+                LOG.info("alter cluster, request: {}, response: {}", request, response);
                 if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                     LOG.warn("notify to resume cluster not ok, cluster {}, response: {}", clusterName, response);
                 }
@@ -985,7 +997,10 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         Cloud.CreateInstanceResponse response;
         try {
-            response = MetaServiceProxy.getInstance().createInstance(builder.build());
+
+            Cloud.CreateInstanceRequest request = builder.build();
+            response = MetaServiceProxy.getInstance().createInstance(request);
+            LOG.info("create instance, request: {}, response: {}", request, response);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK
                     && response.getStatus().getCode() != Cloud.MetaServiceCode.ALREADY_EXISTED) {
                 LOG.warn("Failed to create instance {}, response: {}", instanceId, response);

@@ -44,6 +44,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -92,7 +93,10 @@ public class CloudEnv extends Env {
 
     @Override
     public void initialize(String[] args) throws Exception {
-        if (Config.cloud_unique_id == null || Config.cloud_unique_id.isEmpty()) {
+        if (Strings.isNullOrEmpty(Config.cloud_unique_id)) {
+            if (Strings.isNullOrEmpty(Config.cloud_instance_id)) {
+                throw new UserException("cloud_instance_id must be specified if deployed in dissaggregated");
+            }
             LOG.info("cloud_unique_id is not set, setting it using instance_id");
             Config.cloud_unique_id = "1:" + Config.cloud_instance_id + ":sql_server00";
         }
@@ -192,16 +196,21 @@ public class CloudEnv extends Env {
             try {
                 nodeInfoPB = getLocalTypeFromMetaService();
             } catch (Exception e) {
-                LOG.warn("failed to get local fe's type, sleep 5 s, try again. exception: {}", e.getMessage());
+                LOG.warn("failed to get local fe's type, sleep {} s, try again. exception: {}",
+                        e.getMessage(), Config.resource_not_ready_sleep_seconds);
             }
             if (nodeInfoPB == null) {
-                LOG.warn("failed to get local fe's type, sleep 5 s, try again.");
+                LOG.warn("failed to get local fe's type, sleep {} s, try again.",
+                        Config.resource_not_ready_sleep_seconds);
                 try {
                     try {
+                        if (Strings.isNullOrEmpty(Config.cloud_instance_id)) {
+                            throw new DdlException("unable to create instance due to empty cloud_instance_id");
+                        }
                         getCloudSystemInfoService().tryCreateInstance(Config.cloud_instance_id,
                                 Config.cloud_instance_id, false);
                     } catch (Exception e) {
-                        Thread.sleep(5000);
+                        Thread.sleep(Config.resource_not_ready_sleep_seconds);
                         throw e;
                     }
                     addFrontend(FrontendNodeType.MASTER, selfNode.getHost(), selfNode.getPort());

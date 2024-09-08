@@ -56,8 +56,6 @@ import java.util.Optional;
 
 public class InternalSchemaInitializer extends Thread {
 
-    public static final int TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS = 5;
-
     private static final Logger LOG = LogManager.getLogger(InternalSchemaInitializer.class);
 
     public InternalSchemaInitializer() {
@@ -73,17 +71,17 @@ public class InternalSchemaInitializer extends Thread {
                 FrontendNodeType feType = Env.getCurrentEnv().getFeType();
                 if (feType.equals(FrontendNodeType.INIT) || feType.equals(FrontendNodeType.UNKNOWN)) {
                     LOG.warn("FE is not ready");
-                    Thread.sleep(5000);
+                    Thread.sleep(Config.resource_not_ready_sleep_seconds);
                     continue;
                 }
                 Thread.currentThread()
-                        .join(TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS * 1000L);
+                        .join(Config.resource_not_ready_sleep_seconds * 1000L);
                 createDb();
                 createTbl();
             } catch (Throwable e) {
                 LOG.warn("Statistics storage initiated failed, will try again later", e);
                 try {
-                    Thread.sleep(5000);
+                    Thread.sleep(Config.resource_not_ready_sleep_seconds);
                 } catch (InterruptedException ex) {
                     LOG.info("Sleep interrupted. {}", ex.getMessage());
                 }
@@ -155,7 +153,7 @@ public class InternalSchemaInitializer extends Thread {
                 }
             }
             try {
-                Thread.sleep(5000);
+                Thread.sleep(Config.resource_not_ready_sleep_seconds);
             } catch (InterruptedException t) {
                 // IGNORE
             }

@@ -184,6 +184,8 @@ Status CloudStorageEngine::open() {
         set_latest_fs(get_filesystem(std::get<0>(vault_infos.back())));
     }
 
+    sync_storage_vault();
+
     // TODO(plat1ko): DeleteBitmapTxnManager
 
     _memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();

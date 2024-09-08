@@ -21,19 +21,18 @@
 
 namespace doris::config {
 
+DECLARE_String(deploy_mode);
+// deprecated do not configure directly
 DECLARE_mString(cloud_instance_id);
-
 DECLARE_mString(cloud_unique_id);
 
 static inline bool is_cloud_mode() {
-    return !cloud_unique_id.empty() || !cloud_instance_id.empty();
+    return deploy_mode == "disaggregated" || !cloud_unique_id.empty();
 }
 
-static inline void set_cloud_unique_id() {
-    if (cloud_unique_id.empty()) {
-        if (!cloud_instance_id.empty()) {
-            cloud_unique_id = "1:" + cloud_instance_id + ":compute";
-        }
+static inline void set_cloud_unique_id(std::string instance_id) {
+    if (cloud_unique_id.empty() && !instance_id.empty()) {
+        static_cast<void>(set_config("cloud_unique_id", "1:" + instance_id + ":compute"));
     }
 }
 

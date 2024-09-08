@@ -17,7 +17,6 @@
 
 package org.apache.doris.common;
 
-import java.util.UUID;
 import java.security.SecureRandom;
 
 public class RandomIdentifierGenerator {
@@ -38,7 +37,7 @@ public class RandomIdentifierGenerator {
         }
 
         StringBuilder sb = new StringBuilder(length);
-        
+
         // First character must be a letter
         sb.append(ALPHABET.charAt(RANDOM.nextInt(ALPHABET.length())));
 
