@@ -72,7 +72,7 @@ suite("mem_gc_when_load", "nonConcurrent") {
         GetDebugPoint().enableDebugPointForAllBEs("VNodeChannel.try_send_and_fetch_status_full_gc")
         sql "insert into test select * from baseall where k1 <= 3"
     } catch(Exception e) {
-        assertTrue(e.getMessage().contains("Process has no memory available"))  // the msg should contain the root cause
+        assertTrue(e.getMessage().contains("less than low water mark"))  // the msg should contain the root cause
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("VNodeChannel.try_send_and_fetch_status_full_gc")
     }
@@ -82,7 +82,7 @@ suite("mem_gc_when_load", "nonConcurrent") {
         GetDebugPoint().enableDebugPointForAllBEs("VNodeChannel.close_wait_full_gc")
         sql "insert into test select * from baseall where k1 <= 3"
     } catch(Exception e) {
-        assertTrue(e.getMessage().contains("Process has no memory available"))  // the msg should contain the root cause
+        assertTrue(e.getMessage().contains("less than low water mark"))  // the msg should contain the root cause
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("VNodeChannel.close_wait_full_gc")
     }
