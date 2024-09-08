@@ -101,11 +101,15 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         try {
             // This step will be blocked when queue is empty
             RoutineLoadTaskInfo routineLoadTaskInfo = needScheduleTasksQueue.take();
-            if (System.currentTimeMillis() - routineLoadTaskInfo.getLastScheduledTime()
-                    < routineLoadTaskInfo.getTimeoutMs()) {
-                // try to delay scheduling this task for 'timeout', to void too many failure
-                needScheduleTasksQueue.addLast(routineLoadTaskInfo);
-                return;
+            // try to delay scheduling tasks that are perceived as Eof to MaxBatchInterval
+            // to avoid to much small transaction
+            if (routineLoadTaskInfo.getIsEof()) {
+                RoutineLoadJob routineLoadJob = routineLoadManager.getJob(routineLoadTaskInfo.getJobId());
+                if (System.currentTimeMillis() - routineLoadTaskInfo.getLastScheduledTime()
+                        < routineLoadJob.getMaxBatchIntervalS()) {
+                    needScheduleTasksQueue.addLast(routineLoadTaskInfo);
+                    return;
+                }
             }
             scheduleOneTask(routineLoadTaskInfo);
         } catch (Exception e) {
@@ -114,6 +118,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     }
 
     private void scheduleOneTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws Exception {
+        routineLoadTaskInfo.setLastScheduledTime(System.currentTimeMillis());
         if (LOG.isDebugEnabled()) {
             LOG.debug("schedule routine load task info {} for job {}",
                     routineLoadTaskInfo.id, routineLoadTaskInfo.getJobId());
