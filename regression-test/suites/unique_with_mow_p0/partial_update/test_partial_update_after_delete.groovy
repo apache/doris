@@ -39,6 +39,7 @@ suite("test_partial_update_after_delete", "p0") {
                 DISTRIBUTED BY HASH(k1) BUCKETS 1
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
+                    "enable_mow_light_delete" = "false",
                     "disable_auto_compaction" = "true",
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
@@ -64,6 +65,7 @@ suite("test_partial_update_after_delete", "p0") {
                 DISTRIBUTED BY HASH(k1) BUCKETS 1
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
+                    "enable_mow_light_delete" = "false",
                     "disable_auto_compaction" = "true",
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """

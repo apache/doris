@@ -86,6 +86,7 @@ suite('test_new_partial_update_delete') {
                 PROPERTIES (
                     "disable_auto_compaction" = "true",
                     "enable_unique_key_merge_on_write" = "true",
+                    "enable_mow_light_delete" = "false",
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
 
@@ -201,6 +202,7 @@ suite('test_new_partial_update_delete') {
                     "disable_auto_compaction" = "true",
                     "replication_num" = "1",
                     "enable_unique_key_merge_on_write" = "true",
+                    "enable_mow_light_delete" = "false",
                     "store_row_column" = "${use_row_store}"); """
 
             def output3 = sql "show create table ${tableName2}"
