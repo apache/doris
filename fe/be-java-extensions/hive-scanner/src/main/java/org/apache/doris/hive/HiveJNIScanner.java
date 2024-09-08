@@ -25,18 +25,18 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPrimitiveType;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.JavaUtils;
-import org.apache.hadoop.hive.ql.io.RCFile;
+import org.apache.hadoop.hive.ql.io.RCFileRecordReader;
 import org.apache.hadoop.hive.serde2.Deserializer;
 import org.apache.hadoop.hive.serde2.columnar.BytesRefArrayWritable;
 import org.apache.hadoop.hive.serde2.columnar.LazyBinaryColumnarSerDe;
-import org.apache.hadoop.hive.serde2.columnar.LazyBinaryColumnarStruct;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.StructField;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
 import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.mapred.FileSplit;
+import org.apache.hadoop.mapred.JobConf;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -64,12 +64,13 @@ public class HiveJNIScanner extends JniScanner {
     private final StructField[] structFields;
     private final ObjectInspector[] fieldInspectors;
     private final LazyBinaryColumnarSerDe serde;
+    private final boolean isGetTableSchema;
     private StructObjectInspector rowInspector;
     private Deserializer deserializer;
     // private String serde;
     private int[] requiredColumnIds;
-    // private RecordReader<Writable, Writable> reader;
-    private RCFile.Reader reader;
+    private RCFileRecordReader<LongWritable, BytesRefArrayWritable> reader;
+    // private RCFile.Reader reader;
     private Long splitStartOffset;
     private Long splitSize;
 
@@ -78,6 +79,7 @@ public class HiveJNIScanner extends JniScanner {
         this.fetchSize = fetchSize;
         this.requiredParams = requiredParams;
         this.fileType = TFileType.findByValue(Integer.parseInt(requiredParams.get(HiveProperties.FILE_TYPE)));
+        this.isGetTableSchema = Boolean.parseBoolean(requiredParams.get(HiveProperties.IS_GET_TABLE_SCHEMA));
         // this.columnNames = requiredParams.get(HiveProperties.COLUMNS_NAMES).split(HiveProperties.FIELDS_DELIMITER);
         // this.columnTypes = requiredParams.get(HiveProperties.COLUMNS_TYPES)
         //         .split(HiveProperties.COLUMNS_TYPE_DELIMITER);
@@ -127,8 +129,8 @@ public class HiveJNIScanner extends JniScanner {
         this.structFields = new StructField[requiredFields.length];
         this.fieldInspectors = new ObjectInspector[requiredFields.length];
         this.requiredColumnIds = new int[requiredFields.length];
-        // this.splitStartOffset = Long.parseLong(requiredParams.get(HiveProperties.SPLIT_START_OFFSET));
-        // this.splitSize = Long.parseLong(requiredParams.get(HiveProperties.SPLIT_SIZE));
+        this.splitStartOffset = 0L;
+        this.splitSize = 4096L;
     }
 
     private static TPrimitiveType typeFromColumnType(ColumnType columnType, SchemaColumn schemaColumn)
@@ -221,13 +223,16 @@ public class HiveJNIScanner extends JniScanner {
         serde.initialize(new Configuration(), properties);
         // deserializer = getDeserializer(new Configuration(), properties, );
         // rowInspector = (StructObjectInspector) deserializer.getObjectInspector();
-        // rowInspector = (StructObjectInspector) serde.getObjectInspector();
-
-        // for (int i = 0; i < requiredFields.length; i++) {
-        // StructField field = rowInspector.getStructFieldRef(requiredFields[i]);
-        // structFields[i] = field;
-        // fieldInspectors[i] = field.getFieldObjectInspector();
-        // }
+        rowInspector = (StructObjectInspector) serde.getObjectInspector();
+        Configuration conf = new Configuration();
+        Path path = new Path(this.uri);
+        FileSplit split = new FileSplit(path, splitStartOffset, splitSize, makeJobConf(properties));
+        this.reader = new RCFileRecordReader<>(conf, split);
+        for (int i = 0; i < requiredFields.length; i++) {
+            StructField field = rowInspector.getStructFieldRef(requiredFields[i]);
+            structFields[i] = field;
+            fieldInspectors[i] = field.getFieldObjectInspector();
+        }
     }
 
     private Properties createProperties() {
@@ -243,6 +248,14 @@ public class HiveJNIScanner extends JniScanner {
                 + "decimal(10,2),string,char(10),varchar(20),boolean,timestamp,date:"
                 + "array<string>,map<string,int>,struct<name:string,age:int>");
         return properties;
+    }
+
+    private JobConf makeJobConf(Properties properties) {
+        Configuration conf = new Configuration();
+        JobConf jobConf = new JobConf(conf);
+        jobConf.setBoolean("hive.io.file.read.all.columns", false);
+        properties.stringPropertyNames().forEach(name -> jobConf.set(name, properties.getProperty(name)));
+        return jobConf;
     }
 
     private Deserializer getDeserializer(Configuration configuration, Properties properties, String name)
@@ -261,10 +274,6 @@ public class HiveJNIScanner extends JniScanner {
         try {
             initFieldInspector();
             initTableInfo(requiredTypes, requiredFields, fetchSize);
-            Configuration conf = new Configuration();
-            FileSystem fs = FileSystem.get(conf);
-            Path path = new Path(this.uri);
-            this.reader = new RCFile.Reader(fs, path, conf);
         } catch (Exception e) {
             LOG.error("Failed to init hive scanner.", e);
             throw new IOException("Failed to init hive scanner.", e);
@@ -284,19 +293,17 @@ public class HiveJNIScanner extends JniScanner {
         int batchSize = getBatchSize();
         LOG.error("Start getNext func");
         final LongWritable key = new LongWritable();
-        final BytesRefArrayWritable cols = new BytesRefArrayWritable();
+        final BytesRefArrayWritable value = new BytesRefArrayWritable();
         try {
-            while (reader.next(key)) {
+            while (reader.next(key, value)) {
                 if (numRows >= batchSize) {
                     return numRows;
                 }
                 numRows++;
-                reader.getCurrentRow(cols);
-                final LazyBinaryColumnarStruct row = (LazyBinaryColumnarStruct) serde.deserialize(cols);
-                final ArrayList<Object> objects = row.getFieldsAsList();
+                Object row = serde.deserialize(value);
                 for (int i = 0; i < requiredFields.length; i++) {
                     // Object fieldData = rowInspector.getStructFieldData(row, structFields[i]);
-                    Object fieldData = objects.get(i);
+                    Object fieldData = rowInspector.getStructFieldData(row, structFields[i]);
                     if (fieldData == null) {
                         appendData(i, null);
                     } else {
