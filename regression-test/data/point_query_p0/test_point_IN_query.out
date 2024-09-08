@@ -133,3 +133,48 @@
 350	200	c
 400	250	d
 
+-- !case_9_sql --
+123	100	110	zxcd
+
+-- !case_9_sql --
+222	100	115	zxc
+
+-- !case_9_sql --
+323	49	240	zxc
+
+-- !case_9_sql --
+123	100	110	zxcd
+
+-- !case_9_sql --
+1231	1220	210	zxc
+
+-- !case_9_sql --
+6333	2642	480	zxc
+
+-- !case_9_sql --
+633	2642	480	zxc
+
+-- !case_9_sql --
+123	100	110	zxcd
+
+-- !case_9_sql --
+1231	1220	210	zxc
+222	100	115	zxc
+
+-- !case_9_sql --
+12	12	120	zxc
+123	100	110	zxcd
+222	100	115	zxc
+
+-- !case_9_sql --
+1231	1220	210	zxc
+
+-- !case_9_sql --
+123	100	110	zxcd
+222	100	115	zxc
+
+-- !case_9_sql --
+123	100	110	zxcd
+1231	1220	210	zxc
+222	100	115	zxc
+

@@ -136,7 +136,7 @@ suite("test_point_query_cluster_IN_key") {
                 stmt.setString(9, 'xxx')
                 stmt.setString(10, generateString(251))
                 stmt.setString(11, generateString(252))
-                qe_point_in_select stmt
+                order_qe_point_in_select stmt
                 stmt.close()
 
                 stmt = prepareStatement "SELECT /*+ SET_VAR(enable_nereids_planner=true) */ * FROM ${tableName} WHERE k1 = ? AND k2 IN (?, ?) AND k3 IN (?, ?)"
@@ -146,7 +146,7 @@ suite("test_point_query_cluster_IN_key") {
                 stmt.setBigDecimal(3, new BigDecimal("120939.11130"))
                 stmt.setString(4, "dd")
                 stmt.setString(5, "a    ddd")
-                qe_point_in_select stmt
+                order_qe_point_in_select stmt
 
                 def stmt_fn = prepareStatement "SELECT /*+ SET_VAR(enable_nereids_planner=true) */ hex(k3), hex(k4) FROM ${tableName} WHERE k1 IN (?, ?) AND k2 IN (?, ?) AND k3 IN (?, ?)"
                 assertEquals(stmt_fn.class, com.mysql.cj.jdbc.ServerPreparedStatement);
@@ -156,37 +156,37 @@ suite("test_point_query_cluster_IN_key") {
                 stmt_fn.setBigDecimal(4, new BigDecimal("991129292901.11138"))
                 stmt_fn.setString(5, "dd")
                 stmt_fn.setString(6, "ddd")
-                qe_point_in_select stmt_fn
-                qe_point_in_select stmt_fn
-                qe_point_in_select stmt_fn
+                order_qe_point_in_select stmt_fn
+                order_qe_point_in_select stmt_fn
+                order_qe_point_in_select stmt_fn
 
                 nprep_sql """
                     ALTER table ${tableName} ADD COLUMN new_column0 INT default "0";
                 """
                 sleep(1);
                 nprep_sql """ INSERT INTO ${tableName} VALUES(1235, 120939.11130, "a    ddd", "laooq", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38", 1, 1.1111299, [119291.19291], ["111", "222", "333"], 1) """
-                qe_point_in_select stmt
-                qe_point_in_select stmt
+                order_qe_point_in_select stmt
+                order_qe_point_in_select stmt
                 // invalidate cache
                 nprep_sql """ INSERT INTO ${tableName} VALUES(1235, 120939.11130, "a    ddd", "xxxxxx", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38", 0, 1929111.1111,[119291.19291], ["111", "222", "333"], 2) """
-                qe_point_in_select stmt
-                qe_point_in_select stmt
-                qe_point_in_select stmt
+                order_qe_point_in_select stmt
+                order_qe_point_in_select stmt
+                order_qe_point_in_select stmt
                 nprep_sql """
                     ALTER table ${tableName} ADD COLUMN new_column1 INT default "0";
                 """
-                qe_point_in_select stmt
-                qe_point_in_select stmt
+                order_qe_point_in_select stmt
+                order_qe_point_in_select stmt
                 nprep_sql """
                     ALTER table ${tableName} DROP COLUMN new_column1;
                 """
-                qe_point_in_select stmt
-                qe_point_in_select stmt
+                order_qe_point_in_select stmt
+                order_qe_point_in_select stmt
 
                 sql """
                     ALTER table ${tableName} ADD COLUMN new_column1 INT default "0";
                 """
-                qe_point_in_select stmt
+                order_qe_point_in_select stmt
             }
             // disable useServerPrepStmts
             def result2 = connect(user=user, password=password, url=context.config.jdbcUrl) {

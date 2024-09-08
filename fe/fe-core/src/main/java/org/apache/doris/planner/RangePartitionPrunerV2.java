@@ -189,9 +189,10 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
                         minKey.pushColumn(lowerFilter.getValue(), column.getDataType());
                         maxKey.pushColumn(upperFilter.getValue(), column.getDataType());
 
+                        // Locate the partition to which the filter belongs
                         List<Long> partID = Lists.newArrayList();
                         for (Map.Entry<Range<PartitionKey>, Long> rangeMapEntry : rangeMap.asMapOfRanges().entrySet()) {
-                            Range<PartitionKey> partitionColRange = rangeMapEntry.getKey(); // partition key range
+                            Range<PartitionKey> partitionColRange = rangeMapEntry.getKey();
                             PartitionKey upperPartitionKeys = partitionColRange.upperEndpoint();
                             int partitionLess = upperPartitionKeys.getKeys()
                                                   .get(columnIdx).compareTo(lowerFilter.getValue());

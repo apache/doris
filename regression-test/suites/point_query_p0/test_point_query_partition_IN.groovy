@@ -86,7 +86,7 @@ suite("test_point_query_partition_IN") {
     sql """INSERT INTO ${tableName} VALUES (45, 'g')"""
     sql """INSERT INTO ${tableName} VALUES (999, 'h')"""
     def result1 = connect(user=user, password=password, url=prepare_url) {
-        def stmt = prepareStatement "SELECT * FROM ${tableName} WHERE k1 IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ORDER BY k1"
+        def stmt = prepareStatement "SELECT * FROM ${tableName} WHERE k1 IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
         stmt.setInt(1, 1)
         stmt.setInt(2, 2)
@@ -99,7 +99,7 @@ suite("test_point_query_partition_IN") {
         stmt.setInt(9, 666)
         stmt.setInt(10, 999)
         stmt.setInt(11, 1000)
-        qe_point_in_select stmt
+        order_qe_point_in_select stmt
     }
 
     sql "DROP TABLE IF EXISTS regression_test_serving_p0.customer_in";
@@ -128,12 +128,12 @@ suite("test_point_query_partition_IN") {
     sql """INSERT INTO regression_test_serving_p0.customer_in(customer_key, customer_value_0, customer_value_1) VALUES (686612, "686612", "686612")"""
     sql """INSERT INTO regression_test_serving_p0.customer_in(customer_key, customer_value_0, customer_value_1) VALUES (686613, "686613", "686613")"""
     def result3 = connect(user=user, password=password, url=prepare_url) {
-        def stmt = prepareStatement "SELECT /*+ SET_VAR(enable_nereids_planner=true) */ * FROM regression_test_serving_p0.customer_in WHERE customer_key IN (?, ?) ORDER BY customer_key"
+        def stmt = prepareStatement "SELECT /*+ SET_VAR(enable_nereids_planner=true) */ * FROM regression_test_serving_p0.customer_in WHERE customer_key IN (?, ?)"
         stmt.setInt(1, 686612)
         stmt.setInt(2, 686613)
-        qe_point_in_selectxxx stmt 
-        qe_point_in_selectyyy stmt 
-        qe_point_in_selectmmm stmt 
-        qe_point_in_selecteee stmt 
+        order_qe_point_in_selectxxx stmt 
+        order_qe_point_in_selectyyy stmt 
+        order_qe_point_in_selectmmm stmt 
+        order_qe_point_in_selecteee stmt 
     }
 } 

@@ -77,7 +77,6 @@ public class PartitionPruneV2ForShortCircuitPlan extends PartitionPrunerV2Base {
                 LiteralExpr partitionUpperBound = (LiteralExpr) range.upperEndpoint().getKeys().get(0);
                 Range<ColumnBound> partitionRange =
                         Range.closedOpen(ColumnBound.of(partitionLowerBound), ColumnBound.of(partitionUpperBound));
-                // partitionColValue2PartitionID.put(partitionRange, Lists.newArrayList(entry.getKey()));
                 partitionRangeMap.put(partitionRange, Lists.newArrayList(entry.getKey()));
             }
             if (LOG.isDebugEnabled()) {

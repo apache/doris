@@ -152,7 +152,6 @@ public class PointQueryExecutor implements CoordInterface {
         }
 
         candidateBackends = new ArrayList<>();
-        // this.backendId2TabletIds = scanNode.getBackendId2TabletIds();
         for (Long backendID : scanNode.getScanBackendIds()) {
             Backend backend = Env.getCurrentSystemInfo().getBackend(backendID);
             if (SimpleScheduler.isAvailable(backend)) {
@@ -289,7 +288,10 @@ public class PointQueryExecutor implements CoordInterface {
         this.timeoutMs = timeoutMs;
     }
 
-    // todo: add comment
+    /*
+     * According to the current ordered key tuple, based on the leftmost partition principle,
+     * get the partition ID to which it belongs
+     */
     private Set<Long> getLeftMostPartitionIDs(List<String> orderedKeyTuple,
                                             List<Column> keyColumns) {
         Set<Long> leftMostPartitionIDs = Sets.newHashSet();
@@ -324,7 +326,7 @@ public class PointQueryExecutor implements CoordInterface {
         return leftMostPartitionIDs;
     }
 
-    // todo: add comment
+    // Use the leftmost matching partition to prune the tablet
     private void addTabletIDsForKeyTuple(List<String> orderedKeyTuple, List<Column> keyColumns,
                                          OlapTable olapTable, Set<Long> leftMostPartitionIDs) {
         List<String> keyTupleForDistributionPrune = Lists.newArrayList();

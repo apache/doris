@@ -210,7 +210,7 @@ suite("test_rowstore", "p0,nonConcurrent") {
                 stmt.setInt(i + 1, in_list[i])
             }
             assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
-            qe_point_in_select stmt
+            order_qe_point_in_select stmt
         }
         def sql_str = "select v1, v2 from table_with_column_group where k1 = ?"
         def sql_in_str = "select v1, v2 from table_with_column_group where k1 in (?, ?, ?, ?)"
@@ -329,7 +329,7 @@ suite("test_rowstore", "p0,nonConcurrent") {
             ['2017-10-01 11:11:11.21', '2017-10-01 11:11:11.22', '2017-10-01 11:11:11.23', '2017-10-01 11:11:11.24', '2017-10-01 11:11:11.25', '2017-10-01 11:11:11.26', '2017-10-01 11:11:11.27', '2017-10-01 11:11:11.28'], 
             ['2017-10-01 11:11:11.11', '2017-10-01 11:11:11.12', '2017-10-01 11:11:11.13', '2017-10-01 11:11:11.14', '2017-10-01 11:11:11.15', '2017-10-01 11:11:11.16', '2017-10-01 11:11:11.17', '2017-10-01 11:11:11.18'], 
             ['Beijing', 'Shanghai'], [10, 11, 12, 13, 14], [0, 1]
-        qe_point_in_select in_stmt
+        order_qe_point_in_select in_stmt
     }
 
     sql "DROP TABLE IF EXISTS table_with_column_group4"
