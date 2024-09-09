@@ -214,7 +214,7 @@ void ScannerContext::append_block_to_queue(std::shared_ptr<ScanTask> scan_task) 
             }
         }
     }
-    std::unique_lock<std::mutex> l(_transfer_lock);
+    std::lock_guard<std::mutex> l(_transfer_lock);
     if (!scan_task->status_ok()) {
         _process_status = scan_task->get_status();
     }
@@ -250,9 +250,9 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         // The abnormal status of scanner may come from the execution of the scanner itself,
         // or come from the scanner scheduler, such as TooManyTasks.
         if (!scan_task->status_ok()) {
-            _set_scanner_done();
-            _process_status = scan_task->get_status();
             // TODO: If the scanner status is TooManyTasks, maybe we can retry the scanner after a while.
+            _process_status = scan_task->get_status();
+            _set_scanner_done();
             return _process_status;
         }
 
