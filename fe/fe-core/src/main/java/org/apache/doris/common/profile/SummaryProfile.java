@@ -903,8 +903,8 @@ public class SummaryProfile {
         return new Gson().toJson(jsonObject);
     }
 
-    public void setSystemMessage(String msg) {
-        summaryProfile.addInfoString(SYSTEM_MESSAGE, msg);
+    public void setSystemMessageIfEmpty(String msg) {
+        executionSummaryProfile.addInfoStringIfEmpty(SYSTEM_MESSAGE, msg);
     }
 
     public void setExecutedByFrontend(boolean executedByFrontend) {

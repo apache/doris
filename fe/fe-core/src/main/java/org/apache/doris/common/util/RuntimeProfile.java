@@ -767,6 +767,23 @@ public class RuntimeProfile {
         }
     }
 
+    public void addInfoStringIfEmpty(String key, String value) {
+        infoStringsLock.writeLock().lock();
+        try {
+            String target = this.infoStrings.get(key);
+            if (Strings.isNullOrEmpty(target) || target.equals("N/A")) {
+                this.infoStrings.put(key, value);
+                if (target == null) {
+                    this.infoStringsDisplayOrder.add(key);
+                }
+            } else {
+                return;
+            }
+        } finally {
+            infoStringsLock.writeLock().unlock();
+        }
+    }
+
     // Returns the value to which the specified key is mapped;
     // or null if this map contains no mapping for the key.
     public String getInfoString(String key) {

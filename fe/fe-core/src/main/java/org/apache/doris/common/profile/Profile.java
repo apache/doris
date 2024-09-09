@@ -318,6 +318,14 @@ public class Profile {
     }
 
     public String getProfileByLevel() {
+        if (!profileHasBeenStored()) {
+            if (!this.isQueryFinished || !isProfileCompleted()) {
+                summaryProfile.setSystemMessageIfEmpty("Profile maybe not complete, still collecting.");
+            } else {
+                summaryProfile.setSystemMessageIfEmpty("N/A");
+            }
+        }
+
         StringBuilder builder = new StringBuilder();
         // add summary to builder
         summaryProfile.prettyPrint(builder);
@@ -329,18 +337,13 @@ public class Profile {
 
     // If the query is already finished, and user wants to get the profile, we should check
     // if BE has reported all profiles, if not, sleep 2s.
+    // The caller of this method should make sure this function is not called inside a lock.
     private void waitProfileCompleteIfNeeded() {
         if (!this.isQueryFinished) {
             return;
         }
-        boolean allCompleted = true;
-        for (ExecutionProfile executionProfile : executionProfiles) {
-            if (!executionProfile.isCompleted()) {
-                allCompleted = false;
-                break;
-            }
-        }
-        if (!allCompleted) {
+
+        if (!isProfileCompleted()) {
             try {
                 Thread.currentThread().sleep(2000);
             } catch (InterruptedException e) {
@@ -504,7 +507,7 @@ public class Profile {
                     + " since it has been waiting for {} ms, query finished time: {}", id,
                     System.currentTimeMillis() - this.queryFinishTimestamp, this.queryFinishTimestamp);
 
-            this.summaryProfile.setSystemMessage(
+            this.summaryProfile.setSystemMessageIfEmpty(
                             "This profile is not complete, since its collection does not finish in time."
                             + " Maybe increase auto_profile_threshold_ms current val: "
                             + String.valueOf(autoProfileDurationMs));
@@ -645,5 +648,16 @@ public class Profile {
         }
 
         return true;
+    }
+
+    private boolean isProfileCompleted() {
+        boolean allCompleted = true;
+        for (ExecutionProfile executionProfile : executionProfiles) {
+            if (!executionProfile.isCompleted()) {
+                allCompleted = false;
+                break;
+            }
+        }
+        return allCompleted;
     }
 }
