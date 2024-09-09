@@ -57,7 +57,7 @@ suite("test_alter_job_mtmv") {
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT * FROM ${tableNameNum};
+            SELECT * FROM ${tableName};
     """
     sql """alter MATERIALIZED VIEW mv1 refresh COMPLETE on commit; """
     waitingMTMVTaskFinishedByMvName(mvName)
