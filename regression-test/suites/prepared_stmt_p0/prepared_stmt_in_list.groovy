@@ -216,7 +216,7 @@ suite("test_prepared_stmt_in_list", "nonConcurrent") {
         sql """ INSERT INTO ${tableName} VALUES(7, 1306, 56055112) """
         sql """sync"""
 
-        def stmt_read11 = prepareStatement "select * from ${tableName} WHERE `k1` IN (?, ?, ?, ?, ?) AND `k2` IN (?, ?, ?, ?) order by 1"
+        def stmt_read11 = prepareStatement "select * from ${tableName} WHERE `k1` IN (?, ?, ?, ?, ?) AND `k2` IN (?, ?, ?, ?)"
         stmt_read11.setByte(1, (byte) 1)
         stmt_read11.setByte(2, (byte) 2)
         stmt_read11.setByte(3, (byte) 3)
@@ -226,6 +226,6 @@ suite("test_prepared_stmt_in_list", "nonConcurrent") {
         stmt_read11.setShort(7, (short) 1301)
         stmt_read11.setShort(8, (short) 1302)
         stmt_read11.setShort(9, (short) 1303)
-        qe_stmt_read11_1 stmt_read11
+        order_qe_stmt_read11_1 stmt_read11
    }
 }
