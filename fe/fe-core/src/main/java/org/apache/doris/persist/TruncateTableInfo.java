@@ -51,7 +51,7 @@ public class TruncateTableInfo implements Writable {
     }
 
     public TruncateTableInfo(long dbId, String db, long tblId, String table, List<Partition> partitions,
-                             boolean isEntireTable, String rawSql) {
+            boolean isEntireTable, String rawSql) {
         this.dbId = dbId;
         this.db = db;
         this.tblId = tblId;
@@ -106,6 +106,14 @@ public class TruncateTableInfo implements Writable {
 
     @Override
     public String toString() {
-        return toJson();
+        return "TruncateTableInfo{"
+                + "dbId=" + dbId
+                + ", db='" + db + '\''
+                + ", tblId=" + tblId
+                + ", table='" + table + '\''
+                + ", isEntireTable=" + isEntireTable
+                + ", rawSql='" + rawSql + '\''
+                + ", partitions_size=" + partitions.size()
+                + '}';
     }
 }
