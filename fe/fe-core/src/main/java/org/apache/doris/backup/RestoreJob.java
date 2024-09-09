@@ -2472,7 +2472,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     public boolean clearAutoIncCache(Set<Long> autoIncInvolvedTables) {
-        List<Long> aliveBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+        Map<Long, List<Long>> invovedTables = Maps.newHashMap();
+        List<Long> tableIds = Lists.newArrayList();
+        for (long tableId : autoIncInvolvedTables) {
+            tableIds.add(tableId);
+        }
+        invovedTables.put(dbId, tableIds);
         int tryCnt = 0;
         while (true) {
             if (tryCnt++ > 3) {
@@ -2480,13 +2485,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         + "try cnt {} reaches maximum retry count", label, tryCnt);
                 return false;
             }
+
+            List<Long> aliveBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             AgentBatchTask clearAutoIncCacheBatchTask = new AgentBatchTask();
-            Map<Long, List<Long>> invovedTables = Maps.newHashMap();
-            List<Long> tableIds = Lists.newArrayList();
-            for (long tableId : autoIncInvolvedTables) {
-                tableIds.add(tableId);
-            }
-            invovedTables.put(dbId, tableIds);
             try {
                 for (long backendId : aliveBackendIds) {
                     ClearAutoIncCacheTask task = new ClearAutoIncCacheTask(backendId, invovedTables);
