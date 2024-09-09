@@ -265,6 +265,7 @@ private:
 
     class CacheValue : public LRUCacheValueBase {
     public:
+        ~CacheValue() override;
         std::shared_ptr<Reusable> item;
     };
 };
