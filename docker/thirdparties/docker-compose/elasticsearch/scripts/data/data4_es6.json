@@ -1,14 +1,10 @@
 {
   "test1": "string_ignore_above_10",
   "test2": "text_ignore_above_10",
-  "test3": 6.0,
+  "test3": 5.0,
   "test4": "2022-08-08",
-  "test5": "2022-08-11 12:10:10",
-  "test6": 1660191010000,
-  "test7": "2022-08-11 12:10:10",
-  "test8": "2022-08-11T12:10:10+09:00",
-  "test9": "4444.22",
-  "test10": "2022-08-08T12:10:10.151",
+  "test5": 3333.22,
+  "test6": "2022-08-08T12:10:10.151",
   "c_bool": [true, false, true, true],
   "c_byte": [1, -2, -3, 4],
   "c_short": [128, 129, -129, -130],
@@ -28,6 +24,7 @@
     {"name": "Andy", "age": 18},
     {"name": "Tim", "age": 28}
   ],
+  "message": "I'm not null or empty",
   "c_user": [
     {"first": "John", "last":  "Smith"},
     {"first": "Alice", "last":  "White"}

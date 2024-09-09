@@ -180,6 +180,12 @@ Status LRUFileCache::initialize() {
     return Status::OK();
 }
 
+void LRUFileCache::wait_lazy_open() {
+    if (!_lazy_open_done && _cache_background_load_thread.joinable()) {
+        _cache_background_load_thread.join();
+    }
+}
+
 void LRUFileCache::use_cell(const FileBlockCell& cell, FileBlocks& result, bool move_iter_flag,
                             std::lock_guard<std::mutex>& cache_lock) {
     auto file_block = cell.file_block;
