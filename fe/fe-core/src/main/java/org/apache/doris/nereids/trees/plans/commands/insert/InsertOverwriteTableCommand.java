@@ -83,6 +83,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
     private Optional<String> labelName;
     private final Optional<LogicalPlan> cte;
     private volatile boolean isCancelled = false;
+    private volatile boolean isRunning = false;
 
     /**
      * constructor
@@ -161,6 +162,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         }
         InsertOverwriteManager insertOverwriteManager = Env.getCurrentEnv().getInsertOverwriteManager();
         insertOverwriteManager.recordRunningTableOrException(targetTable.getDatabase().getId(), targetTable.getId());
+        isRunning = true;
         long taskId = 0;
         try {
             if (isAutoDetectOverwrite()) {
@@ -216,6 +218,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             ConnectContext.get().setSkipAuth(false);
             insertOverwriteManager
                     .dropRunningRecord(targetTable.getDatabase().getId(), targetTable.getId());
+            isRunning = false;
         }
     }
 
@@ -224,6 +227,11 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
      */
     public void cancel() {
         this.isCancelled = true;
+        while (true) {
+            if (!isRunning) {
+                return;
+            }
+        }
     }
 
     private boolean allowInsertOverwrite(TableIf targetTable) {

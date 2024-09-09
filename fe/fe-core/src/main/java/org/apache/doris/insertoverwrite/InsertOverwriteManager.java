@@ -291,7 +291,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
         try {
             if (runningTables.containsKey(dbId) && runningTables.get(dbId).contains(tableId)) {
                 throw new AnalysisException(
-                        String.format("insert overwrite is running on db: {}, table: {}", dbId, tableId));
+                        String.format("insert overwrite is running on db: %s, table: %s", dbId, tableId));
             }
             if (runningTables.containsKey(dbId)) {
                 runningTables.get(dbId).add(tableId);
