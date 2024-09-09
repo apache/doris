@@ -3930,6 +3930,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableParallelScan;
     }
 
+    public boolean getEnablePipelineXEngine() {
+        return enablePipelineXEngine;
+    }
+
     public String hiveTextCompression() {
         return hiveTextCompression;
     }
