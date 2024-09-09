@@ -990,6 +990,20 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             TxnCommitAttachment txnCommitAttachment, List<Table> tableList) throws UserException {
         LOG.info("try to abort transaction, dbId:{}, transactionId:{}", dbId, transactionId);
 
+        if (txnCommitAttachment != null) {
+            if (txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
+                RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
+                TxnStateChangeCallback cb = callbackFactory.getCallback(rlTaskTxnCommitAttachment.getJobId());
+                if (cb != null) {
+                    // use a temporary transaction state to do before commit check,
+                    // what actually works is the transactionId
+                    TransactionState tmpTxnState = new TransactionState();
+                    tmpTxnState.setTransactionId(transactionId);
+                    cb.beforeAborted(tmpTxnState);
+                }
+            }
+        }
+
         AbortTxnRequest.Builder builder = AbortTxnRequest.newBuilder();
         builder.setDbId(dbId);
         builder.setTxnId(transactionId);
