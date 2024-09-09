@@ -30,11 +30,7 @@ static inline bool is_cloud_mode() {
     return deploy_mode == "disaggregated" || !cloud_unique_id.empty();
 }
 
-static inline void set_cloud_unique_id(std::string instance_id) {
-    if (cloud_unique_id.empty() && !instance_id.empty()) {
-        static_cast<void>(set_config("cloud_unique_id", "1:" + instance_id + ":compute", true));
-    }
-}
+void set_cloud_unique_id(std::string instance_id);
 
 // Set the endpoint of meta service.
 //
