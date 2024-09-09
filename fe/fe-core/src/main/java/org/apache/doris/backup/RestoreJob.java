@@ -25,6 +25,7 @@ import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.backup.Status.ErrCode;
+import org.apache.doris.catalog.AutoIncrementGenerator;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
@@ -650,8 +651,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         // Check and prepare meta objects.
         AgentBatchTask batchTask = new AgentBatchTask();
 
-        // db_id -> table_ids
-        Map<Long, List<Long>> involvedAutoIncInfo = Maps.newHashMap();
+        Map<Long, AutoIncrementGenerator> involvedAutoIncInfos = Maps.newHashMap();
         db.readLock();
         try {
             for (Map.Entry<String, BackupOlapTableInfo> olapTableEntry : jobInfo.backupOlapTableObjects.entrySet()) {
@@ -698,8 +698,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         }
 
                         if (localOlapTbl.getAutoIncrementGenerator() != null) {
-                            involvedAutoIncInfo.computeIfAbsent(dbId, k -> Lists.newArrayList())
-                                    .add(localOlapTbl.getId());
+                            AutoIncrementGenerator remoteAutoIncGen = remoteOlapTbl.getAutoIncrementGenerator();
+                            if (remoteAutoIncGen == null) {
+                                status = new Status(ErrCode.COMMON_ERROR, "local table " + localOlapTbl.getName()
+                                        + " has autoIncGenerator but remote table " + remoteOlapTbl.getName()
+                                                + " doesn't.");
+                                return;
+                            }
+                            involvedAutoIncInfos.put(localOlapTbl.getId(), remoteAutoIncGen);
                         }
 
                         // Table with same name and has same schema. Check partition
@@ -956,8 +962,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             ok = true;
         }
 
-        if (ok && !involvedAutoIncInfo.isEmpty()) {
-            ok = clearAutoIncCache(involvedAutoIncInfo);
+        if (ok && !involvedAutoIncInfos.isEmpty()) {
+            ok = clearAutoIncCache(involvedAutoIncInfos.keySet());
         }
 
         if (ok) {
@@ -997,6 +1003,18 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     localTbl.writeUnlock();
                 }
 
+            }
+
+            // reset autoIncrementGenerator for involved tables
+            for (Map.Entry<Long, AutoIncrementGenerator> entry : involvedAutoIncInfos.entrySet()) {
+                OlapTable localTbl = (OlapTable) db.getTableNullable(entry.getKey());
+                AutoIncrementGenerator autoIncrementGenerator = entry.getValue();
+                localTbl.writeLock();
+                try {
+                    localTbl.setAutoIncrementGenerator(autoIncrementGenerator);
+                } finally {
+                    localTbl.writeUnlock();
+                }
             }
 
             // add restored tables
@@ -1466,6 +1484,17 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             } finally {
                 tbl.writeUnlock();
             }
+        }
+
+        // reset autoIncrementGenerator for involved tables
+        for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
+            OlapTable localTbl = (OlapTable) db.getTableNullable(tableName);
+            OlapTable remoteTbl = (OlapTable) backupMeta.getTable(tableName);
+            AutoIncrementGenerator autoIncrementGenerator = remoteTbl.getAutoIncrementGenerator();
+            if (autoIncrementGenerator == null) {
+                continue;
+            }
+            localTbl.setAutoIncrementGenerator(autoIncrementGenerator);
         }
 
         // restored partitions
@@ -2430,7 +2459,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
     }
 
-    public boolean clearAutoIncCache(Map<Long, List<Long>> involvedAutoIncInfo) {
+    public boolean clearAutoIncCache(Set<Long> autoIncInvolvedTables) {
         List<Long> aliveBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
         int tryCnt = 0;
         while (true) {
@@ -2440,9 +2469,15 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 return false;
             }
             AgentBatchTask clearAutoIncCacheBatchTask = new AgentBatchTask();
+            Map<Long, List<Long>> invovedTables = Maps.newHashMap();
+            List<Long> tableIds = Lists.newArrayList();
+            for (long tableId : autoIncInvolvedTables) {
+                tableIds.add(tableId);
+            }
+            invovedTables.put(dnId, tableIds);
             try {
                 for (long backendId : aliveBackendIds) {
-                    ClearAutoIncCacheTask task = new ClearAutoIncCacheTask(backendId, involvedAutoIncInfo);
+                    ClearAutoIncCacheTask task = new ClearAutoIncCacheTask(backendId, invovedTables);
                     clearAutoIncCacheBatchTask.addTask(task);
                     AgentTaskQueue.addTask(task);
                 }

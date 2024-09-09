@@ -2827,6 +2827,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return autoIncrementGenerator;
     }
 
+    public void setAutoIncrementGenerator(AutoIncrementGenerator gen) {
+        this.autoIncrementGenerator = gen;
+        autoIncrementGenerator.setEditLog(Env.getCurrentEnv().getEditLog());
+    }
+
     /**
      * generate two phase read fetch option from this olap table.
      *
