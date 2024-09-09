@@ -727,7 +727,9 @@ Status VTabletWriterV2::_create_commit_info(std::vector<TTabletCommitInfo>& tabl
                     continue;
                 }
                 LOG(INFO) << "tablet " << tablet_id << " failed on backend " << dst_id
-                          << ": " << failed_reason[tablet_id];
+                          << ", failed_replicas=" << failed_tablets[tablet_id]
+                          << ", old_reason=" << failed_reason[tablet_id]
+                          << ", new_reason=" << reason;
                 known_tablets.insert(tablet_id);
                 failed_tablets[tablet_id]++;
                 failed_reason[tablet_id] = reason;
@@ -748,7 +750,9 @@ Status VTabletWriterV2::_create_commit_info(std::vector<TTabletCommitInfo>& tabl
     for (auto [tablet_id, replicas] : failed_tablets) {
         if (replicas > (num_replicas - 1) / 2) {
             LOG(INFO) << "tablet " << tablet_id
-                      << " failed on majority backends: " << failed_reason[tablet_id];
+                      << " failed on majority backends, expected_replicas=" << num_replicas
+                      << ", failed_replicas=" << replicas
+                      << ", reason=" << failed_reason[tablet_id];
             return failed_reason.at(tablet_id);
         }
     }
