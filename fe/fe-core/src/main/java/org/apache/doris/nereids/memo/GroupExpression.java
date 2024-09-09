@@ -84,7 +84,7 @@ public class GroupExpression {
      * Just for UT.
      */
     public GroupExpression(Plan plan) {
-        this(plan, Lists.newArrayList());
+        this(plan, Lists.newArrayList(), true);
     }
 
     /**
@@ -94,7 +94,7 @@ public class GroupExpression {
      * @param plan {@link Plan} to reference
      * @param children children groups in memo
      */
-    public GroupExpression(Plan plan, List<Group> children) {
+    public GroupExpression(Plan plan, List<Group> children, boolean addParent) {
         this.plan = Objects.requireNonNull(plan, "plan can not be null")
                 .withGroupExpression(Optional.of(this));
         this.children = Objects.requireNonNull(children, "children can not be null");
@@ -102,6 +102,14 @@ public class GroupExpression {
         this.statDerived = false;
         this.lowestCostTable = Maps.newHashMap();
         this.requestPropertiesMap = Maps.newHashMap();
+        if (addParent) {
+            for (Group child : children) {
+                child.addParentExpression(this);
+            }
+        }
+    }
+
+    public void initParentExpression(List<Group> children) {
         for (Group child : children) {
             child.addParentExpression(this);
         }
