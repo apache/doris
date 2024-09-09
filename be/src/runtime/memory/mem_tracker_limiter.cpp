@@ -739,10 +739,10 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
         LOG(INFO) << log_prefix << "finished, no task need be canceled.";
         return 0;
     }
-    if (small_num == 0 && canceling_task.empty() && query_consumption.size() == 1) {
+    if (query_consumption.size() == 1) {
         auto iter = query_consumption.begin();
-        LOG(INFO) << log_prefix << "finished, only one overcommit task: " << iter->first
-                  << ", memory consumption: " << iter->second << ", no other tasks, so no cancel.";
+        LOG(INFO) << log_prefix << "finished, only one task: " << iter->first
+                  << ", memory consumption: " << iter->second << ", no cancel.";
         return 0;
     }
 
