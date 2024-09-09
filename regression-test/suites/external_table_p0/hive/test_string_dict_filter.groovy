@@ -106,7 +106,7 @@ suite("test_string_dict_filter", "p0,external,hive,external_docker,external_dock
     }
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("diable Hive test.")
+        logger.info("disable Hive test.")
         return;
     }
 

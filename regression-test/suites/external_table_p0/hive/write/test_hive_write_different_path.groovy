@@ -21,7 +21,7 @@ suite("test_hive_write_different_path", "p0,external,hive,external_docker,extern
 
         String enabled = context.config.otherConfigs.get("enableHiveTest")
         if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-            logger.info("diable Hive test.")
+            logger.info("disable Hive test.")
             return;
         }
 
