@@ -38,11 +38,7 @@ import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import com.amazonaws.glue.catalog.util.AWSGlueConfig;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-import org.apache.hadoop.fs.CosFileSystem;
-import org.apache.hadoop.fs.CosNConfigKeys;
 import org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem;
-import org.apache.hadoop.fs.obs.OBSConstants;
-import org.apache.hadoop.fs.obs.OBSFileSystem;
 import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.hadoop.fs.s3a.S3AFileSystem;
 import org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider;
@@ -164,12 +160,12 @@ public class PropertyConverter {
     private static Map<String, String> convertToOBSProperties(Map<String, String> props,
                                                               CloudCredential credential) {
         Map<String, String> obsProperties = Maps.newHashMap();
-        obsProperties.put(OBSConstants.ENDPOINT, props.get(ObsProperties.ENDPOINT));
+        obsProperties.put(ObsProperties.HadoopFsObsConstants.ENDPOINT, props.get(ObsProperties.ENDPOINT));
         obsProperties.put(ObsProperties.FS.IMPL_DISABLE_CACHE, "true");
         obsProperties.put("fs.obs.impl", getHadoopFSImplByScheme("obs"));
         if (credential.isWhole()) {
-            obsProperties.put(OBSConstants.ACCESS_KEY, credential.getAccessKey());
-            obsProperties.put(OBSConstants.SECRET_KEY, credential.getSecretKey());
+            obsProperties.put(ObsProperties.HadoopFsObsConstants.ACCESS_KEY, credential.getAccessKey());
+            obsProperties.put(ObsProperties.HadoopFsObsConstants.SECRET_KEY, credential.getSecretKey());
         }
         if (credential.isTemporary()) {
             obsProperties.put(ObsProperties.FS.SESSION_TOKEN, credential.getSessionToken());
@@ -184,11 +180,11 @@ public class PropertyConverter {
 
     public static String getHadoopFSImplByScheme(String fsScheme) {
         if (fsScheme.equalsIgnoreCase("obs")) {
-            return OBSFileSystem.class.getName();
+            return ObsProperties.HadoopFsObsConstants.HADOOP_FS_OBS_CLASS_NAME;
         } else if (fsScheme.equalsIgnoreCase("oss")) {
             return AliyunOSSFileSystem.class.getName();
         } else if (fsScheme.equalsIgnoreCase("cosn") || fsScheme.equalsIgnoreCase("lakefs")) {
-            return CosFileSystem.class.getName();
+            return CosProperties.HadoopFsCosConstants.HADOOP_FS_COS_CLASS_NAME;
         } else {
             return S3AFileSystem.class.getName();
         }
@@ -311,7 +307,6 @@ public class PropertyConverter {
             endpoint = endpoint.replace(OssProperties.OSS_PREFIX, "");
         }
         ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ENDPOINT_KEY, endpoint);
-        ossProperties.put("fs.oss.impl.disable.cache", "true");
         ossProperties.put("fs.oss.impl", getHadoopFSImplByScheme("oss"));
         boolean hdfsEnabled = Boolean.parseBoolean(props.getOrDefault(OssProperties.OSS_HDFS_ENABLED, "false"));
         if (LocationPath.isHdfsOnOssEndpoint(endpoint) || hdfsEnabled) {
@@ -351,13 +346,16 @@ public class PropertyConverter {
 
     private static Map<String, String> convertToCOSProperties(Map<String, String> props, CloudCredential credential) {
         Map<String, String> cosProperties = Maps.newHashMap();
-        cosProperties.put(CosNConfigKeys.COSN_ENDPOINT_SUFFIX_KEY, props.get(CosProperties.ENDPOINT));
+        cosProperties.put(CosProperties.HadoopFsCosConstants.COSN_ENDPOINT_SUFFIX_KEY,
+                props.get(CosProperties.ENDPOINT));
         cosProperties.put("fs.cosn.impl.disable.cache", "true");
         cosProperties.put("fs.cosn.impl", getHadoopFSImplByScheme("cosn"));
         cosProperties.put("fs.lakefs.impl", getHadoopFSImplByScheme("lakefs"));
         if (credential.isWhole()) {
-            cosProperties.put(CosNConfigKeys.COSN_USERINFO_SECRET_ID_KEY, credential.getAccessKey());
-            cosProperties.put(CosNConfigKeys.COSN_USERINFO_SECRET_KEY_KEY, credential.getSecretKey());
+            cosProperties.put(CosProperties.HadoopFsCosConstants.COSN_USERINFO_SECRET_ID_KEY,
+                    credential.getAccessKey());
+            cosProperties.put(CosProperties.HadoopFsCosConstants.COSN_USERINFO_SECRET_KEY_KEY,
+                    credential.getSecretKey());
         }
         // session token is unsupported
         for (Map.Entry<String, String> entry : props.entrySet()) {

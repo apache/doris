@@ -220,7 +220,8 @@ public:
     }
 
     virtual bool can_push_down_to_index() const { return false; }
-    virtual Status eval_inverted_index(FunctionContext* context, segment_v2::FuncExprParams& params,
+
+    virtual Status eval_inverted_index(VExpr* context, segment_v2::FuncExprParams& params,
                                        std::shared_ptr<roaring::Roaring>& result) {
         return Status::NotSupported("eval_inverted_index is not supported in function: ",
                                     get_name());
@@ -370,6 +371,7 @@ class IFunction : public std::enable_shared_from_this<IFunction>,
 public:
     String get_name() const override = 0;
 
+    /// Notice: We should not change the column in the block, because the column may be shared by multiple expressions or exec nodes.
     virtual Status execute_impl(FunctionContext* context, Block& block,
                                 const ColumnNumbers& arguments, size_t result,
                                 size_t input_rows_count) const override = 0;
@@ -506,9 +508,10 @@ public:
     }
 
     bool can_push_down_to_index() const override { return function->can_push_down_to_index(); }
-    Status eval_inverted_index(FunctionContext* context, segment_v2::FuncExprParams& params,
+
+    Status eval_inverted_index(VExpr* expr, segment_v2::FuncExprParams& params,
                                std::shared_ptr<roaring::Roaring>& result) override {
-        return function->eval_inverted_index(context, params, result);
+        return function->eval_inverted_index(expr, params, result);
     }
 
 private:

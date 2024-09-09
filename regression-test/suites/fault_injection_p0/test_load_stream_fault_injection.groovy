@@ -143,8 +143,6 @@ suite("load_stream_fault_injection", "nonConcurrent") {
     load_with_injection("LocalFileSystem.create_file_impl.open_file_failed", "")
     // LoadStreamWriter append_data meet null file writer error
     load_with_injection("LoadStreamWriter.append_data.null_file_writer", "")
-    // LoadStreamWriter close_segment meet not inited error
-    load_with_injection("LoadStreamWriter.close_segment.uninited_writer", "")
     // LoadStreamWriter close_segment meet not bad segid error
     load_with_injection("LoadStreamWriter.close_segment.bad_segid", "")
     // LoadStreamWriter close_segment meet null file writer error
@@ -153,8 +151,8 @@ suite("load_stream_fault_injection", "nonConcurrent") {
     load_with_injection("LocalFileWriter.close.failed", "")
     // LoadStreamWriter close_segment meet bytes_appended and real file size not match error
     load_with_injection("FileWriter.close_segment.zero_bytes_appended", "")
-    // LoadStreamWriter add_segment meet not inited error
-    load_with_injection("LoadStreamWriter.add_segment.uninited_writer", "")
+    // LoadStreamWriter close_writer/add_segment meet not inited error
+    load_with_injection("TabletStream.init.uninited_writer", "")
     // LoadStreamWriter add_segment meet not bad segid error
     load_with_injection("LoadStreamWriter.add_segment.bad_segid", "")
     // LoadStreamWriter add_segment meet null file writer error

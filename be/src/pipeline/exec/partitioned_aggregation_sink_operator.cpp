@@ -32,6 +32,7 @@ PartitionedAggSinkLocalState::PartitionedAggSinkLocalState(DataSinkOperatorXBase
             std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
                                          parent->get_name() + "_SPILL_DEPENDENCY", true);
 }
+
 Status PartitionedAggSinkLocalState::init(doris::RuntimeState* state,
                                           doris::pipeline::LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -64,6 +65,7 @@ Status PartitionedAggSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(Base::_open_timer);
     return Base::open(state);
 }
+
 Status PartitionedAggSinkLocalState::close(RuntimeState* state, Status exec_status) {
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_close_timer);
@@ -122,9 +124,11 @@ void PartitionedAggSinkLocalState::update_profile(RuntimeProfile* child_profile)
 
 PartitionedAggSinkOperatorX::PartitionedAggSinkOperatorX(ObjectPool* pool, int operator_id,
                                                          const TPlanNode& tnode,
-                                                         const DescriptorTbl& descs)
+                                                         const DescriptorTbl& descs,
+                                                         bool require_bucket_distribution)
         : DataSinkOperatorX<PartitionedAggSinkLocalState>(operator_id, tnode.node_id) {
-    _agg_sink_operator = std::make_unique<AggSinkOperatorX>(pool, operator_id, tnode, descs);
+    _agg_sink_operator = std::make_unique<AggSinkOperatorX>(pool, operator_id, tnode, descs,
+                                                            require_bucket_distribution);
 }
 
 Status PartitionedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -261,7 +265,8 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
     status = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
             [this, &parent, state, query_id, mem_tracker, shared_state_holder, execution_context,
              submit_timer] {
-                SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
+                QueryThreadContext query_thread_context {query_id, mem_tracker};
+                SCOPED_ATTACH_TASK(query_thread_context);
                 std::shared_ptr<TaskExecutionContext> execution_context_lock;
                 auto shared_state_sptr = shared_state_holder.lock();
                 if (shared_state_sptr) {

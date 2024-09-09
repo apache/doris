@@ -134,7 +134,7 @@ public class GroupCommitPlanner {
     public PGroupCommitInsertResponse executeGroupCommitInsert(ConnectContext ctx,
             List<InternalService.PDataRow> rows)
             throws DdlException, RpcException, ExecutionException, InterruptedException {
-        backend = ctx.getInsertGroupCommit(this.table.getId());
+        selectBackends(ctx);
         if (backend == null || !backend.isAlive() || backend.isDecommissioned()) {
             List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (allBackendIds.isEmpty()) {
@@ -162,7 +162,7 @@ public class GroupCommitPlanner {
                         .setRequest(execPlanFragmentParamsBytes)
                         .setCompact(false).setVersion(InternalService.PFragmentRequestVersion.VERSION_2).build())
                 .setLoadId(Types.PUniqueId.newBuilder().setHi(loadId.hi).setLo(loadId.lo)
-                .build()).addAllData(rows)
+                        .build()).addAllData(rows)
                 .build();
         Future<PGroupCommitInsertResponse> future = BackendServiceProxy.getInstance()
                 .groupCommitInsert(new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), request);
@@ -206,7 +206,7 @@ public class GroupCommitPlanner {
     protected void selectBackends(ConnectContext ctx) throws DdlException {
         try {
             backend = Env.getCurrentEnv().getGroupCommitManager()
-                    .selectBackendForGroupCommit(this.table.getId(), ctx, false);
+                    .selectBackendForGroupCommit(this.table.getId(), ctx);
         } catch (LoadException e) {
             throw new DdlException("No suitable backend");
         }

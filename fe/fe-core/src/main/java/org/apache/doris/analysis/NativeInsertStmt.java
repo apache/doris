@@ -920,11 +920,15 @@ public class NativeInsertStmt extends InsertStmt {
             Column col = targetColumns.get(i);
 
             if (expr instanceof DefaultValueExpr) {
-                if (targetColumns.get(i).getDefaultValue() == null) {
+                if (targetColumns.get(i).getDefaultValue() == null && !targetColumns.get(i).isAllowNull()) {
                     throw new AnalysisException("Column has no default value, column="
                             + targetColumns.get(i).getName());
                 }
-                expr = new StringLiteral(targetColumns.get(i).getDefaultValue());
+                if (targetColumns.get(i).getDefaultValue() == null) {
+                    expr = new NullLiteral();
+                } else {
+                    expr = new StringLiteral(targetColumns.get(i).getDefaultValue());
+                }
             }
             if (expr instanceof Subquery) {
                 throw new AnalysisException("Insert values can not be query");
@@ -1357,7 +1361,7 @@ public class NativeInsertStmt extends InsertStmt {
         if (hasEmptyTargetColumns) {
             return;
         }
-        boolean hasMissingColExceptAutoInc = false;
+        boolean hasMissingColExceptAutoIncKey = false;
         for (Column col : olapTable.getFullSchema()) {
             boolean exists = false;
             for (Column insertCol : targetColumns) {
@@ -1370,16 +1374,16 @@ public class NativeInsertStmt extends InsertStmt {
                     break;
                 }
             }
-            if (!exists && !col.isAutoInc()) {
-                if (col.isKey()) {
+            if (!exists) {
+                if (col.isKey() && !col.isAutoInc()) {
                     throw new UserException("Partial update should include all key columns, missing: " + col.getName());
                 }
-                if (col.isVisible()) {
-                    hasMissingColExceptAutoInc = true;
+                if (!(col.isKey() && col.isAutoInc()) && col.isVisible()) {
+                    hasMissingColExceptAutoIncKey = true;
                 }
             }
         }
-        if (!hasMissingColExceptAutoInc) {
+        if (!hasMissingColExceptAutoIncKey) {
             return;
         }
 

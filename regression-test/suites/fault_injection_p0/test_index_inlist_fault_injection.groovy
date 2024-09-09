@@ -117,6 +117,12 @@ suite("test_index_inlist_fault_injection", "nonConcurrent") {
         qt_sql """ select count() from ${indexTbName} where (clientip = '2.1.0.0' or clientip = NULL and clientip = '40.135.0.0'); """
 
         sql """ set enable_common_expr_pushdown = true; """
+
+        sql """ set in_list_value_count_threshold = 0; """
+        qt_sql """ select count() from ${indexTbName} where (clientip in ('40.135.0.0', '232.0.0.0', '26.1.0.0', '247.37.0.0') or status = 200); """
+        sql """ set in_list_value_count_threshold = 10; """
+        qt_sql """ select count() from ${indexTbName} where (clientip in ('40.135.0.0', '232.0.0.0', '26.1.0.0', '247.37.0.0') or status = 200); """
+
       } finally {
       }
     } finally {

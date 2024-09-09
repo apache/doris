@@ -28,10 +28,12 @@
 
 #include "exec/schema_scanner/schema_active_queries_scanner.h"
 #include "exec/schema_scanner/schema_backend_active_tasks.h"
+#include "exec/schema_scanner/schema_catalog_meta_cache_stats_scanner.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
 #include "exec/schema_scanner/schema_columns_scanner.h"
 #include "exec/schema_scanner/schema_dummy_scanner.h"
+#include "exec/schema_scanner/schema_file_cache_statistics.h"
 #include "exec/schema_scanner/schema_files_scanner.h"
 #include "exec/schema_scanner/schema_metadata_name_ids_scanner.h"
 #include "exec/schema_scanner/schema_partitions_scanner.h"
@@ -42,11 +44,14 @@
 #include "exec/schema_scanner/schema_schema_privileges_scanner.h"
 #include "exec/schema_scanner/schema_schemata_scanner.h"
 #include "exec/schema_scanner/schema_table_privileges_scanner.h"
+#include "exec/schema_scanner/schema_table_properties_scanner.h"
 #include "exec/schema_scanner/schema_tables_scanner.h"
 #include "exec/schema_scanner/schema_user_privileges_scanner.h"
 #include "exec/schema_scanner/schema_user_scanner.h"
 #include "exec/schema_scanner/schema_variables_scanner.h"
 #include "exec/schema_scanner/schema_views_scanner.h"
+#include "exec/schema_scanner/schema_workload_group_privileges.h"
+#include "exec/schema_scanner/schema_workload_group_resource_usage_scanner.h"
 #include "exec/schema_scanner/schema_workload_groups_scanner.h"
 #include "exec/schema_scanner/schema_workload_sched_policy_scanner.h"
 #include "olap/hll.h"
@@ -224,6 +229,16 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaUserScanner::create_unique();
     case TSchemaTableType::SCH_WORKLOAD_POLICY:
         return SchemaWorkloadSchedulePolicyScanner::create_unique();
+    case TSchemaTableType::SCH_FILE_CACHE_STATISTICS:
+        return SchemaFileCacheStatisticsScanner::create_unique();
+    case TSchemaTableType::SCH_WORKLOAD_GROUP_PRIVILEGES:
+        return SchemaWorkloadGroupPrivilegesScanner::create_unique();
+    case TSchemaTableType::SCH_WORKLOAD_GROUP_RESOURCE_USAGE:
+        return SchemaBackendWorkloadGroupResourceUsage::create_unique();
+    case TSchemaTableType::SCH_TABLE_PROPERTIES:
+        return SchemaTablePropertiesScanner::create_unique();
+    case TSchemaTableType::SCH_CATALOG_META_CACHE_STATISTICS:
+        return SchemaCatalogMetaCacheStatsScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

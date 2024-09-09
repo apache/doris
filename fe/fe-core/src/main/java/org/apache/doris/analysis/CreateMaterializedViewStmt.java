@@ -273,9 +273,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
             Expr selectListItemExpr = selectListItem.getExpr();
             selectListItemExpr.setDisableTableName(true);
-            Expr realItem = selectListItemExpr.unwrapExpr(false);
-            if (!(realItem instanceof SlotRef) && !(realItem instanceof FunctionCallExpr)
-                    && !(realItem instanceof ArithmeticExpr)) {
+            if (!(selectListItemExpr instanceof SlotRef) && !(selectListItemExpr instanceof FunctionCallExpr)
+                    && !(selectListItemExpr instanceof ArithmeticExpr)) {
                 throw new AnalysisException("The materialized view only support the single column or function expr. "
                         + "Error column: " + selectListItemExpr.toSql());
             }

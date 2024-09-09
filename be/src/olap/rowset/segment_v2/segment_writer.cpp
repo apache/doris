@@ -483,8 +483,9 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         RowLocation loc;
         // save rowset shared ptr so this rowset wouldn't delete
         RowsetSharedPtr rowset;
-        auto st = tablet->lookup_row_key(key, have_input_seq_column, specified_rowsets, &loc,
-                                         _mow_context->max_version, segment_caches, &rowset);
+        auto st = tablet->lookup_row_key(key, _tablet_schema.get(), have_input_seq_column,
+                                         specified_rowsets, &loc, _mow_context->max_version,
+                                         segment_caches, &rowset);
         if (st.is<KEY_NOT_FOUND>()) {
             if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
                 ++num_rows_filtered;
@@ -494,7 +495,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                                                  segment_pos);
 
             } else {
-                if (!_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update) {
+                if (!_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update &&
+                    !have_delete_sign) {
                     std::string error_column;
                     for (auto cid : _opts.rowset_ctx->partial_update_info->missing_cids) {
                         const TabletColumn& col = _tablet_schema->column(cid);

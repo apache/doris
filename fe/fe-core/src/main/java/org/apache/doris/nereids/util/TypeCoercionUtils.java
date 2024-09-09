@@ -534,7 +534,7 @@ public class TypeCoercionUtils {
                 if ("false".equalsIgnoreCase(value)) {
                     ret = BooleanLiteral.FALSE;
                 }
-            } else if (dataType instanceof IntegralType) {
+            } else if (dataType instanceof TinyIntType) {
                 BigInteger bigInt = new BigInteger(value);
                 if (BigInteger.valueOf(bigInt.byteValue()).equals(bigInt)) {
                     ret = new TinyIntLiteral(bigInt.byteValue());
@@ -547,6 +547,36 @@ public class TypeCoercionUtils {
                 } else {
                     ret = new LargeIntLiteral(bigInt);
                 }
+            } else if (dataType instanceof SmallIntType) {
+                BigInteger bigInt = new BigInteger(value);
+                if (BigInteger.valueOf(bigInt.shortValue()).equals(bigInt)) {
+                    ret = new SmallIntLiteral(bigInt.shortValue());
+                } else if (BigInteger.valueOf(bigInt.intValue()).equals(bigInt)) {
+                    ret = new IntegerLiteral(bigInt.intValue());
+                } else if (BigInteger.valueOf(bigInt.longValue()).equals(bigInt)) {
+                    ret = new BigIntLiteral(bigInt.longValueExact());
+                } else {
+                    ret = new LargeIntLiteral(bigInt);
+                }
+            } else if (dataType instanceof IntegerType) {
+                BigInteger bigInt = new BigInteger(value);
+                if (BigInteger.valueOf(bigInt.intValue()).equals(bigInt)) {
+                    ret = new IntegerLiteral(bigInt.intValue());
+                } else if (BigInteger.valueOf(bigInt.longValue()).equals(bigInt)) {
+                    ret = new BigIntLiteral(bigInt.longValueExact());
+                } else {
+                    ret = new LargeIntLiteral(bigInt);
+                }
+            } else if (dataType instanceof BigIntType) {
+                BigInteger bigInt = new BigInteger(value);
+                if (BigInteger.valueOf(bigInt.longValue()).equals(bigInt)) {
+                    ret = new BigIntLiteral(bigInt.longValueExact());
+                } else {
+                    ret = new LargeIntLiteral(bigInt);
+                }
+            } else if (dataType instanceof LargeIntType) {
+                BigInteger bigInt = new BigInteger(value);
+                ret = new LargeIntLiteral(bigInt);
             } else if (dataType instanceof FloatType) {
                 ret = new FloatLiteral(Float.parseFloat(value));
             } else if (dataType instanceof DoubleType) {

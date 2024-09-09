@@ -30,6 +30,10 @@
 namespace doris {
 class TUniqueId;
 
+namespace vectorized {
+class Block;
+} // namespace vectorized
+
 namespace io {
 
 /**
@@ -53,6 +57,8 @@ public:
     FileCacheFactory() = default;
     FileCacheFactory& operator=(const FileCacheFactory&) = delete;
     FileCacheFactory(const FileCacheFactory&) = delete;
+
+    void get_cache_stats_block(vectorized::Block* block);
 
 private:
     // to protect following containers

@@ -227,13 +227,8 @@ public abstract class ConnectProcessor {
         Exception nereidsParseException = null;
         long parseSqlStartTime = System.currentTimeMillis();
         List<StatementBase> cachedStmts = null;
-        // Currently we add a config to decide whether using PREPARED/EXECUTE command for nereids
-        // TODO: after implemented full prepared, we could remove this flag
-        boolean nereidsUseServerPrep = (sessionVariable.enableServeSidePreparedStatement
-                    && !sessionVariable.isEnableInsertGroupCommit())
-                        || mysqlCommand == MysqlCommand.COM_QUERY;
         CacheKeyType cacheKeyType = null;
-        if (nereidsUseServerPrep && sessionVariable.isEnableNereidsPlanner()) {
+        if (!sessionVariable.isEnableInsertGroupCommit() && sessionVariable.isEnableNereidsPlanner()) {
             if (wantToParseSqlFromSqlCache) {
                 cachedStmts = parseFromSqlCache(originStmt);
                 Optional<SqlCacheContext> sqlCacheContext = ConnectContext.get()
@@ -334,7 +329,7 @@ public abstract class ConnectProcessor {
                                 // when client not request CLIENT_MULTI_STATEMENTS, mysql treat all query as
                                 // single statement. Doris treat it with multi statement, but only return
                                 // the last statement result.
-                                if (getConnectContext().getCapability().isClientMultiStatements()) {
+                                if (getConnectContext().getMysqlChannel().clientMultiStatements()) {
                                     finalizeCommand();
                                 }
                             }

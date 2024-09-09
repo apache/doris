@@ -33,9 +33,8 @@ PhysicalResultSink
 ----------------------------------hashAgg[LOCAL]
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF0 c_current_addr_sk->[ca_address_sk]
-----------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[customer_address] apply RFs: RF0
+----------------------------------------PhysicalProject
+------------------------------------------PhysicalOlapScan[customer_address] apply RFs: RF0
 ----------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------PhysicalProject
 --------------------------------------------filter((customer.c_preferred_cust_flag = 'Y'))

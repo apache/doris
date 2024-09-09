@@ -21,12 +21,9 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * EquivalenceClass, this is used for equality propagation when predicate compensation
@@ -40,14 +37,19 @@ public class EquivalenceClass {
      * a: [a, b],
      * b: [a, b]
      * }
+     * or column a = a,
+     * this would be
+     * {
+     * a: [a, a]
+     * }
      */
-    private Map<SlotReference, Set<SlotReference>> equivalenceSlotMap = new LinkedHashMap<>();
-    private List<Set<SlotReference>> equivalenceSlotList;
+    private Map<SlotReference, List<SlotReference>> equivalenceSlotMap = new LinkedHashMap<>();
+    private List<List<SlotReference>> equivalenceSlotList;
 
     public EquivalenceClass() {
     }
 
-    public EquivalenceClass(Map<SlotReference, Set<SlotReference>> equivalenceSlotMap) {
+    public EquivalenceClass(Map<SlotReference, List<SlotReference>> equivalenceSlotMap) {
         this.equivalenceSlotMap = equivalenceSlotMap;
     }
 
@@ -56,13 +58,13 @@ public class EquivalenceClass {
      */
     public void addEquivalenceClass(SlotReference leftSlot, SlotReference rightSlot) {
 
-        Set<SlotReference> leftSlotSet = equivalenceSlotMap.get(leftSlot);
-        Set<SlotReference> rightSlotSet = equivalenceSlotMap.get(rightSlot);
+        List<SlotReference> leftSlotSet = equivalenceSlotMap.get(leftSlot);
+        List<SlotReference> rightSlotSet = equivalenceSlotMap.get(rightSlot);
         if (leftSlotSet != null && rightSlotSet != null) {
             // Both present, we need to merge
             if (leftSlotSet.size() < rightSlotSet.size()) {
                 // We swap them to merge
-                Set<SlotReference> tmp = rightSlotSet;
+                List<SlotReference> tmp = rightSlotSet;
                 rightSlotSet = leftSlotSet;
                 leftSlotSet = tmp;
             }
@@ -80,7 +82,7 @@ public class EquivalenceClass {
             equivalenceSlotMap.put(leftSlot, rightSlotSet);
         } else {
             // None are present, add to same equivalence class
-            Set<SlotReference> equivalenceClass = new LinkedHashSet<>();
+            List<SlotReference> equivalenceClass = new ArrayList<>();
             equivalenceClass.add(leftSlot);
             equivalenceClass.add(rightSlot);
             equivalenceSlotMap.put(leftSlot, equivalenceClass);
@@ -88,7 +90,7 @@ public class EquivalenceClass {
         }
     }
 
-    public Map<SlotReference, Set<SlotReference>> getEquivalenceSlotMap() {
+    public Map<SlotReference, List<SlotReference>> getEquivalenceSlotMap() {
         return equivalenceSlotMap;
     }
 
@@ -101,15 +103,15 @@ public class EquivalenceClass {
      */
     public EquivalenceClass permute(Map<SlotReference, SlotReference> mapping) {
 
-        Map<SlotReference, Set<SlotReference>> permutedEquivalenceSlotMap = new HashMap<>();
-        for (Map.Entry<SlotReference, Set<SlotReference>> slotReferenceSetEntry : equivalenceSlotMap.entrySet()) {
+        Map<SlotReference, List<SlotReference>> permutedEquivalenceSlotMap = new HashMap<>();
+        for (Map.Entry<SlotReference, List<SlotReference>> slotReferenceSetEntry : equivalenceSlotMap.entrySet()) {
             SlotReference mappedSlotReferenceKey = mapping.get(slotReferenceSetEntry.getKey());
             if (mappedSlotReferenceKey == null) {
                 // can not permute then need to return null
                 return null;
             }
-            Set<SlotReference> equivalenceValueSet = slotReferenceSetEntry.getValue();
-            final Set<SlotReference> mappedSlotReferenceSet = new HashSet<>();
+            List<SlotReference> equivalenceValueSet = slotReferenceSetEntry.getValue();
+            final List<SlotReference> mappedSlotReferenceSet = new ArrayList<>();
             for (SlotReference target : equivalenceValueSet) {
                 SlotReference mappedSlotReferenceValue = mapping.get(target);
                 if (mappedSlotReferenceValue == null) {
@@ -123,15 +125,14 @@ public class EquivalenceClass {
     }
 
     /**
-     * Return the list of equivalence set, remove duplicate
+     * Return the list of equivalence list, remove duplicate
      */
-    public List<Set<SlotReference>> getEquivalenceSetList() {
-
+    public List<List<SlotReference>> getEquivalenceSetList() {
         if (equivalenceSlotList != null) {
             return equivalenceSlotList;
         }
-        List<Set<SlotReference>> equivalenceSets = new ArrayList<>();
-        Set<Set<SlotReference>> visited = new HashSet<>();
+        List<List<SlotReference>> equivalenceSets = new ArrayList<>();
+        List<List<SlotReference>> visited = new ArrayList<>();
         equivalenceSlotMap.values().forEach(slotSet -> {
             if (!visited.contains(slotSet)) {
                 equivalenceSets.add(slotSet);

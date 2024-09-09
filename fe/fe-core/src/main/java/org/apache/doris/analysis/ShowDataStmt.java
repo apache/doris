@@ -115,7 +115,7 @@ public class ShowDataStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         dbName = analyzer.getDefaultDb();
-        if (Strings.isNullOrEmpty(dbName)) {
+        if (Strings.isNullOrEmpty(dbName) && tableName == null) {
             getAllDbStats();
             return;
         }

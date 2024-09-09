@@ -145,7 +145,15 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
         return Status::OK();
     }
     local_state._shared_state->add_total_mem_usage(new_block_wrapper->data_block.allocated_bytes());
+    auto bucket_seq_to_instance_idx =
+            local_state._parent->cast<LocalExchangeSinkOperatorX>()._bucket_seq_to_instance_idx;
     if (get_type() == ExchangeType::HASH_SHUFFLE) {
+        /**
+         * If type is `HASH_SHUFFLE`, data are hash-shuffled and distributed to all instances of
+         * all BEs. So we need a shuffleId-To-InstanceId mapping.
+         * For example, row 1 get a hash value 1 which means we should distribute to instance 1 on
+         * BE 1 and row 2 get a hash value 2 which means we should distribute to instance 1 on BE 3.
+         */
         const auto& map = local_state._parent->cast<LocalExchangeSinkOperatorX>()
                                   ._shuffle_idx_to_instance_idx;
         new_block_wrapper->ref(map.size());
@@ -169,6 +177,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
             }
         }
     } else if (_num_senders != _num_sources || _ignore_source_data_distribution) {
+        // In this branch, data just should be distributed equally into all instances.
         new_block_wrapper->ref(_num_partitions);
         for (size_t i = 0; i < _num_partitions; i++) {
             uint32_t start = local_state._partition_rows_histogram[i];
@@ -188,21 +197,14 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
             }
         }
     } else {
+        DCHECK(!bucket_seq_to_instance_idx.empty());
         new_block_wrapper->ref(_num_partitions);
-        auto map =
-                local_state._parent->cast<LocalExchangeSinkOperatorX>()._bucket_seq_to_instance_idx;
         for (size_t i = 0; i < _num_partitions; i++) {
             uint32_t start = local_state._partition_rows_histogram[i];
             uint32_t size = local_state._partition_rows_histogram[i + 1] - start;
             if (size > 0) {
-                local_state._shared_state->add_mem_usage(
-                        map[i], new_block_wrapper->data_block.allocated_bytes(), false);
-                if (!_enqueue_data_and_set_ready(map[i], local_state,
-                                                 {new_block_wrapper, {row_idx, start, size}})) {
-                    local_state._shared_state->sub_mem_usage(
-                            map[i], new_block_wrapper->data_block.allocated_bytes(), false);
-                    new_block_wrapper->unref(local_state._shared_state);
-                }
+                _enqueue_data_and_set_ready(bucket_seq_to_instance_idx[i], local_state,
+                                            {new_block_wrapper, {row_idx, start, size}});
             } else {
                 new_block_wrapper->unref(local_state._shared_state);
             }

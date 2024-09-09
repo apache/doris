@@ -30,7 +30,7 @@ services:
     ports:
       - ${DOCKER_MARIADB_EXTERNAL_PORT}:3306
     healthcheck:
-      test: mysqladmin ping -h 127.0.0.1 -u root --password=$$MARIADB_ROOT_PASSWORD
+      test: mysqladmin ping -h 127.0.0.1 -u root --password=$$MARIADB_ROOT_PASSWORD && mysql -h 127.0.0.1 -u root --password=$$MARIADB_ROOT_PASSWORD -e "SELECT 1 FROM doris_test.deadline;"
       interval: 5s
       timeout: 60s
       retries: 120

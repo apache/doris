@@ -174,7 +174,7 @@ public class NereidsPlanner extends Planner {
             if (plan instanceof LogicalSqlCache) {
                 rewrittenPlan = analyzedPlan = plan;
                 LogicalSqlCache logicalSqlCache = (LogicalSqlCache) plan;
-                physicalPlan = new PhysicalSqlCache(
+                optimizedPlan = physicalPlan = new PhysicalSqlCache(
                         logicalSqlCache.getQueryId(),
                         logicalSqlCache.getColumnLabels(), logicalSqlCache.getFieldInfos(),
                         logicalSqlCache.getResultExprs(), logicalSqlCache.getResultSetInFe(),
@@ -434,8 +434,7 @@ public class NereidsPlanner extends Planner {
             // add groupExpression to plan so that we could print group id in plan.treeString()
             plan = plan.withGroupExpression(Optional.of(groupExpression));
             PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
-                    groupExpression.getOutputProperties(physicalProperties),
-                    groupExpression.getOwnerGroup().getStatistics());
+                    physicalProperties, groupExpression.getOwnerGroup().getStatistics());
             return physicalPlan;
         } catch (Exception e) {
             if (e instanceof AnalysisException && e.getMessage().contains("Failed to choose best plan")) {

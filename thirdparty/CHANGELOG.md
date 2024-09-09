@@ -2,6 +2,10 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20240815
+
+- Modified: arrow 15.0.2 -> 17.0.0
+
 ## 20240325
 
 - Modified: arrow 13.0.0 -> 15.0.2

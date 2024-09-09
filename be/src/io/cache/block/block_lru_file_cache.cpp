@@ -39,6 +39,7 @@
 #include <system_error>
 #include <utility>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
 #include "io/cache/block/block_file_cache_fwd.h"
@@ -58,6 +59,8 @@ namespace doris {
 namespace io {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_hits_ratio, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_hits_ratio_5m, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_hits_ratio_1h, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_removed_elements, MetricUnit::OPERATIONS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_index_queue_max_size, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_index_queue_curr_size, MetricUnit::BYTES);
@@ -72,6 +75,17 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_curr_size, Metric
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_max_elements, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_curr_elements, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_segment_reader_cache_size, MetricUnit::NOUNIT);
+
+bvar::Adder<int64_t> g_file_cache_num_read_segments("doris_file_cache_num_read_segments");
+bvar::Adder<int64_t> g_file_cache_num_hit_segments("doris_file_cache_num_hit_segments");
+bvar::Window<bvar::Adder<int64_t>> g_file_cache_num_hit_segments_5m(&g_file_cache_num_hit_segments,
+                                                                    300);
+bvar::Window<bvar::Adder<int64_t>> g_file_cache_num_read_segments_5m(
+        &g_file_cache_num_read_segments, 300);
+bvar::Window<bvar::Adder<int64_t>> g_file_cache_num_hit_segments_1h(&g_file_cache_num_hit_segments,
+                                                                    3600);
+bvar::Window<bvar::Adder<int64_t>> g_file_cache_num_read_segments_1h(
+        &g_file_cache_num_read_segments, 3600);
 
 LRUFileCache::LRUFileCache(const std::string& cache_base_path,
                            const FileCacheSettings& cache_settings)
@@ -88,6 +102,8 @@ LRUFileCache::LRUFileCache(const std::string& cache_base_path,
     _entity->register_hook(_cache_base_path, std::bind(&LRUFileCache::update_cache_metrics, this));
 
     INT_DOUBLE_METRIC_REGISTER(_entity, file_cache_hits_ratio);
+    INT_DOUBLE_METRIC_REGISTER(_entity, file_cache_hits_ratio_5m);
+    INT_DOUBLE_METRIC_REGISTER(_entity, file_cache_hits_ratio_1h);
     INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_removed_elements);
 
     INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_index_queue_max_size);
@@ -119,10 +135,33 @@ LRUFileCache::LRUFileCache(const std::string& cache_base_path,
 Status LRUFileCache::initialize() {
     MonotonicStopWatch watch;
     watch.start();
-    std::lock_guard cache_lock(_mutex);
     if (!_is_initialized) {
         if (fs::exists(_cache_base_path)) {
-            RETURN_IF_ERROR(load_cache_info_into_memory(cache_lock));
+            // the cache already exists, try to load cache info asyncly
+            _lazy_open_done = false;
+            _cache_background_load_thread = std::thread([this]() {
+                MonotonicStopWatch watch;
+                watch.start();
+                std::lock_guard<std::mutex> cache_lock(_mutex);
+                Status s = load_cache_info_into_memory(cache_lock);
+                if (s.ok()) {
+                    _lazy_open_done = true;
+                } else {
+                    LOG(WARNING) << fmt::format("Failed to load cache info from {}: {}",
+                                                _cache_base_path, s.to_string());
+                }
+                int64_t cost = watch.elapsed_time() / 1000 / 1000;
+                LOG(INFO) << fmt::format(
+                        "FileCache lazy load done path={}, disposable queue size={} elements={}, "
+                        "index queue size={} elements={}, query queue size={} elements={}, init "
+                        "cost(ms)={}",
+                        _cache_base_path, _disposable_queue.get_total_cache_size(cache_lock),
+                        _disposable_queue.get_elements_num(cache_lock),
+                        _index_queue.get_total_cache_size(cache_lock),
+                        _index_queue.get_elements_num(cache_lock),
+                        _normal_queue.get_total_cache_size(cache_lock),
+                        _normal_queue.get_elements_num(cache_lock), cost);
+            });
         } else {
             std::error_code ec;
             fs::create_directories(_cache_base_path, ec);
@@ -136,18 +175,15 @@ Status LRUFileCache::initialize() {
     _is_initialized = true;
     _cache_background_thread = std::thread(&LRUFileCache::run_background_operation, this);
     int64_t cost = watch.elapsed_time() / 1000 / 1000;
-    LOG(INFO) << fmt::format(
-            "After initialize file cache path={}, disposable queue size={} elements={}, index "
-            "queue size={} "
-            "elements={}, query queue "
-            "size={} elements={}, init cost(ms)={}",
-            _cache_base_path, _disposable_queue.get_total_cache_size(cache_lock),
-            _disposable_queue.get_elements_num(cache_lock),
-            _index_queue.get_total_cache_size(cache_lock),
-            _index_queue.get_elements_num(cache_lock),
-            _normal_queue.get_total_cache_size(cache_lock),
-            _normal_queue.get_elements_num(cache_lock), cost);
+    LOG(INFO) << fmt::format("After initialize file cache path={}, init cost(ms)={}",
+                             _cache_base_path, cost);
     return Status::OK();
+}
+
+void LRUFileCache::wait_lazy_open() {
+    if (!_lazy_open_done && _cache_background_load_thread.joinable()) {
+        _cache_background_load_thread.join();
+    }
 }
 
 void LRUFileCache::use_cell(const FileBlockCell& cell, FileBlocks& result, bool move_iter_flag,
@@ -287,7 +323,7 @@ FileBlocks LRUFileCache::split_range_into_cells(const Key& key, const CacheConte
     while (current_pos < end_pos_non_included) {
         current_size = std::min(remaining_size, _max_file_segment_size);
         remaining_size -= current_size;
-        state = try_reserve(key, context, current_pos, current_size, cache_lock)
+        state = try_reserve(key, context, current_pos, current_size, cache_lock, false)
                         ? state
                         : FileBlock::State::SKIP_CACHE;
         if (UNLIKELY(state == FileBlock::State::SKIP_CACHE)) {
@@ -376,6 +412,16 @@ void LRUFileCache::fill_holes_with_empty_file_blocks(FileBlocks& file_blocks, co
 
 FileBlocksHolder LRUFileCache::get_or_set(const Key& key, size_t offset, size_t size,
                                           const CacheContext& context) {
+    if (!_lazy_open_done) {
+        // Cache is not ready yet
+        VLOG_NOTICE << fmt::format(
+                "Cache is not ready yet, skip cache for key: {}, offset: {}, size: {}.",
+                key.to_string(), offset, size);
+        FileBlocks file_blocks = {std::make_shared<FileBlock>(
+                offset, size, key, this, FileBlock::State::SKIP_CACHE, context.cache_type)};
+        return FileBlocksHolder(std::move(file_blocks));
+    }
+
     FileBlock::Range range(offset, offset + size - 1);
 
     std::lock_guard cache_lock(_mutex);
@@ -391,10 +437,10 @@ FileBlocksHolder LRUFileCache::get_or_set(const Key& key, size_t offset, size_t 
     }
 
     DCHECK(!file_blocks.empty());
-    _num_read_segments += file_blocks.size();
+    g_file_cache_num_read_segments << file_blocks.size();
     for (auto& segment : file_blocks) {
         if (segment->state() == FileBlock::State::DOWNLOADED) {
-            _num_hit_segments++;
+            g_file_cache_num_hit_segments << 1;
         }
     }
     return FileBlocksHolder(std::move(file_blocks));
@@ -496,16 +542,19 @@ const LRUFileCache::LRUQueue& LRUFileCache::get_queue(CacheType type) const {
 //     a. evict from query queue
 //     b. evict from other queue
 bool LRUFileCache::try_reserve(const Key& key, const CacheContext& context, size_t offset,
-                               size_t size, std::lock_guard<std::mutex>& cache_lock) {
+                               size_t size, std::lock_guard<std::mutex>& cache_lock,
+                               bool skip_round_check) {
     auto query_context =
             _enable_file_cache_query_limit && (context.query_id.hi != 0 || context.query_id.lo != 0)
                     ? get_query_context(context.query_id, cache_lock)
                     : nullptr;
     if (!query_context) {
-        return try_reserve_for_lru(key, nullptr, context, offset, size, cache_lock);
+        return try_reserve_for_lru(key, nullptr, context, offset, size, skip_round_check,
+                                   cache_lock);
     } else if (query_context->get_cache_size(cache_lock) + size <=
                query_context->get_max_cache_size()) {
-        return try_reserve_for_lru(key, query_context, context, offset, size, cache_lock);
+        return try_reserve_for_lru(key, query_context, context, offset, size, skip_round_check,
+                                   cache_lock);
     }
     int64_t cur_time = std::chrono::duration_cast<std::chrono::seconds>(
                                std::chrono::steady_clock::now().time_since_epoch())
@@ -668,6 +717,7 @@ bool LRUFileCache::try_reserve_from_other_queue(CacheType cur_cache_type, size_t
 
 bool LRUFileCache::try_reserve_for_lru(const Key& key, QueryFileCacheContextPtr query_context,
                                        const CacheContext& context, size_t offset, size_t size,
+                                       bool skip_round_check,
                                        std::lock_guard<std::mutex>& cache_lock) {
     int64_t cur_time = std::chrono::duration_cast<std::chrono::seconds>(
                                std::chrono::steady_clock::now().time_since_epoch())
@@ -689,8 +739,10 @@ bool LRUFileCache::try_reserve_for_lru(const Key& key, QueryFileCacheContextPtr 
 
         std::vector<FileBlockCell*> to_evict;
         std::vector<FileBlockCell*> trash;
+        size_t evict_num = 0;
         for (const auto& [entry_key, entry_offset, entry_size] : queue) {
-            if (!is_overflow()) {
+            if (!is_overflow() ||
+                (!skip_round_check && evict_num > config::file_cache_max_evict_num_per_round)) {
                 break;
             }
             auto* cell = get_cell(entry_key, entry_offset, cache_lock);
@@ -722,6 +774,7 @@ bool LRUFileCache::try_reserve_for_lru(const Key& key, QueryFileCacheContextPtr 
 
                 removed_size += cell_size;
                 --queue_element_size;
+                ++evict_num;
             }
         }
 
@@ -733,6 +786,9 @@ bool LRUFileCache::try_reserve_for_lru(const Key& key, QueryFileCacheContextPtr 
             }
         };
 
+        if (evict_num > config::file_cache_max_evict_num_per_round) {
+            LOG(INFO) << "debug evict from file cache number: " << evict_num;
+        }
         std::for_each(trash.begin(), trash.end(), remove_file_block_if);
         std::for_each(to_evict.begin(), to_evict.end(), remove_file_block_if);
 
@@ -791,7 +847,12 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
     /// version 2.0: cache_base_path / key_prefix / key / offset
     if (USE_CACHE_VERSION2 && read_file_cache_version() != "2.0") {
         // move directories format as version 2.0
-        fs::directory_iterator key_it {_cache_base_path};
+        std::error_code ec;
+        fs::directory_iterator key_it {_cache_base_path, ec};
+        if (ec) {
+            return Status::InternalError("Failed to list dir {}: {}", _cache_base_path,
+                                         ec.message());
+        }
         for (; key_it != fs::directory_iterator(); ++key_it) {
             if (key_it->is_directory()) {
                 std::string cache_key = key_it->path().filename().native();
@@ -827,13 +888,20 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
     std::vector<std::pair<Key, size_t>> queue_entries;
     std::vector<std::string> need_to_check_if_empty_dir;
     Status st = Status::OK();
+    size_t scan_file_num = 0;
     auto scan_file_cache = [&](fs::directory_iterator& key_it) {
         for (; key_it != fs::directory_iterator(); ++key_it) {
             key = Key(
                     vectorized::unhex_uint<uint128_t>(key_it->path().filename().native().c_str()));
             CacheContext context;
             context.query_id = TUniqueId();
-            fs::directory_iterator offset_it {key_it->path()};
+            std::error_code ec;
+            fs::directory_iterator offset_it {key_it->path(), ec};
+            if (ec) [[unlikely]] {
+                LOG(WARNING) << "filesystem error, failed to iterate directory, file="
+                             << key_it->path() << " error=" << ec.message();
+                continue;
+            }
             for (; offset_it != fs::directory_iterator(); ++offset_it) {
                 auto offset_with_suffix = offset_it->path().filename().native();
                 auto delim_pos = offset_with_suffix.find('_');
@@ -847,7 +915,6 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
                         std::string suffix = offset_with_suffix.substr(delim_pos + 1);
                         // not need persistent any more
                         if (suffix == "persistent") {
-                            std::error_code ec;
                             std::filesystem::remove(offset_it->path(), ec);
                             if (ec) {
                                 st = Status::IOError(ec.message());
@@ -866,10 +933,13 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
                     st = Status::IOError("Unexpected file: {}", offset_it->path().native());
                     break;
                 }
+                size = offset_it->file_size(ec);
+                if (ec) [[unlikely]] {
+                    st = Status::IOError(ec.message());
+                    break;
+                }
 
-                size = offset_it->file_size();
                 if (size == 0) {
-                    std::error_code ec;
                     fs::remove(offset_it->path(), ec);
                     if (ec) {
                         LOG(WARNING) << ec.message();
@@ -877,23 +947,32 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
                     continue;
                 }
                 context.cache_type = cache_type;
-                if (try_reserve(key, context, offset, size, cache_lock)) {
+                if (try_reserve(key, context, offset, size, cache_lock, true)) {
                     add_cell(key, context, offset, size, FileBlock::State::DOWNLOADED, cache_lock);
                     queue_entries.emplace_back(key, offset);
                 } else {
-                    std::error_code ec;
                     std::filesystem::remove(offset_it->path(), ec);
                     if (ec) {
                         st = Status::IOError(ec.message());
                     }
                     need_to_check_if_empty_dir.push_back(key_it->path());
                 }
+                scan_file_num += 1;
+                if (scan_file_num % config::async_file_cache_init_file_num_interval == 0) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(
+                            config::async_file_cache_init_sleep_interval_ms));
+                }
             }
         }
     };
 
+    std::error_code ec;
     if constexpr (USE_CACHE_VERSION2) {
-        fs::directory_iterator key_prefix_it {_cache_base_path};
+        fs::directory_iterator key_prefix_it {_cache_base_path, ec};
+        if (ec) [[unlikely]] {
+            return Status::InternalError("Failed to list dir {}: {}", _cache_base_path,
+                                         ec.message());
+        }
         for (; key_prefix_it != fs::directory_iterator(); ++key_prefix_it) {
             if (!key_prefix_it->is_directory()) {
                 // maybe version hits file
@@ -902,14 +981,25 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
             if (key_prefix_it->path().filename().native().size() != KEY_PREFIX_LENGTH) {
                 LOG(WARNING) << "Unknown directory " << key_prefix_it->path().native()
                              << ", try to remove it";
-                std::filesystem::remove(key_prefix_it->path());
+                std::error_code ec;
+                std::filesystem::remove(key_prefix_it->path(), ec);
+                if (ec) {
+                    LOG(WARNING) << "filesystem error, failed to remove file, file="
+                                 << key_prefix_it->path() << " error=" << ec.message();
+                }
                 continue;
             }
-            fs::directory_iterator key_it {key_prefix_it->path()};
+            fs::directory_iterator key_it {key_prefix_it->path(), ec};
+            if (ec) [[unlikely]] {
+                return Status::IOError(ec.message());
+            }
             scan_file_cache(key_it);
         }
     } else {
-        fs::directory_iterator key_it {_cache_base_path};
+        fs::directory_iterator key_it {_cache_base_path, ec};
+        if (ec) [[unlikely]] {
+            return Status::IOError(ec.message());
+        }
         scan_file_cache(key_it);
     }
     if (!st) {
@@ -1116,11 +1206,28 @@ void LRUFileCache::run_background_operation() {
 void LRUFileCache::update_cache_metrics() const {
     std::lock_guard<std::mutex> l(_mutex);
     double hit_ratio = 0;
-    if (_num_read_segments > 0) {
-        hit_ratio = (double)_num_hit_segments / (double)_num_read_segments;
+    double hit_ratio_5m = 0;
+    double hit_ratio_1h = 0;
+    if (g_file_cache_num_read_segments.get_value() > 0) {
+        hit_ratio = ((double)g_file_cache_num_hit_segments.get_value()) /
+                    ((double)g_file_cache_num_read_segments.get_value());
+    }
+    if (g_file_cache_num_read_segments_5m.get_value() > 0) {
+        hit_ratio_5m = ((double)g_file_cache_num_hit_segments_5m.get_value()) /
+                       ((double)g_file_cache_num_read_segments_5m.get_value());
+    } else {
+        hit_ratio_5m = 0.0;
+    }
+    if (g_file_cache_num_read_segments_1h.get_value() > 0) {
+        hit_ratio_1h = ((double)g_file_cache_num_hit_segments_1h.get_value()) /
+                       ((double)g_file_cache_num_read_segments_1h.get_value());
+    } else {
+        hit_ratio_1h = 0.0;
     }
 
     file_cache_hits_ratio->set_value(hit_ratio);
+    file_cache_hits_ratio_5m->set_value(hit_ratio_5m);
+    file_cache_hits_ratio_1h->set_value(hit_ratio_1h);
     file_cache_removed_elements->set_value(_num_removed_segments);
 
     file_cache_index_queue_max_size->set_value(_index_queue.get_max_size());
@@ -1138,6 +1245,35 @@ void LRUFileCache::update_cache_metrics() const {
     file_cache_disposable_queue_max_elements->set_value(_disposable_queue.get_max_element_size());
     file_cache_disposable_queue_curr_elements->set_value(_disposable_queue.get_elements_num(l));
     file_cache_segment_reader_cache_size->set_value(IFileCache::file_reader_cache_size());
+}
+
+std::map<std::string, double> LRUFileCache::get_stats() {
+    update_cache_metrics();
+    std::map<std::string, double> stats;
+    stats["hits_ratio"] = (double)file_cache_hits_ratio->value();
+    stats["hits_ratio_5m"] = (double)file_cache_hits_ratio_5m->value();
+    stats["hits_ratio_1h"] = (double)file_cache_hits_ratio_1h->value();
+
+    stats["index_queue_max_size"] = (double)file_cache_index_queue_max_size->value();
+    stats["index_queue_curr_size"] = (double)file_cache_index_queue_curr_size->value();
+    stats["index_queue_max_elements"] = (double)file_cache_index_queue_max_elements->value();
+    stats["index_queue_curr_elements"] = (double)file_cache_index_queue_curr_elements->value();
+
+    stats["normal_queue_max_size"] = (double)file_cache_normal_queue_max_size->value();
+    stats["normal_queue_curr_size"] = (double)file_cache_normal_queue_curr_size->value();
+    stats["normal_queue_max_elements"] = (double)file_cache_normal_queue_max_elements->value();
+    stats["normal_queue_curr_elements"] = (double)file_cache_normal_queue_curr_elements->value();
+
+    stats["disposable_queue_max_size"] = (double)file_cache_disposable_queue_max_size->value();
+    stats["disposable_queue_curr_size"] = (double)file_cache_disposable_queue_curr_size->value();
+    stats["disposable_queue_max_elements"] =
+            (double)file_cache_disposable_queue_max_elements->value();
+    stats["disposable_queue_curr_elements"] =
+            (double)file_cache_disposable_queue_curr_elements->value();
+
+    stats["segment_reader_cache_size"] = (double)IFileCache::file_reader_cache_size();
+
+    return stats;
 }
 
 } // namespace io

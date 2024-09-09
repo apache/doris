@@ -40,6 +40,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "config.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "util/cpu_info.h"
@@ -121,8 +122,8 @@ DEFINE_Int64(max_sys_mem_available_low_water_mark_bytes, "6871947673");
 DEFINE_Int64(memtable_limiter_reserved_memory_bytes, "838860800");
 
 // The size of the memory that gc wants to release each time, as a percentage of the mem limit.
-DEFINE_mString(process_minor_gc_size, "10%");
-DEFINE_mString(process_full_gc_size, "20%");
+DEFINE_mString(process_minor_gc_size, "5%");
+DEFINE_mString(process_full_gc_size, "10%");
 
 // If true, when the process does not exceed the soft mem limit, the query memory will not be limited;
 // when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
@@ -132,9 +133,9 @@ DEFINE_mBool(enable_query_memory_overcommit, "true");
 
 DEFINE_mBool(disable_memory_gc, "false");
 
-DEFINE_mBool(enable_stacktrace_in_allocator_check_failed, "false");
+DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
 
-DEFINE_mInt64(large_memory_check_bytes, "2147483648");
+DEFINE_mInt64(crash_in_alloc_large_memory_bytes, "-1");
 
 DEFINE_mBool(enable_memory_orphan_check, "true");
 
@@ -582,13 +583,12 @@ DEFINE_mInt32(memory_maintenance_sleep_time_ms, "100");
 
 // After full gc, no longer full gc and minor gc during sleep.
 // After minor gc, no minor gc during sleep, but full gc is possible.
-DEFINE_mInt32(memory_gc_sleep_time_ms, "1000");
+DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
 
 // Sleep time in milliseconds between memtbale flush mgr refresh iterations
 DEFINE_mInt64(memtable_mem_tracker_refresh_interval_ms, "5");
 
-// Sleep time in milliseconds between refresh iterations of workload group memory statistics
-DEFINE_mInt64(wg_mem_refresh_interval_ms, "50");
+DEFINE_mInt64(wg_weighted_memory_ratio_refresh_interval_ms, "50");
 
 // percent of (active memtables size / all memtables size) when reach hard limit
 DEFINE_mInt32(memtable_hard_limit_active_percent, "50");
@@ -988,7 +988,7 @@ DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
 DEFINE_mBool(variant_enable_flatten_nested, "false");
 DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
-DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "1000");
+DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 
 // block file cache
@@ -996,6 +996,9 @@ DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 DEFINE_String(file_cache_path, "");
+// thread will sleep 10ms per scan file num to limit IO
+DEFINE_Int64(async_file_cache_init_file_num_interval, "1000");
+DEFINE_Int64(async_file_cache_init_sleep_interval_ms, "20");
 DEFINE_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
 // 4KB <= file_cache_max_file_segment_size <= 256MB
 DEFINE_Validator(file_cache_max_file_segment_size, [](const int64_t config) -> bool {
@@ -1010,6 +1013,7 @@ DEFINE_Validator(file_cache_min_file_segment_size, [](const int64_t config) -> b
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
 DEFINE_mInt32(file_cache_wait_sec_after_fail, "0"); // // zero for no waiting and retrying
+DEFINE_mInt32(file_cache_max_evict_num_per_round, "5000");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1035,7 +1039,7 @@ DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
-DEFINE_mBool(inverted_index_compaction_enable, "true");
+DEFINE_mBool(inverted_index_compaction_enable, "false");
 // Only for debug, do not use in production
 DEFINE_mBool(debug_inverted_index_compaction, "false");
 // index by RAM directory
@@ -1065,10 +1069,10 @@ DEFINE_mInt32(schema_cache_capacity, "1024");
 DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
 // max number of segment cache, default -1 for backward compatibility fd_number*2/5
-DEFINE_mInt32(segment_cache_capacity, "-1");
-DEFINE_mInt32(estimated_num_columns_per_segment, "200");
+DEFINE_Int32(segment_cache_capacity, "-1");
+DEFINE_Int32(segment_cache_fd_percentage, "40");
 DEFINE_mInt32(estimated_mem_per_column_reader, "1024");
-DEFINE_mInt32(segment_cache_memory_percentage, "2");
+DEFINE_Int32(segment_cache_memory_percentage, "2");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
@@ -1266,6 +1270,17 @@ DEFINE_mInt64(compaction_batch_size, "-1");
 DEFINE_mBool(enable_parquet_page_index, "false");
 
 DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
+
+// Tablet meta size limit after serialization, 1.5GB
+DEFINE_mInt64(tablet_meta_serialize_size_limit, "1610612736");
+// Protobuf supports a maximum of 2GB, so the size of the tablet meta after serialization must be less than 2GB
+// 1717986918 = 2GB * 0.8
+DEFINE_Validator(tablet_meta_serialize_size_limit,
+                 [](const int64_t config) -> bool { return config < 1717986918; });
+
+DEFINE_mInt64(pipeline_task_leakage_detect_period_secs, "60");
+
+DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 
 // clang-format off
 #ifdef BE_TEST

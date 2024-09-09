@@ -23,6 +23,7 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
+#include <boost/algorithm/string/split.hpp>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 #include <stack>
@@ -209,6 +210,7 @@ Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprC
         RETURN_IF_ERROR(i->prepare(state, row_desc, context));
     }
     --context->_depth_num;
+    _enable_inverted_index_query = state->query_options().enable_inverted_index_query;
     return Status::OK();
 }
 
@@ -602,10 +604,26 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
 
 bool VExpr::fast_execute(Block& block, const ColumnNumbers& arguments, size_t result,
                          size_t input_rows_count, const std::string& function_name) {
+    if (!_enable_inverted_index_query) {
+        return false;
+    }
+
     std::string result_column_name = gen_predicate_result_sign(block, arguments, function_name);
     if (!block.has(result_column_name)) {
-        DBUG_EXECUTE_IF("segment_iterator.fast_execute",
-                        { return Status::Error<ErrorCode::INTERNAL_ERROR>("fast_execute failed"); })
+        DBUG_EXECUTE_IF("segment_iterator.fast_execute", {
+            auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
+                    "segment_iterator._read_columns_by_index", "column_name", "");
+
+            std::vector<std::string> column_names;
+            boost::split(column_names, debug_col_name, boost::algorithm::is_any_of(","));
+
+            std::string column_name = block.get_by_position(arguments[0]).name;
+            auto it = std::find(column_names.begin(), column_names.end(), column_name);
+            if (it == column_names.end()) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>("fast_execute failed: {}",
+                                                                result_column_name);
+            }
+        })
         return false;
     }
 
@@ -626,7 +644,7 @@ bool VExpr::fast_execute(Block& block, const ColumnNumbers& arguments, size_t re
 std::string VExpr::gen_predicate_result_sign(Block& block, const ColumnNumbers& arguments,
                                              const std::string& function_name) const {
     std::string pred_result_sign;
-    if (this->node_type() == TExprNodeType::FUNCTION_CALL) {
+    if (this->fn().name.function_name == "multi_match") {
         pred_result_sign =
                 BeConsts::BLOCK_TEMP_COLUMN_PREFIX + std::to_string(this->index_unique_id());
     } else {
@@ -634,15 +652,26 @@ std::string VExpr::gen_predicate_result_sign(Block& block, const ColumnNumbers& 
         pred_result_sign +=
                 BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_" + function_name + "_";
         if (function_name == "in" || function_name == "not_in") {
+            if (arguments.size() - 1 > _in_list_value_count_threshold) {
+                return pred_result_sign;
+            }
             // Generating 'result_sign' from 'inlist' requires sorting the values.
             std::set<std::string> values;
             for (size_t i = 1; i < arguments.size(); i++) {
                 const auto& entry = block.get_by_position(arguments[i]);
+                if (!is_column_const(*entry.column)) {
+                    return pred_result_sign;
+                }
                 values.insert(entry.type->to_string(*entry.column, 0));
             }
             pred_result_sign += boost::join(values, ",");
+        } else if (function_name == "collection_in" || function_name == "collection_not_in") {
+            return pred_result_sign;
         } else {
             const auto& entry = block.get_by_position(arguments[1]);
+            if (!is_column_const(*entry.column)) {
+                return pred_result_sign;
+            }
             pred_result_sign += entry.type->to_string(*entry.column, 0);
         }
     }

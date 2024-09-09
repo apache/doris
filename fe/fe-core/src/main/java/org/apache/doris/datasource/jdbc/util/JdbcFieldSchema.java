@@ -47,6 +47,19 @@ public class JdbcFieldSchema {
     protected int charOctetLength;
     protected boolean isAllowNull;
 
+
+    public JdbcFieldSchema(JdbcFieldSchema other) {
+        this.columnName = other.columnName;
+        this.dataType = other.dataType;
+        this.dataTypeName = other.dataTypeName;
+        this.columnSize = other.columnSize;
+        this.decimalDigits = other.decimalDigits;
+        this.numPrecRadix = other.numPrecRadix;
+        this.remarks = other.remarks;
+        this.charOctetLength = other.charOctetLength;
+        this.isAllowNull = other.isAllowNull;
+    }
+
     public JdbcFieldSchema(ResultSet rs) throws SQLException {
         this.columnName = rs.getString("COLUMN_NAME");
         this.dataType = getInteger(rs, "DATA_TYPE").orElseThrow(() -> new IllegalStateException("DATA_TYPE is null"));

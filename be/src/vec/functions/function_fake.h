@@ -35,6 +35,7 @@ class Block;
 } // namespace doris
 
 namespace doris::vectorized {
+
 // FunctionFake is use for some function call expr only work at prepare/open phase, do not support execute().
 template <typename Impl>
 class FunctionFake : public IFunction {
@@ -54,6 +55,10 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return true; }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return Impl::get_variadic_argument_types();
+    }
 
     bool use_default_implementation_for_constants() const override { return false; }
 

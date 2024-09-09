@@ -55,6 +55,15 @@ uint8_t mysql_week_mode(uint32_t mode) {
     return mode;
 }
 
+static bool check_space(char ch) {
+    // \t, \n, \v, \f, \r are 9~13, respectively.
+    return UNLIKELY(ch == ' ' || (ch >= 9 && ch <= 13));
+}
+
+static bool check_date_punct(char ch) {
+    return UNLIKELY(!(isdigit(ch) || isalpha(ch)));
+}
+
 static bool time_zone_begins(const char* ptr, const char* end) {
     return *ptr == '+' || (*ptr == '-' && ptr + 3 < end && *(ptr + 3) == ':') ||
            (isalpha(*ptr) && *ptr != 'T');
@@ -102,7 +111,7 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
 
     _neg = false;
     // Skip space character
-    while (ptr < end && isspace(*ptr)) {
+    while (ptr < end && check_space(*ptr)) {
         ptr++;
     }
     if (ptr == end || !isdigit(*ptr)) {
@@ -200,8 +209,8 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
             continue;
         }
         // escape separator
-        while (ptr < end && (ispunct(*ptr) || isspace(*ptr))) {
-            if (isspace(*ptr)) {
+        while (ptr < end && (check_date_punct(*ptr) || check_space(*ptr))) {
+            if (check_space(*ptr)) {
                 if (((1 << field_idx) & allow_space_mask) == 0) {
                     return false;
                 }
@@ -1233,7 +1242,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
     auto [year, month, day, hour, minute, second] = std::tuple {0, 0, 0, 0, 0, 0};
     while (ptr < end && val < val_end) {
         // Skip space character
-        while (val < val_end && isspace(*val)) {
+        while (val < val_end && check_space(*val)) {
             val++;
         }
         if (val >= val_end) {
@@ -1498,7 +1507,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
             default:
                 return false;
             }
-        } else if (!isspace(*ptr)) {
+        } else if (!check_space(*ptr)) {
             if (*ptr != *val) {
                 return false;
             }
@@ -1983,13 +1992,13 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale /* =
                                    bool convert_zero) {
     return from_date_str_base(date_str, len, scale, nullptr, convert_zero);
 }
-// when we parse
 template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, int len,
                                    const cctz::time_zone& local_time_zone, int scale /* = -1*/,
                                    bool convert_zero) {
     return from_date_str_base(date_str, len, scale, &local_time_zone, convert_zero);
 }
+// if local_time_zone is null, only be able to parse time without timezone
 template <typename T>
 bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale,
                                         const cctz::time_zone* local_time_zone, bool convert_zero) {
@@ -2001,7 +2010,7 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
     int32_t date_len[MAX_DATE_PARTS] = {0};
 
     // Skip space character
-    while (ptr < end && isspace(*ptr)) {
+    while (ptr < end && check_space(*ptr)) {
         ptr++;
     }
     if (ptr == end || !isdigit(*ptr)) {
@@ -2149,8 +2158,8 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
             continue;
         }
         // escape separator
-        while (ptr < end && (ispunct(*ptr) || isspace(*ptr))) {
-            if (isspace(*ptr)) {
+        while (ptr < end && (check_date_punct(*ptr) || check_space(*ptr))) {
+            if (check_space(*ptr)) {
                 if (((1 << field_idx) & allow_space_mask) == 0) {
                     return false;
                 }
@@ -2282,7 +2291,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
     auto [year, month, day, hour, minute, second, microsecond] = std::tuple {0, 0, 0, 0, 0, 0, 0};
     while (ptr < end && val < val_end) {
         // Skip space character
-        while (val < val_end && isspace(*val)) {
+        while (val < val_end && check_space(*val)) {
             val++;
         }
         if (val >= val_end) {

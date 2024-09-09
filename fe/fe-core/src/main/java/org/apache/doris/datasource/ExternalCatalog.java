@@ -99,7 +99,13 @@ public abstract class ExternalCatalog
     public static final String DORIS_VERSION = "doris.version";
     public static final String DORIS_VERSION_VALUE = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
     public static final String USE_META_CACHE = "use_meta_cache";
+    public static final String CREATE_TIME = "create_time";
     public static final boolean DEFAULT_USE_META_CACHE = true;
+
+    // Properties that should not be shown in the `show create catalog` result
+    public static final Set<String> HIDDEN_PROPERTIES = Sets.newHashSet(
+            CREATE_TIME,
+            USE_META_CACHE);
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -236,7 +242,7 @@ public abstract class ExternalCatalog
                             name,
                             OptionalLong.of(86400L),
                             OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
-                            Config.max_hive_table_cache_num,
+                            Config.max_meta_object_cache_num,
                             ignored -> getFilteredDatabaseNames(),
                             dbName -> Optional.ofNullable(
                                     buildDbForInit(dbName, Util.genIdByName(name, dbName), logType)),
@@ -289,11 +295,11 @@ public abstract class ExternalCatalog
             }
         }
 
-        if (properties.getOrDefault(ExternalCatalog.USE_META_CACHE, "true").equals("false")) {
-            LOG.warn("force to set use_meta_cache to true for catalog: {} when creating", name);
-            getCatalogProperty().addProperty(ExternalCatalog.USE_META_CACHE, "true");
-            useMetaCache = Optional.of(true);
-        }
+        // if (properties.getOrDefault(ExternalCatalog.USE_META_CACHE, "true").equals("false")) {
+        //     LOG.warn("force to set use_meta_cache to true for catalog: {} when creating", name);
+        //     getCatalogProperty().addProperty(ExternalCatalog.USE_META_CACHE, "true");
+        //     useMetaCache = Optional.of(true);
+        // }
     }
 
     /**
@@ -388,6 +394,15 @@ public abstract class ExternalCatalog
         synchronized (this.propLock) {
             this.convertedProperties = null;
         }
+
+        refreshOnlyCatalogCache(invalidCache);
+    }
+
+    public void onRefreshCache(boolean invalidCache) {
+        refreshOnlyCatalogCache(invalidCache);
+    }
+
+    private void refreshOnlyCatalogCache(boolean invalidCache) {
         if (useMetaCache.isPresent()) {
             if (useMetaCache.get() && metaCache != null) {
                 metaCache.invalidateAll();
@@ -658,8 +673,6 @@ public abstract class ExternalCatalog
                 return new IcebergExternalDatabase(this, dbId, dbName);
             case MAX_COMPUTE:
                 return new MaxComputeExternalDatabase(this, dbId, dbName);
-            //case HUDI:
-                //return new HudiExternalDatabase(this, dbId, dbName);
             case TEST:
                 return new TestExternalDatabase(this, dbId, dbName);
             case PAIMON:

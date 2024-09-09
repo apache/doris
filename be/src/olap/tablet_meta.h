@@ -166,6 +166,7 @@ public:
     // Remote disk space occupied by tablet.
     size_t tablet_remote_size() const;
     size_t version_count() const;
+    size_t stale_version_count() const;
     size_t version_count_cross_with_range(const Version& range) const;
     Version max_version() const;
 
@@ -269,6 +270,8 @@ public:
         return _time_series_compaction_level_threshold;
     }
 
+    int64_t avg_rs_meta_serialize_size() const { return _avg_rs_meta_serialize_size; }
+
 private:
     Status _save_meta(DataDir* data_dir);
 
@@ -322,6 +325,8 @@ private:
     int64_t _time_series_compaction_time_threshold_seconds = 0;
     int64_t _time_series_compaction_empty_rowsets_threshold = 0;
     int64_t _time_series_compaction_level_threshold = 0;
+
+    int64_t _avg_rs_meta_serialize_size = 0;
 
     mutable std::shared_mutex _meta_lock;
 };
@@ -617,6 +622,10 @@ inline size_t TabletMeta::tablet_remote_size() const {
 }
 
 inline size_t TabletMeta::version_count() const {
+    return _rs_metas.size();
+}
+
+inline size_t TabletMeta::stale_version_count() const {
     return _rs_metas.size();
 }
 

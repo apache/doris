@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
@@ -114,6 +115,16 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
             Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
             sink = ((PhysicalOlapTableSink<?>) plan.get());
             Table targetTable = sink.getTargetTable();
+            if (ctx.getTxnEntry().isFirstTxnInsert()) {
+                ctx.getTxnEntry().setTxnSchemaVersion(((OlapTable) targetTable).getBaseSchemaVersion());
+                ctx.getTxnEntry().setFirstTxnInsert(false);
+            } else {
+                if (((OlapTable) targetTable).getBaseSchemaVersion() != ctx.getTxnEntry().getTxnSchemaVersion()) {
+                    throw new AnalysisException("There are schema changes in one transaction, "
+                            + "you can commit this transaction with formal data or rollback "
+                            + "this whole transaction.");
+                }
+            }
             // should set columns of sink since we maybe generate some invisible columns
             List<Column> fullSchema = sink.getTargetTable().getFullSchema();
             List<Column> targetSchema = Lists.newArrayList();

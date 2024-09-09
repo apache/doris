@@ -163,9 +163,9 @@ struct TQueryIngestBinlogResult {
 }
 
 enum TTopicInfoType {
-    WORKLOAD_GROUP
-    MOVE_QUERY_TO_GROUP
-    WORKLOAD_SCHED_POLICY
+    WORKLOAD_GROUP = 0
+    MOVE_QUERY_TO_GROUP = 1
+    WORKLOAD_SCHED_POLICY = 2
 }
 
 struct TWorkloadGroupInfo {
@@ -182,21 +182,24 @@ struct TWorkloadGroupInfo {
   11: optional i32 min_remote_scan_thread_num
   12: optional i32 spill_threshold_low_watermark
   13: optional i32 spill_threshold_high_watermark
+  14: optional i64 read_bytes_per_second
+  15: optional i64 remote_read_bytes_per_second
+  16: optional string tag
 }
 
 enum TWorkloadMetricType {
-    QUERY_TIME
-    BE_SCAN_ROWS
-    BE_SCAN_BYTES
-    QUERY_BE_MEMORY_BYTES
+    QUERY_TIME = 0
+    BE_SCAN_ROWS = 1
+    BE_SCAN_BYTES = 2
+    QUERY_BE_MEMORY_BYTES = 3
 }
 
 enum TCompareOperator {
-    EQUAL
-    GREATER
-    GREATER_EQUAL
-    LESS
-    LESS_EQUAL
+    EQUAL = 0
+    GREATER = 1
+    GREATER_EQUAL = 2
+    LESS = 3
+    LESS_EQUAL = 4
 }
 
 struct TWorkloadCondition {
@@ -206,8 +209,8 @@ struct TWorkloadCondition {
 }
 
 enum TWorkloadActionType {
-    MOVE_QUERY_TO_GROUP
-    CANCEL_QUERY
+    MOVE_QUERY_TO_GROUP = 0
+    CANCEL_QUERY = 1
 }
 
 struct TWorkloadAction {
@@ -238,6 +241,7 @@ struct TPublishTopicRequest {
 struct TPublishTopicResult {
     1: required Status.TStatus status
 }
+
 
 service BackendService {
     // Called by coord to start asynchronous execution of plan fragment in backend.
@@ -295,4 +299,5 @@ service BackendService {
     TQueryIngestBinlogResult query_ingest_binlog(1: TQueryIngestBinlogRequest query_ingest_binlog_request);
 
     TPublishTopicResult publish_topic_info(1:TPublishTopicRequest topic_request);
+
 }

@@ -79,7 +79,11 @@ fi
 
 MAX_FILE_COUNT="$(ulimit -n)"
 if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
-    echo "Please set the maximum number of open file descriptors larger than 60000, eg: 'ulimit -n 60000'."
+    echo "Set max number of open file descriptors to a value greater than 60000."
+    echo "Ask your system manager to modify /etc/security/limits.conf and append content like"
+    echo "  * soft nofile 655350"
+    echo "  * hard nofile 655350"
+    echo "and then run 'ulimit -n 655350' to take effect on current session."
     exit 1
 fi
 
@@ -358,7 +362,7 @@ export LIBHDFS_OPTS="${final_java_opt}"
 # log "LIBHDFS_OPTS: ${LIBHDFS_OPTS}"
 
 if [[ -z ${JEMALLOC_CONF} ]]; then
-    JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:15000,dirty_decay_ms:15000,oversize_threshold:0,lg_tcache_max:20,prof:false,lg_prof_interval:32,lg_prof_sample:19,prof_gdump:false,prof_accum:false,prof_leak:false,prof_final:false"
+    JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:5000,dirty_decay_ms:5000,oversize_threshold:0,prof:false,lg_prof_interval:-1"
 fi
 
 if [[ -z ${JEMALLOC_PROF_PRFIX} ]]; then

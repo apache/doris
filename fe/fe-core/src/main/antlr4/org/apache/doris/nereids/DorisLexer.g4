@@ -48,22 +48,6 @@ lexer grammar DorisLexer;
   }
 
   /**
-   * This method will be called when we see '/*' and try to match it as a bracketed comment.
-   * If the next character is '+', it should be parsed as hint later, and we cannot match
-   * it as a bracketed comment.
-   *
-   * Returns true if the next character is '+'.
-   */
-  public boolean isHint() {
-    int nextChar = _input.LA(1);
-    if (nextChar == '+') {
-      return true;
-    } else {
-      return false;
-    }
-  }
-
-  /**
    * This method will be called when the character stream ends and try to find out the
    * unclosed bracketed comment.
    * If the method be called, it means the end of the entire character stream match,
@@ -127,6 +111,7 @@ BINARY: 'BINARY';
 BINLOG: 'BINLOG';
 BITAND: 'BITAND';
 BITMAP: 'BITMAP';
+BITMAP_EMPTY: 'BITMAP_EMPTY';
 BITMAP_UNION: 'BITMAP_UNION';
 BITOR: 'BITOR';
 BITXOR: 'BITXOR';
@@ -599,6 +584,7 @@ COLON: ':';
 ARROW: '->';
 HINT_START: '/*+';
 HINT_END: '*/';
+COMMENT_START: '/*';
 ATSIGN: '@';
 DOUBLEATSIGN: '@@';
 
@@ -678,8 +664,9 @@ SIMPLE_COMMENT
     ;
 
 BRACKETED_COMMENT
-    : '/*' {!isHint()}? ( BRACKETED_COMMENT | . )*? ('*/' | {markUnclosedComment();} EOF) -> channel(HIDDEN)
+    : COMMENT_START ( BRACKETED_COMMENT | . )*? ('*/' | {markUnclosedComment();} EOF) -> channel(2)
     ;
+
 
 FROM_DUAL
     : 'FROM' WS+ 'DUAL' -> channel(HIDDEN);

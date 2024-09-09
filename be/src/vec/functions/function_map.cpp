@@ -117,14 +117,16 @@ public:
         result_col_map_offsets.resize(input_rows_count);
 
         std::unique_ptr<bool[]> col_const = std::make_unique<bool[]>(num_element);
+        std::vector<ColumnPtr> arg(num_element);
         for (size_t i = 0; i < num_element; ++i) {
             auto& col = block.get_by_position(arguments[i]).column;
             std::tie(col, col_const[i]) = unpack_if_const(col);
             bool is_nullable = i % 2 == 0 ? result_col_map_keys_data.is_nullable()
                                           : result_col_map_vals_data.is_nullable();
             // convert to nullable column
+            arg[i] = col;
             if (is_nullable && !col->is_nullable()) {
-                col = ColumnNullable::create(col, ColumnUInt8::create(col->size(), 0));
+                arg[i] = ColumnNullable::create(col, ColumnUInt8::create(col->size(), 0));
             }
         }
 
@@ -132,11 +134,9 @@ public:
         ColumnArray::Offset64 offset = 0;
         for (size_t row = 0; row < input_rows_count; ++row) {
             for (size_t i = 0; i < num_element; i += 2) {
-                result_col_map_keys_data.insert_from(*block.get_by_position(arguments[i]).column,
-                                                     index_check_const(row, col_const[i]));
-                result_col_map_vals_data.insert_from(
-                        *block.get_by_position(arguments[i + 1]).column,
-                        index_check_const(row, col_const[i + 1]));
+                result_col_map_keys_data.insert_from(*arg[i], index_check_const(row, col_const[i]));
+                result_col_map_vals_data.insert_from(*arg[i + 1],
+                                                     index_check_const(row, col_const[i + 1]));
             }
             offset += num_element / 2;
             result_col_map_offsets[row] = offset;
