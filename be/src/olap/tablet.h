@@ -83,8 +83,6 @@ enum SortType : int;
 
 enum TabletStorageType { STORAGE_TYPE_LOCAL, STORAGE_TYPE_REMOTE, STORAGE_TYPE_REMOTE_AND_LOCAL };
 
-std::string to_string(const TabletStorageType&);
-
 extern bvar::Adder<uint64_t> unused_remote_rowset_num;
 
 static inline constexpr auto TRACE_TABLET_LOCK_THRESHOLD = std::chrono::seconds(1);

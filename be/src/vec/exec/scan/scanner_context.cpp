@@ -215,11 +215,6 @@ void ScannerContext::append_block_to_queue(std::shared_ptr<ScanTask> scan_task) 
         }
     }
     std::unique_lock<std::mutex> l(_transfer_lock);
-    append_block_to_queue_locked(scan_task, l);
-}
-
-void ScannerContext::append_block_to_queue_locked(std::shared_ptr<ScanTask> scan_task,
-                                                  std::unique_lock<std::mutex>& transfer_lock) {
     if (!scan_task->status_ok()) {
         _process_status = scan_task->get_status();
     }
@@ -280,10 +275,10 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
                 std::weak_ptr<ScannerDelegate> next_scanner;
                 // submit one of the remaining scanners
                 if (_scanners.try_dequeue(next_scanner)) {
-                    auto scan_task_ptr = std::make_shared<ScanTask>(next_scanner);
-                    Status submit_status = submit_scan_task(scan_task_ptr);
+                    auto submit_status = submit_scan_task(std::make_shared<ScanTask>(next_scanner));
                     if (!submit_status.ok()) {
-                        append_block_to_queue_locked(scan_task_ptr, l);
+                        _set_scanner_done();
+                        return submit_status;
                     }
                 } else {
                     // no more scanner to be scheduled
@@ -301,7 +296,8 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
                 // resubmit current running scanner to read the next block
                 Status submit_status = submit_scan_task(scan_task);
                 if (!submit_status.ok()) {
-                    append_block_to_queue_locked(scan_task, l);
+                    _set_scanner_done();
+                    return submit_status;
                 }
             }
         }

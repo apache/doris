@@ -171,19 +171,6 @@ void set_last_failure_time(Tablet* tablet, const Compaction& compaction, int64_t
 
 } // namespace
 
-std::string to_string(const TabletStorageType& type) {
-    switch (type) {
-    case STORAGE_TYPE_LOCAL:
-        return "STORAGE_TYPE_LOCAL";
-    case STORAGE_TYPE_REMOTE:
-        return "STORAGE_TYPE_REMOTE";
-    case STORAGE_TYPE_REMOTE_AND_LOCAL:
-        return "STORAGE_TYPE_REMOTE_AND_LOCAL";
-    default:
-        return "UNKNOWN";
-    }
-}
-
 bvar::Adder<uint64_t> unused_remote_rowset_num("unused_remote_rowset_num");
 
 WriteCooldownMetaExecutors::WriteCooldownMetaExecutors(size_t executor_nums)

@@ -139,12 +139,10 @@ public:
     // set the next scanned block to `ScanTask::current_block`
     // set the error state to `ScanTask::status`
     // set the `eos` to `ScanTask::eos` if there is no more data in current scanner
-    [[nodiscard]] Status submit_scan_task(std::shared_ptr<ScanTask> scan_task);
+    Status submit_scan_task(std::shared_ptr<ScanTask> scan_task);
 
     // append the running scanner and its cached block to `_blocks_queue`
     void append_block_to_queue(std::shared_ptr<ScanTask> scan_task);
-    void append_block_to_queue_locked(std::shared_ptr<ScanTask> scan_task,
-                                      std::unique_lock<std::mutex>& transfer_lock);
 
     void set_status_on_error(const Status& status);
 
