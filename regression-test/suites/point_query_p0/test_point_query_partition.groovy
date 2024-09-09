@@ -153,8 +153,8 @@ suite("test_point_query_partition") {
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
         "store_row_column" = "true"
-        ); 
-    """  
+        );
+    """
     sql """insert into regression_test_serving_p0.customer(customer_key, customer_value_0, customer_value_1) values(686612, "686612", "686612")"""
     sql """insert into regression_test_serving_p0.customer(customer_key, customer_value_0, customer_value_1) values(686613, "686613", "686613")"""
     def result3 = connect(user=user, password=password, url=prepare_url) {
@@ -170,7 +170,7 @@ suite("test_point_query_partition") {
 
     // IN query
     def result4 = connect(user=user, password=password, url=prepare_url) {
-        def stmt = prepareStatement "SELECT /*+ SET_VAR(enable_nereids_planner=true) */ * FROM regression_test_serving_p0.customer_in WHERE customer_key IN (?, ?)"
+        def stmt = prepareStatement "SELECT /*+ SET_VAR(enable_nereids_planner=true) */ * FROM regression_test_serving_p0.customer WHERE customer_key IN (?, ?)"
         stmt.setInt(1, 686612)
         stmt.setInt(2, 686613)
         order_qe_point_in_selectxxx stmt 

@@ -320,7 +320,7 @@ public class PointQueryExecutor implements CoordInterface {
                     break;
                 }
             } catch (Exception e) {
-                throw new AnalysisException(e.getMessage());
+                throw new AnalysisException("Failed to create partition key for key tuple: " + orderedKeyTuple);
             }
         }
         return leftMostPartitionIDs;
