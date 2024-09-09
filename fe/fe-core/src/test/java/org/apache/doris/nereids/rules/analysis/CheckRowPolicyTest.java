@@ -34,6 +34,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -59,6 +60,7 @@ public class CheckRowPolicyTest extends TestWithFeService {
     private static String dbName = "check_row_policy";
     private static String fullDbName = "" + dbName;
     private static String tableName = "table1";
+    private static String tableNameRanddomDist = "tableRandomDist";
     private static String userName = "user1";
     private static String policyName = "policy1";
 
@@ -76,6 +78,10 @@ public class CheckRowPolicyTest extends TestWithFeService {
                 + tableName
                 + " (k1 int, k2 int) distributed by hash(k1) buckets 1"
                 + " properties(\"replication_num\" = \"1\");");
+        createTable("create table "
+                + tableNameRanddomDist
+                + " (k1 int, k2 int) AGGREGATE KEY(k1, k2) distributed by random buckets 1"
+                + " properties(\"replication_num\" = \"1\");");
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         long tableId = db.getTableOrMetaException("table1").getId();
         olapTable.setId(tableId);
@@ -85,6 +91,7 @@ public class CheckRowPolicyTest extends TestWithFeService {
                 0, 0, (short) 0,
                 TStorageType.COLUMN,
                 KeysType.PRIMARY_KEYS);
+
         // create user
         UserIdentity user = new UserIdentity(userName, "%");
         user.analyze();
@@ -116,12 +123,41 @@ public class CheckRowPolicyTest extends TestWithFeService {
     }
 
     @Test
+    public void checkUserRandomDist() throws AnalysisException, org.apache.doris.common.AnalysisException {
+        connectContext.getState().setIsQuery(true);
+        Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
+                        ImmutableList.of(tableNameRanddomDist)), connectContext, new BindRelation());
+        Plan relation = plan.child(0);
+        LogicalCheckPolicy checkPolicy = new LogicalCheckPolicy(plan);
+
+        useUser("root");
+        plan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy());
+        Assertions.assertEquals(plan, relation);
+
+        useUser("notFound");
+        plan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy());
+        Assertions.assertEquals(plan, relation);
+    }
+
+    @Test
     public void checkNoPolicy() throws org.apache.doris.common.AnalysisException {
         useUser(userName);
         LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable,
                 Arrays.asList(fullDbName));
         LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation);
         Plan plan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy());
+        Assertions.assertEquals(plan, relation);
+    }
+
+    @Test
+    public void checkNoPolicyRandomDist() throws org.apache.doris.common.AnalysisException {
+        useUser(userName);
+        connectContext.getState().setIsQuery(true);
+        Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
+                ImmutableList.of(tableNameRanddomDist)), connectContext, new BindRelation());
+        Plan relation = plan.child(0);
+        LogicalCheckPolicy checkPolicy = new LogicalCheckPolicy(relation);
+        plan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy());
         Assertions.assertEquals(plan, relation);
     }
 
@@ -151,5 +187,35 @@ public class CheckRowPolicyTest extends TestWithFeService {
                 + policyName
                 + " ON "
                 + tableName);
+    }
+
+    @Test
+    public void checkOnePolicyRandomDist() throws Exception {
+        useUser(userName);
+        connectContext.getState().setIsQuery(true);
+        Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
+                ImmutableList.of(tableNameRanddomDist)), connectContext, new BindRelation());
+        Plan relation = plan.child(0);
+        LogicalCheckPolicy checkPolicy = new LogicalCheckPolicy(relation);
+        connectContext.getSessionVariable().setEnableNereidsPlanner(true);
+        createPolicy("CREATE ROW POLICY "
+                + policyName
+                + " ON "
+                + tableNameRanddomDist
+                + " AS PERMISSIVE TO "
+                + userName
+                + " USING (k1 = 1)");
+        plan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy());
+
+        Assertions.assertTrue(plan instanceof LogicalFilter);
+        LogicalFilter filter = (LogicalFilter) plan;
+        Assertions.assertEquals(filter.child(), relation);
+        Assertions.assertTrue(ImmutableList.copyOf(filter.getConjuncts()).get(0) instanceof EqualTo);
+        Assertions.assertTrue(filter.getConjuncts().toString().contains("'k1 = 1"));
+
+        dropPolicy("DROP ROW POLICY "
+                + policyName
+                + " ON "
+                + tableNameRanddomDist);
     }
 }
