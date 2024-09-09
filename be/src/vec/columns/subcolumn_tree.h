@@ -138,8 +138,14 @@ public:
     using NodeCreator = std::function<NodePtr(NodeKind, bool)>;
 
     // create root as SCALAR node
+    void create_root(NodeData&& leaf_data) {
+        root = std::make_shared<Node>(Node::SCALAR, std::move(leaf_data));
+        leaves.push_back(root);
+    }
+
+    // create root as SCALAR node
     void create_root(const NodeData& leaf_data) {
-        root = std::make_shared<Node>(Node::SCALAR, leaf_data);
+        root = std::make_shared<Node>(Node::SCALAR, std::move(leaf_data));
         leaves.push_back(root);
     }
 
