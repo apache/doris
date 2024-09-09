@@ -24,10 +24,12 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog.InsertOverwriteOpType;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -40,7 +42,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class InsertOverwriteManager extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(InsertOverwriteManager.class);
@@ -61,6 +65,11 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
     // <groupId, <oldPartId, newPartId>>. no need concern which task it belongs to.
     @SerializedName(value = "partitionPairs")
     private Map<Long, Map<Long, Long>> partitionPairs = Maps.newConcurrentMap();
+
+    // TableId running insert overwrite
+    // dbId ==> Set<tableId>
+    private Map<Long, Set<Long>> runningTables = Maps.newHashMap();
+    private ReentrantReadWriteLock runningLock = new ReentrantReadWriteLock(true);
 
     public InsertOverwriteManager() {
         super("InsertOverwriteDropDirtyPartitions", CLEAN_INTERVAL_SECOND * 1000);
@@ -268,6 +277,50 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
             return true;
         }
         return InsertOverwriteUtil.dropPartitions(olapTable, task.getTempPartitionNames());
+    }
+
+    /**
+     * If the current table id has a running insert overwrite, throw an exception.
+     * If not, record it in runningTables
+     *
+     * @param dbId Run the dbId for insert overwrite
+     * @param tableId Run the tableId for insert overwrite
+     */
+    public void recordRunningTableOrException(long dbId, long tableId) {
+        runningLock.writeLock().lock();
+        try {
+            if (runningTables.containsKey(dbId) && runningTables.get(dbId).contains(tableId)) {
+                throw new AnalysisException(
+                        String.format("insert overwrite is running on db: {}, table: {}", dbId, tableId));
+            }
+            if (runningTables.containsKey(dbId)) {
+                runningTables.get(dbId).add(tableId);
+            } else {
+                runningTables.put(dbId, Sets.newHashSet(tableId));
+            }
+        } finally {
+            runningLock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Remove from running records
+     *
+     * @param dbId Run the dbId for insert overwrite
+     * @param tableId Run the tableId for insert overwrite
+     */
+    public void dropRunningRecord(long dbId, long tableId) {
+        runningLock.writeLock().lock();
+        try {
+            if (runningTables.containsKey(dbId) && runningTables.get(dbId).contains(tableId)) {
+                runningTables.get(dbId).remove(tableId);
+                if (runningTables.get(dbId).size() == 0) {
+                    runningTables.remove(dbId);
+                }
+            }
+        } finally {
+            runningLock.writeLock().unlock();
+        }
     }
 
     /**

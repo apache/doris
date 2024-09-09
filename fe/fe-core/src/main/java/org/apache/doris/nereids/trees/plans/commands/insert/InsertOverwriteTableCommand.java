@@ -28,6 +28,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -81,6 +82,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
     private LogicalPlan logicalQuery;
     private Optional<String> labelName;
     private final Optional<LogicalPlan> cte;
+    private volatile boolean isCancelled = false;
 
     /**
      * constructor
@@ -157,36 +159,70 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             // Do not create temp partition on FE
             partitionNames = new ArrayList<>();
         }
+        InsertOverwriteManager insertOverwriteManager = Env.getCurrentEnv().getInsertOverwriteManager();
+        insertOverwriteManager.recordRunningTableOrException(targetTable.getDatabase().getId(), targetTable.getId());
         long taskId = 0;
         try {
             if (isAutoDetectOverwrite()) {
                 // taskId here is a group id. it contains all replace tasks made and registered in rpc process.
-                taskId = Env.getCurrentEnv().getInsertOverwriteManager().registerTaskGroup();
+                taskId = insertOverwriteManager.registerTaskGroup();
                 // When inserting, BE will call to replace partition by FrontendService. FE will register new temp
                 // partitions and return. for transactional, the replacement will really occur when insert successed,
                 // i.e. `insertInto` finished. then we call taskGroupSuccess to make replacement.
                 insertInto(ctx, executor, taskId);
-                Env.getCurrentEnv().getInsertOverwriteManager().taskGroupSuccess(taskId, (OlapTable) targetTable);
+                insertOverwriteManager.taskGroupSuccess(taskId, (OlapTable) targetTable);
             } else {
                 List<String> tempPartitionNames = InsertOverwriteUtil.generateTempPartitionNames(partitionNames);
-                taskId = Env.getCurrentEnv().getInsertOverwriteManager()
+                if (isCancelled) {
+                    LOG.info("insert overwrite isCancelled before registerTask");
+                    return;
+                }
+                taskId = insertOverwriteManager
                         .registerTask(targetTable.getDatabase().getId(), targetTable.getId(), tempPartitionNames);
+                if (isCancelled) {
+                    LOG.info("insert overwrite isCancelled before addTempPartitions");
+                    // not need deal temp partition
+                    insertOverwriteManager.taskSuccess(taskId);
+                    return;
+                }
                 InsertOverwriteUtil.addTempPartitions(targetTable, partitionNames, tempPartitionNames);
+                if (isCancelled) {
+                    LOG.info("insert overwrite isCancelled before insertInto");
+                    insertOverwriteManager.taskFail(taskId);
+                    return;
+                }
                 insertInto(ctx, executor, tempPartitionNames);
+                if (isCancelled) {
+                    LOG.info("insert overwrite isCancelled before replacePartition");
+                    insertOverwriteManager.taskFail(taskId);
+                    return;
+                }
                 InsertOverwriteUtil.replacePartition(targetTable, partitionNames, tempPartitionNames);
-                Env.getCurrentEnv().getInsertOverwriteManager().taskSuccess(taskId);
+                if (isCancelled) {
+                    LOG.info("insert overwrite isCancelled before taskSuccess, do nothing");
+                }
+                insertOverwriteManager.taskSuccess(taskId);
             }
         } catch (Exception e) {
             LOG.warn("insert into overwrite failed with task(or group) id " + taskId);
             if (isAutoDetectOverwrite()) {
-                Env.getCurrentEnv().getInsertOverwriteManager().taskGroupFail(taskId);
+                insertOverwriteManager.taskGroupFail(taskId);
             } else {
-                Env.getCurrentEnv().getInsertOverwriteManager().taskFail(taskId);
+                insertOverwriteManager.taskFail(taskId);
             }
             throw e;
         } finally {
             ConnectContext.get().setSkipAuth(false);
+            insertOverwriteManager
+                    .dropRunningRecord(targetTable.getDatabase().getId(), targetTable.getId());
         }
+    }
+
+    /**
+     * cancel insert overwrite
+     */
+    public void cancel() {
+        this.isCancelled = true;
     }
 
     private boolean allowInsertOverwrite(TableIf targetTable) {
