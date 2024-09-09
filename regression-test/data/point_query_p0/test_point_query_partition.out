@@ -31,6 +31,15 @@
 
 -- !point_select --
 
+-- !point_in_select --
+-1	c
+1	a
+11	d
+2	b
+33	f
+45	g
+999	h
+
 -- !point_selectxxx --
 686612	686612	686612	\N	\N	\N	\N	\N	\N	\N	\N
 
@@ -44,5 +53,21 @@
 686613	686613	686613	\N	\N	\N	\N	\N	\N	\N	\N
 
 -- !point_selecteee --
+686613	686613	686613	\N	\N	\N	\N	\N	\N	\N	\N
+
+-- !point_in_selectxxx --
+686612	686612	686612	\N	\N	\N	\N	\N	\N	\N	\N
+686613	686613	686613	\N	\N	\N	\N	\N	\N	\N	\N
+
+-- !point_in_selectyyy --
+686612	686612	686612	\N	\N	\N	\N	\N	\N	\N	\N
+686613	686613	686613	\N	\N	\N	\N	\N	\N	\N	\N
+
+-- !point_in_selectmmm --
+686612	686612	686612	\N	\N	\N	\N	\N	\N	\N	\N
+686613	686613	686613	\N	\N	\N	\N	\N	\N	\N	\N
+
+-- !point_in_selecteee --
+686612	686612	686612	\N	\N	\N	\N	\N	\N	\N	\N
 686613	686613	686613	\N	\N	\N	\N	\N	\N	\N	\N
 

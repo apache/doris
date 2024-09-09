@@ -84,7 +84,12 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         this.keys = new ArrayList<>(other.keys.size());
         for (LiteralExpr expr : other.keys) {
             try {
-                this.keys.add(LiteralExpr.create(expr.getStringValue(), expr.getType()));
+                String value = expr.getStringValue();
+                if ("null".equalsIgnoreCase(value)) {
+                    this.keys.add(NullLiteral.create(expr.getType()));
+                } else {
+                    this.keys.add(LiteralExpr.create(value, expr.getType()));
+                }
             } catch (Exception e) {
                 throw new RuntimeException("Create partition key failed: " + e.getMessage());
             }
