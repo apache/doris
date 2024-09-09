@@ -50,8 +50,8 @@ void SchemaScannerHelper::insert_datetime_value(int col_index, const std::vector
     nullable_column->get_null_map_data().emplace_back(0);
 }
 
-void SchemaScannerHelper::insert_int_value(int col_index, int64_t int_val,
-                                           vectorized::Block* block) {
+void SchemaScannerHelper::insert_int64_value(int col_index, int64_t int_val,
+                                             vectorized::Block* block) {
     vectorized::MutableColumnPtr mutable_col_ptr;
     mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
     auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
