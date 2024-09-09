@@ -2082,19 +2082,9 @@ void clear_auto_inc_cache(const TAgentTaskRequest& req) {
     LOG(INFO) << "get clear auto inc cache task. signature=" << req.signature;
 
     auto* global_autoinc_buffers = vectorized::GlobalAutoIncBuffers::GetInstance();
-    const auto& db_ids = clear_auto_inc_cache_req.db_ids;
-    const auto& table_ids = clear_auto_inc_cache_req.table_ids;
 
     Status status {};
-    if (db_ids.size() == table_ids.size()) {
-        global_autoinc_buffers->clear_cache(db_ids, table_ids);
-    } else {
-        status = Status::InternalError<false>(
-                "db_ids and table_ids can't match, db_ids.size()={}, "
-                "table_ids.size()={}",
-                db_ids.size(), table_ids.size());
-        LOG_WARNING("failed to clear auto inc cache").tag("signature", req.signature).error(status);
-    }
+    global_autoinc_buffers->clear_cache(clear_auto_inc_cache_req.tables);
 
     TFinishTaskRequest finish_task_request;
     finish_task_request.__set_task_status(status.to_thrift());

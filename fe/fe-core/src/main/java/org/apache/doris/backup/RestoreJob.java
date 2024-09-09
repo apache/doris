@@ -647,6 +647,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         // Check and prepare meta objects.
         AgentBatchTask batchTask = new AgentBatchTask();
+
+        Map<Long, Map<Long, List<Long>>> backendsAutoIncInfo = Maps.newHashMap();
         db.readLock();
         try {
             for (Map.Entry<String, BackupOlapTableInfo> olapTableEntry : jobInfo.backupOlapTableObjects.entrySet()) {
@@ -690,6 +692,16 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             status = new Status(ErrCode.COMMON_ERROR, "Table "
                                     + alias + " already exist but with different schema");
                             return;
+                        }
+
+                        if (localOlapTbl.getAutoIncrementGenerator() != null) {
+                            Set<Long> involvedBackendIds = localOlapTbl.getInvolvedBackendsIds();
+                            long tableId = localOlapTbl.getId();
+                            for (long backendId : involvedBackendIds) {
+                                backendsAutoIncInfo.computeIfAbsent(backendId, k -> Maps.newHashMap())
+                                        .computeIfAbsent(dbId, k -> Lists.newArrayList())
+                                        .add(tableId);
+                            }
                         }
 
                         // Table with same name and has same schema. Check partition
@@ -944,6 +956,33 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         } else {
             ok = true;
+        }
+
+        if (ok) {
+            AgentBatchTask clearAutoIncCacheBatchTask = new AgentBatchTask();
+            int tryCnt = 0;
+            while (true) {
+                if (tryCnt++ > 3) {
+                    LOG.warn("failed to clear auto inc cache for restore job[label={}],"
+                            + "try cnt {} reaches maximum retry count", label, tryCnt);
+                    ok = false;
+                    break;
+                }
+
+                try {
+                    
+                } catch (Exception e) {
+                    LOG.warn("failed to clear auto inc cache for restore job[label={}], try cnt {}, execption {}",
+                            label, tryCnt, e);
+                    try {
+                        Thread.sleep(3000);
+                    } catch (InterruptedException ie) {
+                        LOG.warn("Thread sleep is interrupted");
+                    }
+                    continue;
+                }
+                break;
+            }
         }
 
         if (ok) {

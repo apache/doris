@@ -3281,4 +3281,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return properties.get(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)
                 .equalsIgnoreCase(PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY);
     }
+
+    public Set<Long> getInvolvedBackendsIds() {
+        return 
+    }
 }

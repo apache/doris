@@ -21,19 +21,16 @@ import org.apache.doris.thrift.TClearAutoIncCacheReq;
 import org.apache.doris.thrift.TTaskType;
 
 public class ClearAutoIncCacheTask extends AgentTask {
-    private long dbId;
-    private long tableId;
+    private Map<Long, List<Long>> tables;
     
-    public ClearAutoIncCacheTask(long backendId, long dbId, long tableId) {
+    public ClearAutoIncCacheTask(long backendId, Map<Long, List<Long>> tables) {
         super(null, backendId, TTaskType.CLEAR_AUTO_INC_CACHE, -1, -1, -1, -1, -1, -1, -1);
-        this.dbId = dbId;
-        this.tableId = tableId;
+        this.tables = tables;
     }
 
     public TClearAutoIncCacheReq toThrift() {
         TClearAutoIncCacheReq req = new TClearAutoIncCacheReq();
-        req.setDbId(dbId);
-        req.setTableId(tableId);
+        req.setTables(tables);
         return req;
     }
 }

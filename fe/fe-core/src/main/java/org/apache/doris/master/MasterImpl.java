@@ -699,15 +699,13 @@ public class MasterImpl {
     }
 
     private void finishClearAutoIncCache(AgentTask task, TFinishTaskRequest request) {
-        try {
-            ClearAutoIncCacheTask clearAutoIncCacheTask = (ClearAutoIncCacheTask) task;
-            clearAutoIncCacheTask.countDownLatch(task.getBackendId());
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("finish clear auto inc cache. be: {}, report version: {}",
-                        clearAutoIncCacheTask.getBackendId(), request.getReportVersion());
-            }
-        } finally {
-            AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CLEAR_AUTO_INC_CACHE, task.getSignature());
+        ClearAutoIncCacheTask clearAutoIncCacheTask = (ClearAutoIncCacheTask) task;
+        clearAutoIncCacheTask.setFinished(true);
+        clearAutoIncCacheTask.countDownLatch(task.getBackendId());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("finish clear auto inc cache. be: {}, report version: {}",
+                    clearAutoIncCacheTask.getBackendId(), request.getReportVersion());
         }
+        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CLEAR_AUTO_INC_CACHE, task.getSignature());
     }
 }
