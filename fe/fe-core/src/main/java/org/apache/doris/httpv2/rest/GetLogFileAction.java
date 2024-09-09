@@ -33,6 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.File;
 import java.io.IOException;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -51,7 +52,10 @@ import javax.servlet.http.HttpServletResponse;
  */
 @RestController
 public class GetLogFileAction extends RestBaseController {
-    private final Set<String> logFileTypes = Sets.newHashSet("fe.audit.log");
+    private static final String TYPE_AUDIT = "fe.audit.log";
+    private static final String TYPE_SYSTEM = "system";
+
+    private final Set<String> logFileTypes = Sets.newHashSet(TYPE_AUDIT, TYPE_SYSTEM);
 
     @RequestMapping(path = "/api/get_log_file", method = {RequestMethod.GET, RequestMethod.HEAD})
     public Object execute(HttpServletRequest request, HttpServletResponse response) {
@@ -81,8 +85,8 @@ public class GetLogFileAction extends RestBaseController {
             return ResponseEntityBuilder.ok();
         } else if (method.equals(RequestMethod.GET.name())) {
             File log = getLogFile(logType, logFile);
-            if (!log.exists() || !log.isFile()) {
-                return ResponseEntityBuilder.okWithCommonError("Log file not exist: " + log.getName());
+            if (log == null || !log.exists() || !log.isFile()) {
+                return ResponseEntityBuilder.okWithCommonError("Log file not exist: " + logFile);
             }
             if (log != null) {
                 try {
@@ -99,13 +103,10 @@ public class GetLogFileAction extends RestBaseController {
 
     private String getFileInfos(String logType) {
         Map<String, Long> fileInfos = Maps.newTreeMap();
-        if (logType.equals("fe.audit.log")) {
-            File logDir = new File(Config.audit_log_dir);
-            File[] files = logDir.listFiles();
-            for (int i = 0; i < files.length; i++) {
-                if (files[i].isFile() && files[i].getName().startsWith("fe.audit.log")) {
-                    fileInfos.put(files[i].getName(), files[i].length());
-                }
+        File logDirectory = new File(Config.audit_log_dir);
+        for (File file : Objects.requireNonNull(logDirectory.listFiles())) {
+            if (file.isFile() && file.getName().startsWith(logType)) {
+                fileInfos.put(file.getName(), file.length());
             }
         }
 
@@ -120,10 +121,13 @@ public class GetLogFileAction extends RestBaseController {
     }
 
     private File getLogFile(String logType, String logFile) {
-        String logPath = "";
-        if ("fe.audit.log".equals(logType)) {
-            logPath = Config.audit_log_dir + "/" + logFile;
+        String baseLogPath = logType.equals(TYPE_AUDIT) ? Config.audit_log_dir : Config.sys_log_dir;
+        File logDirectory = new File(baseLogPath);
+        for (File file : Objects.requireNonNull(logDirectory.listFiles())) {
+            if (file.isFile() && file.getName().endsWith(logFile)) {
+                return file;
+            }
         }
-        return new File(logPath);
+        return null;
     }
 }
