@@ -345,6 +345,9 @@ public class ReplacePredicate {
                     if (inputs.contains(newEqualTo) || inputs.contains(newEqualTo.commute())) {
                         continue;
                     }
+                    if (isSingleTableExpression(newEqualTo)) {
+                        continue;
+                    }
                     derivedEqualities.add(TypeCoercionUtils.processComparisonPredicate(newEqualTo)
                             .withInferred(true));
                 }
@@ -355,5 +358,13 @@ public class ReplacePredicate {
 
     private static boolean isSlotOrLiteral(Expression expr) {
         return expr instanceof Slot || expr instanceof Literal;
+    }
+
+    private static boolean isSingleTableExpression(Expression expr) {
+        Set<String> qualifiers = new HashSet<>();
+        for (Slot slot : expr.getInputSlots()) {
+            qualifiers.add(String.join(".", slot.getQualifier()));
+        }
+        return qualifiers.size() == 1;
     }
 }

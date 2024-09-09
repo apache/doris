@@ -252,4 +252,7 @@ suite("extend_infer_equal_predicate") {
     SELECT * FROM (SELECT t1.a t1a FROM test_like1 t1 left anti JOIN test_like2 t2 ON t1.a=t2.a where t1.a>10) t INNER JOIN test_like3 t3 ON t.t1a=t3.a;"""
     qt_left_anti_left_table_predicate_can_pull_up_other_column """explain shape plan
     SELECT * FROM (SELECT t1.c t1c FROM test_like1 t1 left anti JOIN test_like2 t2 ON t1.a=t2.a where t1.c>10) t INNER JOIN test_like3 t3 ON t.t1c=t3.c;"""
+    qt_equal_table_predicate_delete """
+    explain shape plan select * from test_like1 where a=1 and c=1;
+    """
 }
