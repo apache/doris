@@ -128,6 +128,7 @@ public:
     size_t num_rows();
     int version_count() const;
     bool exceed_version_limit(int32_t limit) const;
+    int stale_version_count() const;
     uint64_t segment_count() const;
     Version max_version() const;
     Version max_version_unlocked() const;
@@ -147,6 +148,7 @@ public:
     double bloom_filter_fpp() const;
     size_t next_unique_id() const;
     size_t row_size() const;
+    int64_t avg_rs_meta_serialize_size() const;
 
     // operation in rowsets
     Status add_rowset(RowsetSharedPtr rowset);
@@ -828,6 +830,11 @@ inline int Tablet::version_count() const {
     return _tablet_meta->version_count();
 }
 
+inline int Tablet::stale_version_count() const {
+    std::shared_lock rdlock(_meta_lock);
+    return _tablet_meta->stale_version_count();
+}
+
 inline Version Tablet::max_version() const {
     std::shared_lock rdlock(_meta_lock);
     return _tablet_meta->max_version();
@@ -892,6 +899,10 @@ inline size_t Tablet::next_unique_id() const {
 
 inline size_t Tablet::row_size() const {
     return _schema->row_size();
+}
+
+inline int64_t Tablet::avg_rs_meta_serialize_size() const {
+    return _tablet_meta->avg_rs_meta_serialize_size();
 }
 
 } // namespace doris
