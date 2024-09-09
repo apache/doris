@@ -41,7 +41,7 @@ suite("test_set_operation_adjust_nullable") {
     """
 
     sql """
-        SELECT c1, c1 FROM t1 EXCEPT SELECT c2, c2 FROM t2;
+        SELECT c1, c1 FROM set_operation_t1 EXCEPT SELECT c2, c2 FROM set_operation_t2;
     """
 
     // do not use regulator child output nullable as init nullable info
