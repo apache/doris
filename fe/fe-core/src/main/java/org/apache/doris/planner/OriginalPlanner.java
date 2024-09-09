@@ -179,7 +179,7 @@ public class OriginalPlanner extends Planner {
         // compute referenced slots before calling computeMemLayout()
         //analyzer.markRefdSlots(analyzer, singleNodePlan, resultExprs, null);
 
-        setResultExprScale(analyzer, queryStmt.getResultExprs());
+        // setResultExprScale(analyzer, queryStmt.getResultExprs());
 
         // materialized view selector
         boolean selectFailed = singleNodePlanner.selectMaterializedView(queryStmt, analyzer);

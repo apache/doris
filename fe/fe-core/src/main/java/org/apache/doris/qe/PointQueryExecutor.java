@@ -234,7 +234,8 @@ public class PointQueryExecutor implements CoordInterface {
             if (snapshotVisibleVersions != null && !snapshotVisibleVersions.isEmpty()) {
                 requestBuilder.setVersion(snapshotVisibleVersions.get(0));
             }
-            if (shortCircuitQueryContext.cacheID != null) {
+            if (shortCircuitQueryContext.cacheID != null
+                    && ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE) {
                 InternalService.UUID.Builder uuidBuilder = InternalService.UUID.newBuilder();
                 uuidBuilder.setUuidHigh(shortCircuitQueryContext.cacheID.getMostSignificantBits());
                 uuidBuilder.setUuidLow(shortCircuitQueryContext.cacheID.getLeastSignificantBits());
