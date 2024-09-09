@@ -20,7 +20,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils.RelatedTableInfo;
+import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.TableColumnInfo;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -263,7 +263,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
         PlanChecker.from(connectContext)
                 .checkExplain("select t1.upgrade_day, t2.batch_no, count(*) "
                                 + "from test2 t2 join test1 t1 on "
-                                + "t1.upgrade_day = t2.upgrade_day "
+                                + "t1.vin_type1 = t2.vin_type2 "
                                 + "group by t1.upgrade_day, t2.batch_no;",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
@@ -460,8 +460,6 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("l_orderkey", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
-                                    "self join doesn't support partition update"));
                             Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
 
@@ -477,7 +475,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfo("l_orderkey", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
-                                    "self join doesn't support partition update"));
+                                    "partition column is in join invalid side, but is not in join condition"));
                             Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
 
@@ -574,7 +572,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfo("PS_SUPPLYCOST", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
-                                    "self join doesn't support partition update"));
+                                    "related base table is not partition table"));
                             Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
     }
@@ -927,7 +925,10 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
             String expectColumnName,
             boolean pctPossible) {
         Assertions.assertNotNull(relatedTableInfo);
-        BaseTableInfo relatedBaseTableInfo = relatedTableInfo.getTableInfo();
+        Assertions.assertTrue(pctPossible);
+
+        TableColumnInfo columnInfo = relatedTableInfo.getTableColumnInfos().get(0);
+        BaseTableInfo relatedBaseTableInfo = columnInfo.getTableInfo();
         try {
             TableIf tableIf = Env.getCurrentEnv().getCatalogMgr()
                     .getCatalogOrAnalysisException(relatedBaseTableInfo.getCtlId())
@@ -937,7 +938,6 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
         } catch (Exception exception) {
             Assertions.fail();
         }
-        Assertions.assertEquals(relatedTableInfo.getColumn().toLowerCase(), expectColumnName.toLowerCase());
-        Assertions.assertTrue(pctPossible);
+        Assertions.assertEquals(columnInfo.getColumn().toLowerCase(), expectColumnName.toLowerCase());
     }
 }
