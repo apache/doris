@@ -350,6 +350,21 @@ struct PowName {
 };
 using FunctionPow = FunctionBinaryArithmetic<PowImpl, PowName, false>;
 
+
+template <typename A>
+struct IsNanImpl {
+    using ResultType = bool;
+    static inline ResultType apply(double a) {
+        return std::isnan(a);
+    }
+};
+
+struct NameIsNan{
+    static constexpr auto name = "is_nan";
+};
+
+using FunctionIsNan = FunctionUnaryArithmetic<IsNanImpl, NameIsNan>;
+
 // TODO: Now math may cause one thread compile time too long, because the function in math
 // so mush. Split it to speed up compile time in the future
 void register_function_math(SimpleFunctionFactory& factory) {
@@ -386,5 +401,6 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRadians>();
     factory.register_function<FunctionDegrees>();
     factory.register_function<FunctionBin>();
+    factory.register_function<FunctionIsNan>();
 }
 } // namespace doris::vectorized
