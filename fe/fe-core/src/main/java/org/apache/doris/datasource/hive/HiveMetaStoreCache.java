@@ -516,6 +516,10 @@ public class HiveMetaStoreCache {
         return fileLists;
     }
 
+    public HivePartition getHivePartition(String dbName, String name, List<String> partitionValues) {
+        return partitionCache.get(new PartitionCacheKey(dbName, name, partitionValues));
+    }
+
     public List<HivePartition> getAllPartitionsWithCache(String dbName, String name,
             List<List<String>> partitionValuesList) {
         return getAllPartitions(dbName, name, partitionValuesList, true);
