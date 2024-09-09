@@ -251,8 +251,9 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         // or come from the scanner scheduler, such as TooManyTasks.
         if (!scan_task->status_ok()) {
             _set_scanner_done();
+            _process_status = scan_task->get_status();
             // TODO: If the scanner status is TooManyTasks, maybe we can retry the scanner after a while.
-            return scan_task->get_status();
+            return _process_status;
         }
 
         if (!scan_task->cached_blocks.empty()) {
@@ -277,8 +278,9 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
                 if (_scanners.try_dequeue(next_scanner)) {
                     auto submit_status = submit_scan_task(std::make_shared<ScanTask>(next_scanner));
                     if (!submit_status.ok()) {
+                        _process_status = submit_status;
                         _set_scanner_done();
-                        return submit_status;
+                        return _process_status;
                     }
                 } else {
                     // no more scanner to be scheduled
@@ -296,8 +298,9 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
                 // resubmit current running scanner to read the next block
                 Status submit_status = submit_scan_task(scan_task);
                 if (!submit_status.ok()) {
+                    _process_status = submit_status;
                     _set_scanner_done();
-                    return submit_status;
+                    return _process_status;
                 }
             }
         }
