@@ -7,6 +7,73 @@
 1
 1
 
+-- !select_where3 --
+
+-- !select_where4 --
+1
+1
+2
+2
+3
+
+-- !select_where5 --
+
+-- !select_where6 --
+2
+2
+
+-- !select_where7 --
+\N
+\N
+2
+2
+3
+3
+20
+22
+24
+
+-- !select_where8 --
+\N
+\N
+1
+1
+2
+2
+3
+3
+20
+22
+24
+
+-- !select_where9 --
+\N
+\N
+1
+1
+2
+2
+3
+3
+20
+22
+24
+
+-- !select_where10 --
+\N
+\N
+1
+1
+2
+2
+3
+3
+20
+22
+24
+
+-- !select_where11 --
+
 -- !select_project1 --
 \N	\N
 1	\N

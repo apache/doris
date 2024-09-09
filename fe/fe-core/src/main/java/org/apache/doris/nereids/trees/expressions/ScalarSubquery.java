@@ -21,12 +21,15 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
@@ -51,7 +54,7 @@ public class ScalarSubquery extends SubqueryExpr {
         super(Objects.requireNonNull(subquery, "subquery can not be null"),
                 Objects.requireNonNull(correlateSlots, "correlateSlots can not be null"),
                 typeCoercionExpr);
-        hasTopLevelScalarAgg = findTopLevelScalarAgg(subquery) != null;
+        hasTopLevelScalarAgg = findTopLevelScalarAgg(subquery, ImmutableSet.copyOf(correlateSlots)) != null;
     }
 
     public boolean hasTopLevelScalarAgg() {
@@ -62,11 +65,12 @@ public class ScalarSubquery extends SubqueryExpr {
     * getTopLevelScalarAggFunction
     */
     public Optional<NamedExpression> getTopLevelScalarAggFunction() {
-        Plan plan = findTopLevelScalarAgg(queryPlan);
+        Plan plan = findTopLevelScalarAgg(queryPlan, ImmutableSet.copyOf(correlateSlots));
         if (plan != null) {
             LogicalAggregate aggregate = (LogicalAggregate) plan;
             Preconditions.checkState(aggregate.getAggregateFunctions().size() == 1,
-                    "agg is not a scalar agg, it's output is ", aggregate.getOutputExpressions());
+                    "in scalar subquery, should only return 1 column 1 row, "
+                            + "but we found multiple columns ", aggregate.getOutputExpressions());
             return Optional.of((NamedExpression) aggregate.getOutputExpressions().get(0));
         } else {
             return Optional.empty();
@@ -107,24 +111,27 @@ public class ScalarSubquery extends SubqueryExpr {
     }
 
     /**
-    * findTopLevelScalarAgg
-    */
-    public static Plan findTopLevelScalarAgg(Plan plan) {
+     * for correlated subquery, we define top level scalar agg as if it meets the both 2 conditions:
+     * 1. The agg or its child contains correlated slots
+     * 2. only project, sort and subquery alias node can be agg's parent
+     */
+    public static Plan findTopLevelScalarAgg(Plan plan, ImmutableSet<Slot> slots) {
         if (plan instanceof LogicalAggregate) {
-            if (((LogicalAggregate<?>) plan).getGroupByExpressions().isEmpty()) {
+            if (((LogicalAggregate<?>) plan).getGroupByExpressions().isEmpty() && plan.containsSlots(slots)) {
                 return plan;
             } else {
                 return null;
             }
-        } else if (plan instanceof LogicalJoin) {
-            return null;
-        } else {
+        } else if (plan instanceof LogicalProject || plan instanceof LogicalSubQueryAlias
+                || plan instanceof LogicalSort) {
             for (Plan child : plan.children()) {
-                Plan result = findTopLevelScalarAgg(child);
+                Plan result = findTopLevelScalarAgg(child, slots);
                 if (result != null) {
                     return result;
                 }
             }
+            return null;
+        } else {
             return null;
         }
     }

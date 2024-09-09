@@ -53,6 +53,8 @@ import java.util.stream.Collectors;
  * Resolve having clause to the aggregation/repeat.
  * need Top to Down to traverse plan,
  * because we need to process FILL_UP_SORT_HAVING_AGGREGATE before FILL_UP_HAVING_AGGREGATE.
+ * be aware that when filling up the missing slots, we should exclude outer query's correlated slots.
+ * because these correlated slots belong to outer query, so should not try to find them in child node.
  */
 public class FillUpMissingSlots implements AnalysisRuleFactory {
     @Override
