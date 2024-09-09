@@ -23,6 +23,7 @@
 #include "pipeline/exec/operator.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/spill/spill_stream.h"
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
@@ -57,7 +58,7 @@ public:
     };
     template <typename HashTableCtxType, typename HashTableType>
     Status _spill_hash_table(RuntimeState* state, HashTableCtxType& context,
-                             HashTableType& hash_table, bool eos) {
+                             HashTableType& hash_table, const size_t size_to_revoke, bool eos) {
         Status status;
         Defer defer {[&]() {
             if (!status.ok()) {
@@ -69,8 +70,22 @@ public:
 
         Base::_shared_state->in_mem_shared_state->aggregate_data_container->init_once();
 
-        static int spill_batch_rows = 4096;
-        int row_count = 0;
+        const auto total_rows =
+                Base::_shared_state->in_mem_shared_state->aggregate_data_container->total_count();
+
+        const size_t size_to_revoke_ = std::max<size_t>(size_to_revoke, 1);
+
+        // `spill_batch_rows` will be between 4k and 1M
+        // and each block to spill will not be larger than 32MB(`MAX_SPILL_WRITE_BATCH_MEM`)
+        const auto spill_batch_rows = std::min<size_t>(
+                1024 * 1024,
+                std::max<size_t>(4096, vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM *
+                                               total_rows / size_to_revoke_));
+
+        VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
+                   << ", spill_batch_rows: " << spill_batch_rows << ", total rows: " << total_rows
+                   << ", size_to_revoke: " << size_to_revoke;
+        size_t row_count = 0;
 
         std::vector<TmpSpillInfo<typename HashTableType::key_type>> spill_infos(
                 Base::_shared_state->partition_count);

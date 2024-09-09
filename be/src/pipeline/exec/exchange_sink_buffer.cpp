@@ -87,7 +87,7 @@ void BroadcastPBlockHolderMemLimiter::release(const BroadcastPBlockHolder& holde
 namespace pipeline {
 
 ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id,
-                                       int be_number, RuntimeState* state,
+                                       PlanNodeId node_id, int be_number, RuntimeState* state,
                                        ExchangeSinkLocalState* parent)
         : HasTaskExecutionCtx(state),
           _queue_capacity(0),
@@ -95,6 +95,7 @@ ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_
           _query_id(query_id),
           _dest_node_id(dest_node_id),
           _sender_id(send_id),
+          _node_id(node_id),
           _be_number(be_number),
           _state(state),
           _context(state->get_query_ctx()),
@@ -408,6 +409,8 @@ void ExchangeSinkBuffer::_ended(InstanceLoId id) {
 }
 
 void ExchangeSinkBuffer::_failed(InstanceLoId id, const std::string& err) {
+    LOG(INFO) << "send rpc failed, instance id: " << id << ", _dest_node_id: " << _dest_node_id
+              << ",_sender_id: " << _sender_id << ", node id: " << _node_id << ", err: " << err;
     _is_finishing = true;
     _context->cancel(Status::Cancelled(err));
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);

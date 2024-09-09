@@ -241,6 +241,7 @@ size_t PartitionedAggSinkOperatorX::get_reserve_mem_size(RuntimeState* state) {
 }
 
 Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
+    const auto size_to_revoke = _parent->revocable_mem_size(state);
     VLOG_DEBUG << "query " << print_id(state->query_id()) << " agg node "
                << Base::_parent->node_id()
                << " revoke_memory, size: " << _parent->revocable_mem_size(state)
@@ -278,7 +279,7 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
     state->get_query_ctx()->increase_revoking_tasks_count();
     auto spill_runnable = std::make_shared<SpillRunnable>(
             state, _shared_state->shared_from_this(),
-            [this, &parent, state, query_id, submit_timer] {
+            [this, &parent, state, query_id, size_to_revoke, submit_timer] {
                 DBUG_EXECUTE_IF("fault_inject::partitioned_agg_sink::revoke_memory_cancel", {
                     auto st = Status::InternalError(
                             "fault_inject partitioned_agg_sink "
@@ -312,17 +313,17 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
                 }};
                 auto* runtime_state = _runtime_state.get();
                 auto* agg_data = parent._agg_sink_operator->get_agg_data(runtime_state);
-                Base::_shared_state->sink_status =
-                        std::visit(vectorized::Overload {
-                                           [&](std::monostate& arg) -> Status {
-                                               return Status::InternalError("Unit hash table");
-                                           },
-                                           [&](auto& agg_method) -> Status {
-                                               auto& hash_table = *agg_method.hash_table;
-                                               RETURN_IF_CATCH_EXCEPTION(return _spill_hash_table(
-                                                       state, agg_method, hash_table, _eos));
-                                           }},
-                                   agg_data->method_variant);
+                Base::_shared_state->sink_status = std::visit(
+                        vectorized::Overload {
+                                [&](std::monostate& arg) -> Status {
+                                    return Status::InternalError("Unit hash table");
+                                },
+                                [&](auto& agg_method) -> Status {
+                                    auto& hash_table = *agg_method.hash_table;
+                                    RETURN_IF_CATCH_EXCEPTION(return _spill_hash_table(
+                                            state, agg_method, hash_table, size_to_revoke, _eos));
+                                }},
+                        agg_data->method_variant);
                 RETURN_IF_ERROR(Base::_shared_state->sink_status);
                 Base::_shared_state->sink_status =
                         parent._agg_sink_operator->reset_hash_table(runtime_state);
