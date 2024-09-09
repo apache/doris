@@ -26,7 +26,6 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVUtil;
@@ -42,7 +41,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -142,9 +140,7 @@ public class InitMaterializationContextHook implements PlannerHook {
                 mtmvCache = materializedView.getOrGenerateCache(cascadesContext.getConnectContext());
                 // If mv property use_for_rewrite is set false, should not partition in
                 // query rewrite by materialized view
-                String usedForRewrite = materializedView.getMvProperties().get(
-                        PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE);
-                if (!StringUtils.isEmpty(usedForRewrite) && !Boolean.parseBoolean(usedForRewrite)) {
+                if (!materializedView.isUseForRewrite().orElse(true)) {
                     LOG.debug("mv doesn't part in query rewrite process because "
                             + "use_for_rewrite is false, mv is {}", materializedView.getName());
                     continue;
