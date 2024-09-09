@@ -211,9 +211,9 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::throw_b
 }
 
 #ifndef NDEBUG
-template <bool clear_memory_, bool mmap_populate, bool use_mmap>
-void Allocator<clear_memory_, mmap_populate, use_mmap>::add_address_sanitizers(void* buf,
-                                                                               size_t size) const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::add_address_sanitizers(
+        void* buf, size_t size) const {
 #ifdef BE_TEST
     if (!doris::ExecEnv::ready()) {
         return;
@@ -222,8 +222,8 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::add_address_sanitizers(v
     doris::thread_context()->thread_mem_tracker()->add_address_sanitizers(buf, size);
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap>
-void Allocator<clear_memory_, mmap_populate, use_mmap>::remove_address_sanitizers(
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::remove_address_sanitizers(
         void* buf, size_t size) const {
 #ifdef BE_TEST
     if (!doris::ExecEnv::ready()) {

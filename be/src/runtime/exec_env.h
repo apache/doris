@@ -187,6 +187,7 @@ public:
     }
     std::shared_ptr<MemTrackerLimiter> stream_load_pipe_tracker() {
         return _stream_load_pipe_tracker;
+    }
     std::shared_ptr<MemTrackerLimiter> point_query_executor_mem_tracker() {
         return _point_query_executor_mem_tracker;
     }
