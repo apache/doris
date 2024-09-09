@@ -177,8 +177,8 @@ struct ExchangeRpcContext {
 // Each ExchangeSinkOperator have one ExchangeSinkBuffer
 class ExchangeSinkBuffer final : public HasTaskExecutionCtx {
 public:
-    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, int be_number,
-                       RuntimeState* state, ExchangeSinkLocalState* parent);
+    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, PlanNodeId node_id,
+                       int be_number, RuntimeState* state, ExchangeSinkLocalState* parent);
     ~ExchangeSinkBuffer() override = default;
     void register_sink(TUniqueId);
 
@@ -235,6 +235,7 @@ private:
     PlanNodeId _dest_node_id;
     // Sender instance id, unique within a fragment. StreamSender save the variable
     int _sender_id;
+    PlanNodeId _node_id;
     int _be_number;
     std::atomic<int64_t> _rpc_count = 0;
     RuntimeState* _state = nullptr;
