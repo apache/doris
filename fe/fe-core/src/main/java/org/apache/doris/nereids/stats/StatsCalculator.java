@@ -182,6 +182,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private CascadesContext cascadesContext;
 
+    private StatsCalculator(CascadesContext context) {
+        this.groupExpression = null;
+        this.cascadesContext = context;
+    }
+
     private StatsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
             Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
             Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
@@ -206,6 +211,22 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     /**
+     * disable join reorder if any table row count is not available.
+     */
+    public static void disableJoinReorderIfTableRowCountNotAvailable(
+            List<LogicalOlapScan> scans, CascadesContext context) {
+        StatsCalculator calculator = new StatsCalculator(context);
+        for (LogicalOlapScan scan : scans) {
+            double rowCount = calculator.getOlapTableRowCount(scan);
+            if (rowCount == -1 && ConnectContext.get() != null) {
+                LOG.info("disable join reorder since row count not available: "
+                        + scan.getTable().getNameWithFullQualifiers());
+                ConnectContext.get().getSessionVariable().setDisableJoinReorder(true);
+            }
+        }
+    }
+
+    /**
      * estimate stats
      */
     public static StatsCalculator estimate(GroupExpression groupExpression, boolean forbidUnknownColStats,
@@ -215,15 +236,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 groupExpression, forbidUnknownColStats, columnStatisticMap, isPlayNereidsDump, cteIdToStats, context);
         statsCalculator.estimate();
         return statsCalculator;
-    }
-
-    public static StatsCalculator estimate(GroupExpression groupExpression, boolean forbidUnknownColStats,
-            Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump, CascadesContext context) {
-        return StatsCalculator.estimate(groupExpression,
-                forbidUnknownColStats,
-                columnStatisticMap,
-                isPlayNereidsDump,
-                new HashMap<>(), context);
     }
 
     // For unit test only

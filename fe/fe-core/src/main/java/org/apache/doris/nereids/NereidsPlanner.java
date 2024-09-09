@@ -48,6 +48,7 @@ import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
+import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
@@ -56,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -255,6 +257,8 @@ public class NereidsPlanner extends Planner {
                 return rewrittenPlan;
             }
         }
+        List<LogicalOlapScan> scans = getAllOlapScans(cascadesContext.getRewritePlan());
+        StatsCalculator.disableJoinReorderIfTableRowCountNotAvailable(scans, cascadesContext);
 
         optimize();
         if (statementContext.getConnectContext().getExecutor() != null) {
@@ -286,6 +290,18 @@ public class NereidsPlanner extends Planner {
         NereidsTracer.output(statementContext.getConnectContext());
 
         return physicalPlan;
+    }
+
+    private List<LogicalOlapScan> getAllOlapScans(Plan plan) {
+        List<LogicalOlapScan> scans = Lists.newArrayList();
+        if (plan instanceof LogicalOlapScan) {
+            scans.add((LogicalOlapScan) plan);
+        } else {
+            for (Plan child : plan.children()) {
+                scans.addAll(getAllOlapScans(child));
+            }
+        }
+        return scans;
     }
 
     private LogicalPlan preprocess(LogicalPlan logicalPlan) {
