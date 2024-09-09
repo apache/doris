@@ -4271,5 +4271,5 @@ private:
         }
         return result;
     }
-}
+};
 } // namespace doris::vectorized

@@ -350,20 +350,39 @@ struct PowName {
 };
 using FunctionPow = FunctionBinaryArithmetic<PowImpl, PowName, false>;
 
+class FunctionIsNan : public IFunction {
+public:
+    static constexpr auto name = "is_nan";
+    static FunctionPtr create() { return std::make_shared<FunctionIsNan>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+    bool is_variadic() const override { return false; }
 
-template <typename A>
-struct IsNanImpl {
-    using ResultType = bool;
-    static inline ResultType apply(double a) {
-        return std::isnan(a);
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeBool>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block,
+
+                        const ColumnNumbers& arguments, size_t result,
+                        size_t input_rows_count) const override {
+        const auto* col =
+                assert_cast<const ColumnFloat64*>(block.get_by_position(arguments[0]).column.get());
+        const auto& src_data = col->get_data();
+        const size_t size = src_data.size();
+
+        auto res = ColumnBool::create();
+        auto& res_data = res->get_data();
+        res_data.reserve(size);
+
+        for (const auto& src : src_data) {
+            res_data.push_back(std::isnan(src));
+        }
+
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
     }
 };
-
-struct NameIsNan{
-    static constexpr auto name = "is_nan";
-};
-
-using FunctionIsNan = FunctionUnaryArithmetic<IsNanImpl, NameIsNan>;
 
 // TODO: Now math may cause one thread compile time too long, because the function in math
 // so mush. Split it to speed up compile time in the future
@@ -401,6 +420,5 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRadians>();
     factory.register_function<FunctionDegrees>();
     factory.register_function<FunctionBin>();
-    factory.register_function<FunctionIsNan>();
 }
 } // namespace doris::vectorized
