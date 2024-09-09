@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -30,8 +31,10 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.Multimap;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -45,20 +48,15 @@ public class LogicalCTEConsumer extends LogicalRelation {
     private final String name;
     private final CTEId cteId;
     private final Map<Slot, Slot> consumerToProducerOutputMap;
-    private final Map<Slot, Slot> producerToConsumerOutputMap;
+    private final Multimap<Slot, Slot> producerToConsumerOutputMap;
 
     /**
      * Logical CTE consumer.
      */
     public LogicalCTEConsumer(RelationId relationId, CTEId cteId, String name,
-            Map<Slot, Slot> consumerToProducerOutputMap, Map<Slot, Slot> producerToConsumerOutputMap) {
-        super(relationId, PlanType.LOGICAL_CTE_CONSUMER, Optional.empty(), Optional.empty());
-        this.cteId = Objects.requireNonNull(cteId, "cteId should not null");
-        this.name = Objects.requireNonNull(name, "name should not null");
-        this.consumerToProducerOutputMap = Objects.requireNonNull(consumerToProducerOutputMap,
-                "consumerToProducerOutputMap should not null");
-        this.producerToConsumerOutputMap = Objects.requireNonNull(producerToConsumerOutputMap,
-                "producerToConsumerOutputMap should not null");
+            Map<Slot, Slot> consumerToProducerOutputMap, Multimap<Slot, Slot> producerToConsumerOutputMap) {
+        this(relationId, cteId, name, consumerToProducerOutputMap, producerToConsumerOutputMap,
+                Optional.empty(), Optional.empty());
     }
 
     /**
@@ -68,16 +66,23 @@ public class LogicalCTEConsumer extends LogicalRelation {
         super(relationId, PlanType.LOGICAL_CTE_CONSUMER, Optional.empty(), Optional.empty());
         this.cteId = Objects.requireNonNull(cteId, "cteId should not null");
         this.name = Objects.requireNonNull(name, "name should not null");
-        this.consumerToProducerOutputMap = new LinkedHashMap<>();
-        this.producerToConsumerOutputMap = new LinkedHashMap<>();
-        initOutputMaps(producerPlan);
+        ImmutableMap.Builder<Slot, Slot> cToPBuilder = ImmutableMap.builder();
+        ImmutableMultimap.Builder<Slot, Slot> pToCBuilder = ImmutableMultimap.builder();
+        List<Slot> producerOutput = producerPlan.getOutput();
+        for (Slot producerOutputSlot : producerOutput) {
+            Slot consumerSlot = generateConsumerSlot(this.name, producerOutputSlot);
+            cToPBuilder.put(consumerSlot, producerOutputSlot);
+            pToCBuilder.put(producerOutputSlot, consumerSlot);
+        }
+        consumerToProducerOutputMap = cToPBuilder.build();
+        producerToConsumerOutputMap = pToCBuilder.build();
     }
 
     /**
      * Logical CTE consumer.
      */
     public LogicalCTEConsumer(RelationId relationId, CTEId cteId, String name,
-            Map<Slot, Slot> consumerToProducerOutputMap, Map<Slot, Slot> producerToConsumerOutputMap,
+            Map<Slot, Slot> consumerToProducerOutputMap, Multimap<Slot, Slot> producerToConsumerOutputMap,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(relationId, PlanType.LOGICAL_CTE_CONSUMER, groupExpression, logicalProperties);
         this.cteId = Objects.requireNonNull(cteId, "cteId should not null");
@@ -88,21 +93,24 @@ public class LogicalCTEConsumer extends LogicalRelation {
                 "producerToConsumerOutputMap should not null");
     }
 
-    private void initOutputMaps(LogicalPlan childPlan) {
-        List<Slot> producerOutput = childPlan.getOutput();
-        for (Slot producerOutputSlot : producerOutput) {
-            Slot consumerSlot = new SlotReference(producerOutputSlot.getName(),
-                    producerOutputSlot.getDataType(), producerOutputSlot.nullable(), ImmutableList.of(name));
-            producerToConsumerOutputMap.put(producerOutputSlot, consumerSlot);
-            consumerToProducerOutputMap.put(consumerSlot, producerOutputSlot);
-        }
+    /**
+     * generate a consumer slot mapping from producer slot.
+     */
+    public static SlotReference generateConsumerSlot(String cteName, Slot producerOutputSlot) {
+        SlotReference slotRef =
+                producerOutputSlot instanceof SlotReference ? (SlotReference) producerOutputSlot : null;
+        return new SlotReference(StatementScopeIdGenerator.newExprId(),
+                producerOutputSlot.getName(), producerOutputSlot.getDataType(),
+                producerOutputSlot.nullable(), ImmutableList.of(cteName),
+                slotRef != null ? (slotRef.getColumn().isPresent() ? slotRef.getColumn().get() : null) : null,
+                slotRef != null ? Optional.of(slotRef.getInternalName()) : Optional.empty());
     }
 
     public Map<Slot, Slot> getConsumerToProducerOutputMap() {
         return consumerToProducerOutputMap;
     }
 
-    public Map<Slot, Slot> getProducerToConsumerOutputMap() {
+    public Multimap<Slot, Slot> getProducerToConsumerOutputMap() {
         return producerToConsumerOutputMap;
     }
 
@@ -111,7 +119,8 @@ public class LogicalCTEConsumer extends LogicalRelation {
         return visitor.visitLogicalCTEConsumer(this, context);
     }
 
-    public Plan withTwoMaps(Map<Slot, Slot> consumerToProducerOutputMap, Map<Slot, Slot> producerToConsumerOutputMap) {
+    public Plan withTwoMaps(Map<Slot, Slot> consumerToProducerOutputMap,
+            Multimap<Slot, Slot> producerToConsumerOutputMap) {
         return new LogicalCTEConsumer(relationId, cteId, name,
                 consumerToProducerOutputMap, producerToConsumerOutputMap,
                 Optional.empty(), Optional.empty());

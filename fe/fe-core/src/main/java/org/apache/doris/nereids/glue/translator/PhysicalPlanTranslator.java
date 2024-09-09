@@ -987,9 +987,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         // update expr to slot mapping
         for (Slot producerSlot : cteProducer.getOutput()) {
-            Slot consumerSlot = cteConsumer.getProducerToConsumerSlotMap().get(producerSlot);
-            SlotRef slotRef = context.findSlotRef(producerSlot.getExprId());
-            context.addExprIdSlotRefPair(consumerSlot.getExprId(), slotRef);
+            for (Slot consumerSlot : cteConsumer.getProducerToConsumerSlotMap().get(producerSlot)) {
+                SlotRef slotRef = context.findSlotRef(producerSlot.getExprId());
+                context.addExprIdSlotRefPair(consumerSlot.getExprId(), slotRef);
+            }
         }
         return multiCastFragment;
     }
