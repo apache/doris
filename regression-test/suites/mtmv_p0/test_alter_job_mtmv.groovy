@@ -59,7 +59,7 @@ suite("test_alter_job_mtmv") {
             AS
             SELECT * FROM ${tableName};
     """
-    sql """alter MATERIALIZED VIEW mv1 refresh COMPLETE on commit; """
+    sql """alter MATERIALIZED VIEW ${mvName} refresh COMPLETE on commit; """
     waitingMTMVTaskFinishedByMvName(mvName)
 
     sql """drop table if exists `${tableName}`"""
