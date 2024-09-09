@@ -40,6 +40,9 @@ struct ConvertParams {
     DecimalScaleParams decimal_scale;
     FieldSchema* field_schema = nullptr;
 
+    //For UInt8 -> Int16,UInt16 -> Int32,UInt32 -> Int64,UInt64 -> Int128.
+    bool is_type_compatibility = false;
+
     /**
      * Some frameworks like paimon maybe writes non-standard parquet files. Timestamp field doesn't have
      * logicalType or converted_type to indicates its precision. We have to reset the time mask.
@@ -108,6 +111,7 @@ struct ConvertParams {
             t.from_unixtime(0, *ctz);
             offset_days = t.day() == 31 ? -1 : 0;
         }
+        is_type_compatibility = field_schema_->is_type_compatibility;
     }
 
     template <typename DecimalPrimitiveType>
@@ -267,6 +271,67 @@ class LittleIntPhysicalConverter : public PhysicalToLogicalConverter {
         auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
         for (int i = 0; i < rows; ++i) {
             data[start_idx + i] = static_cast<DstCppType>(src_data[i]);
+        }
+
+        return Status::OK();
+    }
+};
+
+template <PrimitiveType type>
+struct UnsignedTypeTraits;
+
+template <>
+struct UnsignedTypeTraits<TYPE_SMALLINT> {
+    using UnsignedCppType = UInt8;
+    //https://github.com/apache/parquet-format/blob/master/LogicalTypes.md#unsigned-integers
+    //INT(8, false), INT(16, false), and INT(32, false) must annotate an int32 primitive type and INT(64, false)
+    //must annotate an int64 primitive type.
+    using StorageCppType = Int32;
+    using StorageColumnType = vectorized::ColumnInt32;
+};
+
+template <>
+struct UnsignedTypeTraits<TYPE_INT> {
+    using UnsignedCppType = UInt16;
+    using StorageCppType = Int32;
+    using StorageColumnType = vectorized::ColumnInt32;
+};
+
+template <>
+struct UnsignedTypeTraits<TYPE_BIGINT> {
+    using UnsignedCppType = UInt32;
+    using StorageCppType = Int32;
+    using StorageColumnType = vectorized::ColumnInt32;
+};
+
+template <>
+struct UnsignedTypeTraits<TYPE_LARGEINT> {
+    using UnsignedCppType = UInt64;
+    using StorageCppType = Int64;
+    using StorageColumnType = vectorized::ColumnInt64;
+};
+
+template <PrimitiveType IntPrimitiveType>
+class UnsignedIntegerConverter : public PhysicalToLogicalConverter {
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
+        using UnsignedCppType = typename UnsignedTypeTraits<IntPrimitiveType>::UnsignedCppType;
+        using StorageCppType = typename UnsignedTypeTraits<IntPrimitiveType>::StorageCppType;
+        using StorageColumnType = typename UnsignedTypeTraits<IntPrimitiveType>::StorageColumnType;
+        using DstColumnType = typename PrimitiveTypeTraits<IntPrimitiveType>::ColumnType;
+
+        ColumnPtr from_col = remove_nullable(src_physical_col);
+        MutableColumnPtr to_col = remove_nullable(src_logical_column)->assume_mutable();
+        auto& src_data = static_cast<const StorageColumnType*>(from_col.get())->get_data();
+
+        size_t rows = src_data.size();
+        size_t start_idx = to_col->size();
+        to_col->resize(start_idx + rows);
+        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+
+        for (int i = 0; i < rows; i++) {
+            StorageCppType src_value = src_data[i];
+            auto unsigned_value = static_cast<UnsignedCppType>(src_value);
+            data[start_idx + i] = unsigned_value;
         }
 
         return Status::OK();

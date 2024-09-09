@@ -124,6 +124,20 @@ public class CloudRollupJobV2 extends RollupJobV2 {
             try {
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                     .dropMaterializedIndex(tableId, rollupIndexList, false);
+                for (Map.Entry<Long, Map<Long, Long>> partitionEntry : partitionIdToBaseRollupTabletIdMap.entrySet()) {
+                    Long partitionId = partitionEntry.getKey();
+                    Map<Long, Long> rollupTabletIdToBaseTabletId = partitionEntry.getValue();
+                    for (Map.Entry<Long, Long> tabletEntry : rollupTabletIdToBaseTabletId.entrySet()) {
+                        Long rollupTabletId = tabletEntry.getKey();
+                        Long baseTabletId = tabletEntry.getValue();
+                        ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                                .removeSchemaChangeJob(dbId, tableId, baseIndexId, rollupIndexId,
+                                    partitionId, baseTabletId, rollupTabletId);
+                    }
+                    LOG.info("Cancel RollupJob. Remove SchemaChangeJob in ms."
+                            + "dbId:{}, tableId:{}, rollupIndexId: {} partitionId:{}. tabletSize:{}",
+                            dbId, tableId, rollupIndexId, partitionId, rollupTabletIdToBaseTabletId.size());
+                }
                 break;
             } catch (Exception e) {
                 LOG.warn("tryTimes:{}, onCancel exception:", tryTimes, e);
@@ -211,9 +225,11 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                                     tbl.disableAutoCompaction(),
                                     tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                     tbl.getEnableMowLightDelete(), null,
-                                    tbl.rowStorePageSize());
+                                    tbl.rowStorePageSize(),
+                                    tbl.variantEnableFlattenNested());
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
+            requestBuilder.setDbId(dbId);
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                     .sendCreateTabletsRpc(requestBuilder);
         }

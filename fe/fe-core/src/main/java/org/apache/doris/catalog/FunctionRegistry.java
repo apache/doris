@@ -21,7 +21,9 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.types.DataType;
@@ -90,9 +92,11 @@ public class FunctionRegistry {
         Class<?> aggClass = org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction.class;
         if (StringUtils.isEmpty(dbName)) {
             List<FunctionBuilder> functionBuilders = name2BuiltinBuilders.get(name);
-            for (FunctionBuilder functionBuilder : functionBuilders) {
-                if (aggClass.isAssignableFrom(functionBuilder.functionClass())) {
-                    return true;
+            if (functionBuilders != null) {
+                for (FunctionBuilder functionBuilder : functionBuilders) {
+                    if (aggClass.isAssignableFrom(functionBuilder.functionClass())) {
+                        return true;
+                    }
                 }
             }
         }
@@ -154,18 +158,33 @@ public class FunctionRegistry {
                     + "' which has " + arity + " arity. Candidate functions are: " + candidateHints);
         }
         if (candidateBuilders.size() > 1) {
-            String candidateHints = getCandidateHint(name, candidateBuilders);
-            // TODO: NereidsPlanner not supported override function by the same arity, we will support it later
-            if (ConnectContext.get() != null) {
-                try {
-                    ConnectContext.get().getSessionVariable().enableFallbackToOriginalPlannerOnce();
-                } catch (Throwable t) {
-                    // ignore error
+            boolean needChooseOne = true;
+            List<FunctionSignature> signatures = Lists.newArrayListWithCapacity(candidateBuilders.size());
+            for (FunctionBuilder functionBuilder : candidateBuilders) {
+                if (functionBuilder instanceof UdfBuilder) {
+                    signatures.addAll(((UdfBuilder) functionBuilder).getSignatures());
+                } else {
+                    needChooseOne = false;
+                    break;
                 }
             }
+            for (Object argument : arguments) {
+                if (!(argument instanceof Expression)) {
+                    needChooseOne = false;
+                    break;
+                }
+            }
+            if (needChooseOne) {
+                FunctionSignature signature = new UdfSignatureSearcher(signatures, (List) arguments).getSignature();
+                for (int i = 0; i < signatures.size(); i++) {
+                    if (signatures.get(i).equals(signature)) {
+                        return candidateBuilders.get(i);
+                    }
+                }
+            }
+            String candidateHints = getCandidateHint(name, candidateBuilders);
             throw new AnalysisException("Function '" + qualifiedName + "' is ambiguous: " + candidateHints);
         }
-
         return candidateBuilders.get(0);
     }
 
@@ -231,6 +250,65 @@ public class FunctionRegistry {
             Map<String, List<FunctionBuilder>> builders = name2UdfBuilders.getOrDefault(dbName, ImmutableMap.of());
             builders.getOrDefault(name, Lists.newArrayList())
                     .removeIf(builder -> ((UdfBuilder) builder).getArgTypes().equals(argTypes));
+        }
+    }
+
+    /**
+     * use for search appropriate signature for UDFs if candidate more than one.
+     */
+    static class UdfSignatureSearcher implements ExplicitlyCastableSignature {
+
+        private final List<FunctionSignature> signatures;
+        private final List<Expression> arguments;
+
+        public UdfSignatureSearcher(List<FunctionSignature> signatures, List<Expression> arguments) {
+            this.signatures = signatures;
+            this.arguments = arguments;
+        }
+
+        @Override
+        public List<FunctionSignature> getSignatures() {
+            return signatures;
+        }
+
+        @Override
+        public FunctionSignature getSignature() {
+            return searchSignature(signatures);
+        }
+
+        @Override
+        public boolean nullable() {
+            throw new AnalysisException("could not call nullable on UdfSignatureSearcher");
+        }
+
+        @Override
+        public List<Expression> children() {
+            return arguments;
+        }
+
+        @Override
+        public Expression child(int index) {
+            return arguments.get(index);
+        }
+
+        @Override
+        public int arity() {
+            return arguments.size();
+        }
+
+        @Override
+        public <T> Optional<T> getMutableState(String key) {
+            return Optional.empty();
+        }
+
+        @Override
+        public void setMutableState(String key, Object value) {
+        }
+
+        @Override
+        public Expression withChildren(List<Expression> children) {
+            throw new AnalysisException("could not call withChildren on UdfSignatureSearcher");
+
         }
     }
 }

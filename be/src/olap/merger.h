@@ -23,6 +23,7 @@
 #include "io/io_common.h"
 #include "olap/iterators.h"
 #include "olap/rowset/rowset_fwd.h"
+#include "olap/simple_rowid_conversion.h"
 #include "olap/tablet_fwd.h"
 
 namespace doris {
@@ -82,8 +83,9 @@ public:
                                              vectorized::RowSourcesBuffer* row_source_buf,
                                              vectorized::VerticalBlockReader& src_block_reader,
                                              segment_v2::SegmentWriter& dst_segment_writer,
-                                             int64_t max_rows_per_segment, Statistics* stats_output,
-                                             uint64_t* index_size, KeyBoundsPB& key_bounds);
+                                             Statistics* stats_output, uint64_t* index_size,
+                                             KeyBoundsPB& key_bounds,
+                                             SimpleRowIdConversion* rowid_conversion);
 };
 
 } // namespace doris

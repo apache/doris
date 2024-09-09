@@ -48,6 +48,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.es.EsExternalTable;
 import org.apache.doris.datasource.es.source.EsScanNode;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
@@ -276,7 +277,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
         for (ScanNode scanNode : context.getScanNodes()) {
-            Utils.execWithUncheckedException(scanNode::finalizeForNereids);
+            try {
+                scanNode.finalizeForNereids();
+            } catch (Exception e) {
+                throw new RuntimeException(e.getMessage(), e);
+            }
         }
         return rootFragment;
     }
@@ -633,9 +638,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalEsScan(PhysicalEsScan esScan, PlanTranslatorContext context) {
         List<Slot> slots = esScan.getOutput();
-        ExternalTable table = esScan.getTable();
+        TableIf table = esScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
-        EsScanNode esScanNode = new EsScanNode(context.nextPlanNodeId(), tupleDescriptor, true);
+        EsScanNode esScanNode = new EsScanNode(context.nextPlanNodeId(), tupleDescriptor,
+                table instanceof EsExternalTable);
         esScanNode.setNereidsId(esScan.getId());
         esScanNode.addConjuncts(translateToLegacyConjuncts(esScan.getConjuncts()));
         Utils.execWithUncheckedException(esScanNode::init);
@@ -833,6 +839,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             List<Expr> partitionExprs = distributionSpecHash.getOrderedShuffledColumns().stream()
                     .map(context::findSlotRef).collect(Collectors.toList());
             dataPartition = new DataPartition(TPartitionType.HASH_PARTITIONED, partitionExprs);
+        }
+        if (olapScan.getStats() != null) {
+            olapScanNode.setCardinality((long) olapScan.getStats().getRowCount());
         }
         // TODO: maybe we could have a better way to create fragment
         PlanFragment planFragment = createPlanFragment(olapScanNode, dataPartition, olapScan);
@@ -1198,12 +1207,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (Slot producerSlot : cteProducer.getOutput()) {
             SlotRef slotRef = context.findSlotRef(producerSlot.getExprId());
             tupleDescriptor = slotRef.getDesc().getParent();
-            Slot consumerSlot = cteConsumer.getProducerToConsumerSlotMap().get(producerSlot);
-            // consumerSlot could be null if we prune partial consumers' columns
-            if (consumerSlot == null) {
-                continue;
+            for (Slot consumerSlot : cteConsumer.getProducerToConsumerSlotMap().get(producerSlot)) {
+                context.addExprIdSlotRefPair(consumerSlot.getExprId(), slotRef);
             }
-            context.addExprIdSlotRefPair(consumerSlot.getExprId(), slotRef);
         }
         CTEScanNode cteScanNode = new CTEScanNode(tupleDescriptor);
         context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator ->

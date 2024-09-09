@@ -7,7 +7,7 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((revenue0.total_revenue = max(total_revenue))) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((supplier.s_suppkey = revenue0.supplier_no)) otherCondition=() build RFs:RF0 s_suppkey->[l_suppkey]
+--------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = revenue0.supplier_no)) otherCondition=() build RFs:RF0 s_suppkey->[l_suppkey]
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute[DistributionSpecHash]

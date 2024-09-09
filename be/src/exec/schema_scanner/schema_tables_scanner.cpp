@@ -342,7 +342,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
     return Status::OK();
 }
 
-Status SchemaTablesScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaTablesScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }

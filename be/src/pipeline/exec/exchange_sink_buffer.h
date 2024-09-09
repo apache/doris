@@ -53,19 +53,6 @@ class ExchangeSinkLocalState;
 namespace vectorized {
 class PipChannel;
 
-template <typename T>
-struct AtomicWrapper {
-    std::atomic<T> _value;
-
-    AtomicWrapper() : _value() {}
-
-    AtomicWrapper(const std::atomic<T>& a) : _value(a.load()) {}
-
-    AtomicWrapper(const AtomicWrapper& other) : _value(other._value.load()) {}
-
-    AtomicWrapper& operator=(const AtomicWrapper& other) { _value.store(other._a.load()); }
-};
-
 // We use BroadcastPBlockHolder to hold a broadcasted PBlock. For broadcast shuffle, one PBlock
 // will be shared between different channel, so we have to use a ref count to mark if this
 // PBlock is available for next serialization.

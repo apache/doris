@@ -74,10 +74,10 @@ public class SemiJoinSemiJoinTransposeProjectTest implements MemoPatternMatchSup
     @Test
     public void testSemiProjectSemiCommuteMarkJoin() {
         LogicalPlan topJoin = new LogicalPlanBuilder(scan1)
-                .markJoin(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                .markJoinWithMarkConjuncts(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
                 .project(ImmutableList.of(0, 2))
-                .markJoin(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 1))
-                .projectAll()
+                .markJoinWithMarkConjuncts(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 1))
+                .project(ImmutableList.of(1, 2))
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
                 .applyExploration(SemiJoinSemiJoinTransposeProject.INSTANCE.build())

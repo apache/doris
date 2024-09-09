@@ -21,11 +21,6 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
 
-#include <algorithm>
-#include <ostream>
-#include <unordered_map>
-#include <utility>
-
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -42,6 +37,7 @@
 #include "olap/data_dir.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
+#include "olap/partial_update_info.h"
 #include "olap/primary_key_index.h"
 #include "olap/row_cursor.h"                   // RowCursor // IWYU pragma: keep
 #include "olap/rowset/rowset_writer_context.h" // RowsetWriterContext
@@ -82,45 +78,45 @@ using namespace ErrorCode;
 const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
 
+inline std::string segment_mem_tracker_name(uint32_t segment_id) {
+    return "SegmentWriter:Segment-" + std::to_string(segment_id);
+}
+
 SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
-                             DataDir* data_dir, uint32_t max_row_per_segment,
-                             const SegmentWriterOptions& opts,
-                             std::shared_ptr<MowContext> mow_context,
+                             DataDir* data_dir, const SegmentWriterOptions& opts,
                              io::FileWriterPtr inverted_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
           _data_dir(data_dir),
-          _max_row_per_segment(max_row_per_segment),
           _opts(opts),
           _file_writer(file_writer),
-          _mem_tracker(std::make_unique<MemTracker>("SegmentWriter:Segment-" +
-                                                    std::to_string(segment_id))),
-          _mow_context(std::move(mow_context)) {
+          _mem_tracker(std::make_unique<MemTracker>(segment_mem_tracker_name(segment_id))),
+          _mow_context(std::move(opts.mow_ctx)) {
     CHECK_NOTNULL(file_writer);
-    _num_key_columns = _tablet_schema->num_key_columns();
+    _num_sort_key_columns = _tablet_schema->num_key_columns();
     _num_short_key_columns = _tablet_schema->num_short_key_columns();
-    if (_tablet_schema->cluster_key_idxes().empty()) {
-        DCHECK(_num_key_columns >= _num_short_key_columns)
+    if (!_is_mow_with_cluster_key()) {
+        DCHECK(_num_sort_key_columns >= _num_short_key_columns)
                 << ", table_id=" << _tablet_schema->table_id()
-                << ", num_key_columns=" << _num_key_columns
+                << ", num_key_columns=" << _num_sort_key_columns
                 << ", num_short_key_columns=" << _num_short_key_columns
                 << ", cluster_key_columns=" << _tablet_schema->cluster_key_idxes().size();
     }
-    for (size_t cid = 0; cid < _num_key_columns; ++cid) {
+    for (size_t cid = 0; cid < _num_sort_key_columns; ++cid) {
         const auto& column = _tablet_schema->column(cid);
         _key_coders.push_back(get_key_coder(column.type()));
         _key_index_size.push_back(column.index_length());
     }
-    if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
+    if (_is_mow()) {
         // encode the sequence id into the primary key index
         if (_tablet_schema->has_sequence_col()) {
             const auto& column = _tablet_schema->column(_tablet_schema->sequence_col_idx());
             _seq_coder = get_key_coder(column.type());
         }
         // encode the rowid into the primary key index
-        if (!_tablet_schema->cluster_key_idxes().empty()) {
+        if (_is_mow_with_cluster_key()) {
             const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
             _rowid_coder = get_key_coder(type_info->type());
             // primary keys
@@ -128,7 +124,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
             // cluster keys
             _key_coders.clear();
             _key_index_size.clear();
-            _num_key_columns = _tablet_schema->cluster_key_idxes().size();
+            _num_sort_key_columns = _tablet_schema->cluster_key_idxes().size();
             for (auto cid : _tablet_schema->cluster_key_idxes()) {
                 const auto& column = _tablet_schema->column(cid);
                 _key_coders.push_back(get_key_coder(column.type()));
@@ -144,6 +140,8 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                 _opts.rowset_ctx->rowset_id.to_string(), segment_id,
                 _tablet_schema->get_inverted_index_storage_format(),
                 std::move(inverted_file_writer));
+        _inverted_index_file_writer->set_file_writer_opts(
+                _opts.rowset_ctx->get_file_writer_options());
     }
 }
 
@@ -287,14 +285,14 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
 
     // we don't need the short key index for unique key merge on write table.
     if (_has_key) {
-        if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
+        if (_is_mow()) {
             size_t seq_col_length = 0;
             if (_tablet_schema->has_sequence_col()) {
                 seq_col_length =
                         _tablet_schema->column(_tablet_schema->sequence_col_idx()).length() + 1;
             }
             size_t rowid_length = 0;
-            if (!_tablet_schema->cluster_key_idxes().empty()) {
+            if (_is_mow_with_cluster_key()) {
                 rowid_length = PrimaryKeyIndexReader::ROW_ID_LENGTH;
                 _short_key_index_builder.reset(
                         new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
@@ -481,7 +479,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                             block->columns(), _tablet_schema->num_key_columns(),
                             _tablet_schema->num_columns()));
     }
-    DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
+    DCHECK(_is_mow());
 
     DCHECK(_opts.rowset_ctx->partial_update_info);
     // find missing column cids
@@ -510,7 +508,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         if (!converted_result.first.ok()) {
             return converted_result.first;
         }
-        if (cid < _num_key_columns) {
+        if (cid < _num_sort_key_columns) {
             key_columns.push_back(converted_result.second);
         } else if (_tablet_schema->has_sequence_col() &&
                    cid == _tablet_schema->sequence_col_idx()) {
@@ -525,16 +523,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     bool has_default_or_nullable = false;
     std::vector<bool> use_default_or_null_flag;
     use_default_or_null_flag.reserve(num_rows);
-    const vectorized::Int8* delete_sign_column_data = nullptr;
-    if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
-                full_block.try_get_by_name(DELETE_SIGN);
-        delete_sign_column != nullptr) {
-        auto& delete_sign_col =
-                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
-        if (delete_sign_col.size() >= row_pos + num_rows) {
-            delete_sign_column_data = delete_sign_col.get_data().data();
-        }
-    }
+    const auto* delete_sign_column_data =
+            BaseTablet::get_delete_sign_column_data(full_block, row_pos + num_rows);
 
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
@@ -557,6 +547,9 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         }
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
+
+    PartialUpdateReadPlan read_plan;
+
     // locate rows in base data
     int64_t num_rows_updated = 0;
     int64_t num_rows_new_added = 0;
@@ -591,8 +584,9 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         RowLocation loc;
         // save rowset shared ptr so this rowset wouldn't delete
         RowsetSharedPtr rowset;
-        auto st = _tablet->lookup_row_key(key, have_input_seq_column, specified_rowsets, &loc,
-                                          _mow_context->max_version, segment_caches, &rowset);
+        auto st = _tablet->lookup_row_key(key, _tablet_schema.get(), have_input_seq_column,
+                                          specified_rowsets, &loc, _mow_context->max_version,
+                                          segment_caches, &rowset);
         if (st.is<KEY_NOT_FOUND>()) {
             if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
                 ++num_rows_filtered;
@@ -602,7 +596,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                                                  segment_pos);
 
             } else {
-                if (!_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update) {
+                if (!_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update &&
+                    !have_delete_sign) {
                     std::string error_column;
                     for (auto cid : _opts.rowset_ctx->partial_update_info->missing_cids) {
                         const TabletColumn& col = _tablet_schema->column(cid);
@@ -631,7 +626,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 
         // 1. if the delete sign is marked, it means that the value columns of the row will not
         //    be read. So we don't need to read the missing values from the previous rows.
-        // 2. the one exception is when there are sequence columns in the table, we need to read
+        // 2. the one exception is when there is sequence column in the table, we need to read
         //    the sequence columns, otherwise it may cause the merge-on-read based compaction
         //    policy to produce incorrect results
         if (have_delete_sign && !_tablet_schema->has_sequence_col()) {
@@ -641,7 +636,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             // partial update should not contain invisible columns
             use_default_or_null_flag.emplace_back(false);
             _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-            _tablet->prepare_to_read(loc, segment_pos, &_rssid_to_rid);
+            read_plan.prepare_to_read(loc, segment_pos);
         }
 
         if (st.is<KEY_ALREADY_EXISTS>()) {
@@ -665,10 +660,10 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     }
 
     // read and fill block
-    auto mutable_full_columns = full_block.mutate_columns();
-    RETURN_IF_ERROR(fill_missing_columns(mutable_full_columns, use_default_or_null_flag,
-                                         has_default_or_nullable, segment_start_pos, block));
-    full_block.set_columns(std::move(mutable_full_columns));
+    RETURN_IF_ERROR(read_plan.fill_missing_columns(
+            _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
+            use_default_or_null_flag, has_default_or_nullable, segment_start_pos, block));
+
     // convert block to row store format
     _serialize_block_to_row_column(full_block);
 
@@ -721,134 +716,6 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     _olap_data_convertor->clear_source_content();
 
     RETURN_IF_ERROR(append_block_with_variant_subcolumns(full_block));
-    return Status::OK();
-}
-
-Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
-                                           const std::vector<bool>& use_default_or_null_flag,
-                                           bool has_default_or_nullable,
-                                           const size_t& segment_start_pos,
-                                           const vectorized::Block* block) {
-    if (config::is_cloud_mode()) {
-        // TODO(plat1ko): cloud mode
-        return Status::NotSupported("fill_missing_columns");
-    }
-    // create old value columns
-    const auto& cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
-    auto old_value_block = _tablet_schema->create_block_by_cids(cids_missing);
-    CHECK_EQ(cids_missing.size(), old_value_block.columns());
-    bool has_row_column = _tablet_schema->has_row_store_for_all_columns();
-    // record real pos, key is input line num, value is old_block line num
-    std::map<uint32_t, uint32_t> read_index;
-    size_t read_idx = 0;
-    for (auto rs_it : _rssid_to_rid) {
-        for (auto seg_it : rs_it.second) {
-            auto rowset = _rsid_to_rowset[rs_it.first];
-            CHECK(rowset);
-            std::vector<uint32_t> rids;
-            for (auto id_and_pos : seg_it.second) {
-                rids.emplace_back(id_and_pos.rid);
-                read_index[id_and_pos.pos] = read_idx++;
-            }
-            if (has_row_column) {
-                auto st = _tablet->fetch_value_through_row_column(
-                        rowset, *_tablet_schema, seg_it.first, rids, cids_missing, old_value_block);
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to fetch value through row column";
-                    return st;
-                }
-                continue;
-            }
-            auto mutable_old_columns = old_value_block.mutate_columns();
-            for (size_t cid = 0; cid < mutable_old_columns.size(); ++cid) {
-                TabletColumn tablet_column = _tablet_schema->column(cids_missing[cid]);
-                auto st = _tablet->fetch_value_by_rowids(rowset, seg_it.first, rids, tablet_column,
-                                                         mutable_old_columns[cid]);
-                // set read value to output block
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to fetch value by rowids";
-                    return st;
-                }
-            }
-            old_value_block.set_columns(std::move(mutable_old_columns));
-        }
-    }
-    // build default value columns
-    auto default_value_block = old_value_block.clone_empty();
-    auto mutable_default_value_columns = default_value_block.mutate_columns();
-
-    const vectorized::Int8* delete_sign_column_data = nullptr;
-    if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
-                old_value_block.try_get_by_name(DELETE_SIGN);
-        delete_sign_column != nullptr) {
-        auto& delete_sign_col =
-                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
-        delete_sign_column_data = delete_sign_col.get_data().data();
-    }
-
-    if (has_default_or_nullable || delete_sign_column_data != nullptr) {
-        for (auto i = 0; i < cids_missing.size(); ++i) {
-            const auto& column = _tablet_schema->column(cids_missing[i]);
-            if (column.has_default_value()) {
-                const auto& default_value =
-                        _opts.rowset_ctx->partial_update_info->default_values[i];
-                vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
-                                          default_value.size());
-                RETURN_IF_ERROR(old_value_block.get_by_position(i).type->from_string(
-                        rb, mutable_default_value_columns[i].get()));
-            }
-        }
-    }
-
-    // fill all missing value from mutable_old_columns, need to consider default value and null value
-    for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
-        // `use_default_or_null_flag[idx] == true` doesn't mean that we should read values from the old row
-        // for the missing columns. For example, if a table has sequence column, the rows with DELETE_SIGN column
-        // marked will not be marked in delete bitmap(see https://github.com/apache/doris/pull/24011), so it will
-        // be found in Tablet::lookup_row_key() and `use_default_or_null_flag[idx]` will be false. But we should not
-        // read values from old rows for missing values in this occasion. So we should read the DELETE_SIGN column
-        // to check if a row REALLY exists in the table.
-        if (use_default_or_null_flag[idx] ||
-            (delete_sign_column_data != nullptr &&
-             delete_sign_column_data[read_index[idx + segment_start_pos]] != 0)) {
-            for (auto i = 0; i < cids_missing.size(); ++i) {
-                // if the column has default value, fill it with default value
-                // otherwise, if the column is nullable, fill it with null value
-                const auto& tablet_column = _tablet_schema->column(cids_missing[i]);
-                if (tablet_column.has_default_value()) {
-                    mutable_full_columns[cids_missing[i]]->insert_from(
-                            *mutable_default_value_columns[i].get(), 0);
-                } else if (tablet_column.is_nullable()) {
-                    auto nullable_column = assert_cast<vectorized::ColumnNullable*>(
-                            mutable_full_columns[cids_missing[i]].get());
-                    nullable_column->insert_null_elements(1);
-                } else if (_tablet_schema->auto_increment_column() == tablet_column.name()) {
-                    const auto& column = *DORIS_TRY(
-                            _opts.rowset_ctx->tablet_schema->column(tablet_column.name()));
-                    DCHECK(column.type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
-                    auto auto_inc_column = assert_cast<vectorized::ColumnInt64*>(
-                            mutable_full_columns[cids_missing[i]].get());
-                    auto_inc_column->insert(
-                            (assert_cast<const vectorized::ColumnInt64*>(
-                                     block->get_by_name("__PARTIAL_UPDATE_AUTO_INC_COLUMN__")
-                                             .column.get()))
-                                    ->get_element(idx));
-                } else {
-                    // If the control flow reaches this branch, the column neither has default value
-                    // nor is nullable. It means that the row's delete sign is marked, and the value
-                    // columns are useless and won't be read. So we can just put arbitary values in the cells
-                    mutable_full_columns[cids_missing[i]]->insert_default();
-                }
-            }
-            continue;
-        }
-        auto pos_in_old_block = read_index[idx + segment_start_pos];
-        for (auto i = 0; i < cids_missing.size(); ++i) {
-            mutable_full_columns[cids_missing[i]]->insert_from(
-                    *old_value_block.get_columns_with_type_and_name()[i].column.get(),
-                    pos_in_old_block);
-        }
-    }
     return Status::OK();
 }
 
@@ -909,19 +776,9 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                                                     converted_result.second->get_data(), num_rows));
     }
     if (_has_key) {
-        // for now we don't need to query short key index for CLUSTER BY feature,
-        // but we still write the index for future usage.
-        bool need_primary_key_indexes = (_tablet_schema->keys_type() == UNIQUE_KEYS &&
-                                         _opts.enable_unique_key_merge_on_write);
-        bool need_short_key_indexes =
-                !need_primary_key_indexes ||
-                (need_primary_key_indexes && !_tablet_schema->cluster_key_idxes().empty());
-        if (need_primary_key_indexes && !need_short_key_indexes) { // mow table without cluster keys
-            RETURN_IF_ERROR(_generate_primary_key_index(_key_coders, key_columns, seq_column,
-                                                        num_rows, false));
-        } else if (!need_primary_key_indexes && need_short_key_indexes) { // other tables
-            RETURN_IF_ERROR(_generate_short_key_index(key_columns, num_rows, short_key_pos));
-        } else if (need_primary_key_indexes && need_short_key_indexes) { // mow with cluster keys
+        if (_is_mow_with_cluster_key()) {
+            // for now we don't need to query short key index for CLUSTER BY feature,
+            // but we still write the index for future usage.
             // 1. generate primary key index, the key_columns is primary_key_columns
             RETURN_IF_ERROR(_generate_primary_key_index(_primary_key_coders, key_columns,
                                                         seq_column, num_rows, true));
@@ -941,6 +798,11 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                 }
             }
             RETURN_IF_ERROR(_generate_short_key_index(key_columns, num_rows, short_key_pos));
+        } else if (_is_mow()) {
+            RETURN_IF_ERROR(_generate_primary_key_index(_key_coders, key_columns, seq_column,
+                                                        num_rows, false));
+        } else {
+            RETURN_IF_ERROR(_generate_short_key_index(key_columns, num_rows, short_key_pos));
         }
     }
 
@@ -958,11 +820,11 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
 int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
     auto segment_size = estimate_segment_size();
     if (PREDICT_FALSE(segment_size >= MAX_SEGMENT_SIZE ||
-                      _num_rows_written >= _max_row_per_segment)) {
+                      _num_rows_written >= _opts.max_rows_per_segment)) {
         return 0;
     }
     int64_t size_rows = ((int64_t)MAX_SEGMENT_SIZE - (int64_t)segment_size) / row_avg_size_in_bytes;
-    int64_t count_rows = (int64_t)_max_row_per_segment - _num_rows_written;
+    int64_t count_rows = (int64_t)_opts.max_rows_per_segment - _num_rows_written;
 
     return std::min(size_rows, count_rows);
 }
@@ -970,8 +832,9 @@ int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
 std::string SegmentWriter::_full_encode_keys(
         const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
         bool null_first) {
-    assert(_key_index_size.size() == _num_key_columns);
-    assert(key_columns.size() == _num_key_columns && _key_coders.size() == _num_key_columns);
+    assert(_key_index_size.size() == _num_sort_key_columns);
+    assert(key_columns.size() == _num_sort_key_columns &&
+           _key_coders.size() == _num_sort_key_columns);
     return _full_encode_keys(_key_coders, key_columns, pos, null_first);
 }
 
@@ -1050,7 +913,7 @@ Status SegmentWriter::append_row(const RowType& row) {
         RETURN_IF_ERROR(_column_writers[cid]->append(cell));
     }
     std::string full_encoded_key;
-    encode_key<RowType, true>(&full_encoded_key, row, _num_key_columns);
+    encode_key<RowType, true>(&full_encoded_key, row, _num_sort_key_columns);
     if (_tablet_schema->has_sequence_col()) {
         full_encoded_key.push_back(KEY_NORMAL_MARKER);
         auto cid = _tablet_schema->sequence_col_idx();
@@ -1058,7 +921,10 @@ Status SegmentWriter::append_row(const RowType& row) {
         row.schema()->column(cid)->full_encode_ascending(cell.cell_ptr(), &full_encoded_key);
     }
 
-    if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
+    if (_is_mow_with_cluster_key()) {
+        return Status::InternalError(
+                "SegmentWriter::append_row does not support mow tables with cluster key");
+    } else if (_is_mow()) {
         RETURN_IF_ERROR(_primary_key_index_builder->add_item(full_encoded_key));
     } else {
         // At the beginning of one block, so add a short key index entry
@@ -1085,7 +951,9 @@ uint64_t SegmentWriter::estimate_segment_size() {
     for (auto& column_writer : _column_writers) {
         size += column_writer->estimate_buffer_size();
     }
-    if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
+    if (_is_mow_with_cluster_key()) {
+        size += _primary_key_index_builder->size() + _short_key_index_builder->size();
+    } else if (_is_mow()) {
         size += _primary_key_index_builder->size();
     } else {
         size += _short_key_index_builder->size();
@@ -1094,13 +962,6 @@ uint64_t SegmentWriter::estimate_segment_size() {
     // update the mem_tracker of segment size
     _mem_tracker->consume(size - _mem_tracker->consumption());
     return size;
-}
-
-size_t SegmentWriter::try_get_inverted_index_file_size() {
-    if (_inverted_index_file_writer != nullptr) {
-        return _inverted_index_file_writer->get_index_file_size();
-    }
-    return 0;
 }
 
 Status SegmentWriter::finalize_columns_data() {
@@ -1136,19 +997,17 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
 
     *index_size = _file_writer->bytes_appended() - index_start;
     if (_has_key) {
-        bool write_short_key_index = _tablet_schema->keys_type() != UNIQUE_KEYS ||
-                                     (_tablet_schema->keys_type() == UNIQUE_KEYS &&
-                                      !_opts.enable_unique_key_merge_on_write) ||
-                                     (_tablet_schema->keys_type() == UNIQUE_KEYS &&
-                                      _opts.enable_unique_key_merge_on_write &&
-                                      !_tablet_schema->cluster_key_idxes().empty());
-        if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
+        if (_is_mow_with_cluster_key()) {
+            RETURN_IF_ERROR(_write_short_key_index());
+            *index_size = _file_writer->bytes_appended() - index_start;
+            RETURN_IF_ERROR(_write_primary_key_index());
+            *index_size += _primary_key_index_builder->disk_size();
+        } else if (_is_mow()) {
             RETURN_IF_ERROR(_write_primary_key_index());
             // IndexedColumnWriter write data pages mixed with segment data, we should use
             // the stat from primary key index builder.
             *index_size += _primary_key_index_builder->disk_size();
-        }
-        if (write_short_key_index) {
+        } else {
             RETURN_IF_ERROR(_write_short_key_index());
             *index_size = _file_writer->bytes_appended() - index_start;
         }
@@ -1169,8 +1028,8 @@ Status SegmentWriter::finalize_footer(uint64_t* segment_file_size) {
     }
     if (_inverted_index_file_writer != nullptr) {
         RETURN_IF_ERROR(_inverted_index_file_writer->close());
+        _inverted_index_file_info = _inverted_index_file_writer->get_index_file_info();
     }
-    _inverted_index_file_size = try_get_inverted_index_file_size();
     return Status::OK();
 }
 
@@ -1307,14 +1166,12 @@ Status SegmentWriter::_write_raw_data(const std::vector<Slice>& slices) {
 }
 
 Slice SegmentWriter::min_encoded_key() {
-    return (_primary_key_index_builder == nullptr || !_tablet_schema->cluster_key_idxes().empty())
-                   ? Slice(_min_key.data(), _min_key.size())
-                   : _primary_key_index_builder->min_key();
+    return (_primary_key_index_builder == nullptr) ? Slice(_min_key.data(), _min_key.size())
+                                                   : _primary_key_index_builder->min_key();
 }
 Slice SegmentWriter::max_encoded_key() {
-    return (_primary_key_index_builder == nullptr || !_tablet_schema->cluster_key_idxes().empty())
-                   ? Slice(_max_key.data(), _max_key.size())
-                   : _primary_key_index_builder->max_key();
+    return (_primary_key_index_builder == nullptr) ? Slice(_max_key.data(), _max_key.size())
+                                                   : _primary_key_index_builder->max_key();
 }
 
 void SegmentWriter::set_min_max_key(const Slice& key) {
@@ -1403,5 +1260,19 @@ Status SegmentWriter::_generate_short_key_index(
     return Status::OK();
 }
 
+int64_t SegmentWriter::get_inverted_index_total_size() {
+    if (_inverted_index_file_writer != nullptr) {
+        return _inverted_index_file_writer->get_index_file_total_size();
+    }
+    return 0;
+}
+
+inline bool SegmentWriter::_is_mow() {
+    return _tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write;
+}
+
+inline bool SegmentWriter::_is_mow_with_cluster_key() {
+    return _is_mow() && !_tablet_schema->cluster_key_idxes().empty();
+}
 } // namespace segment_v2
 } // namespace doris

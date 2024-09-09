@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AlterColumnStatsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -125,11 +126,20 @@ public class StatisticsRepository {
 
     public static ColumnStatistic queryColumnStatisticsByName(
             long ctlId, long dbId, long tableId, long indexId, String colName) {
+        ColumnStatistic columnStatistic = ColumnStatistic.UNKNOWN;
         ResultRow resultRow = queryColumnStatisticById(ctlId, dbId, tableId, indexId, colName);
         if (resultRow == null) {
-            return ColumnStatistic.UNKNOWN;
+            return columnStatistic;
         }
-        return ColumnStatistic.fromResultRow(resultRow);
+        try {
+            columnStatistic = ColumnStatistic.fromResultRow(resultRow);
+        } catch (Exception e) {
+            LOG.warn("Failed to deserialize column statistics. reason: [{}]. Row [{}]", e.getMessage(), resultRow);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(e);
+            }
+        }
+        return columnStatistic;
     }
 
     public static List<ResultRow> queryColumnStatisticsByPartitions(TableIf table, Set<String> columnNames,
@@ -313,12 +323,13 @@ public class StatisticsRepository {
         String max = alterColumnStatsStmt.getValue(StatsType.MAX_VALUE);
         String dataSize = alterColumnStatsStmt.getValue(StatsType.DATA_SIZE);
         long indexId = alterColumnStatsStmt.getIndexId();
+        if (rowCount == null) {
+            throw new RuntimeException("Row count is null.");
+        }
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder();
         String colName = alterColumnStatsStmt.getColumnName();
         Column column = objects.table.getColumn(colName);
-        if (rowCount != null) {
-            builder.setCount(Double.parseDouble(rowCount));
-        }
+        builder.setCount(Double.parseDouble(rowCount));
         if (ndv != null) {
             double dNdv = Double.parseDouble(ndv);
             builder.setNdv(dNdv);
@@ -369,13 +380,19 @@ public class StatisticsRepository {
                     objects.catalog.getId(), objects.db.getId(), objects.table.getId(), indexId, colName,
                     null, columnStatistic);
             Env.getCurrentEnv().getStatisticsCache().syncColStats(data);
+            long timestamp = System.currentTimeMillis();
             AnalysisInfo mockedJobInfo = new AnalysisInfoBuilder()
-                    .setTblUpdateTime(System.currentTimeMillis())
+                    .setTblUpdateTime(timestamp)
                     .setColName("")
+                    .setRowCount((long) Double.parseDouble(rowCount))
                     .setJobColumns(Sets.newHashSet())
                     .setUserInject(true)
                     .setJobType(AnalysisInfo.JobType.MANUAL)
                     .build();
+            if (objects.table instanceof OlapTable) {
+                indexId = indexId == -1 ? ((OlapTable) objects.table).getBaseIndexId() : indexId;
+                mockedJobInfo.addIndexRowCount(indexId, (long) Double.parseDouble(rowCount));
+            }
             Env.getCurrentEnv().getAnalysisManager().updateTableStatsForAlterStats(mockedJobInfo, objects.table);
         } else {
             // update partition granularity statistics

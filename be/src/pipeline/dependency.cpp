@@ -188,10 +188,12 @@ void LocalExchangeSharedState::sub_running_sink_operators() {
     }
 }
 
-void LocalExchangeSharedState::sub_running_source_operators() {
+void LocalExchangeSharedState::sub_running_source_operators(
+        LocalExchangeSourceLocalState& local_state) {
     std::unique_lock<std::mutex> lc(le_lock);
     if (exchanger->_running_source_operators.fetch_sub(1) == 1) {
         _set_always_ready();
+        exchanger->finalize(local_state);
     }
 }
 
@@ -394,6 +396,20 @@ Status AggSharedState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
     for (int i = 0; i < aggregate_evaluators.size(); ++i) {
         aggregate_evaluators[i]->function()->destroy(data + offsets_of_aggregate_states[i]);
     }
+    return Status::OK();
+}
+
+LocalExchangeSharedState::~LocalExchangeSharedState() = default;
+
+Status SetSharedState::update_build_not_ignore_null(const vectorized::VExprContextSPtrs& ctxs) {
+    if (ctxs.size() > build_not_ignore_null.size()) {
+        return Status::InternalError("build_not_ignore_null not initialized");
+    }
+
+    for (int i = 0; i < ctxs.size(); ++i) {
+        build_not_ignore_null[i] = build_not_ignore_null[i] || ctxs[i]->root()->is_nullable();
+    }
+
     return Status::OK();
 }
 

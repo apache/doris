@@ -22,7 +22,6 @@
 #include <gen_cpp/Types_types.h>
 
 #include <ostream>
-#include <string_view>
 #include <utility>
 
 #include "common/config.h"
@@ -30,11 +29,8 @@
 #include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
-#include "vec/core/column_with_type_and_name.h"
-#include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/exprs/vexpr_context.h"
@@ -112,14 +108,12 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
                 _fn.name.function_name, argument_template, _data_type, state->be_exec_version());
     }
     if (_function == nullptr) {
-        return Status::InternalError(
-                "Function {} get failed, expr is {} "
-                "and return type is {}.",
-                _fn.name.function_name, _expr_name, _data_type->get_name());
+        return Status::InternalError("Could not find function {}, arg {} return {} ",
+                                     _fn.name.function_name, get_child_names(),
+                                     _data_type->get_name());
     }
     VExpr::register_function_context(state, context);
     _function_name = _fn.name.function_name;
-    _can_fast_execute = can_fast_execute();
     _prepare_finished = true;
     return Status::OK();
 }
@@ -143,38 +137,38 @@ void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionSta
     VExpr::close(context, scope);
 }
 
-Status VectorizedFnCall::eval_inverted_index(
-        VExprContext* context,
-        const std::unordered_map<ColumnId, std::pair<vectorized::IndexFieldNameAndTypePair,
-                                                     segment_v2::InvertedIndexIterator*>>&
-                colid_to_inverted_index_iter,
-        uint32_t num_rows, roaring::Roaring* bitmap) const {
+Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
     DCHECK_GE(get_num_children(), 1);
-    if (get_child(0)->is_slot_ref()) {
-        auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
-        if (auto iter = colid_to_inverted_index_iter.find(column_slot_ref->column_id());
-            iter != colid_to_inverted_index_iter.end()) {
-            const auto& pair = iter->second;
-            return _function->eval_inverted_index(context->fn_context(_fn_context_index),
-                                                  pair.first, pair.second, num_rows, bitmap);
-        } else {
-            return Status::NotSupported("column id {} not found in colid_to_inverted_index_iter",
-                                        column_slot_ref->column_id());
-        }
-    } else {
-        return Status::NotSupported("we can only eval inverted index for slot ref expr, but got ",
-                                    get_child(0)->expr_name());
-    }
-    return Status::OK();
+    return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
 Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
                                      doris::vectorized::Block* block, int* result_column_id,
                                      std::vector<size_t>& args) {
-    if (is_const_and_have_executed()) { // const have execute in open function
+    if (is_const_and_have_executed()) { // const have executed in open function
         return get_result_from_const(block, _expr_name, result_column_id);
     }
+    if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
+        return Status::OK();
+    }
+    DBUG_EXECUTE_IF("VectorizedFnCall.must_in_slow_path", {
+        if (get_child(0)->is_slot_ref()) {
+            auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
+                    "VectorizedFnCall.must_in_slow_path", "column_name", "");
 
+            std::vector<std::string> column_names;
+            boost::split(column_names, debug_col_name, boost::algorithm::is_any_of(","));
+
+            auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
+            std::string column_name = column_slot_ref->expr_name();
+            auto it = std::find(column_names.begin(), column_names.end(), column_name);
+            if (it == column_names.end()) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "column {} should in slow path while VectorizedFnCall::execute.",
+                        column_name);
+            }
+        }
+    })
     DCHECK(_open_finished || _getting_const_col) << debug_string();
     // TODO: not execute const expr again, but use the const column in function context
     args.resize(_children.size());
@@ -189,14 +183,6 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
     size_t num_columns_without_result = block->columns();
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
-    if (_can_fast_execute) {
-        auto can_fast_execute = fast_execute(*block, args, num_columns_without_result,
-                                             block->rows(), _function->get_name());
-        if (can_fast_execute) {
-            *result_column_id = num_columns_without_result;
-            return Status::OK();
-        }
-    }
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, args,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
@@ -249,22 +235,6 @@ std::string VectorizedFnCall::debug_string(const std::vector<VectorizedFnCall*>&
 
 bool VectorizedFnCall::can_push_down_to_index() const {
     return _function->can_push_down_to_index();
-}
-
-bool VectorizedFnCall::can_fast_execute() const {
-    auto function_name = _function->get_name();
-    if (function_name == "eq" || function_name == "ne" || function_name == "lt" ||
-        function_name == "gt" || function_name == "le" || function_name == "ge") {
-        if (_children.size() == 2 && _children[0]->is_slot_ref() && _children[1]->is_literal()) {
-            return true;
-        }
-    }
-    return _function->can_push_down_to_index();
-}
-
-Status VectorizedFnCall::eval_inverted_index(VExprContext* context,
-                                             segment_v2::FuncExprParams& params) {
-    return _function->eval_inverted_index(context->fn_context(_fn_context_index), params);
 }
 
 bool VectorizedFnCall::equals(const VExpr& other) {

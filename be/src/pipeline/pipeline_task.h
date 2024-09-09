@@ -130,12 +130,13 @@ public:
 
     void wake_up();
 
-    DataSinkOperatorXPtr sink() const { return _sink; }
+    DataSinkOperatorPtr sink() const { return _sink; }
 
     int task_id() const { return _index; };
     bool is_finalized() const { return _finalized; }
 
     void clear_blocking_state() {
+        _state->get_query_ctx()->get_execution_dependency()->set_always_ready();
         // We use a lock to assure all dependencies are not deconstructed here.
         std::unique_lock<std::mutex> lc(_dependency_lock);
         if (!_finalized) {
@@ -281,10 +282,10 @@ private:
 
     MonotonicStopWatch _pipeline_task_watcher;
 
-    OperatorXs _operators; // left is _source, right is _root
+    Operators _operators; // left is _source, right is _root
     OperatorXBase* _source;
     OperatorXBase* _root;
-    DataSinkOperatorXPtr _sink;
+    DataSinkOperatorPtr _sink;
 
     // `_read_dependencies` is stored as same order as `_operators`
     std::vector<std::vector<Dependency*>> _read_dependencies;

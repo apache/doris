@@ -62,9 +62,11 @@ public:
 
     void static check_chars_length(size_t total_length, size_t element_number) {
         if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
-            throw Exception(ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
-                            "string column length is too large: total_length={}, element_number={}",
-                            total_length, element_number);
+            throw Exception(
+                    ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
+                    "string column length is too large: total_length={}, element_number={}, "
+                    "you can set batch_size a number smaller than {} to avoid this error",
+                    total_length, element_number, element_number);
         }
     }
 
@@ -100,8 +102,9 @@ private:
               chars(src.chars.begin(), src.chars.end()) {}
 
 public:
-    void sanity_check() const;
     bool is_variable_length() const override { return true; }
+    // used in string ut testd
+    void sanity_check() const;
     const char* get_family_name() const override { return "String"; }
 
     size_t size() const override { return offsets.size(); }
@@ -308,10 +311,6 @@ public:
             offsets.push_back(offset);
         }
     }
-
-    //    template <typename T, size_t copy_length>
-    //    void insert_many_strings_fixed_length(const StringRef* strings, size_t num)
-    //            __attribute__((noinline));
 
     template <size_t copy_length>
     void insert_many_strings_fixed_length(const StringRef* strings, size_t num) {
@@ -542,23 +541,14 @@ public:
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data is not supported for ColumnString";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method replace_column_data is not supported for ColumnString");
         __builtin_unreachable();
     }
 
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8>& cmp_res,
                           uint8* __restrict filter) const override;
-
-    MutableColumnPtr get_shinked_column() const {
-        auto shrinked_column = ColumnStr<T>::create();
-        for (int i = 0; i < size(); i++) {
-            StringRef str = get_data_at(i);
-            reinterpret_cast<ColumnStr<T>*>(shrinked_column.get())
-                    ->insert_data(str.data, strnlen(str.data, str.size));
-        }
-        return shrinked_column;
-    }
 
     ColumnPtr convert_column_if_overflow() override;
 };

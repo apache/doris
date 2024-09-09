@@ -542,6 +542,11 @@ public class MasterImpl {
     private void finishClone(AgentTask task, TFinishTaskRequest request) {
         CloneTask cloneTask = (CloneTask) task;
         if (cloneTask.getTaskVersion() == CloneTask.VERSION_2) {
+            if (request.isSetReportVersion()) {
+                long reportVersion = request.getReportVersion();
+                Env.getCurrentSystemInfo().updateBackendReportVersion(
+                        task.getBackendId(), reportVersion, task.getDbId(), task.getTableId());
+            }
             Env.getCurrentEnv().getTabletScheduler().finishCloneTask(cloneTask, request);
         } else {
             LOG.warn("invalid clone task, ignore it. {}", task);
@@ -666,6 +671,17 @@ public class MasterImpl {
                         "backend: " + task.getBackendId() + ", error_tablet_size: "
                                 + request.getErrorTabletIdsSize() + ", err_msg: "
                                 + request.getTaskStatus().getErrorMsgs().toString());
+            } else if (request.isSetRespPartitions()
+                    && calcDeleteBitmapTask.isFinishRequestStale(request.getRespPartitions())) {
+                LOG.warn("get staled response from backend: {}, report version: {}. calcDeleteBitmapTask's"
+                        + "partitionInfos: {}. response's partitionInfos: {}", task.getBackendId(),
+                                request.getReportVersion(),
+                                        calcDeleteBitmapTask.getCalcDeleteBimapPartitionInfos().toString(),
+                                                request.getRespPartitions().toString());
+                // DELETE_BITMAP_LOCK_ERROR will be retried
+                calcDeleteBitmapTask.countDownToZero(TStatusCode.DELETE_BITMAP_LOCK_ERROR,
+                        "get staled response from backend " + task.getBackendId() + ", report version: "
+                                + request.getReportVersion());
             } else {
                 calcDeleteBitmapTask.countDownLatch(task.getBackendId(), calcDeleteBitmapTask.getTransactionId());
                 if (LOG.isDebugEnabled()) {

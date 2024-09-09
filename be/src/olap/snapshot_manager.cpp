@@ -82,12 +82,26 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
         return Status::Error<INVALID_ARGUMENT>("output parameter cannot be null");
     }
 
-    TabletSharedPtr ref_tablet = _engine.tablet_manager()->get_tablet(request.tablet_id);
-    if (ref_tablet == nullptr) {
+    TabletSharedPtr target_tablet = _engine.tablet_manager()->get_tablet(request.tablet_id);
+
+    DBUG_EXECUTE_IF("SnapshotManager::make_snapshot.inject_failure", { target_tablet = nullptr; })
+
+    if (target_tablet == nullptr) {
         return Status::Error<TABLE_NOT_FOUND>("failed to get tablet. tablet={}", request.tablet_id);
     }
 
-    res = _create_snapshot_files(ref_tablet, request, snapshot_path, allow_incremental_clone);
+    TabletSharedPtr ref_tablet = target_tablet;
+    if (request.__isset.ref_tablet_id) {
+        int64_t ref_tablet_id = request.ref_tablet_id;
+        ref_tablet = _engine.tablet_manager()->get_tablet(ref_tablet_id);
+        if (ref_tablet == nullptr) {
+            return Status::Error<TABLE_NOT_FOUND>("failed to get ref tablet. tablet={}",
+                                                  ref_tablet_id);
+        }
+    }
+
+    res = _create_snapshot_files(ref_tablet, target_tablet, request, snapshot_path,
+                                 allow_incremental_clone);
 
     if (!res.ok()) {
         LOG(WARNING) << "failed to make snapshot. res=" << res << " tablet=" << request.tablet_id;
@@ -344,6 +358,7 @@ Status SnapshotManager::_link_index_and_data_files(
 }
 
 Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet,
+                                               const TabletSharedPtr& target_tablet,
                                                const TSnapshotRequest& request,
                                                string* snapshot_path,
                                                bool* allow_incremental_clone) {
@@ -363,10 +378,10 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         timeout_s = request.timeout;
     }
     std::string snapshot_id_path;
-    res = _calc_snapshot_id_path(ref_tablet, timeout_s, &snapshot_id_path);
+    res = _calc_snapshot_id_path(target_tablet, timeout_s, &snapshot_id_path);
     if (!res.ok()) {
-        LOG(WARNING) << "failed to calc snapshot_id_path, ref tablet="
-                     << ref_tablet->data_dir()->path();
+        LOG(WARNING) << "failed to calc snapshot_id_path, tablet="
+                     << target_tablet->data_dir()->path();
         return res;
     }
 
@@ -374,12 +389,12 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
 
     // schema_full_path_desc.filepath:
     //      /snapshot_id_path/tablet_id/schema_hash/
-    auto schema_full_path = get_schema_hash_full_path(ref_tablet, snapshot_id_path);
+    auto schema_full_path = get_schema_hash_full_path(target_tablet, snapshot_id_path);
     // header_path:
     //      /schema_full_path/tablet_id.hdr
-    auto header_path = _get_header_full_path(ref_tablet, schema_full_path);
+    auto header_path = _get_header_full_path(target_tablet, schema_full_path);
     //      /schema_full_path/tablet_id.hdr.json
-    auto json_header_path = _get_json_header_full_path(ref_tablet, schema_full_path);
+    auto json_header_path = _get_json_header_full_path(target_tablet, schema_full_path);
     bool exists = true;
     RETURN_IF_ERROR(io::global_local_filesystem()->exists(schema_full_path, &exists));
     if (exists) {
@@ -561,7 +576,9 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                         << rs->rowset_meta()->empty();
         }
         if (!res.ok()) {
-            LOG(WARNING) << "fail to create hard link. [path=" << snapshot_id_path << "]";
+            LOG(WARNING) << "fail to create hard link. path=" << snapshot_id_path
+                         << " tablet=" << target_tablet->tablet_id()
+                         << " ref tablet=" << ref_tablet->tablet_id();
             break;
         }
 

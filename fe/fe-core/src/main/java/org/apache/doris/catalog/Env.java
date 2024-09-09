@@ -38,6 +38,7 @@ import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.analysis.AlterDatabaseRename;
+import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
@@ -111,6 +112,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.common.publish.TopicPublisher;
 import org.apache.doris.common.publish.TopicPublisherThread;
 import org.apache.doris.common.publish.WorkloadGroupPublisher;
@@ -122,7 +124,6 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.QueryableReentrantLock;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
@@ -130,6 +131,7 @@ import org.apache.doris.consistency.ConsistencyChecker;
 import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.InternalCatalog;
@@ -138,6 +140,7 @@ import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
@@ -188,6 +191,7 @@ import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.AuthenticatorManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -316,6 +320,8 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -329,6 +335,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 
@@ -361,7 +368,7 @@ public class Env {
     // We use fair ReentrantLock to avoid starvation. Do not use this lock in critical code pass
     // because fair lock has poor performance.
     // Using QueryableReentrantLock to print owner thread in debug mode.
-    private QueryableReentrantLock lock;
+    private MonitoredReentrantLock lock;
 
     private CatalogMgr catalogMgr;
     private GlobalFunctionMgr globalFunctionMgr;
@@ -562,6 +569,10 @@ public class Env {
 
     private final List<String> forceSkipJournalIds = Arrays.asList(Config.force_skip_journal_ids);
 
+    // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
+    private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
+            .of("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler);
+
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
 
@@ -679,7 +690,7 @@ public class Env {
         this.syncJobManager = new SyncJobManager();
         this.alter = new Alter();
         this.consistencyChecker = new ConsistencyChecker();
-        this.lock = new QueryableReentrantLock(true);
+        this.lock = new MonitoredReentrantLock(true);
         this.backupHandler = new BackupHandler(this);
         this.metaDir = Config.meta_dir;
         this.publishVersionDaemon = new PublishVersionDaemon();
@@ -732,7 +743,7 @@ public class Env {
 
         this.auth = new Auth();
         this.accessManager = new AccessControllerManager(auth);
-        this.authenticatorManager = new AuthenticatorManager(AuthenticateType.getAuthTypeConfig());
+        this.authenticatorManager = new AuthenticatorManager(AuthenticateType.getAuthTypeConfigString());
         this.domainResolver = new DomainResolver(auth);
 
         this.metaContext = new MetaContext();
@@ -1669,10 +1680,15 @@ public class Env {
      */
     void advanceNextId() {
         long currentId = idGenerator.getBatchEndId();
-        long currentNanos = System.nanoTime();
+        long currentMill = System.currentTimeMillis();
         long nextId = currentId + 1;
-        if (nextId < currentNanos) {
-            nextId = currentNanos;
+        // Reserve ~1 trillion for use in case of bugs or frequent reboots (~2 billion reboots)
+        if ((1L << 63) - nextId < (1L << 40)) {
+            LOG.warn("nextId is too large: {}, it may be a bug and consider backup and migration", nextId);
+        } else {
+            // Keep compatible with previous impl, the previous impl may result in extreme large nextId,
+            // and guess there are no more than 1L<<32 (~4e9) ids used since last reboot
+            nextId = (currentId + 1) < currentMill ? currentMill : currentId + (1L << 32);
         }
 
         // ATTN: Because MetaIdGenerator has guaranteed that each id it returns must have
@@ -1712,6 +1728,14 @@ public class Env {
 
         auth.rectifyPrivs();
         catalogMgr.registerCatalogRefreshListener(this);
+        // MTMV needs to be compatible with old metadata, and during the compatibility process,
+        // it needs to wait for all catalog data to be ready, so it cannot be processed through gsonPostProcess()
+        // We catch all possible exceptions to avoid FE startup failure
+        try {
+            MTMVUtil.compatibleMTMV(catalogMgr);
+        } catch (Throwable t) {
+            LOG.warn("compatibleMTMV failed", t);
+        }
         return true;
     }
 
@@ -1818,9 +1842,8 @@ public class Env {
         domainResolver.start();
         // fe disk updater
         feDiskUpdater.start();
-        if (Config.enable_hms_events_incremental_sync) {
-            metastoreEventsProcessor.start();
-        }
+
+        metastoreEventsProcessor.start();
 
         dnsCache.start();
 
@@ -3275,6 +3298,11 @@ public class Env {
             isCreateTable, generatedPartitionId, writeEditLog);
     }
 
+    public void addMultiPartitions(Database db, String tableName, AlterMultiPartitionClause multiPartitionClause)
+            throws DdlException {
+        getInternalCatalog().addMultiPartitions(db, tableName, multiPartitionClause);
+    }
+
     public void addPartitionLike(Database db, String tableName, AddPartitionLikeClause addPartitionLikeClause)
             throws DdlException {
         getInternalCatalog().addPartitionLike(db, tableName, addPartitionLikeClause);
@@ -3599,6 +3627,12 @@ public class Env {
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
         sb.append(olapTable.disableAutoCompaction()).append("\"");
 
+        if (olapTable.variantEnableFlattenNested()) {
+            // enable flatten nested type in variant
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED).append("\" = \"");
+            sb.append(olapTable.variantEnableFlattenNested()).append("\"");
+        }
+
         // binlog
         if (Config.enable_feature_binlog) {
             BinlogConfig binlogConfig = olapTable.getBinlogConfig();
@@ -3676,13 +3710,7 @@ public class Env {
 
         sb.append(" (\n");
         int idx = 0;
-        List<Column> columns;
-        // when 'create table B like A', always return schema of A without hidden columns
-        if (getDdlForLike) {
-            columns = table.getBaseSchema(false);
-        } else {
-            columns = table.getBaseSchema();
-        }
+        List<Column> columns = table.getBaseSchema(false);
         for (Column column : columns) {
             if (idx++ != 0) {
                 sb.append(",\n");
@@ -3921,6 +3949,20 @@ public class Env {
             sb.append("\"resource\" = \"").append(jdbcTable.getResourceName()).append("\",\n");
             sb.append("\"table\" = \"").append(jdbcTable.getJdbcTable()).append("\",\n");
             sb.append("\"table_type\" = \"").append(jdbcTable.getJdbcTypeName()).append("\"");
+            sb.append("\n)");
+        } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
+            addTableComment(table, sb);
+            org.apache.iceberg.Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
+            sb.append("\nLOCATION '").append(icebergTable.location()).append("'");
+            sb.append("\nPROPERTIES (");
+            Iterator<Entry<String, String>> iterator = icebergTable.properties().entrySet().iterator();
+            while (iterator.hasNext()) {
+                Entry<String, String> prop = iterator.next();
+                sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
+                if (iterator.hasNext()) {
+                    sb.append(",");
+                }
+            }
             sb.append("\n)");
         }
 
@@ -4712,7 +4754,7 @@ public class Env {
         GroupId groupId = null;
         if (!Strings.isNullOrEmpty(assignedGroup)) {
             String fullAssignedGroupName = GroupId.getFullGroupName(db.getId(), assignedGroup);
-            //When the new name is the same as the old name, we return it to prevent npe
+            // When the new name is the same as the old name, we return it to prevent npe
             if (!Strings.isNullOrEmpty(oldGroup)) {
                 String oldFullGroupName = GroupId.getFullGroupName(db.getId(), oldGroup);
                 if (oldFullGroupName.equals(fullAssignedGroupName)) {
@@ -5051,6 +5093,20 @@ public class Env {
             table.setSequenceMapCol(newColName);
         }
 
+        // 6. modify bloom filter col
+        Set<String> bfCols = table.getCopiedBfColumns();
+        if (bfCols != null) {
+            Set<String> newBfCols = new HashSet<>();
+            for (String bfCol : bfCols) {
+                if (bfCol.equalsIgnoreCase(colName)) {
+                    newBfCols.add(newColName);
+                } else {
+                    newBfCols.add(bfCol);
+                }
+            }
+            table.setBloomFilterInfo(newBfCols, table.getBfFpp());
+        }
+
         table.rebuildFullSchema();
 
         if (!isReplay) {
@@ -5059,6 +5115,11 @@ public class Env {
                     indexIdToSchemaVersion);
             editLog.logColumnRename(info);
             LOG.info("rename coloumn[{}] to {}", colName, newColName);
+            try {
+                Env.getCurrentEnv().getAnalysisManager().dropStats(table, null);
+            } catch (Exception e) {
+                LOG.info("Failed to drop stats after rename column. Reason: {}", e.getMessage());
+            }
         }
     }
 
@@ -5231,7 +5292,8 @@ public class Env {
                 .buildEnableSingleReplicaCompaction()
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
                 .buildTimeSeriesCompactionLevelThreshold()
-                .buildTTLSeconds();
+                .buildTTLSeconds()
+                .buildAutoAnalyzeProperty();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
@@ -5258,9 +5320,16 @@ public class Env {
 
     public void replayModifyTableProperty(short opCode, ModifyTablePropertyOperationLog info)
             throws MetaNotFoundException {
+        String ctlName = info.getCtlName();
         long dbId = info.getDbId();
         long tableId = info.getTableId();
         Map<String, String> properties = info.getProperties();
+
+        // Handle HMSExternalTable set auto analyze policy.
+        if (ctlName != null && !(InternalCatalog.INTERNAL_CATALOG_NAME.equalsIgnoreCase(ctlName))) {
+            setExternalTableAutoAnalyze(properties, info);
+            return;
+        }
 
         Database db = getInternalCatalog().getDbOrMetaException(dbId);
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
@@ -5283,6 +5352,9 @@ public class Env {
                         // storage policy re-use modify in memory
                         Optional.ofNullable(tableProperty.getStoragePolicy()).filter(p -> !p.isEmpty())
                                 .ifPresent(p -> olapTable.getPartitionInfo().setStoragePolicy(partition.getId(), p));
+                        Optional.ofNullable(tableProperty.getStoragePolicy()).filter(p -> !p.isEmpty())
+                                .ifPresent(p -> olapTable.getPartitionInfo().getDataProperty(partition.getId())
+                                .setStoragePolicy(p));
                     }
                     break;
                 case OperationType.OP_UPDATE_BINLOG_CONFIG:
@@ -5298,6 +5370,33 @@ public class Env {
         }
     }
 
+    private void setExternalTableAutoAnalyze(Map<String, String> properties, ModifyTablePropertyOperationLog info) {
+        if (properties.size() != 1) {
+            LOG.warn("External table property should contain exactly 1 entry.");
+            return;
+        }
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
+            LOG.warn("External table property should only contain auto_analyze_policy");
+            return;
+        }
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
+        if (!PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY.equalsIgnoreCase(value)
+                && !PropertyAnalyzer.DISABLE_AUTO_ANALYZE_POLICY.equalsIgnoreCase(value)
+                && !PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY.equalsIgnoreCase(value)) {
+            LOG.warn("External table property should be 'enable', 'disable' or 'base_on_catalog'");
+            return;
+        }
+        try {
+            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrException(info.getCtlName(),
+                        ctlName -> new DdlException("Unknown catalog " + ctlName));
+            value = value.equalsIgnoreCase(PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY) ? null : value;
+            ((ExternalCatalog) catalog).setAutoAnalyzePolicy(info.getDbName(), info.getTableName(), value);
+        } catch (Exception e) {
+            LOG.warn("Failed to replay external table set property.", e);
+        }
+    }
+
     public void modifyDefaultDistributionBucketNum(Database db, OlapTable olapTable,
                                                    ModifyDistributionClause modifyDistributionClause)
             throws DdlException {
@@ -5307,7 +5406,8 @@ public class Env {
                 throw new DdlException("Cannot change default bucket number of colocate table.");
             }
 
-            if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE) {
+            if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE
+                    && olapTable.getPartitionInfo().getType() != PartitionType.LIST) {
                 throw new DdlException("Only support change partitioned table's distribution.");
             }
 
@@ -5669,13 +5769,30 @@ public class Env {
         globalFunctionMgr.replayDropFunction(functionSearchDesc);
     }
 
+    /**
+     * we can't set callback which is in fe-core to config items which are in fe-common. so wrap them here. it's not so
+     * good but is best for us now.
+     */
+    public void setMutableConfigwithCallback(String key, String value) throws ConfigException {
+        ConfigBase.setMutableConfig(key, value);
+        if (configtoThreads.get(key) != null) {
+            try {
+                configtoThreads.get(key).get().setInterval(Config.getField(key).getLong(null) * 1000L);
+                configtoThreads.get(key).get().interrupt();
+                LOG.info("set config " + key + " to " + value);
+            } catch (IllegalAccessException e) {
+                LOG.warn("set config " + key + " failed: " + e.getMessage());
+            }
+        }
+    }
+
     public void setConfig(AdminSetConfigStmt stmt) throws Exception {
         Map<String, String> configs = stmt.getConfigs();
         Preconditions.checkState(configs.size() == 1);
 
         for (Map.Entry<String, String> entry : configs.entrySet()) {
             try {
-                ConfigBase.setMutableConfig(entry.getKey(), entry.getValue());
+                setMutableConfigwithCallback(entry.getKey(), entry.getValue());
             } catch (ConfigException e) {
                 throw new DdlException(e.getMessage());
             }
@@ -6154,8 +6271,8 @@ public class Env {
         AgentTaskExecutor.submit(batchTask);
     }
 
-    public void cleanUDFCacheTask(DropFunctionStmt stmt) {
-        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getIdToBackend();
+    public void cleanUDFCacheTask(DropFunctionStmt stmt) throws UserException {
+        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         String functionSignature = stmt.signatureString();
         AgentBatchTask batchTask = new AgentBatchTask();
         for (Backend backend : backendsInfo.values()) {
@@ -6357,7 +6474,7 @@ public class Env {
         AgentTaskExecutor.submit(batchTask);
     }
 
-    private static void addTableComment(Table table, StringBuilder sb) {
+    private static void addTableComment(TableIf table, StringBuilder sb) {
         if (StringUtils.isNotBlank(table.getComment())) {
             sb.append("\nCOMMENT '").append(table.getComment(true)).append("'");
         }

@@ -41,7 +41,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
@@ -61,7 +60,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -289,24 +287,7 @@ public class OriginalPlanner extends Planner {
                     LOG.debug("this isn't block query");
                 }
             }
-            // Check SelectStatement if optimization condition satisfied
-            if (selectStmt.isPointQueryShortCircuit()) {
-                // Optimize for point query like: SELECT * FROM t1 WHERE pk1 = 1 and pk2 = 2
-                // such query will use direct RPC to do point query
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("it's a point query");
-                }
-                Map<SlotRef, Expr> eqConjuncts = ((SelectStmt) selectStmt).getPointQueryEQPredicates();
-                OlapScanNode olapScanNode = (OlapScanNode) singleNodePlan;
-                olapScanNode.setDescTable(analyzer.getDescTbl());
-                olapScanNode.setPointQueryEqualPredicates(eqConjuncts);
-                if (analyzer.getPrepareStmt() != null) {
-                    // Cache them for later request better performance
-                    analyzer.getPrepareStmt().cacheSerializedDescriptorTable(olapScanNode.getDescTable());
-                    analyzer.getPrepareStmt().cacheSerializedOutputExprs(rootFragment.getOutputExprs());
-                    analyzer.getPrepareStmt().cacheSerializedQueryOptions(queryOptions);
-                }
-            } else if (selectStmt.isTwoPhaseReadOptEnabled()) {
+            if (selectStmt.isTwoPhaseReadOptEnabled()) {
                 // Optimize query like `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...`
                 if (singleNodePlan instanceof SortNode
                         && singleNodePlan.getChildren().size() == 1
@@ -544,7 +525,7 @@ public class OriginalPlanner extends Planner {
             PlanNode child = sortNode.getChild(0);
             if (child instanceof OlapScanNode && sortNode.getLimit() > 0
                     && ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null
-                    && sortNode.getLimit() <= ConnectContext.get().getSessionVariable().topnOptLimitThreshold
+                    && sortNode.getLimit() <= ConnectContext.get().getSessionVariable().topnFilterLimitThreshold
                     && sortNode.getSortInfo().getOrigOrderingExprs().size() > 0) {
                 Expr firstSortExpr = sortNode.getSortInfo().getOrigOrderingExprs().get(0);
                 if (firstSortExpr instanceof SlotRef && !firstSortExpr.getType().isFloatingPointType()) {
@@ -637,25 +618,13 @@ public class OriginalPlanner extends Planner {
             return Optional.empty();
         }
         SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
+        if (!parsedSelectStmt.getTableRefs().isEmpty()) {
+            return Optional.empty();
+        }
         List<SelectListItem> selectItems = parsedSelectStmt.getSelectList().getItems();
         List<Column> columns = new ArrayList<>(selectItems.size());
         List<String> columnLabels = parsedSelectStmt.getColLabels();
         List<String> data = new ArrayList<>();
-        if ((singleNodePlanner.getScanNodes().size() > 0 && singleNodePlanner.getScanNodes().get(0)
-                instanceof IcebergScanNode) && (((IcebergScanNode) getScanNodes().get(0)).rowCount > 0)) {
-            SelectListItem item = selectItems.get(0);
-            Expr expr = item.getExpr();
-            String columnName = columnLabels.get(0);
-            columns.add(new Column(columnName, expr.getType()));
-            data.add(String.valueOf(((IcebergScanNode) getScanNodes().get(0)).rowCount));
-            ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
-            ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
-            // only support one iceberg scan node and one count, e.g. select count(*) from icetbl;
-            return Optional.of(resultSet);
-        }
-        if (!parsedSelectStmt.getTableRefs().isEmpty()) {
-            return Optional.empty();
-        }
         FormatOptions options = FormatOptions.getDefault();
         for (int i = 0; i < selectItems.size(); i++) {
             SelectListItem item = selectItems.get(i);

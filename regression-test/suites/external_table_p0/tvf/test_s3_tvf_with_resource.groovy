@@ -188,7 +188,6 @@ suite("test_s3_tvf_with_resource", "p0") {
     String viewName = "test_s3_tvf_with_resource_view"
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
-    sql """grant select_priv on ${db}.${viewName} to ${user}"""
     sql "drop view if exists ${viewName}"
     sql """
         create view ${viewName} as
@@ -199,7 +198,7 @@ suite("test_s3_tvf_with_resource", "p0") {
                            "resource" = "${resource_name}"
                        )  where k1 > 100  order by k3,k2,k1;
         """
-
+    sql """grant select_priv on ${db}.${viewName} to ${user}"""
     //cloud-mode
     if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "

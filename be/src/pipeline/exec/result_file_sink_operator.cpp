@@ -72,20 +72,16 @@ Status ResultFileSinkOperatorX::init(const TDataSink& tsink) {
     return Status::OK();
 }
 
-Status ResultFileSinkOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::prepare(state));
-    return vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc);
-}
-
 Status ResultFileSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::open(state));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
 
 Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     _sender_id = info.sender_id;
 
     _brpc_wait_timer = ADD_TIMER(_profile, "BrpcSendTime.Wait");
@@ -105,7 +101,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         _writer.reset(new (std::nothrow) vectorized::VFileResultWriter(
                 p._file_opts.get(), p._storage_type, state->fragment_instance_id(),
                 _output_vexpr_ctxs, _sender, nullptr, state->return_object_data_as_binary(),
-                p._output_row_descriptor));
+                p._output_row_descriptor, _async_writer_dependency, _finish_dependency));
     } else {
         // init channel
         _output_block = vectorized::Block::create_unique(
@@ -113,7 +109,8 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         _writer.reset(new (std::nothrow) vectorized::VFileResultWriter(
                 p._file_opts.get(), p._storage_type, state->fragment_instance_id(),
                 _output_vexpr_ctxs, nullptr, _output_block.get(),
-                state->return_object_data_as_binary(), p._output_row_descriptor));
+                state->return_object_data_as_binary(), p._output_row_descriptor,
+                _async_writer_dependency, _finish_dependency));
 
         std::map<int64_t, int64_t> fragment_id_to_channel_index;
         for (int i = 0; i < p._dests.size(); ++i) {
@@ -129,7 +126,6 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
             RETURN_IF_ERROR(_channel->init_stub(state));
         }
     }
-    _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
     _writer->set_header_info(p._header_type, p._header);
     return Status::OK();
 }

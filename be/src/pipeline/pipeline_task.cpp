@@ -58,7 +58,7 @@ PipelineTask::PipelineTask(
           _state(state),
           _fragment_context(fragment_context),
           _parent_profile(parent_profile),
-          _operators(pipeline->operator_xs()),
+          _operators(pipeline->operators()),
           _source(_operators.front().get()),
           _root(_operators.back().get()),
           _sink(pipeline->sink_shared_pointer()),
@@ -153,8 +153,6 @@ Status PipelineTask::_extract_dependencies() {
     {
         auto* local_state = _state->get_sink_local_state();
         write_dependencies = local_state->dependencies();
-        DCHECK(std::all_of(write_dependencies.begin(), write_dependencies.end(),
-                           [](auto* dep) { return dep->is_write_dependency(); }));
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
             finish_dependencies.push_back(fin_dep);
@@ -304,6 +302,7 @@ Status PipelineTask::execute(bool* eos) {
         if (cpu_qs) {
             cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
+        query_context()->update_wg_cpu_adder(delta_cpu_time);
     }};
     if (_wait_to_start()) {
         return Status::OK();
@@ -407,10 +406,9 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
         }
         return false;
     } else if (is_wg_mem_low_water_mark) {
-        int64_t query_weighted_limit = 0;
-        int64_t query_weighted_consumption = 0;
-        query_ctx->get_weighted_memory(query_weighted_limit, query_weighted_consumption);
-        if (query_weighted_limit == 0 || query_weighted_consumption < query_weighted_limit) {
+        int64_t spill_threshold = query_ctx->spill_threshold();
+        int64_t memory_usage = query_ctx->query_mem_tracker->consumption();
+        if (spill_threshold == 0 || memory_usage < spill_threshold) {
             return false;
         }
         auto big_memory_operator_num = query_ctx->get_running_big_mem_op_num();
@@ -419,7 +417,7 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
         if (0 == big_memory_operator_num) {
             return false;
         } else {
-            mem_limit_of_op = query_weighted_limit / big_memory_operator_num;
+            mem_limit_of_op = spill_threshold / big_memory_operator_num;
         }
 
         LOG_EVERY_T(INFO, 1) << "query " << print_id(state->query_id())
@@ -428,10 +426,8 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
                              << ", mem_limit_of_op: " << PrettyPrinter::print_bytes(mem_limit_of_op)
                              << ", min_revocable_mem_bytes: "
                              << PrettyPrinter::print_bytes(min_revocable_mem_bytes)
-                             << ", query_weighted_consumption: "
-                             << PrettyPrinter::print_bytes(query_weighted_consumption)
-                             << ", query_weighted_limit: "
-                             << PrettyPrinter::print_bytes(query_weighted_limit)
+                             << ", memory_usage: " << PrettyPrinter::print_bytes(memory_usage)
+                             << ", spill_threshold: " << PrettyPrinter::print_bytes(spill_threshold)
                              << ", big_memory_operator_num: " << big_memory_operator_num;
         return (revocable_mem_bytes > mem_limit_of_op ||
                 revocable_mem_bytes > min_revocable_mem_bytes);

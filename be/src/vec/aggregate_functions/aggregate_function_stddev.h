@@ -20,20 +20,16 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
 #include <memory>
 #include <type_traits>
 
 #include "agent/be_exec_version_manager.h"
-#include "olap/olap_common.h"
-#include "runtime/decimalv2_value.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
@@ -77,10 +73,20 @@ struct BaseData {
     }
 
     double get_result(double res) const {
+        auto inf_to_nan = [](double val) {
+            // This function performs squaring operations, and due to differences in computation order,
+            // it might produce different values such as inf and nan.
+            // In MySQL, this will directly result in an error due to exceeding the double range.
+            // For performance reasons, we are uniformly changing it to nan
+            if (std::isinf(val)) {
+                return std::nan("");
+            }
+            return val;
+        };
         if constexpr (is_stddev) {
-            return std::sqrt(res);
+            return inf_to_nan(std::sqrt(res));
         } else {
-            return res;
+            return inf_to_nan(res);
         }
     }
 
@@ -109,7 +115,8 @@ struct BaseData {
     }
 
     void add(const IColumn* column, size_t row_num) {
-        const auto& sources = assert_cast<const ColumnVector<T>&>(*column);
+        const auto& sources =
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column);
         double source_data = sources.get_data()[row_num];
 
         double delta = source_data - mean;
@@ -119,107 +126,8 @@ struct BaseData {
         count += 1;
     }
 
-    static DataTypePtr get_return_type() { return std::make_shared<DataTypeNumber<Float64>>(); }
-
     double mean;
     double m2;
-    int64_t count;
-};
-
-template <typename T, bool is_stddev>
-struct BaseDatadecimal {
-    BaseDatadecimal() : mean(0), m2(0), count(0) {}
-    virtual ~BaseDatadecimal() = default;
-
-    void write(BufferWritable& buf) const {
-        write_binary(mean, buf);
-        write_binary(m2, buf);
-        write_binary(count, buf);
-    }
-
-    void read(BufferReadable& buf) {
-        read_binary(mean, buf);
-        read_binary(m2, buf);
-        read_binary(count, buf);
-    }
-
-    void reset() {
-        mean = DecimalV2Value();
-        m2 = DecimalV2Value();
-        count = {};
-    }
-
-    DecimalV2Value get_result(DecimalV2Value res) const {
-        if constexpr (is_stddev) {
-            return DecimalV2Value::sqrt(res);
-        } else {
-            return res;
-        }
-    }
-
-    DecimalV2Value get_pop_result() const {
-        DecimalV2Value new_count = DecimalV2Value();
-        if (count == 1) {
-            return new_count;
-        }
-        DecimalV2Value res = m2 / new_count.assign_from_double(count);
-        return get_result(res);
-    }
-
-    DecimalV2Value get_samp_result() const {
-        DecimalV2Value new_count = DecimalV2Value();
-        DecimalV2Value res = m2 / new_count.assign_from_double(count - 1);
-        return get_result(res);
-    }
-
-    void merge(const BaseDatadecimal& rhs) {
-        if (rhs.count == 0) {
-            return;
-        }
-        DecimalV2Value new_count = DecimalV2Value();
-        new_count.assign_from_double(count);
-        DecimalV2Value rhs_count = DecimalV2Value();
-        rhs_count.assign_from_double(rhs.count);
-
-        DecimalV2Value delta = mean - rhs.mean;
-        DecimalV2Value sum_count = new_count + rhs_count;
-        mean = rhs.mean + delta * (new_count / sum_count);
-        m2 = rhs.m2 + m2 + (delta * delta) * (rhs_count * new_count / sum_count);
-        count += rhs.count;
-    }
-
-    void add(const IColumn* column, size_t row_num) {
-        const auto& sources = assert_cast<const ColumnDecimal<T>&>(*column);
-        Field field = sources[row_num];
-        auto decimal_field = field.template get<DecimalField<T>>();
-        int128_t value;
-        if (decimal_field.get_scale() > DecimalV2Value::SCALE) {
-            value = static_cast<int128_t>(decimal_field.get_value()) /
-                    (decimal_field.get_scale_multiplier() / DecimalV2Value::ONE_BILLION);
-        } else {
-            value = static_cast<int128_t>(decimal_field.get_value()) *
-                    (DecimalV2Value::ONE_BILLION / decimal_field.get_scale_multiplier());
-        }
-        DecimalV2Value source_data = DecimalV2Value(value);
-
-        DecimalV2Value new_count = DecimalV2Value();
-        new_count.assign_from_double(count);
-        DecimalV2Value increase_count = DecimalV2Value();
-        increase_count.assign_from_double(1 + count);
-
-        DecimalV2Value delta = source_data - mean;
-        DecimalV2Value r = delta / increase_count;
-        mean += r;
-        m2 += new_count * delta * r;
-        count += 1;
-    }
-
-    static DataTypePtr get_return_type() {
-        return std::make_shared<DataTypeDecimal<Decimal128V2>>(27, 9);
-    }
-
-    DecimalV2Value mean;
-    DecimalV2Value m2;
     int64_t count;
 };
 
@@ -235,7 +143,13 @@ struct PopData : Data {
             col.get_data().push_back(this->get_pop_result());
         }
     }
+
+    static DataTypePtr get_return_type() { return std::make_shared<DataTypeNumber<Float64>>(); }
 };
+
+// For this series of functions, the Decimal type is not supported
+// because the operations involve squaring,
+// which can easily exceed the range of the Decimal type.
 
 template <typename Data>
 struct StddevName : Data {
@@ -275,6 +189,10 @@ struct SampData_OLDER : Data {
             nullable_column.get_null_map_data().push_back(0);
         }
     }
+
+    static DataTypePtr get_return_type() {
+        return make_nullable(std::make_shared<DataTypeNumber<Float64>>());
+    }
 };
 
 template <typename T, typename Data>
@@ -293,6 +211,8 @@ struct SampData : Data {
             }
         }
     }
+
+    static DataTypePtr get_return_type() { return std::make_shared<DataTypeNumber<Float64>>(); }
 };
 
 template <bool is_pop, typename Data, bool is_nullable>
@@ -307,17 +227,7 @@ public:
 
     String get_name() const override { return Data::name(); }
 
-    DataTypePtr get_return_type() const override {
-        if constexpr (is_pop) {
-            return Data::get_return_type();
-        } else {
-            if (IAggregateFunction::version < AGG_FUNCTION_NULLABLE) {
-                return make_nullable(Data::get_return_type());
-            } else {
-                return Data::get_return_type();
-            }
-        }
-    }
+    DataTypePtr get_return_type() const override { return Data::get_return_type(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {

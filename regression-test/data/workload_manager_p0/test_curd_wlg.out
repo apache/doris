@@ -54,16 +54,16 @@ normal	20	50%	true	2147483647	0	0	1%	16
 test_group	10	11%	false	100	0	0	20%	-1
 
 -- !show_spill_1 --
-spill_group_test	1024	0%	true	2147483647	0	0	-1	-1	10%	10%
+spill_group_test	-1	0%	true	2147483647	0	0	-1	-1	10%	10%
 
 -- !show_spill_1 --
-spill_group_test	1024	0%	true	2147483647	0	0	-1	-1	-1	10%
+spill_group_test	-1	0%	true	2147483647	0	0	-1	-1	-1	10%
 
 -- !show_spill_2 --
-spill_group_test	1024	0%	true	2147483647	0	0	-1	-1	5%	10%
+spill_group_test	-1	0%	true	2147483647	0	0	-1	-1	5%	10%
 
 -- !show_spill_3 --
-spill_group_test	1024	0%	true	2147483647	0	0	-1	-1	5%	40%
+spill_group_test	-1	0%	true	2147483647	0	0	-1	-1	5%	40%
 
 -- !show_wg_tag --
 tag1_mem_wg1	50%	-1	mem_tag1
@@ -96,4 +96,53 @@ tag1_wg3	0%	80%	tag1
 
 -- !select_remote_scan_num_8 --
 -1	-1
+
+-- !select_wgp_1 --
+'test_wg_priv_user1'@'%'	normal	Usage_priv	NO
+
+-- !select_wgp_2 --
+'test_wg_priv_user1'@'%'	normal	Usage_priv	NO
+'test_wg_priv_user1'@'%'	test_wg_priv_g1	Usage_priv	NO
+
+-- !select_wgp_3 --
+'test_wg_priv_user1'@'%'	normal	Usage_priv	NO
+
+-- !select_wgp_4 --
+'test_wg_priv_user1'@'%'	normal	Usage_priv	NO
+'test_wg_priv_user1'@'%'	test_wg_priv_g1	Usage_priv	NO
+
+-- !select_wgp_5 --
+'test_wg_priv_user1'@'%'	normal	Usage_priv	NO
+'test_wg_priv_user1'@'%'	test_wg_priv_g1	Usage_priv	NO
+
+-- !select_wgp_6 --
+'test_wg_priv_user1'@'%'	normal	Usage_priv	NO
+'test_wg_priv_user1'@'%'	test_wg_priv_g1	Usage_priv	NO
+test_wg_priv_role1	test_wg_priv_g1	Usage_priv	NO
+
+-- !select_wgp_7 --
+'test_wg_priv_user1'@'%'	normal	Usage_priv	NO
+'test_wg_priv_user1'@'%'	test_wg_priv_g1	Usage_priv	NO
+
+-- !select_wgp_8 --
+'test_wg_priv_user1'@'%'	normal	Usage_priv	NO
+'test_wg_priv_user1'@'%'	test_wg_priv_g1	Usage_priv	NO
+test_wg_priv_role1	test_wg_priv_g1	Usage_priv	NO
+
+-- !select_wgp_9 --
+'test_wg_priv_user1'@'%'	%	Usage_priv	NO
+'test_wg_priv_user1'@'%'	normal	Usage_priv	NO
+'test_wg_priv_user1'@'%'	test_wg_priv_g1	Usage_priv	NO
+test_wg_priv_role1	%	Usage_priv	NO
+test_wg_priv_role1	test_wg_priv_g1	Usage_priv	NO
+
+-- !select_wgp_10 --
+'test_wg_priv_user1'@'%'	normal	Usage_priv	NO
+'test_wg_priv_user1'@'%'	test_wg_priv_g1	Usage_priv	NO
+test_wg_priv_role1	test_wg_priv_g1	Usage_priv	NO
+
+-- !select_wgp_11 --
+'test_wg_priv_user2'@'%'	normal	Usage_priv	NO
+
+-- !select_wgp_12 --
 

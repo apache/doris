@@ -108,6 +108,33 @@ void register_suites() {
         sp->set_call_back("VOlapTableSink::close",
                           [](auto&&) { std::this_thread::sleep_for(std::chrono::seconds(5)); });
     });
+    suite_map.emplace("test_file_segment_cache_corruption", [] {
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("Segment::open:corruption", [](auto&& args) {
+            LOG(INFO) << "injection Segment::open:corruption";
+            auto* arg0 = try_any_cast<Status*>(args[0]);
+            *arg0 = Status::Corruption<false>("test_file_segment_cache_corruption injection error");
+        });
+    });
+    suite_map.emplace("test_file_segment_cache_corruption1", [] {
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("Segment::open:corruption1", [](auto&& args) {
+            LOG(INFO) << "injection Segment::open:corruption1";
+            auto* arg0 = try_any_cast<Status*>(args[0]);
+            *arg0 = Status::Corruption<false>("test_file_segment_cache_corruption injection error");
+        });
+    });
+    // curl be_ip:http_port/api/injection_point/apply_suite?name=test_cloud_meta_mgr_commit_txn'
+    suite_map.emplace("test_cloud_meta_mgr_commit_txn", [] {
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("CloudMetaMgr::commit_txn", [](auto&& args) {
+            LOG(INFO) << "injection CloudMetaMgr::commit_txn";
+            auto* arg0 = try_any_cast_ret<Status>(args);
+            arg0->first = Status::InternalError<false>(
+                    "test_file_segment_cache_corruption injection error");
+            arg0->second = true;
+        });
+    });
 }
 
 void set_sleep(const std::string& point, HttpRequest* req) {
@@ -123,7 +150,8 @@ void set_sleep(const std::string& point, HttpRequest* req) {
         }
     }
     auto sp = SyncPoint::get_instance();
-    sp->set_call_back(point, [duration](auto&& args) {
+    sp->set_call_back(point, [point, duration](auto&& args) {
+        LOG(INFO) << "injection point hit, point=" << point << " sleep milliseconds=" << duration;
         std::this_thread::sleep_for(std::chrono::milliseconds(duration));
     });
     HttpChannel::send_reply(req, HttpStatus::OK, "OK");
@@ -131,8 +159,9 @@ void set_sleep(const std::string& point, HttpRequest* req) {
 
 void set_return(const std::string& point, HttpRequest* req) {
     auto sp = SyncPoint::get_instance();
-    sp->set_call_back(point, [](auto&& args) {
+    sp->set_call_back(point, [point](auto&& args) {
         try {
+            LOG(INFO) << "injection point hit, point=" << point << " return void";
             auto pred = try_any_cast<bool*>(args.back());
             *pred = true;
         } catch (const std::bad_any_cast&) {
@@ -144,8 +173,9 @@ void set_return(const std::string& point, HttpRequest* req) {
 
 void set_return_ok(const std::string& point, HttpRequest* req) {
     auto sp = SyncPoint::get_instance();
-    sp->set_call_back(point, [](auto&& args) {
+    sp->set_call_back(point, [point](auto&& args) {
         try {
+            LOG(INFO) << "injection point hit, point=" << point << " return ok";
             auto* pair = try_any_cast_ret<Status>(args);
             pair->first = Status::OK();
             pair->second = true;
@@ -172,8 +202,9 @@ void set_return_error(const std::string& point, HttpRequest* req) {
     }
 
     auto sp = SyncPoint::get_instance();
-    sp->set_call_back(point, [code](auto&& args) {
+    sp->set_call_back(point, [code, point](auto&& args) {
         try {
+            LOG(INFO) << "injection point hit, point=" << point << " return error code=" << code;
             auto* pair = try_any_cast_ret<Status>(args);
             pair->first = Status::Error<false>(code, "injected error");
             pair->second = true;
@@ -215,6 +246,7 @@ void handle_set(HttpRequest* req) {
 void handle_clear(HttpRequest* req) {
     const auto& point = req->param("name");
     auto* sp = SyncPoint::get_instance();
+    LOG(INFO) << "clear injection point : " << (point.empty() ? "(all points)" : point);
     if (point.empty()) {
         // If point name is emtpy, clear all
         sp->clear_all_call_backs();
@@ -226,7 +258,7 @@ void handle_clear(HttpRequest* req) {
     HttpChannel::send_reply(req, HttpStatus::OK, "OK");
 }
 
-void handle_suite(HttpRequest* req) {
+void handle_apply_suite(HttpRequest* req) {
     auto& suite = req->param("name");
     if (suite.empty()) {
         HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, "empty suite name");
@@ -236,10 +268,11 @@ void handle_suite(HttpRequest* req) {
     std::call_once(register_suites_once, register_suites);
     if (auto it = suite_map.find(suite); it != suite_map.end()) {
         it->second(); // set injection callbacks
-        HttpChannel::send_reply(req, HttpStatus::OK, "OK");
+        HttpChannel::send_reply(req, HttpStatus::OK, "OK apply suite " + suite + "\n");
         return;
     }
-    HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, "unknown suite: " + suite);
+    HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR,
+                            "unknown suite: " + suite + "\n");
 }
 
 void handle_enable(HttpRequest* req) {
@@ -256,8 +289,39 @@ void handle_disable(HttpRequest* req) {
 
 InjectionPointAction::InjectionPointAction() = default;
 
+//
+// enable/disable injection point
+// ```
+// curl "be_ip:http_port/api/injection_point/enable"
+// curl "be_ip:http_port/api/injection_point/disable"
+// ```
+//
+// clear all injection points
+// ```
+// curl "be_ip:http_port/api/injection_point/clear"
+// ```
+//
+// apply/activate specific suite with registered action, see `register_suites()` for more details
+// ```
+// curl "be_ip:http_port/api/injection_point/apply_suite?name=${suite_name}"
+// ```
+//
+// set predifined action for specific injection point, supported actions are:
+// * sleep: for injection point with callback, accepted param is `duration` in milliseconds
+// * return: for injection point without return value (return void)
+// * return_ok: for injection point with return value, always return Status::OK
+// * return_error: for injection point with return value, accepted param is `code`,
+//                 which is an int, valid values can be found in status.h, e.g. -235 or -230,
+//                 if `code` is not present return Status::InternalError
+// ```
+// curl "be_ip:http_port/api/injection_point/set?name=${injection_point_name}&behavior=sleep&duration=${x_millsec}" # sleep x millisecs
+// curl "be_ip:http_port/api/injection_point/set?name=${injection_point_name}&behavior=return" # return void
+// curl "be_ip:http_port/api/injection_point/set?name=${injection_point_name}&behavior=return_ok" # return ok
+// curl "be_ip:http_port/api/injection_point/set?name=${injection_point_name}&behavior=return_error" # internal error
+// curl "be_ip:http_port/api/injection_point/set?name=${injection_point_name}&behavior=return_error&code=${code}" # -235
+// ```
 void InjectionPointAction::handle(HttpRequest* req) {
-    LOG(INFO) << req->debug_string();
+    LOG(INFO) << "handle InjectionPointAction " << req->debug_string();
     auto& op = req->param("op");
     if (op == "set") {
         handle_set(req);
@@ -266,7 +330,7 @@ void InjectionPointAction::handle(HttpRequest* req) {
         handle_clear(req);
         return;
     } else if (op == "apply_suite") {
-        handle_suite(req);
+        handle_apply_suite(req);
         return;
     } else if (op == "enable") {
         handle_enable(req);

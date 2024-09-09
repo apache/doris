@@ -82,8 +82,8 @@ struct TResourceLimit {
 }
 
 enum TSerdeDialect {
-  DORIS,
-  PRESTO
+  DORIS = 0,
+  PRESTO = 1
 }
 
 // Query options that correspond to PaloService.PaloQueryOptions,
@@ -308,7 +308,7 @@ struct TQueryOptions {
   113: optional bool enable_local_merge_sort = false;
 
   114: optional bool enable_parallel_result_sink = false;
-  
+
   115: optional bool enable_short_circuit_query_access_column_store = false;
 
   116: optional bool enable_no_need_read_data_opt = true;
@@ -317,14 +317,34 @@ struct TQueryOptions {
 
   118: optional TSerdeDialect serde_dialect = TSerdeDialect.DORIS;
 
-  119: optional bool enable_match_without_inverted_index = true;
+  119: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV.
 
-  120: optional bool enable_fallback_on_missing_inverted_index = true;
-
-  121: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV.
+  120: optional bool enable_match_without_inverted_index = true;
+  121: optional bool enable_fallback_on_missing_inverted_index = true;
 
   122: optional i32 runtime_bloom_filter_min_size = 1048576;
+
+  //Access Parquet/ORC columns by name by default. Set this property to `false` to access columns
+  //by their ordinal position in the Hive table definition.  
+  123: optional bool hive_parquet_use_column_names = true;
+  124: optional bool hive_orc_use_column_names = true;
+
+  125: optional bool enable_segment_cache = true;
+
+  126: optional i32 runtime_bloom_filter_max_size = 16777216;
+
+  127: optional i32 in_list_value_count_threshold = 10;
+
+  // We need this two fields to make sure thrift id on master is compatible with other branch.
+  128: optional bool enable_verbose_profile = false;
+  129: optional i32 rpc_verbose_profile_max_instance_count = 0;
+
+  130: optional bool enable_adaptive_pipeline_task_serial_read_on_limit = true;
+  131: optional i32 adaptive_pipeline_task_serial_read_on_limit = 10000;
+
   // For cloud, to control if the content would be written into file cache
+  // In write path, to control if the content would be written into file cache.
+  // In read path, read from file cache or remote storage when execute query.
   1000: optional bool disable_file_cache = false
 }
 

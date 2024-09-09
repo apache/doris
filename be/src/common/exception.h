@@ -20,10 +20,8 @@
 #include <fmt/format.h>
 #include <gen_cpp/Status_types.h>
 
-#include <cstdint>
 #include <exception>
 #include <memory>
-#include <ostream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -129,5 +127,28 @@ inline const std::string& Exception::to_string() const {
             } else {                                                                             \
                 status_ = e.to_status();                                                         \
             }                                                                                    \
+        }                                                                                        \
+    } while (0);
+
+#define HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(stmt, exception_handler)                             \
+    do {                                                                                         \
+        try {                                                                                    \
+            doris::enable_thread_catch_bad_alloc++;                                              \
+            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};                     \
+            {                                                                                    \
+                Status _status_ = (stmt);                                                        \
+                if (UNLIKELY(!_status_.ok())) {                                                  \
+                    exception_handler(doris::Exception());                                       \
+                    return _status_;                                                             \
+                }                                                                                \
+            }                                                                                    \
+        } catch (const doris::Exception& e) {                                                    \
+            exception_handler(e);                                                                \
+            if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {                                \
+                return Status::MemoryLimitExceeded(fmt::format(                                  \
+                        "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}", \
+                        e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));      \
+            }                                                                                    \
+            return Status::Error<false>(e.code(), e.to_string());                                \
         }                                                                                        \
     } while (0);

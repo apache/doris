@@ -8,9 +8,9 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((lineorder.lo_partkey = part.p_partkey)) otherCondition=() build RFs:RF3 p_partkey->[lo_partkey]
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_partkey = part.p_partkey)) otherCondition=() build RFs:RF3 p_partkey->[lo_partkey]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((lineorder.lo_custkey = customer.c_custkey)) otherCondition=() build RFs:RF2 c_custkey->[lo_custkey]
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_custkey = customer.c_custkey)) otherCondition=() build RFs:RF2 c_custkey->[lo_custkey]
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF1 d_datekey->[lo_orderdate]
 --------------------------PhysicalProject

@@ -71,6 +71,35 @@
 #include "io/fs/s3_common.h"
 #include "util/bvar_helper.h"
 
+namespace {
+inline ::Aws::Client::AWSError<::Aws::S3::S3Errors> s3_error_factory() {
+    return {::Aws::S3::S3Errors::INTERNAL_FAILURE, "exceeds limit", "exceeds limit", false};
+}
+
+template <typename Func>
+auto s3_rate_limit(doris::S3RateLimitType op, Func callback) -> decltype(callback()) {
+    using T = decltype(callback());
+    if (!doris::config::enable_s3_rate_limiter) {
+        return callback();
+    }
+    auto sleep_duration = doris::S3ClientFactory::instance().rate_limiter(op)->add(1);
+    if (sleep_duration < 0) {
+        return T(s3_error_factory());
+    }
+    return callback();
+}
+
+template <typename Func>
+auto s3_get_rate_limit(Func callback) -> decltype(callback()) {
+    return s3_rate_limit(doris::S3RateLimitType::GET, std::move(callback));
+}
+
+template <typename Func>
+auto s3_put_rate_limit(Func callback) -> decltype(callback()) {
+    return s3_rate_limit(doris::S3RateLimitType::PUT, std::move(callback));
+}
+} // namespace
+
 namespace Aws::S3::Model {
 class DeleteObjectRequest;
 } // namespace Aws::S3::Model
@@ -92,9 +121,9 @@ ObjectStorageUploadResponse S3ObjStorageClient::create_multipart_upload(
     create_request.SetContentType("application/octet-stream");
 
     SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(_client->CreateMultipartUpload(create_request),
-                                                "s3_file_writer::create_multi_part_upload",
-                                                std::cref(create_request).get());
+    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
+            s3_put_rate_limit([&]() { return _client->CreateMultipartUpload(create_request); }),
+            "s3_file_writer::create_multi_part_upload", std::cref(create_request).get());
     SYNC_POINT_CALLBACK("s3_file_writer::_open", &outcome);
 
     if (outcome.IsSuccess()) {
@@ -122,9 +151,9 @@ ObjectStorageResponse S3ObjStorageClient::put_object(const ObjectStoragePathOpti
     request.SetContentLength(stream.size());
     request.SetContentType("application/octet-stream");
     SCOPED_BVAR_LATENCY(s3_bvar::s3_put_latency);
-    auto response =
-            SYNC_POINT_HOOK_RETURN_VALUE(_client->PutObject(request), "s3_file_writer::put_object",
-                                         std::cref(request).get(), &stream);
+    auto response = SYNC_POINT_HOOK_RETURN_VALUE(
+            s3_put_rate_limit([&]() { return _client->PutObject(request); }),
+            "s3_file_writer::put_object", std::cref(request).get(), &stream);
     if (!response.IsSuccess()) {
         auto st = s3fs_error(response.GetError(),
                              fmt::format("failed to put object {}", opts.path.native()));
@@ -157,8 +186,8 @@ ObjectStorageUploadResponse S3ObjStorageClient::upload_part(const ObjectStorageP
     {
         SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
         upload_part_outcome = SYNC_POINT_HOOK_RETURN_VALUE(
-                _client->UploadPart(upload_request), "s3_file_writer::upload_part",
-                std::cref(upload_request).get(), &stream);
+                s3_put_rate_limit([&]() { return _client->UploadPart(upload_request); }),
+                "s3_file_writer::upload_part", std::cref(upload_request).get(), &stream);
     }
     TEST_SYNC_POINT_CALLBACK("S3FileWriter::_upload_one_part", &upload_part_outcome);
     if (!upload_part_outcome.IsSuccess()) {
@@ -199,7 +228,7 @@ ObjectStorageResponse S3ObjStorageClient::complete_multipart_upload(
     TEST_SYNC_POINT_RETURN_WITH_VALUE("S3FileWriter::_complete:3", ObjectStorageResponse(), this);
     SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
     auto complete_outcome = SYNC_POINT_HOOK_RETURN_VALUE(
-            _client->CompleteMultipartUpload(complete_request),
+            s3_put_rate_limit([&]() { return _client->CompleteMultipartUpload(complete_request); }),
             "s3_file_writer::complete_multi_part", std::cref(complete_request).get());
 
     if (!complete_outcome.IsSuccess()) {
@@ -220,12 +249,13 @@ ObjectStorageHeadResponse S3ObjStorageClient::head_object(const ObjectStoragePat
 
     SCOPED_BVAR_LATENCY(s3_bvar::s3_head_latency);
     auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
-            _client->HeadObject(request), "s3_file_system::head_object", std::ref(request).get());
+            s3_get_rate_limit([&]() { return _client->HeadObject(request); }),
+            "s3_file_system::head_object", std::ref(request).get());
     if (outcome.IsSuccess()) {
         return {.resp = {convert_to_obj_response(Status::OK())},
                 .file_size = outcome.GetResult().GetContentLength()};
     } else if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
-        return {.resp = {convert_to_obj_response(Status::NotFound(""))}};
+        return {.resp = {convert_to_obj_response(Status::Error<ErrorCode::NOT_FOUND, false>(""))}};
     } else {
         return {.resp = {convert_to_obj_response(
                                  s3fs_error(outcome.GetError(),
@@ -247,7 +277,7 @@ ObjectStorageResponse S3ObjStorageClient::get_object(const ObjectStoragePathOpti
     request.SetResponseStreamFactory(AwsWriteableStreamFactory(buffer, bytes_read));
 
     SCOPED_BVAR_LATENCY(s3_bvar::s3_get_latency);
-    auto outcome = _client->GetObject(request);
+    auto outcome = s3_get_rate_limit([&]() { return _client->GetObject(request); });
     if (!outcome.IsSuccess()) {
         return {convert_to_obj_response(
                         s3fs_error(outcome.GetError(),
@@ -273,7 +303,7 @@ ObjectStorageResponse S3ObjStorageClient::list_objects(const ObjectStoragePathOp
         Aws::S3::Model::ListObjectsV2Outcome outcome;
         {
             SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
-            outcome = _client->ListObjectsV2(request);
+            outcome = s3_get_rate_limit([&]() { return _client->ListObjectsV2(request); });
         }
         if (!outcome.IsSuccess()) {
             files->clear();
@@ -310,8 +340,9 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects(const ObjectStoragePath
     });
     del.WithObjects(std::move(objects)).SetQuiet(true);
     delete_request.SetDelete(std::move(del));
-    SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_latency);
-    auto delete_outcome = _client->DeleteObjects(delete_request);
+    SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_objects_latency);
+    auto delete_outcome =
+            s3_put_rate_limit([&]() { return _client->DeleteObjects(delete_request); });
     if (!delete_outcome.IsSuccess()) {
         return {convert_to_obj_response(
                         s3fs_error(delete_outcome.GetError(),
@@ -331,8 +362,8 @@ ObjectStorageResponse S3ObjStorageClient::delete_object(const ObjectStoragePathO
     Aws::S3::Model::DeleteObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
 
-    SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_latency);
-    auto outcome = _client->DeleteObject(request);
+    SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_object_latency);
+    auto outcome = s3_put_rate_limit([&]() { return _client->DeleteObject(request); });
     if (outcome.IsSuccess() ||
         outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         return ObjectStorageResponse::OK();
@@ -354,7 +385,7 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
         Aws::S3::Model::ListObjectsV2Outcome outcome;
         {
             SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
-            outcome = _client->ListObjectsV2(request);
+            outcome = s3_get_rate_limit([&]() { return _client->ListObjectsV2(request); });
         }
         if (!outcome.IsSuccess()) {
             return {convert_to_obj_response(s3fs_error(
@@ -373,8 +404,9 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
             Aws::S3::Model::Delete del;
             del.WithObjects(std::move(objects)).SetQuiet(true);
             delete_request.SetDelete(std::move(del));
-            SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_latency);
-            auto delete_outcome = _client->DeleteObjects(delete_request);
+            SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_objects_latency);
+            auto delete_outcome =
+                    s3_put_rate_limit([&]() { return _client->DeleteObjects(delete_request); });
             if (!delete_outcome.IsSuccess()) {
                 return {convert_to_obj_response(
                                 s3fs_error(delete_outcome.GetError(),

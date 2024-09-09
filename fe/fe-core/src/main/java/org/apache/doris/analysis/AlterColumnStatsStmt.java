@@ -59,7 +59,7 @@ import java.util.Optional;
  * Note: partition stats injection is mainly convenient for test cost estimation,
  * and can be removed after the related functions are completed.
  */
-public class AlterColumnStatsStmt extends DdlStmt {
+public class AlterColumnStatsStmt extends DdlStmt implements NotFallbackInParser {
 
     private static final ImmutableSet<StatsType> CONFIGURABLE_PROPERTIES_SET = new ImmutableSet.Builder<StatsType>()
             .add(StatsType.ROW_COUNT)
@@ -132,6 +132,10 @@ public class AlterColumnStatsStmt extends DdlStmt {
                 .findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid statistics");
+        }
+
+        if (!properties.containsKey(StatsType.ROW_COUNT.getValue())) {
+            throw new AnalysisException("Set column stats must set row_count. e.g. 'row_count'='5'");
         }
 
         // get statsTypeToValue

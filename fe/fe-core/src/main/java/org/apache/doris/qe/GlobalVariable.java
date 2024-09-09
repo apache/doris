@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.MysqlHandshakePacket;
@@ -71,7 +72,8 @@ public final class GlobalVariable {
 
     @VariableMgr.VarAttr(name = VERSION_COMMENT, flag = VariableMgr.READ_ONLY)
     public static String versionComment = "Doris version "
-            + Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
+            + Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH
+            + (Config.isCloudMode() ? " (Cloud Mode)" : "");
 
     @VariableMgr.VarAttr(name = VERSION, flag = VariableMgr.READ_ONLY)
     public static String version = MysqlHandshakePacket.SERVER_VERSION;

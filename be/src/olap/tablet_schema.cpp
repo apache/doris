@@ -673,24 +673,28 @@ bool TabletColumn::is_row_store_column() const {
 }
 
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
-        vectorized::DataTypePtr type) const {
+        vectorized::DataTypePtr type, int current_be_exec_version) const {
     const auto* state_type = assert_cast<const vectorized::DataTypeAggState*>(type.get());
+    BeExecVersionManager::check_agg_state_compatibility(
+            current_be_exec_version, _be_exec_version,
+            state_type->get_nested_function()->get_name());
     return vectorized::AggregateStateUnion::create(state_type->get_nested_function(), {type}, type);
 }
 
-vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix) const {
+vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
+        std::string suffix, int current_be_exec_version) const {
     vectorized::AggregateFunctionPtr function = nullptr;
 
     auto type = vectorized::DataTypeFactory::instance().create_data_type(*this);
     if (type && type->get_type_as_type_descriptor().type == PrimitiveType::TYPE_AGG_STATE) {
-        function = get_aggregate_function_union(type);
+        function = get_aggregate_function_union(type, current_be_exec_version);
     } else {
         std::string origin_name = TabletColumn::get_string_by_aggregation_type(_aggregation);
         std::string agg_name = origin_name + suffix;
         std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                        [](unsigned char c) { return std::tolower(c); });
-        function = vectorized::AggregateFunctionSimpleFactory::instance().get(agg_name, {type},
-                                                                              type->is_nullable());
+        function = vectorized::AggregateFunctionSimpleFactory::instance().get(
+                agg_name, {type}, type->is_nullable(), BeExecVersionManager::get_newest_version());
         if (!function) {
             LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
                          << ", column_type=" << type->get_name();
@@ -1012,6 +1016,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
 
     _row_store_column_unique_ids.assign(schema.row_store_column_unique_ids().begin(),
                                         schema.row_store_column_unique_ids().end());
+    _variant_enable_flatten_nested = schema.variant_enable_flatten_nested();
 }
 
 void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
@@ -1063,6 +1068,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _sort_type = ori_tablet_schema.sort_type();
     _sort_col_num = ori_tablet_schema.sort_col_num();
     _row_store_page_size = ori_tablet_schema.row_store_page_size();
+    _variant_enable_flatten_nested = ori_tablet_schema.variant_flatten_nested();
 
     // copy from table_schema_param
     _schema_version = version;
@@ -1221,6 +1227,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
             _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());
+    tablet_schema_pb->set_variant_enable_flatten_nested(_variant_enable_flatten_nested);
 }
 
 size_t TabletSchema::row_size() const {
@@ -1287,6 +1294,10 @@ void TabletSchema::update_indexes_from_thrift(const std::vector<doris::TOlapTabl
         indexes.emplace_back(std::move(index));
     }
     _indexes = std::move(indexes);
+}
+
+bool TabletSchema::exist_column(const std::string& field_name) const {
+    return _field_name_to_index.contains(StringRef {field_name});
 }
 
 Status TabletSchema::have_column(const std::string& field_name) const {
@@ -1472,7 +1483,7 @@ vectorized::Block TabletSchema::create_block(bool ignore_dropped_col) const {
     return block;
 }
 
-vectorized::Block TabletSchema::create_block_by_cids(const std::vector<uint32_t>& cids) {
+vectorized::Block TabletSchema::create_block_by_cids(const std::vector<uint32_t>& cids) const {
     vectorized::Block block;
     for (const auto& cid : cids) {
         const auto& col = *_cols[cid];
@@ -1538,6 +1549,7 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._store_row_column != b._store_row_column) return false;
     if (a._row_store_page_size != b._row_store_page_size) return false;
     if (a._skip_write_index_on_load != b._skip_write_index_on_load) return false;
+    if (a._variant_enable_flatten_nested != b._variant_enable_flatten_nested) return false;
     return true;
 }
 

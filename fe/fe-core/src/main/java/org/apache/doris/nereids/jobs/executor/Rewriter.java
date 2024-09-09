@@ -29,7 +29,6 @@ import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
-import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
@@ -103,7 +102,6 @@ import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
-import org.apache.doris.nereids.rules.rewrite.PullUpJoinFromUnion;
 import org.apache.doris.nereids.rules.rewrite.PullUpJoinFromUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
@@ -119,6 +117,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughUnion;
+import org.apache.doris.nereids.rules.rewrite.PushDownProjectThroughLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
@@ -293,6 +292,21 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(new ConvertInnerOrCrossJoin()),
                         topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
                 ),
+                topic("Set operation optimization",
+                        // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
+                        topDown(new PushProjectThroughUnion(), new MergeProjects()),
+                        bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept()),
+                        bottomUp(new PushProjectIntoOneRowRelation()),
+                        topDown(new MergeOneRowRelationIntoUnion()),
+                        costBased(topDown(new InferSetOperatorDistinct())),
+                        topDown(new BuildAggForUnion()),
+                        bottomUp(new EliminateEmptyRelation()),
+                        // when union has empty relation child and constantExprsList is not empty,
+                        // after EliminateEmptyRelation, project can be pushed into union
+                        topDown(new PushProjectIntoUnion())
+                ),
+                // putting the "Column pruning and infer predicate" topic behind the "Set operation optimization"
+                // is because that pulling up predicates from union needs EliminateEmptyRelation in union child
                 topic("Column pruning and infer predicate",
                         custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                         custom(RuleType.INFER_PREDICATES, InferPredicates::new),
@@ -306,23 +320,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // after eliminate outer join, we can move some filters to join.otherJoinConjuncts,
                         // this can help to translate plan to backend
                         topDown(new PushFilterInsideJoin()),
-                        topDown(new FindHashConditionForJoin()),
-                        topDown(new ExpressionNormalization())
+                        topDown(new FindHashConditionForJoin())
                 ),
-
                 // this rule should invoke after ColumnPruning
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
-
-                topic("Set operation optimization",
-                        // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
-                        topDown(new PushProjectThroughUnion(), new MergeProjects()),
-                        bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept()),
-                        bottomUp(new PushProjectIntoOneRowRelation()),
-                        topDown(new MergeOneRowRelationIntoUnion()),
-                        topDown(new PushProjectIntoUnion()),
-                        costBased(topDown(new InferSetOperatorDistinct())),
-                        topDown(new BuildAggForUnion())
-                ),
 
                 topic("Eliminate GroupBy",
                         topDown(new EliminateGroupBy(),
@@ -363,8 +364,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 // this rule should be invoked after topic "Join pull up"
                 topic("eliminate Aggregate according to fd items",
                         topDown(new EliminateGroupByKey()),
-                        topDown(new PushDownAggThroughJoinOnPkFk()),
-                        topDown(new PullUpJoinFromUnion())
+                        topDown(new PushDownAggThroughJoinOnPkFk())
                 ),
 
                 topic("Limit optimization",
@@ -424,7 +424,17 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("eliminate",
                         // SORT_PRUNING should be applied after mergeLimit
                         custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
-                        bottomUp(new EliminateEmptyRelation())
+                        bottomUp(
+                                new EliminateEmptyRelation(),
+                                // after eliminate empty relation under union, we could get
+                                // limit
+                                // +-- project
+                                //     +-- limit
+                                //         + project
+                                // so, we need push project through limit to satisfy translator's assumptions
+                                new PushDownFilterThroughProject(),
+                                new PushDownProjectThroughLimit(),
+                                new MergeProjects())
                 ),
                 topic("agg rewrite",
                     // these rules should be put after mv optimization to avoid mv matching fail

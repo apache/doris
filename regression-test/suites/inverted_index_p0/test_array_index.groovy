@@ -15,33 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_array_index0"){
-    // create without set config 'enable_create_inverted_index_for_array' = 'true'
-    try {
-        sql """
-        CREATE TABLE `disable_create_inverted_idx_on_array` (
-          `apply_date` date NULL COMMENT '',
-          `id` varchar(60) NOT NULL COMMENT '',
-          `inventors` array<text> NULL COMMENT '',
-          INDEX index_inverted_inventors(inventors) USING INVERTED  COMMENT ''
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`apply_date`, `id`)
-        COMMENT 'OLAP'
-        DISTRIBUTED BY HASH(`id`) BUCKETS 1
-        PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1",
-        "is_being_synced" = "false",
-        "storage_format" = "V2",
-        "light_schema_change" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false"
-        );
-    """
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("inverted index does not support array type column"))
-    }
-}
-
 suite("test_array_index1"){
     // prepare test table
 
@@ -49,8 +22,6 @@ suite("test_array_index1"){
     def delta_time = 1000
     def alter_res = "null"
     def useTime = 0
-
-    sql """ ADMIN SET FRONTEND CONFIG ("enable_create_inverted_index_for_array" = "true"); """
 
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
@@ -89,6 +60,7 @@ suite("test_array_index1"){
     "enable_single_replica_compaction" = "false"
     );
     """
+    sql """ set enable_common_expr_pushdown = true """
 
     sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2017-01-01', '6afef581285b6608bf80d5a4e46cf839', '[\"a\", \"b\", \"c\"]'); """
     sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2017-01-01', 'd93d942d985a8fb7547c72dada8d332d', '[\"d\", \"e\", \"f\", \"g\", \"h\", \"i\", \"j\", \"k\", \"l\"]'); """
@@ -124,7 +96,6 @@ suite("test_array_index2"){
     def useTime = 0
 
     def indexTblName = "test_array_index2"
-    sql """ ADMIN SET FRONTEND CONFIG ("enable_create_inverted_index_for_array" = "true"); """
 
     sql "DROP TABLE IF EXISTS ${indexTblName}"
     // create 1 replica table

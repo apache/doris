@@ -311,7 +311,7 @@ public class SystemInfoServiceTest {
         DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
         long checksum2 = systemInfoService.loadBackends(dis, 0);
         Assert.assertEquals(checksum1, checksum2);
-        Assert.assertEquals(1, systemInfoService.getIdToBackend().size());
+        Assert.assertEquals(1, systemInfoService.getAllBackendsByAllCluster().size());
         Backend back2 = systemInfoService.getBackend(1);
         Assert.assertEquals(back1, back2);
         dis.close();

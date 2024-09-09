@@ -18,6 +18,7 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <gen_cpp/olap_common.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
 #include <algorithm>
@@ -81,6 +82,60 @@ private:
     mutable SpinLock _lock;
     std::unordered_map<int /* seg_id */, io::FileWriterPtr> _file_writers;
     bool _closed {false};
+};
+
+// Collect the size of the inverted index files
+class InvertedIndexFilesInfo {
+public:
+    // Get inverted index file info in segment id order.
+    // Return the info of inverted index files from seg_id_offset to the last one.
+    Result<std::vector<InvertedIndexFileInfo>> get_inverted_files_info(int seg_id_offset) {
+        std::lock_guard lock(_lock);
+
+        Status st;
+        std::vector<InvertedIndexFileInfo> inverted_files_info(_inverted_index_files_info.size());
+        bool succ = std::all_of(
+                _inverted_index_files_info.begin(), _inverted_index_files_info.end(),
+                [&](auto&& it) {
+                    auto&& [seg_id, info] = it;
+
+                    int idx = seg_id - seg_id_offset;
+                    if (idx >= inverted_files_info.size()) [[unlikely]] {
+                        auto err_msg = fmt::format(
+                                "invalid seg_id={} num_inverted_files_info={} seg_id_offset={}",
+                                seg_id, inverted_files_info.size(), seg_id_offset);
+                        DCHECK(false) << err_msg;
+                        st = Status::InternalError(err_msg);
+                        return false;
+                    }
+
+                    auto& finfo = inverted_files_info[idx];
+                    if (finfo.has_index_size() || finfo.index_info_size() > 0) [[unlikely]] {
+                        // File size should not been set
+                        auto err_msg = fmt::format("duplicate seg_id={}", seg_id);
+                        DCHECK(false) << err_msg;
+                        st = Status::InternalError(err_msg);
+                        return false;
+                    }
+                    finfo = info;
+                    return true;
+                });
+
+        if (succ) {
+            return inverted_files_info;
+        }
+
+        return ResultError(st);
+    }
+
+    void add_file_info(int seg_id, InvertedIndexFileInfo file_info) {
+        std::lock_guard lock(_lock);
+        _inverted_index_files_info.emplace(seg_id, file_info);
+    }
+
+private:
+    std::unordered_map<int /* seg_id */, InvertedIndexFileInfo> _inverted_index_files_info;
+    mutable SpinLock _lock;
 };
 
 class BaseBetaRowsetWriter : public RowsetWriter {
@@ -160,6 +215,8 @@ public:
         return _seg_files.get_file_writers();
     }
 
+    InvertedIndexFilesInfo& get_inverted_index_files_info() { return _idx_files_info; }
+
 private:
     void update_rowset_schema(TabletSchemaSPtr flush_schema);
     // build a tmp rowset for load segment to calc delete_bitmap
@@ -173,6 +230,11 @@ protected:
     virtual int64_t _num_seg() const;
     // build a tmp rowset for load segment to calc delete_bitmap for this segment
     Status _build_tmp(RowsetSharedPtr& rowset_ptr);
+
+    uint64_t get_rowset_num_rows() {
+        std::lock_guard l(_segid_statistics_map_mutex);
+        return std::accumulate(_segment_num_rows.begin(), _segment_num_rows.end(), uint64_t(0));
+    }
 
     std::atomic<int32_t> _num_segment; // number of consecutive flushed segments
     roaring::Roaring _segment_set;     // bitmap set to record flushed segment id
@@ -207,6 +269,9 @@ protected:
 
     int64_t _delete_bitmap_ns = 0;
     int64_t _segment_writer_ns = 0;
+
+    // map<segment_id, inverted_index_file_info>
+    InvertedIndexFilesInfo _idx_files_info;
 };
 
 class SegcompactionWorker;
@@ -227,6 +292,8 @@ public:
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,
             KeyBoundsPB& key_bounds);
 
+    bool is_segcompacted() const { return _num_segcompacted > 0; }
+
 private:
     // segment compaction
     friend class SegcompactionWorker;
@@ -240,7 +307,6 @@ private:
     Status _segcompaction_rename_last_segments();
     Status _load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment, int32_t segment_id);
     Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr& segments);
-    bool _is_segcompacted() const { return _num_segcompacted > 0; }
     bool _check_and_set_is_doing_segcompaction();
     Status _rename_compacted_segments(int64_t begin, int64_t end);
     Status _rename_compacted_segment_plain(uint64_t seg_id);

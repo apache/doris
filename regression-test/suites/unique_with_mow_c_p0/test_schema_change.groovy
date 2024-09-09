@@ -50,7 +50,6 @@ suite("test_schema_change") {
         CLUSTER BY(`cost`, `comment`)
         DISTRIBUTED BY HASH(`user_id`)
         PROPERTIES ( "replication_num" = "1",
-                     "disable_auto_compaction" = "true",
                      "enable_unique_key_merge_on_write" = "true"
         );
     """

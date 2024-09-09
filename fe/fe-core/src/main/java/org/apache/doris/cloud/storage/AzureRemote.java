@@ -215,7 +215,7 @@ public class AzureRemote extends RemoteBase {
             return new ListObjectsResult(objectFiles, pagedResponse.getContinuationToken() != null,
                     pagedResponse.getContinuationToken());
         } catch (BlobStorageException e) {
-            LOG.warn("Failed to list objects for Azure", e);
+            LOG.warn("Failed to list objects for Azure prefix {}", prefix, e);
             throw new DdlException("Failed to list objects for Azure, Error message=" + e.getMessage());
         }
     }

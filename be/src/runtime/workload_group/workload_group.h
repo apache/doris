@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <bvar/bvar.h>
 #include <gen_cpp/BackendService_types.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -77,6 +78,12 @@ public:
         return _memory_limit;
     };
 
+    int64_t weighted_memory_limit() const { return _weighted_memory_limit; };
+
+    void set_weighted_memory_limit(int64_t weighted_memory_limit) {
+        _weighted_memory_limit = weighted_memory_limit;
+    }
+
     // make memory snapshots and refresh total memory used at the same time.
     int64_t make_memory_tracker_snapshots(
             std::list<std::shared_ptr<MemTrackerLimiter>>* tracker_snapshots);
@@ -93,13 +100,11 @@ public:
 
     void set_weighted_memory_ratio(double ratio);
     bool add_wg_refresh_interval_memory_growth(int64_t size) {
-        // `weighted_mem_used` is a rough memory usage in this group,
-        // because we can only get a precise memory usage by MemTracker which is not include page cache.
-        auto weighted_mem_used =
-                int64_t((_total_mem_used + _wg_refresh_interval_memory_growth.load() + size) *
-                        _weighted_mem_ratio);
-        if ((weighted_mem_used > ((double)_memory_limit *
-                                  _spill_high_watermark.load(std::memory_order_relaxed) / 100))) {
+        auto realtime_total_mem_used =
+                _total_mem_used + _wg_refresh_interval_memory_growth.load() + size;
+        if ((realtime_total_mem_used >
+             ((double)_weighted_memory_limit *
+              _spill_high_watermark.load(std::memory_order_relaxed) / 100))) {
             return false;
         } else {
             _wg_refresh_interval_memory_growth.fetch_add(size);
@@ -111,20 +116,17 @@ public:
     }
 
     void check_mem_used(bool* is_low_wartermark, bool* is_high_wartermark) const {
-        // `weighted_mem_used` is a rough memory usage in this group,
-        // because we can only get a precise memory usage by MemTracker which is not include page cache.
-        auto weighted_mem_used =
-                int64_t((_total_mem_used + _wg_refresh_interval_memory_growth.load()) *
-                        _weighted_mem_ratio);
-        *is_low_wartermark =
-                (weighted_mem_used > ((double)_memory_limit *
-                                      _spill_low_watermark.load(std::memory_order_relaxed) / 100));
-        *is_high_wartermark =
-                (weighted_mem_used > ((double)_memory_limit *
-                                      _spill_high_watermark.load(std::memory_order_relaxed) / 100));
+        auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
+        *is_low_wartermark = (realtime_total_mem_used >
+                              ((double)_weighted_memory_limit *
+                               _spill_low_watermark.load(std::memory_order_relaxed) / 100));
+        *is_high_wartermark = (realtime_total_mem_used >
+                               ((double)_weighted_memory_limit *
+                                _spill_high_watermark.load(std::memory_order_relaxed) / 100));
     }
 
     std::string debug_string() const;
+    std::string memory_debug_string() const;
 
     void check_and_update(const WorkloadGroupInfo& tg_info);
 
@@ -190,9 +192,22 @@ public:
 
     std::string thread_debug_info();
 
-    std::shared_ptr<IOThrottle> get_scan_io_throttle(const std::string& disk_dir);
+    std::shared_ptr<IOThrottle> get_local_scan_io_throttle(const std::string& disk_dir);
+
+    std::shared_ptr<IOThrottle> get_remote_scan_io_throttle();
 
     void upsert_scan_io_throttle(WorkloadGroupInfo* tg_info);
+
+    void update_cpu_adder(int64_t delta_cpu_time);
+
+    void update_total_local_scan_io_adder(size_t scan_bytes);
+
+    int64_t get_mem_used() { return _mem_used_status->get_value(); }
+    uint64_t get_cpu_usage() { return _cpu_usage_per_second->get_value(); }
+    int64_t get_local_scan_bytes_per_second() {
+        return _total_local_scan_io_per_second->get_value();
+    }
+    int64_t get_remote_scan_bytes_per_second();
 
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
@@ -200,10 +215,11 @@ private:
     std::string _name;
     int64_t _version;
     int64_t _memory_limit; // bytes
+    // `weighted_memory_limit` less than or equal to _memory_limit, calculate after exclude public memory.
+    // more detailed description in `refresh_wg_weighted_memory_limit`.
+    std::atomic<int64_t> _weighted_memory_limit {0}; //
     // last value of make_memory_tracker_snapshots, refresh every time make_memory_tracker_snapshots is called.
     std::atomic_int64_t _total_mem_used = 0; // bytes
-    // last value of refresh_wg_weighted_memory_ratio.
-    std::atomic<double> _weighted_mem_ratio = 0.0;
     std::atomic_int64_t _wg_refresh_interval_memory_growth;
     bool _enable_memory_overcommit;
     std::atomic<uint64_t> _cpu_share;
@@ -232,6 +248,13 @@ private:
 
     std::map<std::string, std::shared_ptr<IOThrottle>> _scan_io_throttle_map;
     std::shared_ptr<IOThrottle> _remote_scan_io_throttle {nullptr};
+
+    // bvar metric
+    std::unique_ptr<bvar::Status<int64_t>> _mem_used_status;
+    std::unique_ptr<bvar::Adder<uint64_t>> _cpu_usage_adder;
+    std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _cpu_usage_per_second;
+    std::unique_ptr<bvar::Adder<size_t>> _total_local_scan_io_adder;
+    std::unique_ptr<bvar::PerSecond<bvar::Adder<size_t>>> _total_local_scan_io_per_second;
 };
 
 using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;

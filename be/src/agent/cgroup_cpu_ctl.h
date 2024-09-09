@@ -30,14 +30,14 @@ namespace doris {
 
 // cgroup cpu.cfs_quota_us default value, it means disable cpu hard limit
 const static int CGROUP_CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
+const static std::string CGROUP_V2_CPU_HARD_LIMIT_DEFAULT_VALUE = "max 100000";
 
 class CgroupCpuCtl {
 public:
     virtual ~CgroupCpuCtl() = default;
-    CgroupCpuCtl() = default;
     CgroupCpuCtl(uint64_t wg_id) { _wg_id = wg_id; }
 
-    virtual Status init();
+    virtual Status init() = 0;
 
     virtual Status add_thread_to_cgroup() = 0;
 
@@ -48,18 +48,44 @@ public:
     // for log
     void get_cgroup_cpu_info(uint64_t* cpu_shares, int* cpu_hard_limit);
 
-    virtual Status delete_unused_cgroup_path(std::set<uint64_t>& used_wg_ids) = 0;
+    static void init_doris_cgroup_path();
+
+    static Status delete_unused_cgroup_path(std::set<uint64_t>& used_wg_ids);
+
+    static std::unique_ptr<CgroupCpuCtl> create_cgroup_cpu_ctl(uint64_t wg_id);
+
+    static bool is_a_valid_cgroup_path(std::string cg_path);
+
+    static uint64_t cpu_soft_limit_default_value();
 
 protected:
-    Status write_cg_sys_file(std::string file_path, int value, std::string msg, bool is_append);
-
     virtual Status modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) = 0;
 
     virtual Status modify_cg_cpu_soft_limit_no_lock(int cpu_shares) = 0;
 
-    std::string _doris_cgroup_cpu_path;
-    uint64_t _cpu_core_num = CpuInfo::num_cores();
-    uint64_t _cpu_cfs_period_us = 100000;
+    Status add_thread_to_cgroup(std::string task_file);
+
+    static Status write_cg_sys_file(std::string file_path, std::string value, std::string msg,
+                                    bool is_append);
+
+    static Status init_cgroup_v2_query_path_public_file(std::string home_path,
+                                                        std::string query_path);
+
+protected:
+    inline static uint64_t _cpu_core_num;
+    const static uint64_t _cpu_cfs_period_us = 100000;
+    inline static std::string _doris_cgroup_cpu_path = "";
+    inline static std::string _doris_cgroup_cpu_query_path = "";
+    inline static bool _is_enable_cgroup_v1_in_env = false;
+    inline static bool _is_enable_cgroup_v2_in_env = false;
+    inline static bool _is_cgroup_query_path_valid = false;
+
+    // cgroup v2 public file
+    inline static std::string _doris_cgroup_cpu_path_subtree_ctl_file = "";
+    inline static std::string _cgroup_v2_query_path_subtree_ctl_file = "";
+    inline static std::string _doris_cg_v2_procs_file = "";
+
+protected:
     int _cpu_hard_limit = 0;
     std::shared_mutex _lock_mutex;
     bool _init_succ = false;
@@ -96,20 +122,65 @@ protected:
 class CgroupV1CpuCtl : public CgroupCpuCtl {
 public:
     CgroupV1CpuCtl(uint64_t tg_id) : CgroupCpuCtl(tg_id) {}
-    CgroupV1CpuCtl() = default;
     Status init() override;
     Status modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) override;
     Status modify_cg_cpu_soft_limit_no_lock(int cpu_shares) override;
     Status add_thread_to_cgroup() override;
 
-    Status delete_unused_cgroup_path(std::set<uint64_t>& used_wg_ids) override;
-
 private:
-    std::string _cgroup_v1_cpu_query_path;
     std::string _cgroup_v1_cpu_tg_path; // workload group path
     std::string _cgroup_v1_cpu_tg_quota_file;
     std::string _cgroup_v1_cpu_tg_shares_file;
     std::string _cgroup_v1_cpu_tg_task_file;
+};
+
+/*
+    NOTE: cgroup v2 directory structure
+    1 root path:
+        /sys/fs/cgroup
+    
+    2 doris home path:
+        /sys/fs/cgroup/{doris_home}/
+
+    3 doris home subtree_control file:
+        /sys/fs/cgroup/{doris_home}/cgroup.subtree_control
+    
+    4 query path:
+        /sys/fs/cgroup/{doris_home}/query/
+
+    5 query path subtree_control file:
+        /sys/fs/cgroup/{doris_home}/query/cgroup.subtree_control
+
+    6 query path procs file:
+        /sys/fs/cgroup/{doris_home}/query/cgroup.procs
+
+    7 workload group path:
+        /sys/fs/cgroup/{doris_home}/query/{workload_group_id}
+
+    8 workload grou cpu.max file:
+        /sys/fs/cgroup/{doris_home}/query/{workload_group_id}/cpu.max
+
+    9 workload grou cpu.weight file:
+        /sys/fs/cgroup/{doris_home}/query/{workload_group_id}/cpu.weight
+
+    10 workload group cgroup type file:
+        /sys/fs/cgroup/{doris_home}/query/{workload_group_id}/cgroup.type
+
+*/
+class CgroupV2CpuCtl : public CgroupCpuCtl {
+public:
+    CgroupV2CpuCtl(uint64_t tg_id) : CgroupCpuCtl(tg_id) {}
+    Status init() override;
+    Status modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) override;
+    Status modify_cg_cpu_soft_limit_no_lock(int cpu_shares) override;
+    Status add_thread_to_cgroup() override;
+
+private:
+    std::string _cgroup_v2_query_wg_path;
+    std::string _cgroup_v2_query_wg_cpu_max_file;
+    std::string _cgroup_v2_query_wg_cpu_weight_file;
+    std::string _cgroup_v2_query_wg_thread_file;
+    std::string _cgroup_v2_query_wg_type_file;
 };
 
 } // namespace doris

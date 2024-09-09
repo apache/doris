@@ -26,20 +26,17 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
-#include <stdint.h>
-#include <stdlib.h>
 #include <sys/time.h>
 #include <thrift/protocol/TDebugProtocol.h>
-#include <time.h>
 
-#include <algorithm>
+#include <cstdint>
+#include <cstdlib>
+#include <ctime>
 #include <future>
-#include <map>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
 
-#include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/consts.h"
@@ -122,7 +119,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
             _exec_env->stream_load_executor()->rollback_txn(ctx.get());
             ctx->need_rollback = false;
         }
-        if (ctx->body_sink.get() != nullptr) {
+        if (ctx->body_sink != nullptr) {
             ctx->body_sink->cancel(ctx->status.to_string());
         }
     }
@@ -146,7 +143,7 @@ Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
     if (ctx->body_bytes > 0 && ctx->receive_bytes != ctx->body_bytes) {
         LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes=" << ctx->body_bytes
                      << ", receive_bytes=" << ctx->receive_bytes << ", id=" << ctx->id;
-        return Status::InternalError<false>("receive body don't equal with body bytes");
+        return Status::Error<ErrorCode::NETWORK_ERROR>("receive body don't equal with body bytes");
     }
 
     // if we use non-streaming, MessageBodyFileSink.finish will close the file
@@ -210,7 +207,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
             _exec_env->stream_load_executor()->rollback_txn(ctx.get());
             ctx->need_rollback = false;
         }
-        if (ctx->body_sink.get() != nullptr) {
+        if (ctx->body_sink != nullptr) {
             ctx->body_sink->cancel(ctx->status.to_string());
         }
         auto str = ctx->to_json();
@@ -232,13 +229,13 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
     // auth information
     if (!parse_basic_auth(*http_req, &ctx->auth)) {
         LOG(WARNING) << "parse basic authorization failed." << ctx->brief();
-        return Status::InternalError<false>("no valid Basic authorization");
+        return Status::NotAuthorized("no valid Basic authorization");
     }
 
     // get format of this put
     if (!http_req->header(HTTP_COMPRESS_TYPE).empty() &&
         iequal(http_req->header(HTTP_FORMAT_KEY), "JSON")) {
-        return Status::InternalError<false>("compress data of JSON format is not supported.");
+        return Status::NotSupported("compress data of JSON format is not supported.");
     }
     std::string format_str = http_req->header(HTTP_FORMAT_KEY);
     if (iequal(format_str, BeConsts::CSV_WITH_NAMES) ||
@@ -254,8 +251,8 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
     LoadUtil::parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE), &ctx->format,
                            &ctx->compress_type);
     if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
-        return Status::InternalError<false>("unknown data format, format={}",
-                                            http_req->header(HTTP_FORMAT_KEY));
+        return Status::Error<ErrorCode::DATA_FILE_TYPE_ERROR>("unknown data format, format={}",
+                                                              http_req->header(HTTP_FORMAT_KEY));
     }
 
     // check content length
@@ -273,16 +270,18 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         // json max body size
         if ((ctx->format == TFileFormatType::FORMAT_JSON) &&
             (ctx->body_bytes > json_max_body_bytes) && !read_json_by_line) {
-            return Status::InternalError<false>(
-                    "The size of this batch exceed the max size [{}]  of json type data "
-                    " data [ {} ]. Split the file, or use 'read_json_by_line'",
-                    json_max_body_bytes, ctx->body_bytes);
+            return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
+                    "json body size {} exceed BE's conf `streaming_load_json_max_mb` {}. increase "
+                    "it if you are sure this load is reasonable",
+                    ctx->body_bytes, json_max_body_bytes);
         }
         // csv max body size
         else if (ctx->body_bytes > csv_max_body_bytes) {
             LOG(WARNING) << "body exceed max size." << ctx->brief();
-            return Status::InternalError<false>("body exceed max size: {}, data: {}",
-                                                csv_max_body_bytes, ctx->body_bytes);
+            return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
+                    "body size {} exceed BE's conf `streaming_load_max_mb` {}. increase it if you "
+                    "are sure this load is reasonable",
+                    ctx->body_bytes, csv_max_body_bytes);
         }
     } else {
 #ifndef BE_TEST
@@ -300,13 +299,13 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
                   !ctx->is_chunked_transfer))) {
         LOG(WARNING) << "content_length is empty and transfer-encoding!=chunked, please set "
                         "content_length or transfer-encoding=chunked";
-        return Status::InternalError<false>(
+        return Status::InvalidArgument(
                 "content_length is empty and transfer-encoding!=chunked, please set content_length "
                 "or transfer-encoding=chunked");
     } else if (UNLIKELY(!http_req->header(HttpHeaders::CONTENT_LENGTH).empty() &&
                         ctx->is_chunked_transfer)) {
         LOG(WARNING) << "please do not set both content_length and transfer-encoding";
-        return Status::InternalError<false>(
+        return Status::InvalidArgument(
                 "please do not set both content_length and transfer-encoding");
     }
 
@@ -341,13 +340,20 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
     struct evhttp_request* ev_req = req->get_evhttp_request();
     auto evbuf = evhttp_request_get_input_buffer(ev_req);
 
+    SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->stream_load_pipe_tracker());
+
     int64_t start_read_data_time = MonotonicNanos();
     while (evbuffer_get_length(evbuf) > 0) {
-        auto bb = ByteBuffer::allocate(128 * 1024);
+        ByteBufferPtr bb;
+        Status st = ByteBuffer::allocate(128 * 1024, &bb);
+        if (!st.ok()) {
+            ctx->status = st;
+            return;
+        }
         auto remove_bytes = evbuffer_remove(evbuf, bb->ptr, bb->capacity);
         bb->pos = remove_bytes;
         bb->flip();
-        auto st = ctx->body_sink->append(bb);
+        st = ctx->body_sink->append(bb);
         if (!st.ok()) {
             LOG(WARNING) << "append body content failed. errmsg=" << st << ", " << ctx->brief();
             ctx->status = st;
@@ -430,7 +436,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     if (!http_req->header(HTTP_LINE_DELIMITER).empty()) {
         request.__set_line_delimiter(http_req->header(HTTP_LINE_DELIMITER));
     }
-    if (!http_req->header(HTTP_ENCLOSE).empty() && http_req->header(HTTP_ENCLOSE).size() > 0) {
+    if (!http_req->header(HTTP_ENCLOSE).empty() && !http_req->header(HTTP_ENCLOSE).empty()) {
         const auto& enclose_str = http_req->header(HTTP_ENCLOSE);
         if (enclose_str.length() != 1) {
             return Status::InvalidArgument("enclose must be single-char, actually is {}",
@@ -438,7 +444,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
         request.__set_enclose(http_req->header(HTTP_ENCLOSE)[0]);
     }
-    if (!http_req->header(HTTP_ESCAPE).empty() && http_req->header(HTTP_ESCAPE).size() > 0) {
+    if (!http_req->header(HTTP_ESCAPE).empty() && !http_req->header(HTTP_ESCAPE).empty()) {
         const auto& escape_str = http_req->header(HTTP_ESCAPE);
         if (escape_str.length() != 1) {
             return Status::InvalidArgument("escape must be single-char, actually is {}",
@@ -728,7 +734,7 @@ Status StreamLoadAction::_handle_group_commit(HttpRequest* req,
     std::string group_commit_mode = req->header(HTTP_GROUP_COMMIT);
     if (!group_commit_mode.empty() && !iequal(group_commit_mode, "sync_mode") &&
         !iequal(group_commit_mode, "async_mode") && !iequal(group_commit_mode, "off_mode")) {
-        return Status::InternalError<false>(
+        return Status::InvalidArgument(
                 "group_commit can only be [async_mode, sync_mode, off_mode]");
     }
     if (config::wait_internal_group_commit_finish) {
@@ -742,7 +748,7 @@ Status StreamLoadAction::_handle_group_commit(HttpRequest* req,
         ss << "This stream load content length <0 (" << content_length
            << "), please check your content length.";
         LOG(WARNING) << ss.str();
-        return Status::InternalError<false>(ss.str());
+        return Status::InvalidArgument(ss.str());
     }
     // allow chunked stream load in flink
     auto is_chunk = !req->header(HttpHeaders::TRANSFER_ENCODING).empty() &&
@@ -763,8 +769,7 @@ Status StreamLoadAction::_handle_group_commit(HttpRequest* req,
     auto partitions = !req->header(HTTP_PARTITIONS).empty();
     if (!partial_columns && !partitions && !temp_partitions && !ctx->two_phase_commit) {
         if (!config::wait_internal_group_commit_finish && !ctx->label.empty()) {
-            return Status::InternalError<false>(
-                    "label and group_commit can't be set at the same time");
+            return Status::InvalidArgument("label and group_commit can't be set at the same time");
         }
         ctx->group_commit = true;
         if (iequal(group_commit_mode, "async_mode")) {

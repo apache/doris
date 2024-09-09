@@ -178,6 +178,7 @@ visible_functions = {
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_DECIMAL128', 'ARRAY_DECIMAL128'], 'ALWAYS_NULLABLE'],
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_VARCHAR', 'ARRAY_VARCHAR'], 'ALWAYS_NULLABLE'],
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_STRING', 'ARRAY_STRING'], 'ALWAYS_NULLABLE'],
+        [['array_contains_all'], 'BOOLEAN', ['ARRAY<T>', 'ARRAY<T>'], '', ['T']],
 
         [['array_contains'], 'BOOLEAN', ['ARRAY<T>', 'T'], 'CUSTOM', ['T']],
 
@@ -1626,6 +1627,7 @@ visible_functions = {
         [['lower', 'lcase'], 'VARCHAR', ['VARCHAR'], ''],
         [['upper', 'ucase'], 'VARCHAR', ['VARCHAR'], ''],
         [['quote'], 'VARCHAR', ['VARCHAR'], ''],
+        [['auto_partition_name'], 'VARCHAR', ['VARCHAR', '...'], ''],
         [['initcap'], 'VARCHAR', ['VARCHAR'], ''],
         [['trim'], 'VARCHAR', ['VARCHAR','VARCHAR'], ''],
         [['trim'], 'VARCHAR', ['VARCHAR'], ''],
@@ -1658,6 +1660,8 @@ visible_functions = {
         [['money_format'], 'VARCHAR', ['DECIMAL64'], ''],
         [['money_format'], 'VARCHAR', ['DECIMAL128'], ''],
         [['split_by_string'],'ARRAY_VARCHAR',['STRING','STRING'], ''],
+        [['split_by_regexp'],'ARRAY_VARCHAR',['STRING','STRING'], ''],
+        [['split_by_regexp'],'ARRAY_VARCHAR',['STRING','STRING', 'INT'], ''],
         [['split_part'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
         [['substring_index'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['extract_url_parameter'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], ''],
@@ -1699,6 +1703,7 @@ visible_functions = {
         [['ltrim'], 'STRING', ['STRING','STRING'], ''],
         [['rtrim'], 'STRING', ['STRING'], ''],
         [['rtrim'], 'STRING', ['STRING','STRING'], ''],
+        [['auto_partition_name'], 'STRING', ['STRING', '...'], ''],
         [['ascii'], 'INT', ['STRING'], ''],
         [['instr'], 'INT', ['STRING', 'STRING'], ''],
         [['locate'], 'INT', ['STRING', 'STRING'], ''],
@@ -1968,6 +1973,8 @@ visible_functions = {
         [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['sm4_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
@@ -1977,6 +1984,8 @@ visible_functions = {
         [['aes_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['aes_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['aes_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['aes_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['aes_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['sm4_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['sm4_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['sm4_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
@@ -2260,7 +2269,7 @@ visible_functions = {
 
     # multi match functions
     "MultiMatch": [
-        [['multi_match'], 'BOOLEAN', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NOT_NULLABLE']
+        [['multi_match'], 'BOOLEAN', ['STRING', '...'], 'ALWAYS_NOT_NULLABLE']
     ]
 }
 

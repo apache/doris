@@ -271,6 +271,8 @@ public:
     }
 
     Status add_document() {
+        DBUG_EXECUTE_IF("inverted_index_writer.add_document", { return Status::OK(); });
+
         try {
             _index_writer->addDocument(_doc.get());
         } catch (const CLuceneError& e) {
@@ -306,6 +308,11 @@ public:
                 RETURN_IF_ERROR(add_null_document());
             }
         }
+        return Status::OK();
+    }
+
+    Status add_array_nulls(uint32_t row_id) override {
+        _null_bitmap.add(row_id);
         return Status::OK();
     }
 
@@ -357,7 +364,7 @@ public:
                 _rid++;
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
-            add_numeric_values(values, count);
+            RETURN_IF_ERROR(add_numeric_values(values, count));
         }
         return Status::OK();
     }
@@ -421,6 +428,23 @@ public:
                     }
                 }
                 start_off += array_elem_size;
+                // here to make debug for array field with current doc which should has expected number of fields
+                DBUG_EXECUTE_IF("array_inverted_index.write_index", {
+                    auto single_array_field_count =
+                            DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                                    "array_inverted_index.write_index", "single_array_field_count",
+                                    0);
+                    if (single_array_field_count < 0) {
+                        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                                "indexes count cannot be negative");
+                    }
+                    if (_doc->getFields()->size() != single_array_field_count) {
+                        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                                "array field has fields count {} not equal to expected {}",
+                                _doc->getFields()->size(), single_array_field_count);
+                    }
+                })
+
                 if (!_doc->getFields()->empty()) {
                     // if this array is null, we just ignore to write inverted index
                     RETURN_IF_ERROR(add_document());
@@ -450,11 +474,7 @@ public:
                         continue;
                     }
                     const CppType* p = &reinterpret_cast<const CppType*>(value_ptr)[j];
-                    std::string new_value;
-                    size_t value_length = sizeof(CppType);
-
-                    _value_key_coder->full_encode_ascending(p, &new_value);
-                    _bkd_writer->add((const uint8_t*)new_value.c_str(), value_length, _rid);
+                    RETURN_IF_ERROR(add_value(*p));
                 }
                 start_off += array_elem_size;
                 _row_ids_seen_for_bkd++;
@@ -499,11 +519,7 @@ public:
                     if (values->is_null_at(j)) {
                         // bkd do not index null values, so we do nothing here.
                     } else {
-                        std::string new_value;
-                        size_t value_length = sizeof(CppType);
-
-                        _value_key_coder->full_encode_ascending(p, &new_value);
-                        _bkd_writer->add((const uint8_t*)new_value.c_str(), value_length, _rid);
+                        RETURN_IF_ERROR(add_value(*p));
                     }
                     item_data_ptr = (uint8_t*)item_data_ptr + field_size;
                 }
@@ -515,23 +531,33 @@ public:
         return Status::OK();
     }
 
-    void add_numeric_values(const void* values, size_t count) {
+    Status add_numeric_values(const void* values, size_t count) {
         auto p = reinterpret_cast<const CppType*>(values);
         for (size_t i = 0; i < count; ++i) {
-            add_value(*p);
+            RETURN_IF_ERROR(add_value(*p));
+            _rid++;
             p++;
             _row_ids_seen_for_bkd++;
         }
+        return Status::OK();
     }
 
-    void add_value(const CppType& value) {
-        std::string new_value;
-        size_t value_length = sizeof(CppType);
+    Status add_value(const CppType& value) {
+        try {
+            std::string new_value;
+            size_t value_length = sizeof(CppType);
 
-        _value_key_coder->full_encode_ascending(&value, &new_value);
-        _bkd_writer->add((const uint8_t*)new_value.c_str(), value_length, _rid);
+            DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_value_bkd_writer_add_throw_error", {
+                _CLTHROWA(CL_ERR_IllegalArgument, ("packedValue should be length=xxx"));
+            });
 
-        _rid++;
+            _value_key_coder->full_encode_ascending(&value, &new_value);
+            _bkd_writer->add((const uint8_t*)new_value.c_str(), value_length, _rid);
+        } catch (const CLuceneError& e) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "CLuceneError add_value: {}", e.what());
+        }
+        return Status::OK();
     }
 
     int64_t size() const override {

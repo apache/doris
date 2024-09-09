@@ -128,6 +128,7 @@ struct RuntimeFilterParams {
     int64_t bloom_filter_size;
     int32_t max_in_num;
     int64_t runtime_bloom_filter_min_size;
+    int64_t runtime_bloom_filter_max_size;
     int32_t filter_id;
     bool bitmap_filter_not_in;
     bool build_bf_exactly;
@@ -254,12 +255,6 @@ public:
     void set_role(const RuntimeFilterRole role) { _role = role; }
     int expr_order() const { return _expr_order; }
 
-    // only used for consumer
-    // if filter is not ready for filter data scan_node
-    // will wait util it ready or timeout
-    // This function will wait at most config::runtime_filter_shuffle_wait_time_ms
-    // if return true , filter is ready to use
-    bool await();
     void update_state();
     // this function will be called if a runtime filter sent by rpc
     // it will notify all wait threads

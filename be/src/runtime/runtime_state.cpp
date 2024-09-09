@@ -87,11 +87,6 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
     }
 #endif
     DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
-    if (ctx) {
-        _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
-                fragment_exec_params.query_id, RuntimeFilterParamsContext::create(this),
-                _query_mem_tracker);
-    }
     if (fragment_exec_params.__isset.runtime_filter_params) {
         _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                 fragment_exec_params.runtime_filter_params);
@@ -127,8 +122,6 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
     }
 #endif
     DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
-    _runtime_filter_mgr.reset(new RuntimeFilterMgr(
-            query_id, RuntimeFilterParamsContext::create(this), _query_mem_tracker));
 }
 
 RuntimeState::RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& instance_id,
@@ -194,8 +187,6 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
     }
 #endif
     DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
-    _runtime_filter_mgr.reset(new RuntimeFilterMgr(
-            query_id, RuntimeFilterParamsContext::create(this), _query_mem_tracker));
 }
 
 RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
@@ -255,7 +246,6 @@ RuntimeState::~RuntimeState() {
     }
 
     _obj_pool->clear();
-    _runtime_filter_mgr.reset();
 }
 
 Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
@@ -467,15 +457,6 @@ std::string RuntimeState::get_error_log_file_path() {
                                                                     EXPIRATION_SECONDS, true);
     }
     return _error_log_file_path;
-}
-
-int64_t RuntimeState::get_load_mem_limit() {
-    // TODO: the code is abandoned, it can be deleted after v1.3
-    if (_query_options.__isset.load_mem_limit && _query_options.load_mem_limit > 0) {
-        return _query_options.load_mem_limit;
-    } else {
-        return _query_mem_tracker->limit();
-    }
 }
 
 void RuntimeState::resize_op_id_to_local_state(int operator_size) {

@@ -7,7 +7,7 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = sc.ss_store_sk)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((item.i_item_sk = sc.ss_item_sk)) otherCondition=()
+--------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = sc.ss_item_sk)) otherCondition=()
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((sb.ss_store_sk = sc.ss_store_sk)) otherCondition=((cast(revenue as DOUBLE) <= cast((0.1 * ave) as DOUBLE))) build RFs:RF2 ss_store_sk->[ss_store_sk]
 --------------------hashAgg[GLOBAL]

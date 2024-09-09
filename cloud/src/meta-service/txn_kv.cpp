@@ -27,6 +27,7 @@
 #include <cstring>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
@@ -78,10 +79,69 @@ TxnErrorCode FdbTxnKv::create_txn(std::unique_ptr<Transaction>* txn) {
     return ret;
 }
 
+TxnErrorCode FdbTxnKv::create_txn_with_system_access(std::unique_ptr<Transaction>* txn) {
+    auto t = std::make_unique<fdb::Transaction>(database_);
+    TxnErrorCode code = t->init();
+    if (code == TxnErrorCode::TXN_OK) {
+        code = t->enable_access_system_keys();
+    }
+    if (code != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to init txn, ret=" << code;
+        return code;
+    }
+
+    *txn = std::move(t);
+    return TxnErrorCode::TXN_OK;
+}
+
 std::unique_ptr<FullRangeGetIterator> FdbTxnKv::full_range_get(std::string begin, std::string end,
                                                                FullRangeGetIteratorOptions opts) {
     return std::make_unique<fdb::FullRangeGetIterator>(std::move(begin), std::move(end),
                                                        std::move(opts));
+}
+
+TxnErrorCode FdbTxnKv::get_partition_boundaries(std::vector<std::string>* boundaries) {
+    boundaries->clear();
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode code = create_txn_with_system_access(&txn);
+    if (code != TxnErrorCode::TXN_OK) {
+        return code;
+    }
+
+    std::string begin_key(fdb_partition_key_prefix());
+    std::string end_key(fdb_partition_key_end());
+
+    std::unique_ptr<RangeGetIterator> iter;
+    do {
+        code = txn->get(begin_key, end_key, &iter, true);
+        if (code != TxnErrorCode::TXN_OK) {
+            if (code == TxnErrorCode::TXN_TOO_OLD) {
+                code = create_txn_with_system_access(&txn);
+                if (code == TxnErrorCode::TXN_OK) {
+                    continue;
+                }
+            }
+            LOG_WARNING("failed to get fdb boundaries")
+                    .tag("code", code)
+                    .tag("begin_key", hex(begin_key))
+                    .tag("end_key", hex(end_key));
+            return code;
+        }
+
+        while (iter->has_next()) {
+            auto&& [key, value] = iter->next();
+            boundaries->emplace_back(key);
+        }
+
+        begin_key = iter->next_begin_key();
+    } while (iter->more());
+
+    return TxnErrorCode::TXN_OK;
+}
+
+double FdbTxnKv::get_client_thread_busyness() const {
+    return fdb_database_get_main_thread_busyness(database_->db());
 }
 
 } // namespace doris::cloud
@@ -255,6 +315,19 @@ TxnErrorCode Transaction::init() {
         return cast_as_txn_code(err);
     }
 
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode Transaction::enable_access_system_keys() {
+    fdb_error_t err = fdb_transaction_set_option(
+            txn_, FDBTransactionOption::FDB_TR_OPTION_ACCESS_SYSTEM_KEYS, nullptr, 0);
+    if (err) {
+        LOG_WARNING("fdb_transaction_set_option error: ")
+                .tag("option", "FDB_TR_OPTION_ACCESS_SYSTEM_KEYS")
+                .tag("code", err)
+                .tag("msg", fdb_get_error(err));
+        return cast_as_txn_code(err);
+    }
     return TxnErrorCode::TXN_OK;
 }
 

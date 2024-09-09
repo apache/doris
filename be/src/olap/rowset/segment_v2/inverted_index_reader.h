@@ -73,6 +73,104 @@ class InvertedIndexIterator;
 class InvertedIndexQueryCacheHandle;
 class InvertedIndexFileReader;
 struct InvertedIndexQueryInfo;
+class InvertedIndexResultBitmap {
+private:
+    std::shared_ptr<roaring::Roaring> _data_bitmap = nullptr;
+    std::shared_ptr<roaring::Roaring> _null_bitmap = nullptr;
+
+public:
+    // Default constructor
+    InvertedIndexResultBitmap() = default;
+    ~InvertedIndexResultBitmap() = default;
+
+    // Constructor with arguments
+    InvertedIndexResultBitmap(std::shared_ptr<roaring::Roaring> data_bitmap,
+                              std::shared_ptr<roaring::Roaring> null_bitmap)
+            : _data_bitmap(std::move(data_bitmap)), _null_bitmap(std::move(null_bitmap)) {}
+
+    // Copy constructor
+    InvertedIndexResultBitmap(const InvertedIndexResultBitmap& other)
+            : _data_bitmap(std::make_shared<roaring::Roaring>(*other._data_bitmap)),
+              _null_bitmap(std::make_shared<roaring::Roaring>(*other._null_bitmap)) {}
+
+    // Move constructor
+    InvertedIndexResultBitmap(InvertedIndexResultBitmap&& other) noexcept
+            : _data_bitmap(std::move(other._data_bitmap)),
+              _null_bitmap(std::move(other._null_bitmap)) {}
+
+    // Copy assignment operator
+    InvertedIndexResultBitmap& operator=(const InvertedIndexResultBitmap& other) {
+        if (this != &other) { // Prevent self-assignment
+            _data_bitmap = std::make_shared<roaring::Roaring>(*other._data_bitmap);
+            _null_bitmap = std::make_shared<roaring::Roaring>(*other._null_bitmap);
+        }
+        return *this;
+    }
+
+    // Move assignment operator
+    InvertedIndexResultBitmap& operator=(InvertedIndexResultBitmap&& other) noexcept {
+        if (this != &other) { // Prevent self-assignment
+            _data_bitmap = std::move(other._data_bitmap);
+            _null_bitmap = std::move(other._null_bitmap);
+        }
+        return *this;
+    }
+
+    // Operator &=
+    InvertedIndexResultBitmap& operator&=(const InvertedIndexResultBitmap& other) {
+        if (_data_bitmap && _null_bitmap && other._data_bitmap && other._null_bitmap) {
+            auto new_null_bitmap = (*_data_bitmap & *other._null_bitmap) |
+                                   (*_null_bitmap & *other._data_bitmap) |
+                                   (*_null_bitmap & *other._null_bitmap);
+            *_data_bitmap &= *other._data_bitmap;
+            *_null_bitmap = std::move(new_null_bitmap);
+        }
+        return *this;
+    }
+
+    // Operator |=
+    InvertedIndexResultBitmap& operator|=(const InvertedIndexResultBitmap& other) {
+        if (_data_bitmap && _null_bitmap && other._data_bitmap && other._null_bitmap) {
+            auto new_null_bitmap = (*_null_bitmap | *other._null_bitmap) - *_data_bitmap;
+            *_data_bitmap |= *other._data_bitmap;
+            *_null_bitmap = std::move(new_null_bitmap);
+        }
+        return *this;
+    }
+
+    // NOT operation
+    const InvertedIndexResultBitmap& op_not(const roaring::Roaring* universe) const {
+        if (_data_bitmap && _null_bitmap) {
+            *_data_bitmap = *universe - *_data_bitmap - *_null_bitmap;
+            // The _null_bitmap remains unchanged.
+        }
+        return *this;
+    }
+
+    // Operator -=
+    InvertedIndexResultBitmap& operator-=(const InvertedIndexResultBitmap& other) {
+        if (_data_bitmap && _null_bitmap && other._data_bitmap && other._null_bitmap) {
+            *_data_bitmap -= *other._data_bitmap;
+            *_data_bitmap -= *other._null_bitmap;
+            *_null_bitmap -= *other._null_bitmap;
+        }
+        return *this;
+    }
+
+    void mask_out_null() {
+        if (_data_bitmap && _null_bitmap) {
+            *_data_bitmap -= *_null_bitmap;
+        }
+    }
+
+    const std::shared_ptr<roaring::Roaring>& get_data_bitmap() const { return _data_bitmap; }
+
+    const std::shared_ptr<roaring::Roaring>& get_null_bitmap() const { return _null_bitmap; }
+
+    // Check if both bitmaps are empty
+    bool is_empty() const { return (_data_bitmap == nullptr && _null_bitmap == nullptr); }
+};
+
 class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader> {
 public:
     explicit InvertedIndexReader(
@@ -93,7 +191,8 @@ public:
                              const void* query_value, InvertedIndexQueryType query_type,
                              uint32_t* count) = 0;
 
-    Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
+    Status read_null_bitmap(OlapReaderStatistics* stats,
+                            InvertedIndexQueryCacheHandle* cache_handle,
                             lucene::store::Directory* dir = nullptr);
 
     virtual InvertedIndexReaderType type() = 0;
@@ -135,12 +234,18 @@ public:
 
     virtual Status handle_searcher_cache(InvertedIndexCacheHandle* inverted_index_cache_handle,
                                          OlapReaderStatistics* stats);
-
+    std::string get_index_file_path();
     static Status create_index_searcher(lucene::store::Directory* dir, IndexSearcherPtr* searcher,
                                         MemTracker* mem_tracker,
                                         InvertedIndexReaderType reader_type);
 
 protected:
+    Status match_index_search(OlapReaderStatistics* stats, RuntimeState* runtime_state,
+                              InvertedIndexQueryType query_type,
+                              const InvertedIndexQueryInfo& query_info,
+                              const FulltextIndexSearcherPtr& index_searcher,
+                              const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
+
     friend class InvertedIndexIterator;
     std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
     TabletIndex _index_meta;
@@ -177,13 +282,6 @@ public:
                                          const std::map<string, string>& properties);
     static void setup_analyzer_use_stopwords(std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
                                              const std::map<string, string>& properties);
-
-private:
-    Status match_index_search(OlapReaderStatistics* stats, RuntimeState* runtime_state,
-                              InvertedIndexQueryType query_type,
-                              const InvertedIndexQueryInfo& query_info,
-                              const FulltextIndexSearcherPtr& index_searcher,
-                              const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
 };
 
 class StringTypeInvertedIndexReader : public InvertedIndexReader {
@@ -373,7 +471,7 @@ public:
 
     Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
                             lucene::store::Directory* dir = nullptr) {
-        return _reader->read_null_bitmap(cache_handle, dir);
+        return _reader->read_null_bitmap(_stats, cache_handle, dir);
     }
 
     [[nodiscard]] InvertedIndexReaderType get_inverted_index_reader_type() const;

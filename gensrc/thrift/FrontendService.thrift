@@ -30,6 +30,7 @@ include "RuntimeProfile.thrift"
 include "MasterService.thrift"
 include "AgentService.thrift"
 include "DataSinks.thrift"
+include "HeartbeatService.thrift"
 
 // These are supporting structs for JniFrontend.java, which serves as the glue
 // between our C++ execution environment and the Java frontend.
@@ -105,7 +106,7 @@ struct TShowVariableRequest {
 
 // Results of a call to describeTable()
 struct TShowVariableResult {
-    1: required map<string, string> variables
+    1: required list<list<string>> variables
 }
 
 // Valid table file formats
@@ -433,6 +434,12 @@ struct TQueryProfile {
     5: optional list<RuntimeProfile.TRuntimeProfileTree> load_channel_profiles
 }
 
+struct TFragmentInstanceReport {
+  1: optional Types.TUniqueId fragment_instance_id;
+  2: optional i32 num_finished_range;
+}
+
+
 // The results of an INSERT query, sent to the coordinator as part of
 // TReportExecStatusParams
 struct TReportExecStatusParams {
@@ -508,6 +515,8 @@ struct TReportExecStatusParams {
 
   29: optional i64 txn_id
   30: optional string label
+
+  31: optional list<TFragmentInstanceReport> fragment_instance_reports;
 }
 
 struct TFeResult {
@@ -544,7 +553,6 @@ struct TGroupCommitInfo{
     1: optional bool getGroupCommitLoadBeId
     2: optional i64 groupCommitLoadTableId
     3: optional string cluster
-    4: optional bool isCloud
     5: optional bool updateLoadData
     6: optional i64 tableId 
     7: optional i64 receiveData
@@ -1002,6 +1010,10 @@ enum TSchemaTableName {
   ROUTINES_INFO = 4, // db information_schema's table
   WORKLOAD_SCHEDULE_POLICY = 5,
   TABLE_OPTIONS = 6,
+  WORKLOAD_GROUP_PRIVILEGES = 7,
+  TABLE_PROPERTIES = 8,
+  CATALOG_META_CACHE_STATS = 9,
+  PARTITIONS = 10,
 }
 
 struct TMetadataTableRequestParams {
@@ -1016,12 +1028,15 @@ struct TMetadataTableRequestParams {
   9: optional PlanNodes.TJobsMetadataParams jobs_metadata_params
   10: optional PlanNodes.TTasksMetadataParams tasks_metadata_params
   11: optional PlanNodes.TPartitionsMetadataParams partitions_metadata_params
+  12: optional PlanNodes.TMetaCacheStatsParams meta_cache_stats_params
 }
 
 struct TSchemaTableRequestParams {
     1: optional list<string> columns_name
     2: optional Types.TUserIdentity current_user_ident
     3: optional bool replay_to_other_fe
+    4: optional string catalog  // use for table specific queries
+    5: optional i64 dbId         // used for table specific queries
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -1243,6 +1258,9 @@ struct TRestoreSnapshotRequest {
     10: optional map<string, string> properties
     11: optional binary meta
     12: optional binary job_info
+    13: optional bool clean_tables
+    14: optional bool clean_partitions
+    15: optional bool atomic_restore
 }
 
 struct TRestoreSnapshotResult {
@@ -1513,6 +1531,7 @@ struct TGetColumnInfoResult {
 
 struct TShowProcessListRequest {
     1: optional bool show_full_sql
+    2: optional Types.TUserIdentity current_user_ident
 }
 
 struct TShowProcessListResult {
@@ -1552,6 +1571,15 @@ struct TFetchSplitBatchRequest {
 
 struct TFetchSplitBatchResult {
     1: optional list<Planner.TScanRangeLocations> splits
+    2: optional Status.TStatus status
+}
+
+struct TFetchRunningQueriesResult {
+    1: optional Status.TStatus status
+    2: optional list<Types.TUniqueId> running_queries
+}
+
+struct TFetchRunningQueriesRequest {
 }
 
 service FrontendService {
@@ -1648,4 +1676,6 @@ service FrontendService {
 
     TFetchSplitBatchResult fetchSplitBatch(1: TFetchSplitBatchRequest request)
     Status.TStatus updatePartitionStatsCache(1: TUpdateFollowerPartitionStatsCacheRequest request)
+
+    TFetchRunningQueriesResult fetchRunningQueries(1: TFetchRunningQueriesRequest request)
 }

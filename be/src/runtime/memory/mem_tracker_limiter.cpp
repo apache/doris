@@ -43,7 +43,17 @@
 
 namespace doris {
 
-bvar::Adder<int64_t> g_memtrackerlimiter_cnt("memtrackerlimiter_cnt");
+static bvar::Adder<int64_t> memory_memtrackerlimiter_cnt("memory_memtrackerlimiter_cnt");
+static bvar::Adder<int64_t> memory_all_trackers_sum_bytes("memory_all_trackers_sum_bytes");
+static bvar::Adder<int64_t> memory_global_trackers_sum_bytes("memory_global_trackers_sum_bytes");
+static bvar::Adder<int64_t> memory_query_trackers_sum_bytes("memory_query_trackers_sum_bytes");
+static bvar::Adder<int64_t> memory_load_trackers_sum_bytes("memory_load_trackers_sum_bytes");
+static bvar::Adder<int64_t> memory_compaction_trackers_sum_bytes(
+        "memory_compaction_trackers_sum_bytes");
+static bvar::Adder<int64_t> memory_schema_change_trackers_sum_bytes(
+        "memory_schema_change_trackers_sum_bytes");
+static bvar::Adder<int64_t> memory_other_trackers_sum_bytes("memory_other_trackers_sum_bytes");
+
 constexpr auto GC_MAX_SEEK_TRACKER = 1000;
 
 std::atomic<bool> MemTrackerLimiter::_enable_print_log_process_usage {true};
@@ -80,7 +90,7 @@ MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_
     if (_type == Type::LOAD || _type == Type::QUERY) {
         _query_statistics = std::make_shared<QueryStatistics>();
     }
-    g_memtrackerlimiter_cnt << 1;
+    memory_memtrackerlimiter_cnt << 1;
 }
 
 std::shared_ptr<MemTrackerLimiter> MemTrackerLimiter::create_shared(MemTrackerLimiter::Type type,
@@ -104,6 +114,8 @@ MemTrackerLimiter::~MemTrackerLimiter() {
             "mem tracker not equal to 0 when mem tracker destruct, this usually means that "
             "memory tracking is inaccurate and SCOPED_ATTACH_TASK and "
             "SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER are not used correctly. "
+            "If the log is truncated, search for `Address Sanitizer` in the be.INFO log to see "
+            "more information."
             "1. For query and load, memory leaks may have occurred, it is expected that the query "
             "mem tracker will be bound to the thread context using SCOPED_ATTACH_TASK and "
             "SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER before all memory alloc and free. "
@@ -117,7 +129,7 @@ MemTrackerLimiter::~MemTrackerLimiter() {
     if (_consumption->current_value() != 0) {
         // TODO, expect mem tracker equal to 0 at the load/compaction/etc. task end.
 #ifndef NDEBUG
-        if (_type == Type::QUERY) {
+        if (_type == Type::QUERY || (_type == Type::LOAD && !is_group_commit_load)) {
             std::string err_msg =
                     fmt::format("mem tracker label: {}, consumption: {}, peak consumption: {}, {}.",
                                 label(), _consumption->current_value(), _consumption->peak_value(),
@@ -130,29 +142,29 @@ MemTrackerLimiter::~MemTrackerLimiter() {
         }
         _consumption->set(0);
 #ifndef NDEBUG
-    } else if (!_address_sanitizers.empty()) {
-        LOG(INFO) << "[Address Sanitizer] consumption is 0, but address sanitizers not empty. "
-                  << ", mem tracker label: " << _label
-                  << ", peak consumption: " << _consumption->peak_value()
-                  << print_address_sanitizers();
+    } else if (!_address_sanitizers.empty() && !is_group_commit_load) {
+        LOG(FATAL) << "[Address Sanitizer] consumption is 0, but address sanitizers not empty. "
+                   << ", mem tracker label: " << _label
+                   << ", peak consumption: " << _consumption->peak_value()
+                   << print_address_sanitizers();
 #endif
     }
-    g_memtrackerlimiter_cnt << -1;
+    memory_memtrackerlimiter_cnt << -1;
 }
 
 #ifndef NDEBUG
 void MemTrackerLimiter::add_address_sanitizers(void* buf, size_t size) {
-    if (_type == Type::QUERY) {
+    if (_type == Type::QUERY || (_type == Type::LOAD && !is_group_commit_load)) {
         std::lock_guard<std::mutex> l(_address_sanitizers_mtx);
         auto it = _address_sanitizers.find(buf);
         if (it != _address_sanitizers.end()) {
-            LOG(INFO) << "[Address Sanitizer] memory buf repeat add, mem tracker label: " << _label
-                      << ", consumption: " << _consumption->current_value()
-                      << ", peak consumption: " << _consumption->peak_value() << ", buf: " << buf
-                      << ", size: " << size << ", old buf: " << it->first
-                      << ", old size: " << it->second.size
-                      << ", new stack_trace: " << get_stack_trace(1, "DISABLED")
-                      << ", old stack_trace: " << it->second.stack_trace;
+            _error_address_sanitizers.emplace_back(
+                    fmt::format("[Address Sanitizer] memory buf repeat add, mem tracker label: {}, "
+                                "consumption: {}, peak consumption: {}, buf: {}, size: {}, old "
+                                "buf: {}, old size: {}, new stack_trace: {}, old stack_trace: {}.",
+                                _label, _consumption->current_value(), _consumption->peak_value(),
+                                buf, size, it->first, it->second.size,
+                                get_stack_trace(1, "FULL_WITH_INLINE"), it->second.stack_trace));
         }
 
         // if alignment not equal to 0, maybe usable_size > size.
@@ -164,26 +176,26 @@ void MemTrackerLimiter::add_address_sanitizers(void* buf, size_t size) {
 }
 
 void MemTrackerLimiter::remove_address_sanitizers(void* buf, size_t size) {
-    if (_type == Type::QUERY) {
+    if (_type == Type::QUERY || (_type == Type::LOAD && !is_group_commit_load)) {
         std::lock_guard<std::mutex> l(_address_sanitizers_mtx);
         auto it = _address_sanitizers.find(buf);
         if (it != _address_sanitizers.end()) {
             if (it->second.size != size) {
-                LOG(INFO) << "[Address Sanitizer] free memory buf size inaccurate, mem tracker "
-                             "label: "
-                          << _label << ", consumption: " << _consumption->current_value()
-                          << ", peak consumption: " << _consumption->peak_value()
-                          << ", buf: " << buf << ", size: " << size << ", old buf: " << it->first
-                          << ", old size: " << it->second.size
-                          << ", new stack_trace: " << get_stack_trace(1, "DISABLED")
-                          << ", old stack_trace: " << it->second.stack_trace;
+                _error_address_sanitizers.emplace_back(fmt::format(
+                        "[Address Sanitizer] free memory buf size inaccurate, mem tracker label: "
+                        "{}, consumption: {}, peak consumption: {}, buf: {}, size: {}, old buf: "
+                        "{}, old size: {}, new stack_trace: {}, old stack_trace: {}.",
+                        _label, _consumption->current_value(), _consumption->peak_value(), buf,
+                        size, it->first, it->second.size, get_stack_trace(1, "FULL_WITH_INLINE"),
+                        it->second.stack_trace));
             }
             _address_sanitizers.erase(buf);
         } else {
-            LOG(INFO) << "[Address Sanitizer] memory buf not exist, mem tracker label: " << _label
-                      << ", consumption: " << _consumption->current_value()
-                      << ", peak consumption: " << _consumption->peak_value() << ", buf: " << buf
-                      << ", size: " << size << ", stack_trace: " << get_stack_trace(1, "DISABLED");
+            _error_address_sanitizers.emplace_back(fmt::format(
+                    "[Address Sanitizer] memory buf not exist, mem tracker label: {}, consumption: "
+                    "{}, peak consumption: {}, buf: {}, size: {}, stack_trace: {}.",
+                    _label, _consumption->current_value(), _consumption->peak_value(), buf, size,
+                    get_stack_trace(1, "FULL_WITH_INLINE")));
         }
     }
 }
@@ -191,9 +203,20 @@ void MemTrackerLimiter::remove_address_sanitizers(void* buf, size_t size) {
 std::string MemTrackerLimiter::print_address_sanitizers() {
     std::lock_guard<std::mutex> l(_address_sanitizers_mtx);
     std::string detail = "[Address Sanitizer]:";
+    detail += "\n memory not be freed:";
     for (const auto& it : _address_sanitizers) {
-        detail += fmt::format("\n    {}, size {}, strack trace: {}", it.first, it.second.size,
-                              it.second.stack_trace);
+        auto msg = fmt::format(
+                "\n    [Address Sanitizer] buf not be freed, mem tracker label: {}, consumption: "
+                "{}, peak consumption: {}, buf: {}, size {}, strack trace: {}",
+                _label, _consumption->current_value(), _consumption->peak_value(), it.first,
+                it.second.size, it.second.stack_trace);
+        LOG(INFO) << msg;
+        detail += msg;
+    }
+    detail += "\n incorrect memory alloc and free:";
+    for (const auto& err_msg : _error_address_sanitizers) {
+        LOG(INFO) << err_msg;
+        detail += fmt::format("\n    {}", err_msg);
     }
     return detail;
 }
@@ -223,9 +246,40 @@ void MemTrackerLimiter::refresh_global_counter() {
             }
         }
     }
+    int64_t all_trackers_mem_sum = 0;
     for (auto it : type_mem_sum) {
         MemTrackerLimiter::TypeMemSum[it.first]->set(it.second);
+        all_trackers_mem_sum += it.second;
+        switch (it.first) {
+        case Type::GLOBAL:
+            memory_global_trackers_sum_bytes
+                    << it.second - memory_global_trackers_sum_bytes.get_value();
+            break;
+        case Type::QUERY:
+            memory_query_trackers_sum_bytes
+                    << it.second - memory_query_trackers_sum_bytes.get_value();
+            break;
+        case Type::LOAD:
+            memory_load_trackers_sum_bytes
+                    << it.second - memory_load_trackers_sum_bytes.get_value();
+            break;
+        case Type::COMPACTION:
+            memory_compaction_trackers_sum_bytes
+                    << it.second - memory_compaction_trackers_sum_bytes.get_value();
+            break;
+        case Type::SCHEMA_CHANGE:
+            memory_schema_change_trackers_sum_bytes
+                    << it.second - memory_schema_change_trackers_sum_bytes.get_value();
+            break;
+        case Type::OTHER:
+            memory_other_trackers_sum_bytes
+                    << it.second - memory_other_trackers_sum_bytes.get_value();
+        }
     }
+    all_trackers_mem_sum += MemInfo::allocator_cache_mem();
+    all_trackers_mem_sum += MemInfo::allocator_metadata_mem();
+    memory_all_trackers_sum_bytes << all_trackers_mem_sum -
+                                             memory_all_trackers_sum_bytes.get_value();
 }
 
 void MemTrackerLimiter::clean_tracker_limiter_group() {
@@ -248,7 +302,7 @@ void MemTrackerLimiter::clean_tracker_limiter_group() {
 
 void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>* snapshots) {
     MemTrackerLimiter::refresh_global_counter();
-    int64_t all_tracker_mem_sum = 0;
+    int64_t all_trackers_mem_sum = 0;
     Snapshot snapshot;
     for (auto it : MemTrackerLimiter::TypeMemSum) {
         snapshot.type = "overview";
@@ -257,7 +311,7 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
         snapshot.cur_consumption = it.second->current_value();
         snapshot.peak_consumption = it.second->peak_value();
         (*snapshots).emplace_back(snapshot);
-        all_tracker_mem_sum += it.second->current_value();
+        all_trackers_mem_sum += it.second->current_value();
     }
 
     snapshot.type = "overview";
@@ -266,7 +320,7 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
     snapshot.cur_consumption = MemInfo::allocator_cache_mem();
     snapshot.peak_consumption = -1;
     (*snapshots).emplace_back(snapshot);
-    all_tracker_mem_sum += MemInfo::allocator_cache_mem();
+    all_trackers_mem_sum += MemInfo::allocator_cache_mem();
 
     snapshot.type = "overview";
     snapshot.label = "tc/jemalloc_metadata";
@@ -274,20 +328,27 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
     snapshot.cur_consumption = MemInfo::allocator_metadata_mem();
     snapshot.peak_consumption = -1;
     (*snapshots).emplace_back(snapshot);
-    all_tracker_mem_sum += MemInfo::allocator_metadata_mem();
+    all_trackers_mem_sum += MemInfo::allocator_metadata_mem();
 
     snapshot.type = "overview";
-    snapshot.label = "sum of all trackers"; // is virtual memory
+    snapshot.label = "reserved_memory";
     snapshot.limit = -1;
-    snapshot.cur_consumption = all_tracker_mem_sum;
+    snapshot.cur_consumption = GlobalMemoryArbitrator::process_reserved_memory();
+    snapshot.peak_consumption = -1;
+    (*snapshots).emplace_back(snapshot);
+
+    snapshot.type = "overview";
+    snapshot.label = "sum_of_all_trackers"; // is virtual memory
+    snapshot.limit = -1;
+    snapshot.cur_consumption = all_trackers_mem_sum;
     snapshot.peak_consumption = -1;
     (*snapshots).emplace_back(snapshot);
 
     snapshot.type = "overview";
 #ifdef ADDRESS_SANITIZER
-    snapshot.label = "[ASAN]process resident memory"; // from /proc VmRSS VmHWM
+    snapshot.label = "[ASAN]VmRSS(process resident memory)"; // from /proc VmRSS VmHWM
 #else
-    snapshot.label = "process resident memory"; // from /proc VmRSS VmHWM
+    snapshot.label = "VmRSS(process resident memory)"; // from /proc VmRSS VmHWM
 #endif
     snapshot.limit = -1;
     snapshot.cur_consumption = PerfCounters::get_vm_rss();
@@ -295,14 +356,7 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
     (*snapshots).emplace_back(snapshot);
 
     snapshot.type = "overview";
-    snapshot.label = "reserve_memory";
-    snapshot.limit = -1;
-    snapshot.cur_consumption = GlobalMemoryArbitrator::process_reserved_memory();
-    snapshot.peak_consumption = -1;
-    (*snapshots).emplace_back(snapshot);
-
-    snapshot.type = "overview";
-    snapshot.label = "process virtual memory"; // from /proc VmSize VmPeak
+    snapshot.label = "VmSize(process virtual memory)"; // from /proc VmSize VmPeak
     snapshot.limit = -1;
     snapshot.cur_consumption = PerfCounters::get_vm_size();
     snapshot.peak_consumption = PerfCounters::get_vm_peak();
@@ -471,7 +525,7 @@ std::string MemTrackerLimiter::tracker_limit_exceeded_str() {
         err_msg += fmt::format(
                 " exec node:<{}>, can `set exec_mem_limit=8G` to change limit, details see "
                 "be.INFO.",
-                doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker());
+                doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker_label());
     } else if (_type == Type::SCHEMA_CHANGE) {
         err_msg += fmt::format(
                 " can modify `memory_limitation_per_thread_for_schema_change_bytes` in be.conf to "

@@ -39,11 +39,7 @@ public:
         return Base::open(state);
     }
 
-    Status close(RuntimeState* state, Status exec_status) override;
     friend class HiveTableSinkOperatorX;
-
-private:
-    Status _close_status = Status::OK();
 };
 
 class HiveTableSinkOperatorX final : public DataSinkOperatorX<HiveTableSinkLocalState> {
@@ -63,13 +59,9 @@ public:
         return Status::OK();
     }
 
-    Status prepare(RuntimeState* state) override {
-        RETURN_IF_ERROR(Base::prepare(state));
-        return vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc);
-    }
-
     Status open(RuntimeState* state) override {
         RETURN_IF_ERROR(Base::open(state));
+        RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
         return vectorized::VExpr::open(_output_vexpr_ctxs, state);
     }
 

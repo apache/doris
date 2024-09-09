@@ -19,31 +19,152 @@
 
 #include <fmt/format.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <filesystem>
 
+#include "util/cgroup_util.h"
 #include "util/defer_op.h"
 
 namespace doris {
 
-Status CgroupCpuCtl::init() {
-    _doris_cgroup_cpu_path = config::doris_cgroup_cpu_path;
-    if (_doris_cgroup_cpu_path.empty()) {
-        LOG(INFO) << "doris cgroup cpu path is not specify, path=" << _doris_cgroup_cpu_path;
-        return Status::InvalidArgument<false>("doris cgroup cpu path {} is not specify.",
-                                              _doris_cgroup_cpu_path);
+bool CgroupCpuCtl::is_a_valid_cgroup_path(std::string cg_path) {
+    if (!cg_path.empty()) {
+        if (cg_path.back() != '/') {
+            cg_path = cg_path + "/";
+        }
+        if (_is_enable_cgroup_v2_in_env) {
+            std::string query_path_cg_type = cg_path + "cgroup.type";
+            std::string query_path_ctl = cg_path + "cgroup.subtree_control";
+            std::string query_path_procs = cg_path + "cgroup.procs";
+            if (access(query_path_cg_type.c_str(), F_OK) != 0 ||
+                access(query_path_ctl.c_str(), F_OK) != 0 ||
+                access(query_path_procs.c_str(), F_OK) != 0) {
+                LOG(WARNING) << "[cgroup_init_path]invalid cgroup v2 path, access neccessary file "
+                                "failed";
+            } else {
+                return true;
+            }
+        } else if (_is_enable_cgroup_v1_in_env) {
+            std::string query_path_tasks = cg_path + "tasks";
+            std::string query_path_cpu_shares = cg_path + "cpu.shares";
+            std::string query_path_quota = cg_path + "cpu.cfs_quota_us";
+            if (access(query_path_tasks.c_str(), F_OK) != 0 ||
+                access(query_path_cpu_shares.c_str(), F_OK) != 0 ||
+                access(query_path_quota.c_str(), F_OK) != 0) {
+                LOG(WARNING) << "[cgroup_init_path]invalid cgroup v1 path, access neccessary file "
+                                "failed";
+            } else {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void CgroupCpuCtl::init_doris_cgroup_path() {
+    std::string conf_path = config::doris_cgroup_cpu_path;
+    if (conf_path.empty()) {
+        LOG(INFO) << "[cgroup_init_path]doris cgroup home path is not specify, if you not use "
+                     "workload group, you can ignore this log.";
+        return;
     }
 
-    if (access(_doris_cgroup_cpu_path.c_str(), F_OK) != 0) {
-        LOG(INFO) << "doris cgroup cpu path not exists, path=" << _doris_cgroup_cpu_path;
-        return Status::InvalidArgument<false>("doris cgroup cpu path {} not exists.",
-                                              _doris_cgroup_cpu_path);
+    if (access(conf_path.c_str(), F_OK) != 0) {
+        LOG(INFO) << "[cgroup_init_path]doris cgroup home path not exists, path=" << conf_path;
+        return;
     }
 
-    if (_doris_cgroup_cpu_path.back() != '/') {
-        _doris_cgroup_cpu_path = _doris_cgroup_cpu_path + "/";
+    if (conf_path.back() != '/') {
+        conf_path = conf_path + "/";
     }
+
+    // check whether current user specified path is a valid cgroup path
+    std::string cg_msg = "not set cgroup in env";
+    if (CGroupUtil::cgroupsv2_enable()) {
+        _is_enable_cgroup_v2_in_env = true;
+        cg_msg = "cgroup v2 is enabled in env";
+    } else if (CGroupUtil::cgroupsv1_enable()) {
+        _is_enable_cgroup_v1_in_env = true;
+        cg_msg = "cgroup v1 is enabled in env";
+    }
+    bool is_cgroup_path_valid = CgroupCpuCtl::is_a_valid_cgroup_path(conf_path);
+
+    std::string tmp_query_path = conf_path + "query";
+    if (is_cgroup_path_valid) {
+        if (access(tmp_query_path.c_str(), F_OK) != 0) {
+            int ret = mkdir(tmp_query_path.c_str(), S_IRWXU);
+            if (ret != 0) {
+                LOG(ERROR) << "[cgroup_init_path]cgroup mkdir query failed, path="
+                           << tmp_query_path;
+            }
+        }
+        _is_cgroup_query_path_valid = CgroupCpuCtl::is_a_valid_cgroup_path(tmp_query_path);
+    }
+
+    _doris_cgroup_cpu_path = conf_path;
+    _doris_cgroup_cpu_query_path = tmp_query_path;
+    std::string query_path_msg = _is_cgroup_query_path_valid ? "cgroup query path is valid"
+                                                             : "cgroup query path is not valid";
+    _cpu_core_num = CpuInfo::num_cores();
+
+    std::string init_cg_v2_msg = "";
+    if (_is_enable_cgroup_v2_in_env && _is_cgroup_query_path_valid) {
+        Status ret = init_cgroup_v2_query_path_public_file(_doris_cgroup_cpu_path,
+                                                           _doris_cgroup_cpu_query_path);
+        if (!ret.ok()) {
+            init_cg_v2_msg = " write cgroup v2 file failed, err=" + ret.to_string_no_stack() + ". ";
+        } else {
+            init_cg_v2_msg = "write cgroup v2 public file succ.";
+        }
+    }
+
+    LOG(INFO) << "[cgroup_init_path]init cgroup home path finish, home path="
+              << _doris_cgroup_cpu_path << ", query path=" << _doris_cgroup_cpu_query_path << ", "
+              << cg_msg << ", " << query_path_msg << ", core_num=" << _cpu_core_num << ". "
+              << init_cg_v2_msg;
+}
+
+Status CgroupCpuCtl::init_cgroup_v2_query_path_public_file(std::string home_path,
+                                                           std::string query_path) {
+    // 1 enable cpu controller for home path's child
+    _doris_cgroup_cpu_path_subtree_ctl_file = home_path + "cgroup.subtree_control";
+    if (access(_doris_cgroup_cpu_path_subtree_ctl_file.c_str(), F_OK) != 0) {
+        return Status::InternalError<false>("not find cgroup v2 doris home's subtree control file");
+    }
+    RETURN_IF_ERROR(CgroupCpuCtl::write_cg_sys_file(_doris_cgroup_cpu_path_subtree_ctl_file, "+cpu",
+                                                    "set cpu controller", false));
+
+    // 2 enable cpu controller for query path's child
+    _cgroup_v2_query_path_subtree_ctl_file = query_path + "/cgroup.subtree_control";
+    if (access(_cgroup_v2_query_path_subtree_ctl_file.c_str(), F_OK) != 0) {
+        return Status::InternalError<false>("not find cgroup v2 query path's subtree control file");
+    }
+    RETURN_IF_ERROR(CgroupCpuCtl::write_cg_sys_file(_cgroup_v2_query_path_subtree_ctl_file, "+cpu",
+                                                    "set cpu controller", false));
+
+    // 3 write cgroup.procs
+    _doris_cg_v2_procs_file = query_path + "/cgroup.procs";
+    if (access(_doris_cg_v2_procs_file.c_str(), F_OK) != 0) {
+        return Status::InternalError<false>("not find cgroup v2 cgroup.procs file");
+    }
+    RETURN_IF_ERROR(CgroupCpuCtl::write_cg_sys_file(_doris_cg_v2_procs_file,
+                                                    std::to_string(getpid()),
+                                                    "set pid to cg v2 procs file", false));
     return Status::OK();
+}
+
+uint64_t CgroupCpuCtl::cpu_soft_limit_default_value() {
+    return _is_enable_cgroup_v2_in_env ? 100 : 1024;
+}
+
+std::unique_ptr<CgroupCpuCtl> CgroupCpuCtl::create_cgroup_cpu_ctl(uint64_t wg_id) {
+    if (_is_enable_cgroup_v2_in_env) {
+        return std::make_unique<CgroupV2CpuCtl>(wg_id);
+    } else if (_is_enable_cgroup_v1_in_env) {
+        return std::make_unique<CgroupV1CpuCtl>(wg_id);
+    }
+    return nullptr;
 }
 
 void CgroupCpuCtl::get_cgroup_cpu_info(uint64_t* cpu_shares, int* cpu_hard_limit) {
@@ -78,7 +199,7 @@ void CgroupCpuCtl::update_cpu_soft_limit(int cpu_shares) {
     }
 }
 
-Status CgroupCpuCtl::write_cg_sys_file(std::string file_path, int value, std::string msg,
+Status CgroupCpuCtl::write_cg_sys_file(std::string file_path, std::string value, std::string msg,
                                        bool is_append) {
     int fd = open(file_path.c_str(), is_append ? O_RDWR | O_APPEND : O_RDWR);
     if (fd == -1) {
@@ -102,82 +223,7 @@ Status CgroupCpuCtl::write_cg_sys_file(std::string file_path, int value, std::st
     return Status::OK();
 }
 
-Status CgroupV1CpuCtl::init() {
-    RETURN_IF_ERROR(CgroupCpuCtl::init());
-
-    // query path
-    _cgroup_v1_cpu_query_path = _doris_cgroup_cpu_path + "query";
-    if (access(_cgroup_v1_cpu_query_path.c_str(), F_OK) != 0) {
-        int ret = mkdir(_cgroup_v1_cpu_query_path.c_str(), S_IRWXU);
-        if (ret != 0) {
-            LOG(ERROR) << "cgroup v1 mkdir query failed, path=" << _cgroup_v1_cpu_query_path;
-            return Status::InternalError<false>("cgroup v1 mkdir query failed, path={}",
-                                                _cgroup_v1_cpu_query_path);
-        }
-    }
-
-    // check whether current user specified path is a valid cgroup path
-    std::string query_path_tasks = _cgroup_v1_cpu_query_path + "/tasks";
-    std::string query_path_cpu_shares = _cgroup_v1_cpu_query_path + "/cpu.shares";
-    std::string query_path_quota = _cgroup_v1_cpu_query_path + "/cpu.cfs_quota_us";
-    if (access(query_path_tasks.c_str(), F_OK) != 0) {
-        return Status::InternalError<false>("invalid cgroup path, not find task file");
-    }
-    if (access(query_path_cpu_shares.c_str(), F_OK) != 0) {
-        return Status::InternalError<false>("invalid cgroup path, not find cpu share file");
-    }
-    if (access(query_path_quota.c_str(), F_OK) != 0) {
-        return Status::InternalError<false>("invalid cgroup path, not find cpu quota file");
-    }
-
-    if (_wg_id == -1) {
-        // means current cgroup cpu ctl is just used to clear dir,
-        // it does not contains workload group.
-        // todo(wb) rethinking whether need to refactor cgroup_cpu_ctl
-        _init_succ = true;
-        LOG(INFO) << "init cgroup cpu query path succ, path=" << _cgroup_v1_cpu_query_path;
-        return Status::OK();
-    }
-
-    // workload group path
-    _cgroup_v1_cpu_tg_path = _cgroup_v1_cpu_query_path + "/" + std::to_string(_wg_id);
-    if (access(_cgroup_v1_cpu_tg_path.c_str(), F_OK) != 0) {
-        int ret = mkdir(_cgroup_v1_cpu_tg_path.c_str(), S_IRWXU);
-        if (ret != 0) {
-            LOG(ERROR) << "cgroup v1 mkdir workload group failed, path=" << _cgroup_v1_cpu_tg_path;
-            return Status::InternalError<false>("cgroup v1 mkdir workload group failed, path=",
-                                                _cgroup_v1_cpu_tg_path);
-        }
-    }
-
-    // quota file
-    _cgroup_v1_cpu_tg_quota_file = _cgroup_v1_cpu_tg_path + "/cpu.cfs_quota_us";
-    // cpu.shares file
-    _cgroup_v1_cpu_tg_shares_file = _cgroup_v1_cpu_tg_path + "/cpu.shares";
-    // task file
-    _cgroup_v1_cpu_tg_task_file = _cgroup_v1_cpu_tg_path + "/tasks";
-    LOG(INFO) << "cgroup v1 cpu path init success"
-              << ", query tg path=" << _cgroup_v1_cpu_tg_path
-              << ", query tg quota file path=" << _cgroup_v1_cpu_tg_quota_file
-              << ", query tg tasks file path=" << _cgroup_v1_cpu_tg_task_file
-              << ", core num=" << _cpu_core_num;
-    _init_succ = true;
-    return Status::OK();
-}
-
-Status CgroupV1CpuCtl::modify_cg_cpu_soft_limit_no_lock(int cpu_shares) {
-    std::string msg = "modify cpu shares to " + std::to_string(cpu_shares);
-    return CgroupCpuCtl::write_cg_sys_file(_cgroup_v1_cpu_tg_shares_file, cpu_shares, msg, false);
-}
-
-Status CgroupV1CpuCtl::modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) {
-    int val = cpu_hard_limit > 0 ? (_cpu_cfs_period_us * _cpu_core_num * cpu_hard_limit / 100)
-                                 : CGROUP_CPU_HARD_LIMIT_DEFAULT_VALUE;
-    std::string msg = "modify cpu quota value to " + std::to_string(val);
-    return CgroupCpuCtl::write_cg_sys_file(_cgroup_v1_cpu_tg_quota_file, val, msg, false);
-}
-
-Status CgroupV1CpuCtl::add_thread_to_cgroup() {
+Status CgroupCpuCtl::add_thread_to_cgroup(std::string task_path) {
     if (!_init_succ) {
         return Status::OK();
     }
@@ -189,18 +235,17 @@ Status CgroupV1CpuCtl::add_thread_to_cgroup() {
     std::string msg =
             "add thread " + std::to_string(tid) + " to group" + " " + std::to_string(_wg_id);
     std::lock_guard<std::shared_mutex> w_lock(_lock_mutex);
-    return CgroupCpuCtl::write_cg_sys_file(_cgroup_v1_cpu_tg_task_file, tid, msg, true);
+    return CgroupCpuCtl::write_cg_sys_file(task_path, std::to_string(tid), msg, true);
 #endif
 }
 
-Status CgroupV1CpuCtl::delete_unused_cgroup_path(std::set<uint64_t>& used_wg_ids) {
-    if (!_init_succ) {
-        return Status::InternalError<false>(
-                "cgroup cpu ctl init failed, delete can not be executed");
+Status CgroupCpuCtl::delete_unused_cgroup_path(std::set<uint64_t>& used_wg_ids) {
+    if (!_is_cgroup_query_path_valid) {
+        return Status::InternalError<false>("not find a valid cgroup query path");
     }
     // 1 get unused wg id
     std::set<std::string> unused_wg_ids;
-    for (const auto& entry : std::filesystem::directory_iterator(_cgroup_v1_cpu_query_path)) {
+    for (const auto& entry : std::filesystem::directory_iterator(_doris_cgroup_cpu_query_path)) {
         const std::string dir_name = entry.path().string();
         struct stat st;
         // == 0 means exists
@@ -222,9 +267,9 @@ Status CgroupV1CpuCtl::delete_unused_cgroup_path(std::set<uint64_t>& used_wg_ids
 
     // 2 delete unused cgroup path
     int failed_count = 0;
-    std::string query_path = _cgroup_v1_cpu_query_path.back() != '/'
-                                     ? _cgroup_v1_cpu_query_path + "/"
-                                     : _cgroup_v1_cpu_query_path;
+    std::string query_path = _doris_cgroup_cpu_query_path.back() != '/'
+                                     ? _doris_cgroup_cpu_query_path + "/"
+                                     : _doris_cgroup_cpu_query_path;
     for (const std::string& unused_wg_id : unused_wg_ids) {
         std::string wg_path = query_path + unused_wg_id;
         int ret = rmdir(wg_path.c_str());
@@ -238,6 +283,140 @@ Status CgroupV1CpuCtl::delete_unused_cgroup_path(std::set<uint64_t>& used_wg_ids
                                             failed_count);
     }
     return Status::OK();
+}
+
+Status CgroupV1CpuCtl::init() {
+    if (!_is_cgroup_query_path_valid) {
+        return Status::InternalError<false>("cgroup query path is not valid");
+    }
+
+    if (_wg_id <= 0) {
+        return Status::InternalError<false>("find an invalid wg_id {}", _wg_id);
+    }
+
+    // workload group path
+    _cgroup_v1_cpu_tg_path = _doris_cgroup_cpu_query_path + "/" + std::to_string(_wg_id);
+    if (access(_cgroup_v1_cpu_tg_path.c_str(), F_OK) != 0) {
+        int ret = mkdir(_cgroup_v1_cpu_tg_path.c_str(), S_IRWXU);
+        if (ret != 0) {
+            LOG(ERROR) << "cgroup v1 mkdir workload group failed, path=" << _cgroup_v1_cpu_tg_path;
+            return Status::InternalError<false>("cgroup v1 mkdir workload group failed, path={}",
+                                                _cgroup_v1_cpu_tg_path);
+        }
+    }
+
+    _cgroup_v1_cpu_tg_quota_file = _cgroup_v1_cpu_tg_path + "/cpu.cfs_quota_us";
+    if (access(_cgroup_v1_cpu_tg_quota_file.c_str(), F_OK) != 0) {
+        return Status::InternalError<false>("not find cgroup v1 cpu.cfs_quota_us file");
+    }
+    _cgroup_v1_cpu_tg_shares_file = _cgroup_v1_cpu_tg_path + "/cpu.shares";
+    if (access(_cgroup_v1_cpu_tg_shares_file.c_str(), F_OK) != 0) {
+        return Status::InternalError<false>("not find cgroup v1 cpu.shares file");
+    }
+    _cgroup_v1_cpu_tg_task_file = _cgroup_v1_cpu_tg_path + "/tasks";
+    if (access(_cgroup_v1_cpu_tg_task_file.c_str(), F_OK) != 0) {
+        return Status::InternalError<false>("not find cgroup v1 cpu.shares file");
+    }
+    LOG(INFO) << "cgroup v1 cpu path init success"
+              << ", query tg path=" << _cgroup_v1_cpu_tg_path
+              << ", query wg quota file path=" << _cgroup_v1_cpu_tg_quota_file
+              << ", query wg share file path=" << _cgroup_v1_cpu_tg_shares_file
+              << ", query wg tasks file path=" << _cgroup_v1_cpu_tg_task_file
+              << ", core num=" << _cpu_core_num;
+    _init_succ = true;
+    return Status::OK();
+}
+
+Status CgroupV1CpuCtl::modify_cg_cpu_soft_limit_no_lock(int cpu_shares) {
+    std::string cpu_share_str = std::to_string(cpu_shares);
+    std::string msg = "modify cpu shares to " + cpu_share_str;
+    return CgroupCpuCtl::write_cg_sys_file(_cgroup_v1_cpu_tg_shares_file, cpu_share_str, msg,
+                                           false);
+}
+
+Status CgroupV1CpuCtl::modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) {
+    int val = cpu_hard_limit > 0 ? (_cpu_cfs_period_us * _cpu_core_num * cpu_hard_limit / 100)
+                                 : CGROUP_CPU_HARD_LIMIT_DEFAULT_VALUE;
+    std::string str_val = std::to_string(val);
+    std::string msg = "modify cpu quota value to " + str_val;
+    return CgroupCpuCtl::write_cg_sys_file(_cgroup_v1_cpu_tg_quota_file, str_val, msg, false);
+}
+
+Status CgroupV1CpuCtl::add_thread_to_cgroup() {
+    return CgroupCpuCtl::add_thread_to_cgroup(_cgroup_v1_cpu_tg_task_file);
+}
+
+Status CgroupV2CpuCtl::init() {
+    if (!_is_cgroup_query_path_valid) {
+        return Status::InternalError<false>(" cgroup query path is empty");
+    }
+
+    if (_wg_id <= 0) {
+        return Status::InternalError<false>("find an invalid wg_id {}", _wg_id);
+    }
+
+    // wg path
+    _cgroup_v2_query_wg_path = _doris_cgroup_cpu_query_path + "/" + std::to_string(_wg_id);
+    if (access(_cgroup_v2_query_wg_path.c_str(), F_OK) != 0) {
+        int ret = mkdir(_cgroup_v2_query_wg_path.c_str(), S_IRWXU);
+        if (ret != 0) {
+            return Status::InternalError<false>("cgroup v2 mkdir wg failed, path={}",
+                                                _cgroup_v2_query_wg_path);
+        }
+    }
+
+    _cgroup_v2_query_wg_cpu_max_file = _cgroup_v2_query_wg_path + "/cpu.max";
+    if (access(_cgroup_v2_query_wg_cpu_max_file.c_str(), F_OK) != 0) {
+        return Status::InternalError<false>("not find cgroup v2 wg cpu.max file");
+    }
+
+    _cgroup_v2_query_wg_cpu_weight_file = _cgroup_v2_query_wg_path + "/cpu.weight";
+    if (access(_cgroup_v2_query_wg_cpu_weight_file.c_str(), F_OK) != 0) {
+        return Status::InternalError<false>("not find cgroup v2 wg cpu.weight file");
+    }
+
+    _cgroup_v2_query_wg_thread_file = _cgroup_v2_query_wg_path + "/cgroup.threads";
+    if (access(_cgroup_v2_query_wg_thread_file.c_str(), F_OK) != 0) {
+        return Status::InternalError<false>("not find cgroup v2 wg cgroup.threads file");
+    }
+
+    _cgroup_v2_query_wg_type_file = _cgroup_v2_query_wg_path + "/cgroup.type";
+    if (access(_cgroup_v2_query_wg_type_file.c_str(), F_OK) != 0) {
+        return Status::InternalError<false>("not find cgroup v2 wg cgroup.type file");
+    }
+    RETURN_IF_ERROR(CgroupCpuCtl::write_cg_sys_file(_cgroup_v2_query_wg_type_file, "threaded",
+                                                    "set cgroup type", false));
+
+    LOG(INFO) << "cgroup v2 cpu path init success"
+              << ", query wg path=" << _cgroup_v2_query_wg_path
+              << ", cpu.max file = " << _cgroup_v2_query_wg_cpu_max_file
+              << ", cgroup.threads file = " << _cgroup_v2_query_wg_thread_file
+              << ", core num=" << _cpu_core_num;
+    _init_succ = true;
+    return Status::OK();
+}
+
+Status CgroupV2CpuCtl::modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) {
+    std::string value = "";
+    if (cpu_hard_limit > 0) {
+        uint64_t int_val = _cpu_cfs_period_us * _cpu_core_num * cpu_hard_limit / 100;
+        value = std::to_string(int_val) + " 100000";
+    } else {
+        value = CGROUP_V2_CPU_HARD_LIMIT_DEFAULT_VALUE;
+    }
+    std::string msg = "modify cpu.max to [" + value + "]";
+    return CgroupCpuCtl::write_cg_sys_file(_cgroup_v2_query_wg_cpu_max_file, value, msg, false);
+}
+
+Status CgroupV2CpuCtl::modify_cg_cpu_soft_limit_no_lock(int cpu_weight) {
+    std::string cpu_weight_str = std::to_string(cpu_weight);
+    std::string msg = "modify cpu.weight to " + cpu_weight_str;
+    return CgroupCpuCtl::write_cg_sys_file(_cgroup_v2_query_wg_cpu_weight_file, cpu_weight_str, msg,
+                                           false);
+}
+
+Status CgroupV2CpuCtl::add_thread_to_cgroup() {
+    return CgroupCpuCtl::add_thread_to_cgroup(_cgroup_v2_query_wg_thread_file);
 }
 
 } // namespace doris

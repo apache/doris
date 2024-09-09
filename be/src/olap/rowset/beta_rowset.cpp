@@ -83,6 +83,10 @@ Status BetaRowset::get_inverted_index_size(size_t* index_size) {
     if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
         auto indices = _schema->indexes();
         for (auto& index : indices) {
+            // only get file_size for inverted index
+            if (index.index_type() != IndexType::INVERTED) {
+                continue;
+            }
             for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
                 auto seg_path = DORIS_TRY(segment_path(seg_id));
                 int64_t file_size = 0;
@@ -178,8 +182,9 @@ Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* se
             .cache_base_path = "",
             .file_size = _rowset_meta->segment_file_size(seg_id),
     };
+
     auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema, reader_options,
-                                       segment);
+                                       segment, _rowset_meta->inverted_index_file_info(seg_id));
     if (!s.ok()) {
         LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << rowset_id()
                      << " : " << s.to_string();
@@ -537,8 +542,10 @@ Status BetaRowset::check_current_rowset_segment() {
                 .cache_base_path {},
                 .file_size = _rowset_meta->segment_file_size(seg_id),
         };
+
         auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema,
-                                           reader_options, &segment);
+                                           reader_options, &segment,
+                                           _rowset_meta->inverted_index_file_info(seg_id));
         if (!s.ok()) {
             LOG(WARNING) << "segment can not be opened. file=" << seg_path;
             return s;

@@ -816,7 +816,7 @@ class Suite implements GroovyInterceptable {
 
     String getS3Url() {
         String s3BucketName = context.config.otherConfigs.get("s3BucketName");
-        if (context.config.otherConfigs.get("s3Provider") == "AZURE") {
+        if (context.config.otherConfigs.get("s3Provider").toUpperCase() == "AZURE") {
             String accountName = context.config.otherConfigs.get("ak");
             String s3Url = "http://${accountName}.blob.core.windows.net/${s3BucketName}"
             return s3Url
@@ -938,6 +938,19 @@ class Suite implements GroovyInterceptable {
         }
         return;
     }
+
+    void getBackendIpHttpAndBrpcPort(Map<String, String> backendId_to_backendIP,
+        Map<String, String> backendId_to_backendHttpPort, Map<String, String> backendId_to_backendBrpcPort) {
+
+        List<List<Object>> backends = sql("show backends");
+        for (List<Object> backend : backends) {
+            backendId_to_backendIP.put(String.valueOf(backend[0]), String.valueOf(backend[1]));
+            backendId_to_backendHttpPort.put(String.valueOf(backend[0]), String.valueOf(backend[4]));
+            backendId_to_backendBrpcPort.put(String.valueOf(backend[0]), String.valueOf(backend[5]));
+        }
+        return;
+    }
+
 
     int getTotalLine(String filePath) {
         def file = new File(filePath)
@@ -1332,6 +1345,39 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    def getMVJobState = { tableName, limit  ->
+        def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC limit ${limit}"""
+        if (jobStateResult.size() != limit) {
+            logger.info("show alter table roll is empty" + jobStateResult)
+            return "NOT_READY"
+        }
+        for (int i = 0; i < jobStateResult.size(); i++) {
+            logger.info("getMVJobState is " + jobStateResult[i][8])
+            if (!jobStateResult[i][8].equals("FINISHED")) {
+                return "NOT_READY"
+            }
+        }
+        return "FINISHED";
+    }
+    def waitForRollUpJob =  (tbName, timeoutMillisecond, limit) -> {
+
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + timeoutMillisecond
+
+        String result
+        // time out or has run exceed 10 minute, then break
+        while (timeoutTimestamp > System.currentTimeMillis() && System.currentTimeMillis() - startTime < 600000){
+            result = getMVJobState(tbName, limit)
+            if (result == "FINISHED") {
+                sleep(200)
+                return
+            } else {
+                sleep(200)
+            }
+        }
+        Assert.assertEquals("FINISHED", result)
+    }
+
     String getJobName(String dbName, String mtmvName) {
         String showMTMV = "select JobName from mv_infos('database'='${dbName}') where Name = '${mtmvName}'";
 	    logger.info(showMTMV)
@@ -1348,11 +1394,11 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean enableStoragevault() {
+        boolean ret = false;
         if (context.config.metaServiceHttpAddress == null || context.config.metaServiceHttpAddress.isEmpty() ||
-                context.config.metaServiceHttpAddress == null || context.config.metaServiceHttpAddress.isEmpty() ||
-                    context.config.instanceId == null || context.config.instanceId.isEmpty() ||
-                        context.config.metaServiceToken == null || context.config.metaServiceToken.isEmpty()) {
-            return false;
+                context.config.instanceId == null || context.config.instanceId.isEmpty() ||
+                context.config.metaServiceToken == null || context.config.metaServiceToken.isEmpty()) {
+            return ret;
         }
         def getInstanceInfo = { check_func ->
             httpTest {
@@ -1362,7 +1408,6 @@ class Suite implements GroovyInterceptable {
                 check check_func
             }
         }
-        boolean enableStorageVault = false;
         getInstanceInfo.call() {
             respCode, body ->
                 String respCodeValue = "${respCode}".toString();
@@ -1371,10 +1416,10 @@ class Suite implements GroovyInterceptable {
                 }
                 def json = parseJson(body)
                 if (json.result.containsKey("enable_storage_vault") && json.result.enable_storage_vault) {
-                    enableStorageVault = true;
+                    ret = true;
                 }
         }
-        return enableStorageVault;
+        return ret;
     }
 
     boolean isGroupCommitMode() {
@@ -1456,7 +1501,7 @@ class Suite implements GroovyInterceptable {
         return result.values().toList()
     }
 
-    def check_mv_rewrite_success = { db, mv_sql, query_sql, mv_name ->
+    def create_async_mv = { db, mv_name, mv_sql ->
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
         sql"""
@@ -1466,16 +1511,71 @@ class Suite implements GroovyInterceptable {
         PROPERTIES ('replication_num' = '1') 
         AS ${mv_sql}
         """
-
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
+        sql "analyze table ${mv_name} with sync;"
+    }
+
+    def mv_not_part_in = { query_sql, mv_name ->
         explain {
-            sql("${query_sql}")
-            contains("${mv_name}(${mv_name})")
+            sql(" memo plan ${query_sql}")
+            notContains("${mv_name} chose")
+            notContains("${mv_name} not chose")
+            notContains("${mv_name} fail")
         }
     }
 
-    def check_mv_rewrite_success_without_check_chosen = { db, mv_sql, query_sql, mv_name ->
+    def mv_rewrite_success = { query_sql, mv_name ->
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("${mv_name} chose")
+        }
+    }
+
+    def mv_rewrite_success_without_check_chosen = { query_sql, mv_name ->
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("${mv_name} not chose")
+        }
+    }
+
+    def mv_rewrite_fail = { query_sql, mv_name ->
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("${mv_name} fail")
+        }
+    }
+
+    def mv_rewrite_all_fail = {query_sql ->
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("chose: none")
+            contains("not chose: none")
+        }
+    }
+
+    def async_mv_rewrite_success = { db, mv_sql, query_sql, mv_name ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+
+        sql "analyze table ${mv_name} with sync;"
+
+        explain {
+            sql(" memo plan ${query_sql}")
+            contains("${mv_name} chose")
+        }
+    }
+
+    def async_mv_rewrite_success_without_check_chosen = { db, mv_sql, query_sql, mv_name ->
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
         sql"""
@@ -1488,17 +1588,17 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
+
+        sql "analyze table ${mv_name} with sync;"
+
         explain {
-            sql("${query_sql}")
-            check {result ->
-                def splitResult = result.split("MaterializedViewRewriteFail")
-                splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
-            }
+            sql(" memo plan ${query_sql}")
+            notContains("${mv_name} fail")
         }
     }
 
 
-    def check_mv_rewrite_fail = { db, mv_sql, query_sql, mv_name ->
+    def async_mv_rewrite_fail = { db, mv_sql, query_sql, mv_name ->
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
         sql"""
@@ -1511,9 +1611,13 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
+
+        sql "analyze table ${mv_name} with sync;"
+
         explain {
-            sql("${query_sql}")
-            notContains("${mv_name}(${mv_name})")
+            sql(" memo plan ${query_sql}")
+            notContains("${mv_name} chose")
+            notContains("${mv_name} not chose")
         }
     }
 
@@ -1636,7 +1740,6 @@ class Suite implements GroovyInterceptable {
                 } else {
                     endpoint context.config.metaServiceHttpAddress
                 }
-                endpoint context.config.metaServiceHttpAddress
                 uri "/MetaService/http/drop_cluster?token=${token}"
                 body request_body
                 check check_func
@@ -1683,6 +1786,86 @@ class Suite implements GroovyInterceptable {
                 log.info("add node resp: ${body} ${respCode}".toString())
                 def json = parseJson(body)
                 assertTrue(json.code.equalsIgnoreCase("OK") || json.code.equalsIgnoreCase("ALREADY_EXISTED"))
+        }
+    }
+
+    def get_instance = { MetaService ms=null ->
+        def jsonOutput = new JsonOutput()
+
+        def get_instance_api = { check_func ->
+            httpTest {
+                op "get"
+                if (ms) {
+                    endpoint ms.host+':'+ms.httpPort
+                } else {
+                    endpoint context.config.metaServiceHttpAddress
+                }
+                uri "/MetaService/http/get_instance?token=${token}&instance_id=${instance_id}"
+                check check_func
+            }
+        }
+
+        def json
+        get_instance_api.call() {
+            respCode, body ->
+                log.info("get instance resp: ${body} ${respCode}".toString())
+                json = parseJson(body)
+                assertTrue(json.code.equalsIgnoreCase("OK"))
+        }
+        json.result
+    }
+
+
+    def drop_node = { unique_id, ip, bePort=0, fePort=0, nodeType,
+                        cluster_name, cluster_id, MetaService ms=null ->
+        def jsonOutput = new JsonOutput()
+        def type
+        if (fePort != 0) {
+            type = "SQL"
+        } else if (bePort != 0) {
+            type = "COMPUTE"
+        }
+        def clusterInfo = [
+                     type: type,
+                     cluster_name : cluster_name,
+                     cluster_id : cluster_id,
+                     nodes: [
+                         [
+                             cloud_unique_id: unique_id,
+                             ip: ip,
+                             node_type: nodeType
+                         ],
+                     ]
+                ]
+        if (bePort != 0) {
+            // drop be
+            clusterInfo['nodes'][0]['heartbeat_port'] = bePort
+        } else if (fePort != 0) {
+            // drop fe
+            clusterInfo['nodes'][0]['edit_log_port'] = fePort
+        }
+        def map = [instance_id: "${instance_id}", cluster: clusterInfo]
+        def js = jsonOutput.toJson(map)
+        log.info("drop node req: ${js} ".toString())
+
+        def drop_node_api = { request_body, check_func ->
+            httpTest {
+                if (ms) {
+                    endpoint ms.host+':'+ms.httpPort
+                } else {
+                    endpoint context.config.metaServiceHttpAddress
+                }
+                uri "/MetaService/http/drop_node?token=${token}"
+                body request_body
+                check check_func
+            }
+        }
+
+        drop_node_api.call(js) {
+            respCode, body ->
+                log.info("drop node resp: ${body} ${respCode}".toString())
+                def json = parseJson(body)
+                assertTrue(json.code.equalsIgnoreCase("OK"))
         }
     }
 

@@ -34,9 +34,11 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/stopwatch.h"
 #include "cpp/s3_rate_limiter.h"
 #include "cpp/sync_point.h"
 #include "recycler/s3_accessor.h"
+#include "recycler/util.h"
 
 using namespace Azure::Storage::Blobs;
 
@@ -115,7 +117,10 @@ public:
         }
 
         try {
-            auto resp = s3_get_rate_limit([&]() { return client_->ListBlobs(req_); });
+            auto resp = s3_get_rate_limit([&]() {
+                SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
+                return client_->ListBlobs(req_);
+            });
             has_more_ = resp.NextPageToken.HasValue();
             DCHECK(!(has_more_ && resp.Blobs.empty())) << has_more_ << ' ' << resp.Blobs.empty();
             req_.ContinuationToken = std::move(resp.NextPageToken);
@@ -172,6 +177,7 @@ ObjectStorageResponse AzureObjClient::put_object(ObjectStoragePathRef path,
     return do_azure_client_call(
             [&]() {
                 s3_put_rate_limit([&]() {
+                    SCOPED_BVAR_LATENCY(s3_bvar::s3_put_latency);
                     return client.UploadFrom(reinterpret_cast<const uint8_t*>(stream.data()),
                                              stream.size());
                 });
@@ -181,8 +187,10 @@ ObjectStorageResponse AzureObjClient::put_object(ObjectStoragePathRef path,
 
 ObjectStorageResponse AzureObjClient::head_object(ObjectStoragePathRef path, ObjectMeta* res) {
     try {
-        auto&& properties = s3_get_rate_limit(
-                [&]() { return client_->GetBlockBlobClient(path.key).GetProperties().Value; });
+        auto&& properties = s3_get_rate_limit([&]() {
+            SCOPED_BVAR_LATENCY(s3_bvar::s3_head_latency);
+            return client_->GetBlockBlobClient(path.key).GetProperties().Value;
+        });
         res->key = path.key;
         res->mtime_s = properties.LastModified.time_since_epoch().count();
         res->size = properties.BlobSize;
@@ -233,7 +241,12 @@ ObjectStorageResponse AzureObjClient::delete_objects(const std::string& bucket,
             deferred_resps.emplace_back(batch.DeleteBlob(*it));
         }
         auto resp = do_azure_client_call(
-                [&]() { s3_put_rate_limit([&]() { return client_->SubmitBatch(batch); }); },
+                [&]() {
+                    s3_put_rate_limit([&]() {
+                        SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_objects_latency);
+                        return client_->SubmitBatch(batch);
+                    });
+                },
                 client_->GetUrl(), *begin);
         if (resp.ret != 0) {
             return resp;
@@ -267,7 +280,10 @@ ObjectStorageResponse AzureObjClient::delete_objects(const std::string& bucket,
 ObjectStorageResponse AzureObjClient::delete_object(ObjectStoragePathRef path) {
     return do_azure_client_call(
             [&]() {
-                if (auto r = s3_put_rate_limit([&]() { return client_->DeleteBlob(path.key); });
+                if (auto r = s3_put_rate_limit([&]() {
+                        SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_object_latency);
+                        return client_->DeleteBlob(path.key);
+                    });
                     !r.Value.Deleted) {
                     throw std::runtime_error("Delete azure blob failed");
                 }

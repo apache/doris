@@ -573,7 +573,7 @@ public class OutFileClause {
         }
 
         if (properties.containsKey(PROP_MAX_FILE_SIZE)) {
-            maxFileSizeBytes = ParseUtil.analyzeDataVolumn(properties.get(PROP_MAX_FILE_SIZE));
+            maxFileSizeBytes = ParseUtil.analyzeDataVolume(properties.get(PROP_MAX_FILE_SIZE));
             if (maxFileSizeBytes > MAX_FILE_SIZE_BYTES || maxFileSizeBytes < MIN_FILE_SIZE_BYTES) {
                 throw new AnalysisException("max file size should between 5MB and 2GB. Given: " + maxFileSizeBytes);
             }
@@ -884,6 +884,7 @@ public class OutFileClause {
         if (isOrcFormat()) {
             sinkOptions.setOrcSchema(serializeOrcSchema());
             sinkOptions.setOrcCompressionType(orcCompressionType);
+            sinkOptions.setOrcWriterVersion(1);
         }
         return sinkOptions;
     }

@@ -46,7 +46,9 @@ struct ColumnWithTypeAndName;
 
 class VIcebergTableWriter final : public AsyncResultWriter {
 public:
-    VIcebergTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
+    VIcebergTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
+                        std::shared_ptr<pipeline::Dependency> dep,
+                        std::shared_ptr<pipeline::Dependency> fin_dep);
 
     ~VIcebergTableWriter() = default;
 
@@ -97,10 +99,10 @@ private:
     std::vector<std::string> _partition_values(const doris::iceberg::StructLike& data);
 
     std::shared_ptr<VIcebergPartitionWriter> _create_partition_writer(
-            vectorized::Block& block, int position, const std::string* file_name = nullptr,
-            int file_name_index = 0);
+            vectorized::Block* transformed_block, int position,
+            const std::string* file_name = nullptr, int file_name_index = 0);
 
-    std::optional<PartitionData> _get_partition_data(vectorized::Block& block, int position);
+    PartitionData _get_partition_data(vectorized::Block* block, int position);
 
     std::any _get_iceberg_partition_value(const TypeDescriptor& type_desc,
                                           const ColumnWithTypeAndName& partition_column,
@@ -126,8 +128,6 @@ private:
             _partitions_to_writers;
 
     VExprContextSPtrs _write_output_vexpr_ctxs;
-
-    Block _transformed_block;
 
     size_t _row_count = 0;
 

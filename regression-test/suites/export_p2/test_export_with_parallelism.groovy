@@ -129,7 +129,7 @@ suite("test_export_with_parallelism", "p2") {
             // check data correctness
             sql """ insert into ${table_load_name}
                         select * from s3(
-                        "uri" = "http://${bucket}.${s3_endpoint}${outfile_url_list.substring(5 + bucket.length())}.${file_suffix}",
+                        "uri" = "http://${bucket}.${s3_endpoint}${outfile_url_list.get(j).substring(5 + bucket.length())}.${file_suffix}",
                         "s3.access_key"= "${ak}",
                         "s3.secret_key" = "${sk}",
                         "format" = "${format}",

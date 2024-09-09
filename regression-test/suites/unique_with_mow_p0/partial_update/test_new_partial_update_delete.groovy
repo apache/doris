@@ -65,6 +65,7 @@ suite('test_new_partial_update_delete') {
                     PROPERTIES (
                         "disable_auto_compaction" = "true",
                         "enable_unique_key_merge_on_write" = "false",
+                        "enable_mow_light_delete" = "false",
                         "replication_num" = "1",
                         "store_row_column" = "${use_row_store}"); """
                 sql """alter table ${tableMorName2} set ("enable_mow_light_delete"="true")"""
@@ -85,6 +86,7 @@ suite('test_new_partial_update_delete') {
                 DISTRIBUTED BY HASH(k1) BUCKETS 1
                 PROPERTIES (
                     "disable_auto_compaction" = "true",
+                    "enable_mow_light_delete" = "false",
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
 
@@ -97,7 +99,7 @@ suite('test_new_partial_update_delete') {
             // empty
             qt_sql2 "select * from ${tableName1} order by k1;"
             sql "set show_hidden_columns = true;"
-            // 1,1,1,1,1,1
+            // 1,null,null,null,null,1
             qt_sql3 "select k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__ from ${tableName1} order by k1;"
             sql "set show_hidden_columns = false;"
             sql "set enable_unique_key_partial_update=true;"
@@ -198,6 +200,7 @@ suite('test_new_partial_update_delete') {
                 DISTRIBUTED BY HASH(k1) BUCKETS 1
                 PROPERTIES (
                     "disable_auto_compaction" = "true",
+                    "enable_mow_light_delete" = "false",
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
 
@@ -210,7 +213,7 @@ suite('test_new_partial_update_delete') {
             // empty
             qt_sql22 "select * from ${tableName2} order by k1;"
             sql "set show_hidden_columns = true;"
-            // 1,1,1,1,1,1
+            // 1,null,null,null,1
             qt_sql23 "select k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__ from ${tableName2} order by k1;"
             sql "set show_hidden_columns = false;"
             sql "set enable_unique_key_partial_update=true;"

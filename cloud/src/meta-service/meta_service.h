@@ -30,6 +30,7 @@
 #include "common/config.h"
 #include "cpp/sync_point.h"
 #include "meta-service/txn_kv.h"
+#include "meta-service/txn_lazy_committer.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
 
@@ -88,6 +89,11 @@ public:
                             const CheckTxnConflictRequest* request,
                             CheckTxnConflictResponse* response,
                             ::google::protobuf::Closure* done) override;
+
+    void abort_txn_with_coordinator(::google::protobuf::RpcController* controller,
+                                    const AbortTxnWithCoordinatorRequest* request,
+                                    AbortTxnWithCoordinatorResponse* response,
+                                    ::google::protobuf::Closure* done) override;
 
     void clean_txn_label(::google::protobuf::RpcController* controller,
                          const CleanTxnLabelRequest* request, CleanTxnLabelResponse* response,
@@ -270,6 +276,10 @@ public:
                                    GetRLTaskCommitAttachResponse* response,
                                    ::google::protobuf::Closure* done) override;
 
+    void reset_rl_progress(::google::protobuf::RpcController* controller,
+                           const ResetRLProgressRequest* request, ResetRLProgressResponse* response,
+                           ::google::protobuf::Closure* done) override;
+
     void get_txn_id(::google::protobuf::RpcController* controller, const GetTxnIdRequest* request,
                     GetTxnIdResponse* response, ::google::protobuf::Closure* done) override;
 
@@ -287,6 +297,7 @@ private:
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     std::shared_ptr<RateLimiter> rate_limiter_;
+    std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
 };
 
 class MetaServiceProxy final : public MetaService {
@@ -354,6 +365,14 @@ public:
                             CheckTxnConflictResponse* response,
                             ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::check_txn_conflict, controller, request, response, done);
+    }
+
+    void abort_txn_with_coordinator(::google::protobuf::RpcController* controller,
+                                    const AbortTxnWithCoordinatorRequest* request,
+                                    AbortTxnWithCoordinatorResponse* response,
+                                    ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::abort_txn_with_coordinator, controller, request, response,
+                  done);
     }
 
     void clean_txn_label(::google::protobuf::RpcController* controller,
@@ -626,6 +645,12 @@ public:
                                    ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_rl_task_commit_attach, controller, request, response,
                   done);
+    }
+
+    void reset_rl_progress(::google::protobuf::RpcController* controller,
+                           const ResetRLProgressRequest* request, ResetRLProgressResponse* response,
+                           ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::reset_rl_progress, controller, request, response, done);
     }
 
     void get_txn_id(::google::protobuf::RpcController* controller, const GetTxnIdRequest* request,

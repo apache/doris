@@ -118,3 +118,75 @@
 -- !select_minmax4 --
 243
 
+-- !select_histogram_k0 --
+{"num_buckets":2,"buckets":[{"lower":"0","upper":"0","ndv":1,"count":7,"pre_sum":0},{"lower":"1","upper":"1","ndv":1,"count":8,"pre_sum":7}]}
+
+-- !select_histogram_k1 --
+{"num_buckets":1,"buckets":[{"lower":"1","upper":"15","ndv":15,"count":15,"pre_sum":0}]}
+
+-- !select_histogram_k2 --
+{"num_buckets":2,"buckets":[{"lower":"-32767","upper":"1985","ndv":9,"count":11,"pre_sum":0},{"lower":"1986","upper":"32767","ndv":5,"count":10,"pre_sum":11}]}
+
+-- !select_histogram_k3 --
+{"num_buckets":3,"buckets":[{"lower":"-2147483647","upper":"1001","ndv":3,"count":5,"pre_sum":0},{"lower":"1002","upper":"3021","ndv":2,"count":5,"pre_sum":5},{"lower":"5014","upper":"2147483647","ndv":3,"count":5,"pre_sum":10}]}
+
+-- !select_histogram_k4 --
+{"num_buckets":4,"buckets":[{"lower":"-9223372036854775807","upper":"123456","ndv":4,"count":5,"pre_sum":0},{"lower":"7210457","upper":"11011903","ndv":3,"count":5,"pre_sum":5},{"lower":"11011905","upper":"11011920","ndv":2,"count":3,"pre_sum":10},{"lower":"9223372036854775807","upper":"9223372036854775807","ndv":1,"count":2,"pre_sum":13}]}
+
+-- !select_histogram_k5 --
+{"num_buckets":5,"buckets":[{"lower":"-654.654","upper":"-0.123","ndv":3,"count":3,"pre_sum":0},{"lower":"0.000","upper":"0.666","ndv":2,"count":3,"pre_sum":3},{"lower":"3.141","upper":"123.123","ndv":3,"count":3,"pre_sum":6},{"lower":"243.325","upper":"1243.500","ndv":2,"count":3,"pre_sum":9},{"lower":"24453.325","upper":"604587.000","ndv":3,"count":3,"pre_sum":12}]}
+
+-- !select_histogram_k6 --
+{"num_buckets":2,"buckets":[{"lower":"false","upper":"false","ndv":1,"count":8,"pre_sum":0},{"lower":"true","upper":"true","ndv":1,"count":7,"pre_sum":8}]}
+
+-- !select_histogram_k7 --
+{"num_buckets":7,"buckets":[{"lower":"","upper":"du3lnvl","ndv":3,"count":3,"pre_sum":0},{"lower":"jiw3n4","upper":"lifsno","ndv":2,"count":2,"pre_sum":3},{"lower":"wangjuoo4","upper":"wangjuoo5","ndv":2,"count":3,"pre_sum":5},{"lower":"wangynnsf","upper":"wenlsfnl","ndv":2,"count":3,"pre_sum":8},{"lower":"yanavnd","upper":"yanavnd","ndv":1,"count":1,"pre_sum":11},{"lower":"yanvjldjlll","upper":"yanvjldjlll","ndv":1,"count":1,"pre_sum":12},{"lower":"yunlj8@nk","upper":"yunlj8@nk","ndv":1,"count":2,"pre_sum":13}]}
+
+-- !select_histogram_k10 --
+{"num_buckets":10,"buckets":[{"lower":"1901-12-31","upper":"1901-12-31","ndv":1,"count":1,"pre_sum":0},{"lower":"1988-03-21","upper":"1988-03-21","ndv":1,"count":1,"pre_sum":1},{"lower":"1989-03-21","upper":"1989-03-21","ndv":1,"count":2,"pre_sum":2},{"lower":"1991-08-11","upper":"1991-08-11","ndv":1,"count":2,"pre_sum":4},{"lower":"2012-03-14","upper":"2012-03-14","ndv":1,"count":1,"pre_sum":6},{"lower":"2014-11-11","upper":"2014-11-11","ndv":1,"count":1,"pre_sum":7},{"lower":"2015-01-01","upper":"2015-01-01","ndv":1,"count":1,"pre_sum":8},{"lower":"2015-04-02","upper":"2015-04-02","ndv":1,"count":4,"pre_sum":9},{"lower":"3124-10-10","upper":"3124-10-10","ndv":1,"count":1,"pre_sum":13},{"lower":"9999-12-12","upper":"9999-12-12","ndv":1,"count":1,"pre_sum":14}]}
+
+-- !select_histogram_k11 --
+{"num_buckets":9,"buckets":[{"lower":"1901-01-01 00:00:00","upper":"1901-01-01 00:00:00","ndv":1,"count":1,"pre_sum":0},{"lower":"1989-03-21 13:00:00","upper":"1989-03-21 13:00:00","ndv":1,"count":2,"pre_sum":1},{"lower":"1989-03-21 13:11:00","upper":"1989-03-21 13:11:00","ndv":1,"count":2,"pre_sum":3},{"lower":"2000-01-01 00:00:00","upper":"2000-01-01 00:00:00","ndv":1,"count":1,"pre_sum":5},{"lower":"2013-04-02 15:16:52","upper":"2013-04-02 15:16:52","ndv":1,"count":2,"pre_sum":6},{"lower":"2015-03-13 10:30:00","upper":"2015-03-13 10:30:00","ndv":1,"count":1,"pre_sum":8},{"lower":"2015-03-13 12:36:38","upper":"2015-03-13 12:36:38","ndv":1,"count":2,"pre_sum":9},{"lower":"2015-04-02 00:00:00","upper":"2015-04-02 00:00:00","ndv":1,"count":3,"pre_sum":11},{"lower":"9999-11-11 12:12:00","upper":"9999-11-11 12:12:00","ndv":1,"count":1,"pre_sum":14}]}
+
+-- !select_histogram_k12 --
+{"num_buckets":1,"buckets":[{"lower":"string12345","upper":"string12345","ndv":1,"count":15,"pre_sum":0}]}
+
+-- !select_histogram_k13 --
+{"num_buckets":13,"buckets":[{"lower":"-170141183460469231731687303715884105727","upper":"-20220101","ndv":2,"count":2,"pre_sum":0},{"lower":"-11011903","upper":"-2022","ndv":2,"count":2,"pre_sum":2},{"lower":"0","upper":"0","ndv":1,"count":1,"pre_sum":4},{"lower":"11011903","upper":"11011903","ndv":1,"count":1,"pre_sum":5},{"lower":"20220101","upper":"20220101","ndv":1,"count":1,"pre_sum":6},{"lower":"20220102","upper":"20220102","ndv":1,"count":1,"pre_sum":7},{"lower":"20220104","upper":"20220104","ndv":1,"count":1,"pre_sum":8},{"lower":"701411834604692317","upper":"701411834604692317","ndv":1,"count":1,"pre_sum":9},{"lower":"701411834604692317316873","upper":"701411834604692317316873","ndv":1,"count":1,"pre_sum":10},{"lower":"1701604692317316873037158","upper":"1701604692317316873037158","ndv":1,"count":1,"pre_sum":11},{"lower":"701411834604692317316873037158","upper":"701411834604692317316873037158","ndv":1,"count":1,"pre_sum":12},{"lower":"1701411834604692317316873037158","upper":"1701411834604692317316873037158","ndv":1,"count":1,"pre_sum":13},{"lower":"170141183460469231731687303715884105727","upper":"170141183460469231731687303715884105727","ndv":1,"count":1,"pre_sum":14}]}
+
+-- !select_histogram_k0_all_null --
+{"num_buckets":0,"buckets":[]}
+
+-- !select_histogram_k1_all_null --
+{"num_buckets":0,"buckets":[]}
+
+-- !select_histogram_k2 --
+{"num_buckets":2,"buckets":[{"lower":"10","upper":"12","ndv":3,"count":3,"pre_sum":0},{"lower":"13","upper":"15","ndv":3,"count":3,"pre_sum":3}]}
+
+-- !select_histogram_k3_all_null --
+{"num_buckets":0,"buckets":[]}
+
+-- !select_histogram_k4_all_null --
+{"num_buckets":0,"buckets":[]}
+
+-- !select_histogram_k5_all_null --
+{"num_buckets":0,"buckets":[]}
+
+-- !select_histogram_k6_all_null --
+{"num_buckets":0,"buckets":[]}
+
+-- !select_histogram_k7_all_null --
+{"num_buckets":0,"buckets":[]}
+
+-- !select_histogram_k10_all_null --
+{"num_buckets":0,"buckets":[]}
+
+-- !select_histogram_k11_all_null --
+{"num_buckets":0,"buckets":[]}
+
+-- !select_histogram_k12_all_null --
+{"num_buckets":0,"buckets":[]}
+
+-- !select_histogram_k13_all_null --
+{"num_buckets":0,"buckets":[]}
+

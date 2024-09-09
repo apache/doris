@@ -148,7 +148,7 @@ suite("test_index_compaction_dup_keys_array", "array_contains_inverted_index") {
                 `hobbies` array<text> NULL,
                 `score` array<int(11)> NULL,
                 index index_name (name) using inverted,
-                index index_hobbies (hobbies) using inverted properties("parser"="english"),
+                index index_hobbies (hobbies) using inverted properties("parser"="none"),
                 index index_score (score) using inverted
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)

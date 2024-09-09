@@ -43,7 +43,8 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
     }
 
     if (is_column_const(*null_map)) {
-        LOG(FATAL) << "ColumnNullable cannot have constant null map";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "ColumnNullable cannot have constant null map");
         __builtin_unreachable();
     }
     _need_update_has_null = true;
@@ -558,7 +559,8 @@ void ColumnNullable::apply_null_map_impl(const ColumnUInt8& map) {
     const NullMap& arr2 = map.get_data();
 
     if (arr1.size() != arr2.size()) {
-        LOG(FATAL) << "Inconsistent sizes of ColumnNullable objects";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Inconsistent sizes of ColumnNullable objects");
         __builtin_unreachable();
     }
 
@@ -581,8 +583,8 @@ void ColumnNullable::apply_null_map(const ColumnNullable& other) {
 
 void ColumnNullable::check_consistency() const {
     if (null_map->size() != get_nested_column().size()) {
-        LOG(FATAL) << "Logical error: Sizes of nested column and null map of Nullable column are "
-                      "not equal";
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "Sizes of nested column and null map of Nullable column are not equal");
     }
 }
 
@@ -624,14 +626,18 @@ ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable) {
 
 ColumnPtr remove_nullable(const ColumnPtr& column) {
     if (is_column_nullable(*column)) {
-        return reinterpret_cast<const ColumnNullable*>(column.get())->get_nested_column_ptr();
+        return assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(column.get())
+                ->get_nested_column_ptr();
     }
 
     if (is_column_const(*column)) {
-        const auto& column_nested = assert_cast<const ColumnConst&>(*column).get_data_column_ptr();
+        const auto& column_nested =
+                assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(*column)
+                        .get_data_column_ptr();
         if (is_column_nullable(*column_nested)) {
             return ColumnConst::create(
-                    assert_cast<const ColumnNullable&>(*column_nested).get_nested_column_ptr(),
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*column_nested)
+                            .get_nested_column_ptr(),
                     column->size());
         }
     }

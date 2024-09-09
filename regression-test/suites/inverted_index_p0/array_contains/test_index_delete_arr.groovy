@@ -32,7 +32,7 @@ suite("test_index_delete_arr", "array_contains_inverted_index") {
       CREATE TABLE ${indexTbName1} (
         `a` int(11) NULL COMMENT "",
         `b` array<text> NULL COMMENT "[]",
-        INDEX b_idx (`b`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") COMMENT ''
+        INDEX b_idx (`b`) USING INVERTED PROPERTIES("parser" = "none") COMMENT ''
       ) ENGINE=OLAP
       DUPLICATE KEY(`a`)
       COMMENT "OLAP"

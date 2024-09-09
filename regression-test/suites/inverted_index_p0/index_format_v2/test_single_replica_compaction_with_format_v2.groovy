@@ -46,10 +46,6 @@ suite("test_single_replica_compaction_with_format_v2", "inverted_index_format_v2
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
 
-    def calc_file_crc_on_tablet = { ip, port, tablet ->
-        return curl("GET", String.format("http://%s:%s/api/calc_crc?tablet_id=%s", ip, port, tablet))
-    }
-
     def calc_segment_count = { tablet -> 
         int segment_count = 0
         String tablet_id = tablet.TabletId
@@ -163,6 +159,7 @@ suite("test_single_replica_compaction_with_format_v2", "inverted_index_format_v2
             """
 
         sql """ sync """
+        sql """ set enable_common_expr_pushdown = true """
 
         qt_select_default """ SELECT * FROM ${tableName} t WHERE city MATCH 'Beijing' ORDER BY user_id,date,city,age,sex,last_visit_date,last_update_date,last_visit_date_not_null,cost,max_dwell_time,min_dwell_time; """
 
@@ -175,18 +172,7 @@ suite("test_single_replica_compaction_with_format_v2", "inverted_index_format_v2
             backend_id = tablet.BackendId
             String ip = backendId_to_backendIP.get(backend_id)
             String port = backendId_to_backendHttpPort.get(backend_id)
-            int segment_count = calc_segment_count(tablet)
-            logger.info("TabletId: " + tablet_id + ", segment_count: " + segment_count)
-            def (c, o, e) = calc_file_crc_on_tablet(ip, port, tablet_id)
-            logger.info("Run calc_file_crc_on_tablet: code=" + c + ", out=" + o + ", err=" + e)
-            assertTrue(c == 0)
-            assertTrue(o.contains("crc_value"))
-            assertTrue(o.contains("used_time_ms"))
-            assertEquals("0", parseJson(o.trim()).start_version)
-            assertEquals("9", parseJson(o.trim()).end_version)
-            assertEquals("9", parseJson(o.trim()).rowset_count)
-            int file_count = segment_count * 2
-            assertEquals(file_count, Integer.parseInt(parseJson(o.trim()).file_count))
+            check_nested_index_file(ip, port, tablet_id, 9, 3, "V2")
 
             StringBuilder sb = new StringBuilder();
             sb.append("curl -X POST http://")
@@ -244,19 +230,7 @@ suite("test_single_replica_compaction_with_format_v2", "inverted_index_format_v2
 
             String ip = backendId_to_backendIP.get(backend_id)
             String port = backendId_to_backendHttpPort.get(backend_id)
-            int segment_count = calc_segment_count(tablet)
-            logger.info("TabletId: " + tablet_id + ", segment_count: " + segment_count)
-            def (c, o, e) = calc_file_crc_on_tablet(ip, port, tablet_id)
-            logger.info("Run calc_file_crc_on_tablet: code=" + c + ", out=" + o + ", err=" + e)
-            assertTrue(c == 0)
-            assertTrue(o.contains("crc_value"))
-            assertTrue(o.contains("used_time_ms"))
-            assertEquals("0", parseJson(o.trim()).start_version)
-            assertEquals("9", parseJson(o.trim()).end_version)
-            // after compaction, there are 2 rwosets.
-            assertEquals("2", parseJson(o.trim()).rowset_count)
-            int file_count = segment_count * 2
-            assertEquals(file_count, Integer.parseInt(parseJson(o.trim()).file_count))
+            check_nested_index_file(ip, port, tablet_id, 2, 3, "V2")
         }
 
         int segmentsCount = 0

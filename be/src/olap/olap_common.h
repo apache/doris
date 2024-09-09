@@ -33,6 +33,7 @@
 #include <typeinfo>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 #include "io/io_common.h"
 #include "olap/olap_define.h"
@@ -57,6 +58,7 @@ enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2, FULL_COMPA
 enum DataDirType {
     SPILL_DISK_DIR,
     OLAP_DATA_DIR,
+    DATA_CACHE_DIR,
 };
 
 struct DataDirInfo {
@@ -70,6 +72,7 @@ struct DataDirInfo {
     bool is_used = false;                                      // whether available mark
     TStorageMedium::type storage_medium = TStorageMedium::HDD; // Storage medium type: SSD|HDD
     DataDirType data_dir_type = DataDirType::OLAP_DATA_DIR;
+    std::string bvar_name;
 };
 struct PredicateFilterInfo {
     int type = 0;
@@ -367,10 +370,14 @@ struct OlapReaderStatistics {
     int64_t inverted_index_query_timer = 0;
     int64_t inverted_index_query_cache_hit = 0;
     int64_t inverted_index_query_cache_miss = 0;
+    int64_t inverted_index_query_null_bitmap_timer = 0;
     int64_t inverted_index_query_bitmap_copy_timer = 0;
     int64_t inverted_index_query_bitmap_op_timer = 0;
     int64_t inverted_index_searcher_open_timer = 0;
     int64_t inverted_index_searcher_search_timer = 0;
+    int64_t inverted_index_searcher_cache_hit = 0;
+    int64_t inverted_index_searcher_cache_miss = 0;
+    int64_t inverted_index_downgrade_count = 0;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator
@@ -503,27 +510,18 @@ class DeleteBitmap;
 // merge on write context
 struct MowContext {
     MowContext(int64_t version, int64_t txnid, const RowsetIdUnorderedSet& ids,
-               const std::vector<RowsetSharedPtr>& rowset_ptrs, std::shared_ptr<DeleteBitmap> db)
+               std::vector<RowsetSharedPtr> rowset_ptrs, std::shared_ptr<DeleteBitmap> db)
             : max_version(version),
               txn_id(txnid),
               rowset_ids(ids),
-              rowset_ptrs(rowset_ptrs),
-              delete_bitmap(db) {}
+              rowset_ptrs(std::move(rowset_ptrs)),
+              delete_bitmap(std::move(db)) {}
     int64_t max_version;
     int64_t txn_id;
     const RowsetIdUnorderedSet& rowset_ids;
     std::vector<RowsetSharedPtr> rowset_ptrs;
     std::shared_ptr<DeleteBitmap> delete_bitmap;
 };
-
-// used in mow partial update
-struct RidAndPos {
-    uint32_t rid;
-    // pos in block
-    size_t pos;
-};
-
-using PartialUpdateReadPlan = std::map<RowsetId, std::map<uint32_t, std::vector<RidAndPos>>>;
 
 // used for controll compaction
 struct VersionWithTime {

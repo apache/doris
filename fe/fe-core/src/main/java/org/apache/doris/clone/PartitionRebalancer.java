@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeMultimap;
@@ -138,7 +139,7 @@ public class PartitionRebalancer extends Rebalancer {
                     invertedIndex.getTabletIdsByBackendIdAndStorageMedium(move.toBe, medium));
 
             BiPredicate<Long, TabletMeta> canMoveTablet = (Long tabletId, TabletMeta tabletMeta) -> {
-                return tabletMeta != null
+                return canBalanceTablet(tabletMeta)
                         && tabletMeta.getPartitionId() == move.partitionId
                         && tabletMeta.getIndexId() == move.indexId
                         && !invalidIds.contains(tabletId)
@@ -304,7 +305,8 @@ public class PartitionRebalancer extends Rebalancer {
             List<Long> availPath = paths.stream().filter(path -> path.getStorageMedium() == tabletCtx.getStorageMedium()
                             && path.isFit(tabletCtx.getTabletSize(), false) == BalanceStatus.OK)
                     .map(RootPathLoadStatistic::getPathHash).collect(Collectors.toList());
-            long pathHash = slot.takeAnAvailBalanceSlotFrom(availPath, tabletCtx.getStorageMedium());
+            long pathHash = slot.takeAnAvailBalanceSlotFrom(availPath, tabletCtx.getTag(),
+                    tabletCtx.getStorageMedium());
             if (pathHash == -1) {
                 throw new SchedException(SchedException.Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
                         "paths has no available balance slot: " + availPath);
@@ -368,12 +370,20 @@ public class PartitionRebalancer extends Rebalancer {
         }
     }
 
+    public Map<Long, Pair<TabletMove, Long>> getMovesInProgress() {
+        Map<Long, Pair<TabletMove, Long>> moves = Maps.newHashMap();
+        movesCacheMap.getCacheMap().values().forEach(
+                m -> m.values().forEach(cache -> moves.putAll(cache.get().asMap())));
+
+        return moves;
+    }
+
     // Represents a concrete move of a tablet from one be to another.
     // Formed logically from a PartitionMove by specifying a tablet for the move.
     public static class TabletMove {
-        Long tabletId;
-        Long fromBe;
-        Long toBe;
+        public Long tabletId;
+        public Long fromBe;
+        public Long toBe;
 
         TabletMove(Long id, Long from, Long to) {
             this.tabletId = id;
@@ -397,7 +407,11 @@ public class PartitionRebalancer extends Rebalancer {
         TreeMultimap<Long, TabletInvertedIndex.PartitionBalanceInfo> partitionInfoBySkew
                 = TreeMultimap.create(Ordering.natural(), Ordering.arbitrary());
         TreeMultimap<Long, Long> beByTotalReplicaCount = TreeMultimap.create();
-    }
 
+        @Override
+        public String toString() {
+            return "[partitionSkew=" + partitionInfoBySkew + ", totalReplicaNum2Be=" + beByTotalReplicaCount + "]";
+        }
+    }
 
 }

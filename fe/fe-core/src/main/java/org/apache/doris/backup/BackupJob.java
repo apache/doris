@@ -169,6 +169,61 @@ public class BackupJob extends AbstractJob {
         return BackupContent.ALL;
     }
 
+    private synchronized boolean tryNewTabletSnapshotTask(SnapshotTask task) {
+        Table table = env.getInternalCatalog().getTableByTableId(task.getTableId());
+        if (table == null) {
+            return false;
+        }
+        OlapTable tbl = (OlapTable) table;
+        tbl.readLock();
+        try {
+            if (tbl.getId() != task.getTableId()) {
+                return false;
+            }
+            Partition partition = tbl.getPartition(task.getPartitionId());
+            if (partition == null) {
+                return false;
+            }
+            MaterializedIndex index = partition.getIndex(task.getIndexId());
+            if (index == null) {
+                return false;
+            }
+            Tablet tablet = index.getTablet(task.getTabletId());
+            if (tablet == null) {
+                return false;
+            }
+            Replica replica = chooseReplica(tablet, task.getVersion());
+            if (replica == null) {
+                return false;
+            }
+
+            //clear old task
+            AgentTaskQueue.removeTaskOfType(TTaskType.MAKE_SNAPSHOT, task.getTabletId());
+            unfinishedTaskIds.remove(task.getTabletId());
+            taskProgress.remove(task.getTabletId());
+            taskErrMsg.remove(task.getTabletId());
+
+            SnapshotTask newTask = new SnapshotTask(null, replica.getBackendId(), task.getTabletId(),
+                    task.getJobId(), task.getDbId(), tbl.getId(), task.getPartitionId(),
+                    task.getIndexId(), task.getTabletId(),
+                    task.getVersion(),
+                    task.getSchemaHash(), timeoutMs, false /* not restore task */);
+            AgentBatchTask batchTask = new AgentBatchTask();
+            batchTask.addTask(newTask);
+            unfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
+
+            //send task
+            AgentTaskQueue.addTask(newTask);
+            AgentTaskExecutor.submit(batchTask);
+
+        } finally {
+            tbl.readUnlock();
+        }
+
+        return true;
+    }
+
+
     public synchronized boolean finishTabletSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
         Preconditions.checkState(task.getJobId() == jobId);
 
@@ -181,6 +236,20 @@ public class BackupJob extends AbstractJob {
                         "make snapshot failed, version already merged");
                 cancelInternal();
             }
+
+            if (request.getTaskStatus().getStatusCode() == TStatusCode.TABLET_MISSING
+                    && !tryNewTabletSnapshotTask(task)) {
+                status = new Status(ErrCode.NOT_FOUND,
+                        "make snapshot failed, failed to ge tablet, table will be droped or truncated");
+                cancelInternal();
+            }
+
+            if (request.getTaskStatus().getStatusCode() == TStatusCode.NOT_IMPLEMENTED_ERROR) {
+                status = new Status(ErrCode.COMMON_ERROR,
+                    "make snapshot failed, currently not support backup tablet with cooldowned remote data");
+                cancelInternal();
+            }
+
             return false;
         }
 
@@ -420,29 +489,17 @@ public class BackupJob extends AbstractJob {
                         break;
                     case OLAP:
                         OlapTable olapTable = (OlapTable) tbl;
-                        if (!checkOlapTable(olapTable, tableRef).ok()) {
-                            return;
-                        }
+                        checkOlapTable(olapTable, tableRef);
                         if (getContent() == BackupContent.ALL) {
-                            if (!prepareSnapshotTaskForOlapTableWithoutLock(
-                                                    db, (OlapTable) tbl, tableRef, batchTask).ok()) {
-                                return;
-                            }
+                            prepareSnapshotTaskForOlapTableWithoutLock(db, (OlapTable) tbl, tableRef, batchTask);
                         }
-                        if (!prepareBackupMetaForOlapTableWithoutLock(tableRef, olapTable, copiedTables).ok()) {
-                            return;
-                        }
+                        prepareBackupMetaForOlapTableWithoutLock(tableRef, olapTable, copiedTables);
                         break;
                     case VIEW:
-                        if (!prepareBackupMetaForViewWithoutLock((View) tbl, copiedTables).ok()) {
-                            return;
-                        }
+                        prepareBackupMetaForViewWithoutLock((View) tbl, copiedTables);
                         break;
                     case ODBC:
-                        if (!prepareBackupMetaForOdbcTableWithoutLock(
-                                                    (OdbcTable) tbl, copiedTables, copiedResources).ok()) {
-                            return;
-                        }
+                        prepareBackupMetaForOdbcTableWithoutLock((OdbcTable) tbl, copiedTables, copiedResources);
                         break;
                     default:
                         status = new Status(ErrCode.COMMON_ERROR,
@@ -452,9 +509,25 @@ public class BackupJob extends AbstractJob {
             } finally {
                 tbl.readUnlock();
             }
+
+            // Avoid submitting a lot of tasks but cancel them immediately.
+            if (!status.ok()) {
+                return;
+            }
         }
 
-        backupMeta = new BackupMeta(db.getName(), copiedTables, copiedResources);
+        // Limit the max num of tablets involved in a backup job, to avoid OOM.
+        if (unfinishedTaskIds.size() > Config.max_backup_tablets_per_job) {
+            String msg = String.format("the num involved tablets %d exceeds the limit %d, "
+                    + "which might cause the FE OOM, change config `max_backup_tablets_per_job` "
+                    + "to change this limitation",
+                    unfinishedTaskIds.size(), Config.max_backup_tablets_per_job);
+            LOG.warn(msg);
+            status = new Status(ErrCode.COMMON_ERROR, msg);
+            return;
+        }
+
+        backupMeta = new BackupMeta(copiedTables, copiedResources);
 
         // send tasks
         for (AgentTask task : batchTask.getAllTasks()) {
@@ -469,7 +542,7 @@ public class BackupJob extends AbstractJob {
         LOG.info("finished to send snapshot tasks to backend. {}", this);
     }
 
-    private Status checkOlapTable(OlapTable olapTable, TableRef backupTableRef) {
+    private void checkOlapTable(OlapTable olapTable, TableRef backupTableRef) {
         olapTable.readLock();
         try {
             // check backup table again
@@ -479,17 +552,16 @@ public class BackupJob extends AbstractJob {
                     if (partition == null) {
                         status = new Status(ErrCode.NOT_FOUND, "partition " + partName
                                 + " does not exist  in table" + backupTableRef.getName().getTbl());
-                        return status;
+                        return;
                     }
                 }
             }
         }  finally {
             olapTable.readUnlock();
         }
-        return Status.OK;
     }
 
-    private Status prepareSnapshotTaskForOlapTableWithoutLock(Database db, OlapTable olapTable,
+    private void prepareSnapshotTaskForOlapTableWithoutLock(Database db, OlapTable olapTable,
             TableRef backupTableRef, AgentBatchTask batchTask) {
         // Add barrier editolog for barrier commit seq
         long dbId = db.getId();
@@ -509,7 +581,7 @@ public class BackupJob extends AbstractJob {
                 if (partition == null) {
                     status = new Status(ErrCode.NOT_FOUND, "partition " + partName
                             + " does not exist  in table" + backupTableRef.getName().getTbl());
-                    return status;
+                    return;
                 }
             }
         }
@@ -538,7 +610,7 @@ public class BackupJob extends AbstractJob {
                         status = new Status(ErrCode.COMMON_ERROR,
                                 "failed to choose replica to make snapshot for tablet " + tablet.getId()
                                         + ". visible version: " + visibleVersion);
-                        return status;
+                        return;
                     }
                     SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), tablet.getId(),
                             jobId, dbId, olapTable.getId(), partition.getId(),
@@ -550,10 +622,9 @@ public class BackupJob extends AbstractJob {
                 }
             }
 
-            LOG.info("snapshot for partition {}, version: {}",
-                    partition.getId(), visibleVersion);
+            LOG.info("snapshot for partition {}, version: {}, job: {}",
+                    partition.getId(), visibleVersion, label);
         }
-        return Status.OK;
     }
 
     private void checkResourceForOdbcTable(OdbcTable odbcTable) {
@@ -569,7 +640,7 @@ public class BackupJob extends AbstractJob {
         }
     }
 
-    private Status prepareBackupMetaForOlapTableWithoutLock(TableRef tableRef, OlapTable olapTable,
+    private void prepareBackupMetaForOlapTableWithoutLock(TableRef tableRef, OlapTable olapTable,
                                                           List<Table> copiedTables) {
         // only copy visible indexes
         List<String> reservedPartitions = tableRef.getPartitionNames() == null ? null
@@ -577,30 +648,28 @@ public class BackupJob extends AbstractJob {
         OlapTable copiedTbl = olapTable.selectiveCopy(reservedPartitions, IndexExtState.VISIBLE, true);
         if (copiedTbl == null) {
             status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + olapTable.getName());
-            return status;
+            return;
         }
 
         removeUnsupportProperties(copiedTbl);
         copiedTables.add(copiedTbl);
-        return Status.OK;
     }
 
-    private Status prepareBackupMetaForViewWithoutLock(View view, List<Table> copiedTables) {
+    private void prepareBackupMetaForViewWithoutLock(View view, List<Table> copiedTables) {
         View copiedView = view.clone();
         if (copiedView == null) {
             status = new Status(ErrCode.COMMON_ERROR, "failed to copy view: " + view.getName());
-            return status;
+            return;
         }
         copiedTables.add(copiedView);
-        return Status.OK;
     }
 
-    private Status prepareBackupMetaForOdbcTableWithoutLock(OdbcTable odbcTable, List<Table> copiedTables,
+    private void prepareBackupMetaForOdbcTableWithoutLock(OdbcTable odbcTable, List<Table> copiedTables,
             List<Resource> copiedResources) {
         OdbcTable copiedOdbcTable = odbcTable.clone();
         if (copiedOdbcTable == null) {
             status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc table: " + odbcTable.getName());
-            return status;
+            return;
         }
         copiedTables.add(copiedOdbcTable);
         if (copiedOdbcTable.getOdbcCatalogResourceName() != null) {
@@ -610,11 +679,10 @@ public class BackupJob extends AbstractJob {
             if (copiedResource == null) {
                 status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc resource: "
                         + resource.getName());
-                return status;
+                return;
             }
             copiedResources.add(copiedResource);
         }
-        return Status.OK;
     }
 
     private void removeUnsupportProperties(OlapTable tbl) {

@@ -34,9 +34,12 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <pthread.h>
 #include <stddef.h>
+#include <sys/time.h>
+#include <thrift/TApplicationException.h>
 #include <thrift/Thrift.h>
 #include <thrift/protocol/TDebugProtocol.h>
 #include <thrift/transport/TTransportException.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -45,11 +48,13 @@
 #include "common/status.h"
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <sstream>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include "cloud/config.h"
@@ -133,6 +138,103 @@ std::string to_load_error_http_path(const std::string& file_name) {
 using apache::thrift::TException;
 using apache::thrift::transport::TTransportException;
 
+static Status _do_fetch_running_queries_rpc(const FrontendInfo& fe_info,
+                                            std::unordered_set<TUniqueId>& query_set) {
+    TFetchRunningQueriesResult rpc_result;
+    TFetchRunningQueriesRequest rpc_request;
+
+    Status client_status;
+    const int32 timeout_ms = 3 * 1000;
+    FrontendServiceConnection rpc_client(ExecEnv::GetInstance()->frontend_client_cache(),
+                                         fe_info.info.coordinator_address, timeout_ms,
+                                         &client_status);
+    // Abort this fe.
+    if (!client_status.ok()) {
+        LOG_WARNING("Failed to get client for {}, reason is {}",
+                    PrintThriftNetworkAddress(fe_info.info.coordinator_address),
+                    client_status.to_string());
+        return Status::InternalError("Failed to get client for {}, reason is {}",
+                                     PrintThriftNetworkAddress(fe_info.info.coordinator_address),
+                                     client_status.to_string());
+    }
+
+    // do rpc
+    try {
+        try {
+            rpc_client->fetchRunningQueries(rpc_result, rpc_request);
+        } catch (const apache::thrift::transport::TTransportException& e) {
+            LOG_WARNING("Transport exception reason: {}, reopening", e.what());
+            client_status = rpc_client.reopen(config::thrift_rpc_timeout_ms);
+            if (!client_status.ok()) {
+                LOG_WARNING("Reopen failed, reason: {}", client_status.to_string_no_stack());
+                return Status::InternalError("Reopen failed, reason: {}",
+                                             client_status.to_string_no_stack());
+            }
+
+            rpc_client->fetchRunningQueries(rpc_result, rpc_request);
+        }
+    } catch (apache::thrift::TException& e) {
+        // During upgrading cluster or meet any other network error.
+        LOG_WARNING("Failed to fetch running queries from {}, reason: {}",
+                    PrintThriftNetworkAddress(fe_info.info.coordinator_address), e.what());
+        return Status::InternalError("Failed to fetch running queries from {}, reason: {}",
+                                     PrintThriftNetworkAddress(fe_info.info.coordinator_address),
+                                     e.what());
+    }
+
+    // Avoid logic error in frontend.
+    if (rpc_result.__isset.status == false || rpc_result.status.status_code != TStatusCode::OK) {
+        LOG_WARNING("Failed to fetch running queries from {}, reason: {}",
+                    PrintThriftNetworkAddress(fe_info.info.coordinator_address),
+                    doris::to_string(rpc_result.status.status_code));
+        return Status::InternalError("Failed to fetch running queries from {}, reason: {}",
+                                     PrintThriftNetworkAddress(fe_info.info.coordinator_address),
+                                     doris::to_string(rpc_result.status.status_code));
+    }
+
+    if (rpc_result.__isset.running_queries == false) {
+        return Status::InternalError("Failed to fetch running queries from {}, reason: {}",
+                                     PrintThriftNetworkAddress(fe_info.info.coordinator_address),
+                                     "running_queries is not set");
+    }
+
+    query_set = std::unordered_set<TUniqueId>(rpc_result.running_queries.begin(),
+                                              rpc_result.running_queries.end());
+    return Status::OK();
+};
+
+static std::map<int64_t, std::unordered_set<TUniqueId>> _get_all_running_queries_from_fe() {
+    const std::map<TNetworkAddress, FrontendInfo>& running_fes =
+            ExecEnv::GetInstance()->get_running_frontends();
+
+    std::map<int64_t, std::unordered_set<TUniqueId>> result;
+    std::vector<FrontendInfo> qualified_fes;
+
+    for (const auto& fe : running_fes) {
+        // Only consider normal frontend.
+        if (fe.first.port != 0 && fe.second.info.process_uuid != 0) {
+            qualified_fes.push_back(fe.second);
+        } else {
+            return {};
+        }
+    }
+
+    for (const auto& fe_addr : qualified_fes) {
+        const int64_t process_uuid = fe_addr.info.process_uuid;
+        std::unordered_set<TUniqueId> query_set;
+        Status st = _do_fetch_running_queries_rpc(fe_addr, query_set);
+        if (!st.ok()) {
+            // Empty result, cancel worker will not do anything
+            return {};
+        }
+
+        // frontend_info and process_uuid has been checked in rpc threads.
+        result[process_uuid] = query_set;
+    }
+
+    return result;
+}
+
 FragmentMgr::FragmentMgr(ExecEnv* exec_env)
         : _exec_env(exec_env), _stop_background_threads_latch(1) {
     _entity = DorisMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
@@ -143,23 +245,14 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
             &_cancel_thread);
     CHECK(s.ok()) << s.to_string();
 
-    // TODO(zc): we need a better thread-pool
-    // now one user can use all the thread pool, others have no resource.
-    s = ThreadPoolBuilder("FragmentMgrThreadPool")
-                .set_min_threads(config::fragment_pool_thread_num_min)
-                .set_max_threads(config::fragment_pool_thread_num_max)
-                .set_max_queue_size(config::fragment_pool_queue_size)
+    s = ThreadPoolBuilder("FragmentMgrAsyncWorkThreadPool")
+                .set_min_threads(config::fragment_mgr_asynic_work_pool_thread_num_min)
+                .set_max_threads(config::fragment_mgr_asynic_work_pool_thread_num_max)
+                .set_max_queue_size(config::fragment_mgr_asynic_work_pool_queue_size)
                 .build(&_thread_pool);
 
     REGISTER_HOOK_METRIC(fragment_thread_pool_queue_size,
                          [this]() { return _thread_pool->get_queue_size(); });
-    CHECK(s.ok()) << s.to_string();
-
-    s = ThreadPoolBuilder("FragmentInstanceReportThreadPool")
-                .set_min_threads(48)
-                .set_max_threads(512)
-                .set_max_queue_size(102400)
-                .build(&_async_report_thread_pool);
     CHECK(s.ok()) << s.to_string();
 }
 
@@ -172,9 +265,6 @@ void FragmentMgr::stop() {
     if (_cancel_thread) {
         _cancel_thread->join();
     }
-    // Stop all the worker, should wait for a while?
-    // _thread_pool->wait_for();
-    _thread_pool->shutdown();
 
     // Only me can delete
     {
@@ -182,7 +272,7 @@ void FragmentMgr::stop() {
         _query_ctx_map.clear();
         _pipeline_map.clear();
     }
-    _async_report_thread_pool->shutdown();
+    _thread_pool->shutdown();
 }
 
 std::string FragmentMgr::to_http_path(const std::string& file_name) {
@@ -195,7 +285,7 @@ std::string FragmentMgr::to_http_path(const std::string& file_name) {
 
 Status FragmentMgr::trigger_pipeline_context_report(
         const ReportStatusRequest req, std::shared_ptr<pipeline::PipelineFragmentContext>&& ctx) {
-    return _async_report_thread_pool->submit_func([this, req, ctx]() {
+    return _thread_pool->submit_func([this, req, ctx]() {
         SCOPED_ATTACH_TASK(ctx->get_query_ctx()->query_mem_tracker);
         coordinator_callback(req);
         if (!req.done) {
@@ -303,7 +393,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         int64_t num_rows_load_success = 0;
         int64_t num_rows_load_filtered = 0;
         int64_t num_rows_load_unselected = 0;
-        int64_t num_finished_ranges = 0;
         if (req.runtime_state->num_rows_load_total() > 0 ||
             req.runtime_state->num_rows_load_filtered() > 0 ||
             req.runtime_state->num_finished_range() > 0) {
@@ -312,7 +401,11 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             num_rows_load_success = req.runtime_state->num_rows_load_success();
             num_rows_load_filtered = req.runtime_state->num_rows_load_filtered();
             num_rows_load_unselected = req.runtime_state->num_rows_load_unselected();
-            num_finished_ranges = req.runtime_state->num_finished_range();
+            params.__isset.fragment_instance_reports = true;
+            TFragmentInstanceReport t;
+            t.__set_fragment_instance_id(req.runtime_state->fragment_instance_id());
+            t.__set_num_finished_range(req.runtime_state->num_finished_range());
+            params.fragment_instance_reports.push_back(t);
         } else if (!req.runtime_states.empty()) {
             for (auto* rs : req.runtime_states) {
                 if (rs->num_rows_load_total() > 0 || rs->num_rows_load_filtered() > 0 ||
@@ -321,11 +414,14 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                     num_rows_load_success += rs->num_rows_load_success();
                     num_rows_load_filtered += rs->num_rows_load_filtered();
                     num_rows_load_unselected += rs->num_rows_load_unselected();
-                    num_finished_ranges += rs->num_finished_range();
+                    params.__isset.fragment_instance_reports = true;
+                    TFragmentInstanceReport t;
+                    t.__set_fragment_instance_id(rs->fragment_instance_id());
+                    t.__set_num_finished_range(rs->num_finished_range());
+                    params.fragment_instance_reports.push_back(t);
                 }
             }
         }
-        params.__set_finished_scan_ranges(num_finished_ranges);
         params.load_counters.emplace(s_dpp_normal_all, std::to_string(num_rows_load_success));
         params.load_counters.emplace(s_dpp_abnormal_all, std::to_string(num_rows_load_filtered));
         params.load_counters.emplace(s_unselected_rows, std::to_string(num_rows_load_unselected));
@@ -443,8 +539,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     if (!exec_status.ok()) {
         LOG(WARNING) << "report error status: " << exec_status.msg()
                      << " to coordinator: " << req.coord_addr
-                     << ", query id: " << print_id(req.query_id)
-                     << ", instance id: " << print_id(req.fragment_instance_id);
+                     << ", query id: " << print_id(req.query_id);
     }
     try {
         try {
@@ -470,8 +565,8 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     }
 
     if (!rpc_status.ok()) {
-        LOG_INFO("Going to cancel instance {} since report exec status got rpc failed: {}",
-                 print_id(req.fragment_instance_id), rpc_status.to_string());
+        LOG_INFO("Going to cancel query {} since report exec status got rpc failed: {}",
+                 print_id(req.query_id), rpc_status.to_string());
         // we need to cancel the execution of this fragment
         req.cancel_fn(rpc_status);
     }
@@ -479,11 +574,13 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 
 static void empty_function(RuntimeState*, Status*) {}
 
-Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
+Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
+                                       const QuerySource query_source) {
     return Status::InternalError("Non-pipeline is disabled!");
 }
 
-Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params) {
+Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
+                                       const QuerySource query_source) {
     if (params.txn_conf.need_txn) {
         std::shared_ptr<StreamLoadContext> stream_load_ctx =
                 std::make_shared<StreamLoadContext>(_exec_env);
@@ -515,7 +612,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params) {
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx));
         return Status::OK();
     } else {
-        return exec_plan_fragment(params, empty_function);
+        return exec_plan_fragment(params, query_source, empty_function);
     }
 }
 
@@ -578,7 +675,12 @@ std::shared_ptr<QueryContext> FragmentMgr::get_or_erase_query_ctx_with_lock(
 
 template <typename Params>
 Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
+                                   QuerySource query_source,
                                    std::shared_ptr<QueryContext>& query_ctx) {
+    DBUG_EXECUTE_IF("FragmentMgr._get_query_ctx.failed", {
+        return Status::InternalError("FragmentMgr._get_query_ctx.failed, query id {}",
+                                     print_id(query_id));
+    });
     if (params.is_simplified_param) {
         // Get common components from _query_ctx_map
         std::lock_guard<std::mutex> lock(_lock);
@@ -586,9 +688,9 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             query_ctx = q_ctx;
         } else {
             return Status::InternalError(
-                    "Failed to get query fragments context. Query may be "
-                    "timeout or be cancelled. host: {}",
-                    BackendOptions::get_localhost());
+                    "Failed to get query fragments context. Query {} may be timeout or be "
+                    "cancelled. host: {}",
+                    print_id(query_id), BackendOptions::get_localhost());
         }
     } else {
         // Find _query_ctx_map, in case some other request has already
@@ -607,9 +709,9 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
         // This may be a first fragment request of the query.
         // Create the query fragments context.
-        query_ctx =
-                QueryContext::create_shared(query_id, _exec_env, params.query_options, params.coord,
-                                            pipeline, params.is_nereids, params.current_connect_fe);
+        query_ctx = QueryContext::create_shared(query_id, _exec_env, params.query_options,
+                                                params.coord, pipeline, params.is_nereids,
+                                                params.current_connect_fe, query_source);
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
@@ -658,7 +760,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 }
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
-                                       const FinishCallback& cb) {
+                                       QuerySource query_source, const FinishCallback& cb) {
     return Status::InternalError("Non-pipeline is disabled!");
 }
 
@@ -700,7 +802,7 @@ std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
 }
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
-                                       const FinishCallback& cb) {
+                                       QuerySource query_source, const FinishCallback& cb) {
     VLOG_ROW << "query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
@@ -709,7 +811,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 
     std::shared_ptr<QueryContext> query_ctx;
-    RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
+    RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_source, query_ctx));
     SCOPED_ATTACH_TASK(query_ctx.get());
     int64_t duration_ns = 0;
     std::shared_ptr<pipeline::PipelineFragmentContext> context =
@@ -840,12 +942,31 @@ void FragmentMgr::cancel_instance(const TUniqueId instance_id, const Status reas
 
 void FragmentMgr::cancel_worker() {
     LOG(INFO) << "FragmentMgr cancel worker start working.";
+
+    timespec check_invalid_query_last_timestamp;
+    clock_gettime(CLOCK_MONOTONIC, &check_invalid_query_last_timestamp);
+
     do {
         std::vector<TUniqueId> queries_lost_coordinator;
         std::vector<TUniqueId> queries_timeout;
+        std::vector<TUniqueId> queries_pipeline_task_leak;
+        // Fe process uuid -> set<QueryId>
+        std::map<int64_t, std::unordered_set<TUniqueId>> running_queries_on_all_fes;
+        const std::map<TNetworkAddress, FrontendInfo>& running_fes =
+                ExecEnv::GetInstance()->get_running_frontends();
 
         timespec now;
         clock_gettime(CLOCK_MONOTONIC, &now);
+
+        if (config::enable_pipeline_task_leakage_detect &&
+            now.tv_sec - check_invalid_query_last_timestamp.tv_sec >
+                    config::pipeline_task_leakage_detect_period_secs) {
+            check_invalid_query_last_timestamp = now;
+            running_queries_on_all_fes = _get_all_running_queries_from_fe();
+        } else {
+            running_queries_on_all_fes.clear();
+        }
+
         {
             std::lock_guard<std::mutex> lock(_lock);
             for (auto& pipeline_itr : _pipeline_map) {
@@ -865,8 +986,6 @@ void FragmentMgr::cancel_worker() {
                 }
             }
 
-            const auto& running_fes = ExecEnv::GetInstance()->get_running_frontends();
-
             // We use a very conservative cancel strategy.
             // 0. If there are no running frontends, do not cancel any queries.
             // 1. If query's process uuid is zero, do not cancel
@@ -880,15 +999,37 @@ void FragmentMgr::cancel_worker() {
             } else {
                 for (const auto& it : _query_ctx_map) {
                     if (auto q_ctx = it.second.lock()) {
-                        if (q_ctx->get_fe_process_uuid() == 0) {
+                        const int64_t fe_process_uuid = q_ctx->get_fe_process_uuid();
+
+                        if (fe_process_uuid == 0) {
                             // zero means this query is from a older version fe or
                             // this fe is starting
                             continue;
                         }
 
+                        // If the query is not running on the any frontends, cancel it.
+                        if (auto itr = running_queries_on_all_fes.find(fe_process_uuid);
+                            itr != running_queries_on_all_fes.end()) {
+                            // Query not found on this frontend, and the query arrives before the last check
+                            if (itr->second.find(it.first) == itr->second.end() &&
+                                // tv_nsec represents the number of nanoseconds that have elapsed since the time point stored in tv_sec.
+                                // tv_sec is enough, we do not need to check tv_nsec.
+                                q_ctx->get_query_arrival_timestamp().tv_sec <
+                                        check_invalid_query_last_timestamp.tv_sec &&
+                                q_ctx->get_query_source() == QuerySource::INTERNAL_FRONTEND) {
+                                queries_pipeline_task_leak.push_back(q_ctx->query_id());
+                                LOG_INFO(
+                                        "Query {}, type {} is not found on any frontends, maybe it "
+                                        "is leaked.",
+                                        print_id(q_ctx->query_id()),
+                                        toString(q_ctx->get_query_source()));
+                                continue;
+                            }
+                        }
+
                         auto itr = running_fes.find(q_ctx->coord_addr);
                         if (itr != running_fes.end()) {
-                            if (q_ctx->get_fe_process_uuid() == itr->second.info.process_uuid ||
+                            if (fe_process_uuid == itr->second.info.process_uuid ||
                                 itr->second.info.process_uuid == 0) {
                                 continue;
                             } else {
@@ -942,9 +1083,18 @@ void FragmentMgr::cancel_worker() {
                                  "FragmentMgr cancel worker going to cancel timeout instance "));
         }
 
-        for (const auto& qid : queries_lost_coordinator) {
-            cancel_query(qid, Status::InternalError("Coordinator dead."));
+        for (const auto& qid : queries_pipeline_task_leak) {
+            // Cancel the query, and maybe try to report debug info to fe so that we can
+            // collect debug info by sql or http api instead of search log.
+            cancel_query(qid, Status::Error<ErrorCode::ILLEGAL_STATE>(
+                                      "Potential pipeline task leakage"));
         }
+
+        for (const auto& qid : queries_lost_coordinator) {
+            cancel_query(qid, Status::Error<ErrorCode::CANCELLED>(
+                                      "Source frontend is not running or restarted"));
+        }
+
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
     LOG(INFO) << "FragmentMgr cancel worker is going to exit.";
 }
@@ -1042,7 +1192,7 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     exec_fragment_params.__set_query_options(query_options);
     VLOG_ROW << "external exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(exec_fragment_params).c_str();
-    return exec_plan_fragment(exec_fragment_params);
+    return exec_plan_fragment(exec_fragment_params, QuerySource::EXTERNAL_CONNECTOR);
 }
 
 Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
@@ -1148,8 +1298,6 @@ Status FragmentMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
 Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
                                  butil::IOBufAsZeroCopyInputStream* attach_data) {
     UniqueId queryid = request->query_id();
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
-    RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
 
     std::shared_ptr<QueryContext> query_ctx;
     {
@@ -1165,6 +1313,8 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
         }
     }
     SCOPED_ATTACH_TASK(query_ctx.get());
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
+    RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
     auto merge_status = filter_controller->merge(request, attach_data);
     return merge_status;
 }

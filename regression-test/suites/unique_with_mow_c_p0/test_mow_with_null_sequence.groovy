@@ -31,7 +31,6 @@ suite("test_mow_with_null_sequence") {
             PROPERTIES (
                     "function_column.sequence_col" = 'c_date',
                     "replication_num" = "1",
-                    "disable_auto_compaction" = "true",
                     "enable_unique_key_merge_on_write" = "true"
              );
         """
@@ -65,7 +64,6 @@ suite("test_mow_with_null_sequence") {
             PROPERTIES (
                     "function_column.sequence_col" = 'c_int',
                     "replication_num" = "1",
-                    "disable_auto_compaction" = "true",
                     "enable_unique_key_merge_on_write" = "true"
              );
         """
@@ -90,5 +88,5 @@ suite("test_mow_with_null_sequence") {
 
         order_qt_sql "select * from $tableName"
 
-        sql """ DROP TABLE IF EXISTS $tableName """
+        // sql """ DROP TABLE IF EXISTS $tableName """
 }

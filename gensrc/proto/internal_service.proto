@@ -517,16 +517,18 @@ enum PColumnType {
     COLUMN_TYPE_DECIMAL64 = 18;
     COLUMN_TYPE_DECIMAL128I = 19;
     COLUMN_TYPE_DECIMAL256 = 20;
+    COLUMN_TYPE_IPV4 = 21;
+    COLUMN_TYPE_IPV6 = 22;
 }
 
 message PMinMaxFilter {
-    required PColumnType column_type = 1;
+    required PColumnType column_type = 1; // Deprecated
     required PColumnValue min_val = 2;
     required PColumnValue max_val = 3;
 };
 
 message PInFilter {
-    required PColumnType column_type = 1;
+    required PColumnType column_type = 1; // Deprecated
     repeated PColumnValue values = 2;
     optional string ignored_msg = 3;
 }
@@ -707,9 +709,6 @@ message PFetchTableSchemaResult {
 }
 
 message POutfileWriteSuccessRequest {
-    // optional string file_path = 1;
-    // optional string success_file_name = 2;
-    // map<string, string> broker_properties = 4; // only for remote file
     optional bytes result_file_sink = 1;
 }
 
@@ -808,6 +807,7 @@ message FileCacheBlockMeta {
     required int64 size = 6;
     required FileCacheType cache_type = 7;
     required int64 expiration_time = 8;
+    optional int64 file_size = 9;
 }
 
 message PGetFileCacheMetaResponse {

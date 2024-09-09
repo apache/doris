@@ -17,15 +17,19 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.stats.StatsMathUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.text.DecimalFormat;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -40,15 +44,33 @@ public class Statistics {
     // the byte size of one tuple
     private double tupleSize;
 
-    public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
-        this(rowCount, 1, expressionToColumnStats);
+    private double deltaRowCount = 0.0;
+
+    private long actualRowCount = -1L;
+
+    public Statistics(Statistics another) {
+        this.rowCount = another.rowCount;
+        this.widthInJoinCluster = another.widthInJoinCluster;
+        this.expressionToColumnStats = new HashMap<>(another.expressionToColumnStats);
+        this.tupleSize = another.tupleSize;
+        this.deltaRowCount = another.getDeltaRowCount();
     }
 
     public Statistics(double rowCount, int widthInJoinCluster,
-                      Map<Expression, ColumnStatistic> expressionToColumnStats) {
+            Map<Expression, ColumnStatistic> expressionToColumnStats, double deltaRowCount) {
         this.rowCount = rowCount;
         this.widthInJoinCluster = widthInJoinCluster;
         this.expressionToColumnStats = expressionToColumnStats;
+        this.deltaRowCount = deltaRowCount;
+    }
+
+    public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
+        this(rowCount, 1, expressionToColumnStats, 0);
+    }
+
+    public Statistics(double rowCount, int widthInJoinCluster,
+            Map<Expression, ColumnStatistic> expressionToColumnStats) {
+        this(rowCount, widthInJoinCluster, expressionToColumnStats, 0);
     }
 
     public ColumnStatistic findColumnStatistics(Expression expression) {
@@ -83,7 +105,7 @@ public class Statistics {
     public void enforceValid() {
         for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
             ColumnStatistic columnStatistic = entry.getValue();
-            if (!checkColumnStatsValid(columnStatistic)) {
+            if (!checkColumnStatsValid(columnStatistic) && !columnStatistic.isUnKnown()) {
                 double ndv = Math.min(columnStatistic.ndv, rowCount);
                 ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
                 columnStatisticBuilder.setNdv(ndv);
@@ -130,7 +152,7 @@ public class Statistics {
             for (Slot slot : slots) {
                 ColumnStatistic s = expressionToColumnStats.get(slot);
                 if (s != null) {
-                    tempSize += s.avgSizeByte;
+                    tempSize += Math.max(1, Math.min(CharacterType.DEFAULT_SLOT_SIZE, s.avgSizeByte));
                 }
             }
             tupleSize = Math.max(1, tempSize);
@@ -149,24 +171,48 @@ public class Statistics {
     }
 
     public double dataSizeFactor(List<Slot> slots) {
-        double lowerBound = 0.03;
-        double upperBound = 0.07;
-        return Math.min(Math.max(computeTupleSize(slots) / K_BYTES, lowerBound), upperBound);
+        boolean allUnknown = true;
+        for (Slot slot : slots) {
+            if (slot instanceof SlotReference) {
+                Optional<Column> colOpt = ((SlotReference) slot).getColumn();
+                if (colOpt.isPresent() && colOpt.get().isVisible()) {
+                    ColumnStatistic colStats = expressionToColumnStats.get(slot);
+                    if (colStats != null && !colStats.isUnKnown) {
+                        allUnknown = false;
+                        break;
+                    }
+                }
+            }
+        }
+        if (allUnknown) {
+            double lowerBound = 0.03;
+            double upperBound = 0.07;
+            return Math.min(Math.max(computeTupleSize(slots) / K_BYTES, lowerBound), upperBound);
+        } else {
+            return 0.05 * computeTupleSize(slots);
+        }
     }
 
     @Override
     public String toString() {
+        StringBuilder builder = new StringBuilder();
         if (Double.isNaN(rowCount)) {
-            return "NaN";
+            builder.append("NaN");
+        } else if (Double.POSITIVE_INFINITY == rowCount) {
+            builder.append("Infinite");
+        } else if (Double.NEGATIVE_INFINITY == rowCount) {
+            builder.append("-Infinite");
+        } else {
+            DecimalFormat format = new DecimalFormat("#,###.##");
+            builder.append(format.format(rowCount));
         }
-        if (Double.POSITIVE_INFINITY == rowCount) {
-            return "Infinite";
+        if (deltaRowCount > 0) {
+            builder.append("(").append((long) deltaRowCount).append(")");
         }
-        if (Double.NEGATIVE_INFINITY == rowCount) {
-            return "-Infinite";
+        if (actualRowCount != -1) {
+            builder.append(" actualRows=").append(actualRowCount);
         }
-        DecimalFormat format = new DecimalFormat("#,###.##");
-        return format.format(rowCount);
+        return builder.toString();
     }
 
     public String printColumnStats() {
@@ -242,5 +288,21 @@ public class Statistics {
             }
         }
         return builder.build();
+    }
+
+    public double getDeltaRowCount() {
+        return deltaRowCount;
+    }
+
+    public void setDeltaRowCount(double deltaRowCount) {
+        this.deltaRowCount = deltaRowCount;
+    }
+
+    public long getActualRowCount() {
+        return actualRowCount;
+    }
+
+    public void setActualRowCount(long actualRowCount) {
+        this.actualRowCount = actualRowCount;
     }
 }

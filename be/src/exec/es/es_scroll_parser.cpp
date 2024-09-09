@@ -100,9 +100,9 @@ static const std::string ERROR_COL_DATA_IS_ARRAY =
 static const std::string INVALID_NULL_VALUE =
         "Invalid null value occurs: Non-null column `$0` contains NULL";
 
-#define RETURN_ERROR_IF_COL_IS_ARRAY(col, type)                              \
+#define RETURN_ERROR_IF_COL_IS_ARRAY(col, type, is_array)                    \
     do {                                                                     \
-        if (col.IsArray()) {                                                 \
+        if (col.IsArray() == is_array) {                                     \
             std::stringstream ss;                                            \
             ss << "Expected value of type: " << type_to_string(type)         \
                << "; but found type: " << json_type_to_string(col.GetType()) \
@@ -167,7 +167,7 @@ Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot
         return Status::OK();
     }
 
-    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+    RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
     RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
 
     StringParser::ParseResult result;
@@ -294,7 +294,7 @@ Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_d
         return get_date_value_int<T, RT>(col[0], type, false, slot, time_zone);
     } else {
         // this would happened just only when `enable_docvalue_scan = false`, and field has string format date from _source
-        RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+        RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
         RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
         return get_date_value_int<T, RT>(col, type, true, slot, time_zone);
     }
@@ -322,7 +322,7 @@ Status get_float_value(const rapidjson::Value& col, PrimitiveType type, void* sl
         return Status::OK();
     }
 
-    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+    RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
     RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
 
     StringParser::ParseResult result;
@@ -351,7 +351,7 @@ Status insert_float_value(const rapidjson::Value& col, PrimitiveType type,
         return Status::OK();
     }
 
-    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+    RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
     RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
 
     StringParser::ParseResult result;
@@ -383,31 +383,39 @@ Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
         return Status::OK();
     }
 
-    if (pure_doc_value && col.IsArray() && !col.Empty()) {
-        RETURN_ERROR_IF_COL_IS_NOT_NUMBER(col[0], type);
-        T value = (T)(sizeof(T) < 8 ? col[0].GetInt() : col[0].GetInt64());
-        col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
+    auto parse_and_insert_data = [&](const rapidjson::Value& col_value) -> Status {
+        StringParser::ParseResult result;
+        std::string val = col_value.GetString();
+        // ES allows inserting numbers and characters containing decimals in numeric types.
+        // To parse these numbers in Doris, we remove the decimals here.
+        size_t pos = val.find('.');
+        if (pos != std::string::npos) {
+            val = val.substr(0, pos);
+        }
+        size_t len = val.length();
+        T v = StringParser::string_to_int<T>(val.c_str(), len, &result);
+        RETURN_ERROR_IF_PARSING_FAILED(result, col_value, type);
+
+        col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&v)), 0);
         return Status::OK();
+    };
+
+    if (pure_doc_value && col.IsArray() && !col.Empty()) {
+        if (col.IsNumber()) {
+            RETURN_ERROR_IF_COL_IS_NOT_NUMBER(col[0], type);
+            T value = (T)(sizeof(T) < 8 ? col[0].GetInt() : col[0].GetInt64());
+            col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
+            return Status::OK();
+        } else {
+            RETURN_ERROR_IF_COL_IS_ARRAY(col[0], type, true);
+            RETURN_ERROR_IF_COL_IS_NOT_STRING(col[0], type);
+            return parse_and_insert_data(col[0]);
+        }
     }
 
-    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+    RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
     RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-
-    StringParser::ParseResult result;
-    std::string val = col.GetString();
-    // ES allows inserting numbers and characters containing decimals in numeric types.
-    // To parse these numbers in Doris, we remove the decimals here.
-    size_t pos = val.find(".");
-    if (pos != std::string::npos) {
-        val = val.substr(0, pos);
-    }
-    size_t len = val.length();
-    T v = StringParser::string_to_int<T>(val.c_str(), len, &result);
-    RETURN_ERROR_IF_PARSING_FAILED(result, col, type);
-
-    col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&v)), 0);
-
-    return Status::OK();
+    return parse_and_insert_data(col);
 }
 
 ScrollParser::ScrollParser(bool doc_value_mode) : _size(0), _line_index(0) {}
@@ -543,7 +551,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                     val = col[0].GetString();
                 }
             } else {
-                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
                 if (!col.IsString()) {
                     val = json_value_to_string(col);
                 } else {
@@ -623,7 +631,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
 
             const rapidjson::Value& str_col = is_nested_str ? col[0] : col;
 
-            RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+            RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
 
             const std::string& val = str_col.GetString();
             size_t val_size = str_col.GetStringLength();
@@ -649,7 +657,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                         val = col[0].GetString();
                     }
                 } else {
-                    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                    RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
                     if (!col.IsString()) {
                         val = json_value_to_string(col);
                     } else {
@@ -679,13 +687,14 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
         case TYPE_ARRAY: {
             vectorized::Array array;
             const auto& sub_type = tuple_desc->slots()[i]->type().children[0].type;
-            for (auto& sub_col : col.GetArray()) {
+            RETURN_ERROR_IF_COL_IS_ARRAY(col, type, false);
+            for (const auto& sub_col : col.GetArray()) {
                 switch (sub_type) {
                 case TYPE_CHAR:
                 case TYPE_VARCHAR:
                 case TYPE_STRING: {
                     std::string val;
-                    RETURN_ERROR_IF_COL_IS_ARRAY(sub_col, sub_type);
+                    RETURN_ERROR_IF_COL_IS_ARRAY(sub_col, sub_type, true);
                     if (!sub_col.IsString()) {
                         val = json_value_to_string(sub_col);
                     } else {

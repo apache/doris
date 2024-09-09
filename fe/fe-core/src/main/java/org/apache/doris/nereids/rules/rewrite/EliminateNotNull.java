@@ -81,7 +81,7 @@ public class EliminateNotNull implements RewriteRuleFactory {
         // predicatesNotContainIsNotNull infer nonNullable slots: `id`
         // slotsFromIsNotNull: `id`, `name`
         // remove `name` (it's generated), remove `id` (because `id > 0` already contains it)
-        Set<Expression> predicatesNotContainIsNotNull = Sets.newHashSet();
+        Set<Expression> predicatesNotContainIsNotNull = Sets.newLinkedHashSet();
         List<Slot> slotsFromIsNotNull = Lists.newArrayList();
 
         for (Expression expr : exprs) {

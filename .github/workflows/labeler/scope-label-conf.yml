@@ -25,4 +25,6 @@ meta-change:
   - gensrc/proto/*
 
 doing:
-  - *
+  - base-branch: 'master'
+  - changed-files:
+    - any-glob-to-any-file: '**'

@@ -48,7 +48,7 @@ import java.util.Optional;
  * ...
  * )
  */
-public class AlterRoutineLoadStmt extends DdlStmt {
+public class AlterRoutineLoadStmt extends DdlStmt implements NotFallbackInParser {
 
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
 
@@ -68,6 +68,8 @@ public class AlterRoutineLoadStmt extends DdlStmt {
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
             .add(CreateRoutineLoadStmt.WORKLOAD_GROUP)
+            .add(LoadStmt.KEY_ENCLOSE)
+            .add(LoadStmt.KEY_ESCAPE)
             .build();
 
     private final LabelName labelName;
@@ -249,6 +251,12 @@ public class AlterRoutineLoadStmt extends DdlStmt {
             long wgId = Env.getCurrentEnv().getWorkloadGroupMgr()
                     .getWorkloadGroup(ConnectContext.get().getCurrentUserIdentity(), workloadGroup);
             analyzedJobProperties.put(CreateRoutineLoadStmt.WORKLOAD_GROUP, String.valueOf(wgId));
+        }
+        if (jobProperties.containsKey(LoadStmt.KEY_ENCLOSE)) {
+            analyzedJobProperties.put(LoadStmt.KEY_ENCLOSE, jobProperties.get(LoadStmt.KEY_ENCLOSE));
+        }
+        if (jobProperties.containsKey(LoadStmt.KEY_ESCAPE)) {
+            analyzedJobProperties.put(LoadStmt.KEY_ESCAPE, jobProperties.get(LoadStmt.KEY_ESCAPE));
         }
     }
 

@@ -1177,8 +1177,8 @@ Status StreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
     return Status::OK();
 }
 
-Status StreamingAggOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(StatefulOperatorX<StreamingAggLocalState>::prepare(state));
+Status StreamingAggOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(StatefulOperatorX<StreamingAggLocalState>::open(state));
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
@@ -1231,11 +1231,6 @@ Status StreamingAggOperatorX::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(vectorized::AggFnEvaluator::check_agg_fn_output(
                 _probe_expr_ctxs.size(), _aggregate_evaluators, _agg_fn_output_row_descriptor));
     }
-    return Status::OK();
-}
-
-Status StreamingAggOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(StatefulOperatorX<StreamingAggLocalState>::open(state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_probe_expr_ctxs, state));
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
@@ -1285,8 +1280,8 @@ Status StreamingAggOperatorX::pull(RuntimeState* state, vectorized::Block* block
         RETURN_IF_ERROR(local_state._executor->get_result(&local_state, state, block, eos));
         local_state.make_nullable_output_key(block);
         // dispose the having clause, should not be execute in prestreaming agg
-        RETURN_IF_ERROR(
-                vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
+                                                               block->columns()));
     }
     local_state.reached_limit(block, eos);
 
