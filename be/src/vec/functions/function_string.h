@@ -39,6 +39,7 @@
 #include <stdexcept>
 #include <tuple>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -4204,4 +4205,71 @@ private:
     }
 };
 
+class FunctionTranslate : public IFunction {
+public:
+    static constexpr auto name = "translate";
+    static FunctionPtr create() { return std::make_shared<FunctionTranslate>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 3; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    };
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeString>()};
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        // We need a local variable to hold a reference to the converted column.
+        // So that the converted column will not be released before we use it.
+        auto col_source =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto col_source_str = assert_cast<const ColumnString*>(col_source.get());
+        auto col_from =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto col_from_str = assert_cast<const ColumnString*>(col_from.get());
+        auto col_to = block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+        auto col_to_str = assert_cast<const ColumnString*>(col_to.get());
+
+        ColumnString::MutablePtr col_res = ColumnString::create();
+        for (int i = 0; i < input_rows_count; ++i) {
+            StringRef source_str = col_source_str->get_data_at(i);
+            StringRef from_str = col_from_str->get_data_at(i);
+            StringRef to_str = col_to_str->get_data_at(i);
+
+            std::string res = translate(source_str.to_string(), from_str.to_string_view(),
+                                        to_str.to_string_view());
+            col_res->insert_data(res.data(), res.length());
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    std::string translate(const std::string& source_str, const std::string_view& from_str,
+                          const std::string_view& to_str) const {
+        std::string result;
+        result.reserve(source_str.size());
+        std::unordered_map<char, char> translate_map;
+        for (int i = 0; i < from_str.size(); ++i) {
+            if (translate_map.find(from_str[i]) == translate_map.end()) {
+                translate_map[from_str[i]] = i < to_str.size() ? to_str[i] : 0;
+            }
+        }
+        for (auto const& c : source_str) {
+            if (translate_map.find(c) != translate_map.end()) {
+                if (translate_map[c]) {
+                    result.push_back(translate_map[c]);
+                }
+            } else {
+                result.push_back(c);
+            }
+        }
+        return result;
+    }
+}
 } // namespace doris::vectorized
