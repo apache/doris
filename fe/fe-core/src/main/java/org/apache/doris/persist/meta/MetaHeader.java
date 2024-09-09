@@ -48,7 +48,7 @@ public class MetaHeader {
     // format of image
     private FeMetaFormat metaFormat;
     // json header
-    public MetaJsonHeader metaJsonHeader;
+    private MetaJsonHeader metaJsonHeader;
 
     public static MetaHeader read(File imageFile) throws IOException {
         try (RandomAccessFile raf = new RandomAccessFile(imageFile, "r")) {
@@ -76,7 +76,7 @@ public class MetaHeader {
         }
     }
 
-    public static long write(File imageFile) throws IOException {
+    public static long write(File imageFile, boolean compressed) throws IOException {
         if (imageFile.length() != 0) {
             throw new IOException("Meta header has to be written to an empty file.");
         }
@@ -84,10 +84,17 @@ public class MetaHeader {
         try (RandomAccessFile raf = new RandomAccessFile(imageFile, "rw")) {
             raf.seek(0);
             MetaMagicNumber.write(raf);
-            MetaJsonHeader.write(raf);
+
+            MetaJsonHeader metaJsonHeader = new MetaJsonHeader();
+            metaJsonHeader.compressed = compressed;
+            MetaJsonHeader.write(raf, metaJsonHeader);
             raf.getChannel().force(true);
             return raf.getFilePointer();
         }
+    }
+
+    public static long write(File imageFile) throws IOException {
+        return write(imageFile, false);
     }
 
     public MetaHeader(MetaJsonHeader metaJsonHeader, long length) {

@@ -30,14 +30,15 @@ public class MetaJsonHeader {
     public static final String IMAGE_VERSION = FeConstants.meta_format.getVersion();
     // the version of image format
     public String imageVersion;
+    // the image is compressed or not
+    public boolean compressed;
 
     public static MetaJsonHeader read(RandomAccessFile raf) throws IOException {
         String jsonHeader = Text.readString(raf);
         return MetaJsonHeader.fromJson(jsonHeader);
     }
 
-    public static void write(RandomAccessFile raf) throws IOException {
-        MetaJsonHeader metaJsonHeader = new MetaJsonHeader();
+    public static void write(RandomAccessFile raf, MetaJsonHeader metaJsonHeader) throws IOException {
         metaJsonHeader.imageVersion = IMAGE_VERSION;
         String jsonHeader =  MetaJsonHeader.toJson(metaJsonHeader);
         Text.writeString(raf, jsonHeader);
