@@ -183,6 +183,9 @@ void PipelineFragmentContext::cancel(const Status reason) {
                     this->debug_string());
     }
 
+    if (reason.is<ErrorCode::MEM_LIMIT_EXCEEDED>() || reason.is<ErrorCode::MEM_ALLOC_FAILED>()) {
+        print_profile("cancel pipeline, reason: " + reason.to_string());
+    }
     _query_ctx->cancel(reason, _fragment_id);
     if (reason.is<ErrorCode::LIMIT_REACH>()) {
         _is_report_on_cancel = false;
@@ -1610,6 +1613,21 @@ Status PipelineFragmentContext::submit() {
     }
 }
 
+void PipelineFragmentContext::print_profile(const std::string& extra_info) {
+    if (_runtime_state->enable_profile()) {
+        std::stringstream ss;
+        for (auto runtime_profile_ptr : _runtime_state->pipeline_id_to_profile()) {
+            runtime_profile_ptr->pretty_print(&ss);
+        }
+
+        if (_runtime_state->load_channel_profile()) {
+            _runtime_state->load_channel_profile()->pretty_print(&ss);
+        }
+
+        LOG_INFO("Query {} fragment {} {}, profile, {}", print_id(this->_query_id),
+                 this->_fragment_id, extra_info, ss.str());
+    }
+}
 // If all pipeline tasks binded to the fragment instance are finished, then we could
 // close the fragment instance.
 void PipelineFragmentContext::_close_fragment_instance() {

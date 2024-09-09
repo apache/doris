@@ -61,12 +61,13 @@ inline uint32_t VDataStreamMgr::get_hash_value(const TUniqueId& fragment_instanc
 }
 
 std::shared_ptr<VDataStreamRecvr> VDataStreamMgr::create_recvr(
-        RuntimeState* state, const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
-        PlanNodeId dest_node_id, int num_senders, RuntimeProfile* profile, bool is_merging) {
+        RuntimeState* state, pipeline::ExchangeLocalState* parent, const RowDescriptor& row_desc,
+        const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
+        RuntimeProfile* profile, bool is_merging) {
     DCHECK(profile != nullptr);
     VLOG_FILE << "creating receiver for fragment=" << print_id(fragment_instance_id)
               << ", node=" << dest_node_id;
-    std::shared_ptr<VDataStreamRecvr> recvr(new VDataStreamRecvr(this, state, row_desc,
+    std::shared_ptr<VDataStreamRecvr> recvr(new VDataStreamRecvr(this, parent, state, row_desc,
                                                                  fragment_instance_id, dest_node_id,
                                                                  num_senders, is_merging, profile));
     uint32_t hash_value = get_hash_value(fragment_instance_id, dest_node_id);
