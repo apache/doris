@@ -240,7 +240,7 @@ suite("agg_sync_mv") {
     qt_select_group_concat_mv """select id, group_concat(cast(abs(kint) as varchar)) from agg_mv_test group by id order by id;"""
 
     qt_select_linear_histogram """select id, linear_histogram(kint, 10) from agg_mv_test group by id order by id;"""
-    sql """drop materialized view if exists mv_sync on agg_mv_test;""" 
+    sql """drop materialized view if exists mv_sync on agg_mv_test;"""
     createMV("""create materialized view mv_sync as select id, linear_histogram(kint, 10) from agg_mv_test group by id order by id;""")
     explain {
         sql("select id, linear_histogram(kint, 10) from agg_mv_test group by id order by id;")
