@@ -181,7 +181,6 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                 }
                 taskId = insertOverwriteManager
                         .registerTask(targetTable.getDatabase().getId(), targetTable.getId(), tempPartitionNames);
-                Thread.sleep(10000L);
                 if (isCancelled) {
                     LOG.info("insert overwrite isCancelled before addTempPartitions");
                     // not need deal temp partition
