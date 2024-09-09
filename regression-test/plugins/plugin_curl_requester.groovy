@@ -35,8 +35,8 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
     if (!url || !(url =~ /^https?:\/\/.+/)) {
         throw new Exception("Invalid url: ${url}")
     }
-
-    Integer timeout = 60 // seconds
+    
+    Integer timeout = 300 // seconds
     Integer maxRetries = 10
     Integer retryCount = 0
     Integer sleepTime = 1000 // milliseconds
@@ -90,6 +90,7 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
                 timeout = timeout + 10
                 logger.warn("Read timed out, retrying (${++retryCount}/${maxRetries}): ${e.message}")
             } catch (Exception e) {
+                code = 500 // Internal Server Error
                 logger.error("Error executing HTTP request: ${e.message}")
                 err = e.message
                 return [code, out, err]
@@ -101,6 +102,7 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
 
         logger.error("HTTP request failed after ${maxRetries} attempts")
         err = "Failed after ${maxRetries} attempts"
+        code = 500 // Internal Server Error
         return [code, out, err]
     } finally {
         httpClient.close()
@@ -109,14 +111,12 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
 
 logger.info("Added 'http_client' function to Suite")
 
-Suite.metaClass.curl = { String method, String url /* param */->
+Suite.metaClass.curl = { String method, String url, String body = null /* param */->
     Suite suite = delegate as Suite
-    if (method != "GET" && method != "POST")
-    {
+    if (method != "GET" && method != "POST") {
         throw new Exception(String.format("invalid curl method: %s", method))
     }
-    if (url.isBlank())
-    {
+    if (url.isBlank()) {
         throw new Exception("invalid curl url, blank")
     }
     
@@ -125,7 +125,13 @@ Suite.metaClass.curl = { String method, String url /* param */->
     Integer retryCount = 0; // Current retry count
     Integer sleepTime = 5000; // Sleep time in milliseconds
 
-    String cmd = String.format("curl --max-time %d -X %s %s", timeout, method, url).toString()
+    String cmd
+    if (method == "POST" && body != null) {
+        cmd = String.format("curl --max-time %d -X %s -H Content-Type:application/json -d %s %s", timeout, method, body, url).toString()
+    } else {
+        cmd = String.format("curl --max-time %d -X %s %s", timeout, method, url).toString()
+    }
+
     logger.info("curl cmd: " + cmd)
     def process
     int code
