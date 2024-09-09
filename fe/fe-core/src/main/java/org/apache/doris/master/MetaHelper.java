@@ -32,7 +32,6 @@ import java.io.BufferedInputStream;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -47,6 +46,8 @@ public class MetaHelper {
     public static final String X_IMAGE_MD5 = "X-Image-Md5";
     private static final int BUFFER_BYTES = 8 * 1024;
     private static final int CHECKPOINT_LIMIT_BYTES = 30 * 1024 * 1024;
+    private static final String VALID_FILENAME_REGEX =  "^image\\.\\d+(\\.part)?$";
+
 
     public static File getMasterImageDir() {
         String metaDir = Env.getCurrentEnv().getImageDir();
@@ -59,22 +60,66 @@ public class MetaHelper {
 
     // rename the .PART_SUFFIX file to filename
     public static File complete(String filename, File dir) throws IOException {
-        File file = new File(dir, filename + MetaHelper.PART_SUFFIX);
-        File newFile = new File(dir, filename);
-        if (!file.renameTo(newFile)) {
-            throw new IOException("Complete file" + filename + " failed");
+        // Validate that the filename does not contain illegal path elements
+        checkIsValidFileName(filename);
+
+        File file = new File(dir, filename + MetaHelper.PART_SUFFIX); // Original file with a specific suffix
+        File newFile = new File(dir, filename); // Target file without the suffix
+
+        String dirPath = dir.getCanonicalPath(); // Get the canonical path of the directory
+        String filePath = file.getCanonicalPath(); // Get the canonical path of the original file
+        String newFilePath = newFile.getCanonicalPath(); // Get the canonical path of the new file
+
+        // Ensure both file paths are within the specified directory to prevent path traversal attacks
+        if (!filePath.startsWith(dirPath) || !newFilePath.startsWith(dirPath)) {
+            throw new SecurityException("File path traversal attempt detected.");
         }
-        return newFile;
+
+        // Ensure the original file exists and is a valid file to avoid renaming a non-existing file
+        if (!file.exists() || !file.isFile()) {
+            throw new IOException("Source file does not exist or is not a valid file.");
+        }
+
+        // Attempt to rename the file. If it fails, throw an exception
+        if (!file.renameTo(newFile)) {
+            throw new IOException("Complete file " + filename + " failed");
+        }
+
+        return newFile; // Return the newly renamed file
     }
 
-    public static OutputStream getOutputStream(String filename, File dir)
-            throws FileNotFoundException {
+    public static File getFile(String filename, File dir) throws IOException {
+        checkIsValidFileName(filename);
         File file = new File(dir, filename + MetaHelper.PART_SUFFIX);
-        return new FileOutputStream(file);
+        String dirPath = dir.getCanonicalPath();
+        String filePath = file.getCanonicalPath();
+
+        if (!filePath.startsWith(dirPath)) {
+            throw new SecurityException("File path traversal attempt detected.");
+        }
+        return file;
     }
 
-    public static File getFile(String filename, File dir) {
-        return new File(dir, filename + MetaHelper.PART_SUFFIX);
+    private static void checkIsValidFileName(String filename) {
+        if (!filename.matches(VALID_FILENAME_REGEX)) {
+            throw new IllegalArgumentException("Invalid filename");
+        }
+    }
+
+    private static void checkFile(File file) throws IOException {
+        if (!file.getAbsolutePath().startsWith(file.getCanonicalFile().getParent())) {
+            throw new IllegalArgumentException("Invalid file path");
+        }
+
+        File parentDir = file.getParentFile();
+        if (!parentDir.canWrite()) {
+            throw new IOException("No write permission in directory: " + parentDir);
+        }
+
+        if (file.exists() && !file.delete()) {
+            throw new IOException("Failed to delete existing file: " + file);
+        }
+        checkIsValidFileName(file.getName());
     }
 
     public static <T> ResponseBody doGet(String url, int timeout, Class<T> clazz) throws IOException {
@@ -88,6 +133,8 @@ public class MetaHelper {
     public static void getRemoteFile(String urlStr, int timeout, File file)
             throws IOException {
         HttpURLConnection conn = null;
+        checkFile(file);
+        boolean md5Matched = true;
         OutputStream out = new FileOutputStream(file);
         try {
             conn = HttpURLUtil.getConnectionWithNodeIdent(urlStr);
@@ -117,6 +164,7 @@ public class MetaHelper {
             if (remoteMd5 != null) {
                 String localMd5 = DigestUtils.md5Hex(new FileInputStream(file));
                 if (!remoteMd5.equals(localMd5)) {
+                    md5Matched = false;
                     throw new IOException("Unexpected image md5, expected: " + remoteMd5 + ", actual: " + localMd5);
                 }
             }
@@ -126,6 +174,9 @@ public class MetaHelper {
             }
             if (out != null) {
                 out.close();
+            }
+            if (!md5Matched && file.exists()) {
+                file.delete();
             }
         }
     }
