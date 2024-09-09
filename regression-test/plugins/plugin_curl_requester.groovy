@@ -20,25 +20,53 @@ import org.apache.doris.regression.util.Http
 import org.apache.doris.regression.util.NodeType
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-Suite.metaClass.curl = { String method, String url /* param */-> 
+Suite.metaClass.curl = { String method, String url, String body = null /* param */->
     Suite suite = delegate as Suite
-    if (method != "GET" && method != "POST")
-    {
+    if (method != "GET" && method != "POST") {
         throw new Exception(String.format("invalid curl method: %s", method))
     }
-    if (url.isBlank())
-    {
+    if (url.isBlank()) {
         throw new Exception("invalid curl url, blank")
     }
     
     Integer timeout = 10; // 10 seconds;
+    Integer maxRetries = 10; // Maximum number of retries
+    Integer retryCount = 0; // Current retry count
+    Integer sleepTime = 5000; // Sleep time in milliseconds
 
-    String cmd = String.format("curl --max-time %d -X %s %s", timeout, method, url).toString()
+    String cmd
+    if (method == "POST" && body != null) {
+        cmd = String.format("curl --max-time %d -X %s -H Content-Type:application/json -d %s %s", timeout, method, body, url).toString()
+    } else {
+        cmd = String.format("curl --max-time %d -X %s %s", timeout, method, url).toString()
+    }
+
     logger.info("curl cmd: " + cmd)
-    def process = cmd.execute()
-    int code = process.waitFor()
-    String err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
-    String out = process.getText()
+    def process
+    int code
+    String err
+    String out
+
+    while (retryCount < maxRetries) {
+        process = cmd.execute()
+        code = process.waitFor()
+        err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
+        out = process.getText()
+
+        // If the command was successful, break the loop
+        if (code == 0) {
+            break
+        }
+
+        // If the command was not successful, increment the retry count, sleep for a while and try again
+        retryCount++
+        sleep(sleepTime)
+    }
+
+    // If the command was not successful after maxRetries attempts, log the failure and return the result
+    if (code != 0) {
+        logger.error("Command curl failed after " + maxRetries + " attempts. code: "  + code + ", err: " + err)
+    }
 
     return [code, out, err]
 }
