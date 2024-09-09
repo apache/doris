@@ -166,7 +166,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     public void prepare() throws UserException {
-        super.prepare();
         // should reset converted properties each time the job being prepared.
         // because the file info can be changed anytime.
         convertCustomProperties(true);

@@ -240,9 +240,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     // The tasks belong to this job
     protected List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
 
-    // stream load planer will be initialized during job schedule
-    protected StreamLoadPlanner planner;
-
     // this is the origin stmt of CreateRoutineLoadStmt, we use it to persist the RoutineLoadJob,
     // because we can not serialize the Expressions contained in job.
     protected OriginStatement origStmt;
@@ -911,21 +908,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     // call before first scheduling
     // derived class can override this.
-    public void prepare() throws UserException {
-        initPlanner();
-    }
+    public abstract void prepare() throws UserException;
 
-    private void initPlanner() throws UserException {
-        // for multi table load job, the table name is dynamic,we will set table when task scheduling.
-        if (isMultiTable) {
-            return;
-        }
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        planner = new StreamLoadPlanner(db,
-                (OlapTable) db.getTableOrMetaException(this.tableId, Table.TableType.OLAP), this);
-    }
-
-    public TExecPlanFragmentParams plan(TUniqueId loadId, long txnId) throws UserException {
+    public TExecPlanFragmentParams plan(StreamLoadPlanner planner, TUniqueId loadId, long txnId) throws UserException {
         Preconditions.checkNotNull(planner);
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
@@ -948,7 +933,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
     }
 
-    public TPipelineFragmentParams planForPipeline(TUniqueId loadId, long txnId) throws UserException {
+    public TPipelineFragmentParams planForPipeline(StreamLoadPlanner planner, TUniqueId loadId, long txnId)
+                    throws UserException {
         Preconditions.checkNotNull(planner);
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
