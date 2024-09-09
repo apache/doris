@@ -140,7 +140,7 @@ public class InitMaterializationContextHook implements PlannerHook {
                 mtmvCache = materializedView.getOrGenerateCache(cascadesContext.getConnectContext());
                 // If mv property use_for_rewrite is set false, should not partition in
                 // query rewrite by materialized view
-                if (!materializedView.isUseForRewrite().orElse(true)) {
+                if (!materializedView.isUseForRewrite()) {
                     LOG.debug("mv doesn't part in query rewrite process because "
                             + "use_for_rewrite is false, mv is {}", materializedView.getName());
                     continue;

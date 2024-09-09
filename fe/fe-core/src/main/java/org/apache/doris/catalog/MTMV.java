@@ -245,14 +245,14 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public Optional<Boolean> isUseForRewrite() {
+    public boolean isUseForRewrite() {
         readMvLock();
         try {
             if (!StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE))) {
-                return Optional.of(Boolean.valueOf(mvProperties.get(PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE)));
+                return Boolean.valueOf(mvProperties.get(PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE));
             }
             // default is true
-            return Optional.of(true);
+            return true;
         } finally {
             readMvUnlock();
         }
