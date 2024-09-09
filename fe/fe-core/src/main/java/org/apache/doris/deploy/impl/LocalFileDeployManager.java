@@ -33,8 +33,6 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.nio.channels.FileChannel;
-import java.nio.channels.FileLock;
 import java.util.List;
 
 /*
@@ -84,14 +82,9 @@ public class LocalFileDeployManager extends DeployManager {
         List<SystemInfoService.HostInfo> result = Lists.newArrayList();
         LOG.info("begin to get group: {} from file: {}", groupName, clusterInfoFile);
 
-        FileChannel channel = null;
-        FileLock lock = null;
-        BufferedReader bufferedReader = null;
-        try (FileInputStream stream = new FileInputStream(clusterInfoFile)) {
-            channel = stream.getChannel();
-            lock = channel.lock(0, Long.MAX_VALUE, true);
-
-            bufferedReader = new BufferedReader(new InputStreamReader(stream));
+        try (FileInputStream stream = new FileInputStream(clusterInfoFile);
+                BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(stream))) {
+            stream.getChannel().lock(0, Long.MAX_VALUE, true);
             String str = null;
             while ((str = bufferedReader.readLine()) != null) {
                 if (!str.startsWith(groupName)) {
@@ -124,28 +117,6 @@ public class LocalFileDeployManager extends DeployManager {
         } catch (AnalysisException e) {
             LOG.warn("failed to parse endpoint", e);
             return null;
-        } finally {
-            if (bufferedReader != null) {
-                try {
-                    bufferedReader.close();
-                } catch (IOException e) {
-                    LOG.warn("failed to close buffered reader after reading file: {}", clusterInfoFile, e);
-                }
-            }
-            if (lock != null) {
-                try {
-                    lock.release();
-                } catch (IOException e) {
-                    LOG.warn("failed to release lock after reading file: {}", clusterInfoFile, e);
-                }
-            }
-            if (channel != null && channel.isOpen()) {
-                try {
-                    channel.close();
-                } catch (IOException e) {
-                    LOG.warn("failed to close channel after reading file: {}", clusterInfoFile, e);
-                }
-            }
         }
 
         LOG.info("get hosts from {}: {}", groupName, result);
