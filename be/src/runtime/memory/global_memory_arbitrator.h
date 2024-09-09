@@ -124,6 +124,11 @@ public:
         return _s_process_reserved_memory.load(std::memory_order_relaxed);
     }
 
+    // `process_memory_usage` includes all reserved memory. if a thread has `reserved_memory`,
+    // and the memory allocated by thread is less than the thread `reserved_memory`,
+    // even if `process_memory_usage` is greater than `process_mem_limit`, memory can still be allocated.
+    // At this time, `process_memory_usage` will not increase, process physical memory will increase,
+    // and `reserved_memory` will be reduced.
     static int64_t sub_thread_reserve_memory(int64_t bytes);
 
     static bool is_exceed_soft_mem_limit(int64_t bytes = 0) {
