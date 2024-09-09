@@ -269,18 +269,8 @@ public:
         return _running_big_mem_op_num.load(std::memory_order_relaxed);
     }
 
-    void set_weighted_memory(int64_t weighted_limit, double weighted_ratio) {
-        std::lock_guard<std::mutex> l(_weighted_mem_lock);
-        _weighted_limit = weighted_limit;
-        _weighted_ratio = weighted_ratio;
-    }
-
-    void get_weighted_memory(int64_t& weighted_limit, int64_t& weighted_consumption) {
-        std::lock_guard<std::mutex> l(_weighted_mem_lock);
-        weighted_limit = _weighted_limit;
-        weighted_consumption = int64_t(query_mem_tracker->consumption() * _weighted_ratio);
-    }
-
+    void set_spill_threshold(int64_t spill_threshold) { _spill_threshold = spill_threshold; }
+    int64_t spill_threshold() { return _spill_threshold; }
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
@@ -366,9 +356,7 @@ private:
     std::map<int, std::weak_ptr<pipeline::PipelineFragmentContext>> _fragment_id_to_pipeline_ctx;
     std::mutex _pipeline_map_write_lock;
 
-    std::mutex _weighted_mem_lock;
-    double _weighted_ratio = 0;
-    int64_t _weighted_limit = 0;
+    std::atomic<int64_t> _spill_threshold {0};
     timespec _query_arrival_timestamp;
     // Distinguish the query source, for query that comes from fe, we will have some memory structure on FE to
     // help us manage the query.

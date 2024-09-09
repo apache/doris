@@ -58,7 +58,7 @@ public:
 
     bool enable_cpu_hard_limit() { return _enable_cpu_hard_limit.load(); }
 
-    void refresh_wg_weighted_memory_ratio();
+    void refresh_wg_weighted_memory_limit();
 
     void get_wg_resource_usage(vectorized::Block* block);
 
