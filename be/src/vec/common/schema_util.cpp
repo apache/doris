@@ -544,11 +544,10 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
 }
 
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                             const ParseConfig& config) {
+                             const ParseContext& ctx) {
     // Parse each variant column from raw string column
-    RETURN_IF_CATCH_EXCEPTION({
-        return vectorized::schema_util::_parse_variant_columns(block, variant_pos, config);
-    });
+    RETURN_IF_CATCH_EXCEPTION(
+            { return vectorized::schema_util::_parse_variant_columns(block, variant_pos, ctx); });
 }
 
 void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,

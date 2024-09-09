@@ -96,14 +96,9 @@ class StreamLoadContext {
 public:
     StreamLoadContext(ExecEnv* exec_env) : id(UniqueId::gen_uid()), _exec_env(exec_env) {
         start_millis = UnixMillis();
-        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->stream_load_pipe_tracker());
-        schema_buffer = ByteBuffer::allocate(config::stream_tvf_buffer_size);
     }
 
     ~StreamLoadContext() {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
-                ExecEnv::GetInstance()->stream_load_pipe_tracker());
-        schema_buffer.reset();
         if (need_rollback) {
             _exec_env->stream_load_executor()->rollback_txn(this);
             need_rollback = false;
@@ -199,8 +194,6 @@ public:
     std::shared_ptr<MessageBodySink> body_sink;
     std::shared_ptr<io::StreamLoadPipe> pipe;
 
-    ByteBufferPtr schema_buffer;
-
     TStreamLoadPutResult put_result;
     TStreamLoadMultiTablePutResult multi_table_put_result;
 
@@ -258,6 +251,7 @@ public:
 
 private:
     ExecEnv* _exec_env = nullptr;
+    ByteBufferPtr _schema_buffer;
 };
 
 } // namespace doris
