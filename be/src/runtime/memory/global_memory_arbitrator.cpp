@@ -79,4 +79,8 @@ void GlobalMemoryArbitrator::release_process_reserved_memory(int64_t bytes) {
     }
 }
 
+int64_t GlobalMemoryArbitrator::sub_thread_reserve_memory(int64_t bytes) {
+    return bytes - doris::thread_context()->thread_mem_tracker_mgr->reserved_mem();
+}
+
 } // namespace doris
