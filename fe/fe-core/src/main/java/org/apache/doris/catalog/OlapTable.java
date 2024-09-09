@@ -2827,6 +2827,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return autoIncrementGenerator;
     }
 
+    public boolean hasAutoIncCol() {
+        return fullSchema.stream().anyMatch(col -> col.isAutoInc());
+    }
+
     public void setAutoIncrementGenerator(AutoIncrementGenerator gen) {
         this.autoIncrementGenerator = gen;
         autoIncrementGenerator.setEditLog(Env.getCurrentEnv().getEditLog());

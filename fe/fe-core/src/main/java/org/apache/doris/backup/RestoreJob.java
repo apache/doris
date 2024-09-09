@@ -697,12 +697,24 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             return;
                         }
 
-                        if (localOlapTbl.getAutoIncrementGenerator() != null) {
+                        if (localOlapTbl.hasAutoIncCol() != remoteOlapTbl.hasAutoIncCol()) {
+                            String alias = jobInfo.getAliasByOriginNameIfSet(tableName);
+                            String localTblHint = (localOlapTbl.hasAutoIncCol() ? "has" : "doesn't have");
+                            String remoteTblHint = (remoteOlapTbl.hasAutoIncCol() ? "has" : "doesn't have");
+                            LOG.warn("Table {} already exists but with different schema, local table {} auto-increment"
+                                    + " column but remote table {}", alias, localTblHint, remoteTblHint);
+                            status = new Status(ErrCode.COMMON_ERROR, String.format("Table %s already exists but with"
+                                    + " different schema, local table %s auto-increment column but remote table %s",
+                                            alias, localTblHint, remoteTblHint));
+                            return;
+                        }
+
+                        if (localOlapTbl.hasAutoIncCol()) {
+                            String alias = jobInfo.getAliasByOriginNameIfSet(tableName);
                             AutoIncrementGenerator remoteAutoIncGen = remoteOlapTbl.getAutoIncrementGenerator();
                             if (remoteAutoIncGen == null) {
-                                status = new Status(ErrCode.COMMON_ERROR, "local table " + localOlapTbl.getName()
-                                        + " has autoIncGenerator but remote table " + remoteOlapTbl.getName()
-                                                + " doesn't.");
+                                status = new Status(ErrCode.COMMON_ERROR, "remote table " + alias
+                                        + " doesn't have AutoIncrementGenerator.");
                                 return;
                             }
                             involvedAutoIncInfos.put(localOlapTbl.getId(), remoteAutoIncGen);
@@ -2474,7 +2486,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             for (long tableId : autoIncInvolvedTables) {
                 tableIds.add(tableId);
             }
-            invovedTables.put(dnId, tableIds);
+            invovedTables.put(dbId, tableIds);
             try {
                 for (long backendId : aliveBackendIds) {
                     ClearAutoIncCacheTask task = new ClearAutoIncCacheTask(backendId, invovedTables);
