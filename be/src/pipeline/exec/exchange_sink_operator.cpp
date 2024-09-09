@@ -135,7 +135,8 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
 
     if (!only_local_exchange) {
         _sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, p._dest_node_id, _sender_id,
-                                                            _state->be_number(), state, this);
+                                                            _parent->node_id(), _state->be_number(),
+                                                            state, this);
         register_channels(_sink_buffer.get());
         _queue_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                       "ExchangeSinkQueueDependency", true);

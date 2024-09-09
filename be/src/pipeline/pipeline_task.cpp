@@ -375,7 +375,8 @@ Status PipelineTask::execute(bool* eos) {
             _root->reset_reserve_mem_size(_state);
             DCHECK_EQ(_root->get_reserve_mem_size(_state), 0);
 
-            if (reserve_size > 0) {
+            auto workload_group = _state->get_query_ctx()->workload_group();
+            if (workload_group && reserve_size > 0) {
                 auto st = thread_context()->try_reserve_memory(reserve_size);
                 if (!st.ok()) {
                     VLOG_DEBUG << "query: " << print_id(query_id)
@@ -384,7 +385,18 @@ Status PipelineTask::execute(bool* eos) {
                                << ", sink name: " << _sink->get_name()
                                << ", node id: " << _sink->node_id() << " failed: " << st.to_string()
                                << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
-                    {
+                    bool is_high_wartermark = false;
+                    bool is_low_wartermark = false;
+                    workload_group->check_mem_used(&is_low_wartermark, &is_high_wartermark);
+                    if (is_low_wartermark || is_high_wartermark) {
+                        /// The larger reserved memory size is likely due to a larger available revocable size.
+                        /// If the available memory for revoking is large enough, here trigger revoking proactively.
+                        if (_sink->revocable_mem_size(_state) > 512L * 1024 * 1024) {
+                            LOG(INFO) << "query: " << print_id(query_id)
+                                      << " has big memory to revoke.";
+                            RETURN_IF_ERROR(_sink->revoke_memory(_state));
+                        }
+
                         _memory_sufficient_dependency->block();
                         _state->get_query_ctx()->get_pipe_exec_scheduler()->add_paused_task(this);
                         continue;
