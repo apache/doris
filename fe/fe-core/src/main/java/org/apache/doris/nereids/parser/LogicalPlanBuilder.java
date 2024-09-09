@@ -2695,6 +2695,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             } else if (ctx.CURRENT_DATE() != null) {
                 defaultValue = Optional.of(DefaultValue.CURRENT_DATE_DEFAULT_VALUE);
+            } else if (ctx.BITMAP_EMPTY() != null) {
+                defaultValue = Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
             }
         }
         if (ctx.UPDATE() != null) {
