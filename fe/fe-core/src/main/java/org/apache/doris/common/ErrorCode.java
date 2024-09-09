@@ -70,6 +70,10 @@ public enum ErrorCode {
             + "resources"),
     ERR_TOO_MANY_USER_CONNECTIONS(1203, new byte[]{'4', '2', '0', '0', '0'}, "User %s already has more than "
             + "'max_user_connections' active connections"),
+    ERR_TABLE_ACCESS_DENIED_ERROR(1224, new byte[]{'4', '2', '0', '0', '0'}, "Access denied; you need (at least "
+            + "one of) the (%s) privilege(s) on table %s for this operation"),
+    ERR_DB_ACCESS_DENIED_ERROR(1225, new byte[]{'4', '2', '0', '0', '0'}, "Access denied; you need (at least "
+            + "one of) the (%s) privilege(s) on database %s for this operation"),
     ERR_USER_LIMIT_REACHED(1226, new byte[]{'4', '2', '0', '0', '0'}, "User '%s' has exceeded the '%s' resource "
             + "(current value: %d)"),
     ERR_SPECIFIC_ACCESS_DENIED_ERROR(1227, new byte[]{'4', '2', '0', '0', '0'}, "Access denied; you need (at least "
