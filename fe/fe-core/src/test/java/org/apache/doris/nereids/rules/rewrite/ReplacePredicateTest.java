@@ -31,6 +31,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BigIntType;
@@ -77,6 +79,39 @@ public class ReplacePredicateTest {
 
         EqualTo expected = new EqualTo(a, c);
         Assertions.assertTrue(result.contains(expected) || result.contains(expected.commute()), "Expected to find a = c in the result.");
+    }
+
+    @Test
+    public void testCannotInferWithTransitiveEqualityNull() {
+        // a = null, b = null
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        Literal c = NullLiteral.INSTANCE;
+        EqualTo equalTo1 = new EqualTo(a, c);
+        EqualTo equalTo2 = new EqualTo(b, c);
+        Set<Expression> inputs = new HashSet<>();
+        inputs.add(equalTo1);
+        inputs.add(equalTo2);
+        Set<Expression> result = ReplacePredicate.infer(inputs);
+
+        Assertions.assertTrue(result.isEmpty());
+    }
+
+    @Test
+    public void testCanInferWithTransitiveEqualityLiteral() {
+        // a = 1, b = 1
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        Literal c = new IntegerLiteral(1);
+        EqualTo equalTo1 = new EqualTo(a, c);
+        EqualTo equalTo2 = new EqualTo(b, c);
+        Set<Expression> inputs = new HashSet<>();
+        inputs.add(equalTo1);
+        inputs.add(equalTo2);
+        Set<Expression> result = ReplacePredicate.infer(inputs);
+
+        EqualTo expected = new EqualTo(a, b);
+        Assertions.assertTrue(result.contains(expected) || result.contains(expected.commute()), "Expected to find a = b in the result.");
     }
 
     @Test
