@@ -32,7 +32,7 @@ static inline bool is_cloud_mode() {
 
 static inline void set_cloud_unique_id(std::string instance_id) {
     if (cloud_unique_id.empty() && !instance_id.empty()) {
-        static_cast<void>(set_config("cloud_unique_id", "1:" + instance_id + ":compute"));
+        static_cast<void>(set_config("cloud_unique_id", "1:" + instance_id + ":compute", true));
     }
 }
 
