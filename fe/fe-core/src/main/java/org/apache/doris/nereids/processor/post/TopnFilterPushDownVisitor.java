@@ -218,13 +218,16 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     public Boolean visitPhysicalRelation(PhysicalRelation relation, PushDownContext ctx) {
         if (supportPhysicalRelations(relation)
                 && relation.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
-            if (relation.getStats().getRowCount() > ctx.topn.getLimit() + ctx.topn.getOffset()) {
+            // in ut, relation.getStats() may return null
+            if (relation.getStats() == null
+                    || relation.getStats().getRowCount() > ctx.topn.getLimit() + ctx.topn.getOffset()) {
                 topnFilterContext.addTopnFilter(ctx.topn, relation, ctx.probeExpr);
                 return true;
             }
         }
         return false;
     }
+
 
     private boolean supportPhysicalRelations(PhysicalRelation relation) {
         return relation instanceof PhysicalOlapScan
