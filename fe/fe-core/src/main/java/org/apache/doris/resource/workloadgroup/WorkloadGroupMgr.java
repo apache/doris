@@ -446,7 +446,10 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         // user need to reset user property first
         Pair<Boolean, String> ret = Env.getCurrentEnv().getAuth().isWorkloadGroupInUse(workloadGroupName);
         if (ret.first) {
-            throw new DdlException("workload group " + workloadGroupName + " is set for user " + ret.second);
+            throw new DdlException("workload group " + workloadGroupName + " is set for user " + ret.second
+                    + ", you can reset the user's property(eg, "
+                    + "set property for " + ret.second + " 'default_workload_group'='xxx'; ), "
+                    + "then you can drop the group.");
         }
 
         // A group with related policies should not be deleted.
