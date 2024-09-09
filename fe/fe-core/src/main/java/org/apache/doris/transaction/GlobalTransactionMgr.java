@@ -635,7 +635,8 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
                 TransactionState transactionState = dbTransactionMgr.getTransactionState(txnInfo.second);
                 long coordStartTime = transactionState.getCoordinator().startTime;
                 if (coordStartTime > 0 && coordStartTime < beStartTime) {
-                    abortTransaction(txnInfo.first, txnInfo.second, "coordinate BE restart");
+                    // does not hold table write lock
+                    dbTransactionMgr.abortTransaction(txnInfo.second, "coordinate BE restart", null);
                 }
             } catch (UserException e) {
                 LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
@@ -653,7 +654,9 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
                 = getPrepareTransactionIdByCoordinateBe(coordinateBeId, coordinateHost, limit);
         for (Pair<Long, Long> txnInfo : transactionIdByCoordinateBe) {
             try {
-                abortTransaction(txnInfo.first, txnInfo.second, "coordinate BE is down");
+                // does not hold table write lock
+                DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(txnInfo.first);
+                dbTransactionMgr.abortTransaction(txnInfo.second, "coordinate BE is down", null);
             } catch (UserException e) {
                 LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
             }
