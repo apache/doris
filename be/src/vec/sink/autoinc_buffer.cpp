@@ -44,6 +44,7 @@ void AutoIncIDBuffer::set_batch_size_at_least(size_t batch_size) {
 }
 
 void AutoIncIDBuffer::clear() {
+    std::lock_guard<std::mutex> lock {_latch};
     _buffers.clear();
 }
 
