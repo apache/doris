@@ -99,7 +99,7 @@ Status ScannerContext::init(bool ignore_data_distribution, bool is_file_scan) {
     // in a vary large value. This logicl is kept from the older implementation.
     // https://github.com/apache/doris/pull/28266
     // https://github.com/apache/doris/pull/33223
-    if (_ignore_data_distribution || !is_file_scan) {
+    if (ignore_data_distribution || !is_file_scan) {
         num_parallel_instances = 1;
     }
 
