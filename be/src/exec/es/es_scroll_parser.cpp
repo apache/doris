@@ -383,31 +383,39 @@ Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
         return Status::OK();
     }
 
-    if (pure_doc_value && col.IsArray() && !col.Empty()) {
-        RETURN_ERROR_IF_COL_IS_NOT_NUMBER(col[0], type);
-        T value = (T)(sizeof(T) < 8 ? col[0].GetInt() : col[0].GetInt64());
-        col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
+    auto parse_and_insert_data = [&](const rapidjson::Value& col_value) -> Status {
+        StringParser::ParseResult result;
+        std::string val = col_value.GetString();
+        // ES allows inserting numbers and characters containing decimals in numeric types.
+        // To parse these numbers in Doris, we remove the decimals here.
+        size_t pos = val.find('.');
+        if (pos != std::string::npos) {
+            val = val.substr(0, pos);
+        }
+        size_t len = val.length();
+        T v = StringParser::string_to_int<T>(val.c_str(), len, &result);
+        RETURN_ERROR_IF_PARSING_FAILED(result, col_value, type);
+
+        col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&v)), 0);
         return Status::OK();
+    };
+
+    if (pure_doc_value && col.IsArray() && !col.Empty()) {
+        if (col.IsNumber()) {
+            RETURN_ERROR_IF_COL_IS_NOT_NUMBER(col[0], type);
+            T value = (T)(sizeof(T) < 8 ? col[0].GetInt() : col[0].GetInt64());
+            col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
+            return Status::OK();
+        } else {
+            RETURN_ERROR_IF_COL_IS_ARRAY(col[0], type, true);
+            RETURN_ERROR_IF_COL_IS_NOT_STRING(col[0], type);
+            return parse_and_insert_data(col[0]);
+        }
     }
 
     RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
     RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-
-    StringParser::ParseResult result;
-    std::string val = col.GetString();
-    // ES allows inserting numbers and characters containing decimals in numeric types.
-    // To parse these numbers in Doris, we remove the decimals here.
-    size_t pos = val.find(".");
-    if (pos != std::string::npos) {
-        val = val.substr(0, pos);
-    }
-    size_t len = val.length();
-    T v = StringParser::string_to_int<T>(val.c_str(), len, &result);
-    RETURN_ERROR_IF_PARSING_FAILED(result, col, type);
-
-    col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&v)), 0);
-
-    return Status::OK();
+    return parse_and_insert_data(col);
 }
 
 ScrollParser::ScrollParser(bool doc_value_mode) : _size(0), _line_index(0) {}
