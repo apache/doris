@@ -377,6 +377,12 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
                         }
                         break;
                     }
+                    case TYPE_CHAR:
+                    case TYPE_VARCHAR:
+                    case TYPE_STRING: {
+                        _shared_state->hash_table_variants->emplace<MethodOneString>();
+                        break;
+                    }
                     default:
                         _shared_state->hash_table_variants
                                 ->emplace<vectorized::SerializedHashTableContext>();
