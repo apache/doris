@@ -157,7 +157,7 @@ import java.util.stream.Collectors;
  */
 public class Rewriter extends AbstractBatchJobExecutor {
 
-    private static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN = notTraverseChildrenOf(
+    private static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS_BEFORE_ADJUST_NULLABLE = notTraverseChildrenOf(
             ImmutableSet.of(LogicalCTEAnchor.class),
             () -> jobs(
                 topic("Plan Normalization",
@@ -244,7 +244,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         new NormalizeAggregate(),
                         new CountLiteralRewrite(),
                         new NormalizeSort()
-                ),
+                )
+            )
+    );
+
+    private static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN = notTraverseChildrenOf(
+            ImmutableSet.of(LogicalCTEAnchor.class),
+            () -> jobs(
                 topic("Window analysis",
                         topDown(
                                 new ExtractAndNormalizeWindowExpression(),
@@ -452,7 +458,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
         )
     );
 
-    private static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN = notTraverseChildrenOf(
+    private static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS_FINAL = notTraverseChildrenOf(
             ImmutableSet.of(LogicalCTEAnchor.class),
             () -> jobs(
                 // after variant sub path pruning, we need do column pruning again
@@ -514,23 +520,28 @@ public class Rewriter extends AbstractBatchJobExecutor {
      * only
      */
     public static Rewriter getWholeTreeRewriterWithCustomJobs(CascadesContext cascadesContext, List<RewriteJob> jobs) {
-        return new Rewriter(cascadesContext, getWholeTreeRewriteJobs(false, false, jobs, ImmutableList.of()));
+        return new Rewriter(cascadesContext, getWholeTreeRewriteJobs(false, false,
+                jobs, ImmutableList.of(), ImmutableList.of()));
     }
 
     private static List<RewriteJob> getWholeTreeRewriteJobs(boolean withCostBased) {
-        List<RewriteJob> withoutCostBased = Rewriter.CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN.stream()
-                .filter(j -> !(j instanceof CostBasedRewriteJob))
-                .collect(Collectors.toList());
+        List<RewriteJob> jobsBeforeSubPathPushDown = withCostBased
+                ? CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN
+                : Rewriter.CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN.stream()
+                        .filter(j -> !(j instanceof CostBasedRewriteJob))
+                        .collect(Collectors.toList());
         return getWholeTreeRewriteJobs(true, true,
-                withCostBased ? CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN : withoutCostBased,
-                CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN);
+                CTE_CHILDREN_REWRITE_JOBS_BEFORE_ADJUST_NULLABLE,
+                jobsBeforeSubPathPushDown,
+                CTE_CHILDREN_REWRITE_JOBS_FINAL);
     }
 
     private static List<RewriteJob> getWholeTreeRewriteJobs(
             boolean needSubPathPushDown,
             boolean needOrExpansion,
-            List<RewriteJob> beforePushDownJobs,
-            List<RewriteJob> afterPushDownJobs) {
+            List<RewriteJob> beforeAdjustNullableJobs,
+            List<RewriteJob> beforeSubPathPushDownJobs,
+            List<RewriteJob> finalJobs) {
 
         return notTraverseChildrenOf(
             ImmutableSet.of(LogicalCTEAnchor.class),
@@ -544,13 +555,24 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         ),
                         topic("process limit session variables",
                                 custom(RuleType.ADD_DEFAULT_LIMIT, AddDefaultLimit::new)
-                        ),
-                        topic("rewrite cte sub-tree before sub path push down",
-                                custom(RuleType.REWRITE_CTE_CHILDREN, () -> new RewriteCteChildren(beforePushDownJobs))
                         )));
+                rewriteJobs.addAll(jobs(
+                        topic("rewrite cte sub-tree before sub path push down",
+                                custom(RuleType.REWRITE_CTE_CHILDREN,
+                                        () -> new RewriteCteChildren(beforeAdjustNullableJobs))
+                )));
+                rewriteJobs.addAll(jobs(
+                        topic("adjust nullable", custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
+                )));
+                rewriteJobs.addAll(jobs(
+                        topic("rewrite cte sub-tree before sub path push down",
+                                custom(RuleType.CLEAR_CONTEXT_STATUS, ClearContextStatus::new),
+                                custom(RuleType.REWRITE_CTE_CHILDREN,
+                                        () -> new RewriteCteChildren(beforeSubPathPushDownJobs))
+                )));
                 if (needOrExpansion) {
-                    rewriteJobs.addAll(jobs(topic("or expansion",
-                            custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE))));
+                    rewriteJobs.addAll(jobs(
+                            topic("or expansion", custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE))));
                 }
                 if (needSubPathPushDown) {
                     rewriteJobs.addAll(jobs(
@@ -562,10 +584,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 rewriteJobs.addAll(jobs(
                         topic("rewrite cte sub-tree after sub path push down",
                                 custom(RuleType.CLEAR_CONTEXT_STATUS, ClearContextStatus::new),
-                                custom(RuleType.REWRITE_CTE_CHILDREN, () -> new RewriteCteChildren(afterPushDownJobs))
-                        ),
-                        topic("whole plan check",
-                                custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
+                                custom(RuleType.REWRITE_CTE_CHILDREN, () -> new RewriteCteChildren(finalJobs))
                         )
                 ));
                 return rewriteJobs;
