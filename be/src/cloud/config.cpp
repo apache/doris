@@ -16,6 +16,7 @@
 // under the License.
 
 #include "cloud/config.h"
+#include "common/status.h"
 
 namespace doris::config {
 

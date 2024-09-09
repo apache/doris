@@ -187,6 +187,22 @@ public class CloudEnv extends Env {
         return local.orElse(null);
     }
 
+    private void tryAddMyselToMS() {
+        try {
+            try {
+                if (Strings.isNullOrEmpty(Config.cloud_instance_id)) {
+                    throw new DdlException("unable to create instance due to empty cloud_instance_id");
+                }
+                getCloudSystemInfoService().tryCreateInstance(Config.cloud_instance_id,
+                        Config.cloud_instance_id, false);
+            } catch (Exception e) {
+                return;
+            }
+            addFrontend(FrontendNodeType.MASTER, selfNode.getHost(), selfNode.getPort());
+        } catch (DdlException e) {
+            LOG.warn("get ddl exception ", e);
+        }
+    }
 
     protected void getClusterIdAndRole() throws IOException {
         NodeInfoPB.NodeType type = NodeInfoPB.NodeType.UNKNOWN;
@@ -202,22 +218,13 @@ public class CloudEnv extends Env {
             if (nodeInfoPB == null) {
                 LOG.warn("failed to get local fe's type, sleep {} s, try again.",
                         Config.resource_not_ready_sleep_seconds);
+                if (isStartFromEmpty()) {
+                    tryAddMyselToMS();
+                }
                 try {
-                    try {
-                        if (Strings.isNullOrEmpty(Config.cloud_instance_id)) {
-                            throw new DdlException("unable to create instance due to empty cloud_instance_id");
-                        }
-                        getCloudSystemInfoService().tryCreateInstance(Config.cloud_instance_id,
-                                Config.cloud_instance_id, false);
-                    } catch (Exception e) {
-                        Thread.sleep(Config.resource_not_ready_sleep_seconds);
-                        throw e;
-                    }
-                    addFrontend(FrontendNodeType.MASTER, selfNode.getHost(), selfNode.getPort());
+                    Thread.sleep(Config.resource_not_ready_sleep_seconds);
                 } catch (InterruptedException e) {
-                    LOG.warn("thread sleep Exception", e);
-                } catch (DdlException e) {
-                    LOG.warn("get ddl exception ", e);
+                    LOG.info("interrupted by {}", e);
                 }
                 continue;
             }

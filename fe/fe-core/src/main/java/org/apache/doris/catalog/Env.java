@@ -1143,6 +1143,13 @@ public class Env {
         this.httpReady.set(httpReady);
     }
 
+    protected boolean isStartFromEmpty() {
+        File roleFile = new File(this.imageDir, Storage.ROLE_FILE);
+        File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
+
+        return !roleFile.exists() && !versionFile.exists();
+    }
+
     protected void getClusterIdAndRole() throws IOException {
         File roleFile = new File(this.imageDir, Storage.ROLE_FILE);
         File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
