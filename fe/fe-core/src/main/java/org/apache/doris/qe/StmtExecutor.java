@@ -3440,8 +3440,16 @@ public class StmtExecutor {
             httpStreamParams.setLabel(insertExecutor.getLabelName());
 
             PlanNode planRoot = planner.getFragments().get(0).getPlanRoot();
-            Preconditions.checkState(planRoot instanceof TVFScanNode || planRoot instanceof GroupCommitScanNode,
-                    "Nereids' planNode cannot be converted to " + planRoot.getClass().getName());
+            boolean isValidPlan = !planner.getScanNodes().isEmpty();
+            for (ScanNode scanNode : planner.getScanNodes()) {
+                if (!(scanNode instanceof TVFScanNode || planRoot instanceof GroupCommitScanNode)) {
+                    isValidPlan = false;
+                    break;
+                }
+            }
+            if (!isValidPlan) {
+                throw new AnalysisException("plan is invalid: " + planRoot.getExplainString());
+            }
         } catch (QueryStateException e) {
             LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
             context.setState(e.getQueryState());
@@ -3512,11 +3520,8 @@ public class StmtExecutor {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }
-                    boolean isInsertIntoCommand = parsedStmt != null && parsedStmt instanceof LogicalPlanAdapter
-                            && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof InsertIntoTableCommand;
                     if (e instanceof NereidsException
-                                && !context.getSessionVariable().enableFallbackToOriginalPlanner
-                                && !isInsertIntoCommand) {
+                            && !context.getSessionVariable().enableFallbackToOriginalPlanner) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }
