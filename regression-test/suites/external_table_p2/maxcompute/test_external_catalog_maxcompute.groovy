@@ -280,7 +280,7 @@
     );
   
  */
-suite("test_external_catalog_maxcompute", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_external_catalog_maxcompute", "p2,external,doris,external_docker,external_docker_doris") {
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String ak = context.config.otherConfigs.get("aliYunAk")
