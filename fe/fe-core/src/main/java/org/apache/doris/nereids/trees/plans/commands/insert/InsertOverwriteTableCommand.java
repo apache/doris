@@ -230,6 +230,8 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         while (true) {
             if (!isRunning) {
                 return;
+            } else {
+                LOG.warn("================wait stop running");
             }
         }
     }
