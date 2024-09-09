@@ -690,7 +690,7 @@
 11	12,12
 
 -- !select_linear_histogram --
-\N	{"num_buckets":0,"buckets":[]}
+\N	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
 0	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
 1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
 2	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
@@ -705,7 +705,7 @@
 11	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":2,"acc_count":2}]}
 
 -- !select_linear_histogram_mv --
-\N	{"num_buckets":0,"buckets":[]}
+\N	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
 0	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
 1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
 2	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
