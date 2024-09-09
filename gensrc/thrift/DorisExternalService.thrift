@@ -59,6 +59,9 @@ struct TScanOpenParams {
   
   // memory limit for a single query
   13: optional i64 mem_limit
+
+  // max keep alive time sec
+  14: optional i16 keep_alive_sec
 }
 
 struct TScanColumnDesc {

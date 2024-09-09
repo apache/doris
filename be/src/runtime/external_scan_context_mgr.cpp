@@ -131,8 +131,8 @@ void ExternalScanContextMgr::gc_expired_context() {
                     ++iter; // advance one entry
                     continue;
                 }
-                // free context if context is idle for context->keep_alive_min
-                if (current_time - context->last_access_time > context->keep_alive_min * 60) {
+                // free context if context is idle for context->keep_alive_sec
+                if (current_time - context->last_access_time > context->keep_alive_sec) {
                     LOG(INFO) << "gc expired scan context: context id [ " << context->context_id
                               << " ]";
                     expired_contexts.push_back(context);
