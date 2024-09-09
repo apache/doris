@@ -230,15 +230,19 @@ Status DataDir::set_cluster_id(int32_t cluster_id) {
 
 void DataDir::health_check() {
     // check disk
-    if (_is_used) {
-        Status res = _read_and_write_test_file();
-        if (!res && res.is<IO_ERROR>()) {
-            LOG(WARNING) << "store read/write test file occur IO Error. path=" << _path
-                         << ", err: " << res;
-            _engine.add_broken_path(_path);
-            _is_used = !res.is<IO_ERROR>();
-        }
+    Status res = _read_and_write_test_file();
+    if (!res && res.is<IO_ERROR>()) {
+        LOG(WARNING) << "store read/write test file occur IO Error. path=" << _path
+                        << ", err: " << res;
+        StorageEngine::instance()->add_broken_path(_path);
+        _is_used = !res.is<IO_ERROR>();
     }
+    else if(res.ok() && !_is_used){
+        LOG(INFO) << "store read/write test file IO ok. path=" << _path;
+        StorageEngine::instance()->remove_broken_path(_path);
+        _is_used = true;
+    } 
+     
     disks_state->set_value(_is_used ? 1 : 0);
 }
 
