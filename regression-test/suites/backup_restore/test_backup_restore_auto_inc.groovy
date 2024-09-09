@@ -19,6 +19,7 @@ suite("test_backup_restore_auto_inc", "backup_restore") {
     String suiteName = "test_backup_restore_auto_inc"
     String dbName = "${suiteName}_db"
     String dbName2 = "${suiteName}_db2"
+    String dbName3 = "${suiteName}_db3"
     String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
     String snapshotName = "${suiteName}_snapshot"
     String table1 = "${suiteName}_tbl1"
@@ -119,10 +120,40 @@ suite("test_backup_restore_auto_inc", "backup_restore") {
     qt_restore_to_existing_table2 "select * from ${dbName}.${table1} order by id;"
 
 
+    // 3. illegal case: restore a table with auto-increment column to a existing table without auto-increment column
+    sql "DROP DATABASE IF EXISTS ${dbName3} FORCE"
+    sql "CREATE DATABASE IF NOT EXISTS ${dbName3}"
+    sql "DROP TABLE IF EXISTS ${dbName3}.${table1} force"
+    sql """
+        CREATE TABLE ${dbName3}.${table1} (
+            `id` BIGINT NOT NULL,
+            `val` int)
+        UNIQUE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+        """
+    sql """
+        RESTORE SNAPSHOT ${dbName3}.${snapshotName}
+        FROM `${repoName}`
+        ON ( `${table1}`)
+        PROPERTIES
+        (
+            "backup_timestamp" = "${snapshot}",
+            "reserve_replica" = "true"
+        )
+    """
+    syncer.waitAllRestoreFinish(dbName3)
+    def res = sql_return_maparray "show restore from ${dbName3}"
+    assertEquals(res.size(), 1)
+    assertTrue(res[0].State.equals("CANCELLED"))
+    assertTrue(res[0].Status.contains("Table test_backup_restore_auto_inc_tbl1 already exists but with different schema, local table doesn't have auto-increment column but remote table has"))
+
     sql "DROP TABLE IF EXISTS ${dbName}.${table1} FORCE"
     sql "DROP TABLE IF EXISTS ${dbName2}.${table1} FORCE"
+    sql "DROP TABLE IF EXISTS ${dbName3}.${table1} force"
     sql "DROP DATABASE IF EXISTS ${dbName} FORCE"
     sql "DROP DATABASE IF EXISTS ${dbName2} FORCE"
+    sql "DROP DATABASE IF EXISTS ${dbName3} FORCE"
     sql "DROP REPOSITORY `${repoName}`"
 }
 

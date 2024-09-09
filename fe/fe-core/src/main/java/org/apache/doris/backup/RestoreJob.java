@@ -2499,8 +2499,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 }
 
                 long timeout = 3000;
-                LOG.info("begin to send clear auto inc tasks to BE for restore. total {} tasks. timeout: {}",
-                        clearAutoIncCacheBatchTask.getTaskNum(), timeout);
+                LOG.info("begin to send clear auto-increment cache tasks to BE for restore. total {} tasks."
+                        + " timeout: {}ms", clearAutoIncCacheBatchTask.getTaskNum(), timeout);
                 AgentTaskExecutor.submit(clearAutoIncCacheBatchTask);
                 boolean ok = clearAutoIncCacheLatch.await(timeout, TimeUnit.MILLISECONDS);
                 if (ok) {
