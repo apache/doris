@@ -26,12 +26,14 @@ import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * represent value list such as values(1), (2), (3) will generate LogicalInlineTable((1), (2), (3)).
@@ -79,7 +81,10 @@ public class LogicalInlineTable extends LogicalLeaf implements BlockFuncDepsProp
 
     @Override
     public List<Slot> computeOutput() {
-        return ImmutableList.of();
+        return constantExprsList.get(0)
+                .stream()
+                .map(NamedExpression::toSlot)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -97,5 +102,11 @@ public class LogicalInlineTable extends LogicalLeaf implements BlockFuncDepsProp
     @Override
     public int hashCode() {
         return Objects.hash(constantExprsList);
+    }
+
+    @Override
+    public String toString() {
+        return Utils.toSqlString("LogicalInlineTable[" + id.asInt() + "] (rowNum="
+                + constantExprsList.size() + ")");
     }
 }

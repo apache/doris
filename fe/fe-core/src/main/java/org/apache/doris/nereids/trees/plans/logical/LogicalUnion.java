@@ -42,6 +42,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Logical Union.
@@ -203,6 +204,23 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
     @Override
     public void computeUniform(DataTrait.Builder builder) {
         // don't propagate uniform slots
+    }
+
+    @Override
+    public boolean hasUnboundExpression() {
+        if (!constantExprsList.isEmpty() && children.isEmpty()) {
+            return false;
+        }
+        return super.hasUnboundExpression();
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        if (children.isEmpty()) {
+            return constantExprsList.get(0).stream().map(NamedExpression::toSlot).collect(Collectors.toList());
+        } else {
+            return super.computeOutput();
+        }
     }
 
     private List<BitSet> mapSlotToIndex(Plan plan, List<Set<Slot>> equalSlotsList) {

@@ -28,25 +28,25 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
-import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.parser.LogicalPlanBuilder;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -313,18 +313,30 @@ public class InsertUtils {
         if (!(query instanceof LogicalInlineTable)) {
             return plan;
         }
+
         LogicalInlineTable logicalInlineTable = (LogicalInlineTable) query;
-        ImmutableList.Builder<LogicalPlan> oneRowRelationBuilder = ImmutableList.builder();
+        ImmutableList.Builder<List<NamedExpression>> optimizedRowConstructors
+                = ImmutableList.builderWithExpectedSize(logicalInlineTable.getConstantExprsList().size());
         List<Column> columns = table.getBaseSchema(false);
 
+        ConnectContext context = ConnectContext.get();
+        ExpressionRewriteContext rewriteContext = null;
+        if (context != null && context.getStatementContext() != null) {
+            rewriteContext = new ExpressionRewriteContext(
+                    CascadesContext.initContext(
+                            context.getStatementContext(), logicalInlineTable, PhysicalProperties.ANY
+                    )
+            );
+        }
+
         for (List<NamedExpression> values : logicalInlineTable.getConstantExprsList()) {
-            ImmutableList.Builder<NamedExpression> constantExprs = ImmutableList.builder();
+            ImmutableList.Builder<NamedExpression> optimizedRowConstructor = ImmutableList.builder();
             if (values.isEmpty()) {
                 if (CollectionUtils.isNotEmpty(unboundLogicalSink.getColNames())) {
                     throw new AnalysisException("value list should not be empty if columns are specified");
                 }
                 for (Column column : columns) {
-                    constantExprs.add(generateDefaultExpression(column));
+                    optimizedRowConstructor.add(generateDefaultExpression(column));
                 }
             } else {
                 if (CollectionUtils.isNotEmpty(unboundLogicalSink.getColNames())) {
@@ -350,10 +362,14 @@ public class InsertUtils {
                                     + "' in table '" + table.getName() + "' is not allowed.");
                         }
                         if (values.get(i) instanceof DefaultValueSlot) {
-                            constantExprs.add(generateDefaultExpression(sameNameColumn));
+                            optimizedRowConstructor.add(generateDefaultExpression(sameNameColumn));
                         } else {
                             DataType targetType = DataType.fromCatalogType(sameNameColumn.getType());
-                            constantExprs.add((NamedExpression) castValue(values.get(i), targetType));
+                            Expression castValue = castValue(values.get(i), targetType);
+                            castValue = rewriteContext == null
+                                    ? castValue
+                                    : FoldConstantRuleOnFE.evaluate(castValue, rewriteContext);
+                            optimizedRowConstructor.add((NamedExpression) castValue);
                         }
                     }
                 } else {
@@ -368,30 +384,28 @@ public class InsertUtils {
                                     + "' in table '" + table.getName() + "' is not allowed.");
                         }
                         if (values.get(i) instanceof DefaultValueSlot) {
-                            constantExprs.add(generateDefaultExpression(columns.get(i)));
+                            optimizedRowConstructor.add(generateDefaultExpression(columns.get(i)));
                         } else {
                             DataType targetType = DataType.fromCatalogType(columns.get(i).getType());
-                            constantExprs.add((NamedExpression) castValue(values.get(i), targetType));
+                            Expression castValue = castValue(values.get(i), targetType);
+                            castValue = rewriteContext == null
+                                    ? castValue
+                                    : FoldConstantRuleOnFE.evaluate(castValue, rewriteContext);
+                            optimizedRowConstructor.add((NamedExpression) castValue);
                         }
                     }
                 }
             }
-            oneRowRelationBuilder.add(new UnboundOneRowRelation(
-                    StatementScopeIdGenerator.newRelationId(), constantExprs.build()));
+            optimizedRowConstructors.add(optimizedRowConstructor.build());
         }
-        List<LogicalPlan> oneRowRelations = oneRowRelationBuilder.build();
-        if (oneRowRelations.size() == 1) {
-            return plan.withChildren(oneRowRelations.get(0));
-        } else {
-            return plan.withChildren(
-                    LogicalPlanBuilder.reduceToLogicalPlanTree(0, oneRowRelations.size() - 1,
-                            oneRowRelations, Qualifier.ALL));
-        }
+
+        return plan.withChildren(new LogicalInlineTable(optimizedRowConstructors.build()));
     }
 
     private static Expression castValue(Expression value, DataType targetType) {
         if (value instanceof UnboundAlias) {
-            return value.withChildren(TypeCoercionUtils.castUnbound(((UnboundAlias) value).child(), targetType));
+            UnboundAlias unboundAlias = (UnboundAlias) value;
+            return new Alias(TypeCoercionUtils.castUnbound(unboundAlias.child(), targetType));
         } else {
             return TypeCoercionUtils.castUnbound(value, targetType);
         }

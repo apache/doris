@@ -29,20 +29,36 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupId;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.BindSink;
+import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
+import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.qe.ConnectContext;
@@ -50,11 +66,13 @@ import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * insert into select command implementation
@@ -144,7 +162,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             }
             OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, targetTableIf, this.logicalQuery, this.insertCtx);
             LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
-            NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+
+            InsertByInlineTablePlanner planner = new InsertByInlineTablePlanner(ctx.getStatementContext());
             planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
             executor.setPlanner(planner);
             executor.checkBlockRules();
@@ -250,5 +269,141 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     @Override
     public StmtType stmtType() {
         return StmtType.INSERT;
+    }
+
+    private static class InsertByInlineTablePlanner extends NereidsPlanner {
+        private AtomicReference<Group> rootGroupRef = new AtomicReference<>();
+
+        public InsertByInlineTablePlanner(StatementContext statementContext) {
+            super(statementContext);
+        }
+
+        @Override
+        protected void analyze(boolean showPlanProcess) {
+            DefaultPlanRewriter<Void> analyzer = new DefaultPlanRewriter<Void>() {
+                @Override
+                public Plan visitUnboundTableSink(
+                        UnboundTableSink<? extends Plan> olapTableSink, Void context) {
+                    olapTableSink =
+                            (UnboundTableSink<? extends Plan>) super.visitUnboundTableSink(olapTableSink, context);
+                    return new BindSink()
+                            .buildRules()
+                            .stream()
+                            .filter(rule -> rule.getRuleType() == RuleType.BINDING_INSERT_TARGET_TABLE)
+                            .findFirst()
+                            .get()
+                            .transform(olapTableSink, getCascadesContext())
+                            .get(0);
+                }
+
+                @Override
+                public Plan visitLogicalInlineTable(LogicalInlineTable logicalInlineTable, Void context) {
+                    logicalInlineTable =
+                            (LogicalInlineTable) super.visitLogicalInlineTable(logicalInlineTable, context);
+                    return new LogicalUnion(
+                            Qualifier.ALL, logicalInlineTable.getConstantExprsList(), ImmutableList.of()
+                    );
+                }
+            };
+
+            Plan boundPlan = getCascadesContext().getRewritePlan().accept(analyzer, null);
+            getCascadesContext().setRewritePlan(boundPlan);
+        }
+
+        @Override
+        protected void rewrite(boolean showPlanProcess) {
+            DefaultPlanRewriter<Void> rewriter = new DefaultPlanRewriter<Void>() {
+                @Override
+                public Plan visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
+                    project = (LogicalProject<? extends Plan>) super.visitLogicalProject(project, context);
+                    if (project.child() instanceof LogicalProject) {
+                        return new MergeProjects()
+                                .build()
+                                .transform(project, getCascadesContext())
+                                .get(0);
+                    }
+                    return project;
+                }
+            };
+            getCascadesContext().setRewritePlan(
+                    getCascadesContext().getRewritePlan().accept(rewriter, null)
+            );
+        }
+
+        @Override
+        protected void optimize() {
+            DefaultPlanRewriter<Void> optimizer = new DefaultPlanRewriter<Void>() {
+                @Override
+                public Plan visitLogicalUnion(LogicalUnion logicalUnion, Void context) {
+                    logicalUnion = (LogicalUnion) super.visitLogicalUnion(logicalUnion, context);
+
+                    return new PhysicalUnion(logicalUnion.getQualifier(),
+                            logicalUnion.getOutputs(),
+                            logicalUnion.getRegularChildrenOutputs(),
+                            logicalUnion.getConstantExprsList(),
+                            logicalUnion.getLogicalProperties(),
+                            logicalUnion.children()
+                    );
+                }
+
+                @Override
+                public Plan visitLogicalProject(LogicalProject<? extends Plan> logicalProject, Void context) {
+                    logicalProject =
+                            (LogicalProject<? extends Plan>) super.visitLogicalProject(logicalProject, context);
+
+                    return new PhysicalProject<>(
+                            logicalProject.getProjects(),
+                            logicalProject.getLogicalProperties(),
+                            logicalProject.child()
+                    );
+                }
+
+                @Override
+                public Plan visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink,
+                        Void context) {
+                    olapTableSink =
+                            (LogicalOlapTableSink) super.visitLogicalOlapTableSink(olapTableSink, context);
+
+                    return new PhysicalOlapTableSink<>(
+                            olapTableSink.getDatabase(),
+                            olapTableSink.getTargetTable(),
+                            olapTableSink.getCols(),
+                            olapTableSink.getPartitionIds(),
+                            olapTableSink.getOutputExprs(),
+                            getCascadesContext().getConnectContext().getSessionVariable().isEnableSingleReplicaInsert(),
+                            olapTableSink.isPartialUpdate(),
+                            olapTableSink.getDmlCommandType(),
+                            Optional.empty(),
+                            olapTableSink.getLogicalProperties(),
+                            olapTableSink.child()
+                    );
+                }
+            };
+
+            PhysicalPlan physicalPlan =
+                    (PhysicalPlan) getCascadesContext().getRewritePlan().accept(optimizer, null);
+
+            super.physicalPlan = physicalPlan;
+
+            GroupId rootGroupId = GroupId.createGenerator().getNextId();
+            Group rootGroup = new Group(rootGroupId, physicalPlan.getLogicalProperties());
+            rootGroupRef.set(rootGroup);
+        }
+
+        @Override
+        public Group getRoot() {
+            return rootGroupRef.get();
+        }
+
+        @Override
+        protected PhysicalPlan chooseNthPlan(
+                Group rootGroup, PhysicalProperties physicalProperties, int nthPlan) {
+            return super.physicalPlan;
+        }
+
+        @Override
+        protected PhysicalPlan postProcess(PhysicalPlan physicalPlan) {
+            return physicalPlan;
+        }
     }
 }
