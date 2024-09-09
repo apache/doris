@@ -117,7 +117,8 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     RETURN_IF_ERROR(status);
     if (_scanner_ctx) {
         DCHECK(!_eos && _num_scanners->value() > 0);
-        RETURN_IF_ERROR(_scanner_ctx->init());
+        RETURN_IF_ERROR(
+                _scanner_ctx->init(p.ignore_data_distribution(), p.is_file_scan_operator()));
     }
     _opened = true;
     return status;
@@ -994,18 +995,9 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_start_scanners(
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
-    _scanner_ctx = vectorized::ScannerContext::create_shared(
-            state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
-            state()->scan_queue_mem_limit(), _scan_dependency,
-            // NOTE: This will logic makes _max_thread_num of ScannerContext to be C(num of cores) * 2
-            // For a query with C/2 instance and M scan node, scan task of this query will be C/2 * M * C*2
-            // and will be C*C*N at most.
-            // 1. If data distribution is ignored , we use 1 instance to scan.
-            // 2. Else if this operator is not file scan operator, we use config::doris_scanner_thread_pool_thread_num scanners to scan.
-            // 3. Else, file scanner will consume much memory so we use config::doris_scanner_thread_pool_thread_num / query_parallel_instance_num scanners to scan.
-            p.ignore_data_distribution() || !p.is_file_scan_operator()
-                    ? 1
-                    : state()->query_parallel_instance_num());
+    _scanner_ctx = vectorized::ScannerContext::create_shared(state(), this, p._output_tuple_desc,
+                                                             p.output_row_descriptor(), scanners,
+                                                             p.limit(), _scan_dependency);
     return Status::OK();
 }
 

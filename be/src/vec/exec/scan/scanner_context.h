@@ -105,9 +105,7 @@ public:
                    const TupleDescriptor* output_tuple_desc,
                    const RowDescriptor* output_row_descriptor,
                    const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners,
-                   int64_t limit_, int64_t max_bytes_in_blocks_queue,
-                   std::shared_ptr<pipeline::Dependency> dependency,
-                   const int num_parallel_instances);
+                   int64_t limit_, std::shared_ptr<pipeline::Dependency> dependency);
 
     ~ScannerContext() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
@@ -118,7 +116,7 @@ public:
         }
         block.reset();
     }
-    Status init();
+    Status init(bool ignore_data_distribution, bool is_file_scan);
 
     vectorized::BlockUPtr get_free_block(bool force);
     void return_free_block(vectorized::BlockUPtr block);
@@ -210,7 +208,7 @@ protected:
     int64_t limit;
 
     int32_t _max_thread_num = 0;
-    int64_t _max_bytes_in_queue;
+    int64_t _max_bytes_in_queue = 0;
     doris::vectorized::ScannerScheduler* _scanner_scheduler;
     SimplifiedScanScheduler* _simple_scan_scheduler = nullptr;
     SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
@@ -220,7 +218,6 @@ protected:
     int32_t _num_running_scanners = 0;
     // weak pointer for _scanners, used in stop function
     std::vector<std::weak_ptr<ScannerDelegate>> _all_scanners;
-    const int _num_parallel_instances;
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
@@ -229,6 +226,7 @@ protected:
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     QueryThreadContext _query_thread_context;
     std::shared_ptr<pipeline::Dependency> _dependency = nullptr;
+    bool _ignore_data_distribution = false;
 
     // for scaling up the running scanners
     size_t _estimated_block_size = 0;
