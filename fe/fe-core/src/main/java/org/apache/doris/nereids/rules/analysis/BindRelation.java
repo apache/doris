@@ -26,7 +26,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.es.EsExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.nereids.CTEContext;
@@ -303,17 +302,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 case ODBC:
                     return new LogicalOdbcScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
                 case ES_EXTERNAL_TABLE:
-                    return new LogicalEsScan(unboundRelation.getRelationId(), (EsExternalTable) table,
-                            qualifierWithoutTableName);
+                case ELASTICSEARCH:
+                    return new LogicalEsScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
                 case TEST_EXTERNAL_TABLE:
                     return new LogicalTestScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
                 default:
-                    try {
-                        // TODO: support other type table, such as ELASTICSEARCH
-                        cascadesContext.getConnectContext().getSessionVariable().enableFallbackToOriginalPlannerOnce();
-                    } catch (Exception e) {
-                        // ignore
-                    }
                     throw new AnalysisException("Unsupported tableType " + table.getType());
             }
         } finally {

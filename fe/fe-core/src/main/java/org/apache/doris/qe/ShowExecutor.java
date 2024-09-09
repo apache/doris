@@ -2725,14 +2725,7 @@ public class ShowExecutor {
             return;
         }
         TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
-        /*
-           tableStats == null means it's not analyzed, in this case show the estimated row count.
-         */
-        if (tableStats == null) {
-            resultSet = showTableStatsStmt.constructResultSet(tableIf);
-        } else {
-            resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
-        }
+        resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
     }
 
     private void handleShowColumnStats() throws AnalysisException {
