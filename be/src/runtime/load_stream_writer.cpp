@@ -133,7 +133,6 @@ Status LoadStreamWriter::close_segment(uint32_t segid) {
     io::FileWriter* file_writer = nullptr;
     {
         std::lock_guard lock_guard(_lock);
-        DBUG_EXECUTE_IF("LoadStreamWriter.close_segment.uninited_writer", { _is_init = false; });
         if (!_is_init) {
             return Status::Corruption("close_segment failed, LoadStreamWriter is not inited");
         }
@@ -168,7 +167,6 @@ Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& st
     io::FileWriter* file_writer = nullptr;
     {
         std::lock_guard lock_guard(_lock);
-        DBUG_EXECUTE_IF("LoadStreamWriter.add_segment.uninited_writer", { _is_init = false; });
         if (!_is_init) {
             return Status::Corruption("add_segment failed, LoadStreamWriter is not inited");
         }
