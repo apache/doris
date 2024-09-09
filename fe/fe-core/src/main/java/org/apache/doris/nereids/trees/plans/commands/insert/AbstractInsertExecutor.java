@@ -203,7 +203,7 @@ public abstract class AbstractInsertExecutor {
                             getTxnId(), jobId, retryTimes, e);
                     if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
                         retryTimes++;
-                        if (retryTimes >= Config.mow_insert_into_commit_retry_times) {
+                        if (retryTimes >= Config.mow_calculate_delete_bitmap_retry_times) {
                             // should throw exception after running out of retry times
                             throw e;
                         }
