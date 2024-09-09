@@ -189,6 +189,8 @@ public class PartitionExprUtil {
 
             AddPartitionClause addPartitionClause = new AddPartitionClause(singleRangePartitionDesc,
                     distributionDesc, partitionProperties, false);
+            LOG.info("AddPartitionClause has table replica "
+                    + singleRangePartitionDesc.getReplicaAlloc().getTotalReplicaNum());
             result.put(partitionName, addPartitionClause);
         }
         return result;

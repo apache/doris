@@ -3176,6 +3176,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     long replicaId = idGeneratorBuffer.getNextId();
                     Replica replica = new Replica(replicaId, backendId, replicaState, version,
                             tabletMeta.getOldSchemaHash());
+                    LOG.info("for tablet " + tablet.getId() + " add replica " + replicaId + " on " + backendId);
                     tablet.addReplica(replica);
                     totalReplicaNum++;
                 }

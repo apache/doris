@@ -3580,9 +3580,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         result.setNodes(nodeInfos);
         result.setStatus(new TStatus(TStatusCode.OK));
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("send create partition result: {}", result);
-        }
+        LOG.info("send create partition result: {}", result);
         return result;
     }
 
@@ -3760,6 +3758,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     if (bePathsMap.keySet().size() < quorum) {
                         LOG.warn("auto go quorum exception");
                     }
+                    LOG.info("get tablet locations : " + tablet.getId() + ", " + bePathsMap.size());
                     tablets.add(new TTabletLocation(tablet.getId(), Lists.newArrayList(bePathsMap.keySet())));
                 }
             }
