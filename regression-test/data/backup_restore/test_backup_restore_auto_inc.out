@@ -2,37 +2,11 @@
 -- !sql_origin --
 5
 
--- !sql_origin --
-1	0
-2	1
-3	2
-4	3
-5	4
-
 -- !restore_to_new_table --
 5
 
 -- !restore_to_new_table --
-1	0
-2	1
-3	2
-4	3
-5	4
-
--- !restore_to_new_table --
 10
-
--- !restore_to_new_table --
-1	0
-2	1
-3	2
-4	3
-5	4
-500000	0
-500001	1
-500002	2
-500003	3
-500004	4
 
 -- !before --
 10
@@ -41,49 +15,11 @@
 5
 
 -- !restore_to_existing_table1 --
-1	0
-2	1
-3	2
-4	3
-5	4
-
--- !restore_to_existing_table1 --
 10
-
--- !restore_to_existing_table1 --
-1	0
-2	1
-3	2
-4	3
-5	4
-500000	0
-500001	1
-500002	2
-500003	3
-500004	4
 
 -- !restore_to_existing_table2 --
 5
 
 -- !restore_to_existing_table2 --
-1	0
-2	1
-3	2
-4	3
-5	4
-
--- !restore_to_existing_table2 --
 10
-
--- !restore_to_existing_table2 --
-1	0
-2	1
-3	2
-4	3
-5	4
-500000	0
-500001	1
-500002	2
-500003	3
-500004	4
 

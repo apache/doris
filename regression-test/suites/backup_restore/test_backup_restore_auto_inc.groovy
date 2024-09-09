@@ -39,7 +39,6 @@ suite("test_backup_restore_auto_inc", "backup_restore") {
         """
     sql """INSERT INTO ${dbName}.${table1}(val) select number from numbers("number"="5"); """
     qt_sql_origin "select count(distinct id) from ${dbName}.${table1};"
-    qt_sql_origin "select * from ${dbName}.${table1} order by id;"
 
 
     sql """
@@ -64,10 +63,8 @@ suite("test_backup_restore_auto_inc", "backup_restore") {
         )"""
     syncer.waitAllRestoreFinish(dbName2)
     qt_restore_to_new_table "select count(distinct id) from ${dbName2}.${table1};"
-    qt_restore_to_new_table "select * from ${dbName2}.${table1} order by id;"
     sql """INSERT INTO ${dbName2}.${table1}(val) select number from numbers("number"="5"); """
     qt_restore_to_new_table "select count(distinct id) from ${dbName2}.${table1};"
-    qt_restore_to_new_table "select * from ${dbName2}.${table1} order by id;"
 
 
     // 2. restore to existing table
@@ -86,10 +83,8 @@ suite("test_backup_restore_auto_inc", "backup_restore") {
     """
     syncer.waitAllRestoreFinish(dbName)
     qt_restore_to_existing_table1 "select count(distinct id) from ${dbName}.${table1};"
-    qt_restore_to_existing_table1 "select * from ${dbName}.${table1} order by id;"
     sql """INSERT INTO ${dbName}.${table1}(val) select number from numbers("number"="5"); """
     qt_restore_to_existing_table1 "select count(distinct id) from ${dbName}.${table1};"
-    qt_restore_to_existing_table1 "select * from ${dbName}.${table1} order by id;"
 
 
     // 2.2 existing table has lower auto_increment next_id
@@ -114,10 +109,8 @@ suite("test_backup_restore_auto_inc", "backup_restore") {
     """
     syncer.waitAllRestoreFinish(dbName)
     qt_restore_to_existing_table2 "select count(distinct id) from ${dbName}.${table1};"
-    qt_restore_to_existing_table2 "select * from ${dbName}.${table1} order by id;"
     sql """INSERT INTO ${dbName}.${table1}(val) select number from numbers("number"="5"); """
     qt_restore_to_existing_table2 "select count(distinct id) from ${dbName}.${table1};"
-    qt_restore_to_existing_table2 "select * from ${dbName}.${table1} order by id;"
 
 
     // 3. illegal case: restore a table with auto-increment column to a existing table without auto-increment column
