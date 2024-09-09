@@ -207,7 +207,7 @@ public class Statistics {
             builder.append(format.format(rowCount));
         }
         if (deltaRowCount > 0) {
-            builder.append("(").append(deltaRowCount).append(")");
+            builder.append("(").append((long) deltaRowCount).append(")");
         }
         if (actualRowCount != -1) {
             builder.append(" actualRows=").append(actualRowCount);
