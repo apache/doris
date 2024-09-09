@@ -75,6 +75,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.ClearAutoIncCacheTask;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -108,6 +109,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -648,7 +650,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         // Check and prepare meta objects.
         AgentBatchTask batchTask = new AgentBatchTask();
 
-        Map<Long, Map<Long, List<Long>>> backendsAutoIncInfo = Maps.newHashMap();
+        // db_id -> table_ids
+        Map<Long, List<Long>> involvedAutoIncInfo = Maps.newHashMap();
         db.readLock();
         try {
             for (Map.Entry<String, BackupOlapTableInfo> olapTableEntry : jobInfo.backupOlapTableObjects.entrySet()) {
@@ -695,13 +698,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         }
 
                         if (localOlapTbl.getAutoIncrementGenerator() != null) {
-                            Set<Long> involvedBackendIds = localOlapTbl.getInvolvedBackendsIds();
-                            long tableId = localOlapTbl.getId();
-                            for (long backendId : involvedBackendIds) {
-                                backendsAutoIncInfo.computeIfAbsent(backendId, k -> Maps.newHashMap())
-                                        .computeIfAbsent(dbId, k -> Lists.newArrayList())
-                                        .add(tableId);
-                            }
+                            involvedAutoIncInfo.computeIfAbsent(dbId, k -> Lists.newArrayList())
+                                    .add(localOlapTbl.getId());
                         }
 
                         // Table with same name and has same schema. Check partition
@@ -958,31 +956,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             ok = true;
         }
 
-        if (ok) {
-            AgentBatchTask clearAutoIncCacheBatchTask = new AgentBatchTask();
-            int tryCnt = 0;
-            while (true) {
-                if (tryCnt++ > 3) {
-                    LOG.warn("failed to clear auto inc cache for restore job[label={}],"
-                            + "try cnt {} reaches maximum retry count", label, tryCnt);
-                    ok = false;
-                    break;
-                }
-
-                try {
-                    
-                } catch (Exception e) {
-                    LOG.warn("failed to clear auto inc cache for restore job[label={}], try cnt {}, execption {}",
-                            label, tryCnt, e);
-                    try {
-                        Thread.sleep(3000);
-                    } catch (InterruptedException ie) {
-                        LOG.warn("Thread sleep is interrupted");
-                    }
-                    continue;
-                }
-                break;
-            }
+        if (ok && !involvedAutoIncInfo.isEmpty()) {
+            ok = clearAutoIncCache(involvedAutoIncInfo);
         }
 
         if (ok) {
@@ -2451,6 +2426,49 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 }
             } finally {
                 tbl.writeUnlock();
+            }
+        }
+    }
+
+    public boolean clearAutoIncCache(Map<Long, List<Long>> involvedAutoIncInfo) {
+        List<Long> aliveBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+        int tryCnt = 0;
+        while (true) {
+            if (tryCnt++ > 3) {
+                LOG.warn("failed to clear auto inc cache for restore job[label={}],"
+                        + "try cnt {} reaches maximum retry count", label, tryCnt);
+                return false;
+            }
+            AgentBatchTask clearAutoIncCacheBatchTask = new AgentBatchTask();
+            try {
+                for (long backendId : aliveBackendIds) {
+                    ClearAutoIncCacheTask task = new ClearAutoIncCacheTask(backendId, involvedAutoIncInfo);
+                    clearAutoIncCacheBatchTask.addTask(task);
+                    AgentTaskQueue.addTask(task);
+                }
+                CountDownLatch clearAutoIncCacheLatch = new CountDownLatch(clearAutoIncCacheBatchTask.getTaskNum());
+                for (AgentTask task : clearAutoIncCacheBatchTask.getAllTasks()) {
+                    ((ClearAutoIncCacheTask) task).setLatch(clearAutoIncCacheLatch);
+                }
+
+                long timeout = 3000;
+                LOG.info("begin to send clear auto inc tasks to BE for restore. total {} tasks. timeout: {}",
+                        clearAutoIncCacheBatchTask.getTaskNum(), timeout);
+                AgentTaskExecutor.submit(clearAutoIncCacheBatchTask);
+                boolean ok = clearAutoIncCacheLatch.await(timeout, TimeUnit.MILLISECONDS);
+                if (ok) {
+                    return true;
+                }
+            } catch (Exception e) {
+                LOG.warn("failed to clear auto inc cache for restore job[label={}], try cnt {}, execption {}",
+                        label, tryCnt, e);
+            }
+
+            AgentTaskQueue.removeBatchTask(clearAutoIncCacheBatchTask, TTaskType.CLEAR_AUTO_INC_CACHE);
+            try {
+                Thread.sleep(3000);
+            } catch (InterruptedException ie) {
+                LOG.warn("Thread sleep is interrupted");
             }
         }
     }

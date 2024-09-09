@@ -212,6 +212,7 @@ public class MasterImpl {
                     break;
                 case CLEAR_AUTO_INC_CACHE:
                     finishClearAutoIncCache(task, request);
+                    break;
                 default:
                     break;
             }
@@ -701,7 +702,7 @@ public class MasterImpl {
     private void finishClearAutoIncCache(AgentTask task, TFinishTaskRequest request) {
         ClearAutoIncCacheTask clearAutoIncCacheTask = (ClearAutoIncCacheTask) task;
         clearAutoIncCacheTask.setFinished(true);
-        clearAutoIncCacheTask.countDownLatch(task.getBackendId());
+        clearAutoIncCacheTask.countDown();
         if (LOG.isDebugEnabled()) {
             LOG.debug("finish clear auto inc cache. be: {}, report version: {}",
                     clearAutoIncCacheTask.getBackendId(), request.getReportVersion());

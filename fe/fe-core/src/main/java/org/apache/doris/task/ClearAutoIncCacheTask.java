@@ -20,12 +20,27 @@ package org.apache.doris.task;
 import org.apache.doris.thrift.TClearAutoIncCacheReq;
 import org.apache.doris.thrift.TTaskType;
 
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+
 public class ClearAutoIncCacheTask extends AgentTask {
     private Map<Long, List<Long>> tables;
-    
+    CountDownLatch latch;
+
     public ClearAutoIncCacheTask(long backendId, Map<Long, List<Long>> tables) {
         super(null, backendId, TTaskType.CLEAR_AUTO_INC_CACHE, -1, -1, -1, -1, -1, -1, -1);
         this.tables = tables;
+    }
+
+    public void setLatch(CountDownLatch latch) {
+        this.latch = latch;
+    }
+
+    public void countDown() {
+        if (latch != null) {
+            latch.countDown();
+        }
     }
 
     public TClearAutoIncCacheReq toThrift() {
