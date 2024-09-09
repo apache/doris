@@ -1507,25 +1507,30 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public List<List<String>> getTasksShowInfo() throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
-        if (null == routineLoadTaskInfoList || routineLoadTaskInfoList.isEmpty()) {
-            return rows;
-        }
-        DatabaseTransactionMgr databaseTransactionMgr = Env.getCurrentEnv().getGlobalTransactionMgr()
-                .getDatabaseTransactionMgr(dbId);
+        readLock();
+        try {
+            if (null == routineLoadTaskInfoList || routineLoadTaskInfoList.isEmpty()) {
+                return rows;
+            }
+            DatabaseTransactionMgr databaseTransactionMgr = Env.getCurrentEnv().getGlobalTransactionMgr()
+                    .getDatabaseTransactionMgr(dbId);
 
-        routineLoadTaskInfoList.forEach(entity -> {
-            long txnId = entity.getTxnId();
-            if (RoutineLoadTaskInfo.INIT_TXN_ID == txnId) {
+            routineLoadTaskInfoList.forEach(entity -> {
+                long txnId = entity.getTxnId();
+                if (RoutineLoadTaskInfo.INIT_TXN_ID == txnId) {
+                    rows.add(entity.getTaskShowInfo());
+                    return;
+                }
+                TransactionState transactionState = databaseTransactionMgr.getTransactionState(entity.getTxnId());
+                if (null != transactionState && null != transactionState.getTransactionStatus()) {
+                    entity.setTxnStatus(transactionState.getTransactionStatus());
+                }
                 rows.add(entity.getTaskShowInfo());
-                return;
-            }
-            TransactionState transactionState = databaseTransactionMgr.getTransactionState(entity.getTxnId());
-            if (null != transactionState && null != transactionState.getTransactionStatus()) {
-                entity.setTxnStatus(transactionState.getTransactionStatus());
-            }
-            rows.add(entity.getTaskShowInfo());
-        });
-        return rows;
+            });
+            return rows;
+        } finally {
+            readUnlock();
+        }
     }
 
     public String getShowCreateInfo() {
@@ -1641,12 +1646,17 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     private String getTaskStatistic() {
         Map<String, String> result = Maps.newHashMap();
-        result.put("running_task",
-                String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> entity.isRunning()).count()));
-        result.put("waiting_task",
-                String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> !entity.isRunning()).count()));
-        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(result);
+        readLock();
+        try {
+            result.put("running_task",
+                    String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> entity.isRunning()).count()));
+            result.put("waiting_task",
+                    String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> !entity.isRunning()).count()));
+            Gson gson = new GsonBuilder().disableHtmlEscaping().create();
+            return gson.toJson(result);
+        } finally {
+            readUnlock();
+        }
     }
 
     private String jobPropertiesToJsonString() {
