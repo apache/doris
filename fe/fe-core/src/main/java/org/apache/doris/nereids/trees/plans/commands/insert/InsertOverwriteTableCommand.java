@@ -226,10 +226,12 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
      */
     public void cancel() {
         this.isCancelled = true;
-        waitNotRunning();
     }
 
-    private void waitNotRunning() {
+    /**
+     * wait insert overwrite not running
+     */
+    public void waitNotRunning() {
         while (true) {
             if (!isRunning) {
                 break;
