@@ -586,7 +586,7 @@ public class GsonUtils {
     // register them in reverse priority order.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder()
             .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
-            .addSerializationExclusionStrategy(
+            .setExclusionStrategies(
                     new HiddenAnnotationExclusionStrategy()).enableComplexMapKeySerialization()
             .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
