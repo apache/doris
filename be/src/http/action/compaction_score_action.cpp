@@ -82,7 +82,6 @@ struct LocalCompactionScoreAccessor final : CompactionScoresAccessor {
     LocalCompactionScoreAccessor(TabletManager* tablet_mgr) : tablet_mgr(tablet_mgr) {}
 
     std::vector<CompactionScoreResult> get_all_tablet_compaction_scores() override {
-        DCHECK_NOTNULL(tablet_mgr);
         auto tablets = tablet_mgr->get_all_tablet();
         std::span<TabletSharedPtr> s = {tablets.begin(), tablets.end()};
         return calculate_compaction_scores(s);
