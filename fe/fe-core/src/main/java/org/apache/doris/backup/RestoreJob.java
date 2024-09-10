@@ -1501,6 +1501,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         // reset autoIncrementGenerator for involved tables
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
             OlapTable localTbl = (OlapTable) db.getTableNullable(tableName);
+            if (localTbl == null) {
+                continue;
+            }
             OlapTable remoteTbl = (OlapTable) backupMeta.getTable(tableName);
             AutoIncrementGenerator autoIncrementGenerator = remoteTbl.getAutoIncrementGenerator();
             if (autoIncrementGenerator == null) {
