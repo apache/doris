@@ -68,9 +68,10 @@ public:
                             RuntimeProfile::Counter* write_block_counter,
                             RuntimeProfile::Counter* write_bytes_counter,
                             RuntimeProfile::Counter* write_timer,
-                            RuntimeProfile::Counter* wait_io_timer) {
+                            RuntimeProfile::Counter* wait_io_timer,
+                            RuntimeProfile::Counter* memory_used_counter) {
         writer_->set_counters(serialize_timer, write_block_counter, write_bytes_counter,
-                              write_timer);
+                              write_timer, memory_used_counter);
         write_wait_io_timer_ = wait_io_timer;
     }
 

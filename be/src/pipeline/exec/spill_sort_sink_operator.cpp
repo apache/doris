@@ -200,7 +200,7 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
 
     _spilling_stream->set_write_counters(
             Base::_spill_serialize_block_timer, Base::_spill_block_count, Base::_spill_data_size,
-            Base::_spill_write_disk_timer, Base::_spill_write_wait_io_timer);
+            Base::_spill_write_disk_timer, Base::_spill_write_wait_io_timer, memory_used_counter());
 
     status = _spilling_stream->prepare_spill();
     RETURN_IF_ERROR(status);

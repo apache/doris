@@ -148,7 +148,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
                 bool eos = false;
                 tmp_stream->set_write_counters(_spill_serialize_block_timer, _spill_block_count,
                                                _spill_data_size, _spill_write_disk_timer,
-                                               _spill_write_wait_io_timer);
+                                               _spill_write_wait_io_timer, memory_used_counter());
                 while (!eos && !state->is_cancelled()) {
                     merge_sorted_block.clear_column_data();
                     {
