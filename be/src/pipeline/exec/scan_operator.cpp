@@ -117,7 +117,7 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     RETURN_IF_ERROR(status);
     if (_scanner_ctx) {
         DCHECK(!_eos && _num_scanners->value() > 0);
-        RETURN_IF_ERROR(_scanner_ctx->init(p.ignore_data_distribution()));
+        RETURN_IF_ERROR(_scanner_ctx->init());
     }
     _opened = true;
     return status;
@@ -994,9 +994,9 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_start_scanners(
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
-    _scanner_ctx = vectorized::ScannerContext::create_shared(state(), this, p._output_tuple_desc,
-                                                             p.output_row_descriptor(), scanners,
-                                                             p.limit(), _scan_dependency);
+    _scanner_ctx = vectorized::ScannerContext::create_shared(
+            state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
+            _scan_dependency, _p.ignore_data_distribution);
     return Status::OK();
 }
 

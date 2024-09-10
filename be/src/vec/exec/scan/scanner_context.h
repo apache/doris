@@ -105,7 +105,8 @@ public:
                    const TupleDescriptor* output_tuple_desc,
                    const RowDescriptor* output_row_descriptor,
                    const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners,
-                   int64_t limit_, std::shared_ptr<pipeline::Dependency> dependency);
+                   int64_t limit_, std::shared_ptr<pipeline::Dependency> dependency,
+                   bool ignore_data_distribution);
 
     ~ScannerContext() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
@@ -116,7 +117,7 @@ public:
         }
         block.reset();
     }
-    Status init(bool ignore_data_distribution);
+    Status init();
 
     vectorized::BlockUPtr get_free_block(bool force);
     void return_free_block(vectorized::BlockUPtr block);
@@ -226,6 +227,7 @@ protected:
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     QueryThreadContext _query_thread_context;
     std::shared_ptr<pipeline::Dependency> _dependency = nullptr;
+    bool _ignore_data_distribution = false;
 
     // for scaling up the running scanners
     size_t _estimated_block_size = 0;

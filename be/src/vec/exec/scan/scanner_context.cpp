@@ -42,7 +42,7 @@ ScannerContext::ScannerContext(
         RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
         const TupleDescriptor* output_tuple_desc, const RowDescriptor* output_row_descriptor,
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners, int64_t limit_,
-        std::shared_ptr<pipeline::Dependency> dependency)
+        std::shared_ptr<pipeline::Dependency> dependency, bool ignore_data_distribution)
         : HasTaskExecutionCtx(state),
           _state(state),
           _local_state(local_state),
@@ -53,7 +53,8 @@ ScannerContext::ScannerContext(
           _batch_size(state->batch_size()),
           limit(limit_),
           _scanner_scheduler(state->exec_env()->scanner_scheduler()),
-          _all_scanners(scanners.begin(), scanners.end()) {
+          _all_scanners(scanners.begin(), scanners.end()),
+          _ignore_data_distribution(ignore_data_distribution) {
     DCHECK(_output_row_descriptor == nullptr ||
            _output_row_descriptor->tuple_descriptors().size() == 1);
     _query_id = _state->get_query_ctx()->query_id();
@@ -69,7 +70,7 @@ ScannerContext::ScannerContext(
 }
 
 // After init function call, should not access _parent
-Status ScannerContext::init(bool ignore_data_distribution) {
+Status ScannerContext::init() {
     _scanner_profile = _local_state->_scanner_profile;
     _scanner_sched_counter = _local_state->_scanner_sched_counter;
     _newly_create_free_blocks_num = _local_state->_newly_create_free_blocks_num;
@@ -98,15 +99,14 @@ Status ScannerContext::init(bool ignore_data_distribution) {
     // That will make the number of scan task can be submitted to the scheduler
     // in a vary large value. This logicl is kept from the older implementation.
     // https://github.com/apache/doris/pull/28266
-    if (ignore_data_distribution) {
+    if (_ignore_data_distribution) {
         num_parallel_instances = 1;
     }
 
     // _max_bytes_in_queue controls the maximum memory that can be used by a single scan instance.
     // scan_queue_mem_limit on FE is 100MB by default, on backend we will make sure its actual value
     // is larger than 10MB.
-    _max_bytes_in_queue =
-            std::max(_state->scan_queue_mem_limit(), (int64_t)1024 * 1024 * 10);
+    _max_bytes_in_queue = std::max(_state->scan_queue_mem_limit(), (int64_t)1024 * 1024 * 10);
 
     // Provide more memory for wide tables, increase proportionally by multiples of 300
     _max_bytes_in_queue *= _output_tuple_desc->slots().size() / 300 + 1;
