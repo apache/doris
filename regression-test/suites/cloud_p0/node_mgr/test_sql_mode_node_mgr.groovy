@@ -40,17 +40,17 @@ suite('test_sql_mode_node_mgr', 'p1') {
                 "heartbeat_interval_second=1",]
     }
 
-    options[0].beCloudInstanceId = true;
-    options[0].beMetaServiceEndpoint = true;
+    clusterOptions[0].beCloudInstanceId = true;
+    clusterOptions[0].beMetaServiceEndpoint = true;
 
-    options[1].beCloudInstanceId = false;
-    options[1].beMetaServiceEndpoint = false;
+    clusterOptions[1].beCloudInstanceId = false;
+    clusterOptions[1].beMetaServiceEndpoint = false;
 
     for (options in clusterOptions) {
         docker(options) {
             logger.info("docker started");
 
-            def checkFrontendsAndBackends() {
+            def checkFrontendsAndBackends = {
                 // Check frontends
                 def frontendResult = sql_return_maparray """show frontends;"""
                 logger.info("show frontends result {}", frontendResult)
@@ -150,8 +150,8 @@ suite('test_sql_mode_node_mgr', 'p1') {
             sql """ ALTER SYSTEM DECOMMISSION BACKEND "${backendHost}:${backendHeartbeatPort}"; """
 
             // Wait for the backend to be fully dropped
-            int maxWaitSeconds = 300
-            int waited = 0
+            def maxWaitSeconds = 300
+            def waited = 0
             while (waited < maxWaitSeconds) {
                 def currentBackends = sql_return_maparray("SHOW BACKENDS")
                 if (currentBackends.size() == 2) {
@@ -179,7 +179,6 @@ suite('test_sql_mode_node_mgr', 'p1') {
             logger.info("Query result after dropping backend: {}", result)
             assert result.size() == 3, "Expected 3 rows in example_table after dropping backend"
 
-
             // 5. If a fe is dropped, query and writing also work.
             // Get the list of frontends
             def frontends = sql_return_maparray("SHOW FRONTENDS")
@@ -198,8 +197,8 @@ suite('test_sql_mode_node_mgr', 'p1') {
             sql """ ALTER SYSTEM DROP FOLLOWER "${feHost}:${feEditLogPort}"; """
 
             // Wait for the frontend to be fully dropped
-            int maxWaitSeconds = 300
-            int waited = 0
+            maxWaitSeconds = 300
+            waited = 0
             while (waited < maxWaitSeconds) {
                 def currentFrontends = sql_return_maparray("SHOW FRONTENDS")
                 if (currentFrontends.size() == frontends.size() - 1) {
@@ -255,4 +254,5 @@ suite('test_sql_mode_node_mgr', 'p1') {
             logger.info("Successfully verified that the master frontend cannot be dropped")
         }
     }
+
 }
