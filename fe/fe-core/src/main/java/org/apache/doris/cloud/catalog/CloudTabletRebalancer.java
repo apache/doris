@@ -616,10 +616,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
-                if (!table.writeLockIfExist()) {
-                    continue;
-                }
-
+                table.readLock();
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -630,7 +627,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                         } // end for indices
                     } // end for partitions
                 } finally {
-                    table.writeUnlock();
+                    table.readUnlock();
                 }
             }
         }
