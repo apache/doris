@@ -458,6 +458,10 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
             RETURN_IF_ERROR(
                     local_state._partitioner->do_partitioning(state, block, _mem_tracker.get()));
         }
+        int64_t old_channel_mem_usage = 0;
+        for (const auto& channel : local_state.channels) {
+            old_channel_mem_usage += channel->mem_usage();
+        }
         if (_part_type == TPartitionType::HASH_PARTITIONED) {
             RETURN_IF_ERROR(channel_add_rows(
                     state, local_state.channels, local_state._partition_count,
@@ -467,7 +471,16 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                     state, local_state.channel_shared_ptrs, local_state._partition_count,
                     local_state._partitioner->get_channel_ids().get<uint32_t>(), rows, block, eos));
         }
+        int64_t new_channel_mem_usage = 0;
+        for (const auto& channel : local_state.channels) {
+            new_channel_mem_usage += channel->mem_usage();
+        }
+        local_state.memory_used_counter()->update(new_channel_mem_usage - old_channel_mem_usage);
     } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+        int64_t old_channel_mem_usage = 0;
+        for (const auto& channel : local_state.channels) {
+            old_channel_mem_usage += channel->mem_usage();
+        }
         // check out of limit
         RETURN_IF_ERROR(local_state._send_new_partition_batch());
         std::shared_ptr<vectorized::Block> convert_block = std::make_shared<vectorized::Block>();
@@ -501,7 +514,16 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         }
         RETURN_IF_ERROR(channel_add_rows_with_idx(state, local_state.channels, num_channels,
                                                   channel2rows, convert_block.get(), eos));
+        int64_t new_channel_mem_usage = 0;
+        for (const auto& channel : local_state.channels) {
+            new_channel_mem_usage += channel->mem_usage();
+        }
+        local_state.memory_used_counter()->update(new_channel_mem_usage - old_channel_mem_usage);
     } else if (_part_type == TPartitionType::TABLE_SINK_HASH_PARTITIONED) {
+        int64_t old_channel_mem_usage = 0;
+        for (const auto& channel : local_state.channels) {
+            old_channel_mem_usage += channel->mem_usage();
+        }
         {
             SCOPED_TIMER(local_state._split_block_hash_compute_timer);
             RETURN_IF_ERROR(
@@ -512,6 +534,11 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         RETURN_IF_ERROR(channel_add_rows_with_idx(
                 state, local_state.channels, local_state.channels.size(), assignments, block, eos));
 
+        int64_t new_channel_mem_usage = 0;
+        for (const auto& channel : local_state.channels) {
+            new_channel_mem_usage += channel->mem_usage();
+        }
+        local_state.memory_used_counter()->update(new_channel_mem_usage - old_channel_mem_usage);
     } else if (_part_type == TPartitionType::TABLE_SINK_RANDOM_PARTITIONED) {
         // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
         // 1. select channel

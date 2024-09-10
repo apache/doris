@@ -140,6 +140,12 @@ std::shared_ptr<pipeline::Dependency> PipChannel::get_local_channel_dependency()
             Channel<pipeline::ExchangeSinkLocalState>::_parent->sender_id());
 }
 
+int64_t PipChannel::mem_usage() const {
+    auto* mutable_block = Channel<pipeline::ExchangeSinkLocalState>::_serializer.get_block();
+    int64_t mem_usage = mutable_block ? mutable_block->allocated_bytes() : 0;
+    return mem_usage;
+}
+
 Status PipChannel::send_remote_block(PBlock* block, bool eos, Status exec_status) {
     COUNTER_UPDATE(Channel<pipeline::ExchangeSinkLocalState>::_parent->blocks_sent_counter(), 1);
     std::unique_ptr<PBlock> pblock_ptr;

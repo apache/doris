@@ -162,6 +162,8 @@ public:
     RuntimeProfile::Counter* rows_returned_counter() { return _rows_returned_counter; }
     RuntimeProfile::Counter* blocks_returned_counter() { return _blocks_returned_counter; }
     RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
+    RuntimeProfile::Counter* memory_used_counter() { return _memory_used_counter; }
+    RuntimeProfile::Counter* peak_memory_usage_counter() { return _peak_memory_usage_counter; }
     OperatorXBase* parent() { return _parent; }
     RuntimeState* state() { return _state; }
     vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
@@ -372,6 +374,9 @@ public:
 
     RuntimeProfile::Counter* rows_input_counter() { return _rows_input_counter; }
     RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
+    RuntimeProfile::Counter* memory_used_counter() { return _memory_used_counter; }
+    RuntimeProfile::Counter* peak_memory_usage_counter() { return _peak_memory_usage_counter; }
+
     virtual std::vector<Dependency*> dependencies() const { return {nullptr}; }
 
     // override in exchange sink , AsyncWriterSink

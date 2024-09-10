@@ -194,7 +194,7 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
                 RETURN_IF_ERROR(spilling_stream->prepare_spill());
                 spilling_stream->set_write_counters(
                         _spill_serialize_block_timer, _spill_block_count, _spill_data_size,
-                        _spill_write_disk_timer, _spill_write_wait_io_timer);
+                        _spill_write_disk_timer, _spill_write_wait_io_timer, memory_used_counter());
             }
 
             COUNTER_UPDATE(_spill_probe_blocks, blocks.size());
