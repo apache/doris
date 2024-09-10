@@ -63,6 +63,7 @@ import org.apache.thrift.TException;
 // import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -87,7 +88,8 @@ public class PointQueryExecutor implements CoordInterface {
     private final int maxMsgSizeOfResultReceiver;
 
     // used for snapshot read in cloud mode
-    private List<Long> snapshotVisibleVersions;
+    // Key: cloud partition id, Value: snapshot visible version
+    private HashMap<Long, Long> snapshotVisibleVersions;
 
     private final ShortCircuitQueryContext shortCircuitQueryContext;
 
@@ -103,10 +105,8 @@ public class PointQueryExecutor implements CoordInterface {
 
     List<List<String>> allKeyTuples = null;
 
-    // distribution and also key column, maybe partition column
     private List<Integer> distributionKeyColumns = Lists.newArrayList();
 
-    // partition column and also key column, not distribution column
     private List<Integer> partitionKeyColumns = Lists.newArrayList();
 
     public PointQueryExecutor(ShortCircuitQueryContext ctx, int maxMessageSize) {
@@ -126,10 +126,12 @@ public class PointQueryExecutor implements CoordInterface {
                 partitions.add((CloudPartition) table.getPartition(id));
             }
         }
-        snapshotVisibleVersions = CloudPartition.getSnapshotVisibleVersion(partitions);
-        // Only support single partition at present
-        Preconditions.checkState(snapshotVisibleVersions.size() == 1);
-        LOG.debug("set cloud version {}", snapshotVisibleVersions.get(0));
+        List<Long> versionList = CloudPartition.getSnapshotVisibleVersion(partitions);
+        for (int i = 0; i < versionList.size(); ++i) {
+            snapshotVisibleVersions.put(partitions.get(i).getTableId(), versionList.get(i));
+        }
+
+        LOG.debug("set cloud version {}", snapshotVisibleVersions);
     }
 
     void setScanRangeLocations() throws Exception {
@@ -571,8 +573,14 @@ public class PointQueryExecutor implements CoordInterface {
                             .setQueryOptions(shortCircuitQueryContext.serializedQueryOptions)
                             .setIsBinaryRow(ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE);
 
+                    // TODO: optimize me
                     if (snapshotVisibleVersions != null && !snapshotVisibleVersions.isEmpty()) {
-                        requestBuilder.setVersion(snapshotVisibleVersions.get(0));
+                        for (Map.Entry<Long, Long> entry : snapshotVisibleVersions.entrySet()) {
+                            if (entry.getKey() == tabletId) {
+                                requestBuilder.setVersion(entry.getValue());
+                                break;
+                            }
+                        }
                     }
                     if (shortCircuitQueryContext.cacheID != null) {
                         InternalService.UUID.Builder uuidBuilder = InternalService.UUID.newBuilder();
@@ -588,7 +596,6 @@ public class PointQueryExecutor implements CoordInterface {
         }
         if (pBatchRequestBuilder.getSubKeyLookupReqCount() == 0) {
             status.updateStatus(TStatusCode.OK, "");
-            // rowBatch.setEos(true);  // todo
             return result;
         }
         // batch fetch data
@@ -664,7 +671,6 @@ public class PointQueryExecutor implements CoordInterface {
             }
         }
         if (isOK) {
-            // ++resultCount;
             status.updateStatus(TStatusCode.OK, "");
         }
 
