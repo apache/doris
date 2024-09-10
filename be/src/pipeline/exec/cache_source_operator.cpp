@@ -85,10 +85,10 @@ Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                     _hit_cache_column_orders.emplace_back(find_res -
                                                           hit_cache_slot_orders->begin());
                 } else {
-                    return Status::InternalError(
-                            fmt::format("Cache can find the mapping slot id {}, node id {}, "
-                                        "hit_cache_column_orders {}",
-                                        slot_id, cache_param.node_id, *hit_cache_slot_orders));
+                    return Status::InternalError(fmt::format(
+                            "Cache can find the mapping slot id {}, node id {}, "
+                            "hit_cache_column_orders [{}]",
+                            slot_id, cache_param.node_id, fmt::join(*hit_cache_slot_orders, ",")));
                 }
             }
         }

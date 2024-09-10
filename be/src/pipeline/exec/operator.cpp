@@ -668,7 +668,6 @@ Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_s
     return Base::close(state, exec_status);
 }
 
-<<<<<<< HEAD
 #define DECLARE_OPERATOR(LOCAL_STATE) template class DataSinkOperatorX<LOCAL_STATE>;
 DECLARE_OPERATOR(HashJoinBuildSinkLocalState)
 DECLARE_OPERATOR(ResultSinkLocalState)

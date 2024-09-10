@@ -1170,13 +1170,13 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     // Therefore, here we need to use a stack-like structure.
     _pipeline_parent_map.pop(cur_pipe, parent_idx, child_idx);
     std::stringstream error_msg;
+    bool enable_query_cache = request.fragment.__isset.query_cache_param;
 
     switch (tnode.node_type) {
     case TPlanNodeType::OLAP_SCAN_NODE: {
-        op.reset(new OlapScanOperatorX(pool, tnode, next_operator_id(), descs, _num_instances,
-                                       request.fragment.__isset.query_cache_param
-                                               ? request.fragment.query_cache_param
-                                               : TQueryCacheParam {}));
+        op.reset(new OlapScanOperatorX(
+                pool, tnode, next_operator_id(), descs, _num_instances,
+                enable_query_cache ? request.fragment.query_cache_param : TQueryCacheParam {}));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
         if (request.__isset.parallel_instances) {
             cur_pipe->set_num_tasks(request.parallel_instances);
@@ -1281,7 +1281,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             request.query_options.__isset.enable_distinct_streaming_aggregation &&
             request.query_options.enable_distinct_streaming_aggregation &&
             !tnode.agg_node.grouping_exprs.empty() && !group_by_limit_opt) {
-            if (request.fragment.__isset.query_cache_param) {
+            if (enable_query_cache) {
                 PipelinePtr new_pipe;
                 RETURN_IF_ERROR(create_query_cache_operator(new_pipe));
 
@@ -1303,7 +1303,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
                    tnode.agg_node.use_streaming_preaggregation &&
                    !tnode.agg_node.grouping_exprs.empty()) {
-            if (request.fragment.__isset.query_cache_param) {
+            if (enable_query_cache) {
                 PipelinePtr new_pipe;
                 RETURN_IF_ERROR(create_query_cache_operator(new_pipe));
 
@@ -1316,12 +1316,24 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                 RETURN_IF_ERROR(cur_pipe->add_operator(op));
             }
         } else {
+            // create new pipeline to add query cache operator
+            PipelinePtr new_pipe;
+            if (enable_query_cache) {
+                RETURN_IF_ERROR(create_query_cache_operator(new_pipe));
+            }
+
             if (enable_spill) {
                 op.reset(new PartitionedAggSourceOperatorX(pool, tnode, next_operator_id(), descs));
             } else {
                 op.reset(new AggSourceOperatorX(pool, tnode, next_operator_id(), descs));
             }
-            RETURN_IF_ERROR(cur_pipe->add_operator(op));
+            if (enable_query_cache) {
+                RETURN_IF_ERROR(cur_pipe->operators().front()->set_child(op));
+                RETURN_IF_ERROR(new_pipe->add_operator(op));
+                cur_pipe = new_pipe;
+            } else {
+                RETURN_IF_ERROR(cur_pipe->add_operator(op));
+            }
 
             const auto downstream_pipeline_id = cur_pipe->id();
             if (_dag.find(downstream_pipeline_id) == _dag.end()) {
