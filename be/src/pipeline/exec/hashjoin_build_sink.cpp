@@ -546,7 +546,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     if (local_state._should_build_hash_table) {
         // If eos or have already met a null value using short-circuit strategy, we do not need to pull
         // data from probe side.
-        local_state._build_side_mem_used += in_block->allocated_bytes();
 
         if (local_state._build_side_mutable_block.empty()) {
             auto tmp_build_block = vectorized::VectorizedUtils::create_empty_columnswithtypename(
@@ -579,6 +578,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             SCOPED_TIMER(local_state._build_side_merge_block_timer);
             RETURN_IF_ERROR(local_state._build_side_mutable_block.merge_ignore_overflow(
                     std::move(*in_block)));
+            local_state._build_side_mem_used =
+                    local_state._build_side_mutable_block.allocated_bytes();
         }
     }
 

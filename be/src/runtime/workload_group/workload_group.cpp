@@ -97,17 +97,20 @@ std::string WorkloadGroup::debug_string() const {
 }
 
 std::string WorkloadGroup::memory_debug_string() const {
+    auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
+    auto mem_used_ratio = realtime_total_mem_used / (double)_weighted_memory_limit;
     return fmt::format(
             "TG[id = {}, name = {}, memory_limit = {}, enable_memory_overcommit = "
-            "{}, weighted_memory_limit = {}, total_mem_used = {}, "
-            "wg_refresh_interval_memory_growth = {}, spill_low_watermark = {}, "
+            "{}, weighted_memory_limit = {}, total_mem_used = {},"
+            "wg_refresh_interval_memory_growth = {},  mem_used_ratio = {}, spill_low_watermark = "
+            "{}, "
             "spill_high_watermark = {}, version = {}, is_shutdown = {}, query_num = {}]",
             _id, _name, PrettyPrinter::print(_memory_limit, TUnit::BYTES),
             _enable_memory_overcommit ? "true" : "false",
-            PrettyPrinter::print(_weighted_memory_limit, TUnit::BYTES),
-            PrettyPrinter::print(_total_mem_used, TUnit::BYTES),
-            PrettyPrinter::print(_wg_refresh_interval_memory_growth, TUnit::BYTES),
-            _spill_low_watermark, _spill_high_watermark, _version, _is_shutdown,
+            PrettyPrinter::print(_weighted_memory_limit.load(), TUnit::BYTES),
+            PrettyPrinter::print(_total_mem_used.load(), TUnit::BYTES),
+            PrettyPrinter::print(_wg_refresh_interval_memory_growth.load(), TUnit::BYTES),
+            mem_used_ratio, _spill_low_watermark, _spill_high_watermark, _version, _is_shutdown,
             _query_ctxs.size());
 }
 
