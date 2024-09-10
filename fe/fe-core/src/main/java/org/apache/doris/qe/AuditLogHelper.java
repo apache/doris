@@ -89,14 +89,14 @@ public class AuditLogHelper {
         }
         int maxLen = GlobalVariable.auditPluginMaxSqlLength;
         if (origStmt.length() <= maxLen) {
-            return origStmt.replace("\n", " ")
-                .replace("\t", " ")
-                .replace("\r", " ");
+            return origStmt.replace("\n", "\\n")
+                .replace("\t", "\\t")
+                .replace("\r", "\\r");
         }
         origStmt = truncateByBytes(origStmt)
-            .replace("\n", " ")
-            .replace("\t", " ")
-            .replace("\r", " ");
+            .replace("\n", "\\n")
+            .replace("\t", "\\t")
+            .replace("\r", "\\r");
         int rowCnt = 0;
         // old planner
         if (parsedStmt instanceof NativeInsertStmt) {
