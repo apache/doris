@@ -33,6 +33,11 @@
 
 namespace doris {
 
+PausedQuery::PausedQuery(std::shared_ptr<QueryContext> query_ctx)
+        : query_ctx_(query_ctx), query_id_(print_id(query_ctx->query_id())) {
+    enqueue_at = std::chrono::system_clock::now();
+}
+
 WorkloadGroupPtr WorkloadGroupMgr::get_or_create_workload_group(
         const WorkloadGroupInfo& workload_group_info) {
     {
@@ -288,6 +293,158 @@ void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
 
         insert_int_value(4, wg->get_local_scan_bytes_per_second(), block);
         insert_int_value(5, wg->get_remote_scan_bytes_per_second(), block);
+    }
+}
+
+void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<QueryContext>& query_ctx) {
+    std::lock_guard<std::mutex> lock(_paused_queries_lock);
+    DCHECK(query_ctx != nullptr);
+    auto wg = query_ctx->workload_group();
+    auto&& [it, inserted] = _paused_queries_list[wg].emplace(query_ctx);
+    if (inserted) {
+        LOG(INFO) << "here insert one new paused query: " << it->query_id()
+                  << ", wg: " << (void*)(wg.get());
+    }
+}
+
+/**
+ * Strategy 1: A revocable query should not have any running task(PipelineTask).
+ * strategy 2: If the workload group is below low water mark, we make all queries in this wg runnable.
+ * strategy 3: Pick the query which has the max revocable size to revoke memory.
+ * strategy 4: If all queries are not revocable and they all have not any running task,
+ *             we choose the max memory usage query to cancel.
+ */
+void WorkloadGroupMgr::handle_paused_queries() {
+    std::unique_lock<std::mutex> lock(_paused_queries_lock);
+    if (_paused_queries_list.empty()) {
+        return;
+    }
+
+    for (auto it = _paused_queries_list.begin(); it != _paused_queries_list.end();) {
+        auto& queries_list = it->second;
+        const auto& wg = it->first;
+        if (queries_list.empty()) {
+            LOG(INFO) << "wg: " << wg->debug_string() << " has no paused query";
+            it = _paused_queries_list.erase(it);
+            continue;
+        }
+
+        bool is_low_wartermark = false;
+        bool is_high_wartermark = false;
+
+        wg->check_mem_used(&is_low_wartermark, &is_high_wartermark);
+
+        if (!is_low_wartermark && !is_high_wartermark) {
+            LOG(INFO) << "**** there are " << queries_list.size() << " to resume";
+            for (const auto& query : queries_list) {
+                LOG(INFO) << "**** resume paused query: " << query.query_id();
+                auto query_ctx = query.query_ctx_.lock();
+                if (query_ctx != nullptr) {
+                    query_ctx->set_memory_sufficient(true);
+                }
+            }
+
+            queries_list.clear();
+            it = _paused_queries_list.erase(it);
+            continue;
+        } else {
+            ++it;
+        }
+
+        std::shared_ptr<QueryContext> max_revocable_query;
+        std::shared_ptr<QueryContext> max_memory_usage_query;
+        std::shared_ptr<QueryContext> running_query;
+        bool has_running_query = false;
+        size_t max_revocable_size = 0;
+        size_t max_memory_usage = 0;
+        auto it_to_remove = queries_list.end();
+
+        for (auto query_it = queries_list.begin(); query_it != queries_list.end();) {
+            const auto query_ctx = query_it->query_ctx_.lock();
+            // The query is finished during in paused list.
+            if (query_ctx == nullptr) {
+                query_it = queries_list.erase(query_it);
+                continue;
+            }
+            size_t revocable_size = 0;
+            size_t memory_usage = 0;
+            bool has_running_task = false;
+
+            if (query_ctx->is_cancelled()) {
+                LOG(INFO) << "query: " << print_id(query_ctx->query_id())
+                          << "was canceled, remove from paused list";
+                query_it = queries_list.erase(query_it);
+                continue;
+            }
+
+            query_ctx->get_revocable_info(&revocable_size, &memory_usage, &has_running_task);
+            if (has_running_task) {
+                has_running_query = true;
+                running_query = query_ctx;
+                break;
+            } else if (revocable_size > max_revocable_size) {
+                max_revocable_query = query_ctx;
+                max_revocable_size = revocable_size;
+                it_to_remove = query_it;
+            } else if (memory_usage > max_memory_usage) {
+                max_memory_usage_query = query_ctx;
+                max_memory_usage = memory_usage;
+                it_to_remove = query_it;
+            }
+
+            ++query_it;
+        }
+
+        if (has_running_query) {
+            LOG(INFO) << "has running task, query: " << print_id(running_query->query_id());
+        } else if (max_revocable_query) {
+            queries_list.erase(it_to_remove);
+            queries_list.insert(queries_list.begin(), max_revocable_query);
+
+            auto revocable_tasks = max_revocable_query->get_revocable_tasks();
+            DCHECK(!revocable_tasks.empty());
+
+            LOG(INFO) << "query: " << print_id(max_revocable_query->query_id()) << ", has "
+                      << revocable_tasks.size()
+                      << " tasks to revoke memory, max revocable size: " << max_revocable_size;
+            SCOPED_ATTACH_TASK(max_revocable_query.get());
+            for (auto* task : revocable_tasks) {
+                auto st = task->revoke_memory();
+                if (!st.ok()) {
+                    max_revocable_query->cancel(st);
+                    break;
+                }
+            }
+        } else if (max_memory_usage_query) {
+            bool new_is_low_wartermark = false;
+            bool new_is_high_wartermark = false;
+            const auto query_id = print_id(max_memory_usage_query->query_id());
+            wg->check_mem_used(&new_is_low_wartermark, &new_is_high_wartermark);
+            if (new_is_high_wartermark) {
+                if (it_to_remove->elapsed_time() < 2000) {
+                    LOG(INFO) << "memory insufficient and cannot find revocable query, "
+                                 "the max usage query: "
+                              << query_id << ", usage: " << max_memory_usage
+                              << ", elapsed: " << it_to_remove->elapsed_time()
+                              << ", wg info: " << wg->debug_string();
+                    continue;
+                }
+                max_memory_usage_query->cancel(Status::InternalError(
+                        "memory insufficient and cannot find revocable query, cancel "
+                        "the "
+                        "biggest usage({}) query({})",
+                        max_memory_usage, query_id));
+                queries_list.erase(it_to_remove);
+
+            } else {
+                LOG(INFO) << "non high water mark, resume "
+                             "the query: "
+                          << query_id << ", usage: " << max_memory_usage
+                          << ", wg info: " << wg->debug_string();
+                max_memory_usage_query->set_memory_sufficient(true);
+                queries_list.erase(it_to_remove);
+            }
+        }
     }
 }
 

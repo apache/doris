@@ -29,12 +29,38 @@ class CgroupCpuCtl;
 
 namespace vectorized {
 class Block;
+class QueryContext;
 } // namespace vectorized
 
 namespace pipeline {
 class TaskScheduler;
 class MultiCoreTaskQueue;
 } // namespace pipeline
+
+class PausedQuery {
+public:
+    // Use weak ptr to save query ctx, to make sure if the query is cancelled
+    // the resource will be released
+    std::weak_ptr<QueryContext> query_ctx_;
+    std::chrono::system_clock::time_point enqueue_at;
+    size_t last_mem_usage {0};
+
+    PausedQuery(std::shared_ptr<QueryContext> query_ctx);
+
+    int64_t elapsed_time() const {
+        auto now = std::chrono::system_clock::now();
+        return std::chrono::duration_cast<std::chrono::milliseconds>(now - enqueue_at).count();
+    }
+
+    std::string query_id() const { return query_id_; }
+
+    bool operator<(const PausedQuery& other) const { return query_id_ < other.query_id_; }
+
+    bool operator==(const PausedQuery& other) const { return query_id_ == other.query_id_; }
+
+private:
+    std::string query_id_;
+};
 
 class WorkloadGroupMgr {
 public:
@@ -62,11 +88,20 @@ public:
 
     void get_wg_resource_usage(vectorized::Block* block);
 
+    void add_paused_query(const std::shared_ptr<QueryContext>& query_ctx);
+
+    void handle_paused_queries();
+
 private:
     std::shared_mutex _group_mutex;
     std::unordered_map<uint64_t, WorkloadGroupPtr> _workload_groups;
 
     std::shared_mutex _clear_cgroup_lock;
+
+    // Save per group paused query list, it should be a global structure, not per
+    // workload group, because we need do some coordinate work globally.
+    std::mutex _paused_queries_lock;
+    std::map<WorkloadGroupPtr, std::set<PausedQuery>> _paused_queries_list;
 };
 
 } // namespace doris

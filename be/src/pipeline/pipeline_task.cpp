@@ -34,8 +34,10 @@
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "util/container_util.hpp"
 #include "util/defer_op.h"
 #include "util/mem_info.h"
@@ -399,7 +401,8 @@ Status PipelineTask::execute(bool* eos) {
                         }
 
                         _memory_sufficient_dependency->block();
-                        _state->get_query_ctx()->get_pipe_exec_scheduler()->add_paused_task(this);
+                        ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
+                                _state->get_query_ctx()->shared_from_this());
                         continue;
                     }
                     has_enough_memory = false;
@@ -436,7 +439,8 @@ Status PipelineTask::execute(bool* eos) {
             LOG(INFO) << "query: " << print_id(query_id) << ", task: " << (void*)this
                       << ", insufficient memory. reserve_size: " << reserve_size;
             _memory_sufficient_dependency->block();
-            _state->get_query_ctx()->get_pipe_exec_scheduler()->add_paused_task(this);
+            ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
+                    _state->get_query_ctx()->shared_from_this());
             break;
         }
     }
