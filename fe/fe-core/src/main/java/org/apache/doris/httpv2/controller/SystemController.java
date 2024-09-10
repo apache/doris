@@ -43,6 +43,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
@@ -187,16 +189,34 @@ public class SystemController extends BaseController {
     }
 
     private String getParentUrl(String pathStr) {
-        Path path = Paths.get(pathStr);
-        path = path.getParent();
-        if (path == null) {
-            return "/rest/v1/system";
-        } else {
-            final String windowsFileSystemSeparator = "\\";
-            if (windowsFileSystemSeparator.equals(path.getFileSystem().getSeparator())) {
-                return "/rest/v1/system?path=" + path.toString().replace("\\", "/");
+        try {
+            // Normalize the input path to ensure it is in a canonical form
+            Path path = Paths.get(pathStr).normalize();
+
+            // Get the parent path
+            path = path.getParent();
+
+            if (path == null) {
+                // If there is no parent path, return the default URL
+                return "/rest/v1/system";
+            } else {
+                // Handle Windows path separators
+                final String windowsFileSystemSeparator = "\\";
+                String normalizedPath = path.toString();
+
+                if (windowsFileSystemSeparator.equals(path.getFileSystem().getSeparator())) {
+                    normalizedPath = normalizedPath.replace("\\", "/");
+                }
+
+                // Encode special characters in the path
+                String encodedPath = URLEncoder.encode(normalizedPath, StandardCharsets.UTF_8.toString());
+
+                // Build and return the URL
+                return "/rest/v1/system?path=" + encodedPath;
             }
-            return "/rest/v1/system?path=" + path.toString();
+        } catch (Exception e) {
+            // Handle exceptions and return the default URL
+            return "/rest/v1/system";
         }
     }
 }
