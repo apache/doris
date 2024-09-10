@@ -124,12 +124,27 @@ public:
         return _s_process_reserved_memory.load(std::memory_order_relaxed);
     }
 
+    // `process_memory_usage` includes all reserved memory. if a thread has `reserved_memory`,
+    // and the memory allocated by thread is less than the thread `reserved_memory`,
+    // even if `process_memory_usage` is greater than `process_mem_limit`, memory can still be allocated.
+    // At this time, `process_memory_usage` will not increase, process physical memory will increase,
+    // and `reserved_memory` will be reduced.
+    static int64_t sub_thread_reserve_memory(int64_t bytes);
+
     static bool is_exceed_soft_mem_limit(int64_t bytes = 0) {
+        bytes = sub_thread_reserve_memory(bytes);
+        if (bytes <= 0) {
+            return false;
+        }
         return process_memory_usage() + bytes >= MemInfo::soft_mem_limit() ||
                sys_mem_available() - bytes < MemInfo::sys_mem_available_warning_water_mark();
     }
 
     static bool is_exceed_hard_mem_limit(int64_t bytes = 0) {
+        bytes = sub_thread_reserve_memory(bytes);
+        if (bytes <= 0) {
+            return false;
+        }
         // Limit process memory usage using the actual physical memory of the process in `/proc/self/status`.
         // This is independent of the consumption value of the mem tracker, which counts the virtual memory
         // of the process malloc.
