@@ -432,9 +432,19 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
         _parent->memory_used_counter()->update(
                 -broadcast_q.front().block_holder->get_block()->ByteSizeLong());
     }
+    {
+        std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>> empty;
+        swap(empty, broadcast_q);
+    }
+
     std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
     for (; !q.empty(); q.pop()) {
         _parent->memory_used_counter()->update(-q.front().block->ByteSizeLong());
+    }
+
+    {
+        std::queue<TransmitInfo, std::list<TransmitInfo>> empty;
+        swap(empty, q);
     }
 }
 

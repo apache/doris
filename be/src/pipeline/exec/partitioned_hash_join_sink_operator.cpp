@@ -152,9 +152,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
     }
 
     auto spill_func = [build_block = std::move(build_block), state, this]() mutable {
-        Defer defer {[&]() {
-            memory_used_counter()->set((int64_t)revocable_mem_size(state));
-        }};
+        Defer defer {[&]() { memory_used_counter()->set((int64_t)revocable_mem_size(state)); }};
         auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
         auto& partitioned_blocks = _shared_state->partitioned_build_blocks;
         std::vector<std::vector<uint32_t>> partitions_indexes(p._partition_count);
@@ -381,9 +379,7 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
     if (!rows) {
         return Status::OK();
     }
-    Defer defer {[&]() {
-        memory_used_counter()->set((int64_t)revocable_mem_size(state));
-    }};
+    Defer defer {[&]() { memory_used_counter()->set((int64_t)revocable_mem_size(state)); }};
     {
         /// TODO: DO NOT execute build exprs twice(when partition and building hash table)
         SCOPED_TIMER(_partition_timer);
