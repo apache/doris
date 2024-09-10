@@ -52,4 +52,5 @@ suite("fold_constant_by_be") {
     }
 
     sql 'set query_timeout=12;'
+    qt_sql "select sleep(sign(1)*5);"
 }
