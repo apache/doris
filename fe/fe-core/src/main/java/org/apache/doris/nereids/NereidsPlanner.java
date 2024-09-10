@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
@@ -257,8 +258,11 @@ public class NereidsPlanner extends Planner {
                 return rewrittenPlan;
             }
         }
-        List<LogicalOlapScan> scans = getAllOlapScans(cascadesContext.getRewritePlan());
-        StatsCalculator.disableJoinReorderIfTableRowCountNotAvailable(scans, cascadesContext);
+
+        if (!FeConstants.runningUnitTest && !cascadesContext.isLeadingDisableJoinReorder()) {
+            List<LogicalOlapScan> scans = getAllOlapScans(cascadesContext.getRewritePlan());
+            StatsCalculator.disableJoinReorderIfTableRowCountNotAvailable(scans, cascadesContext);
+        }
 
         optimize();
         if (statementContext.getConnectContext().getExecutor() != null) {

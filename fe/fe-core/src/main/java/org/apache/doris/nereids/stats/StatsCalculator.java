@@ -222,6 +222,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 LOG.info("disable join reorder since row count not available: "
                         + scan.getTable().getNameWithFullQualifiers());
                 ConnectContext.get().getSessionVariable().setDisableJoinReorder(true);
+                return;
             }
         }
     }
