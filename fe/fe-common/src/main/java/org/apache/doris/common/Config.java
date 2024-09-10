@@ -19,8 +19,6 @@ package org.apache.doris.common;
 
 import java.io.File;
 
-import org.apache.doris.common.ConfigBase.ConfField;
-
 public class Config extends ConfigBase {
 
     @ConfField(description = {"用户自定义配置文件的路径，用于存放 fe_custom.conf。该文件中的配置会覆盖 fe.conf 中的配置",
@@ -2731,7 +2729,7 @@ public class Config extends ConfigBase {
     @ConfField(description = {
             "用于控制 ProfileManager 进行 Profile 垃圾回收的间隔时间，垃圾回收期间 ProfileManager 会把多余的以及过期的 profile "
                     + "从内存和磁盘中清理掉，节省内存。",
-            "Used to control the interval time of ProfileManager for profile garbage collection."
+            "Used to control the interval time of ProfileManager for profile garbage collection. "
     })
     public static int profile_manager_gc_interval_seconds = 1;
     // Used to check compatibility when upgrading.
