@@ -760,7 +760,7 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
         } else {
             return Status::InvalidArgument(
                     "_execute_predicates_except_leafnode_of_andnode has no result for {}",
-                    result_sign);
+                    pred_result_sign);
         }
     } else if (node_type == TExprNodeType::COMPOUND_PRED) {
         auto function_name = expr->fn().name.function_name;
