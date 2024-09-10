@@ -44,7 +44,7 @@ import java.util.concurrent.TimeUnit;
 @Log4j2
 public class TaskDisruptor implements Closeable {
 
-    private  Disruptor<TaskEvent> disruptor;
+    private Disruptor<TaskEvent> disruptor;
     private static final int DEFAULT_RING_BUFFER_SIZE = Config.async_task_queen_size;
 
     private static final int consumerThreadCount = Config.async_task_consumer_thread_num;
@@ -66,10 +66,10 @@ public class TaskDisruptor implements Closeable {
      */
     private static final EventTranslatorThreeArg<TaskEvent, Long, Long, TaskType> TRANSLATOR
             = (event, sequence, jobId, taskId, taskType) -> {
-        event.setId(jobId);
-        event.setTaskId(taskId);
-        event.setTaskType(taskType);
-    };
+                event.setId(jobId);
+                event.setTaskId(taskId);
+                event.setTaskType(taskType);
+            };
 
     public void start() {
         CustomThreadFactory exportTaskThreadFactory = new CustomThreadFactory("export-task-consumer");
