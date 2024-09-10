@@ -230,7 +230,6 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaUserScanner::create_unique();
     case TSchemaTableType::SCH_WORKLOAD_POLICY:
         return SchemaWorkloadSchedulePolicyScanner::create_unique();
-<<<<<<< HEAD
     case TSchemaTableType::SCH_FILE_CACHE_STATISTICS:
         return SchemaFileCacheStatisticsScanner::create_unique();
     case TSchemaTableType::SCH_WORKLOAD_GROUP_PRIVILEGES:
@@ -241,10 +240,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaTablePropertiesScanner::create_unique();
     case TSchemaTableType::SCH_CATALOG_META_CACHE_STATISTICS:
         return SchemaCatalogMetaCacheStatsScanner::create_unique();
-=======
     case TSchemaTableType::SCH_TABLE_OPTIONS:
         return SchemaTableOptionsScanner::create_unique();
->>>>>>> 9435132451 ([Enhancement] add information_schema.table_options(#32572))
     default:
         return SchemaDummyScanner::create_unique();
         break;
