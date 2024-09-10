@@ -1786,7 +1786,7 @@ public class RestoreJob extends AbstractJob {
 
         // set all restored partition version and version hash
         // set all tables' state to NORMAL
-        setTableStateToNormal(db, true, isReplay);
+        setTableStateToNormalAndUpdateProperties(db, true, isReplay);
         for (long tblId : restoredVersionInfo.rowKeySet()) {
             Table tbl = db.getTableNullable(tblId);
             if (tbl == null) {
@@ -2030,7 +2030,7 @@ public class RestoreJob extends AbstractJob {
         Database db = env.getInternalCatalog().getDbNullable(dbId);
         if (db != null) {
             // rollback table's state to NORMAL
-            setTableStateToNormal(db, false, isReplay);
+            setTableStateToNormalAndUpdateProperties(db, false, isReplay);
 
             // remove restored tbls
             for (Table restoreTbl : restoredTbls) {
@@ -2110,7 +2110,7 @@ public class RestoreJob extends AbstractJob {
         LOG.info("finished to cancel restore job. is replay: {}. {}", isReplay, this);
     }
 
-    private void setTableStateToNormal(Database db, boolean committed, boolean isReplay) {
+    private void setTableStateToNormalAndUpdateProperties(Database db, boolean committed, boolean isReplay) {
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
             Table tbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
             if (tbl == null) {
@@ -2152,6 +2152,9 @@ public class RestoreJob extends AbstractJob {
                         Env.getCurrentEnv().getDynamicPartitionScheduler().createOrUpdateRuntimeInfo(tbl.getId(),
                                 DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
                     }
+                }
+                if (committed && isBeingSynced) {
+                    olapTbl.setBeingSyncedProperties();
                 }
             } finally {
                 tbl.writeUnlock();
