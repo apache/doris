@@ -108,7 +108,7 @@ public class ExecutableFunctions {
      * is_nan scalar function
      */
     @ExecFunction(name = "is_nan", argTypes = { "DOUBLE" }, returnType = "BOOLEAN")
-    public static Expression isNaN(DoubleLiteral literal) {
+    public static Expression isNan(DoubleLiteral literal) {
         boolean res = Double.isNaN(literal.getValue());
         if (res) {
             return BooleanLiteral.TRUE;
@@ -132,7 +132,7 @@ public class ExecutableFunctions {
     }
 
     @ExecFunction(name = "nan", argTypes = {}, returnType = "DOUBLE")
-    public static Expression NaN() {
+    public static Expression nan() {
         return new DoubleLiteral(Double.NaN);
     }
 
