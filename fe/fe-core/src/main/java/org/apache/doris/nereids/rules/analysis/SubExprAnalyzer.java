@@ -129,7 +129,9 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             if (analyzedSubqueryPlan instanceof LogicalLimit) {
                 LogicalLimit limit = (LogicalLimit) analyzedSubqueryPlan;
                 if (limit.getOffset() == 0 && limit.getLimit() == 1) {
-                    analyzedSubqueryPlan = (LogicalPlan) analyzedSubqueryPlan.child(0);
+                    // skip useless limit node
+                    analyzedResult = new AnalyzedResult((LogicalPlan) analyzedSubqueryPlan.child(0),
+                            analyzedResult.correlatedSlots);
                 } else {
                     throw new AnalysisException("limit is not supported in correlated subquery "
                             + analyzedResult.getLogicalPlan());
