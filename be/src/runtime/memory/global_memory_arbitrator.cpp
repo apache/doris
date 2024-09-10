@@ -38,6 +38,13 @@ bvar::PassiveStatus<int64_t> g_sys_mem_avail(
 
 std::atomic<int64_t> GlobalMemoryArbitrator::_s_process_reserved_memory = 0;
 std::atomic<int64_t> GlobalMemoryArbitrator::refresh_interval_memory_growth = 0;
+std::mutex GlobalMemoryArbitrator::cache_adjust_capacity_lock;
+std::condition_variable GlobalMemoryArbitrator::cache_adjust_capacity_cv;
+std::atomic<bool> GlobalMemoryArbitrator::cache_adjust_capacity_notify {false};
+std::atomic<double> GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted {1};
+std::mutex GlobalMemoryArbitrator::memtable_memory_refresh_lock;
+std::condition_variable GlobalMemoryArbitrator::memtable_memory_refresh_cv;
+std::atomic<bool> GlobalMemoryArbitrator::memtable_memory_refresh_notify {false};
 
 bool GlobalMemoryArbitrator::try_reserve_process_memory(int64_t bytes) {
     if (sys_mem_available() - bytes < MemInfo::sys_mem_available_warning_water_mark()) {
@@ -77,6 +84,14 @@ void GlobalMemoryArbitrator::release_process_reserved_memory(int64_t bytes) {
             _reserved_trackers.erase(it);
         }
     }
+}
+
+int64_t GlobalMemoryArbitrator::sub_thread_reserve_memory(int64_t bytes) {
+    doris::ThreadContext* thread_context = doris::thread_context(true);
+    if (thread_context) {
+        return bytes - doris::thread_context()->thread_mem_tracker_mgr->reserved_mem();
+    }
+    return bytes;
 }
 
 } // namespace doris

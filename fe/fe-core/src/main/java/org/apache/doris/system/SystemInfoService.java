@@ -19,7 +19,6 @@ package org.apache.doris.system;
 
 import org.apache.doris.analysis.ModifyBackendClause;
 import org.apache.doris.analysis.ModifyBackendHostNameClause;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
@@ -642,18 +641,31 @@ public class SystemInfoService {
         }
     }
 
-    public void updateBackendReportVersion(long backendId, long newReportVersion, long dbId, long tableId) {
-        AtomicLong atomicLong;
-        if ((atomicLong = idToReportVersionRef.get(backendId)) != null) {
-            Database db = (Database) Env.getCurrentInternalCatalog().getDbNullable(dbId);
-            if (db == null) {
-                LOG.warn("failed to update backend report version, db {} does not exist", dbId);
-                return;
+    public void updateBackendReportVersion(long backendId, long newReportVersion, long dbId, long tableId,
+            boolean checkDbExist) {
+        AtomicLong atomicLong = idToReportVersionRef.get(backendId);
+        if (atomicLong == null) {
+            return;
+        }
+        if (checkDbExist && Env.getCurrentInternalCatalog().getDbNullable(dbId) == null) {
+            LOG.warn("failed to update backend report version, db {} does not exist", dbId);
+            return;
+        }
+        while (true) {
+            long curReportVersion = atomicLong.get();
+            if (curReportVersion >= newReportVersion) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("skip update backend {} report version: {}, current version: {}, db: {}, table: {}",
+                            backendId, newReportVersion, curReportVersion, dbId, tableId);
+                }
+                break;
             }
-            atomicLong.set(newReportVersion);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("update backend {} report version: {}, db: {}, table: {}",
-                        backendId, newReportVersion, dbId, tableId);
+            if (atomicLong.compareAndSet(curReportVersion, newReportVersion)) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("update backend {} report version: {}, db: {}, table: {}",
+                            backendId, newReportVersion, dbId, tableId);
+                }
+                break;
             }
         }
     }

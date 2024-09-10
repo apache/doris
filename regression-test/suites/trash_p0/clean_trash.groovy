@@ -17,7 +17,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.junit.Assert
 
-suite("test_clean_trash", "p0") {
+suite("test_clean_trash", "docker") {
     if (isCloudMode()) {
         return
     }

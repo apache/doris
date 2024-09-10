@@ -826,7 +826,16 @@ cloudUniqueId= "{fe_cloud_unique_id}"
                 print("\nNo write regression custom file.")
                 return
 
+        annotation_start = "//---------- Start auto generate by doris-compose.py---------"
+        annotation_end = "//---------- End auto generate by doris-compose.py---------"
+
+        old_contents = []
+        if os.path.exists(regression_conf_custom):
+            with open(regression_conf_custom, "r") as f:
+                old_contents = f.readlines()
         with open(regression_conf_custom, "w") as f:
+            # write auto gen config
+            f.write(annotation_start)
             f.write(base_conf.format(fe_ip=fe_ip))
             if cluster.is_cloud:
                 multi_cluster_bes = ",".join([
@@ -845,6 +854,23 @@ cloudUniqueId= "{fe_cloud_unique_id}"
                         multi_cluster_bes=multi_cluster_bes,
                         fe_cloud_unique_id=cluster.get_node(
                             CLUSTER.Node.TYPE_FE, 1).cloud_unique_id()))
+            f.write(annotation_end + "\n\n")
+            annotation_end_line_count = -1
+
+            # write not-auto gen config
+            in_annotation = False
+            annotation_end_line_idx = -100
+            for line_idx, line in enumerate(old_contents):
+                line = line.rstrip()
+                if line == annotation_start:
+                    in_annotation = True
+                elif line == annotation_end:
+                    in_annotation = False
+                    annotation_end_line_idx = line_idx
+                elif not in_annotation:
+                    if line or line_idx != annotation_end_line_idx + 1:
+                        f.write(line + "\n")
+
         print("\nWrite succ: " + regression_conf_custom)
 
 
