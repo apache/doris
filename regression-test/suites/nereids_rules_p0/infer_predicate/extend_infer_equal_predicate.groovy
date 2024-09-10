@@ -110,8 +110,6 @@ suite("extend_infer_equal_predicate") {
     select * from test_cast_infer9 t1 inner join test_cast_infer9 t2 on t1.d_datetimev2=t2.d_datetimev2 where t2.d_datetimev2!='2024-01-01';"""
     qt_test_not_in """explain shape plan
     select * from test_cast_infer9 t1 inner join test_cast_infer9 t2 on t1.d_int=t2.d_int where t2.d_int not in (10,20)"""
-    qt_test_not_in_column """explain shape plan
-    select * from test_cast_infer9 t1 inner join test_cast_infer9 t2 on t1.d_int=t2.d_int where t2.d_int not in (t2.d_smallint,20)"""
     qt_test_in """explain shape plan
     select * from test_cast_infer9 t1 inner join test_cast_infer9 t2 on t1.d_int=t2.d_int where t2.d_int in (10,20)"""
     qt_test_func_not_in """explain shape plan
@@ -214,44 +212,6 @@ suite("extend_infer_equal_predicate") {
     and day(convert_tz(t1.d_datetimev2,'Asia/Shanghai','Europe/Paris'))>10;"""
     qt_predicate_to_empty_relation """explain shape plan
     select * from test_like1 t1 left join test_like2 t2 on t1.a=t2.a and t2.a=1 left join test_like2 t3 on t1.a=t3.a where t1.a=2"""
-
-    sql "set disable_nereids_rules='ELIMINATE_OUTER_JOIN'"
-    qt_left_join_left_table_where_predicate_can_pull_up1 """explain shape plan
-    SELECT * FROM (SELECT t1.a t1a, t2.a t2a FROM (select * from test_like1 where a<10)  t1 left JOIN test_like2 t2 ON t1.a=t2.a ) t INNER JOIN test_like3 t3 ON t.t1a=t3.a;"""
-    qt_left_join_left_table_where_predicate_can_pull_up1 """explain shape plan
-    SELECT * FROM (SELECT t1.a t1a, t2.a t2a FROM test_like1 t1 left JOIN test_like2 t2 ON t1.a=t2.a where t1.a<10) t INNER JOIN test_like3 t3 ON t.t1a=t3.a;"""
-    qt_left_join_right_table_where_predicate_cannot_pull_up """explain shape plan
-    SELECT * FROM (SELECT t1.a t1a, t2.a t2a FROM test_like1 t1 LEFT JOIN test_like2 t2 ON t1.a=t2.a AND t2.a>10) t INNER JOIN test_like3 t3 ON t.t2a=t3.a;"""
-    qt_right_join_right_table_on_predicate_cannot_pull_up """explain shape plan
-    SELECT * FROM (SELECT t1.a t1a, t2.a t2a FROM test_like1 t1 right JOIN test_like2 t2 ON t1.a=t2.a AND t2.a>10) t INNER JOIN test_like3 t3 ON t.t2a=t3.a;"""
-    qt_right_join_right_table_where_predicate_can_pull_up1 """explain shape plan
-    SELECT * FROM (SELECT t1.a t1a, t2.a t2a FROM test_like1 t1 right JOIN (select * from test_like2 where a<10) t2 ON t1.a=t2.a ) t INNER JOIN test_like3 t3 ON t.t2a=t3.a;"""
-    qt_right_join_right_table_where_predicate_can_pull_up2 """explain shape plan
-    SELECT * FROM (SELECT t1.a t1a, t2.a t2a FROM test_like1 t1 right JOIN test_like2 t2 ON t1.a=t2.a where t2.a>10) t INNER JOIN test_like3 t3 ON t.t2a=t3.a;"""
-    qt_left_join_right_table_where_predicate_cannot_pull_up_other_column """explain shape plan
-    SELECT * FROM (SELECT t1.a t1a, t2.c t2c FROM test_like1 t1 LEFT JOIN test_like2 t2 ON t1.a=t2.a AND t2.c>10) t INNER JOIN test_like3 t3 ON t.t2c=t3.a;"""
-    qt_right_join_right_table_on_predicate_cannot_pull_up_other_column """explain shape plan
-    SELECT * FROM (SELECT t1.a t1a, t2.c t2c FROM test_like1 t1 right JOIN test_like2 t2 ON t1.a=t2.a AND t2.c>10) t INNER JOIN test_like3 t3 ON t.t2c=t3.a;"""
-    qt_right_join_right_table_where_predicate_can_pull_up_other_column1 """explain shape plan
-    SELECT * FROM (SELECT t1.a t1a, t2.c t2c FROM test_like1 t1 right JOIN (select * from test_like2 where c<10) t2 ON t1.a=t2.a ) t INNER JOIN test_like3 t3 ON t.t2c=t3.a;"""
-    qt_right_join_right_table_where_predicate_can_pull_up_other_column2 """explain shape plan
-    SELECT * FROM (SELECT t1.a t1a, t2.c t2c FROM test_like1 t1 right JOIN test_like2 t2 ON t1.a=t2.a where t2.c>10) t INNER JOIN test_like3 t3 ON t.t2c=t3.a;"""
-    qt_right_semi_right_table_predicate_can_pull_up """explain shape plan
-    SELECT * FROM (SELECT t2.a t2a FROM test_like1 t1 right semi JOIN test_like2 t2 ON t1.a=t2.a AND t2.a>10) t INNER JOIN test_like3 t3 ON t.t2a=t3.a;"""
-    qt_right_semi_right_table_predicate_can_pull_up_other_column """explain shape plan
-    SELECT * FROM (SELECT t2.c t2c FROM test_like1 t1 right semi JOIN test_like2 t2 ON t1.a=t2.a AND t2.c>10) t INNER JOIN test_like3 t3 ON t.t2c=t3.c;"""
-    qt_left_semi_left_table_predicate_can_pull_up """explain shape plan
-    SELECT * FROM (SELECT t1.a t1a FROM test_like1 t1 left semi JOIN test_like2 t2 ON t1.a=t2.a AND t1.a>10) t INNER JOIN test_like3 t3 ON t.t1a=t3.a;"""
-    qt_left_semi_left_table_predicate_can_pull_up_other_column """explain shape plan
-    SELECT * FROM (SELECT t1.c t1c FROM test_like1 t1 left semi JOIN test_like2 t2 ON t1.a=t2.a AND t1.c>10) t INNER JOIN test_like3 t3 ON t.t1c=t3.c;"""
-    qt_right_anti_right_table_predicate_can_pull_up """explain shape plan
-    SELECT * FROM (SELECT t2.a t2a FROM test_like1 t1 right anti JOIN test_like2 t2 ON t1.a=t2.a where t2.a>10) t INNER JOIN test_like3 t3 ON t.t2a=t3.a;"""
-    qt_right_anti_right_table_predicate_can_pull_up_other_column """explain shape plan
-    SELECT * FROM (SELECT t2.c t2c FROM test_like1 t1 right anti JOIN test_like2 t2 ON t1.a=t2.a where t2.c>10) t INNER JOIN test_like3 t3 ON t.t2c=t3.c;"""
-    qt_left_anti_left_table_predicate_can_pull_up """explain shape plan
-    SELECT * FROM (SELECT t1.a t1a FROM test_like1 t1 left anti JOIN test_like2 t2 ON t1.a=t2.a where t1.a>10) t INNER JOIN test_like3 t3 ON t.t1a=t3.a;"""
-    qt_left_anti_left_table_predicate_can_pull_up_other_column """explain shape plan
-    SELECT * FROM (SELECT t1.c t1c FROM test_like1 t1 left anti JOIN test_like2 t2 ON t1.a=t2.a where t1.c>10) t INNER JOIN test_like3 t3 ON t.t1c=t3.c;"""
     qt_equal_table_predicate_delete """
     explain shape plan select * from test_like1 where a=1 and c=1;
     """

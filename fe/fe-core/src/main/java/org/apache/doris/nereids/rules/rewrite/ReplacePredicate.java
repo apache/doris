@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -91,7 +90,7 @@ public class ReplacePredicate {
         getAllSubExpressions(expr.child(0), res);
     }
 
-    /** fill map exprPredicates : expression and all its corresponding predicates */
+    /**fill map exprPredicates : expression and all its corresponding predicates*/
     private static class PredicatesCollector extends ExpressionVisitor<Void, Map<Expression, Set<Expression>>> {
         public static PredicatesCollector INSTANCE = new PredicatesCollector();
 
@@ -197,11 +196,13 @@ public class ReplacePredicate {
             EqualTo equalTo = (EqualTo) input;
             Set<Slot> leftInputSlots = equalTo.left().getInputSlots();
             Set<Slot> rightInputSlots = equalTo.right().getInputSlots();
-            if (leftInputSlots.isEmpty() && rightInputSlots.isEmpty()) {
+            // not support a=1 b=1 -> a=b, because Sometimes there are cases where the predicates a=1 and a=2
+            // are not eliminated in time. After being pulled up, it is wrong to deduce a=b with b=1.
+            if (leftInputSlots.isEmpty() || rightInputSlots.isEmpty()) {
                 continue;
             }
             getEqualPair((ComparisonPredicate) input)
-                    .filter(pair -> isSlotOrLiteral(pair.first) && isSlotOrLiteral(pair.second))
+                    .filter(pair -> pair.first instanceof Slot && pair.second instanceof Slot)
                     .ifPresent(pair -> fromCastEqualSetBuilder.addEqualPair(pair.first, pair.second));
         }
         return fromCastEqualSetBuilder.build();
@@ -279,9 +280,6 @@ public class ReplacePredicate {
         if (!inferType.superClazz.isAssignableFrom(expression.getDataType().getClass())) {
             return Optional.empty();
         }
-        if (expression instanceof NullLiteral) {
-            return Optional.empty();
-        }
         if (!(expression instanceof Cast)) {
             return Optional.of(expression);
         }
@@ -322,21 +320,14 @@ public class ReplacePredicate {
         return Optional.empty();
     }
 
-    /* This function is used to input a=b b=c to derive a=c, and return a=c.
-    * input a=1 b=1 return a=b */
+    /* This function is used to input a=b b=c to derive a=c, and return a=b b=c a=c.
+     This function is not called temporarily */
     private static Set<Expression> deduceTransitiveEquality(AbstractEqualSet<Expression> equalSet,
             Set<Expression> inputs) {
         List<Set<Expression>> equalSetList = equalSet.calEqualSetList();
         Set<Expression> derivedEqualities = new HashSet<>();
         for (Set<Expression> es : equalSetList) {
-            Set<Expression> esWithoutLiteral = new HashSet<>();
-            for (Expression expr : es) {
-                if (expr instanceof Literal) {
-                    continue;
-                }
-                esWithoutLiteral.add(expr);
-            }
-            List<Expression> el = new ArrayList<>(esWithoutLiteral);
+            List<Expression> el = new ArrayList<>(es);
             for (int i = 0; i < el.size(); i++) {
                 Expression left = el.get(i);
                 for (int j = i + 1; j < el.size(); j++) {
@@ -356,10 +347,6 @@ public class ReplacePredicate {
         return derivedEqualities;
     }
 
-    private static boolean isSlotOrLiteral(Expression expr) {
-        return expr instanceof Slot || expr instanceof Literal;
-    }
-
     private static boolean isSingleTableExpression(Expression expr) {
         Set<String> qualifiers = new HashSet<>();
         for (Slot slot : expr.getInputSlots()) {
@@ -367,4 +354,5 @@ public class ReplacePredicate {
         }
         return qualifiers.size() == 1;
     }
+
 }
