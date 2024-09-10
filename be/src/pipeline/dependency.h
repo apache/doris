@@ -649,8 +649,8 @@ public:
 };
 
 using SetHashTableVariants =
-        std::variant<std::monostate,
-                     vectorized::MethodSerialized<HashMap<StringRef, RowRefListWithFlags>>,
+        std::variant<std::monostate, vectorized::SetSerializedHashTableContext,
+                     vectorized::SetMethodOneString,
                      vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt8>,
                      vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt16>,
                      vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt32>,
@@ -728,6 +728,12 @@ public:
             case TYPE_DATETIMEV2:
                 hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt64>>();
                 break;
+            case TYPE_CHAR:
+            case TYPE_VARCHAR:
+            case TYPE_STRING: {
+                hash_table_variants->emplace<vectorized::SetMethodOneString>();
+                break;
+            }
             case TYPE_LARGEINT:
             case TYPE_DECIMALV2:
             case TYPE_DECIMAL128I:

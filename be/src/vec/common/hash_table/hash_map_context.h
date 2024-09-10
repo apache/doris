@@ -625,5 +625,6 @@ using SetPrimaryTypeHashTableContext =
 
 using SetSerializedHashTableContext =
         MethodSerialized<HashMap<StringRef, pipeline::RowRefListWithFlags>>;
+using SetMethodOneString = MethodStringNoCache<HashMap<StringRef, pipeline::RowRefListWithFlags>>;
 
 } // namespace doris::vectorized
