@@ -485,6 +485,13 @@ public class NereidsPlanner extends Planner {
     public String getExplainString(ExplainOptions explainOptions) {
         ExplainLevel explainLevel = getExplainLevel(explainOptions);
         String plan = "";
+        String mvSummary = "";
+        if (this.getPhysicalPlan() != null && cascadesContext != null) {
+            mvSummary = cascadesContext.getMaterializationContexts().isEmpty() ? "" :
+                    "\n\n========== MATERIALIZATIONS ==========\n"
+                            + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
+                            this.getPhysicalPlan());
+        }
         switch (explainLevel) {
             case PARSED_PLAN:
                 plan = parsedPlan.treeString();
@@ -496,22 +503,16 @@ public class NereidsPlanner extends Planner {
                 plan = rewrittenPlan.treeString();
                 break;
             case OPTIMIZED_PLAN:
-                plan = "cost = " + cost + "\n" + optimizedPlan.treeString();
+                plan = "cost = " + cost + "\n" + optimizedPlan.treeString() + mvSummary;
                 break;
             case SHAPE_PLAN:
                 plan = optimizedPlan.shape("");
                 break;
             case MEMO_PLAN:
-                StringBuilder materializationStringBuilder = new StringBuilder();
-                materializationStringBuilder.append("materializationContexts:").append("\n");
-                for (MaterializationContext ctx : cascadesContext.getMaterializationContexts()) {
-                    materializationStringBuilder.append("\n").append(ctx).append("\n");
-                }
                 plan = cascadesContext.getMemo().toString()
                         + "\n\n========== OPTIMIZED PLAN ==========\n"
                         + optimizedPlan.treeString()
-                        + "\n\n========== MATERIALIZATIONS ==========\n"
-                        + materializationStringBuilder;
+                        + mvSummary;
                 break;
             case ALL_PLAN:
                 plan = "========== PARSED PLAN "
@@ -525,18 +526,20 @@ public class NereidsPlanner extends Planner {
                         + rewrittenPlan.treeString() + "\n\n"
                         + "========== OPTIMIZED PLAN "
                         + getTimeMetricString(SummaryProfile::getPrettyNereidsOptimizeTime) + " ==========\n"
-                        + optimizedPlan.treeString();
+                        + optimizedPlan.treeString() + "\n\n";
+                plan += mvSummary;
                 break;
             default:
-                plan = super.getExplainString(explainOptions)
-                        + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
-                        this.getPhysicalPlan());
+                plan = super.getExplainString(explainOptions);
+                plan += mvSummary;
+                plan += "\n\n\n========== STATISTICS ==========\n";
                 if (statementContext != null) {
                     if (statementContext.isHasUnknownColStats()) {
-                        plan += "\n\nStatistics\n planed with unknown column statistics\n";
+                        plan += "planed with unknown column statistics\n";
                     }
                 }
         }
+
         if (statementContext != null) {
             if (!statementContext.getHints().isEmpty()) {
                 String hint = getHintExplainString(statementContext.getHints());
