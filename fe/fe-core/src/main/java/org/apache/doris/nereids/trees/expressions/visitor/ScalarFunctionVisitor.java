@@ -232,7 +232,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Compat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Mapped;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNaN;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
@@ -317,7 +317,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatchAny
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiSearchAllPositions;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash332;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.NaN;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NgramSearch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NotNullOrEmpty;
@@ -1343,7 +1343,7 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(ipv6CIDRToRange, context);
     }
 
-    default R visitIsNaN(IsNaN isNan, C context) {
+    default R visitIsNan(IsNan isNan, C context) {
         return visitScalarFunction(isNan, context);
     }
 
@@ -1635,7 +1635,7 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(xxHash64, context);
     }
 
-    default R visitNan(NaN nan, C context) {
+    default R visitNan(Nan nan, C context) {
         return visitScalarFunction(nan, context);
     }
 
