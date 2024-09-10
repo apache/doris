@@ -126,6 +126,7 @@ public class PointQueryExecutor implements CoordInterface {
                 partitions.add((CloudPartition) table.getPartition(id));
             }
         }
+        snapshotVisibleVersions = (snapshotVisibleVersions == null) ? Maps.newHashMap() : snapshotVisibleVersions;
         List<Long> versionList = CloudPartition.getSnapshotVisibleVersion(partitions);
         for (int i = 0; i < versionList.size(); ++i) {
             snapshotVisibleVersions.put(partitions.get(i).getTableId(), versionList.get(i));
