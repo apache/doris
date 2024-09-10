@@ -89,7 +89,7 @@ public class PointQueryExecutor implements CoordInterface {
 
     // used for snapshot read in cloud mode
     // Key: cloud partition id, Value: snapshot visible version
-    private HashMap<Long, Long> snapshotVisibleVersions;
+    private HashMap<CloudPartition, Long> snapshotVisibleVersions;
 
     private final ShortCircuitQueryContext shortCircuitQueryContext;
 
@@ -129,7 +129,7 @@ public class PointQueryExecutor implements CoordInterface {
         snapshotVisibleVersions = (snapshotVisibleVersions == null) ? Maps.newHashMap() : snapshotVisibleVersions;
         List<Long> versionList = CloudPartition.getSnapshotVisibleVersion(partitions);
         for (int i = 0; i < versionList.size(); ++i) {
-            snapshotVisibleVersions.put(partitions.get(i).getTableId(), versionList.get(i));
+            snapshotVisibleVersions.put(partitions.get(i), versionList.get(i));
         }
 
         LOG.debug("set cloud version {}", snapshotVisibleVersions);
@@ -576,12 +576,16 @@ public class PointQueryExecutor implements CoordInterface {
 
                     // TODO: optimize me
                     if (snapshotVisibleVersions != null && !snapshotVisibleVersions.isEmpty()) {
-                        for (Map.Entry<Long, Long> entry : snapshotVisibleVersions.entrySet()) {
-                            if (entry.getKey() == tabletId) {
-                                requestBuilder.setVersion(entry.getValue());
+                        Long versionToSet = -1L;
+                        for (Map.Entry<CloudPartition, Long> entry : snapshotVisibleVersions.entrySet()) {
+                            MaterializedIndex selectedTable =
+                                    entry.getKey().getIndex(shortCircuitQueryContext.scanNode.getSelectedIndexId());
+                            if (selectedTable.getTabletIdsInOrder().contains(tabletId)) {
+                                versionToSet = entry.getValue();
                                 break;
                             }
                         }
+                        requestBuilder.setVersion(versionToSet);
                     }
                     if (shortCircuitQueryContext.cacheID != null) {
                         InternalService.UUID.Builder uuidBuilder = InternalService.UUID.newBuilder();
