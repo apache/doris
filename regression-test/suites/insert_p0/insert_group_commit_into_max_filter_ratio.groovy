@@ -41,19 +41,6 @@ suite("insert_group_commit_into_max_filter_ratio") {
         }
     }
 
-    def normal_insert = { sql, expected_row_count ->
-        def stmt = prepareStatement """ ${sql}  """
-        def result = stmt.executeUpdate()
-        logger.info("insert result: " + result)
-        def serverInfo = (((StatementImpl) stmt).results).getServerInfo()
-        logger.info("result server info: " + serverInfo)
-        if (result != expected_row_count) {
-            logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
-        }
-        assertTrue(serverInfo.contains("'status':'VISIBLE'"))
-            assertTrue(serverInfo.contains("'label':'label"))
-    }
-
     def group_commit_insert = { sql, expected_row_count ->
         def stmt = prepareStatement """ ${sql}  """
         def result = stmt.executeUpdate()
@@ -172,7 +159,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "group_commit_interval_ms" = "1000"
+            "group_commit_interval_ms" = "200"
         );
     """
 
