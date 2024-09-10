@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_index_match_phrase_slop", "p0"){
+suite("test_index_match_phrase_slop", "nonConcurrent"){
     def indexTbName1 = "test_index_match_phrase_slop"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
@@ -82,6 +82,8 @@ suite("test_index_match_phrase_slop", "p0"){
         sql """ INSERT INTO ${indexTbName1} VALUES (1, "127.0.0.1", "I'm glad I kept my fingers crossed ~4", 1, 1); """
 
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true; """
+        GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
 
         qt_sql """ select count() from ${indexTbName1} where request match_phrase 'get jpg'; """
         qt_sql """ select count() from ${indexTbName1} where request match_phrase 'get jpg  ~2'; """
@@ -117,6 +119,6 @@ suite("test_index_match_phrase_slop", "p0"){
         qt_sql """ select * from ${indexTbName1} where request match_phrase 'glad crossed \\~4'; """
 
     } finally {
-        //try_sql("DROP TABLE IF EXISTS ${testTable}")
+        GetDebugPoint().disableDebugPointForAllBEs("VMatchPredicate.execute")
     }
 }

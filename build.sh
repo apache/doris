@@ -271,6 +271,12 @@ else
     fi
 fi
 
+ARCH="$(uname -m)"
+if [[ "${ARCH}" == "aarch64" ]]; then
+    echo "WARNING: Cloud module is not supported on ARM platform, will skip building it."
+    BUILD_CLOUD=0
+fi
+
 if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
@@ -749,7 +755,8 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
     install -d "${DORIS_OUTPUT}/be/bin" \
         "${DORIS_OUTPUT}/be/conf" \
         "${DORIS_OUTPUT}/be/lib" \
-        "${DORIS_OUTPUT}/be/www"
+        "${DORIS_OUTPUT}/be/www" \
+        "${DORIS_OUTPUT}/be/tools/FlameGraph"
 
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
@@ -795,6 +802,7 @@ EOF
     fi
 
     cp -r -p "${DORIS_HOME}/webroot/be"/* "${DORIS_OUTPUT}/be/www"/
+    cp -r -p "${DORIS_HOME}/tools/FlameGraph"/* "${DORIS_OUTPUT}/be/tools/FlameGraph"/
     if [[ "${STRIP_DEBUG_INFO}" = "ON" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/debug_info" "${DORIS_OUTPUT}/be/lib"/
     fi

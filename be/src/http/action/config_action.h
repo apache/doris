@@ -18,8 +18,10 @@
 #pragma once
 
 #include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
+class HttpRequest;
 class HttpRequest;
 
 enum ConfigActionType {
@@ -28,16 +30,17 @@ enum ConfigActionType {
 };
 
 // Update BE config.
-class ConfigAction : public HttpHandler {
+class ConfigAction : public HttpHandlerWithAuth {
 public:
-    ConfigAction(ConfigActionType type) : _type(type) {}
+    ConfigAction(ConfigActionType config_type, ExecEnv* exec_env)
+            : HttpHandlerWithAuth(exec_env), _config_type(config_type) {}
 
     virtual ~ConfigAction() {}
 
     void handle(HttpRequest* req) override;
 
 private:
-    ConfigActionType _type;
+    ConfigActionType _config_type;
 
     void handle_update_config(HttpRequest* req);
 

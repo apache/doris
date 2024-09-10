@@ -362,7 +362,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                 sql """
                         CREATE TABLE schema_check ENGINE=hive ;
                     """
-                exception "AnalysisException, msg: Should contain at least one column in a table"
+                exception "Should contain at least one column in a table"
             }
             sql """ DROP DATABASE IF EXISTS `test_hive_loc` """
         }
@@ -682,6 +682,24 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             sql """ drop database if exists `test_hive_db_tbl` """;
         }
 
+        def test_error_create = { String catalog_name ->
+            sql """switch `${catalog_name}`"""
+            sql """ drop database if exists test_hive_db_error_tbl """
+            sql """ create database `test_hive_db_error_tbl` """;
+
+            test {
+                sql """ create table err_tb (id int) engine = iceberg """
+                exception "java.sql.SQLException: errCode = 2, detailMessage = Hms type catalog can only use `hive` engine."
+            }
+
+            test {
+                sql """ create table err_tb (id int) engine = jdbc """
+                exception "java.sql.SQLException: errCode = 2, detailMessage = Hms type catalog can only use `hive` engine."
+            }
+
+            sql """ drop database test_hive_db_error_tbl """
+        }
+
 
         try {
             String hms_port = context.config.otherConfigs.get("hive2HmsPort")
@@ -717,6 +735,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                 }
                 test_create_tbl_cross_catalog(file_format, catalog_name)
             }
+            test_error_create(catalog_name)
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
         }

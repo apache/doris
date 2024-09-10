@@ -143,6 +143,8 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheHit", TUnit::UNIT);
     _inverted_index_searcher_cache_miss_counter =
             ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheMiss", TUnit::UNIT);
+    _inverted_index_downgrade_count_counter =
+            ADD_COUNTER(_segment_profile, "InvertedIndexDowngradeCount", TUnit::UNIT);
 
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTimer");
 
@@ -332,7 +334,6 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         for (auto& scanner : *scanners) {
             auto* olap_scanner = assert_cast<vectorized::NewOlapScanner*>(scanner.get());
             RETURN_IF_ERROR(olap_scanner->prepare(state(), _conjuncts));
-            olap_scanner->set_compound_filters(_compound_filters);
         }
         return Status::OK();
     }
@@ -354,7 +355,6 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                               p._olap_scan_node.is_preaggregation,
                       });
         RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
-        scanner->set_compound_filters(_compound_filters);
         scanners->push_back(std::move(scanner));
         return Status::OK();
     };
@@ -513,22 +513,6 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
 
             for (const auto& filter : filters) {
                 _olap_filters.push_back(filter);
-            }
-        }
-
-        for (auto& iter : _compound_value_ranges) {
-            std::vector<TCondition> filters;
-            std::visit(
-                    [&](auto&& range) {
-                        if (range.is_in_compound_value_range()) {
-                            range.to_condition_in_compound(filters);
-                        } else if (range.is_match_value_range()) {
-                            range.to_match_condition(filters);
-                        }
-                    },
-                    iter);
-            for (const auto& filter : filters) {
-                _compound_filters.push_back(filter);
             }
         }
 

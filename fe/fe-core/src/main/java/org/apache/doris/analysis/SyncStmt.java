@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.UserException;
 
-public class SyncStmt extends DdlStmt {
+public class SyncStmt extends DdlStmt implements NotFallbackInParser {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
 

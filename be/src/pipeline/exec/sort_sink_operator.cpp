@@ -100,17 +100,15 @@ Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 
     auto* query_ctx = state->get_query_ctx();
     // init runtime predicate
-    if (query_ctx->has_runtime_predicate(_node_id)) {
+    if (query_ctx->has_runtime_predicate(_node_id) && _algorithm == TSortAlgorithm::HEAP_SORT) {
         query_ctx->get_runtime_predicate(_node_id).set_detected_source();
     }
     return Status::OK();
 }
 
-Status SortSinkOperatorX::prepare(RuntimeState* state) {
-    return _vsort_exec_exprs.prepare(state, _child_x->row_desc(), _row_descriptor);
-}
-
 Status SortSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<SortSinkLocalState>::open(state));
+    RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child_x->row_desc(), _row_descriptor));
     return _vsort_exec_exprs.open(state);
 }
 

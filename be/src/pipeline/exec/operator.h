@@ -54,13 +54,10 @@ class OperatorBase;
 class OperatorXBase;
 class DataSinkOperatorXBase;
 
-using OperatorPtr = std::shared_ptr<OperatorBase>;
+using OperatorPtr = std::shared_ptr<OperatorXBase>;
 using Operators = std::vector<OperatorPtr>;
 
-using OperatorXPtr = std::shared_ptr<OperatorXBase>;
-using OperatorXs = std::vector<OperatorXPtr>;
-
-using DataSinkOperatorXPtr = std::shared_ptr<DataSinkOperatorXBase>;
+using DataSinkOperatorPtr = std::shared_ptr<DataSinkOperatorXBase>;
 
 // This struct is used only for initializing local state.
 struct LocalStateInfo {
@@ -96,13 +93,11 @@ public:
 
     [[nodiscard]] virtual Status init(const TDataSink& tsink) { return Status::OK(); }
 
-    // Prepare for running. (e.g. resource allocation, etc.)
-    [[nodiscard]] virtual Status prepare(RuntimeState* state) = 0;
     [[nodiscard]] virtual std::string get_name() const = 0;
     [[nodiscard]] virtual Status open(RuntimeState* state) = 0;
     [[nodiscard]] virtual Status close(RuntimeState* state);
 
-    [[nodiscard]] virtual Status set_child(OperatorXPtr child) {
+    [[nodiscard]] virtual Status set_child(OperatorPtr child) {
         _child_x = std::move(child);
         return Status::OK();
     }
@@ -113,12 +108,18 @@ public:
 
     virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); }
     [[nodiscard]] virtual bool require_data_distribution() const { return false; }
-    OperatorXPtr child_x() { return _child_x; }
+    OperatorPtr child_x() { return _child_x; }
+    [[nodiscard]] bool followed_by_shuffled_join() const { return _followed_by_shuffled_join; }
+    void set_followed_by_shuffled_join(bool followed_by_shuffled_join) {
+        _followed_by_shuffled_join = followed_by_shuffled_join;
+    }
+    [[nodiscard]] virtual bool require_shuffled_data_distribution() const { return false; }
 
 protected:
-    OperatorXPtr _child_x = nullptr;
+    OperatorPtr _child_x = nullptr;
 
     bool _is_closed;
+    bool _followed_by_shuffled_join = false;
 };
 
 class PipelineXLocalStateBase {
@@ -444,7 +445,6 @@ public:
         return Status::InternalError("init() is only implemented in local exchange!");
     }
 
-    Status prepare(RuntimeState* state) override { return Status::OK(); }
     Status open(RuntimeState* state) override { return Status::OK(); }
     [[nodiscard]] bool is_finished(RuntimeState* state) const {
         auto result = state->get_sink_local_state_result();
@@ -658,8 +658,6 @@ public:
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
     void set_ignore_data_distribution() { _ignore_data_distribution = true; }
 
-    Status prepare(RuntimeState* state) override;
-
     Status open(RuntimeState* state) override;
 
     [[nodiscard]] virtual Status get_block(RuntimeState* state, vectorized::Block* block,
@@ -710,7 +708,7 @@ public:
         return reinterpret_cast<const TARGET&>(*this);
     }
 
-    [[nodiscard]] OperatorXPtr get_child() { return _child_x; }
+    [[nodiscard]] OperatorPtr get_child() { return _child_x; }
 
     [[nodiscard]] vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
     [[nodiscard]] virtual RowDescriptor& row_descriptor() { return _row_descriptor; }
@@ -754,16 +752,18 @@ protected:
     ObjectPool* _pool = nullptr;
     std::vector<TupleId> _tuple_ids;
 
+private:
+    // The expr of operator set to private permissions, as cannot be executed concurrently,
+    // should use local state's expr.
     vectorized::VExprContextSPtrs _conjuncts;
-
-    RowDescriptor _row_descriptor;
-
-    std::unique_ptr<RowDescriptor> _output_row_descriptor = nullptr;
     vectorized::VExprContextSPtrs _projections;
-
-    std::vector<RowDescriptor> _intermediate_output_row_descriptor;
     // Used in common subexpression elimination to compute intermediate results.
     std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
+
+protected:
+    RowDescriptor _row_descriptor;
+    std::unique_ptr<RowDescriptor> _output_row_descriptor = nullptr;
+    std::vector<RowDescriptor> _intermediate_output_row_descriptor;
 
     /// Resource information sent from the frontend.
     const TBackendResourceProfile _resource_profile;

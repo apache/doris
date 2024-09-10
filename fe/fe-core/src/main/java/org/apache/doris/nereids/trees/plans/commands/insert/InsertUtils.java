@@ -282,7 +282,7 @@ public class InsertUtils {
                         if (unboundLogicalSink.getColNames().isEmpty()) {
                             ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
                         } else {
-                            boolean hasMissingColExceptAutoInc = false;
+                            boolean hasMissingColExceptAutoIncKey = false;
                             for (Column col : olapTable.getFullSchema()) {
                                 Optional<String> insertCol = unboundLogicalSink.getColNames().stream()
                                         .filter(c -> c.equalsIgnoreCase(col.getName())).findFirst();
@@ -296,11 +296,11 @@ public class InsertUtils {
                                             + " all ordinary columns referenced"
                                             + " by generated columns, missing: " + col.getName());
                                 }
-                                if (!col.isAutoInc() && !insertCol.isPresent() && col.isVisible()) {
-                                    hasMissingColExceptAutoInc = true;
+                                if (!(col.isAutoInc() && col.isKey()) && !insertCol.isPresent() && col.isVisible()) {
+                                    hasMissingColExceptAutoIncKey = true;
                                 }
                             }
-                            if (!hasMissingColExceptAutoInc) {
+                            if (!hasMissingColExceptAutoIncKey) {
                                 ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
                             }
                         }
@@ -427,7 +427,7 @@ public class InsertUtils {
                 return new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())), column.getName());
             }
             if (column.getDefaultValue() == null) {
-                if (!column.isAllowNull()) {
+                if (!column.isAllowNull() && !column.isAutoInc()) {
                     throw new AnalysisException("Column has no default value, column=" + column.getName());
                 }
             }
@@ -452,14 +452,6 @@ public class InsertUtils {
      * get plan for explain.
      */
     public static Plan getPlanForExplain(ConnectContext ctx, LogicalPlan logicalQuery) {
-        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
-            try {
-                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            } catch (Exception e) {
-                throw new AnalysisException("failed to set fallback to original planner to true", e);
-            }
-            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
-        }
         return InsertUtils.normalizePlan(logicalQuery, InsertUtils.getTargetTable(logicalQuery, ctx), Optional.empty());
     }
 

@@ -18,7 +18,7 @@ under the License.
 =end
 Gem::Specification.new do |s|
   s.name            = 'logstash-output-doris'
-  s.version         = '1.0.0'
+  s.version         = '1.0.1'
   s.author          = 'Apache Doris'
   s.email           = 'dev@doris.apache.org'
   s.homepage        = 'http://doris.apache.org'

@@ -19,11 +19,16 @@ package org.apache.doris.nereids.trees.expressions.functions.table;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
+import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.tablefunction.HttpStreamTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.Map;
 
@@ -47,6 +52,12 @@ public class HttpStream extends TableValuedFunction {
             throw new AnalysisException("Can not build HttpStreamTableValuedFunction by "
                 + this + ": " + t.getMessage(), t);
         }
+    }
+
+    @Override
+    public PhysicalProperties getPhysicalProperties() {
+        return PhysicalProperties.createHash(new DistributionSpecHash(ImmutableList.of(),
+                ShuffleType.EXECUTION_BUCKETED));
     }
 
     @Override

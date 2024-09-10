@@ -451,7 +451,10 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
         int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
         tablet->last_sync_time_s = now;
 
-        if (tablet->enable_unique_key_merge_on_write()) {
+        // If is mow, the tablet has no delete bitmap in base rowsets.
+        // So dont need to sync it.
+        if (tablet->enable_unique_key_merge_on_write() &&
+            tablet->tablet_state() == TABLET_RUNNING) {
             DeleteBitmap delete_bitmap(tablet_id);
             int64_t old_max_version = req.start_version() - 1;
             auto st = sync_tablet_delete_bitmap(tablet, old_max_version, resp.rowset_meta(),
@@ -712,7 +715,10 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
                                     RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "prepare rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
-
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::prepare_rowset", ret_st);
+    }
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -738,6 +744,10 @@ Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
                                    RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::commit_rowset", ret_st);
+    }
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -838,12 +848,17 @@ static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
 Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
     VLOG_DEBUG << "commit txn, db_id: " << ctx.db_id << ", txn_id: " << ctx.txn_id
                << ", label: " << ctx.label << ", is_2pc: " << is_2pc;
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::commit_txn", ret_st);
+    }
     CommitTxnRequest req;
     CommitTxnResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_db_id(ctx.db_id);
     req.set_txn_id(ctx.txn_id);
     req.set_is_2pc(is_2pc);
+    req.set_enable_txn_lazy_commit(config::enable_cloud_txn_lazy_commit);
     auto st = retry_rpc("commit txn", req, &res, &MetaService_Stub::commit_txn);
 
     if (st.ok()) {
@@ -856,6 +871,10 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
 Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
     VLOG_DEBUG << "abort txn, db_id: " << ctx.db_id << ", txn_id: " << ctx.txn_id
                << ", label: " << ctx.label;
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::abort_txn", ret_st);
+    }
     AbortTxnRequest req;
     AbortTxnResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -875,6 +894,10 @@ Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
 Status CloudMetaMgr::precommit_txn(const StreamLoadContext& ctx) {
     VLOG_DEBUG << "precommit txn, db_id: " << ctx.db_id << ", txn_id: " << ctx.txn_id
                << ", label: " << ctx.label;
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::precommit_txn", ret_st);
+    }
     PrecommitTxnRequest req;
     PrecommitTxnResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -883,7 +906,7 @@ Status CloudMetaMgr::precommit_txn(const StreamLoadContext& ctx) {
     return retry_rpc("precommit txn", req, &res, &MetaService_Stub::precommit_txn);
 }
 
-Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
+Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool* is_vault_mode) {
     GetObjStoreInfoRequest req;
     GetObjStoreInfoResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -892,6 +915,8 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
     if (!s.ok()) {
         return s;
     }
+
+    *is_vault_mode = resp.enable_storage_vault();
 
     auto add_obj_store = [&vault_infos](const auto& obj_store) {
         vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store),
@@ -908,6 +933,7 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
         }
     });
 
+    // desensitization, hide secret
     for (int i = 0; i < resp.obj_info_size(); ++i) {
         resp.mutable_obj_info(i)->set_sk(resp.obj_info(i).sk().substr(0, 2) + "xxx");
     }
@@ -917,7 +943,8 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
         j->mutable_obj_info()->set_sk(j->obj_info().sk().substr(0, 2) + "xxx");
     }
 
-    LOG(INFO) << "get storage vault response: " << resp.ShortDebugString();
+    LOG(INFO) << "get storage vault, enable_storage_vault=" << is_vault_mode
+              << " response=" << resp.ShortDebugString();
     return Status::OK();
 }
 

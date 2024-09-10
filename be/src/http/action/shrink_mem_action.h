@@ -18,12 +18,13 @@
 #pragma once
 
 #include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 class ExecEnv;
-class ShrinkMemAction : public HttpHandler {
+class ShrinkMemAction : public HttpHandlerWithAuth {
 public:
-    explicit ShrinkMemAction() {}
+    explicit ShrinkMemAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
 
     virtual ~ShrinkMemAction() {}
 

@@ -24,10 +24,12 @@
 #include "olap/calc_delete_bitmap_executor.h"
 #include "olap/delete_bitmap_calculator.h"
 #include "olap/memtable.h"
+#include "olap/partial_update_info.h"
 #include "olap/primary_key_index.h"
 #include "olap/rowid_conversion.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/tablet_fwd.h"
 #include "olap/txn_manager.h"
@@ -55,55 +57,6 @@ bvar::PerSecond<bvar::Adder<uint64_t>> g_tablet_pk_not_found_per_second(
 bvar::LatencyRecorder g_tablet_update_delete_bitmap_latency("doris_pk", "update_delete_bitmap");
 
 static bvar::Adder<size_t> g_total_tablet_num("doris_total_tablet_num");
-
-// read columns by read plan
-// read_index: ori_pos-> block_idx
-Status read_columns_by_plan(TabletSchemaSPtr tablet_schema,
-                            const std::vector<uint32_t> cids_to_read,
-                            const PartialUpdateReadPlan& read_plan,
-                            const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-                            vectorized::Block& block, std::map<uint32_t, uint32_t>* read_index,
-                            const signed char* __restrict skip_map = nullptr) {
-    bool has_row_column = tablet_schema->has_row_store_for_all_columns();
-    auto mutable_columns = block.mutate_columns();
-    size_t read_idx = 0;
-    for (auto rs_it : read_plan) {
-        for (auto seg_it : rs_it.second) {
-            auto rowset_iter = rsid_to_rowset.find(rs_it.first);
-            CHECK(rowset_iter != rsid_to_rowset.end());
-            std::vector<uint32_t> rids;
-            for (auto [rid, pos] : seg_it.second) {
-                if (skip_map && skip_map[pos]) {
-                    continue;
-                }
-                rids.emplace_back(rid);
-                (*read_index)[pos] = read_idx++;
-            }
-            if (has_row_column) {
-                auto st = BaseTablet::fetch_value_through_row_column(rowset_iter->second,
-                                                                     *tablet_schema, seg_it.first,
-                                                                     rids, cids_to_read, block);
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to fetch value through row column";
-                    return st;
-                }
-                continue;
-            }
-            for (size_t cid = 0; cid < mutable_columns.size(); ++cid) {
-                TabletColumn tablet_column = tablet_schema->column(cids_to_read[cid]);
-                auto st = BaseTablet::fetch_value_by_rowids(rowset_iter->second, seg_it.first, rids,
-                                                            tablet_column, mutable_columns[cid]);
-                // set read value to output block
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to fetch value";
-                    return st;
-                }
-            }
-        }
-    }
-    block.set_columns(std::move(mutable_columns));
-    return Status::OK();
-}
 
 Status _get_segment_column_iterator(const BetaRowsetSharedPtr& rowset, uint32_t segid,
                                     const TabletColumn& target_column,
@@ -228,6 +181,14 @@ Status BaseTablet::update_by_least_common_schema(const TabletSchemaSPtr& update_
     _max_version_schema = final_schema;
     VLOG_DEBUG << "dump updated tablet schema: " << final_schema->dump_structure();
     return Status::OK();
+}
+
+uint32_t BaseTablet::get_real_compaction_score() const {
+    const auto& rs_metas = _tablet_meta->all_rs_metas();
+    return std::accumulate(rs_metas.begin(), rs_metas.end(), 0,
+                           [](uint32_t score, const RowsetMetaSharedPtr& rs_meta) {
+                               return score + rs_meta->get_compaction_score();
+                           });
 }
 
 Status BaseTablet::capture_rs_readers_unlocked(const Versions& version_path,
@@ -475,21 +436,22 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
     return Status::OK();
 }
 
-Status BaseTablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
+Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest_schema,
+                                  bool with_seq_col,
                                   const std::vector<RowsetSharedPtr>& specified_rowsets,
                                   RowLocation* row_location, uint32_t version,
                                   std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                                   RowsetSharedPtr* rowset, bool with_rowid) {
     SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
-    if (_tablet_meta->tablet_schema()->has_sequence_col() && with_seq_col) {
-        seq_col_length = _tablet_meta->tablet_schema()
-                                 ->column(_tablet_meta->tablet_schema()->sequence_col_idx())
-                                 .length() +
-                         1;
+    // use the latest tablet schema to decide if the tablet has sequence column currently
+    const TabletSchema* schema =
+            (latest_schema == nullptr ? _tablet_meta->tablet_schema().get() : latest_schema);
+    if (schema->has_sequence_col() && with_seq_col) {
+        seq_col_length = schema->column(schema->sequence_col_idx()).length() + 1;
     }
     size_t rowid_length = 0;
-    if (with_rowid && !_tablet_meta->tablet_schema()->cluster_key_idxes().empty()) {
+    if (with_rowid && !schema->cluster_key_idxes().empty()) {
         rowid_length = PrimaryKeyIndexReader::ROW_ID_LENGTH;
     }
     Slice key_without_seq =
@@ -505,7 +467,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
         for (int i = num_segments - 1; i >= 0; i--) {
             // If mow table has cluster keys, the key bounds is short keys, not primary keys
             // use PrimaryKeyIndexMetaPB in primary key index?
-            if (_tablet_meta->tablet_schema()->cluster_key_idxes().empty()) {
+            if (schema->cluster_key_idxes().empty()) {
                 if (key_without_seq.compare(segments_key_bounds[i].max_key()) > 0 ||
                     key_without_seq.compare(segments_key_bounds[i].min_key()) < 0) {
                     continue;
@@ -526,7 +488,8 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
         DCHECK_EQ(segments.size(), num_segments);
 
         for (auto id : picked_segments) {
-            Status s = segments[id]->lookup_row_key(encoded_key, with_seq_col, with_rowid, &loc);
+            Status s = segments[id]->lookup_row_key(encoded_key, schema, with_seq_col, with_rowid,
+                                                    &loc);
             if (s.is<KEY_NOT_FOUND>()) {
                 continue;
             }
@@ -537,7 +500,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
                                   {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
                 // if has sequence col, we continue to compare the sequence_id of
                 // all rowsets, util we find an existing key.
-                if (_tablet_meta->tablet_schema()->has_sequence_col()) {
+                if (schema->has_sequence_col()) {
                     continue;
                 }
                 // The key is deleted, we don't need to search for it any more.
@@ -557,27 +520,6 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
     }
     g_tablet_pk_not_found << 1;
     return Status::Error<ErrorCode::KEY_NOT_FOUND>("can't find key in all rowsets");
-}
-
-void BaseTablet::prepare_to_read(const RowLocation& row_location, size_t pos,
-                                 PartialUpdateReadPlan* read_plan) {
-    auto rs_it = read_plan->find(row_location.rowset_id);
-    if (rs_it == read_plan->end()) {
-        std::map<uint32_t, std::vector<RidAndPos>> segid_to_rid;
-        std::vector<RidAndPos> rid_pos;
-        rid_pos.emplace_back(RidAndPos {row_location.row_id, pos});
-        segid_to_rid.emplace(row_location.segment_id, rid_pos);
-        read_plan->emplace(row_location.rowset_id, segid_to_rid);
-        return;
-    }
-    auto seg_it = rs_it->second.find(row_location.segment_id);
-    if (seg_it == rs_it->second.end()) {
-        std::vector<RidAndPos> rid_pos;
-        rid_pos.emplace_back(RidAndPos {row_location.row_id, pos});
-        rs_it->second.emplace(row_location.segment_id, rid_pos);
-        return;
-    }
-    seg_it->second.emplace_back(RidAndPos {row_location.row_id, pos});
 }
 
 // if user pass a token, then all calculation works will submit to a threadpool,
@@ -718,8 +660,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             }
 
             RowsetSharedPtr rowset_find;
-            auto st = lookup_row_key(key, true, specified_rowsets, &loc, dummy_version.first - 1,
-                                     segment_caches, &rowset_find);
+            auto st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
+                                     dummy_version.first - 1, segment_caches, &rowset_find);
             bool expected_st = st.ok() || st.is<KEY_NOT_FOUND>() || st.is<KEY_ALREADY_EXISTS>();
             // It's a defensive DCHECK, we need to exclude some common errors to avoid core-dump
             // while stress test
@@ -758,8 +700,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 // So here we should read version 5's columns and build a new row, which is
                 // consists of version 6's update columns and version 5's origin columns
                 // here we build 2 read plan for ori values and update values
-                prepare_to_read(loc, pos, &read_plan_ori);
-                prepare_to_read(RowLocation {rowset_id, seg->id(), row_id}, pos, &read_plan_update);
+                read_plan_ori.prepare_to_read(loc, pos);
+                read_plan_update.prepare_to_read(RowLocation {rowset_id, seg->id(), row_id}, pos);
                 rsid_to_rowset[rowset_find->rowset_id()] = rowset_find;
                 ++pos;
                 // delete bitmap will be calculate when memtable flush and
@@ -930,6 +872,40 @@ Status BaseTablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t 
     return Status::OK();
 }
 
+const signed char* BaseTablet::get_delete_sign_column_data(vectorized::Block& block,
+                                                           size_t rows_at_least) {
+    if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
+                block.try_get_by_name(DELETE_SIGN);
+        delete_sign_column != nullptr) {
+        const auto& delete_sign_col =
+                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
+        if (delete_sign_col.size() >= rows_at_least) {
+            return delete_sign_col.get_data().data();
+        }
+    }
+    return nullptr;
+};
+
+Status BaseTablet::generate_default_value_block(const TabletSchema& schema,
+                                                const std::vector<uint32_t>& cids,
+                                                const std::vector<std::string>& default_values,
+                                                const vectorized::Block& ref_block,
+                                                vectorized::Block& default_value_block) {
+    auto mutable_default_value_columns = default_value_block.mutate_columns();
+    for (auto i = 0; i < cids.size(); ++i) {
+        const auto& column = schema.column(cids[i]);
+        if (column.has_default_value()) {
+            const auto& default_value = default_values[i];
+            vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
+                                      default_value.size());
+            RETURN_IF_ERROR(ref_block.get_by_position(i).type->from_string(
+                    rb, mutable_default_value_columns[i].get()));
+        }
+    }
+    default_value_block.set_columns(std::move(mutable_default_value_columns));
+    return Status::OK();
+}
+
 Status BaseTablet::generate_new_block_for_partial_update(
         TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
         const PartialUpdateReadPlan& read_plan_ori, const PartialUpdateReadPlan& read_plan_update,
@@ -947,27 +923,13 @@ Status BaseTablet::generate_new_block_for_partial_update(
     auto old_block = rowset_schema->create_block_by_cids(missing_cids);
     auto update_block = rowset_schema->create_block_by_cids(update_cids);
 
-    auto get_delete_sign_column_data = [](vectorized::Block& block,
-                                          size_t rows) -> const signed char* {
-        if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
-                    block.try_get_by_name(DELETE_SIGN);
-            delete_sign_column != nullptr) {
-            const auto& delete_sign_col =
-                    reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
-            if (delete_sign_col.size() >= rows) {
-                return delete_sign_col.get_data().data();
-            }
-        }
-        return nullptr;
-    };
-
     // rowid in the final block(start from 0, increase continuously) -> rowid to read in update_block
     std::map<uint32_t, uint32_t> read_index_update;
 
     // read current rowset first, if a row in the current rowset has delete sign mark
     // we don't need to read values from old block
-    RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, update_cids, read_plan_update,
-                                         rsid_to_rowset, update_block, &read_index_update));
+    RETURN_IF_ERROR(read_plan_update.read_columns_by_plan(
+            *rowset_schema, update_cids, rsid_to_rowset, update_block, &read_index_update));
     size_t update_rows = read_index_update.size();
     for (auto i = 0; i < update_cids.size(); ++i) {
         for (auto idx = 0; idx < update_rows; ++idx) {
@@ -986,27 +948,21 @@ Status BaseTablet::generate_new_block_for_partial_update(
 
     // rowid in the final block(start from 0, increase, may not continuous becasue we skip to read some rows) -> rowid to read in old_block
     std::map<uint32_t, uint32_t> read_index_old;
-    RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, missing_cids, read_plan_ori, rsid_to_rowset,
-                                         old_block, &read_index_old, new_block_delete_signs));
+    RETURN_IF_ERROR(read_plan_ori.read_columns_by_plan(*rowset_schema, missing_cids, rsid_to_rowset,
+                                                       old_block, &read_index_old,
+                                                       new_block_delete_signs));
     size_t old_rows = read_index_old.size();
     const auto* __restrict old_block_delete_signs =
             get_delete_sign_column_data(old_block, old_rows);
 
     // build default value block
     auto default_value_block = old_block.clone_empty();
-    auto mutable_default_value_columns = default_value_block.mutate_columns();
     if (old_block_delete_signs != nullptr || new_block_delete_signs != nullptr) {
-        for (auto i = 0; i < missing_cids.size(); ++i) {
-            const auto& column = rowset_schema->column(missing_cids[i]);
-            if (column.has_default_value()) {
-                const auto& default_value = partial_update_info->default_values[i];
-                vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
-                                          default_value.size());
-                RETURN_IF_ERROR(old_block.get_by_position(i).type->from_string(
-                        rb, mutable_default_value_columns[i].get()));
-            }
-        }
+        RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
+                *rowset_schema, missing_cids, partial_update_info->default_values, old_block,
+                default_value_block));
     }
+    auto mutable_default_value_columns = default_value_block.mutate_columns();
 
     CHECK(update_rows >= old_rows);
 
@@ -1506,7 +1462,7 @@ Status BaseTablet::update_delete_bitmap_without_lock(
                       << ", rnd:" << rnd << ", percent: " << percent;
         }
     });
-    int64_t cur_version = rowset->end_version();
+    int64_t cur_version = rowset->start_version();
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(std::dynamic_pointer_cast<BetaRowset>(rowset)->load_segments(&segments));
 

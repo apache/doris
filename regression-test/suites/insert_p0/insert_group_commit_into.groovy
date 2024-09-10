@@ -123,11 +123,10 @@ suite("insert_group_commit_into") {
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl + "&useLocalSessionState=true") {
                 sql """ set group_commit = async_mode; """
                 if (item == "nereids") {
-                    sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
                     sql """ set enable_fallback_to_original_planner=false; """
                 } else {
-                    sql """ set enable_nereids_dml = false; """
+                    sql """ set enable_nereids_planner = false; """
                 }
 
                 // 1. insert into
@@ -340,11 +339,10 @@ suite("insert_group_commit_into") {
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
                 sql """ set group_commit = async_mode; """
                 if (item == "nereids") {
-                    sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
                     sql """ set enable_fallback_to_original_planner=false; """
                 } else {
-                    sql """ set enable_nereids_dml = false; """
+                    sql """ set enable_nereids_planner = false; """
                 }
 
                 // 1. insert into
@@ -408,18 +406,17 @@ suite("insert_group_commit_into") {
             "replication_allocation" = "tag.location.default: 1"
             ); """
             sql """DROP MATERIALIZED VIEW IF EXISTS ods_zn_dnt_max1 ON ${table};"""
-            sql """create materialized view ods_zn_dnt_max1 as
+            createMV("""create materialized view ods_zn_dnt_max1 as
             select ordernum,max(dnt) as dnt from ${table}
             group by ordernum
-            ORDER BY ordernum;"""
+            ORDER BY ordernum;""")
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
                 sql """ set group_commit = async_mode; """
                 if (item == "nereids") {
-                    sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
                     sql """ set enable_fallback_to_original_planner=false; """
                 } else {
-                    sql """ set enable_nereids_dml = false; """
+                    sql """ set enable_nereids_planner = false; """
                 }
 
                 // 1. insert into
@@ -518,11 +515,10 @@ suite("insert_group_commit_into") {
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
                 sql """ set group_commit = async_mode; """
                 if (item == "nereids") {
-                    sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner = true; """
                     sql """ set enable_fallback_to_original_planner = false; """
                 } else {
-                    sql """ set enable_nereids_dml = false; """
+                    sql """ set enable_nereids_planner = false; """
                 }
                 group_commit_insert """ insert into ${table} values(1, 'test'); """, 1
                 group_commit_insert """ insert into ${table}(k1,`or`) values (2,"or"); """, 1

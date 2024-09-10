@@ -143,6 +143,8 @@ import org.apache.doris.thrift.TDropPlsqlPackageRequest;
 import org.apache.doris.thrift.TDropPlsqlStoredProcedureRequest;
 import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
+import org.apache.doris.thrift.TFetchRunningQueriesRequest;
+import org.apache.doris.thrift.TFetchRunningQueriesResult;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TFetchSplitBatchRequest;
@@ -1039,7 +1041,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             final TMasterOpResult result = new TMasterOpResult();
             try {
                 result.setGroupCommitLoadBeId(Env.getCurrentEnv().getGroupCommitManager()
-                        .selectBackendForGroupCommitInternal(info.groupCommitLoadTableId, info.cluster, info.isCloud));
+                        .selectBackendForGroupCommitInternal(info.groupCommitLoadTableId, info.cluster));
             } catch (LoadException | DdlException e) {
                 throw new TException(e.getMessage());
             }
@@ -3005,6 +3007,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isCleanTables()) {
             properties.put(RestoreStmt.PROP_CLEAN_TABLES, "true");
         }
+        if (request.isAtomicRestore()) {
+            properties.put(RestoreStmt.PROP_ATOMIC_RESTORE, "true");
+        }
 
         AbstractBackupTableRefClause restoreTableRefClause = null;
         if (request.isSetTableRefs()) {
@@ -3317,6 +3322,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             partitionNames = new PartitionNames(false, new ArrayList<>(target.partitions));
         }
         if (target.isTruncate) {
+            if (partitionNames == null || partitionNames.isStar() || partitionNames.getPartitionNames() == null) {
+                tableStats.clearIndexesRowCount();
+            }
             analysisManager.submitAsyncDropStatsTask(target.catalogId, target.dbId,
                     target.tableId, tableStats, partitionNames);
         } else {
@@ -3348,7 +3356,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        Table table = db.getTable(tableId).get();
+        OlapTable table = (OlapTable) (db.getTable(tableId).get());
         if (table == null) {
             errorStatus.setErrorMsgs(
                     (Lists.newArrayList(String.format("dbId=%d tableId=%d is not exists", dbId, tableId))));
@@ -3430,6 +3438,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TTabletLocation> tablets = Lists.newArrayList();
         for (String partitionName : addPartitionClauseMap.keySet()) {
             Partition partition = table.getPartition(partitionName);
+            if (partition == null) {
+                String partInfos = table.getAllPartitions().stream()
+                        .map(partitionArg -> partitionArg.getName() + partitionArg.getId())
+                        .collect(Collectors.joining(", "));
+
+                errorStatus.setErrorMsgs(Lists.newArrayList("get partition " + partitionName + " failed"));
+                result.setStatus(errorStatus);
+                LOG.warn("send create partition error status: {}, {}", result, partInfos);
+                return result;
+            }
             TOlapTablePartition tPartition = new TOlapTablePartition();
             tPartition.setId(partition.getId());
             int partColNum = partitionInfo.getPartitionColumns().size();
@@ -3961,8 +3979,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetShowFullSql()) {
             isShowFullSql = request.isShowFullSql();
         }
+        UserIdentity userIdentity = UserIdentity.ROOT;
+        if (request.isSetCurrentUserIdent()) {
+            userIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
+        }
         List<List<String>> processList = ExecuteEnv.getInstance().getScheduler()
-                .listConnectionWithoutAuth(isShowFullSql);
+                .listConnectionForRpc(userIdentity, isShowFullSql);
         TShowProcessListResult result = new TShowProcessListResult();
         result.setProcessList(processList);
         return result;
@@ -3982,4 +4004,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return new TStatus(TStatusCode.OK);
     }
 
+    @Override
+    public TFetchRunningQueriesResult fetchRunningQueries(TFetchRunningQueriesRequest request) {
+        TFetchRunningQueriesResult result = new TFetchRunningQueriesResult();
+        if (!Env.getCurrentEnv().isReady()) {
+            result.setStatus(new TStatus(TStatusCode.ILLEGAL_STATE));
+            return result;
+        }
+
+        List<TUniqueId> runningQueries = Lists.newArrayList();
+        List<Coordinator> allCoordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
+
+        for (Coordinator coordinator : allCoordinators) {
+            runningQueries.add(coordinator.getQueryId());
+        }
+
+        result.setStatus(new TStatus(TStatusCode.OK));
+        result.setRunningQueries(runningQueries);
+        return result;
+    }
 }

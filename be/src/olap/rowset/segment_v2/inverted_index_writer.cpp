@@ -271,6 +271,8 @@ public:
     }
 
     Status add_document() {
+        DBUG_EXECUTE_IF("inverted_index_writer.add_document", { return Status::OK(); });
+
         try {
             _index_writer->addDocument(_doc.get());
         } catch (const CLuceneError& e) {

@@ -21,6 +21,11 @@ on:
   issue_comment:
     types: [created, edited]
 
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+
 jobs:
   check-comment-if-need-to-trigger-teamcity:
 
@@ -38,6 +43,9 @@ jobs:
       id: parse
       run: |
         COMMENT_BODY=$(echo "${COMMENT_BODY}" | xargs)
+        PULL_REQUEST_NUM="$(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')"
+        COMMIT_ID_FROM_TRIGGER="$(curl -s -H "Authorization:Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/${{ github.repository }}/pulls/${PULL_REQUEST_NUM}" | jq -r '.head.sha')"
+        TARGET_BRANCH="$(curl -s -H "Authorization:Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/${{ github.repository }}/pulls/${PULL_REQUEST_NUM}" | jq -r '.base.ref')"
         if [[ "${COMMENT_BODY}" == *'run buildall'* ||
             "${COMMENT_BODY}" == *'run compile'* ||
             "${COMMENT_BODY}" == *'run beut'* ||
@@ -58,6 +66,10 @@ jobs:
                 echo "comment_trigger=false" | tee -a "$GITHUB_OUTPUT"
                 echo "comment_skip=true" | tee -a "$GITHUB_OUTPUT"
                 echo "COMMENT_USER_ID ${COMMENT_USER_ID} is allowed to skip buildall."
+            elif [[ "${COMMENT_USER_ID}" == '9208457' && "${TARGET_BRANCH}" == *'branch-2.1'* ]]; then
+                echo "COMMENT_USER_ID ${COMMENT_USER_ID} is allowed to skip buildall for branch-2.1"
+                echo "comment_trigger=false" | tee -a "$GITHUB_OUTPUT"
+                echo "comment_skip=true" | tee -a "$GITHUB_OUTPUT"
             else
                 echo "COMMENT_USER_ID ${COMMENT_USER_ID} is not allowed to skip buildall."
                 exit
@@ -69,9 +81,6 @@ jobs:
             exit
         fi
 
-        PULL_REQUEST_NUM="$(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')"
-        COMMIT_ID_FROM_TRIGGER="$(curl -s -H "Authorization:Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/${{ github.repository }}/pulls/${PULL_REQUEST_NUM}" | jq -r '.head.sha')"
-        TARGET_BRANCH="$(curl -s -H "Authorization:Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/${{ github.repository }}/pulls/${PULL_REQUEST_NUM}" | jq -r '.base.ref')"
         echo "PULL_REQUEST_NUM=${PULL_REQUEST_NUM}" | tee -a "$GITHUB_OUTPUT"
         echo "COMMIT_ID_FROM_TRIGGER=${COMMIT_ID_FROM_TRIGGER}" | tee -a "$GITHUB_OUTPUT"
         echo "TARGET_BRANCH='${TARGET_BRANCH}'" | tee -a "$GITHUB_OUTPUT"

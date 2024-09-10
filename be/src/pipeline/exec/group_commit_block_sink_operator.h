@@ -94,8 +94,6 @@ public:
 
     Status init(const TDataSink& sink) override;
 
-    Status prepare(RuntimeState* state) override;
-
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* block, bool eos) override;

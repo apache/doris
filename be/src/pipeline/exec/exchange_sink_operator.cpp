@@ -319,14 +319,10 @@ Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
     return Status::OK();
 }
 
-Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
+Status ExchangeSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<ExchangeSinkLocalState>::open(state));
     _state = state;
     _mem_tracker = std::make_unique<MemTracker>("ExchangeSinkOperatorX:");
-    return Status::OK();
-}
-
-Status ExchangeSinkOperatorX::open(RuntimeState* state) {
-    DCHECK(state != nullptr);
     _compression_type = state->fragement_transmission_compression_type();
     return Status::OK();
 }

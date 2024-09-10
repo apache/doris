@@ -1036,6 +1036,12 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                         : _base_compaction_thread_pool;
         auto st = thread_pool->submit_func([tablet, compaction = std::move(compaction),
                                             compaction_type, permits, force, this]() {
+            if (!tablet->can_do_compaction(tablet->data_dir()->path_hash(), compaction_type)) {
+                LOG(INFO) << "Tablet state has been changed, no need to begin this compaction "
+                             "task, tablet_id="
+                          << tablet->tablet_id() << "tablet_state=" << tablet->tablet_state();
+                return;
+            }
             tablet->compaction_stage = CompactionStage::EXECUTING;
             TEST_SYNC_POINT_RETURN_WITH_VOID("olap_server::execute_compaction");
             tablet->execute_compaction(*compaction);

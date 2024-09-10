@@ -45,7 +45,7 @@ import com.google.common.collect.ImmutableList;
  *        [ORDER BY ...]
  *        [LIMIT limit];
  */
-public class ShowAnalyzeStmt extends ShowStmt {
+public class ShowAnalyzeStmt extends ShowStmt implements NotFallbackInParser {
     private static final String STATE_NAME = "state";
     private static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("job_id")

@@ -17,9 +17,12 @@
 
 #include "util/block_compression.h"
 
+#include <bzlib.h>
 #include <gen_cpp/parquet_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
+
+#include <exception>
 // Only used on x86 or x86_64
 #if defined(__x86_64__) || defined(_M_X64) || defined(i386) || defined(__i386__) || \
         defined(__i386) || defined(_M_IX86)
@@ -86,10 +89,7 @@ Status BlockCompressionCodec::compress(const std::vector<Slice>& inputs, size_t 
 }
 
 bool BlockCompressionCodec::exceed_max_compress_len(size_t uncompressed_size) {
-    if (uncompressed_size > std::numeric_limits<int32_t>::max()) {
-        return true;
-    }
-    return false;
+    return uncompressed_size > std::numeric_limits<int32_t>::max();
 }
 
 class Lz4BlockCompression : public BlockCompressionCodec {
@@ -120,7 +120,7 @@ public:
         static Lz4BlockCompression s_instance;
         return &s_instance;
     }
-    ~Lz4BlockCompression() {
+    ~Lz4BlockCompression() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
                 ExecEnv::GetInstance()->block_compression_mem_tracker());
         _ctx_pool.clear();
@@ -239,10 +239,56 @@ public:
         }
     }
 
+    ~HadoopLz4BlockCompression() override = default;
+
     static HadoopLz4BlockCompression* instance() {
         static HadoopLz4BlockCompression s_instance;
         return &s_instance;
     }
+
+    // hadoop use block compression for lz4
+    // https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/Lz4Codec.cc
+    Status compress(const Slice& input, faststring* output) override {
+        // be same with hadop https://github.com/apache/hadoop/blob/trunk/hadoop-common-project/hadoop-common/src/main/java/org/apache/hadoop/io/compress/Lz4Codec.java
+        size_t lz4_block_size = config::lz4_compression_block_size;
+        size_t overhead = lz4_block_size / 255 + 16;
+        size_t max_input_size = lz4_block_size - overhead;
+
+        size_t data_len = input.size;
+        char* data = input.data;
+        std::vector<OwnedSlice> buffers;
+        size_t out_len = 0;
+
+        while (data_len > 0) {
+            size_t input_size = std::min(data_len, max_input_size);
+            Slice input_slice(data, input_size);
+            faststring output_data;
+            RETURN_IF_ERROR(Lz4BlockCompression::compress(input_slice, &output_data));
+            out_len += output_data.size();
+            buffers.push_back(output_data.build());
+            data += input_size;
+            data_len -= input_size;
+        }
+
+        // hadoop block compression: umcompressed_length | compressed_length1 | compressed_data1 | compressed_length2 | compressed_data2 | ...
+        size_t total_output_len = 4 + 4 * buffers.size() + out_len;
+        output->resize(total_output_len);
+        char* output_buffer = (char*)output->data();
+        BigEndian::Store32(output_buffer, input.get_size());
+        output_buffer += 4;
+        for (const auto& buffer : buffers) {
+            auto slice = buffer.slice();
+            BigEndian::Store32(output_buffer, slice.get_size());
+            output_buffer += 4;
+            memcpy(output_buffer, slice.get_data(), slice.get_size());
+            output_buffer += slice.get_size();
+        }
+
+        DCHECK_EQ(output_buffer - (char*)output->data(), total_output_len);
+
+        return Status::OK();
+    }
+
     Status decompress(const Slice& input, Slice* output) override {
         size_t input_bytes_read = 0;
         size_t decompressed_len = 0;
@@ -703,7 +749,7 @@ public:
         static SnappyBlockCompression s_instance;
         return &s_instance;
     }
-    ~SnappyBlockCompression() override {}
+    ~SnappyBlockCompression() override = default;
 
     Status compress(const Slice& input, faststring* output) override {
         size_t max_len = max_compressed_len(input.size);
@@ -738,13 +784,70 @@ public:
     size_t max_compressed_len(size_t len) override { return snappy::MaxCompressedLength(len); }
 };
 
+class HadoopSnappyBlockCompression : public SnappyBlockCompression {
+public:
+    static HadoopSnappyBlockCompression* instance() {
+        static HadoopSnappyBlockCompression s_instance;
+        return &s_instance;
+    }
+    ~HadoopSnappyBlockCompression() override = default;
+
+    // hadoop use block compression for snappy
+    // https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/SnappyCodec.cc
+    Status compress(const Slice& input, faststring* output) override {
+        // be same with hadop https://github.com/apache/hadoop/blob/trunk/hadoop-common-project/hadoop-common/src/main/java/org/apache/hadoop/io/compress/SnappyCodec.java
+        size_t snappy_block_size = config::snappy_compression_block_size;
+        size_t overhead = snappy_block_size / 6 + 32;
+        size_t max_input_size = snappy_block_size - overhead;
+
+        size_t data_len = input.size;
+        char* data = input.data;
+        std::vector<OwnedSlice> buffers;
+        size_t out_len = 0;
+
+        while (data_len > 0) {
+            size_t input_size = std::min(data_len, max_input_size);
+            Slice input_slice(data, input_size);
+            faststring output_data;
+            RETURN_IF_ERROR(SnappyBlockCompression::compress(input_slice, &output_data));
+            out_len += output_data.size();
+            // the OwnedSlice will be moved here
+            buffers.push_back(output_data.build());
+            data += input_size;
+            data_len -= input_size;
+        }
+
+        // hadoop block compression: umcompressed_length | compressed_length1 | compressed_data1 | compressed_length2 | compressed_data2 | ...
+        size_t total_output_len = 4 + 4 * buffers.size() + out_len;
+        output->resize(total_output_len);
+        char* output_buffer = (char*)output->data();
+        BigEndian::Store32(output_buffer, input.get_size());
+        output_buffer += 4;
+        for (const auto& buffer : buffers) {
+            auto slice = buffer.slice();
+            BigEndian::Store32(output_buffer, slice.get_size());
+            output_buffer += 4;
+            memcpy(output_buffer, slice.get_data(), slice.get_size());
+            output_buffer += slice.get_size();
+        }
+
+        DCHECK_EQ(output_buffer - (char*)output->data(), total_output_len);
+
+        return Status::OK();
+    }
+
+    Status decompress(const Slice& input, Slice* output) override {
+        return Status::InternalError("unimplement: SnappyHadoopBlockCompression::decompress");
+    }
+};
+
 class ZlibBlockCompression : public BlockCompressionCodec {
 public:
     static ZlibBlockCompression* instance() {
         static ZlibBlockCompression s_instance;
         return &s_instance;
     }
-    ~ZlibBlockCompression() {}
+    ~ZlibBlockCompression() override = default;
 
     Status compress(const Slice& input, faststring* output) override {
         size_t max_len = max_compressed_len(input.size);
@@ -813,6 +916,74 @@ public:
     size_t max_compressed_len(size_t len) override {
         // one-time overhead of six bytes for the entire stream plus five bytes per 16 KB block
         return len + 6 + 5 * ((len >> 14) + 1);
+    }
+};
+
+class Bzip2BlockCompression : public BlockCompressionCodec {
+public:
+    static Bzip2BlockCompression* instance() {
+        static Bzip2BlockCompression s_instance;
+        return &s_instance;
+    }
+    ~Bzip2BlockCompression() override = default;
+
+    Status compress(const Slice& input, faststring* output) override {
+        size_t max_len = max_compressed_len(input.size);
+        output->resize(max_len);
+        uint32_t size = output->size();
+        auto bzres = BZ2_bzBuffToBuffCompress((char*)output->data(), &size, (char*)input.data,
+                                              input.size, 9, 0, 0);
+        if (bzres != BZ_OK) {
+            return Status::InternalError("Fail to do Bzip2 compress, ret={}", bzres);
+        }
+        output->resize(size);
+        return Status::OK();
+    }
+
+    Status compress(const std::vector<Slice>& inputs, size_t uncompressed_size,
+                    faststring* output) override {
+        size_t max_len = max_compressed_len(uncompressed_size);
+        output->resize(max_len);
+
+        bz_stream bzstrm;
+        bzero(&bzstrm, sizeof(bzstrm));
+        int bzres = BZ2_bzCompressInit(&bzstrm, 9, 0, 0);
+        if (bzres != BZ_OK) {
+            return Status::InternalError("Failed to init bz2. status code: {}", bzres);
+        }
+        // we assume that output is e
+        bzstrm.next_out = (char*)output->data();
+        bzstrm.avail_out = output->size();
+        for (int i = 0; i < inputs.size(); ++i) {
+            if (inputs[i].size == 0) {
+                continue;
+            }
+            bzstrm.next_in = (char*)inputs[i].data;
+            bzstrm.avail_in = inputs[i].size;
+            int flush = (i == (inputs.size() - 1)) ? BZ_FINISH : BZ_RUN;
+
+            bzres = BZ2_bzCompress(&bzstrm, flush);
+            if (bzres != BZ_OK && bzres != BZ_STREAM_END) {
+                return Status::InternalError("Fail to do bzip2 stream compress, res={}", bzres);
+            }
+        }
+
+        size_t total_out = (size_t)bzstrm.total_out_hi32 << 32 | (size_t)bzstrm.total_out_lo32;
+        output->resize(total_out);
+        bzres = BZ2_bzCompressEnd(&bzstrm);
+        if (bzres != BZ_OK) {
+            return Status::InternalError("Fail to do deflateEnd on bzip2 stream, res={}", bzres);
+        }
+        return Status::OK();
+    }
+
+    Status decompress(const Slice& input, Slice* output) override {
+        return Status::InternalError("unimplement: Bzip2BlockCompression::decompress");
+    }
+
+    size_t max_compressed_len(size_t len) override {
+        // TODO: make sure the max_compressed_len for bzip2
+        return len * 2;
     }
 };
 
@@ -951,6 +1122,8 @@ public:
             if (max_len <= MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
                 output->assign_copy(reinterpret_cast<uint8_t*>(compressed_buf.data), out_buf.pos);
             }
+        } catch (std::exception& e) {
+            return Status::InternalError("Fail to do ZSTD compress due to exception {}", e.what());
         } catch (...) {
             // Do not set compress_failed to release context
             DCHECK(!compress_failed);
@@ -1054,6 +1227,83 @@ public:
         return &s_instance;
     }
     ~GzipBlockCompression() override = default;
+
+    Status compress(const Slice& input, faststring* output) override {
+        size_t max_len = max_compressed_len(input.size);
+        output->resize(max_len);
+
+        z_stream z_strm = {};
+        z_strm.zalloc = Z_NULL;
+        z_strm.zfree = Z_NULL;
+        z_strm.opaque = Z_NULL;
+
+        int zres = deflateInit2(&z_strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, MAX_WBITS + GZIP_CODEC,
+                                8, Z_DEFAULT_STRATEGY);
+
+        if (zres != Z_OK) {
+            return Status::InvalidArgument("Fail to init zlib compress");
+        }
+
+        z_strm.next_in = (Bytef*)input.get_data();
+        z_strm.avail_in = input.get_size();
+        z_strm.next_out = (Bytef*)output->data();
+        z_strm.avail_out = output->size();
+
+        zres = deflate(&z_strm, Z_FINISH);
+        if (zres != Z_OK && zres != Z_STREAM_END) {
+            return Status::InvalidArgument("Fail to do ZLib stream compress, error={}, res={}",
+                                           zError(zres), zres);
+        }
+
+        output->resize(z_strm.total_out);
+        zres = deflateEnd(&z_strm);
+        if (zres != Z_OK) {
+            return Status::InvalidArgument("Fail to end zlib compress");
+        }
+        return Status::OK();
+    }
+
+    Status compress(const std::vector<Slice>& inputs, size_t uncompressed_size,
+                    faststring* output) override {
+        size_t max_len = max_compressed_len(uncompressed_size);
+        output->resize(max_len);
+
+        z_stream zstrm;
+        zstrm.zalloc = Z_NULL;
+        zstrm.zfree = Z_NULL;
+        zstrm.opaque = Z_NULL;
+        auto zres = deflateInit2(&zstrm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, MAX_WBITS + GZIP_CODEC,
+                                 8, Z_DEFAULT_STRATEGY);
+        if (zres != Z_OK) {
+            return Status::InvalidArgument("Fail to do ZLib stream compress, error={}, res={}",
+                                           zError(zres), zres);
+        }
+        // we assume that output is e
+        zstrm.next_out = (Bytef*)output->data();
+        zstrm.avail_out = output->size();
+        for (int i = 0; i < inputs.size(); ++i) {
+            if (inputs[i].size == 0) {
+                continue;
+            }
+            zstrm.next_in = (Bytef*)inputs[i].data;
+            zstrm.avail_in = inputs[i].size;
+            int flush = (i == (inputs.size() - 1)) ? Z_FINISH : Z_NO_FLUSH;
+
+            zres = deflate(&zstrm, flush);
+            if (zres != Z_OK && zres != Z_STREAM_END) {
+                return Status::InvalidArgument("Fail to do ZLib stream compress, error={}, res={}",
+                                               zError(zres), zres);
+            }
+        }
+
+        output->resize(zstrm.total_out);
+        zres = deflateEnd(&zstrm);
+        if (zres != Z_OK) {
+            return Status::InvalidArgument("Fail to do deflateEnd on ZLib stream, error={}, res={}",
+                                           zError(zres), zres);
+        }
+        return Status::OK();
+    }
 
     Status decompress(const Slice& input, Slice* output) override {
         z_stream z_strm = {};
@@ -1266,6 +1516,37 @@ Status get_block_compression_codec(segment_v2::CompressionTypePB type,
         break;
     default:
         return Status::InternalError("unknown compression type({})", type);
+    }
+
+    return Status::OK();
+}
+
+// this can only be used in hive text write
+Status get_block_compression_codec(TFileCompressType::type type, BlockCompressionCodec** codec) {
+    switch (type) {
+    case TFileCompressType::PLAIN:
+        *codec = nullptr;
+        break;
+    case TFileCompressType::ZLIB:
+        *codec = ZlibBlockCompression::instance();
+        break;
+    case TFileCompressType::GZ:
+        *codec = GzipBlockCompression::instance();
+        break;
+    case TFileCompressType::BZ2:
+        *codec = Bzip2BlockCompression::instance();
+        break;
+    case TFileCompressType::LZ4BLOCK:
+        *codec = HadoopLz4BlockCompression::instance();
+        break;
+    case TFileCompressType::SNAPPYBLOCK:
+        *codec = HadoopSnappyBlockCompression::instance();
+        break;
+    case TFileCompressType::ZSTD:
+        *codec = ZstdBlockCompression::instance();
+        break;
+    default:
+        return Status::InternalError("unsupport compression type({}) int hive text", type);
     }
 
     return Status::OK();
