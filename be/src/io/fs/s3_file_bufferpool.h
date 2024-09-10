@@ -27,6 +27,7 @@
 
 #include "common/status.h"
 #include "io/cache/file_block.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/crc32c.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
@@ -127,6 +128,7 @@ struct FileBuffer {
     struct PartData;
     std::unique_ptr<PartData> _inner_data;
     size_t _capacity;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
 struct DownloadFileBuffer final : public FileBuffer {

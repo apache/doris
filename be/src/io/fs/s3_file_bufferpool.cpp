@@ -84,10 +84,11 @@ FileBuffer::FileBuffer(BufferType type, std::function<FileBlocksHolderPtr()> all
           _size(0),
           _state(std::move(state)),
           _inner_data(std::make_unique<FileBuffer::PartData>()),
-          _capacity(_inner_data->size()) {}
+          _capacity(_inner_data->size()),
+          _mem_tracker(doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()) {}
 
 FileBuffer::~FileBuffer() {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->s3_file_buffer_tracker());
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     _inner_data.reset();
 }
 
@@ -240,7 +241,6 @@ FileBufferBuilder& FileBufferBuilder::set_allocate_file_blocks_holder(
 }
 
 Status FileBufferBuilder::build(std::shared_ptr<FileBuffer>* buf) {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->s3_file_buffer_tracker());
     OperationState state(_sync_after_complete_task, _is_cancelled);
 
     if (_type == BufferType::UPLOAD) {
