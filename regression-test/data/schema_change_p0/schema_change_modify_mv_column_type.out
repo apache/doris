@@ -9,8 +9,8 @@ tbl_scalar_types_dup	DUP_KEYS	k1	bigint	bigint	Yes	true	\N		true
 		c_largeint	largeint	largeint	Yes	false	\N	NONE	true		
 		c_float	float	float	Yes	false	\N	NONE	true		
 		c_double	double	double	Yes	false	\N	NONE	true		
-		c_decimal	decimal(20, 3)	decimalv3(20, 3)	Yes	false	\N	NONE	true		
-		c_decimalv3	decimal(20, 3)	decimalv3(20, 3)	Yes	false	\N	NONE	true		
+		c_decimal	decimal(20,3)	decimalv3(20,3)	Yes	false	\N	NONE	true		
+		c_decimalv3	decimal(20,3)	decimalv3(20,3)	Yes	false	\N	NONE	true		
 		c_date	date	datev2	Yes	false	\N	NONE	true		
 		c_datetime	datetime	datetimev2(0)	Yes	false	\N	NONE	true		
 		c_datev2	date	datev2	Yes	false	\N	NONE	true		
@@ -18,7 +18,7 @@ tbl_scalar_types_dup	DUP_KEYS	k1	bigint	bigint	Yes	true	\N		true
 		c_char	char(15)	char(15)	Yes	false	\N	NONE	true		
 		c_varchar	varchar(100)	varchar(100)	Yes	false	\N	NONE	true		
 		c_string	text	text	Yes	false	\N	NONE	true		
-
+											
 mv_tbl_scalar_types_dup_1	DUP_KEYS	mv_c_tinyint	tinyint	tinyint	Yes	true	\N		true	`c_tinyint`	
 		mv_c_bool	boolean	boolean	Yes	true	\N		true	`c_bool`	
 		mv_k1	bigint	bigint	Yes	true	\N		true	`k1`	
@@ -28,13 +28,13 @@ mv_tbl_scalar_types_dup_1	DUP_KEYS	mv_c_tinyint	tinyint	tinyint	Yes	true	\N		tru
 		mv_c_largeint	largeint	largeint	Yes	false	\N	NONE	true	`c_largeint`	
 		mv_c_float	float	float	Yes	false	\N	NONE	true	`c_float`	
 		mv_c_double	double	double	Yes	false	\N	NONE	true	`c_double`	
-		mv_c_decimal	decimal(20, 3)	decimalv3(20, 3)	Yes	false	\N	NONE	true	`c_decimal`	
-		mv_c_decimalv3	decimal(20, 3)	decimalv3(20, 3)	Yes	false	\N	NONE	true	`c_decimalv3`	
+		mv_c_decimal	decimal(20,3)	decimalv3(20,3)	Yes	false	\N	NONE	true	`c_decimal`	
+		mv_c_decimalv3	decimal(20,3)	decimalv3(20,3)	Yes	false	\N	NONE	true	`c_decimalv3`	
 		mv_c_date	date	datev2	Yes	false	\N	NONE	true	`c_date`	
 		mv_c_datetime	datetime	datetimev2(0)	Yes	false	\N	NONE	true	`c_datetime`	
 		mv_c_datev2	date	datev2	Yes	false	\N	NONE	true	`c_datev2`	
 		mv_c_datetimev2	datetime	datetimev2(0)	Yes	false	\N	NONE	true	`c_datetimev2`	
-		mv_c_char	character	character	Yes	false	\N	NONE	true	`c_char`	
+		mv_c_char	character(255)	character(255)	Yes	false	\N	NONE	true	`c_char`	
 		mv_c_varchar	varchar(65533)	varchar(65533)	Yes	false	\N	NONE	true	`c_varchar`	
 		mv_c_string	text	text	Yes	false	\N	NONE	true	`c_string`	
 
@@ -72,8 +72,8 @@ tbl_scalar_types_dup	DUP_KEYS	k1	bigint	bigint	Yes	true	\N		true
 		c_largeint	largeint	largeint	Yes	false	\N	NONE	true		
 		c_float	float	float	Yes	false	\N	NONE	true		
 		c_double	double	double	Yes	false	\N	NONE	true		
-		c_decimal	decimal(20, 3)	decimalv3(20, 3)	Yes	false	\N	NONE	true		
-		c_decimalv3	decimal(20, 3)	decimalv3(20, 3)	Yes	false	\N	NONE	true		
+		c_decimal	decimal(20,3)	decimalv3(20,3)	Yes	false	\N	NONE	true		
+		c_decimalv3	decimal(20,3)	decimalv3(20,3)	Yes	false	\N	NONE	true		
 		c_date	date	datev2	Yes	false	\N	NONE	true		
 		c_datetime	datetime	datetimev2(0)	Yes	false	\N	NONE	true		
 		c_datev2	date	datev2	Yes	false	\N	NONE	true		
@@ -81,7 +81,7 @@ tbl_scalar_types_dup	DUP_KEYS	k1	bigint	bigint	Yes	true	\N		true
 		c_char	char(15)	char(15)	Yes	false	\N	NONE	true		
 		c_varchar	varchar(100)	varchar(100)	Yes	false	\N	NONE	true		
 		c_string	text	text	Yes	false	\N	NONE	true		
-
+											
 mv_tbl_scalar_types_dup_1	DUP_KEYS	mv_c_tinyint	tinyint	tinyint	Yes	true	\N		true	`c_tinyint`	
 		mv_c_bool	boolean	boolean	Yes	true	\N		true	`c_bool`	
 		mv_k1	bigint	bigint	Yes	true	\N		true	`k1`	
@@ -91,13 +91,13 @@ mv_tbl_scalar_types_dup_1	DUP_KEYS	mv_c_tinyint	tinyint	tinyint	Yes	true	\N		tru
 		mv_c_largeint	largeint	largeint	Yes	false	\N	NONE	true	`c_largeint`	
 		mv_c_float	float	float	Yes	false	\N	NONE	true	`c_float`	
 		mv_c_double	double	double	Yes	false	\N	NONE	true	`c_double`	
-		mv_c_decimal	decimal(20, 3)	decimalv3(20, 3)	Yes	false	\N	NONE	true	`c_decimal`	
-		mv_c_decimalv3	decimal(20, 3)	decimalv3(20, 3)	Yes	false	\N	NONE	true	`c_decimalv3`	
+		mv_c_decimal	decimal(20,3)	decimalv3(20,3)	Yes	false	\N	NONE	true	`c_decimal`	
+		mv_c_decimalv3	decimal(20,3)	decimalv3(20,3)	Yes	false	\N	NONE	true	`c_decimalv3`	
 		mv_c_date	date	datev2	Yes	false	\N	NONE	true	`c_date`	
 		mv_c_datetime	datetime	datetimev2(0)	Yes	false	\N	NONE	true	`c_datetime`	
 		mv_c_datev2	date	datev2	Yes	false	\N	NONE	true	`c_datev2`	
 		mv_c_datetimev2	datetime	datetimev2(0)	Yes	false	\N	NONE	true	`c_datetimev2`	
-		mv_c_char	character	character	Yes	false	\N	NONE	true	`c_char`	
+		mv_c_char	character(255)	character(255)	Yes	false	\N	NONE	true	`c_char`	
 		mv_c_varchar	varchar(65533)	varchar(65533)	Yes	false	\N	NONE	true	`c_varchar`	
 		mv_c_string	text	text	Yes	false	\N	NONE	true	`c_string`	
 
