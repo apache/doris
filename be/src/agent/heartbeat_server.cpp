@@ -269,8 +269,7 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         }
 
         if (config::cloud_instance_id.empty() && !master_info.cloud_instance_id.empty()) {
-            auto st = config::set_config("cloud_instance_id", master_info.cloud_instance_id,
-                                     true);
+            auto st = config::set_config("cloud_instance_id", master_info.cloud_instance_id, true);
             config::set_cloud_unique_id(master_info.cloud_instance_id);
             LOG(INFO) << "set config cloud_instance_id " << master_info.cloud_instance_id << " "
                       << st;
