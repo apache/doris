@@ -204,7 +204,8 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
         // 2. if there is a PREPARE transaction, check if this is a retry request.
         // 3. if there is a non-aborted transaction, throw label already used exception.
 
-        for (auto& cur_txn_id : label_pb.txn_ids()) {
+        for (auto it = label_pb.txn_ids().rbegin(); it != label_pb.txn_ids().rend(); ++it) {
+            int64_t cur_txn_id = *it;
             const std::string cur_info_key = txn_info_key({instance_id, db_id, cur_txn_id});
             std::string cur_info_val;
             err = txn->get(cur_info_key, &cur_info_val);
@@ -235,8 +236,19 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
             }
 
             VLOG_DEBUG << "cur_txn_info=" << cur_txn_info.ShortDebugString();
+            LOG(INFO) << " size=" << label_pb.txn_ids().size()
+                      << " status=" << cur_txn_info.status() << " txn_id=" << txn_id
+                      << " label=" << label;
             if (cur_txn_info.status() == TxnStatusPB::TXN_STATUS_ABORTED) {
-                continue;
+                if (label_pb.txn_ids().size() >= config::max_num_aborted_txn) {
+                    code = MetaServiceCode::INVALID_ARGUMENT;
+                    ss << "too many aborted txn for label=" << label << " txn_id=" << txn_id
+                       << ", please check your data quality";
+                    msg = ss.str();
+                    LOG(WARNING) << msg << " label_pb=" << label_pb.ShortDebugString();
+                    return;
+                }
+                break;
             }
 
             if (cur_txn_info.status() == TxnStatusPB::TXN_STATUS_PREPARED ||
