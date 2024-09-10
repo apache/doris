@@ -283,8 +283,8 @@ private:
     MonotonicStopWatch _pipeline_task_watcher;
 
     Operators _operators; // left is _source, right is _root
-    OperatorBase* _source;
-    OperatorBase* _root;
+    OperatorXBase* _source;
+    OperatorXBase* _root;
     DataSinkOperatorPtr _sink;
 
     // `_read_dependencies` is stored as same order as `_operators`
