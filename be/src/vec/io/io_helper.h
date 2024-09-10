@@ -259,9 +259,29 @@ bool read_float_text_fast_impl(T& x, ReadBuffer& in) {
 
 template <typename T>
 bool read_int_text_impl(T& x, ReadBuffer& buf) {
-    StringParser::ParseResult result;
-    x = StringParser::string_to_int<T>(buf.position(), buf.count(), &result);
+    // If the string contains e or E, we consider it as possibly representing a scientific notation.
+    auto is_scientific_notation = [](const char* s, size_t len) -> bool {
+        for (size_t i = 0; i < len; i++) {
+            if (s[i] == 'e' || s[i] == 'E') {
+                return true;
+            }
+        }
+        return false;
+    };
 
+    StringParser::ParseResult result;
+    if (is_scientific_notation(buf.position(), buf.count())) {
+        auto float_value =
+                StringParser::string_to_float<double>(buf.position(), buf.count(), &result);
+        // Check if it falls within a valid range.
+        if (type_limit<T>::min() <= float_value && float_value <= type_limit<T>::max()) {
+            x = static_cast<T>(float_value);
+        } else {
+            return false;
+        }
+    } else {
+        x = StringParser::string_to_int<T>(buf.position(), buf.count(), &result);
+    }
     if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) {
         return false;
     }
