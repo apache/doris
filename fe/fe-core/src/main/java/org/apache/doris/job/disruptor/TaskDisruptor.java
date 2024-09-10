@@ -77,7 +77,7 @@ public class TaskDisruptor<T> {
             ringBuffer.publishEvent(eventTranslator, args);
             return true;
         } catch (Exception e) {
-            LOG.error("Failed to publish event", e);
+            LOG.warn("Failed to publish event", e);
             // Handle the exception, e.g., retry or alert
         }
         return false;
