@@ -2087,6 +2087,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 }
 
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
+    // TEMP column in block is not allowed here, need to erase.
+    block->erase_tmp_columns();
     bool is_mem_reuse = block->mem_reuse();
     DCHECK(is_mem_reuse);
 
