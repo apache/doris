@@ -225,7 +225,7 @@ public class KafkaUtil {
         TNetworkAddress address = null;
         Future<InternalService.PProxyResult> future = null;
         InternalService.PProxyResult result = null;
-        while (retryTimes < 3) {
+        while (retryTimes < Config.get_kafka_meta_retry_times) {
             List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (backendIds.isEmpty()) {
                 throw new LoadException("Failed to get info. No alive backends");
