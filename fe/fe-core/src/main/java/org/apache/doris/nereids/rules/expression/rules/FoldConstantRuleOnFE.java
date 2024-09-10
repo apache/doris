@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -164,7 +165,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(Password.class, this::visitPassword),
                 matches(Array.class, this::visitArray),
                 matches(Date.class, this::visitDate),
-                matches(Version.class, this::visitVersion)
+                matches(Version.class, this::visitVersion),
+                matches(SessionUser.class, this::visitSessionUser)
         );
     }
 
@@ -322,6 +324,12 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitUser(User user, ExpressionRewriteContext context) {
+        String res = context.cascadesContext.getConnectContext().getUserIdentity().toString();
+        return new VarcharLiteral(res);
+    }
+
+    @Override
+    public Expression visitSessionUser(SessionUser user, ExpressionRewriteContext context) {
         String res = context.cascadesContext.getConnectContext().getUserIdentity().toString();
         return new VarcharLiteral(res);
     }
