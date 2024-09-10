@@ -895,6 +895,7 @@ message GetObjStoreInfoResponse {
     repeated StorageVaultPB storage_vault = 3;
     optional string default_storage_vault_id = 4;
     optional string default_storage_vault_name = 5;
+    optional bool enable_storage_vault = 6;
 };
 
 message CreateTabletsRequest {
