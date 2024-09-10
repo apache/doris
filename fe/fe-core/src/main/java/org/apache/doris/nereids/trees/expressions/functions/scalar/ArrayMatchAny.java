@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.collect.ImmutableList;
 
@@ -37,8 +36,7 @@ public class ArrayMatchAny extends ScalarFunction
         implements HighOrderFunction, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BooleanType.INSTANCE).args(ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX),
-                    ArrayType.of(BooleanType.INSTANCE))
+            FunctionSignature.ret(BooleanType.INSTANCE).args(ArrayType.of(BooleanType.INSTANCE))
     );
 
     private ArrayMatchAny(List<Expression> expressions) {
