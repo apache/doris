@@ -17,8 +17,6 @@
 
 package org.apache.doris.datasource.iceberg.hive;
 
-import org.apache.doris.datasource.iceberg.hadoop.IcebergHadoopFileIO;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
@@ -57,17 +55,7 @@ public abstract class HiveCompatibleCatalog extends HiveCatalog {
              * so HadoopFileIO is used in the superclass by default
              * we can add better implementations to derived class just like the implementation in DLFCatalog.
              */
-            FileIO io;
-            try {
-                FileSystem fs = getFileSystem();
-                if (fs == null) {
-                    io = new HadoopFileIO(getConf());
-                } else {
-                    io = new IcebergHadoopFileIO(getConf(), getFileSystem());
-                }
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
+            FileIO io = new HadoopFileIO(getConf());
             io.initialize(properties);
             return io;
         } else {

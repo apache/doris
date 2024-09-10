@@ -496,22 +496,22 @@ public class DFSFileSystem extends RemoteFileSystem {
     }
 
     public FileStatus[] listStatus(Path f, PathFilter filter) throws IOException {
-        return authenticator.doAs(() -> rawFileSystem().listStatus(f, filter));
+        return rawFileSystem().listStatus(f, filter);
     }
 
     public RemoteIterator<FileStatus> listStatusIterator(Path p) throws IOException {
-        return authenticator.doAs(() -> rawFileSystem().listStatusIterator(p));
+        return rawFileSystem().listStatusIterator(p);
     }
 
     public FileStatus getFileStatus(Path f) throws IOException {
-        return authenticator.doAs(() -> rawFileSystem().getFileStatus(f));
+        return rawFileSystem().getFileStatus(f);
     }
 
     public boolean delete(Path p, boolean recursion) throws IOException {
-        return authenticator.doAs(() -> rawFileSystem().delete(p, recursion));
+        return rawFileSystem().delete(p, recursion);
     }
 
     public boolean mkdirs(Path p) throws IOException {
-        return authenticator.doAs(() -> rawFileSystem().mkdirs(p));
+        return rawFileSystem().mkdirs(p);
     }
 }
