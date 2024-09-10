@@ -46,6 +46,8 @@ public class Statistics {
 
     private double deltaRowCount = 0.0;
 
+    private long actualRowCount = -1L;
+
     public Statistics(Statistics another) {
         this.rowCount = another.rowCount;
         this.widthInJoinCluster = another.widthInJoinCluster;
@@ -193,21 +195,24 @@ public class Statistics {
 
     @Override
     public String toString() {
+        StringBuilder builder = new StringBuilder();
         if (Double.isNaN(rowCount)) {
-            return "NaN";
+            builder.append("NaN");
+        } else if (Double.POSITIVE_INFINITY == rowCount) {
+            builder.append("Infinite");
+        } else if (Double.NEGATIVE_INFINITY == rowCount) {
+            builder.append("-Infinite");
+        } else {
+            DecimalFormat format = new DecimalFormat("#,###.##");
+            builder.append(format.format(rowCount));
         }
-        if (Double.POSITIVE_INFINITY == rowCount) {
-            return "Infinite";
-        }
-        if (Double.NEGATIVE_INFINITY == rowCount) {
-            return "-Infinite";
-        }
-        DecimalFormat format = new DecimalFormat("#,###.##");
-        String rows = format.format(rowCount);
         if (deltaRowCount > 0) {
-            rows = rows + "(" + format.format(deltaRowCount) + ")";
+            builder.append("(").append((long) deltaRowCount).append(")");
         }
-        return rows;
+        if (actualRowCount != -1) {
+            builder.append(" actualRows=").append(actualRowCount);
+        }
+        return builder.toString();
     }
 
     public String printColumnStats() {
@@ -291,5 +296,13 @@ public class Statistics {
 
     public void setDeltaRowCount(double deltaRowCount) {
         this.deltaRowCount = deltaRowCount;
+    }
+
+    public long getActualRowCount() {
+        return actualRowCount;
+    }
+
+    public void setActualRowCount(long actualRowCount) {
+        this.actualRowCount = actualRowCount;
     }
 }

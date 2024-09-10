@@ -18,11 +18,11 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditPlugin;
 import org.apache.doris.plugin.Plugin;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginMgr;
-import org.apache.doris.plugin.audit.AuditEvent;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Queues;

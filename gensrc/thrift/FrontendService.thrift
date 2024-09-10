@@ -434,6 +434,12 @@ struct TQueryProfile {
     5: optional list<RuntimeProfile.TRuntimeProfileTree> load_channel_profiles
 }
 
+struct TFragmentInstanceReport {
+  1: optional Types.TUniqueId fragment_instance_id;
+  2: optional i32 num_finished_range;
+}
+
+
 // The results of an INSERT query, sent to the coordinator as part of
 // TReportExecStatusParams
 struct TReportExecStatusParams {
@@ -509,6 +515,8 @@ struct TReportExecStatusParams {
 
   29: optional i64 txn_id
   30: optional string label
+
+  31: optional list<TFragmentInstanceReport> fragment_instance_reports;
 }
 
 struct TFeResult {
@@ -1005,6 +1013,7 @@ enum TSchemaTableName {
   WORKLOAD_GROUP_PRIVILEGES = 7,
   TABLE_PROPERTIES = 8,
   CATALOG_META_CACHE_STATS = 9,
+  PARTITIONS = 10,
 }
 
 struct TMetadataTableRequestParams {
@@ -1251,6 +1260,7 @@ struct TRestoreSnapshotRequest {
     12: optional binary job_info
     13: optional bool clean_tables
     14: optional bool clean_partitions
+    15: optional bool atomic_restore
 }
 
 struct TRestoreSnapshotResult {

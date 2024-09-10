@@ -3007,6 +3007,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isCleanTables()) {
             properties.put(RestoreStmt.PROP_CLEAN_TABLES, "true");
         }
+        if (request.isAtomicRestore()) {
+            properties.put(RestoreStmt.PROP_ATOMIC_RESTORE, "true");
+        }
 
         AbstractBackupTableRefClause restoreTableRefClause = null;
         if (request.isSetTableRefs()) {
@@ -3319,6 +3322,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             partitionNames = new PartitionNames(false, new ArrayList<>(target.partitions));
         }
         if (target.isTruncate) {
+            if (partitionNames == null || partitionNames.isStar() || partitionNames.getPartitionNames() == null) {
+                tableStats.clearIndexesRowCount();
+            }
             analysisManager.submitAsyncDropStatsTask(target.catalogId, target.dbId,
                     target.tableId, tableStats, partitionNames);
         } else {

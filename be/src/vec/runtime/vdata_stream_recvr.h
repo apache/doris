@@ -83,7 +83,8 @@ public:
     std::vector<SenderQueue*> sender_queues() const { return _sender_queues; }
 
     Status add_block(const PBlock& pblock, int sender_id, int be_number, int64_t packet_seq,
-                     ::google::protobuf::Closure** done);
+                     ::google::protobuf::Closure** done, const int64_t wait_for_worker,
+                     const uint64_t time_to_find_recvr);
 
     void add_block(Block* block, int sender_id, bool use_move);
 
@@ -158,6 +159,9 @@ private:
     RuntimeProfile::Counter* _rows_produced_counter = nullptr;
     // Number of blocks received
     RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
+    RuntimeProfile::Counter* _max_wait_worker_time = nullptr;
+    RuntimeProfile::Counter* _max_wait_to_process_time = nullptr;
+    RuntimeProfile::Counter* _max_find_recvr_time = nullptr;
 
     std::vector<std::shared_ptr<pipeline::Dependency>> _sender_to_local_channel_dependency;
 };
@@ -176,7 +180,8 @@ public:
     Status get_batch(Block* next_block, bool* eos);
 
     Status add_block(const PBlock& pblock, int be_number, int64_t packet_seq,
-                     ::google::protobuf::Closure** done);
+                     ::google::protobuf::Closure** done, const int64_t wait_for_worker,
+                     const uint64_t time_to_find_recvr);
 
     void add_block(Block* block, bool use_move);
 

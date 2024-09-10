@@ -59,7 +59,7 @@ public:
                 std::make_shared<DataTypeUInt8>(),
                 std::make_shared<DataTypeUInt8>(),
         };
-        agg_function = factory.get("retention", data_types, false);
+        agg_function = factory.get("retention", data_types, false, -1);
         EXPECT_NE(agg_function, nullptr);
     }
 

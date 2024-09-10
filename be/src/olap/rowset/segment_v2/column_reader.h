@@ -85,6 +85,8 @@ struct ColumnReaderOptions {
     bool verify_checksum = true;
     // for in memory olap table, use DURABLE CachePriority in page cache
     bool kept_in_memory = false;
+
+    int be_exec_version = -1;
 };
 
 struct ColumnIteratorOptions {
@@ -206,7 +208,7 @@ public:
 
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
-                 io::FileReaderSPtr file_reader, vectorized::DataTypePtr agg_state_ptr = nullptr);
+                 io::FileReaderSPtr file_reader);
     Status init(const ColumnMetaPB* meta);
 
     // Read column inverted indexes into memory
@@ -248,6 +250,7 @@ private:
     FieldType _meta_children_column_type;
     bool _meta_is_nullable;
     bool _use_index_page_cache;
+    int _be_exec_version = -1;
 
     PagePointer _meta_dict_page;
     CompressionTypePB _meta_compression;
@@ -275,8 +278,6 @@ private:
     std::shared_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
-
-    vectorized::DataTypePtr _agg_state_ptr;
 
     DorisCallOnce<Status> _set_dict_encoding_type_once;
 };
