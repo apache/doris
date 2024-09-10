@@ -199,6 +199,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                 tableRowsetCount += tabletRowsetCount;
                                 tableSegmentCount += tabletSegmentCount;
                             } // end for tablets
+                            index.setRowCountReported(true);
                             index.setRowCount(indexRowCount);
                         } // end for indices
                     } // end for partitions

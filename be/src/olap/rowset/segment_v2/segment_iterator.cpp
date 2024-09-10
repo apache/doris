@@ -811,7 +811,8 @@ bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) 
     if ((res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND && is_fallback) ||
         res.code() == ErrorCode::INVERTED_INDEX_BYPASS ||
         res.code() == ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED ||
-        (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS && need_remaining)) {
+        (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS && need_remaining) ||
+        res.code() == ErrorCode::INVERTED_INDEX_FILE_CORRUPTED) {
         // 1. INVERTED_INDEX_FILE_NOT_FOUND means index file has not been built,
         //    usually occurs when creating a new index, queries can be downgraded
         //    without index.
@@ -825,7 +826,10 @@ bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) 
         //    but the column condition value no terms in specified parser,
         //    such as: where A = '' and B = ','
         //    the predicate of A and B need downgrade without index query.
+        // 5. INVERTED_INDEX_FILE_CORRUPTED means the index file is corrupted,
+        //    such as when index segment files are not generated
         // above case can downgrade without index query
+        _opts.stats->inverted_index_downgrade_count++;
         LOG(INFO) << "will downgrade without index to evaluate predicate, because of res: " << res;
         return true;
     }

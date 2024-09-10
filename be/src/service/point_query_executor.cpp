@@ -234,6 +234,12 @@ void RowCache::erase(const RowCacheKey& key) {
     LRUCachePolicy::erase(encoded_key);
 }
 
+LookupConnectionCache::CacheValue::~CacheValue() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+            ExecEnv::GetInstance()->point_query_executor_mem_tracker());
+    item.reset();
+}
+
 PointQueryExecutor::~PointQueryExecutor() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
             ExecEnv::GetInstance()->point_query_executor_mem_tracker());

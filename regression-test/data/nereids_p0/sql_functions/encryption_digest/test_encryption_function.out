@@ -56,3 +56,29 @@ text
 -- !sql --
 82ec580fe6d36ae4f81cae3c73f4a5b3b5a09c943172dc9053c69fd8e18dca1e
 
+-- !sql_gcm_1 --
+MTIzNDU2Nzg5MDEyMdXvR41sJqwZ6hnTU8FRTTtXbL8yeChIZA==
+
+-- !sql_gcm_2 --
+Spark SQL
+
+-- !sql_gcm_3 --
+AAAAAAAAAAAAAAAAQiYi+sTLm7KD9UcZ2nlRdYDe/PX4
+
+-- !sql_gcm_4 --
+Spark
+
+-- !sql_gcm_5 --
+1	MTIzNDU2Nzg5MDEyMdXvR41sJqwZ6hnTU8FRTTtXbL8yeChIZA==
+2	AAAAAAAAAAAAAAAAQiYi+sTLm7KD9UcZ2nlRdYDe/PX4
+
+-- !sql_gcm_6 --
+1	Spark SQL
+2	Spark
+
+-- !sql_gcm_7 --
+1	MTIzNDU2Nzg5MDEyMdXvR41sJqwZ6hnTU8FRTTtXbL8yeChIZA==
+
+-- !sql_gcm_8 --
+Spark SQL
+

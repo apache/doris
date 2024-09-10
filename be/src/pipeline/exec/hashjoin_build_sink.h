@@ -118,7 +118,6 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
@@ -133,7 +132,7 @@ public:
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {ExchangeType::NOOP};
         } else if (_is_broadcast_join) {
-            return _child_x->ignore_data_distribution()
+            return _child->ignore_data_distribution()
                            ? DataDistribution(ExchangeType::PASS_TO_ONE)
                            : DataDistribution(ExchangeType::NOOP);
         }

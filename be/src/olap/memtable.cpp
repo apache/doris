@@ -108,10 +108,11 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
             // the aggregate function manually.
             function = vectorized::AggregateFunctionSimpleFactory::instance().get(
                     "replace_load", {block->get_data_type(cid)},
-                    block->get_data_type(cid)->is_nullable());
+                    block->get_data_type(cid)->is_nullable(),
+                    BeExecVersionManager::get_newest_version());
         } else {
-            function =
-                    _tablet_schema->column(cid).get_aggregate_function(vectorized::AGG_LOAD_SUFFIX);
+            function = _tablet_schema->column(cid).get_aggregate_function(
+                    vectorized::AGG_LOAD_SUFFIX, _tablet_schema->column(cid).get_be_exec_version());
             if (function == nullptr) {
                 LOG(WARNING) << "column get aggregate function failed, column="
                              << _tablet_schema->column(cid).name();
@@ -189,7 +190,7 @@ Status MemTable::insert(const vectorized::Block* input_block,
         if (_keys_type != KeysType::DUP_KEYS) {
             // there may be additional intermediate columns in input_block
             // we only need columns indicated by column offset in the output
-            _init_agg_functions(&clone_block);
+            RETURN_IF_CATCH_EXCEPTION(_init_agg_functions(&clone_block));
         }
         if (_tablet_schema->has_sequence_col()) {
             if (_is_partial_update) {

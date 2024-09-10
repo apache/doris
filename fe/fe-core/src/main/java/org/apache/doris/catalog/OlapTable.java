@@ -737,15 +737,24 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             tableProperty.resetPropertiesForRestore(reserveDynamicPartitionEnable, reserveReplica, replicaAlloc);
         }
         if (isBeingSynced) {
-            TableProperty tableProperty = getOrCreatTableProperty();
-            tableProperty.setIsBeingSynced();
-            tableProperty.removeInvalidProperties();
-            if (isAutoBucket()) {
-                markAutoBucket();
-            }
+            setBeingSyncedProperties();
         }
         // remove colocate property.
         setColocateGroup(null);
+    }
+
+    /**
+     * Set the related properties when is_being_synced properties is true.
+     *
+     * Some properties, like storage_policy, colocate_with, are not supported by the ccr syncer.
+     */
+    public void setBeingSyncedProperties() {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.setIsBeingSynced();
+        tableProperty.removeInvalidProperties();
+        if (isAutoBucket()) {
+            markAutoBucket();
+        }
     }
 
     public void resetVersionForRestore() {
@@ -1555,13 +1564,16 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     @Override
     public long fetchRowCount() {
-        return getRowCountForIndex(baseIndexId);
+        return getRowCountForIndex(baseIndexId, false);
     }
 
-    public long getRowCountForIndex(long indexId) {
+    public long getRowCountForIndex(long indexId, boolean strict) {
         long rowCount = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             MaterializedIndex index = entry.getValue().getIndex(indexId);
+            if (strict && !index.getRowCountReported()) {
+                return -1;
+            }
             rowCount += (index == null || index.getRowCount() == -1) ? 0 : index.getRowCount();
         }
         return rowCount;
@@ -3135,9 +3147,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context)
             throws AnalysisException {
         Map<String, Long> partitionVersions = context.getBaseVersions().getPartitionVersions();
+        long partitionId = getPartitionOrAnalysisException(partitionName).getId();
         long visibleVersion = partitionVersions.containsKey(partitionName) ? partitionVersions.get(partitionName)
                 : getPartitionOrAnalysisException(partitionName).getVisibleVersion();
-        return new MTMVVersionSnapshot(visibleVersion);
+        return new MTMVVersionSnapshot(visibleVersion, partitionId);
     }
 
     @Override
