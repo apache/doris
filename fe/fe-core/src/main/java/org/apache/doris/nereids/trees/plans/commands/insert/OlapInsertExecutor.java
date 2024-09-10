@@ -85,6 +85,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         super(ctx, table, labelName, planner, insertCtx, emptyInsert);
     }
 
+    @Override
     public long getTxnId() {
         return txnId;
     }

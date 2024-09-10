@@ -70,6 +70,7 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
         }
     }
 
+    @Override
     public long getTxnId() {
         return txnId;
     }
