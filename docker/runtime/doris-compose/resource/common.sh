@@ -23,7 +23,7 @@ export LOG_FILE=$DORIS_HOME/log/health.out
 export LOCK_FILE=$DORIS_HOME/status/token
 
 health_log() {
-    echo "$(date +'%Y-%m-%d %H:%M:%S') $@" >>$LOG_FILE
+    echo "$(date +'%Y-%m-%d %H:%M:%S') $@" | tee -a $LOG_FILE
 }
 
 # concurrent write meta service server will failed due to fdb txn conflict.

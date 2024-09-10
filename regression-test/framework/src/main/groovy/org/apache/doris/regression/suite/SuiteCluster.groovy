@@ -52,6 +52,7 @@ class ClusterOptions {
     // don't add whitespace in beConfigs items,
     // for example, ' xx = yy ' is bad, should use 'xx=yy'
     List<String> beConfigs = [
+        'max_sys_mem_available_low_water_mark_bytes=0', //no check mem available memory
         'report_disk_state_interval_seconds=2',
         'report_random_wait=false',
     ]
