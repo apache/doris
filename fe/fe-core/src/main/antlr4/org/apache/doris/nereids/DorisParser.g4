@@ -1510,6 +1510,7 @@ primaryExpression
     | name=LOCALTIME                                                                           #localTime
     | name=LOCALTIMESTAMP                                                                      #localTimestamp
     | name=CURRENT_USER                                                                        #currentUser
+    | name=SESSION_USER                                                                        #sessionUser
     | CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
     | name=CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                              #cast
@@ -1577,6 +1578,7 @@ functionNameIdentifier
     | REGEXP
     | RIGHT
     | SCHEMA
+    | SESSION_USER
     | TRIM
     | USER
     ;
@@ -2031,6 +2033,7 @@ nonReserved
     | SET_SESSION_VARIABLE
     | SEQUENCE
     | SESSION
+    | SESSION_USER
     | SHAPE
     | SKEW
     | SNAPSHOT
