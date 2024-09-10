@@ -364,19 +364,28 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
     }
 
-    private Statistics computeOlapScan(OlapScan olapScan) {
+    private double getOlapTableRowCount(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
-        double tableRowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId());
-        if (tableRowCount <= 0) {
-            AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-            TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
-            if (tableMeta != null) {
-                // create-view after analyzing, we may get -1 for this view row count
-                tableRowCount = Math.max(1, tableMeta.getRowCount(olapScan.getSelectedIndexId()));
-            } else {
-                tableRowCount = 1;
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
+        double rowCount = -1;
+        if (tableMeta != null && tableMeta.userInjected) {
+            rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
+        } else {
+            rowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
+            if (rowCount == -1) {
+                if (tableMeta != null) {
+                    rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
+                }
             }
         }
+        return rowCount;
+    }
+
+    private Statistics computeOlapScan(OlapScan olapScan) {
+        OlapTable olapTable = olapScan.getTable();
+        double tableRowCount = getOlapTableRowCount(olapScan);
+        tableRowCount = Math.max(1, tableRowCount);
 
         if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId() || olapTable instanceof MTMV) {
             // mv is selected, return its estimated stats
@@ -441,10 +450,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
 
+        boolean useTableLevelStats = true;
         if (olapScan.getSelectedPartitionIds().size() < olapScan.getTable().getPartitionNum()) {
             // partition pruned
+            // try to use selected partition stats, if failed, fall back to table stats
             double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan);
-            if (selectedPartitionsRowCount > 0) {
+            if (selectedPartitionsRowCount >= 0) {
+                useTableLevelStats = false;
                 List<String> selectedPartitionNames = new ArrayList<>(olapScan.getSelectedPartitionIds().size());
                 olapScan.getSelectedPartitionIds().forEach(id -> {
                     selectedPartitionNames.add(olapScan.getTable().getPartition(id).getName());
@@ -458,19 +470,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 }
                 checkIfUnknownStatsUsedAsKey(builder);
                 builder.setRowCount(selectedPartitionsRowCount + deltaRowCount);
-            } else {
-                // if partition row count is invalid (-1), fallback to table stats
-                for (SlotReference slot : visibleOutputSlots) {
-                    ColumnStatistic cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, slot);
-                    ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
-                    colStatsBuilder.setCount(tableRowCount);
-                    colStatsBuilder.normalizeAvgSizeByte(slot);
-                    builder.putColumnStatistics(slot, colStatsBuilder.build());
-                }
-                checkIfUnknownStatsUsedAsKey(builder);
-                builder.setRowCount(tableRowCount + deltaRowCount);
             }
-        } else {
+        }
+        // 1. no partition is pruned, or
+        // 2. fall back to table stats
+        if (useTableLevelStats) {
             // get table level stats
             for (SlotReference slot : visibleOutputSlots) {
                 ColumnStatistic cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, slot);

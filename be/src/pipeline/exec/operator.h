@@ -39,7 +39,6 @@
 #include "vec/runtime/vdata_stream_recvr.h"
 
 namespace doris {
-class DataSink;
 class RowDescriptor;
 class RuntimeState;
 class TDataSink;
@@ -82,7 +81,7 @@ struct LocalSinkStateInfo {
 
 class OperatorBase {
 public:
-    explicit OperatorBase() : _child_x(nullptr), _is_closed(false) {}
+    explicit OperatorBase() : _child(nullptr), _is_closed(false) {}
     virtual ~OperatorBase() = default;
 
     virtual bool is_sink() const { return false; }
@@ -98,7 +97,7 @@ public:
     [[nodiscard]] virtual Status close(RuntimeState* state);
 
     [[nodiscard]] virtual Status set_child(OperatorPtr child) {
-        _child_x = std::move(child);
+        _child = std::move(child);
         return Status::OK();
     }
 
@@ -108,7 +107,7 @@ public:
 
     virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); }
     [[nodiscard]] virtual bool require_data_distribution() const { return false; }
-    OperatorPtr child_x() { return _child_x; }
+    OperatorPtr child() { return _child; }
     [[nodiscard]] bool followed_by_shuffled_join() const { return _followed_by_shuffled_join; }
     void set_followed_by_shuffled_join(bool followed_by_shuffled_join) {
         _followed_by_shuffled_join = followed_by_shuffled_join;
@@ -116,7 +115,7 @@ public:
     [[nodiscard]] virtual bool require_shuffled_data_distribution() const { return false; }
 
 protected:
-    OperatorPtr _child_x = nullptr;
+    OperatorPtr _child = nullptr;
 
     bool _is_closed;
     bool _followed_by_shuffled_join = false;
@@ -645,15 +644,15 @@ public:
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual DataDistribution required_data_distribution() const {
-        return _child_x && _child_x->ignore_data_distribution() && !is_source()
+        return _child && _child->ignore_data_distribution() && !is_source()
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
                        : DataDistribution(ExchangeType::NOOP);
     }
     [[nodiscard]] virtual bool ignore_data_distribution() const {
-        return _child_x ? _child_x->ignore_data_distribution() : _ignore_data_distribution;
+        return _child ? _child->ignore_data_distribution() : _ignore_data_distribution;
     }
     [[nodiscard]] bool ignore_data_hash_distribution() const {
-        return _child_x ? _child_x->ignore_data_hash_distribution() : _ignore_data_distribution;
+        return _child ? _child->ignore_data_hash_distribution() : _ignore_data_distribution;
     }
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
     void set_ignore_data_distribution() { _ignore_data_distribution = true; }
@@ -708,7 +707,7 @@ public:
         return reinterpret_cast<const TARGET&>(*this);
     }
 
-    [[nodiscard]] OperatorPtr get_child() { return _child_x; }
+    [[nodiscard]] OperatorPtr get_child() { return _child; }
 
     [[nodiscard]] vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
     [[nodiscard]] virtual RowDescriptor& row_descriptor() { return _row_descriptor; }

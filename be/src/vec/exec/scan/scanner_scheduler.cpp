@@ -120,23 +120,23 @@ Status ScannerScheduler::init(ExecEnv* env) {
     return Status::OK();
 }
 
-void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
-                              std::shared_ptr<ScanTask> scan_task) {
+Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
+                                std::shared_ptr<ScanTask> scan_task) {
     scan_task->last_submit_time = GetCurrentTimeNanos();
     if (ctx->done()) {
-        return;
+        return Status::OK();
     }
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
         LOG(INFO) << "could not lock task execution context, query " << ctx->debug_string()
                   << " maybe finished";
-        return;
+        return Status::OK();
     }
 
     if (ctx->thread_token != nullptr) {
         std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
         if (scanner_delegate == nullptr) {
-            return;
+            return Status::OK();
         }
 
         scanner_delegate->_scanner->start_wait_worker_timer();
@@ -153,13 +153,12 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
         });
         if (!s.ok()) {
             scan_task->set_status(s);
-            ctx->append_block_to_queue(scan_task);
-            return;
+            return s;
         }
     } else {
         std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
         if (scanner_delegate == nullptr) {
-            return;
+            return Status::OK();
         }
 
         scanner_delegate->_scanner->start_wait_worker_timer();
@@ -187,14 +186,18 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
             return scan_sched->submit_scan_task(simple_scan_task);
         };
 
-        if (auto ret = sumbit_task(); !ret) {
-            scan_task->set_status(Status::InternalError(
-                    "Failed to submit scanner to scanner pool reason:" + std::string(ret.msg()) +
-                    "|type:" + std::to_string(type)));
-            ctx->append_block_to_queue(scan_task);
-            return;
+        Status submit_status = sumbit_task();
+        if (!submit_status.ok()) {
+            // User will see TooManyTasks error. It looks like a more reasonable error.
+            Status scan_task_status = Status::TooManyTasks(
+                    "Failed to submit scanner to scanner pool reason:" +
+                    std::string(submit_status.msg()) + "|type:" + std::to_string(type));
+            scan_task->set_status(scan_task_status);
+            return scan_task_status;
         }
     }
+
+    return Status::OK();
 }
 
 std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
