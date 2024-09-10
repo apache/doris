@@ -93,12 +93,9 @@ size_t PartitionedHashJoinSinkLocalState::revocable_mem_size(RuntimeState* state
             if (inner_sink_state_) {
                 auto* inner_sink_state =
                         assert_cast<HashJoinBuildSinkLocalState*>(inner_sink_state_);
-                LOG_EVERY_SECOND(INFO)
-                        << "inner sink mem usage: " << inner_sink_state->_build_side_mem_used;
                 return inner_sink_state->_build_side_mem_used;
             }
         }
-        LOG_EVERY_SECOND(INFO) << "inner sink mem usage zero";
         return 0;
     }
 
@@ -112,7 +109,6 @@ size_t PartitionedHashJoinSinkLocalState::revocable_mem_size(RuntimeState* state
             }
         }
     }
-    LOG_EVERY_SECOND(INFO) << "inner sink mem usage(mem_size): " << mem_size;
     return mem_size;
 }
 
@@ -158,9 +154,6 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
     auto spill_func = [build_block = std::move(build_block), state, this]() mutable {
         Defer defer {[&]() {
             memory_used_counter()->set((int64_t)revocable_mem_size(state));
-            auto memory_usage = memory_used_counter()->value();
-            LOG(INFO) << "hash join sink " << _parent->node_id() << " revoke_unpartitioned_block"
-                      << ", memory_usage: " << memory_usage;
         }};
         auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
         auto& partitioned_blocks = _shared_state->partitioned_build_blocks;
@@ -390,8 +383,6 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
     }
     Defer defer {[&]() {
         memory_used_counter()->set((int64_t)revocable_mem_size(state));
-        LOG(INFO) << "hash join sink " << _parent->node_id() << " partition_block"
-                  << ", memory_usage: " << memory_used_counter()->value();
     }};
     {
         /// TODO: DO NOT execute build exprs twice(when partition and building hash table)
@@ -434,7 +425,6 @@ void PartitionedHashJoinSinkLocalState::_spill_to_disk(
         auto block = partitioned_block->to_block();
         auto block_mem_usage = block.allocated_bytes();
         Defer defer {[&]() { memory_used_counter()->update(-block_mem_usage); }};
-        LOG_EVERY_N(INFO, 5) << "spill to disk, partition block mem usage: " << block_mem_usage;
         partitioned_block = vectorized::MutableBlock::create_unique(block.clone_empty());
         memory_used_counter()->update(partitioned_block->allocated_bytes());
         auto st = spilling_stream->spill_block(state(), block, false);
@@ -622,8 +612,6 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
         });
         Defer defer {[&]() {
             local_state.memory_used_counter()->set((int64_t)local_state.revocable_mem_size(state));
-            LOG(INFO) << "hash join sink " << node_id()
-                      << " sink, memory usage: " << local_state.memory_used_counter()->value();
         }};
         RETURN_IF_ERROR(_inner_sink_operator->sink(
                 local_state._shared_state->inner_runtime_state.get(), in_block, eos));
