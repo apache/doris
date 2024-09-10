@@ -117,6 +117,7 @@ class Config {
     public InetSocketAddress recycleServiceHttpInetSocketAddress
     public Integer parallel
     public Integer suiteParallel
+    public Integer dockerSuiteParallel
     public Integer actionParallel
     public Integer times
     public boolean withOutLoadData
@@ -467,6 +468,7 @@ class Config {
         config.forceGenerateOutputFile = cmd.hasOption(forceGenOutOpt)
         config.parallel = Integer.parseInt(cmd.getOptionValue(parallelOpt, "10"))
         config.suiteParallel = Integer.parseInt(cmd.getOptionValue(suiteParallelOpt, "10"))
+        config.dockerSuiteParallel = Integer.parseInt(cmd.getOptionValue(dockerSuiteParallelOpt, "1"))
         config.actionParallel = Integer.parseInt(cmd.getOptionValue(actionParallelOpt, "10"))
         config.times = Integer.parseInt(cmd.getOptionValue(timesOpt, "1"))
         config.randomOrder = cmd.hasOption(randomOrderOpt)
@@ -886,6 +888,11 @@ class Config {
         if (config.suiteParallel == null) {
             config.suiteParallel = 1
             log.info("Set suiteParallel to 1 because not specify.".toString())
+        }
+
+        if (config.dockerSuiteParallel == null) {
+            config.dockerSuiteParallel = 1
+            log.info("Set dockerSuiteParallel to 1 because not specify.".toString())
         }
 
         if (config.actionParallel == null) {
