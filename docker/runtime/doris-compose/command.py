@@ -302,15 +302,39 @@ class UpCommand(Command):
                             action=self._get_parser_bool_action(True),
                             help="Manager fe be via sql instead of http")
 
-        parser.add_argument("--no-be-metaservice-endpoint",
-                            default=False,
-                            action=self._get_parser_bool_action(True),
-                            help="Do not set BE meta service endpoint in conf. Default is False.")
+        if self._support_boolean_action():
+            parser.add_argument(
+                "--be-metaservice-endpoint",
+                default=True,
+                action=self._get_parser_bool_action(True),
+                help=
+                "Do not set BE meta service endpoint in conf. Default is False."
+            )
+        else:
+            parser.add_argument(
+                "--no-be-metaservice-endpoint",
+                dest='be-metaservice-endpoint',
+                default=True,
+                action=self._get_parser_bool_action(True),
+                help=
+                "Do not set BE meta service endpoint in conf. Default is False."
+            )
 
-        parser.add_argument("--no-be-cloud-instanceid",
-                            default=True,
-                            action=self._get_parser_bool_action(True),
-                            help="Do not set BE cloud instance ID in conf. Default is False.")
+        if self._support_boolean_action():
+            parser.add_argument(
+                "--be-cloud-instanceid",
+                default=True,
+                action=self._get_parser_bool_action(True),
+                help=
+                "Do not set BE cloud instance ID in conf. Default is False.")
+        else:
+            parser.add_argument(
+                "--no-be-cloud-instanceid",
+                dest='be-cloud-instanceid',
+                default=True,
+                action=self._get_parser_bool_action(True),
+                help=
+                "Do not set BE cloud instance ID in conf. Default is False.")
 
         parser.add_argument(
             "--fdb-version",
@@ -499,7 +523,8 @@ class UpCommand(Command):
                     "Not up cluster cause specific --no-start, related node num {}"
                     .format(related_node_num)))
         else:
-            LOG.info("Using SQL mode for node management ? {}".format(args.sql_mode_node_mgr));
+            LOG.info("Using SQL mode for node management ? {}".format(
+                args.sql_mode_node_mgr))
 
             # Wait for FE master to be elected
             LOG.info("Waiting for FE master to be elected...")
@@ -509,13 +534,14 @@ class UpCommand(Command):
                 for id in add_fe_ids:
                     fe_state = db_mgr.get_fe(id)
                     if fe_state is not None and fe_state.alive:
-                        break;
+                        break
                     LOG.info("there is no fe ready")
                 time.sleep(5)
 
             if cluster.is_cloud and args.sql_mode_node_mgr:
                 db_mgr = database.get_db_mgr(args.NAME, False)
-                master_fe_endpoint = CLUSTER.get_master_fe_endpoint(cluster.name)
+                master_fe_endpoint = CLUSTER.get_master_fe_endpoint(
+                    cluster.name)
                 # Add FEs except master_fe
                 for fe in cluster.get_all_nodes(CLUSTER.Node.TYPE_FE):
                     fe_endpoint = f"{fe.get_ip()}:{CLUSTER.FE_EDITLOG_PORT}"
@@ -524,7 +550,8 @@ class UpCommand(Command):
                             db_mgr.add_fe(fe_endpoint)
                             LOG.info(f"Added FE {fe_endpoint} successfully.")
                         except Exception as e:
-                            LOG.error(f"Failed to add FE {fe_endpoint}: {str(e)}")
+                            LOG.error(
+                                f"Failed to add FE {fe_endpoint}: {str(e)}")
 
                 # Add BEs
                 for be in cluster.get_all_nodes(CLUSTER.Node.TYPE_BE):
@@ -566,7 +593,6 @@ class UpCommand(Command):
                         raise Exception(err)
                     time.sleep(1)
 
-            
             LOG.info(
                 utils.render_green(
                     "Up cluster {} succ, related node num {}".format(
@@ -789,11 +815,7 @@ class ListNode(object):
             else:
                 pass
             result += [
-                query_port,
-                http_port,
-                node_path,
-                edit_log_port,
-                heartbeat_port
+                query_port, http_port, node_path, edit_log_port, heartbeat_port
             ]
         return result
 
@@ -943,6 +965,7 @@ cloudUniqueId= "{fe_cloud_unique_id}"
 
         print("\nWrite succ: " + regression_conf_custom)
 
+
 class ListCommand(Command):
 
     def add_parser(self, args_parsers):
@@ -998,8 +1021,7 @@ class ListCommand(Command):
                 if services is None:
                     return COMPOSE_BAD, {}
                 return COMPOSE_GOOD, {
-                    service:
-                    ComposeService(
+                    service: ComposeService(
                         service,
                         list(service_conf["networks"].values())[0]
                         ["ipv4_address"], service_conf["image"])
@@ -1152,11 +1174,12 @@ class ListCommand(Command):
 
         return self._handle_data(header, rows)
 
+
 class GetCloudIniCommand(Command):
 
     def add_parser(self, args_parsers):
-        parser = args_parsers.add_parser(
-            "get-cloud-ini", help="Get cloud.init")
+        parser = args_parsers.add_parser("get-cloud-ini",
+                                         help="Get cloud.init")
         parser.add_argument(
             "NAME",
             nargs="*",
@@ -1164,10 +1187,6 @@ class GetCloudIniCommand(Command):
             "Specify multiple clusters, if specific, show all their containers."
         )
         self._add_parser_output_json(parser)
-        parser.add_argument("--detail",
-                            default=False,
-                            action=self._get_parser_bool_action(True),
-                            help="Print more detail fields.")
 
     def _handle_data(self, header, datas):
         if utils.is_enable_log():
@@ -1183,9 +1202,7 @@ class GetCloudIniCommand(Command):
 
     def run(self, args):
 
-        header = [
-            "key", "value"
-        ]
+        header = ["key", "value"]
 
         rows = []
 
@@ -1197,6 +1214,7 @@ class GetCloudIniCommand(Command):
                     rows.append([key.strip(), value.strip()])
 
         return self._handle_data(header, rows)
+
 
 ALL_COMMANDS = [
     UpCommand("up"),

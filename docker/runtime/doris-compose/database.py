@@ -73,7 +73,7 @@ class DBManager(object):
         self._load_fe_states(query_ports)
         self._load_be_states()
 
-    def add_fe(self, fe_endpoint):        
+    def add_fe(self, fe_endpoint):
         try:
             sql = f"ALTER SYSTEM ADD FOLLOWER '{fe_endpoint}'"
             self._exec_query(sql)
@@ -162,8 +162,8 @@ class DBManager(object):
             time.sleep(5)
 
     def create_default_storage_vault(self, cloud_store_config):
-        try:            
-            # Create storage vault            
+        try:
+            # Create storage vault
             create_vault_sql = f"""
             CREATE STORAGE VAULT IF NOT EXISTS default_vault
             PROPERTIES (
@@ -195,7 +195,7 @@ class DBManager(object):
         for record in self._exec_query('''
             show frontends '''):
             # Unpack the record into individual columns
-            name, ip , edit_log_port, _, query_port, _, _, role, is_master, cluster_id, _, alive, _, _, last_heartbeat, _, err_msg, _, _ = record
+            name, ip, edit_log_port, _, query_port, _, _, role, is_master, cluster_id, _, alive, _, _, last_heartbeat, _, err_msg, _, _ = record
             is_master = utils.is_true(is_master)
             alive = utils.is_true(alive)
             id = CLUSTER.Node.get_id_from_ip(ip)
@@ -206,7 +206,9 @@ class DBManager(object):
             fe_states[id] = fe
             if is_master and alive and query_port:
                 alive_master_fe_port = query_port
-            LOG.info("record of show frontends, name {}, ip {}, alive {}, is_master {}, role {}".format(name, ip, alive, is_master, role))
+            LOG.info(
+                "record of show frontends, name {}, ip {}, alive {}, is_master {}, role {}"
+                .format(name, ip, alive, is_master, role))
 
         self.fe_states = fe_states
         if alive_master_fe_port and alive_master_fe_port != self.query_port:

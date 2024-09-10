@@ -38,8 +38,8 @@ class ClusterOptions {
     int beNum = 3
 
     Boolean sqlModeNodeMgr = false
-    Boolean noBeMetaServiceEndpoint = false
-    Boolean noBeCloudInstanceId = false
+    Boolean beMetaServiceEndpoint = false
+    Boolean beCloudInstanceId = false
 
     int waitTimeout = 180
 
@@ -316,16 +316,15 @@ class SuiteCluster {
             cmd += ['--fe-follower']
         }
 
-        cmd += ['--wait-timeout', String.valueOf(180)]
         if (options.sqlModeNodeMgr) {
             cmd += ['--sql-mode-node-mgr']
         }
-        if (options.noBeMetaServiceEndpoint) {
-            cmd += ['--no-be-metaservice-endpoint']
+        if (options.beMetaServiceEndpoint) {
+            cmd += ['--be-metaservice-endpoint']
         }
-        if (options.noBeCloudInstanceId) {
+        if (options.beCloudInstanceId) {
             
-            cmd += ['--no-be-cloud-instanceid']
+            cmd += ['--be-cloud-instanceid']
         }
 
         cmd += ['--wait-timeout', String.valueOf(options.waitTimeout)]

@@ -137,6 +137,7 @@ class NodeMeta(object):
     def __init__(self, image):
         self.image = image
 
+
 class Group(object):
 
     def __init__(self, node_type):
@@ -290,16 +291,27 @@ class Node(object):
         enable_coverage = self.cluster.coverage_dir
 
         envs = {
-            "MY_IP": self.get_ip(),
-            "MY_ID": self.id,
-            "MY_TYPE": self.node_type(),
-            "FE_QUERY_PORT": FE_QUERY_PORT,
-            "FE_EDITLOG_PORT": FE_EDITLOG_PORT,
-            "BE_HEARTBEAT_PORT": BE_HEARTBEAT_PORT,
-            "DORIS_HOME": os.path.join(self.docker_home_dir()),
-            "STOP_GRACE": 1 if enable_coverage else 0,
-            "IS_CLOUD": 1 if self.cluster.is_cloud else 0,
-            "SQL_MODE_NODE_MGR": 1 if hasattr(self.cluster, 'sql_mode_node_mgr') and self.cluster.sql_mode_node_mgr else 0
+            "MY_IP":
+            self.get_ip(),
+            "MY_ID":
+            self.id,
+            "MY_TYPE":
+            self.node_type(),
+            "FE_QUERY_PORT":
+            FE_QUERY_PORT,
+            "FE_EDITLOG_PORT":
+            FE_EDITLOG_PORT,
+            "BE_HEARTBEAT_PORT":
+            BE_HEARTBEAT_PORT,
+            "DORIS_HOME":
+            os.path.join(self.docker_home_dir()),
+            "STOP_GRACE":
+            1 if enable_coverage else 0,
+            "IS_CLOUD":
+            1 if self.cluster.is_cloud else 0,
+            "SQL_MODE_NODE_MGR":
+            1 if hasattr(self.cluster, 'sql_mode_node_mgr')
+            and self.cluster.sql_mode_node_mgr else 0
         }
 
         if self.cluster.is_cloud:
@@ -391,8 +403,7 @@ class FE(Node):
         if self.cluster.is_cloud:
             cfg += [
                 "meta_service_endpoint = {}".format(
-                    self.cluster.get_meta_server_addr()),
-                "",
+                    self.cluster.get_meta_server_addr()), "",
                 "# For regression-test",
                 "ignore_unsupported_properties_in_cloud_mode = true",
                 "merge_on_write_forced_to_false = true",
@@ -468,19 +479,19 @@ class BE(Node):
                 "deploy_mode = disaggregated",
             ]
 
-        if self.cluster.is_cloud and not self.cluster.no_be_metaservice_endpoint:
-            cfg += [
-                "meta_service_endpoint = {}".format(
-                    self.cluster.get_meta_server_addr()),
-            ]
-        if self.cluster.is_cloud and not self.cluster.no_be_cloud_instanceid:
-            cfg += [
-                "cloud_instance_id = " + self.cloud_instance_id(),
-            ]
-        if self.cluster.is_cloud and not self.cluster.sql_mode_node_mgr:
-            cfg += [
-                "cloud_unique_id = " + self.cloud_unique_id(),
-            ]
+            if not self.cluster.no_be_metaservice_endpoint:
+                cfg += [
+                    "meta_service_endpoint = {}".format(
+                        self.cluster.get_meta_server_addr()),
+                ]
+            if not self.cluster.no_be_cloud_instanceid:
+                cfg += [
+                    "cloud_instance_id = " + self.cloud_instance_id(),
+                ]
+            if not self.cluster.sql_mode_node_mgr:
+                cfg += [
+                    "cloud_unique_id = " + self.cloud_unique_id(),
+                ]
         return cfg
 
     def init_cluster_name(self):
@@ -678,6 +689,8 @@ class Cluster(object):
         self.no_be_metaservice_endpoint = no_be_metaservice_endpoint
         self.no_be_cloud_instanceid = no_be_cloud_instanceid
 
+        LOG.info("xxxxx cluster")
+
     @staticmethod
     def new(name, image, is_cloud, fe_config, be_config, ms_config,
             recycle_config, fe_follower, be_disks, be_cluster, reg_be,
@@ -694,8 +707,9 @@ class Cluster(object):
             cluster = Cluster(name, subnet, image, is_cloud, fe_config,
                               be_config, ms_config, recycle_config,
                               fe_follower, be_disks, be_cluster, reg_be,
-                              coverage_dir, cloud_store_config, sql_mode_node_mgr,
-                              be_metaservice_endpoint, be_cloud_instanceid)
+                              coverage_dir, cloud_store_config,
+                              sql_mode_node_mgr, be_metaservice_endpoint,
+                              be_cloud_instanceid)
             os.makedirs(cluster.get_path(), exist_ok=True)
             os.makedirs(get_status_path(name), exist_ok=True)
             cluster._save_meta()
