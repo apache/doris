@@ -116,6 +116,8 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
 
     sql "set enable_profile=false"
 
+    Thread.sleep(5)
+
     def wholeString = getProfileList()
     List profileData = new JsonSlurper().parseText(wholeString).data.rows
     String queryIdNoLimit1 = "";
