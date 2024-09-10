@@ -751,18 +751,7 @@ Status SegmentIterator::_extract_common_expr_columns(const vectorized::VExprSPtr
     return Status::OK();
 }
 
-bool SegmentIterator::_check_apply_by_inverted_index(ColumnId col_id) {
-    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
-        return false;
-    }
-    if (_inverted_index_iterators[col_id] == nullptr) {
-        //this column without inverted index
-        return false;
-    }
-    return true;
-}
-
-bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound) {
+bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
     if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
         return false;
     }
@@ -798,15 +787,11 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
 
     bool handle_by_fulltext = _column_has_fulltext_index(pred_column_id);
     if (handle_by_fulltext) {
-        // when predicate in compound condition which except leafNode of andNode,
-        // only can apply match query for fulltext index,
         // when predicate is leafNode of andNode,
-        // can apply 'match qeury' and 'equal query' and 'list query' for fulltext index.
-        return (pred_in_compound ? pred->type() == PredicateType::MATCH
-                                 : (pred->type() == PredicateType::MATCH ||
-                                    pred->type() == PredicateType::IS_NULL ||
-                                    pred->type() == PredicateType::IS_NOT_NULL ||
-                                    PredicateTypeTraits::is_equal_or_list(pred->type())));
+        // can apply 'match query' and 'equal query' and 'list query' for fulltext index.
+        return pred->type() == PredicateType::MATCH || pred->type() == PredicateType::IS_NULL ||
+               pred->type() == PredicateType::IS_NOT_NULL ||
+               PredicateTypeTraits::is_equal_or_list(pred->type());
     }
 
     return true;

@@ -546,14 +546,6 @@ public:
             //NOT support comparison predicate when parser is FULLTEXT for expr inverted index evaluate.
             return Status::OK();
         }
-        std::string column_name = data_type_with_name.first;
-        Field param_value;
-        arguments[0].column->get(0, param_value);
-        auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
-
-        std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
-        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
-                param_type, &param_value, query_param));
         segment_v2::InvertedIndexQueryType query_type;
         std::string_view name_view(name);
         if (name_view == NameEquals::name || name_view == NameNotEquals::name) {
@@ -570,6 +562,19 @@ public:
             return Status::InvalidArgument("invalid comparison op type {}", Name::name);
         }
 
+        if (segment_v2::is_range_query(query_type) &&
+            iter->get_inverted_index_reader_type() ==
+                    segment_v2::InvertedIndexReaderType::STRING_TYPE) {
+            // untokenized strings exceed ignore_above, they are written as null, causing range query errors
+            return Status::OK();
+        }
+        std::string column_name = data_type_with_name.first;
+        Field param_value;
+        arguments[0].column->get(0, param_value);
+        auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
+        std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
+        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
+                param_type, &param_value, query_param));
         std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                 param_type, &param_value, query_param));
@@ -585,7 +590,7 @@ public:
         bitmap_result = result;
         bitmap_result.mask_out_null();
 
-        if (name == "ne") {
+        if (name_view == NameNotEquals::name) {
             roaring::Roaring full_result;
             full_result.addRange(0, num_rows);
             bitmap_result.op_not(&full_result);
