@@ -22,6 +22,7 @@ suite("test_upgrade_downgrade_compatibility_inverted_index","p0,inverted_index,r
     def useTime = 0
 
     sql "SET enable_match_without_inverted_index = false"
+    sql "SET enable_common_expr_pushdown = true"
 
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
