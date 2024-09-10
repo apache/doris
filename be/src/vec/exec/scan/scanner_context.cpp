@@ -93,7 +93,7 @@ Status ScannerContext::init(bool ignore_data_distribution) {
 
     int num_parallel_instances = _state->query_parallel_instance_num();
 
-    // NOTE: When ignore_data_distribution is true or if_file_scan is false, the parallelism
+    // NOTE: When ignore_data_distribution is true, the parallelism
     // of the scan operator is regarded as 1 (actually maybe not).
     // That will make the number of scan task can be submitted to the scheduler
     // in a vary large value. This logicl is kept from the older implementation.
@@ -106,7 +106,7 @@ Status ScannerContext::init(bool ignore_data_distribution) {
     // scan_queue_mem_limit on FE is 100MB by default, on backend we will make sure its actual value
     // is larger than 10MB.
     _max_bytes_in_queue =
-            std::max(_state->scan_queue_mem_limit(), (int64_t)1024 * 1024 * 1024 * 10);
+            std::max(_state->scan_queue_mem_limit(), (int64_t)1024 * 1024 * 10);
 
     // Provide more memory for wide tables, increase proportionally by multiples of 300
     _max_bytes_in_queue *= _output_tuple_desc->slots().size() / 300 + 1;
@@ -132,7 +132,7 @@ Status ScannerContext::init(bool ignore_data_distribution) {
     _max_thread_num =
             _state->num_scanner_threads() > 0
                     ? _state->num_scanner_threads()
-                    : config::doris_scanner_thread_pool_thread_num / num_parallel_instances;
+                    : 2 * (config::doris_scanner_thread_pool_thread_num / num_parallel_instances);
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
     // In some situation, there are not too many big tablets involed, so we can reduce the thread number.
     // NOTE: when _all_scanners.size is zero, the _max_thread_num will be 0.
