@@ -757,6 +757,10 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
             _rowid_result_for_index[pred_result_sign].first) {
             auto apply_result = _rowid_result_for_index[pred_result_sign].second;
             _pred_except_leafnode_of_andnode_evaluate_result.push_back(apply_result);
+        } else {
+            return Status::InvalidArgument(
+                    "_execute_predicates_except_leafnode_of_andnode has no result for {}",
+                    result_sign);
         }
     } else if (node_type == TExprNodeType::COMPOUND_PRED) {
         auto function_name = expr->fn().name.function_name;
