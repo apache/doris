@@ -93,3 +93,18 @@
 7	\N	true
 8	\N	true
 
+-- !is_nan_1 --
+false	false
+
+-- !is_nan_2 --
+false	false
+
+-- !is_nan_3 --
+false	false
+
+-- !is_nan_4 --
+\N	true
+
+-- !is_nan_5 --
+true	false
+

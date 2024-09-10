@@ -82,4 +82,20 @@ suite("test_math_unary_alway_nullable") {
         select rowid, dsqrt(val), dsqrt(val) is null from test_math_unary_alway_nullable order by rowid;
     """
 
+    qt_is_nan_1 """
+        select is_nan(1.1), is_nan(1.1) is null;
+    """
+    qt_is_nan_2 """
+        select is_nan(-1.1), is_nan(-1.1) is null;
+    """
+    qt_is_nan_3 """
+        select is_nan(0), is_nan(0) is null;
+    """
+    qt_is_nan_4 """
+        select is_nan(NULL), is_nan(NULL) is null;
+    """
+    qt_is_nan_5 """
+        select is_nan(nan()), is_nan(nan()) is null;
+    """
+
 }

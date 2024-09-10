@@ -409,4 +409,13 @@ suite("test_string_function", "arrow_flight_sql") {
         sql("""select/*+SET_VAR(enable_fold_constant_by_be=true)*/ random(10) from numbers("number" = "10");""")
         contains "final projections: random(10)"
     }
+
+    qt_translate1 """ SELECT translate('abcd', '', ''); """
+    qt_translate2 """ SELECT translate('abcda', 'a', 'z'); """
+    qt_translate3 """ SELECT translate('abcd', 'ac', 'z'); """
+    qt_translate4 """ SELECT translate('abcd', 'aac', 'zq'); """
+    qt_translate5 """ SELECT translate('abcd', 'aac', 'zqx'); """
+
+    qt_url_encode """ SELECT url_encode('https://doris.apache.org/docs/dev/gettingStarted/quick-start'); """
+    qt_url_decode """ SELECT url_decode('https%3A%2F%2Fdoris.apache.org%2Fdocs%2Fdev%2FgettingStarted%2Fquick-start'); """
 }
