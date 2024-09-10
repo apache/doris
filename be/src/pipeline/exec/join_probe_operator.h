@@ -85,12 +85,12 @@ public:
     }
 
     Status set_child(OperatorPtr child) override {
-        if (OperatorX<LocalStateType>::_child_x && _build_side_child == nullptr) {
+        if (OperatorX<LocalStateType>::_child && _build_side_child == nullptr) {
             // when there already (probe) child, others is build child.
             set_build_side_child(child);
         } else {
             // first child which is probe side is in this pipeline
-            OperatorX<LocalStateType>::_child_x = std::move(child);
+            OperatorX<LocalStateType>::_child = std::move(child);
         }
         return Status::OK();
     }
