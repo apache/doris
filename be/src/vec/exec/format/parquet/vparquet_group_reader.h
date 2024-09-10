@@ -49,6 +49,7 @@ struct IOContext;
 namespace vectorized {
 class Block;
 class FieldDescriptor;
+class YieldSignal;
 } // namespace vectorized
 } // namespace doris
 namespace tparquet {
@@ -99,6 +100,7 @@ public:
         std::unordered_map<std::string, VExprContextSPtr> missing_columns;
         // should turn off filtering by page index, lazy read and dict filter if having complex type
         bool has_complex_type = false;
+        const YieldSignal* yield_signal = nullptr;
     };
 
     /**

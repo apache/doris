@@ -28,6 +28,7 @@
 namespace doris::vectorized {
 
 class Block;
+class YieldSignal;
 // This a reader interface for all file readers.
 // A GenericReader is responsible for reading a file and return
 // a set of blocks with specified schema,
@@ -37,6 +38,10 @@ public:
     void set_push_down_agg_type(TPushAggOp::type push_down_agg_type) {
         _push_down_agg_type = push_down_agg_type;
     }
+
+    const YieldSignal* yield_signal() const { return _yield_signal; }
+
+    void set_yield_signal(const YieldSignal* yield_signal) { _yield_signal = yield_signal; }
 
     virtual Status get_next_block(Block* block, size_t* read_rows, bool* eof) = 0;
 
@@ -73,6 +78,7 @@ protected:
     /// Whether the underlying FileReader has filled the partition&missing columns
     bool _fill_all_columns = false;
     TPushAggOp::type _push_down_agg_type;
+    const YieldSignal* _yield_signal;
 };
 
 } // namespace doris::vectorized

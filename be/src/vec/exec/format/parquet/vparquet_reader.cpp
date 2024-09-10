@@ -658,6 +658,7 @@ Status ParquetReader::_next_row_group_reader() {
                                               _profile, _file_reader, io_ranges)
                                     : _file_reader;
     }
+    _lazy_read_ctx.yield_signal = _yield_signal;
     _current_group_reader.reset(new RowGroupReader(
             group_file_reader, _read_columns, row_group_index.row_group_id, row_group, _ctz,
             _io_ctx, position_delete_ctx, _lazy_read_ctx, _state));
