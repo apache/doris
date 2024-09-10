@@ -136,7 +136,6 @@ public class MTMVTask extends AbstractTask {
     private MTMV mtmv;
     private MTMVRelation relation;
     private StmtExecutor executor;
-    private UpdateMvByPartitionCommand command;
     private Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots;
 
     public MTMVTask() {
@@ -222,7 +221,7 @@ public class MTMVTask extends AbstractTask {
         TUniqueId queryId = generateQueryId();
         lastQueryId = DebugUtil.printId(queryId);
         // if SELF_MANAGE mv, only have default partition,  will not have partitionItem, so we give empty set
-        command = UpdateMvByPartitionCommand
+        UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
                 .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
                         ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey);
         executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
@@ -258,17 +257,8 @@ public class MTMVTask extends AbstractTask {
     @Override
     protected synchronized void executeCancelLogic() {
         LOG.info("mtmv task cancel, taskId: {}", super.getTaskId());
-        // If the be scheduling has not been triggered yet, cancel the scheduling first
-        if (command != null) {
-            command.cancel();
-        }
-        // Cancel the ongoing scheduling
         if (executor != null) {
             executor.cancel();
-        }
-        // Wait for the command to run or cancel completion
-        if (command != null) {
-            command.waitNotRunning();
         }
         after();
     }
@@ -416,9 +406,6 @@ public class MTMVTask extends AbstractTask {
         }
         if (null != partitionSnapshots) {
             partitionSnapshots = null;
-        }
-        if (null != command) {
-            command = null;
         }
     }
 

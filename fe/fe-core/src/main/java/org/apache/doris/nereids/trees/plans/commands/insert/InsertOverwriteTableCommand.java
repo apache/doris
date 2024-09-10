@@ -176,32 +176,35 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             } else {
                 List<String> tempPartitionNames = InsertOverwriteUtil.generateTempPartitionNames(partitionNames);
                 if (isCancelled) {
-                    LOG.info("insert overwrite isCancelled before registerTask");
+                    LOG.info("insert overwrite isCancelled before registerTask, queryId: {}", ctx.getQueryIdentifier());
                     return;
                 }
                 taskId = insertOverwriteManager
                         .registerTask(targetTable.getDatabase().getId(), targetTable.getId(), tempPartitionNames);
                 if (isCancelled) {
-                    LOG.info("insert overwrite isCancelled before addTempPartitions");
+                    LOG.info("insert overwrite isCancelled before addTempPartitions, queryId: {}",
+                            ctx.getQueryIdentifier());
                     // not need deal temp partition
                     insertOverwriteManager.taskSuccess(taskId);
                     return;
                 }
                 InsertOverwriteUtil.addTempPartitions(targetTable, partitionNames, tempPartitionNames);
                 if (isCancelled) {
-                    LOG.info("insert overwrite isCancelled before insertInto");
+                    LOG.info("insert overwrite isCancelled before insertInto, queryId: {}", ctx.getQueryIdentifier());
                     insertOverwriteManager.taskFail(taskId);
                     return;
                 }
                 insertInto(ctx, executor, tempPartitionNames);
                 if (isCancelled) {
-                    LOG.info("insert overwrite isCancelled before replacePartition");
+                    LOG.info("insert overwrite isCancelled before replacePartition, queryId: {}",
+                            ctx.getQueryIdentifier());
                     insertOverwriteManager.taskFail(taskId);
                     return;
                 }
                 InsertOverwriteUtil.replacePartition(targetTable, partitionNames, tempPartitionNames);
                 if (isCancelled) {
-                    LOG.info("insert overwrite isCancelled before taskSuccess, do nothing");
+                    LOG.info("insert overwrite isCancelled before taskSuccess, do nothing, queryId: {}",
+                            ctx.getQueryIdentifier());
                 }
                 insertOverwriteManager.taskSuccess(taskId);
             }
