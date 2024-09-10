@@ -525,15 +525,15 @@ Status PartitionedHashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeSt
 }
 
 Status PartitionedHashJoinProbeOperatorX::open(RuntimeState* state) {
-    // to avoid open _child_x twice
-    auto child_x = std::move(_child_x);
+    // to avoid open _child twice
+    auto child = std::move(_child);
     RETURN_IF_ERROR(JoinProbeOperatorX::open(state));
-    RETURN_IF_ERROR(_inner_probe_operator->set_child(child_x));
+    RETURN_IF_ERROR(_inner_probe_operator->set_child(child));
     DCHECK(_build_side_child != nullptr);
     _inner_probe_operator->set_build_side_child(_build_side_child);
     RETURN_IF_ERROR(_inner_probe_operator->open(state));
-    _child_x = std::move(child_x);
-    RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->row_desc()));
+    _child = std::move(child);
+    RETURN_IF_ERROR(_partitioner->prepare(state, _child->row_desc()));
     RETURN_IF_ERROR(_partitioner->open(state));
     return Status::OK();
 }
@@ -820,8 +820,8 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
             return _revoke_memory(state);
         }
 
-        RETURN_IF_ERROR(_child_x->get_block_after_projects(state, local_state._child_block.get(),
-                                                           &local_state._child_eos));
+        RETURN_IF_ERROR(_child->get_block_after_projects(state, local_state._child_block.get(),
+                                                         &local_state._child_eos));
 
         if (need_to_spill && local_state._child_eos) {
             RETURN_IF_ERROR(local_state.finish_spilling(0));
