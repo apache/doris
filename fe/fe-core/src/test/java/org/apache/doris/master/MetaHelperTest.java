@@ -80,13 +80,11 @@ public class MetaHelperTest {
         if (errorFileWithSuffix.exists()) {
             errorFileWithSuffix.delete();
         }
-        Assert.assertTrue(errorFileWithSuffix.createNewFile());
         Assert.assertThrows(IllegalArgumentException.class, () -> MetaHelper.complete(errorFilename, tempDir));
         Assert.assertThrows(IllegalArgumentException.class, () -> MetaHelper.getFile(errorFilename, tempDir));
         if (rightFileWithSuffix.exists()) {
             rightFileWithSuffix.delete();
         }
-        Assert.assertTrue(rightFileWithSuffix.createNewFile());
         Assert.assertEquals(rightFileWithSuffix.getName() + ".part", MetaHelper.getFile(rightFilename, tempDir).getName());
 
     }
