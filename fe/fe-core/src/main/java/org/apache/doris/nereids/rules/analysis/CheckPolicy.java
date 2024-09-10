@@ -27,8 +27,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy.RelatedPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -57,11 +60,12 @@ public class CheckPolicy implements AnalysisRuleFactory {
                                 upperFilter = (LogicalFilter) child;
                                 child = child.child(0);
                             }
-                            if (!(child instanceof LogicalRelation)
+                            if (!(child instanceof LogicalRelation || isView(child))
                                     || ctx.connectContext.getSessionVariable().isPlayNereidsDump()) {
                                 return ctx.root.child();
                             }
-                            LogicalRelation relation = (LogicalRelation) child;
+                            LogicalPlan relation = child instanceof LogicalSubQueryAlias ? (LogicalPlan) child.child(0)
+                                    : (LogicalPlan) child;
                             Set<Expression> combineFilter = new LinkedHashSet<>();
 
                             // replace incremental params as AND expression
@@ -75,7 +79,7 @@ public class CheckPolicy implements AnalysisRuleFactory {
 
                             RelatedPolicy relatedPolicy = checkPolicy.findPolicy(relation, ctx.cascadesContext);
                             relatedPolicy.rowPolicyFilter.ifPresent(expression -> combineFilter.addAll(
-                                            ExpressionUtils.extractConjunctionToSet(expression)));
+                                    ExpressionUtils.extractConjunctionToSet(expression)));
                             Plan result = relation;
                             if (upperFilter != null) {
                                 combineFilter.addAll(upperFilter.getConjuncts());
@@ -90,5 +94,17 @@ public class CheckPolicy implements AnalysisRuleFactory {
                         })
                 )
         );
+    }
+
+    // logicalView() or logicalSubQueryAlias(logicalView())
+    private boolean isView(Plan plan) {
+        if (plan instanceof LogicalView) {
+            return true;
+        }
+        if (plan instanceof LogicalSubQueryAlias && plan.children().size() > 0 && plan.child(
+                0) instanceof LogicalView) {
+            return true;
+        }
+        return false;
     }
 }
