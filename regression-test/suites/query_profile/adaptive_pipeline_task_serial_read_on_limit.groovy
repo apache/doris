@@ -165,7 +165,7 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
     }
     assertTrue(profileWithLimit1.contains("- MaxScannerThreadNum: 1"))
 
-    if (!difyTo20.contains("- MaxScannerThreadNum: 1")) {
+    if (!profileModifyTo20.contains("- MaxScannerThreadNum: 1")) {
         logger.info("profileModifyTo20:\n{}", profileModifyTo20)
     }
     assertTrue(profileModifyTo20.contains("- MaxScannerThreadNum: 1"))
