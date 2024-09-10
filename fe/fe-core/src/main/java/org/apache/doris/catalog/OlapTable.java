@@ -1396,17 +1396,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
     @Override
     public long fetchRowCount() {
-        return getRowCountForIndex(baseIndexId, false);
+        long rowCount = 0;
+        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
+            rowCount += entry.getValue().getBaseIndex().getRowCount();
+        }
+        return rowCount;
     }
 
-    public long getRowCountForIndex(long indexId, boolean strict) {
+    public long getRowCountForIndex(long indexId) {
         long rowCount = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             MaterializedIndex index = entry.getValue().getIndex(indexId);
-            if (strict && !index.getRowCountReported()) {
-                return -1;
-            }
-            rowCount += (index == null || index.getRowCount() == -1) ? 0 : index.getRowCount();
+            rowCount += index == null ? 0 : index.getRowCount();
         }
         return rowCount;
     }

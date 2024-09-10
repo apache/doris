@@ -2520,12 +2520,19 @@ public class ShowExecutor {
             if (tableStats == null) {
                 resultSet = showTableStatsStmt.constructEmptyResultSet();
             } else {
-                resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
+                resultSet = showTableStatsStmt.constructResultSet(tableStats);
             }
             return;
         }
         TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
-        resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
+        /*
+           tableStats == null means it's not analyzed, in this case show the estimated row count.
+         */
+        if (tableStats == null) {
+            resultSet = showTableStatsStmt.constructResultSet(tableIf.getCachedRowCount());
+        } else {
+            resultSet = showTableStatsStmt.constructResultSet(tableStats);
+        }
     }
 
     private void handleShowColumnStats() throws AnalysisException {

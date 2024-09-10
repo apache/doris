@@ -640,7 +640,7 @@ public class AnalysisManager implements Writable {
         if (tableStats == null) {
             return;
         }
-        invalidateLocalStats(catalogId, dbId, tblId, dropStatsStmt.isAllColumns() ? null : cols, tableStats);
+        invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats);
         // Drop stats ddl is master only operation.
         invalidateRemoteStats(catalogId, dbId, tblId, cols, dropStatsStmt.isAllColumns());
         StatisticsRepository.dropStatisticsByColNames(catalogId, dbId, tblId, cols);
@@ -655,7 +655,7 @@ public class AnalysisManager implements Writable {
         long dbId = table.getDatabase().getId();
         long tableId = table.getId();
         Set<String> cols = table.getSchemaAllIndexes(false).stream().map(Column::getName).collect(Collectors.toSet());
-        invalidateLocalStats(catalogId, dbId, tableId, null, tableStats);
+        invalidateLocalStats(catalogId, dbId, tableId, cols, tableStats);
         // Drop stats ddl is master only operation.
         invalidateRemoteStats(catalogId, dbId, tableId, cols, true);
         StatisticsRepository.dropStatisticsByColNames(catalogId, dbId, table.getId(), cols);
@@ -717,8 +717,6 @@ public class AnalysisManager implements Writable {
         // To remove stale column name that is changed before.
         if (allColumn) {
             tableStats.removeAllColumn();
-            tableStats.clearIndexesRowCount();
-            removeTableStats(tableId);
         }
         tableStats.updatedTime = 0;
         tableStats.userInjected = false;
