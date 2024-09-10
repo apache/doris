@@ -317,6 +317,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatchAny
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiSearchAllPositions;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash332;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NgramSearch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NotNullOrEmpty;
@@ -1632,6 +1633,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitXxHash64(XxHash64 xxHash64, C context) {
         return visitScalarFunction(xxHash64, context);
+    }
+
+    default R visitNan(Nan nan, C context) {
+        return visitScalarFunction(nan, context);
     }
 
     default R visitNegative(Negative negative, C context) {

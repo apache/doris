@@ -110,6 +110,12 @@ struct PiImpl {
 };
 using FunctionPi = FunctionMathConstFloat64<PiImpl>;
 
+struct NanImpl {
+    static constexpr auto name = "nan";
+    static constexpr double value = NAN;
+};
+using FunctionNan = FunctionMathConstFloat64<NanImpl>;
+
 struct ExpName {
     static constexpr auto name = "exp";
 };
@@ -420,6 +426,7 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRadians>();
     factory.register_function<FunctionDegrees>();
     factory.register_function<FunctionBin>();
+    factory.register_function<FunctionNan>();
     factory.register_function<FunctionIsNan>();
 }
 } // namespace doris::vectorized
