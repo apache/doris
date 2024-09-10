@@ -111,7 +111,7 @@ private:
     vectorized::VExprContextSPtrs _child_exprs;
     const bool _is_colocate;
     const std::vector<TExpr> _partition_exprs;
-    using OperatorBase::_child_x;
+    using OperatorBase::_child;
 };
 
 } // namespace pipeline
