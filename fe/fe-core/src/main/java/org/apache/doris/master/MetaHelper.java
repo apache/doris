@@ -18,6 +18,7 @@
 package org.apache.doris.master;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.httpv2.entity.ResponseBody;
@@ -46,7 +47,7 @@ public class MetaHelper {
     public static final String X_IMAGE_MD5 = "X-Image-Md5";
     private static final int BUFFER_BYTES = 8 * 1024;
     private static final int CHECKPOINT_LIMIT_BYTES = 30 * 1024 * 1024;
-    private static final String VALID_FILENAME_REGEX =  "^image\\.\\d+(\\.part)?$";
+    private static final String VALID_FILENAME_REGEX = "^image\\.\\d+(\\.part)?$";
 
 
     public static File getMasterImageDir() {
@@ -58,14 +59,10 @@ public class MetaHelper {
         return CHECKPOINT_LIMIT_BYTES;
     }
 
-    // rename the .PART_SUFFIX file to filename
-    public static File complete(String filename, File dir) throws IOException {
-        // Validate that the filename does not contain illegal path elements
-        checkIsValidFileName(filename);
-
-        File file = new File(dir, filename + MetaHelper.PART_SUFFIX); // Original file with a specific suffix
-        File newFile = new File(dir, filename); // Target file without the suffix
-
+    private static void completeCheck(File dir, File file, File newFile) throws IOException {
+        if (!Config.meta_helper_security_mode) {
+            return;
+        }
         String dirPath = dir.getCanonicalPath(); // Get the canonical path of the directory
         String filePath = file.getCanonicalPath(); // Get the canonical path of the original file
         String newFilePath = newFile.getCanonicalPath(); // Get the canonical path of the new file
@@ -80,6 +77,17 @@ public class MetaHelper {
             throw new IOException("Source file does not exist or is not a valid file.");
         }
 
+    }
+
+    // rename the .PART_SUFFIX file to filename
+    public static File complete(String filename, File dir) throws IOException {
+        // Validate that the filename does not contain illegal path elements
+        checkIsValidFileName(filename);
+
+        File file = new File(dir, filename + MetaHelper.PART_SUFFIX); // Original file with a specific suffix
+        File newFile = new File(dir, filename); // Target file without the suffix
+
+        completeCheck(dir, file, newFile);
         // Attempt to rename the file. If it fails, throw an exception
         if (!file.renameTo(newFile)) {
             throw new IOException("Complete file " + filename + " failed");
@@ -91,22 +99,36 @@ public class MetaHelper {
     public static File getFile(String filename, File dir) throws IOException {
         checkIsValidFileName(filename);
         File file = new File(dir, filename + MetaHelper.PART_SUFFIX);
+        checkFile(dir, file);
+        return file;
+    }
+
+    private static void checkFile(File dir, File file) throws IOException {
+        if (!Config.meta_helper_security_mode) {
+            return;
+        }
         String dirPath = dir.getCanonicalPath();
         String filePath = file.getCanonicalPath();
 
         if (!filePath.startsWith(dirPath)) {
             throw new SecurityException("File path traversal attempt detected.");
         }
-        return file;
     }
 
+
     private static void checkIsValidFileName(String filename) {
+        if (!Config.meta_helper_security_mode) {
+            return;
+        }
         if (!filename.matches(VALID_FILENAME_REGEX)) {
             throw new IllegalArgumentException("Invalid filename");
         }
     }
 
     private static void checkFile(File file) throws IOException {
+        if (!Config.meta_helper_security_mode) {
+            return;
+        }
         if (!file.getAbsolutePath().startsWith(file.getCanonicalFile().getParent())) {
             throw new IllegalArgumentException("Invalid file path");
         }
@@ -175,7 +197,7 @@ public class MetaHelper {
             if (out != null) {
                 out.close();
             }
-            if (!md5Matched && file.exists()) {
+            if (!md5Matched && file.exists() & Config.meta_helper_security_mode) {
                 file.delete();
             }
         }
