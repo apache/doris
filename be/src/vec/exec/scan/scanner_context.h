@@ -116,7 +116,7 @@ public:
         }
         block.reset();
     }
-    Status init(bool ignore_data_distribution, bool is_file_scan);
+    Status init(bool ignore_data_distribution);
 
     vectorized::BlockUPtr get_free_block(bool force);
     void return_free_block(vectorized::BlockUPtr block);

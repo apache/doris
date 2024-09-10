@@ -69,7 +69,7 @@ ScannerContext::ScannerContext(
 }
 
 // After init function call, should not access _parent
-Status ScannerContext::init(bool ignore_data_distribution, bool is_file_scan) {
+Status ScannerContext::init(bool ignore_data_distribution) {
     _scanner_profile = _local_state->_scanner_profile;
     _scanner_sched_counter = _local_state->_scanner_sched_counter;
     _newly_create_free_blocks_num = _local_state->_newly_create_free_blocks_num;
@@ -98,15 +98,15 @@ Status ScannerContext::init(bool ignore_data_distribution, bool is_file_scan) {
     // That will make the number of scan task can be submitted to the scheduler
     // in a vary large value. This logicl is kept from the older implementation.
     // https://github.com/apache/doris/pull/28266
-    // https://github.com/apache/doris/pull/33223
-    if (ignore_data_distribution || !is_file_scan) {
+    if (ignore_data_distribution) {
         num_parallel_instances = 1;
     }
 
-    // The caculation seems incorrect. When _ignore_data_distribution is true, num_parallel_instances will be 1.
-    // But actually we will have C*C scan tasks submited to the scheduler.
+    // _max_bytes_in_queue controls the maximum memory that can be used by a single scan instance.
+    // scan_queue_mem_limit on FE is 100MB by default, on backend we will make sure its actual value
+    // is larger than 10MB.
     _max_bytes_in_queue =
-            std::max(_state->scan_queue_mem_limit(), (int64_t)1024) * num_parallel_instances;
+            std::max(_state->scan_queue_mem_limit(), (int64_t)1024 * 1024 * 1024 * 10);
 
     // Provide more memory for wide tables, increase proportionally by multiples of 300
     _max_bytes_in_queue *= _output_tuple_desc->slots().size() / 300 + 1;

@@ -117,8 +117,7 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     RETURN_IF_ERROR(status);
     if (_scanner_ctx) {
         DCHECK(!_eos && _num_scanners->value() > 0);
-        RETURN_IF_ERROR(
-                _scanner_ctx->init(p.ignore_data_distribution(), p.is_file_scan_operator()));
+        RETURN_IF_ERROR(_scanner_ctx->init(p.ignore_data_distribution()));
     }
     _opened = true;
     return status;
