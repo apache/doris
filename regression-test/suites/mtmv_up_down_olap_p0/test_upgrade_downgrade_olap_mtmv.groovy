@@ -15,25 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands.info;
-
-/**
- * Type of DML Command.
- * For Unique Key table, we need to process some
- * hidden columns in different way for different DML type.
- */
-public enum DMLCommandType {
-    // Not a DML command
-    NONE,
-    // for INSERT INTO or INSERT INTO SELECT
-    INSERT,
-    // for group_commit tvf
-    GROUP_COMMIT,
-    // for UPDATE
-    UPDATE,
-    // for DELETE
-    DELETE,
-    // for all other load jobs, including Stream Load, Broker Load, S3 Load
-    // Routine Load etc.
-    LOAD
+suite("test_upgrade_downgrade_olap_mtmv","p0,mtmv,restart_fe") {
+    String suiteName = "mtmv_up_down_olap"
+    String dbName = context.config.getDbNameByFile(context.file)
+    String mvName = "${suiteName}_mtmv"
+    String tableName = "${suiteName}_table"
+    // test data is normal
+    order_qt_refresh_init "SELECT * FROM ${mvName}"
+    // test is sync
+    order_qt_mtmv_sync "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${mvName}'"
+     sql """
+            REFRESH MATERIALIZED VIEW ${mvName} complete
+        """
+    // test can refresh success
+    waitingMTMVTaskFinishedByMvName(mvName)
 }
