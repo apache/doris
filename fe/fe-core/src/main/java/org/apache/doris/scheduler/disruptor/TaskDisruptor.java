@@ -21,8 +21,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.scheduler.constants.TaskType;
 
-import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.EventTranslatorThreeArg;
+import com.lmax.disruptor.LiteTimeoutBlockingWaitStrategy;
 import com.lmax.disruptor.TimeoutException;
 import com.lmax.disruptor.WorkHandler;
 import com.lmax.disruptor.dsl.Disruptor;
@@ -66,15 +66,15 @@ public class TaskDisruptor implements Closeable {
      */
     private static final EventTranslatorThreeArg<TaskEvent, Long, Long, TaskType> TRANSLATOR
             = (event, sequence, jobId, taskId, taskType) -> {
-                event.setId(jobId);
-                event.setTaskId(taskId);
-                event.setTaskType(taskType);
-            };
+        event.setId(jobId);
+        event.setTaskId(taskId);
+        event.setTaskType(taskType);
+    };
 
     public void start() {
         CustomThreadFactory exportTaskThreadFactory = new CustomThreadFactory("export-task-consumer");
         disruptor = new Disruptor<>(TaskEvent.FACTORY, DEFAULT_RING_BUFFER_SIZE, exportTaskThreadFactory,
-                ProducerType.SINGLE, new BlockingWaitStrategy());
+                ProducerType.SINGLE, new LiteTimeoutBlockingWaitStrategy(10, TimeUnit.MILLISECONDS));
         WorkHandler<TaskEvent>[] workers = new TaskHandler[consumerThreadCount];
         for (int i = 0; i < consumerThreadCount; i++) {
             workers[i] = new TaskHandler();
