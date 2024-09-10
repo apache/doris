@@ -41,6 +41,7 @@
 #include "util/mem_info.h"
 #include "util/runtime_profile.h"
 #include "util/uid_util.h"
+#include "vec/spill/spill_stream.h"
 
 namespace doris {
 class RuntimeState;
@@ -550,7 +551,9 @@ size_t PipelineTask::get_revocable_size() const {
 }
 
 Status PipelineTask::revoke_memory() {
-    RETURN_IF_ERROR(_sink->revoke_memory(_state));
+    if (_sink->revocable_mem_size(_state) >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+        RETURN_IF_ERROR(_sink->revoke_memory(_state));
+    }
     return _root->revoke_memory(_state);
 }
 
