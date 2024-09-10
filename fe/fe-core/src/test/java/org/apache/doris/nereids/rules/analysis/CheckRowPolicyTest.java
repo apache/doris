@@ -127,16 +127,15 @@ public class CheckRowPolicyTest extends TestWithFeService {
         connectContext.getState().setIsQuery(true);
         Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
                         ImmutableList.of(tableNameRanddomDist)), connectContext, new BindRelation());
-        Plan relation = plan.child(0);
         LogicalCheckPolicy checkPolicy = new LogicalCheckPolicy(plan);
 
         useUser("root");
-        plan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy());
-        Assertions.assertEquals(plan, relation);
+        Plan rewrittenPlan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy());
+        Assertions.assertEquals(plan, rewrittenPlan);
 
         useUser("notFound");
-        plan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy());
-        Assertions.assertEquals(plan, relation);
+        rewrittenPlan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy());
+        Assertions.assertEquals(plan, rewrittenPlan);
     }
 
     @Test
@@ -155,10 +154,9 @@ public class CheckRowPolicyTest extends TestWithFeService {
         connectContext.getState().setIsQuery(true);
         Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
                 ImmutableList.of(tableNameRanddomDist)), connectContext, new BindRelation());
-        Plan relation = plan.child(0);
-        LogicalCheckPolicy checkPolicy = new LogicalCheckPolicy(relation);
-        plan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy());
-        Assertions.assertEquals(plan, relation);
+        LogicalCheckPolicy checkPolicy = new LogicalCheckPolicy(plan);
+        Plan rewrittenPlan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy());
+        Assertions.assertEquals(plan, rewrittenPlan);
     }
 
     @Test
@@ -195,8 +193,8 @@ public class CheckRowPolicyTest extends TestWithFeService {
         connectContext.getState().setIsQuery(true);
         Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
                 ImmutableList.of(tableNameRanddomDist)), connectContext, new BindRelation());
-        Plan relation = plan.child(0);
-        LogicalCheckPolicy checkPolicy = new LogicalCheckPolicy(relation);
+
+        LogicalCheckPolicy checkPolicy = new LogicalCheckPolicy(plan);
         connectContext.getSessionVariable().setEnableNereidsPlanner(true);
         createPolicy("CREATE ROW POLICY "
                 + policyName
@@ -205,11 +203,11 @@ public class CheckRowPolicyTest extends TestWithFeService {
                 + " AS PERMISSIVE TO "
                 + userName
                 + " USING (k1 = 1)");
-        plan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy());
+        Plan rewrittenPlan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy());
 
-        Assertions.assertTrue(plan instanceof LogicalFilter);
-        LogicalFilter filter = (LogicalFilter) plan;
-        Assertions.assertEquals(filter.child(), relation);
+        Assertions.assertTrue(rewrittenPlan instanceof LogicalFilter);
+        LogicalFilter filter = (LogicalFilter) rewrittenPlan;
+        Assertions.assertEquals(filter.child(), plan);
         Assertions.assertTrue(ImmutableList.copyOf(filter.getConjuncts()).get(0) instanceof EqualTo);
         Assertions.assertTrue(filter.getConjuncts().toString().contains("'k1 = 1"));
 
