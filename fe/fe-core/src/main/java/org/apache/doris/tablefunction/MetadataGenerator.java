@@ -119,13 +119,13 @@ public class MetadataGenerator {
 
     private static final ImmutableMap<String, Integer> WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX;
 
+    private static final ImmutableMap<String, Integer> TABLE_OPTIONS_COLUMN_TO_INDEX;
+
     private static final ImmutableMap<String, Integer> WORKLOAD_GROUP_PRIVILEGES_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> TABLE_PROPERTIES_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> META_CACHE_STATS_COLUMN_TO_INDEX;
-
-    private static final ImmutableMap<String, Integer> TABLE_OPTIONS_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> PARTITIONS_COLUMN_TO_INDEX;
 
@@ -156,6 +156,13 @@ public class MetadataGenerator {
         }
         WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX = policyBuilder.build();
 
+        ImmutableMap.Builder<String, Integer> optionBuilder = new ImmutableMap.Builder();
+        List<Column> optionColList = SchemaTable.TABLE_MAP.get("table_options").getFullSchema();
+        for (int i = 0; i < optionColList.size(); i++) {
+            optionBuilder.put(optionColList.get(i).getName().toLowerCase(), i);
+        }
+        TABLE_OPTIONS_COLUMN_TO_INDEX = optionBuilder.build();
+
         ImmutableMap.Builder<String, Integer> wgPrivsBuilder = new ImmutableMap.Builder();
         List<Column> wgPrivsColList = SchemaTable.TABLE_MAP.get("workload_group_privileges").getFullSchema();
         for (int i = 0; i < wgPrivsColList.size(); i++) {
@@ -176,13 +183,6 @@ public class MetadataGenerator {
             metaCacheBuilder.put(metaCacheColList.get(i).getName().toLowerCase(), i);
         }
         META_CACHE_STATS_COLUMN_TO_INDEX = metaCacheBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> optionBuilder = new ImmutableMap.Builder();
-        List<Column> optionColList = SchemaTable.TABLE_MAP.get("table_options").getFullSchema();
-        for (int i = 0; i < optionColList.size(); i++) {
-            optionBuilder.put(optionColList.get(i).getName().toLowerCase(), i);
-        }
-        TABLE_OPTIONS_COLUMN_TO_INDEX = optionBuilder.build();
 
         ImmutableMap.Builder<String, Integer> partitionsBuilder = new ImmutableMap.Builder();
         List<Column> partitionsColList = SchemaTable.TABLE_MAP.get("partitions").getFullSchema();
@@ -269,6 +269,10 @@ public class MetadataGenerator {
                 result = workloadSchedPolicyMetadataResult(schemaTableParams);
                 columnIndex = WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX;
                 break;
+            case TABLE_OPTIONS:
+                result = tableOptionsMetadataResult(schemaTableParams);
+                columnIndex = TABLE_OPTIONS_COLUMN_TO_INDEX;
+                break;
             case WORKLOAD_GROUP_PRIVILEGES:
                 result = workloadGroupPrivsMetadataResult(schemaTableParams);
                 columnIndex = WORKLOAD_GROUP_PRIVILEGES_COLUMN_TO_INDEX;
@@ -280,10 +284,6 @@ public class MetadataGenerator {
             case CATALOG_META_CACHE_STATS:
                 result = metaCacheStatsMetadataResult(schemaTableParams);
                 columnIndex = META_CACHE_STATS_COLUMN_TO_INDEX;
-                break;
-            case TABLE_OPTIONS:
-                result = tableOptionsMetadataResult(schemaTableParams);
-                columnIndex = TABLE_OPTIONS_COLUMN_TO_INDEX;
                 break;
             case PARTITIONS:
                 result = partitionsMetadataResult(schemaTableParams);
@@ -1255,6 +1255,7 @@ public class MetadataGenerator {
         if (!params.isSetCurrentUserIdent()) {
             return errorResult("current user ident is not set.");
         }
+
         if (!params.isSetDbId()) {
             return errorResult("current db id is not set.");
         }

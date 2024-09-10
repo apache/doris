@@ -17,24 +17,6 @@
 
 #include "runtime/runtime_query_statistics_mgr.h"
 
-#include <gen_cpp/FrontendService_types.h>
-#include <gen_cpp/RuntimeProfile_types.h>
-#include <gen_cpp/Status_types.h>
-#include <gen_cpp/Types_types.h>
-#include <thrift/TApplicationException.h>
-
-#include <condition_variable>
-#include <cstdint>
-#include <memory>
-#include <mutex>
-#include <random>
-#include <shared_mutex>
-#include <string>
-#include <tuple>
-#include <unordered_map>
-#include <vector>
-
-#include "common/logging.h"
 #include "exec/schema_scanner/schema_scanner_helper.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
