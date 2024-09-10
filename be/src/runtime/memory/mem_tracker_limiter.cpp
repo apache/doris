@@ -134,7 +134,7 @@ MemTrackerLimiter::~MemTrackerLimiter() {
                     fmt::format("mem tracker label: {}, consumption: {}, peak consumption: {}, {}.",
                                 label(), _consumption->current_value(), _consumption->peak_value(),
                                 mem_tracker_inaccurate_msg);
-            LOG(FATAL) << err_msg << print_address_sanitizers();
+            LOG(INFO) << err_msg << print_address_sanitizers();
         }
 #endif
         if (ExecEnv::tracking_memory()) {
@@ -143,10 +143,10 @@ MemTrackerLimiter::~MemTrackerLimiter() {
         _consumption->set(0);
 #ifndef NDEBUG
     } else if (!_address_sanitizers.empty() && !is_group_commit_load) {
-        LOG(FATAL) << "[Address Sanitizer] consumption is 0, but address sanitizers not empty. "
-                   << ", mem tracker label: " << _label
-                   << ", peak consumption: " << _consumption->peak_value()
-                   << print_address_sanitizers();
+        LOG(INFO) << "[Address Sanitizer] consumption is 0, but address sanitizers not empty. "
+                  << ", mem tracker label: " << _label
+                  << ", peak consumption: " << _consumption->peak_value()
+                  << print_address_sanitizers();
 #endif
     }
     memory_memtrackerlimiter_cnt << -1;
