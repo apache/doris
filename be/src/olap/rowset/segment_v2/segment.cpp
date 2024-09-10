@@ -762,7 +762,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     RETURN_IF_ERROR(_column_readers.at(tablet_column.unique_id())->new_iterator(&it));
     iter->reset(it);
 
-    if (config::enable_column_type_check &&
+    if (config::enable_column_type_check && !tablet_column.is_agg_state_type() &&
         tablet_column.type() != _column_readers.at(tablet_column.unique_id())->get_meta_type()) {
         LOG(WARNING) << "different type between schema and column reader,"
                      << " column schema name: " << tablet_column.name()

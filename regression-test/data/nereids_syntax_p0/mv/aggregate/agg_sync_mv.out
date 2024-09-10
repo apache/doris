@@ -1469,6 +1469,66 @@
 10	0
 11	0
 
+-- !select_map_agg --
+\N	{1:"string1"}
+0	{1:"string1"}
+1	{2:"string2"}
+2	{3:"string3"}
+3	{4:"string1"}
+4	{5:"string2"}
+5	{6:"string3"}
+6	{7:"string1"}
+7	{8:"string2"}
+8	{9:"string3"}
+9	{10:"string1"}
+10	{11:"string2"}
+11	{12:"string3"}
+
+-- !select_map_agg_mv --
+\N	{1:"string1"}
+0	{1:"string1"}
+1	{2:"string2"}
+2	{3:"string3"}
+3	{4:"string1"}
+4	{5:"string2"}
+5	{6:"string3"}
+6	{7:"string1"}
+7	{8:"string2"}
+8	{9:"string3"}
+9	{10:"string1"}
+10	{11:"string2"}
+11	{12:"string3"}
+
+-- !select_array_agg --
+\N	["null", "null", "string1"]
+0	["string1", "string1"]
+1	["string2", "string2"]
+2	["string3", "string3"]
+3	["string1", "string1"]
+4	["string2", "string2"]
+5	["string3", "string3"]
+6	["string1", "string1"]
+7	["string2", "string2"]
+8	["string3", "string3"]
+9	["string1", "string1"]
+10	["string2", "string2"]
+11	["string3", "string3"]
+
+-- !select_array_agg_mv --
+\N	["null", "null", "string1"]
+0	["string1", "string1"]
+1	["string2", "string2"]
+2	["string3", "string3"]
+3	["string1", "string1"]
+4	["string2", "string2"]
+5	["string3", "string3"]
+6	["string1", "string1"]
+7	["string2", "string2"]
+8	["string3", "string3"]
+9	["string1", "string1"]
+10	["string2", "string2"]
+11	["string3", "string3"]
+
 -- !select_retention --
 \N	[0, 0]
 0	[0, 0]

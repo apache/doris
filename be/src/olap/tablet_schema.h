@@ -90,6 +90,7 @@ public:
     bool is_bf_column() const { return _is_bf_column; }
     bool has_bitmap_index() const { return _has_bitmap_index; }
     bool is_array_type() const { return _type == FieldType::OLAP_FIELD_TYPE_ARRAY; }
+    bool is_agg_state_type() const { return _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE; }
     bool is_jsonb_type() const { return _type == FieldType::OLAP_FIELD_TYPE_JSONB; }
     bool is_length_variable_type() const {
         return _type == FieldType::OLAP_FIELD_TYPE_CHAR ||
