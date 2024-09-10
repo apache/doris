@@ -2034,22 +2034,28 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private Status dropAllNonRestoredTableAndPartitions(Database db) {
+        Set<String> restoredViews = jobInfo.newBackupObjects.views.stream()
+                .map(view -> view.name).collect(Collectors.toSet());
+
         try {
             for (Table table : db.getTables()) {
                 long tableId = table.getId();
                 String tableName = table.getName();
                 TableType tableType = table.getType();
-                BackupOlapTableInfo backupTableInfo = jobInfo.backupOlapTableObjects.get(tableName);
-                if (tableType != TableType.OLAP && tableType != TableType.ODBC && tableType != TableType.VIEW) {
-                    continue;
-                }
-                if (tableType == TableType.OLAP && backupTableInfo != null) {
-                    // drop the non restored partitions.
-                    dropNonRestoredPartitions(db, (OlapTable) table, backupTableInfo);
-                } else if (isCleanTables) {
-                    // otherwise drop the entire table.
-                    LOG.info("drop non restored table {}({}). {}", tableName, tableId, this);
-                    boolean isForceDrop = false; // move this table into recyclebin.
+                if (tableType == TableType.OLAP) {
+                    BackupOlapTableInfo backupTableInfo = jobInfo.backupOlapTableObjects.get(tableName);
+                    if (tableType == TableType.OLAP && backupTableInfo != null) {
+                        // drop the non restored partitions.
+                        dropNonRestoredPartitions(db, (OlapTable) table, backupTableInfo);
+                    } else if (isCleanTables) {
+                        // otherwise drop the entire table.
+                        LOG.info("drop non restored table {}, table id: {}. {}", tableName, tableId, this);
+                        boolean isForceDrop = false; // move this table into recyclebin.
+                        env.getInternalCatalog().dropTableWithoutCheck(db, table, isForceDrop);
+                    }
+                } else if (tableType == TableType.VIEW && isCleanTables && !restoredViews.contains(tableName)) {
+                    LOG.info("drop non restored view {}, table id: {}. {}", tableName, tableId, this);
+                    boolean isForceDrop = false; // move this view into recyclebin.
                     env.getInternalCatalog().dropTableWithoutCheck(db, table, isForceDrop);
                 }
             }
