@@ -17,41 +17,17 @@
 
 #include "util/url_coding.h"
 
+#include <curl/curl.h>
 #include <libbase64.h>
-#include <math.h>
 
-#include <memory>
 #include <sstream>
 
 namespace doris {
 
-static inline void url_encode(const char* in, int in_len, std::string* out) {
-    (*out).reserve(in_len);
-    std::stringstream ss;
-
-    for (int i = 0; i < in_len; ++i) {
-        const char ch = in[i];
-
-        // Escape the character iff a) we are in Hive-compat mode and the
-        // character is in the Hive whitelist or b) we are not in
-        // Hive-compat mode, and the character is not alphanumeric or one
-        // of the four commonly excluded characters.
-        ss << ch;
-    }
-
-    (*out) = ss.str();
-}
-
-void url_encode(const std::vector<uint8_t>& in, std::string* out) {
-    if (in.empty()) {
-        *out = "";
-    } else {
-        url_encode(reinterpret_cast<const char*>(&in[0]), in.size(), out);
-    }
-}
-
 void url_encode(const std::string& in, std::string* out) {
-    url_encode(in.c_str(), in.size(), out);
+    auto* encoded_url = curl_easy_escape(nullptr, in.c_str(), static_cast<int>(in.length()));
+    *out = std::string(encoded_url);
+    curl_free(static_cast<void*>(encoded_url));
 }
 
 // Adapted from

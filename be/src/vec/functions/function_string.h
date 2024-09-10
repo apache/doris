@@ -2785,7 +2785,6 @@ public:
             auto source = url_col->get_data_at(i);
             StringRef url_val(const_cast<char*>(source.data), source.size);
 
-            // TODO: check correctness
             url_encode(url_val.to_string(), &encoded_url);
 
             StringOP::push_value_string(encoded_url, i, res_chars, res_offsets);

@@ -17,12 +17,10 @@
 
 #pragma once
 
-#include <stddef.h>
-
+#include <cstddef>
 #include <cstdint>
 #include <iosfwd>
 #include <string>
-#include <vector>
 
 namespace doris {
 
