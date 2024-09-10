@@ -46,7 +46,7 @@ namespace doris {
 using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
-static StorageEngine* l_engine;
+static StorageEngine* l_engine = nullptr;
 static const std::string lTestDir = "./data_test/data/segcompaction_test";
 
 class SegCompactionTest : public testing::Test {
@@ -80,14 +80,17 @@ public:
         Status s = l_engine->open();
         EXPECT_TRUE(s.ok()) << s.to_string();
 
+        s = ThreadPoolBuilder("SegCompactionTaskThreadPool")
+                    .set_min_threads(config::segcompaction_num_threads)
+                    .set_max_threads(config::segcompaction_num_threads)
+                    .build(&l_engine->_seg_compaction_thread_pool);
+        EXPECT_TRUE(s.ok()) << s.to_string();
+
         _data_dir = new DataDir(lTestDir, 1000000000);
         static_cast<void>(_data_dir->init());
         static_cast<void>(_data_dir->update_capacity());
 
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(lTestDir).ok());
-
-        s = l_engine->start_bg_threads();
-        EXPECT_TRUE(s.ok()) << s.to_string();
     }
 
     void TearDown() {
