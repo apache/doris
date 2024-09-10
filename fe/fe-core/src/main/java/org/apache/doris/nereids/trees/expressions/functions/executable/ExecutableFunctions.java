@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.executable;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
@@ -103,11 +104,39 @@ public class ExecutableFunctions {
         }
     }
 
+    /**
+     * is_nan scalar function
+     */
+    @ExecFunction(name = "is_nan", argTypes = { "DOUBLE" }, returnType = "BOOLEAN")
+    public static Expression isNaN(DoubleLiteral literal) {
+        boolean res = Double.isNaN(literal.getValue());
+        if (res) {
+            return BooleanLiteral.TRUE;
+        } else {
+            return BooleanLiteral.FALSE;
+        }
+    }
+
+    @ExecFunction(name = "append_trailing_char_if_absent")
+    public static Expression appendTrailingIfCharAbsent(StringLikeLiteral literal, StringLikeLiteral chr) {
+        if (literal.getValue().length() != 1) {
+            return null;
+        }
+        return literal.getValue().endsWith(chr.getValue()) ? literal
+                : new VarcharLiteral(literal.getValue() + chr.getValue());
+    }
+
     @ExecFunction(name = "e")
     public static Expression e() { // CHECKSTYLE IGNORE THIS LINE
         return new DoubleLiteral(Math.E);
     }
 
+    @ExecFunction(name = "nan", argTypes = {}, returnType = "DOUBLE")
+    public static Expression NaN() {
+        return new DoubleLiteral(Double.NaN);
+    }
+
+    @ExecFunction(name = "pi", argTypes = {}, returnType = "DOUBLE")
     @ExecFunction(name = "p1")
     public static Expression pi() {
         return new DoubleLiteral(Math.PI);
