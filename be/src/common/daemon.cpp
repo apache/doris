@@ -298,15 +298,18 @@ void Daemon::memory_maintenance_thread() {
         // step 6. Refresh weighted memory ratio of workload groups.
         doris::ExecEnv::GetInstance()->workload_group_mgr()->refresh_wg_weighted_memory_limit();
 
-        // step 7. Analyze blocking queries.
+        // step 7: handle paused queries(caused by memory insufficient)
+        doris::ExecEnv::GetInstance()->workload_group_mgr()->handle_paused_queries();
+
+        // step 8. Analyze blocking queries.
         // TODO sort the operators that can spill, wake up the pipeline task spill
         // or continue execution according to certain rules or cancel query.
 
-        // step 8. Flush memtable
+        // step 9. Flush memtable
         doris::GlobalMemoryArbitrator::notify_memtable_memory_refresh();
         // TODO notify flush memtable
 
-        // step 9. Jemalloc purge all arena dirty pages
+        // step 10. Jemalloc purge all arena dirty pages
         je_purge_dirty_pages();
     }
 }

@@ -46,31 +46,6 @@ class TaskQueue;
 
 namespace doris::pipeline {
 
-struct PausedQuery {
-    std::shared_ptr<QueryContext> query_ctx;
-    std::chrono::system_clock::time_point enqueue_at;
-    size_t last_mem_usage {0};
-
-    PausedQuery(std::shared_ptr<QueryContext> query_ctx_)
-            : query_ctx(std::move(query_ctx_)), _query_id(print_id(query_ctx->query_id())) {
-        enqueue_at = std::chrono::system_clock::now();
-    }
-
-    int64_t elapsed_time() const {
-        auto now = std::chrono::system_clock::now();
-        return std::chrono::duration_cast<std::chrono::milliseconds>(now - enqueue_at).count();
-    }
-
-    std::string query_id() const { return _query_id; }
-
-    bool operator<(const PausedQuery& other) const { return _query_id < other._query_id; }
-
-    bool operator==(const PausedQuery& other) const { return _query_id == other._query_id; }
-
-private:
-    std::string _query_id;
-};
-
 class TaskScheduler {
 public:
     TaskScheduler(ExecEnv* exec_env, std::shared_ptr<TaskQueue> task_queue, std::string name,
@@ -89,8 +64,6 @@ public:
 
     std::vector<int> thread_debug_info() { return _fix_thread_pool->debug_info(); }
 
-    void add_paused_task(PipelineTask* task);
-
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;
     std::shared_ptr<TaskQueue> _task_queue;
@@ -99,12 +72,6 @@ private:
     std::string _name;
     CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
 
-    std::map<WorkloadGroupPtr, std::set<PausedQuery>> _paused_queries_list;
-    std::mutex _paused_queries_lock;
-    std::condition_variable _paused_queries_cv;
-
     void _do_work(size_t index);
-
-    void _paused_queries_handler();
 };
 } // namespace doris::pipeline
