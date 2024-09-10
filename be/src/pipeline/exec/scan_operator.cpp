@@ -996,7 +996,7 @@ Status ScanLocalState<Derived>::_start_scanners(
     auto& p = _parent->cast<typename Derived::Parent>();
     _scanner_ctx = vectorized::ScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
-            _scan_dependency, p.ignore_data_distribution);
+            _scan_dependency, p.ignore_data_distribution());
     return Status::OK();
 }
 
