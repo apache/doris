@@ -33,6 +33,7 @@
 #include "common/logging.h"
 #include "olap/tablet.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/async_io.h" // IWYU pragma: keep
@@ -209,6 +210,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         return;
     }
 
+    ctx->update_peak_running_scanner(1);
+    Defer defer([&] { ctx->update_peak_running_scanner(-1); });
+
     std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
     if (scanner_delegate == nullptr) {
         return;
@@ -266,29 +270,40 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         if (free_block == nullptr) {
             break;
         }
+        // We got a new created block or a reused block.
+        ctx->update_peak_memory_usage(free_block->allocated_bytes());
+        ctx->update_peak_memory_usage(-free_block->allocated_bytes());
         status = scanner->get_block_after_projects(state, free_block.get(), &eos);
+        // Projection will truncate useless columns, makes block size change.
+        auto free_block_bytes = free_block->allocated_bytes();
+        ctx->update_peak_memory_usage(free_block_bytes);
         first_read = false;
         if (!status.ok()) {
             LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
             break;
         }
-        raw_bytes_read += free_block->allocated_bytes();
+        raw_bytes_read += free_block_bytes;
         if (!scan_task->cached_blocks.empty() &&
             scan_task->cached_blocks.back()->rows() + free_block->rows() <= ctx->batch_size()) {
             size_t block_size = scan_task->cached_blocks.back()->allocated_bytes();
             vectorized::MutableBlock mutable_block(scan_task->cached_blocks.back().get());
+            ctx->update_peak_memory_usage(-mutable_block.allocated_bytes());
             status = mutable_block.merge(*free_block);
+            ctx->update_peak_memory_usage(mutable_block.allocated_bytes());
             if (!status.ok()) {
                 LOG(WARNING) << "Block merge failed: " << status.to_string();
                 break;
             }
             scan_task->cached_blocks.back().get()->set_columns(
                     std::move(mutable_block.mutable_columns()));
+
+            // Return block succeed or not, this free_block is not used by this scan task any more.
+            ctx->update_peak_memory_usage(-free_block_bytes);
+            // If block can be reused, its memory usage will be added back.
             ctx->return_free_block(std::move(free_block));
-            ctx->inc_free_block_usage(scan_task->cached_blocks.back()->allocated_bytes() -
-                                      block_size);
+            ctx->inc_block_usage(scan_task->cached_blocks.back()->allocated_bytes() - block_size);
         } else {
-            ctx->inc_free_block_usage(free_block->allocated_bytes());
+            ctx->inc_block_usage(free_block->allocated_bytes());
             scan_task->cached_blocks.push_back(std::move(free_block));
         }
     } // end for while

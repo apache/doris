@@ -1280,6 +1280,9 @@ Status ScanLocalState<Derived>::_start_scanners(
     _scanner_ctx = PipXScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
             state()->scan_queue_mem_limit(), _scan_dependency,
+            // NOTE: This will logic makes _max_thread_num of ScannerContext to be C(num of cores) * 2
+            // For a query with C/2 instance and M scan node, scan task of this query will be C/2 * M * C*2
+            // and will be C*C*N at most.
             // 1. If data distribution is ignored , we use 1 instance to scan.
             // 2. Else, file scanner will consume much memory so we use config::doris_scanner_thread_pool_thread_num / query_parallel_instance_num scanners to scan.
             p.ignore_data_distribution() && !p.is_file_scan_operator()
@@ -1339,6 +1342,9 @@ Status ScanLocalState<Derived>::_init_profile() {
     _memory_usage_counter = ADD_LABEL_COUNTER_WITH_LEVEL(_scanner_profile, "MemoryUsage", 1);
     _free_blocks_memory_usage =
             _scanner_profile->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES, "MemoryUsage", 1);
+    _scanner_peak_memory_usage =
+            _scanner_profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES);
+
     _newly_create_free_blocks_num =
             ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
     _scale_up_scanners_counter = ADD_COUNTER(_scanner_profile, "NumScaleUpScanners", TUnit::UNIT);
@@ -1358,6 +1364,8 @@ Status ScanLocalState<Derived>::_init_profile() {
 
     _max_scanner_thread_num = ADD_COUNTER(_runtime_profile, "MaxScannerThreadNum", TUnit::UNIT);
 
+    _peak_running_scanner =
+            _scanner_profile->AddHighWaterMarkCounter("PeakRunningScanner", TUnit::UNIT);
     return Status::OK();
 }
 
