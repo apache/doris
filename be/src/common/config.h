@@ -133,6 +133,9 @@ DECLARE_String(mem_limit);
 // Soft memory limit as a fraction of hard memory limit.
 DECLARE_Double(soft_mem_limit_frac);
 
+// Cache capacity reduce mem limit as a fraction of soft mem limit.
+DECLARE_mDouble(cache_capacity_reduce_mem_limit_frac);
+
 // Schema change memory limit as a fraction of soft memory limit.
 DECLARE_Double(schema_change_mem_limit_frac);
 
@@ -640,12 +643,6 @@ DECLARE_mInt32(memory_maintenance_sleep_time_ms);
 // After full gc, no longer full gc and minor gc during sleep.
 // After minor gc, no minor gc during sleep, but full gc is possible.
 DECLARE_mInt32(memory_gc_sleep_time_ms);
-
-// Sleep time in milliseconds between memtbale flush mgr memory refresh iterations
-DECLARE_mInt64(memtable_mem_tracker_refresh_interval_ms);
-
-// Sleep time in milliseconds between refresh iterations of workload group weighted memory ratio
-DECLARE_mInt64(wg_weighted_memory_ratio_refresh_interval_ms);
 
 // percent of (active memtables size / all memtables size) when reach hard limit
 DECLARE_mInt32(memtable_hard_limit_active_percent);
