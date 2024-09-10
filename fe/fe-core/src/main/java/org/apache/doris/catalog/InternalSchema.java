@@ -21,7 +21,7 @@ import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.UserException;
-import org.apache.doris.plugin.audit.AuditLoaderPlugin;
+import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 
 import com.google.common.collect.Lists;
@@ -168,7 +168,7 @@ public class InternalSchema {
             case StatisticConstants.HISTOGRAM_TBL_NAME:
                 schema = HISTO_STATS_SCHEMA;
                 break;
-            case AuditLoaderPlugin.AUDIT_LOG_TABLE:
+            case AuditLoader.AUDIT_LOG_TABLE:
                 schema = AUDIT_SCHEMA;
                 break;
             default:
