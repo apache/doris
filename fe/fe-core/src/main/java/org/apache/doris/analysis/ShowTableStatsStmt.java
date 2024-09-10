@@ -63,9 +63,7 @@ public class ShowTableStatsStmt extends ShowStmt {
             new ImmutableList.Builder<String>()
             .add("table_name")
             .add("index_name")
-            .add("analyze_row_count")
-            .add("report_row_count")
-            .add("report_row_count_for_nereids")
+            .add("row_count")
             .build();
 
     private final TableName tableName;
@@ -168,33 +166,37 @@ public class ShowTableStatsStmt extends ShowStmt {
         return tableId;
     }
 
-    public ShowResultSet constructResultSet(TableStatsMeta tableStatistic, TableIf table) {
+    public ShowResultSet constructResultSet(TableStatsMeta tableStatistic) {
         if (indexName != null) {
-            return constructIndexResultSet(tableStatistic, table);
+            return constructIndexResultSet(tableStatistic);
         }
-        return constructTableResultSet(tableStatistic, table);
+        return constructTableResultSet(tableStatistic);
     }
 
     public ShowResultSet constructEmptyResultSet() {
         return new ShowResultSet(getMetaData(), new ArrayList<>());
     }
 
-    public ShowResultSet constructTableResultSet(TableStatsMeta tableStatistic, TableIf table) {
-        if (tableStatistic == null) {
-            List<List<String>> result = Lists.newArrayList();
-            List<String> row = Lists.newArrayList();
-            row.add("");
-            row.add("");
-            row.add(String.valueOf(table.getRowCount()));
-            row.add("");
-            row.add("");
-            row.add("");
-            row.add("");
-            row.add("");
-            result.add(row);
-            return new ShowResultSet(getMetaData(), result);
-        }
+    public ShowResultSet constructResultSet(long rowCount) {
+        List<List<String>> result = Lists.newArrayList();
+        List<String> row = Lists.newArrayList();
+        row.add("");
+        row.add("");
+        row.add(String.valueOf(rowCount));
+        row.add("");
+        row.add("");
+        row.add("");
+        row.add("");
+        row.add("");
+        result.add(row);
+        return new ShowResultSet(getMetaData(), result);
+    }
+
+    public ShowResultSet constructTableResultSet(TableStatsMeta tableStatistic) {
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        if (tableStatistic == null) {
+            return new ShowResultSet(getMetaData(), new ArrayList<>());
+        }
         List<List<String>> result = Lists.newArrayList();
         List<String> row = Lists.newArrayList();
         row.add(String.valueOf(tableStatistic.updatedRows));
@@ -213,7 +215,7 @@ public class ShowTableStatsStmt extends ShowStmt {
         return new ShowResultSet(getMetaData(), result);
     }
 
-    public ShowResultSet constructIndexResultSet(TableStatsMeta tableStatistic, TableIf table) {
+    public ShowResultSet constructIndexResultSet(TableStatsMeta tableStatistic) {
         List<List<String>> result = Lists.newArrayList();
         if (!(table instanceof OlapTable)) {
             return new ShowResultSet(getMetaData(), result);
@@ -223,13 +225,14 @@ public class ShowTableStatsStmt extends ShowStmt {
         if (indexId == null) {
             throw new RuntimeException(String.format("Index %s not exist.", indexName));
         }
-        long rowCount = tableStatistic == null ? -1 : tableStatistic.getRowCount(olapTable.getIndexIdByName(indexName));
+        long rowCount = tableStatistic.getRowCount(olapTable.getIndexIdByName(indexName));
+        if (rowCount == -1) {
+            return new ShowResultSet(getMetaData(), result);
+        }
         List<String> row = Lists.newArrayList();
         row.add(table.getName());
         row.add(indexName);
         row.add(String.valueOf(rowCount));
-        row.add(String.valueOf(olapTable.getRowCountForIndex(indexId, false)));
-        row.add(String.valueOf(olapTable.getRowCountForIndex(indexId, true)));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
     }
