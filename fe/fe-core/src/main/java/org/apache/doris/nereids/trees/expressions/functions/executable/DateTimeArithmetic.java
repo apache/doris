@@ -36,22 +36,22 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function date-add.
      */
-    @ExecFunction(varArgs = false, name = "date_add", argTypes = {"DATE", "INT"}, returnType = "DATE")
+    @ExecFunction(name = "date_add", argTypes = {"DATE", "INT"}, returnType = "DATE")
     public static Expression dateAdd(DateLiteral date, IntegerLiteral day) {
         return daysAdd(date, day);
     }
 
-    @ExecFunction(varArgs = false, name = "date_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    @ExecFunction(name = "date_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static Expression dateAdd(DateTimeLiteral date, IntegerLiteral day) {
         return daysAdd(date, day);
     }
 
-    @ExecFunction(varArgs = false, name = "date_add", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    @ExecFunction(name = "date_add", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
     public static Expression dateAdd(DateV2Literal date, IntegerLiteral day) {
         return daysAdd(date, day);
     }
 
-    @ExecFunction(varArgs = false, name = "date_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    @ExecFunction(name = "date_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static Expression dateAdd(DateTimeV2Literal date, IntegerLiteral day) {
         return daysAdd(date, day);
     }
@@ -59,22 +59,22 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function date-sub.
      */
-    @ExecFunction(varArgs = false, name = "date_sub", argTypes = {"DATE", "INT"}, returnType = "DATE")
+    @ExecFunction(name = "date_sub", argTypes = {"DATE", "INT"}, returnType = "DATE")
     public static Expression dateSub(DateLiteral date, IntegerLiteral day) {
         return dateAdd(date, new IntegerLiteral(-day.getValue()));
     }
 
-    @ExecFunction(varArgs = false, name = "date_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    @ExecFunction(name = "date_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static Expression dateSub(DateTimeLiteral date, IntegerLiteral day) {
         return dateAdd(date, new IntegerLiteral(-day.getValue()));
     }
 
-    @ExecFunction(varArgs = false, name = "date_sub", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    @ExecFunction(name = "date_sub", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
     public static Expression dateSub(DateV2Literal date, IntegerLiteral day) {
         return dateAdd(date, new IntegerLiteral(-day.getValue()));
     }
 
-    @ExecFunction(varArgs = false, name = "date_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    @ExecFunction(name = "date_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static Expression dateSub(DateTimeV2Literal date, IntegerLiteral day) {
         return dateAdd(date, new IntegerLiteral(-day.getValue()));
     }
@@ -82,22 +82,22 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function years-add.
      */
-    @ExecFunction(varArgs = false, name = "years_add", argTypes = {"DATE", "INT"}, returnType = "DATE")
+    @ExecFunction(name = "years_add", argTypes = {"DATE", "INT"}, returnType = "DATE")
     public static Expression yearsAdd(DateLiteral date, IntegerLiteral year) {
         return date.plusYears(year.getValue());
     }
 
-    @ExecFunction(varArgs = false, name = "years_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    @ExecFunction(name = "years_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static Expression yearsAdd(DateTimeLiteral date, IntegerLiteral year) {
         return date.plusYears(year.getValue());
     }
 
-    @ExecFunction(varArgs = false, name = "years_add", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    @ExecFunction(name = "years_add", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
     public static Expression yearsAdd(DateV2Literal date, IntegerLiteral year) {
         return date.plusYears(year.getValue());
     }
 
-    @ExecFunction(varArgs = false, name = "years_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    @ExecFunction(name = "years_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static Expression yearsAdd(DateTimeV2Literal date, IntegerLiteral year) {
         return date.plusYears(year.getValue());
     }
@@ -105,22 +105,22 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function months-add.
      */
-    @ExecFunction(varArgs = false, name = "months_add", argTypes = {"DATE", "INT"}, returnType = "DATE")
+    @ExecFunction(name = "months_add", argTypes = {"DATE", "INT"}, returnType = "DATE")
     public static Expression monthsAdd(DateLiteral date, IntegerLiteral month) {
         return date.plusMonths(month.getValue());
     }
 
-    @ExecFunction(varArgs = false, name = "months_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    @ExecFunction(name = "months_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static Expression monthsAdd(DateTimeLiteral date, IntegerLiteral month) {
         return date.plusMonths(month.getValue());
     }
 
-    @ExecFunction(varArgs = false, name = "months_add", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    @ExecFunction(name = "months_add", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
     public static Expression monthsAdd(DateV2Literal date, IntegerLiteral month) {
         return date.plusMonths(month.getValue());
     }
 
-    @ExecFunction(varArgs = false, name = "months_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    @ExecFunction(name = "months_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static Expression monthsAdd(DateTimeV2Literal date, IntegerLiteral month) {
         return date.plusMonths(month.getValue());
     }
@@ -128,22 +128,22 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function weeks-add.
      */
-    @ExecFunction(varArgs = false, name = "weeks_add", argTypes = {"DATE", "INT"}, returnType = "DATE")
+    @ExecFunction(name = "weeks_add", argTypes = {"DATE", "INT"}, returnType = "DATE")
     public static Expression weeksAdd(DateLiteral date, IntegerLiteral weeks) {
         return date.plusWeeks(weeks.getValue());
     }
 
-    @ExecFunction(varArgs = false, name = "weeks_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    @ExecFunction(name = "weeks_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static Expression weeksAdd(DateTimeLiteral date, IntegerLiteral weeks) {
         return date.plusWeeks(weeks.getValue());
     }
 
-    @ExecFunction(varArgs = false, name = "weeks_add", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    @ExecFunction(name = "weeks_add", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
     public static Expression weeksAdd(DateV2Literal date, IntegerLiteral weeks) {
         return date.plusWeeks(weeks.getValue());
     }
 
-    @ExecFunction(varArgs = false, name = "weeks_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    @ExecFunction(name = "weeks_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static Expression weeksAdd(DateTimeV2Literal date, IntegerLiteral weeks) {
         return date.plusWeeks(weeks.getValue());
     }
@@ -151,22 +151,22 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function days-add.
      */
-    @ExecFunction(varArgs = false, name = "days_add", argTypes = {"DATE", "INT"}, returnType = "DATE")
+    @ExecFunction(name = "days_add", argTypes = {"DATE", "INT"}, returnType = "DATE")
     public static Expression daysAdd(DateLiteral date, IntegerLiteral day) {
         return date.plusDays(day.getValue());
     }
 
-    @ExecFunction(varArgs = false, name = "days_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    @ExecFunction(name = "days_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static Expression daysAdd(DateTimeLiteral date, IntegerLiteral day) {
         return date.plusDays(day.getValue());
     }
 
-    @ExecFunction(varArgs = false, name = "days_add", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    @ExecFunction(name = "days_add", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
     public static Expression daysAdd(DateV2Literal date, IntegerLiteral day) {
         return date.plusDays(day.getValue());
     }
 
-    @ExecFunction(varArgs = false, name = "days_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    @ExecFunction(name = "days_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static Expression daysAdd(DateTimeV2Literal date, IntegerLiteral day) {
         return date.plusDays(day.getValue());
     }
@@ -174,12 +174,12 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function hours-add.
      */
-    @ExecFunction(varArgs = false, name = "hours_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    @ExecFunction(name = "hours_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static Expression hoursAdd(DateTimeLiteral date, IntegerLiteral hour) {
         return date.plusHours(hour.getValue());
     }
 
-    @ExecFunction(varArgs = false, name = "hours_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    @ExecFunction(name = "hours_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static Expression hoursAdd(DateTimeV2Literal date, IntegerLiteral hour) {
         return date.plusHours(hour.getValue());
     }
@@ -187,12 +187,12 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function minutes-add.
      */
-    @ExecFunction(varArgs = false, name = "minutes_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    @ExecFunction(name = "minutes_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static Expression minutesAdd(DateTimeLiteral date, IntegerLiteral minute) {
         return date.plusMinutes(minute.getValue());
     }
 
-    @ExecFunction(varArgs = false, name = "minutes_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    @ExecFunction(name = "minutes_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static Expression minutesAdd(DateTimeV2Literal date, IntegerLiteral minute) {
         return date.plusMinutes(minute.getValue());
     }
@@ -200,12 +200,12 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function seconds-add.
      */
-    @ExecFunction(varArgs = false, name = "seconds_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    @ExecFunction(name = "seconds_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static Expression secondsAdd(DateTimeLiteral date, IntegerLiteral second) {
         return date.plusSeconds(second.getValue());
     }
 
-    @ExecFunction(varArgs = false, name = "seconds_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    @ExecFunction(name = "seconds_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static Expression secondsAdd(DateTimeV2Literal date, IntegerLiteral second) {
         return date.plusSeconds(second.getValue());
     }
@@ -213,8 +213,7 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function microseconds-add.
      */
-    @ExecFunction(varArgs = false, name = "microseconds_add",
-            argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    @ExecFunction(name = "microseconds_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static Expression microSecondsAdd(DateTimeV2Literal date, IntegerLiteral microSecond) {
         return date.plusMicroSeconds(microSecond.getValue());
     }
@@ -222,8 +221,7 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function microseconds_sub.
      */
-    @ExecFunction(varArgs = false, name = "microseconds_sub",
-            argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    @ExecFunction(name = "microseconds_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
     public static Expression microSecondsSub(DateTimeV2Literal date, IntegerLiteral microSecond) {
         return date.plusMicroSeconds(-microSecond.getValue());
     }
@@ -231,8 +229,7 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function milliseconds_add.
      */
-    @ExecFunction(varArgs = false, name = "milliseconds_add",
-            argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    @ExecFunction(name = "milliseconds_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
     public static Expression milliSecondsAdd(DateTimeV2Literal date, IntegerLiteral milliSecond) {
         return date.plusMilliSeconds(milliSecond.getValue());
     }
@@ -240,8 +237,7 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function milliseconds_sub.
      */
-    @ExecFunction(varArgs = false, name = "milliseconds_sub",
-            argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    @ExecFunction(name = "milliseconds_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
     public static Expression milliSecondsSub(DateTimeV2Literal date, IntegerLiteral milliSecond) {
         return date.plusMilliSeconds(-milliSecond.getValue());
     }
@@ -249,22 +245,22 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function years-sub.
      */
-    @ExecFunction(varArgs = false, name = "years_sub", argTypes = {"DATE", "INT"}, returnType = "DATE")
+    @ExecFunction(name = "years_sub", argTypes = {"DATE", "INT"}, returnType = "DATE")
     public static Expression yearsSub(DateLiteral date, IntegerLiteral year) {
         return yearsAdd(date, new IntegerLiteral(-year.getValue()));
     }
 
-    @ExecFunction(varArgs = false, name = "years_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    @ExecFunction(name = "years_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static Expression yearsSub(DateTimeLiteral date, IntegerLiteral year) {
         return yearsAdd(date, new IntegerLiteral(-year.getValue()));
     }
 
-    @ExecFunction(varArgs = false, name = "years_sub", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    @ExecFunction(name = "years_sub", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
     public static Expression yearsSub(DateV2Literal date, IntegerLiteral year) {
         return yearsAdd(date, new IntegerLiteral(-year.getValue()));
     }
 
-    @ExecFunction(varArgs = false, name = "years_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    @ExecFunction(name = "years_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static Expression yearsSub(DateTimeV2Literal date, IntegerLiteral year) {
         return yearsAdd(date, new IntegerLiteral(-year.getValue()));
     }
@@ -272,22 +268,22 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function months-sub
      */
-    @ExecFunction(varArgs = false, name = "months_sub", argTypes = {"DATE", "INT"}, returnType = "DATE")
+    @ExecFunction(name = "months_sub", argTypes = {"DATE", "INT"}, returnType = "DATE")
     public static Expression monthsSub(DateLiteral date, IntegerLiteral month) {
         return monthsAdd(date, new IntegerLiteral(-month.getValue()));
     }
 
-    @ExecFunction(varArgs = false, name = "months_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    @ExecFunction(name = "months_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static Expression monthsSub(DateTimeLiteral date, IntegerLiteral month) {
         return monthsAdd(date, new IntegerLiteral(-month.getValue()));
     }
 
-    @ExecFunction(varArgs = false, name = "months_sub", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    @ExecFunction(name = "months_sub", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
     public static Expression monthsSub(DateV2Literal date, IntegerLiteral month) {
         return monthsAdd(date, new IntegerLiteral(-month.getValue()));
     }
 
-    @ExecFunction(varArgs = false, name = "months_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    @ExecFunction(name = "months_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static Expression monthsSub(DateTimeV2Literal date, IntegerLiteral month) {
         return monthsAdd(date, new IntegerLiteral(-month.getValue()));
     }
@@ -295,22 +291,22 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function weeks-sub.
      */
-    @ExecFunction(varArgs = false, name = "weeks_sub", argTypes = {"DATE", "INT"}, returnType = "DATE")
+    @ExecFunction(name = "weeks_sub", argTypes = {"DATE", "INT"}, returnType = "DATE")
     public static Expression weeksSub(DateLiteral date, IntegerLiteral weeks) {
         return date.plusWeeks(-weeks.getValue());
     }
 
-    @ExecFunction(varArgs = false, name = "weeks_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    @ExecFunction(name = "weeks_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static Expression weeksSub(DateTimeLiteral date, IntegerLiteral weeks) {
         return date.plusWeeks(-weeks.getValue());
     }
 
-    @ExecFunction(varArgs = false, name = "weeks_sub", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    @ExecFunction(name = "weeks_sub", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
     public static Expression weeksSub(DateV2Literal date, IntegerLiteral weeks) {
         return date.plusWeeks(-weeks.getValue());
     }
 
-    @ExecFunction(varArgs = false, name = "weeks_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    @ExecFunction(name = "weeks_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static Expression weeksSub(DateTimeV2Literal date, IntegerLiteral weeks) {
         return date.plusWeeks(-weeks.getValue());
     }
@@ -318,22 +314,22 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function days-sub
      */
-    @ExecFunction(varArgs = false, name = "days_sub", argTypes = {"DATE", "INT"}, returnType = "DATE")
+    @ExecFunction(name = "days_sub", argTypes = {"DATE", "INT"}, returnType = "DATE")
     public static Expression daysSub(DateLiteral date, IntegerLiteral day) {
         return daysAdd(date, new IntegerLiteral(-day.getValue()));
     }
 
-    @ExecFunction(varArgs = false, name = "days_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    @ExecFunction(name = "days_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static Expression daysSub(DateTimeLiteral date, IntegerLiteral day) {
         return daysAdd(date, new IntegerLiteral(-day.getValue()));
     }
 
-    @ExecFunction(varArgs = false, name = "days_sub", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    @ExecFunction(name = "days_sub", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
     public static Expression daysSub(DateV2Literal date, IntegerLiteral day) {
         return daysAdd(date, new IntegerLiteral(-day.getValue()));
     }
 
-    @ExecFunction(varArgs = false, name = "days_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    @ExecFunction(name = "days_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static Expression daysSub(DateTimeV2Literal date, IntegerLiteral day) {
         return daysAdd(date, new IntegerLiteral(-day.getValue()));
     }
@@ -341,12 +337,12 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function hours-sub
      */
-    @ExecFunction(varArgs = false, name = "hours_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    @ExecFunction(name = "hours_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static Expression hoursSub(DateTimeLiteral date, IntegerLiteral hour) {
         return hoursAdd(date, new IntegerLiteral(-hour.getValue()));
     }
 
-    @ExecFunction(varArgs = false, name = "hours_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    @ExecFunction(name = "hours_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static Expression hoursSub(DateTimeV2Literal date, IntegerLiteral hour) {
         return hoursAdd(date, new IntegerLiteral(-hour.getValue()));
     }
@@ -354,12 +350,12 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function minutes-sub
      */
-    @ExecFunction(varArgs = false, name = "minutes_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    @ExecFunction(name = "minutes_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static Expression minutesSub(DateTimeLiteral date, IntegerLiteral minute) {
         return minutesAdd(date, new IntegerLiteral(-minute.getValue()));
     }
 
-    @ExecFunction(varArgs = false, name = "minutes_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    @ExecFunction(name = "minutes_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static Expression minutesSub(DateTimeV2Literal date, IntegerLiteral minute) {
         return minutesAdd(date, new IntegerLiteral(-minute.getValue()));
     }
@@ -367,12 +363,12 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function seconds-sub
      */
-    @ExecFunction(varArgs = false, name = "seconds_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    @ExecFunction(name = "seconds_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
     public static Expression secondsSub(DateTimeLiteral date, IntegerLiteral second) {
         return secondsAdd(date, new IntegerLiteral(-second.getValue()));
     }
 
-    @ExecFunction(varArgs = false, name = "seconds_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    @ExecFunction(name = "seconds_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static Expression secondsSub(DateTimeV2Literal date, IntegerLiteral second) {
         return secondsAdd(date, new IntegerLiteral(-second.getValue()));
     }
@@ -380,27 +376,27 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function datediff
      */
-    @ExecFunction(varArgs = false, name = "datediff", argTypes = {"DATETIME", "DATETIME"}, returnType = "INT")
+    @ExecFunction(name = "datediff", argTypes = {"DATETIME", "DATETIME"}, returnType = "INT")
     public static Expression dateDiff(DateTimeLiteral date1, DateTimeLiteral date2) {
         return new IntegerLiteral(dateDiff(date1.toJavaDateType(), date2.toJavaDateType()));
     }
 
-    @ExecFunction(varArgs = false, name = "datediff", argTypes = {"DATEV2", "DATEV2"}, returnType = "INT")
+    @ExecFunction(name = "datediff", argTypes = {"DATEV2", "DATEV2"}, returnType = "INT")
     public static Expression dateDiff(DateV2Literal date1, DateV2Literal date2) {
         return new IntegerLiteral(dateDiff(date1.toJavaDateType(), date2.toJavaDateType()));
     }
 
-    @ExecFunction(varArgs = false, name = "datediff", argTypes = {"DATEV2", "DATETIMEV2"}, returnType = "INT")
+    @ExecFunction(name = "datediff", argTypes = {"DATEV2", "DATETIMEV2"}, returnType = "INT")
     public static Expression dateDiff(DateV2Literal date1, DateTimeV2Literal date2) {
         return new IntegerLiteral(dateDiff(date1.toJavaDateType(), date2.toJavaDateType()));
     }
 
-    @ExecFunction(varArgs = false, name = "datediff", argTypes = {"DATETIMEV2", "DATEV2"}, returnType = "INT")
+    @ExecFunction(name = "datediff", argTypes = {"DATETIMEV2", "DATEV2"}, returnType = "INT")
     public static Expression dateDiff(DateTimeV2Literal date1, DateV2Literal date2) {
         return new IntegerLiteral(dateDiff(date1.toJavaDateType(), date2.toJavaDateType()));
     }
 
-    @ExecFunction(varArgs = false, name = "datediff", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "INT")
+    @ExecFunction(name = "datediff", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "INT")
     public static Expression dateDiff(DateTimeV2Literal date1, DateTimeV2Literal date2) {
         return new IntegerLiteral(dateDiff(date1.toJavaDateType(), date2.toJavaDateType()));
     }
