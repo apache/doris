@@ -108,6 +108,8 @@ protected:
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     // Max num of scanner thread
     RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _peak_running_scanner = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _scanner_peak_memory_usage = nullptr;
     // time of get block from scanner
     RuntimeProfile::Counter* _scan_timer = nullptr;
     RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
