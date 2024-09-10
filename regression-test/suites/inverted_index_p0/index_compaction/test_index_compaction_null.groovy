@@ -309,6 +309,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
                 "inverted_index_storage_format" = "V1"
             )
             """
+        sql """ set enable_common_expr_pushdown = true """
 
         tablets = sql_return_maparray """ show tablets from ${tableName}; """
         run_test.call(tablets)
