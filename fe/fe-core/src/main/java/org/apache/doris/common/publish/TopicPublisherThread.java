@@ -79,10 +79,13 @@ public class TopicPublisherThread extends MasterDaemon {
         Collection<Backend> nodesToPublish = clusterInfoService.getIdToBackend().values();
         AckResponseHandler handler = new AckResponseHandler(nodesToPublish);
         for (Backend be : nodesToPublish) {
-            executor.submit(new TopicPublishWorker(request, be, handler));
+            if (be.isAlive()) {
+                executor.submit(new TopicPublishWorker(request, be, handler));
+            }
         }
         try {
             int timeoutMs = Config.publish_topic_info_interval_ms / 3 * 2;
+            timeoutMs = timeoutMs <= 0 ? 3000 : timeoutMs;
             if (!handler.awaitAllInMs(timeoutMs)) {
                 Backend[] backends = handler.pendingNodes();
                 if (backends.length > 0) {
