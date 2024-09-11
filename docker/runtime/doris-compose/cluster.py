@@ -49,6 +49,8 @@ ID_LIMIT = 10000
 
 IP_PART4_SIZE = 200
 
+CLUSTER_ID = "12345678"
+
 LOG = utils.get_logger()
 
 
@@ -412,7 +414,7 @@ class FE(Node):
 
             if self.cluster.sql_mode_node_mgr:
                 cfg += [
-                    "cluster_id = " + self.cluster_id(),
+                    "cluster_id = " + CLUSTER_ID,
                 ]
             else:
                 cfg += [
@@ -438,9 +440,6 @@ class FE(Node):
 
     def cloud_unique_id(self):
         return "sql_server_{}".format(self.id)
-
-    def cluster_id(self):
-        return 123456;
 
     def entrypoint(self):
         return ["bash", os.path.join(DOCKER_RESOURCE_PATH, "init_fe.sh")]
@@ -486,7 +485,7 @@ class BE(Node):
                 ]
             if self.cluster.be_cluster_id:
                 cfg += [
-                    "cluster_id = " + self.cluster_id(),
+                    "cluster_id = " + CLUSTER_ID,
                 ]
             if not self.cluster.sql_mode_node_mgr:
                 cfg += [
@@ -552,9 +551,6 @@ class BE(Node):
 
     def cloud_unique_id(self):
         return "compute_node_{}".format(self.id)
-
-    def cluster_id(self):
-        return 12345678;
 
     def docker_home_dir(self):
         return os.path.join(DOCKER_DORIS_PATH, "be")

@@ -186,7 +186,7 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
 
             // CASE 3. Add the dropped backend back
             logger.info("Adding back the dropped backend: {}:{}", backendHost, backendHeartbeatPort)
-            sql """ ALTER SYSTEM ADD BACKEND "${backendHost}:${backendHeartbeatPort} PROPERTIES ("tag.compute_group" = "another_compute_group")"; """
+            sql """ ALTER SYSTEM ADD BACKEND "${backendHost}:${backendHeartbeatPort}" PROPERTIES ("tag.compute_group_name" = "another_compute_group"); """
 
             // Wait for the backend to be fully added back
             maxWaitSeconds = 300
@@ -210,15 +210,15 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
             // CASE 4. Check compute groups
             logger.info("Checking compute groups")
 
-            def computeGroups = sql_return_maparray("SHOW compute_groups")
+            def computeGroups = sql_return_maparray("SHOW COMPUTE GROUPS")
             logger.info("Compute groups: {}", computeGroups)
 
             // Verify that we have at least two compute groups
             assert computeGroups.size() >= 2, "Expected at least 2 compute groups, but got ${computeGroups.size()}"
 
             // Verify that we have a 'default_compute_group' and 'another_compute_group'
-            def defaultGroup = computeGroups.find { it['GroupName'] == 'default_compute_group' }
-            def anotherGroup = computeGroups.find { it['GroupName'] == 'another_compute_group' }
+            def defaultGroup = computeGroups.find { it['Name'] == 'default_compute_group' }
+            def anotherGroup = computeGroups.find { it['Name'] == 'another_compute_group' }
 
             assert defaultGroup != null, "Expected to find 'default_compute_group'"
             assert anotherGroup != null, "Expected to find 'another_compute_group'"

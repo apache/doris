@@ -71,7 +71,7 @@ public class BackendsProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        final List<List<String>> backendInfos = getBackendInfos();
+        final List<List<String>> backendInfos = getBackendInfos(false);
         for (List<String> backendInfo : backendInfos) {
             List<String> oneInfo = new ArrayList<>(backendInfo.size());
             oneInfo.addAll(backendInfo);
@@ -85,7 +85,7 @@ public class BackendsProcDir implements ProcDirInterface {
      *
      * @return
      */
-    public static List<List<String>> getBackendInfos() {
+    public static List<List<String>> getBackendInfos(boolean verbose) {
         final SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         List<List<String>> backendInfos = new LinkedList<>();
         List<Long> backendIds = systemInfoService.getAllBackendIds(false);
@@ -155,7 +155,7 @@ public class BackendsProcDir implements ProcDirInterface {
                     + totalRemoteUsedCapacity.second);
 
             // tags
-            backendInfo.add(backend.getTagMapString());
+            backendInfo.add(backend.getTagMapString(verbose));
             // err msg
             backendInfo.add(backend.getHeartbeatErrMsg());
             // version

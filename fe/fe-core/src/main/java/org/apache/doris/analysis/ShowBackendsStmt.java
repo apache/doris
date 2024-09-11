@@ -30,7 +30,10 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 public class ShowBackendsStmt extends ShowStmt implements NotFallbackInParser {
 
-    public ShowBackendsStmt() {
+    private boolean verbose = false;
+
+    public ShowBackendsStmt(boolean verbose) {
+        verbose = verbose;
     }
 
     @Override
@@ -42,6 +45,10 @@ public class ShowBackendsStmt extends ShowStmt implements NotFallbackInParser {
                                                                           PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN/OPERATOR");
         }
+    }
+
+    public boolean isVerbose() {
+        return verbose;
     }
 
     @Override

@@ -60,7 +60,7 @@ public class ShowBackendsStmtTest {
             }
         };
 
-        ShowBackendsStmt stmt = new ShowBackendsStmt();
+        ShowBackendsStmt stmt = new ShowBackendsStmt(true);
         Assertions.assertThrows(AnalysisException.class, () -> stmt.analyze(analyzer));
 
         privilege.set(true);
@@ -69,7 +69,7 @@ public class ShowBackendsStmtTest {
 
     @Test
     public void getMetaData() {
-        ShowBackendsStmt stmt = new ShowBackendsStmt();
+        ShowBackendsStmt stmt = new ShowBackendsStmt(true);
         ShowResultSetMetaData result = stmt.getMetaData();
         Assertions.assertEquals(result.getColumnCount(), 27);
         result.getColumns().forEach(col -> Assertions.assertEquals(col.getType(), ScalarType.createVarchar(30)));
@@ -77,7 +77,7 @@ public class ShowBackendsStmtTest {
 
     @Test
     public void getRedirectStatus() {
-        ShowBackendsStmt stmt = new ShowBackendsStmt();
+        ShowBackendsStmt stmt = new ShowBackendsStmt(true);
         Assertions.assertEquals(RedirectStatus.FORWARD_NO_SYNC, stmt.getRedirectStatus());
 
         ctx.getSessionVariable().forwardToMaster = false;

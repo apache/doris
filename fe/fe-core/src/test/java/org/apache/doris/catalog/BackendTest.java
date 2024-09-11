@@ -202,7 +202,7 @@ public class BackendTest {
         Assert.assertNotEquals(back1, back2);
 
         Assert.assertTrue(back1.toString().contains("tags: {location=default}"));
-        Assert.assertEquals("{\"compute\" : \"c1\", \"location\" : \"l1\"}", back2.getTagMapString());
+        Assert.assertEquals("{\"compute\" : \"c1\", \"location\" : \"l1\"}", back2.getTagMapString(true));
 
         // 3. delete files
         dis.close();

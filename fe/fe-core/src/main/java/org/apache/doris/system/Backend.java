@@ -925,8 +925,35 @@ public class Backend implements Writable {
         return new TNetworkAddress(getHost(), getArrowFlightSqlPort());
     }
 
-    public String getTagMapString() {
-        return "{" + new PrintableMap<>(tagMap, ":", true, false).toString() + "}";
+    // Only used for users, we hide and rename some internal tags.
+    public String getTagMapString(boolean verbose) {
+        Map<String, String> displayTagMap = Maps.newHashMap();
+        displayTagMap.putAll(tagMap);
+        if (verbose) {
+            if (displayTagMap.containsKey("cloud_cluster_public_endpoint")) {
+                displayTagMap.put("public_endpoint", displayTagMap.remove("cloud_cluster_public_endpoint"));
+            }
+            if (displayTagMap.containsKey("cloud_cluster_private_endpoint")) {
+                displayTagMap.put("private_endpoint", displayTagMap.remove("cloud_cluster_private_endpoint"));
+            }
+            if (displayTagMap.containsKey("cloud_cluster_status")) {
+                displayTagMap.put("compute_group_status", displayTagMap.remove("cloud_cluster_status"));
+            }
+            if (displayTagMap.containsKey("cloud_cluster_id")) {
+                displayTagMap.put("compute_group_id", displayTagMap.remove("cloud_cluster_id"));
+            }
+            if (displayTagMap.containsKey("cloud_cluster_name")) {
+                displayTagMap.put("compute_group_name", displayTagMap.remove("cloud_cluster_name"));
+            }
+        } else {
+            displayTagMap.entrySet().removeIf(entry -> entry.getKey().startsWith("cloud_")
+                    && !entry.getKey().equals("cloud_cluster_name"));
+            if (displayTagMap.containsKey("cloud_cluster_name")) {
+                displayTagMap.put("compute_group_name", displayTagMap.remove("cloud_cluster_name"));
+            }
+        }
+
+        return "{" + new PrintableMap<>(displayTagMap, ":", true, false).toString() + "}";
     }
 
     public Long getPublishTaskLastTimeAccumulated() {

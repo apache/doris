@@ -360,9 +360,9 @@ public class CloudSystemInfoService extends SystemInfoService {
     public void addBackends(List<HostInfo> hostInfos, Map<String, String> tagMap) throws UserException {
         // issue rpc to meta to add this node, then fe master would add this node to its backends
 
-        String clusterName = tagMap.getOrDefault(Tag.CLOUD_CLUSTER_NAME, Tag.VALUE_DEFAULT_CLOUD_CLUSTER_NAME);
+        String clusterName = tagMap.getOrDefault(Tag.COMPUTE_GROUP_NAME, Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME);
         if (clusterName.isEmpty()) {
-            throw new UserException("clusterName empty");
+            throw new UserException("ComputeGroup'name can not be empty");
         }
 
         String clusterId = tryCreateComputeGroup(clusterName, RandomIdentifierGenerator.generateRandomIdentifier(8));
@@ -702,6 +702,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         List<Backend> backends = new ArrayList<>();
         for (Cloud.NodeInfoPB node : cpb.getNodesList()) {
             Map<String, String> newTagMap = Tag.DEFAULT_BACKEND_TAG.toMap();
+
             newTagMap.put(Tag.CLOUD_CLUSTER_NAME, clusterNameMeta);
             newTagMap.put(Tag.CLOUD_CLUSTER_ID, clusterId);
             newTagMap.put(Tag.CLOUD_CLUSTER_STATUS, String.valueOf(clusterStatus));

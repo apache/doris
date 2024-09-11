@@ -423,7 +423,7 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setLongVal(backend.getRemoteUsedCapacityB()));
 
             // tags
-            trow.addToColumnValue(new TCell().setStringVal(backend.getTagMapString()));
+            trow.addToColumnValue(new TCell().setStringVal(backend.getTagMapString(true)));
             // err msg
             trow.addToColumnValue(new TCell().setStringVal(backend.getHeartbeatErrMsg()));
             // version

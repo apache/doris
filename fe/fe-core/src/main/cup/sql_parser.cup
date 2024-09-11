@@ -319,6 +319,7 @@ terminal String
     KW_COMPACT,
     KW_COMPLETE,
     KW_COMPRESS_TYPE,
+    KW_COMPUTE,
     KW_CONFIG,
     KW_CONNECTION,
     KW_CONNECTION_ID,
@@ -1478,6 +1479,14 @@ warm_up_stmt ::=
         RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force);
     :}
     | KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH warm_up_list:list opt_force:force
+    {:
+        RESULT = new WarmUpClusterStmt(dstClusterName, list, force);
+    :}
+    | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH KW_COMPUTE KW_GROUP ident:srcClusterName opt_force:force
+    {:
+        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force);
+    :}
+    | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH warm_up_list:list opt_force:force
     {:
         RESULT = new WarmUpClusterStmt(dstClusterName, list, force);
     :}
@@ -3050,6 +3059,14 @@ grant_stmt ::=
     {:
         RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
     :}
+    | KW_GRANT privilege_list:privs KW_ON KW_COMPUTE KW_GROUP resource_pattern:resourcePattern KW_TO user_identity:userId
+    {:
+        RESULT = new GrantStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
+    :}
+    | KW_GRANT privilege_list:privs KW_ON KW_COMPUTE KW_GROUP resource_pattern:resourcePattern KW_TO KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
+    :}
     | KW_GRANT privilege_list:privs KW_ON KW_STAGE resource_pattern:resourcePattern KW_TO user_identity:userId
     {:
         RESULT = new GrantStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.STAGE);
@@ -3151,6 +3168,14 @@ revoke_stmt ::=
         RESULT = new RevokeStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
     :}
     | KW_REVOKE privilege_list:privs KW_ON KW_CLUSTER resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_COMPUTE KW_GROUP resource_pattern:resourcePattern KW_FROM user_identity:userId
+    {:
+        RESULT = new RevokeStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_COMPUTE KW_GROUP resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
     {:
         RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
     :}
@@ -3480,6 +3505,10 @@ opt_cluster_keys ::=
         RESULT = null;
     :}
     | KW_CLUSTER KW_BY LPAREN ident_list:keys RPAREN
+    {:
+        RESULT = keys;
+    :}
+    | KW_COMPUTE KW_GROUP KW_BY LPAREN ident_list:keys RPAREN
     {:
         RESULT = keys;
     :}
@@ -4504,9 +4533,13 @@ show_param ::=
     {:
         RESULT = new ShowWorkloadGroupsStmt(parser.wild, parser.where);
     :}
+    | KW_BACKENDS KW_VERBOSE
+    {:
+        RESULT = new ShowBackendsStmt(true);
+    :}
     | KW_BACKENDS
     {:
-        RESULT = new ShowBackendsStmt();
+        RESULT = new ShowBackendsStmt(false);
     :}
     | KW_TRASH KW_ON STRING_LITERAL:backend
     {:
@@ -4693,7 +4726,12 @@ show_param ::=
     /* Cloud Cluster */
     | KW_CLUSTERS
     {:
-        RESULT = new ShowClusterStmt();
+        RESULT = new ShowClusterStmt(false);
+    :}
+    /* Cloud Cluster */
+    | KW_COMPUTE KW_GROUPS
+    {:
+        RESULT = new ShowClusterStmt(true);
     :}
     | KW_CONVERT_LSC opt_db:db
     {:
@@ -8421,6 +8459,8 @@ keyword ::=
     | KW_CLUSTER:id
     {: RESULT = id; :}
     | KW_CLUSTERS:id
+    {: RESULT = id; :}
+    | KW_COMPUTE:id
     {: RESULT = id; :}
     | KW_LINK:id
     {: RESULT = id; :}
