@@ -2243,7 +2243,7 @@ char_value	text	Yes	false	\N	NONE
 cidr_value	text	Yes	false	\N	NONE
 circle_value	text	Yes	false	\N	NONE
 date_value	date	Yes	false	\N	NONE
-decimal_value	decimal(10, 3)	Yes	false	\N	NONE
+decimal_value	decimal(10,3)	Yes	false	\N	NONE
 id	int	No	true	\N	
 inet_value	text	Yes	false	\N	NONE
 int_value	int	Yes	false	\N	NONE
