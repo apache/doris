@@ -59,7 +59,7 @@ public class StringArithmetic {
         if (first instanceof StringLiteral) {
             return new StringLiteral(value);
         } else if (first instanceof VarcharLiteral) {
-            return castStringLikeLiteral(first, value);
+            return new VarcharLiteral(value);
         }
         throw new AnalysisException("Unsupported string literal type: " + first.getClass().getSimpleName());
     }
