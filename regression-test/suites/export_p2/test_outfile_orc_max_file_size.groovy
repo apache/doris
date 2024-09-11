@@ -69,6 +69,7 @@ suite("test_outfile_orc_max_file_size", "p2") {
             select * from hdfs(
                 "uri" = "hdfs://${dfsNameservices}${load_data_path}",
                 "format" = "orc",
+                "dfs.data.transfer.protection" = "integrity",
                 'dfs.nameservices'="${dfsNameservices}",
                 'dfs.ha.namenodes.hdfs-cluster'="${dfsHaNamenodesHdfsCluster}",
                 'dfs.namenode.rpc-address.hdfs-cluster.nn1'="${dfsNamenodeRpcAddress1}:${dfsNameservicesPort}",
@@ -89,6 +90,7 @@ suite("test_outfile_orc_max_file_size", "p2") {
             PROPERTIES(
                 "max_file_size" = "${maxFileSize}",
                 "delete_existing_files"="${isDelete}",
+                "dfs.data.transfer.protection" = "integrity",
                 'dfs.nameservices'="${dfsNameservices}",
                 'dfs.ha.namenodes.hdfs-cluster'="${dfsHaNamenodesHdfsCluster}",
                 'dfs.namenode.rpc-address.hdfs-cluster.nn1'="${dfsNamenodeRpcAddress1}:${dfsNameservicesPort}",
@@ -118,6 +120,7 @@ suite("test_outfile_orc_max_file_size", "p2") {
                 PROPERTIES(
                     "max_file_size" = "${maxFileSize}",
                     "delete_existing_files"="${isDelete}",
+                    "dfs.data.transfer.protection" = "integrity",
                     'dfs.nameservices'="${dfsNameservices}",
                     'dfs.ha.namenodes.hdfs-cluster'="${dfsHaNamenodesHdfsCluster}",
                     'dfs.namenode.rpc-address.hdfs-cluster.nn1'="${dfsNamenodeRpcAddress1}:${dfsNameservicesPort}",

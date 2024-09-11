@@ -51,6 +51,7 @@ suite("test_outfile_p2", "p2") {
         FORMAT AS parquet
         PROPERTIES
         (
+            "dfs.data.transfer.protection" = "integrity",
             'dfs.nameservices'="${dfsNameservices}",
             'dfs.ha.namenodes.hdfs-cluster'="${dfsHaNamenodesHdfsCluster}",
             'dfs.namenode.rpc-address.hdfs-cluster.nn1'="${dfsNamenodeRpcAddress1}:${dfsNameservicesPort}",

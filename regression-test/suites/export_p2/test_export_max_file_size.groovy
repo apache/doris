@@ -83,6 +83,7 @@ suite("test_export_max_file_size", "p2") {
             select * from hdfs(
                 "uri" = "hdfs://${dfsNameservices}${load_data_path}",
                 "format" = "csv",
+                "dfs.data.transfer.protection" = "integrity",
                 'dfs.nameservices'="${dfsNameservices}",
                 'dfs.ha.namenodes.hdfs-cluster'="${dfsHaNamenodesHdfsCluster}",
                 'dfs.namenode.rpc-address.hdfs-cluster.nn1'="${dfsNamenodeRpcAddress1}:${dfsNameservicesPort}",
@@ -125,6 +126,7 @@ suite("test_export_max_file_size", "p2") {
                 "delete_existing_files"="${isDelete}"
             )
             with HDFS (
+                "dfs.data.transfer.protection" = "integrity",
                 'dfs.nameservices'="${dfsNameservices}",
                 'dfs.ha.namenodes.hdfs-cluster'="${dfsHaNamenodesHdfsCluster}",
                 'dfs.namenode.rpc-address.hdfs-cluster.nn1'="${dfsNamenodeRpcAddress1}:${dfsNameservicesPort}",
@@ -150,6 +152,7 @@ suite("test_export_max_file_size", "p2") {
                 select * from hdfs(
                     "uri" = "${outfile_url}${j}.csv",
                     "format" = "csv",
+                    "dfs.data.transfer.protection" = "integrity",
                     'dfs.nameservices'="${dfsNameservices}",
                     'dfs.ha.namenodes.hdfs-cluster'="${dfsHaNamenodesHdfsCluster}",
                     'dfs.namenode.rpc-address.hdfs-cluster.nn1'="${dfsNamenodeRpcAddress1}:${dfsNameservicesPort}",
