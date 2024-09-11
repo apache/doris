@@ -69,8 +69,8 @@ public:
 
     ~PipelineFragmentContext();
 
-    std::vector<std::shared_ptr<TRuntimeProfileTree>> collect_realtime_profile_x() const;
-    std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile_x() const;
+    std::vector<std::shared_ptr<TRuntimeProfileTree>> collect_realtime_profile() const;
+    std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile() const;
 
     bool is_timeout(timespec now) const;
 

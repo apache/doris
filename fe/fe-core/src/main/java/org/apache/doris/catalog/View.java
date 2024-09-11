@@ -76,6 +76,7 @@ public class View extends Table implements GsonPostProcessable {
     private String inlineViewDef;
 
     // for persist
+    @SerializedName("sm")
     private long sqlMode = 0L;
 
     // View definition created by parsing inlineViewDef_ into a QueryStmt.
