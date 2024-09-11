@@ -1004,6 +1004,24 @@ suite("agg_nullable") {
         contains "colUniqueId=null, type=array<text>, nullable=false"
     }
 
+    qt_select_regr_r2 """select regr_r2(kint, kint) from agg_nullable_test;"""
+    explain {
+        sql("verbose select regr_r2(kint, kint) from agg_nullable_test;")
+        contains "colUniqueId=null, type=double, nullable=true"
+    }
+
+    qt_select_regr_r2_2 """select regr_r2(kint, kint) from agg_nullable_test group by id;"""
+    explain {
+        sql("verbose select regr_r2(kint, kint) from agg_nullable_test group by id;")
+        contains "colUniqueId=null, type=double, nullable=true"
+    }
+
+    qt_select_regr_r2_n """select regr_r2(knint, knint) from agg_nullable_test;"""
+    explain {
+        sql("verbose select regr_r2(knint, knint) from agg_nullable_test;")
+        contains "colUniqueId=null, type=double, nullable=true"
+    }
+
     qt_select_retention """select retention(kdtm = '2012-03-11', kdtm = '2012-03-12') from agg_nullable_test;"""
     explain {
         sql("verbose select retention(kdtm = '2012-03-11', kdtm = '2012-03-12') from agg_nullable_test;")

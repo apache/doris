@@ -423,6 +423,14 @@
 -- !select_array_agg_n --
 []
 
+-- !select_regr_r2 --
+\N
+
+-- !select_regr_r2_2 --
+
+-- !select_regr_r2_n --
+\N
+
 -- !select_retention --
 \N
 

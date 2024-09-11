@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrR2;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Retention;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
@@ -264,6 +265,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitQuantileUnion(QuantileUnion quantileUnion, C context) {
         return visitAggregateFunction(quantileUnion, context);
+    }
+
+    default R visitRegrR2(RegrR2 regrR2, C context) {
+        return visitNullableAggregateFunction(regrR2, context);
     }
 
     default R visitRetention(Retention retention, C context) {

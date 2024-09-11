@@ -629,6 +629,8 @@ public class FunctionSet<T> {
     public static final String COUNT = "count";
     public static final String WINDOW_FUNNEL = "window_funnel";
 
+    public static final String REGR_R2 = "regr_r2";
+
     public static final String RETENTION = "retention";
 
     public static final String SEQUENCE_MATCH = "sequence_match";
@@ -712,6 +714,32 @@ public class FunctionSet<T> {
                 "",
                 "",
                 true, false, true, true));
+
+        // regr_r2
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_R2,
+                Lists.newArrayList(Type.TINYINT, Type.TINYINT), Type.DOUBLE, Type.DOUBLE,
+                "", "", "", "", "", "", "",
+                false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_R2,
+                Lists.newArrayList(Type.SMALLINT, Type.SMALLINT), Type.DOUBLE, Type.DOUBLE,
+                "", "", "", "", "", "", "",
+                false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_R2,
+                Lists.newArrayList(Type.INT, Type.INT), Type.DOUBLE, Type.DOUBLE,
+                "", "", "", "", "", "", "",
+                false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_R2,
+                Lists.newArrayList(Type.BIGINT, Type.BIGINT), Type.DOUBLE, Type.DOUBLE,
+                "", "", "", "", "", "", "",
+                false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_R2,
+                Lists.newArrayList(Type.FLOAT, Type.FLOAT), Type.DOUBLE, Type.DOUBLE,
+                "", "", "", "", "", "", "",
+                false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_R2,
+                Lists.newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
+                "", "", "", "", "", "", "",
+                false, true, false, true));
 
         // retention vectorization
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.RETENTION,
