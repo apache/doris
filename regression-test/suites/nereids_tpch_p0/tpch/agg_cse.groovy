@@ -23,9 +23,9 @@ suite("agg_cse") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
-    qt_select """
+    qt_1 """
     select sum(r_regionkey + r_regionkey), avg(r_regionkey + r_regionkey), sum(r_regionkey + (r_regionkey+1)) 
-    from region group by r_name;
+    from region group by r_name order by 1, 2, 3;
     """
     explain{
         sql """

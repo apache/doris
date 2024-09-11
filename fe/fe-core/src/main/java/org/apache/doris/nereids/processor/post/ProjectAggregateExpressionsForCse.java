@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -130,7 +131,7 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
     private void getCseCandidatesFromAggregateFunction(Expression expr, Map<Expression, Alias> result) {
         if (expr instanceof AggregateFunction) {
             for (Expression child : expr.children()) {
-                if (!(child instanceof SlotReference) && !child.isConstant()) {
+                if (!(child instanceof SlotReference) && !child.isConstant() && !(child instanceof OrderExpression)) {
                     if (child instanceof Alias) {
                         result.put(child, (Alias) child);
                     } else {
