@@ -47,7 +47,7 @@ suite("test_http_meta_auth","p0,auth") {
         }
     }
 
-    String databaseUrl = "/api/meta/namespaces/internal/databases";
+    def databaseUrl = "/api/meta/namespaces/internal/databases";
     sendHttpReq.call(databaseUrl) {
         respCode, body ->
             String respCodeValue = "${respCode}".toString();
