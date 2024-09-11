@@ -800,6 +800,9 @@ Status PartitionedHashJoinProbeOperatorX::revoke_memory(RuntimeState* state) {
                << ", task: " << state->task_id() << ", child eos: " << local_state._child_eos;
 
     if (local_state._child_eos) {
+        VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", hash probe node: " << node_id()
+                   << ", task: " << state->task_id() << ", child eos: " << local_state._child_eos
+                   << ", will not revoke size: " << revocable_mem_size(state);
         return Status::OK();
     }
 

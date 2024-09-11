@@ -346,6 +346,6 @@ private:
     friend class PartitionedAggSinkLocalState;
     std::unique_ptr<AggSinkOperatorX> _agg_sink_operator;
 
-    size_t _spill_partition_count_bits = 6;
+    size_t _spill_partition_count_bits = 5;
 };
 } // namespace doris::pipeline
