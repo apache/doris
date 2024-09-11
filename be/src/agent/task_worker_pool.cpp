@@ -194,6 +194,20 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
                             std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
                             engine.memory_limitation_bytes_per_thread_for_schema_change()));
+
+        Defer defer {[&]() {
+            int64_t mem_consume = mem_tracker->consumption();
+            if (mem_consume != 0) {
+                std::string mem_tracker_msg = fmt::format(
+                        " Limit={}, CurrUsed={}, "
+                        "PeakUsed={}",
+                        MemTracker::print_bytes(mem_tracker->limit()),
+                        MemTracker::print_bytes(mem_consume),
+                        MemTracker::print_bytes(mem_tracker->peak_consumption()));
+                LOG(FATAL) << "schema change mem not return zero, " << mem_tracker_msg;
+            }
+        }};
+
         SCOPED_ATTACH_TASK(mem_tracker);
         DorisMetrics::instance()->create_rollup_requests_total->increment(1);
         Status res = Status::OK();
@@ -270,6 +284,20 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
                             std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
                             engine.memory_limitation_bytes_per_thread_for_schema_change()));
+
+        Defer defer {[&]() {
+            int64_t mem_consume = mem_tracker->consumption();
+            if (mem_consume != 0) {
+                std::string mem_tracker_msg = fmt::format(
+                        " Limit={}, CurrUsed={}, "
+                        "PeakUsed={}",
+                        MemTracker::print_bytes(mem_tracker->limit()),
+                        MemTracker::print_bytes(mem_consume),
+                        MemTracker::print_bytes(mem_tracker->peak_consumption()));
+                LOG(FATAL) << "cloud schema change mem not return zero, " << mem_tracker_msg;
+            }
+        }};
+
         SCOPED_ATTACH_TASK(mem_tracker);
         DorisMetrics::instance()->create_rollup_requests_total->increment(1);
         Status res = Status::OK();
