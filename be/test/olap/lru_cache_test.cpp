@@ -88,11 +88,18 @@ public:
         void* value;
     };
 
-    class CacheTestPolicy : public LRUCachePolicyTrackingManual {
+    class CacheTestSizePolicy : public LRUCachePolicyTrackingManual {
     public:
-        CacheTestPolicy(size_t capacity)
-                : LRUCachePolicyTrackingManual(CachePolicy::CacheType::FOR_UT, capacity,
+        CacheTestSizePolicy(size_t capacity)
+                : LRUCachePolicyTrackingManual(CachePolicy::CacheType::FOR_UT_CACHE_SIZE, capacity,
                                                LRUCacheType::SIZE, -1) {}
+    };
+
+    class CacheTestNumberPolicy : public LRUCachePolicyTrackingManual {
+    public:
+        CacheTestNumberPolicy(size_t capacity, uint32_t num_shards)
+                : LRUCachePolicyTrackingManual(CachePolicy::CacheType::FOR_UT_CACHE_NUMBER,
+                                               capacity, LRUCacheType::NUMBER, -1, num_shards) {}
     };
 
     // there is 16 shards in ShardedLRUCache
@@ -101,11 +108,25 @@ public:
     static const int kCacheSize = 1000 * 16;
     std::vector<int> _deleted_keys;
     std::vector<int> _deleted_values;
-    CacheTestPolicy* _cache;
+    LRUCachePolicy* _cache = nullptr;
 
-    CacheTest() : _cache(new CacheTestPolicy(kCacheSize)) { _s_current = this; }
+    CacheTest() { _s_current = this; }
 
     ~CacheTest() override { delete _cache; }
+
+    void init_size_cache(size_t capacity = kCacheSize) {
+        if (_cache != nullptr) {
+            delete _cache;
+        }
+        _cache = new CacheTestSizePolicy(capacity);
+    }
+
+    void init_number_cache(size_t capacity = kCacheSize, uint32_t num_shards = 1) {
+        if (_cache != nullptr) {
+            delete _cache;
+        }
+        _cache = new CacheTestNumberPolicy(capacity, num_shards);
+    }
 
     LRUCachePolicy* cache() const { return _cache; }
 
@@ -149,7 +170,25 @@ public:
 };
 CacheTest* CacheTest::_s_current;
 
+static void insert_LRUCache(LRUCache& cache, const CacheKey& key, int value,
+                            CachePriority priority) {
+    uint32_t hash = key.hash(key.data(), key.size(), 0);
+    auto* cache_value = new CacheTest::CacheValue(EncodeValue(value));
+    cache.release(cache.insert(key, hash, cache_value, value, priority));
+}
+
+static void insert_number_LRUCache(LRUCache& cache, const CacheKey& key, int value, int charge,
+                                   CachePriority priority) {
+    uint32_t hash = key.hash(key.data(), key.size(), 0);
+    auto* cache_value = new CacheTest::CacheValue(EncodeValue(value));
+    cache.release(cache.insert(key, hash, cache_value, charge, priority));
+}
+
+// https://stackoverflow.com/questions/42756443/undefined-reference-with-gtest
+const int CacheTest::kCacheSize;
+
 TEST_F(CacheTest, HitAndMiss) {
+    init_size_cache();
     EXPECT_EQ(-1, Lookup(100));
 
     Insert(100, 101, 1);
@@ -173,6 +212,7 @@ TEST_F(CacheTest, HitAndMiss) {
 }
 
 TEST_F(CacheTest, Erase) {
+    init_size_cache();
     Erase(200);
     EXPECT_EQ(0, _deleted_keys.size());
 
@@ -192,6 +232,7 @@ TEST_F(CacheTest, Erase) {
 }
 
 TEST_F(CacheTest, EntriesArePinned) {
+    init_size_cache();
     Insert(100, 101, 1);
     std::string result1;
     Cache::Handle* h1 = cache()->lookup(EncodeKey(&result1, 100));
@@ -219,6 +260,7 @@ TEST_F(CacheTest, EntriesArePinned) {
 }
 
 TEST_F(CacheTest, EvictionPolicy) {
+    init_size_cache();
     Insert(100, 101, 1);
     Insert(200, 201, 1);
 
@@ -234,6 +276,7 @@ TEST_F(CacheTest, EvictionPolicy) {
 }
 
 TEST_F(CacheTest, EvictionPolicyWithDurable) {
+    init_size_cache();
     Insert(100, 101, 1);
     InsertDurable(200, 201, 1);
     Insert(300, 101, 1);
@@ -248,20 +291,6 @@ TEST_F(CacheTest, EvictionPolicyWithDurable) {
     EXPECT_EQ(-1, Lookup(300));
     EXPECT_EQ(101, Lookup(100));
     EXPECT_EQ(201, Lookup(200));
-}
-
-static void insert_LRUCache(LRUCache& cache, const CacheKey& key, int value,
-                            CachePriority priority) {
-    uint32_t hash = key.hash(key.data(), key.size(), 0);
-    auto* cache_value = new CacheTest::CacheValue(EncodeValue(value));
-    cache.release(cache.insert(key, hash, cache_value, value, priority));
-}
-
-static void insert_number_LRUCache(LRUCache& cache, const CacheKey& key, int value, int charge,
-                                   CachePriority priority) {
-    uint32_t hash = key.hash(key.data(), key.size(), 0);
-    auto* cache_value = new CacheTest::CacheValue(EncodeValue(value));
-    cache.release(cache.insert(key, hash, cache_value, charge, priority));
 }
 
 TEST_F(CacheTest, Usage) {
@@ -463,6 +492,7 @@ TEST_F(CacheTest, Number) {
 }
 
 TEST_F(CacheTest, HeavyEntries) {
+    init_size_cache();
     // Add a bunch of light and heavy entries and then count the combined
     // size of items still in the cache, which must be approximately the
     // same as the total capacity.
@@ -494,12 +524,14 @@ TEST_F(CacheTest, HeavyEntries) {
 }
 
 TEST_F(CacheTest, NewId) {
+    init_size_cache();
     uint64_t a = cache()->new_id();
     uint64_t b = cache()->new_id();
     EXPECT_NE(a, b);
 }
 
 TEST_F(CacheTest, SimpleBenchmark) {
+    init_size_cache();
     for (int i = 0; i < kCacheSize * LOOP_LESS_OR_MORE(10, 10000); i++) {
         Insert(1000 + i, 2000 + i, 1);
         EXPECT_EQ(2000 + i, Lookup(1000 + i));
@@ -596,6 +628,80 @@ TEST(CacheHandleTest, HandleTableTest) {
     for (auto& h : hs) {
         free(h);
     }
+}
+
+TEST_F(CacheTest, SetCapacity) {
+    init_number_cache();
+    for (int i = 0; i < kCacheSize; i++) {
+        Insert(i, 1000 + i, 1);
+        EXPECT_EQ(1000 + i, Lookup(i));
+    }
+    ASSERT_EQ(kCacheSize, cache()->get_capacity());
+    ASSERT_EQ(kCacheSize, cache()->get_usage());
+
+    int64_t prune_num = cache()->adjust_capacity_weighted(2);
+    ASSERT_EQ(prune_num, 0);
+    ASSERT_EQ(kCacheSize * 2, cache()->get_capacity());
+    ASSERT_EQ(kCacheSize, cache()->get_usage());
+
+    prune_num = cache()->adjust_capacity_weighted(0.5);
+    ASSERT_EQ(prune_num, kCacheSize / 2);
+    ASSERT_EQ(kCacheSize / 2, cache()->get_capacity());
+    ASSERT_EQ(kCacheSize / 2, cache()->get_usage());
+
+    std::vector<Cache::Handle*> handles(kCacheSize, nullptr);
+    for (int i = 0; i < kCacheSize; i++) {
+        std::string result;
+        CacheKey cache_key = EncodeKey(&result, kCacheSize + i);
+        auto* cache_value = new CacheValueWithKey(DecodeKey(cache_key), EncodeValue(i));
+        handles[i] = cache()->insert(cache_key, cache_value, 1, 1);
+    }
+    ASSERT_EQ(kCacheSize / 2, cache()->get_capacity());
+    ASSERT_EQ(kCacheSize,
+              cache()->get_usage()); // Handle not be released, so key cannot be evicted.
+
+    for (int i = 0; i < kCacheSize; i++) {
+        Insert(i + kCacheSize, 2000 + i, 1);
+        EXPECT_EQ(-1, Lookup(i + kCacheSize)); // Cache is full, insert failed.
+    }
+    ASSERT_EQ(kCacheSize / 2, cache()->get_capacity());
+    ASSERT_EQ(kCacheSize, cache()->get_usage());
+
+    cache()->adjust_capacity_weighted(2);
+    ASSERT_EQ(kCacheSize * 2, cache()->get_capacity());
+    ASSERT_EQ(kCacheSize, cache()->get_usage());
+
+    for (int i = 0; i < kCacheSize; i++) {
+        Insert(i, 3000 + i, 1);
+        EXPECT_EQ(3000 + i, Lookup(i));
+    }
+    ASSERT_EQ(kCacheSize * 2, cache()->get_capacity());
+    ASSERT_EQ(kCacheSize * 2, cache()->get_usage());
+
+    cache()->adjust_capacity_weighted(0);
+    ASSERT_EQ(0, cache()->get_capacity());
+    ASSERT_EQ(kCacheSize, cache()->get_usage());
+
+    for (auto it : handles) {
+        cache()->release(it);
+    }
+    ASSERT_EQ(0, cache()->get_capacity());
+    ASSERT_EQ(0, cache()->get_usage());
+
+    cache()->adjust_capacity_weighted(1);
+    ASSERT_EQ(kCacheSize, cache()->get_capacity());
+    ASSERT_EQ(0, cache()->get_usage());
+
+    cache()->adjust_capacity_weighted(0);
+    ASSERT_EQ(0, cache()->get_capacity());
+    ASSERT_EQ(0, cache()->get_usage());
+
+    for (int i = 0; i < kCacheSize; i++) {
+        Insert(i, 4000 + i, 1);
+        EXPECT_EQ(-1, Lookup(i));
+    }
+    ASSERT_EQ(0, cache()->get_capacity());
+    ASSERT_EQ(0, cache()->get_usage());
 }
 
 } // namespace doris

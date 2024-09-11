@@ -27,6 +27,8 @@ public enum DMLCommandType {
     NONE,
     // for INSERT INTO or INSERT INTO SELECT
     INSERT,
+    // for group_commit tvf
+    GROUP_COMMIT,
     // for UPDATE
     UPDATE,
     // for DELETE
