@@ -37,18 +37,43 @@ suite("test_http_meta_auth","p0,auth") {
         PROPERTIES ('replication_num' = '1') ;
         """
 
-    def sendHttpReq = { uri, check_func ->
+    def getDatabases = { check_func ->
         httpTest {
             basicAuthorization "${user}","${pwd}"
             endpoint "127.0.0.1:8823"
-            uri "${uri}"
+            uri "/api/meta/namespaces/default_cluster/databases"
+            op "get"
+            check check_func
+        }
+    }
+    def getTables = { check_func ->
+        httpTest {
+            basicAuthorization "${user}","${pwd}"
+            endpoint "127.0.0.1:8823"
+            uri "/api/meta/namespaces/default_cluster/databases/${dbName}/tables"
             op "get"
             check check_func
         }
     }
 
-    def databaseUrl = "/api/meta/namespaces/internal/databases";
-    sendHttpReq.call(databaseUrl) {
+    def getSchema = { check_func ->
+        httpTest {
+            basicAuthorization "${user}","${pwd}"
+            endpoint "127.0.0.1:8823"
+            uri "/api/meta/namespaces/default_cluster/databases/${dbName}/tables/${tableName}/schema"
+            op "get"
+            check check_func
+        }
+    }
+
+    getDatabases.call() {
+        respCode, body ->
+            String respCodeValue = "${respCode}".toString();
+            log.info("respCodeValue:${respCodeValue}")
+            log.info("body:${body}")
+    }
+
+    getSchema.call() {
         respCode, body ->
             String respCodeValue = "${respCode}".toString();
             log.info("respCodeValue:${respCodeValue}")
