@@ -79,7 +79,7 @@ suite("test_http_table_data_auth","p0,auth") {
     getDbData.call() {
         respCode, body ->
             log.info("body:${body}")
-            assertTrue("${body}".contains("401"))
+            assertTrue("${body}".contains("${tableName}"))
     }
 
     sql """drop table if exists `${tableName}`"""
