@@ -127,7 +127,7 @@ MemTrackerLimiter::~MemTrackerLimiter() {
             "4. If you need to "
             "transfer memory tracking value between two trackers, can use transfer_to.";
     if (_consumption->current_value() != 0) {
-        // TODO, expect mem tracker equal to 0 at the load/compaction/etc. task end.
+// TODO, expect mem tracker equal to 0 at the load/compaction/etc. task end.
 #ifndef NDEBUG
         if (_type == Type::QUERY || (_type == Type::LOAD && !is_group_commit_load)) {
             std::string err_msg =

@@ -92,6 +92,7 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import org.apache.commons.codec.digest.DigestUtils;
 
+import java.time.DateTimeException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -443,6 +444,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                     // If cast is from type coercion, we don't use NULL literal and will throw exception.
                     throw t;
                 }
+            } catch (DateTimeException e) {
+                return new NullLiteral(dataType);
             }
         }
         try {

@@ -1093,6 +1093,11 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                 std::shared_ptr<PBackendService_Stub> stub(
                         ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                                 host, brpc_port));
+                if (stub == nullptr) {
+                    LOG(WARNING) << "Failed to init rpc to " << host << ":" << brpc_port;
+                    st = Status::InternalError("Failed to init rpc to {}:{}", host, brpc_port);
+                    continue;
+                }
                 rpc_contexts[i].cid = rpc_contexts[i].cntl.call_id();
                 rpc_contexts[i].cntl.set_timeout_ms(config::fetch_remote_schema_rpc_timeout_ms);
                 stub->fetch_remote_tablet_schema(&rpc_contexts[i].cntl, &remote_request,
