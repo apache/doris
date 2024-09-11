@@ -410,14 +410,14 @@ class FE(Node):
                 "deploy_mode = cloud"
             ]
 
-        if self.cluster.sql_mode_node_mgr:
-            cfg += [
-                "cloud_instance_id = " + self.cloud_instance_id(),
-            ]
-        else:
-            cfg += [
-                "cloud_unique_id = " + self.cloud_unique_id(),
-            ]
+            if self.cluster.sql_mode_node_mgr:
+                cfg += [
+                    "cloud_instance_id = " + self.cloud_instance_id(),
+                ]
+            else:
+                cfg += [
+                    "cloud_unique_id = " + self.cloud_unique_id(),
+                ]
         return cfg
 
     def init_is_follower(self):
@@ -688,8 +688,6 @@ class Cluster(object):
         self.sql_mode_node_mgr = sql_mode_node_mgr
         self.no_be_metaservice_endpoint = no_be_metaservice_endpoint
         self.no_be_cloud_instanceid = no_be_cloud_instanceid
-
-        LOG.info("xxxxx cluster")
 
     @staticmethod
     def new(name, image, is_cloud, fe_config, be_config, ms_config,

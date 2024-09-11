@@ -306,35 +306,35 @@ class UpCommand(Command):
             parser.add_argument(
                 "--be-metaservice-endpoint",
                 default=True,
-                action=self._get_parser_bool_action(True),
+                action=self._get_parser_bool_action(False),
                 help=
-                "Do not set BE meta service endpoint in conf. Default is False."
+                "Set BE meta service endpoint in conf. Default is True."
             )
         else:
             parser.add_argument(
                 "--no-be-metaservice-endpoint",
                 dest='be-metaservice-endpoint',
                 default=True,
-                action=self._get_parser_bool_action(True),
+                action=self._get_parser_bool_action(False),
                 help=
-                "Do not set BE meta service endpoint in conf. Default is False."
+                "Set BE meta service endpoint in conf. Default is True."
             )
 
         if self._support_boolean_action():
             parser.add_argument(
                 "--be-cloud-instanceid",
                 default=True,
-                action=self._get_parser_bool_action(True),
+                action=self._get_parser_bool_action(False),
                 help=
-                "Do not set BE cloud instance ID in conf. Default is False.")
+                "Set BE cloud instance ID in conf. Default is True.")
         else:
             parser.add_argument(
                 "--no-be-cloud-instanceid",
                 dest='be-cloud-instanceid',
                 default=True,
-                action=self._get_parser_bool_action(True),
+                action=self._get_parser_bool_action(False),
                 help=
-                "Do not set BE cloud instance ID in conf. Default is False.")
+                "Set BE cloud instance ID in conf. Default is True.")
 
         parser.add_argument(
             "--fdb-version",
