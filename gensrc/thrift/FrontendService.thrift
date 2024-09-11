@@ -437,6 +437,8 @@ struct TQueryProfile {
 struct TFragmentInstanceReport {
   1: optional Types.TUniqueId fragment_instance_id;
   2: optional i32 num_finished_range;
+  3: optional i64 loaded_rows
+  4: optional i64 loaded_bytes
 }
 
 

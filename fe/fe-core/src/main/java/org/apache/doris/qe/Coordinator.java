@@ -2464,7 +2464,7 @@ public class Coordinator implements CoordInterface {
                 for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
                     Env.getCurrentEnv().getLoadManager().updateJobProgress(
                             jobId, params.getBackendId(), params.getQueryId(), report.getFragmentInstanceId(),
-                            params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+                            report.getLoadedRows(), report.getLoadedBytes(), params.isDone());
                     Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
                             params.getQueryId(), report.getFragmentInstanceId(), report.getNumFinishedRange());
                 }
@@ -2888,9 +2888,9 @@ public class Coordinator implements CoordInterface {
         // Has to use synchronized to ensure there are not concurrent update threads. Or the done
         // state maybe update wrong and will lose data. see https://github.com/apache/doris/pull/29802/files.
         public synchronized boolean updatePipelineStatus(TReportExecStatusParams params) {
-            // The fragment or instance is not finished, not need update
+            // The fragment or instance is not finished, still need update progress
             if (!params.done) {
-                return false;
+                return true;
             }
             if (this.done) {
                 // duplicate packet
