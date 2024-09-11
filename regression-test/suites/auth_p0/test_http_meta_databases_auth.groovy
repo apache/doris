@@ -25,7 +25,6 @@ suite("test_http_meta_databases_auth","p0,auth") {
     String pwd = 'C123_567p'
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
-    sql """grant select_priv on regression_test to ${user}"""
 
     sql """drop table if exists `${tableName}`"""
     sql """
@@ -51,7 +50,7 @@ suite("test_http_meta_databases_auth","p0,auth") {
     getDatabases.call() {
         respCode, body ->
             log.info("body:${body}")
-            assertFalse(${body}.contains("${dbName}"))
+            assertFalse(${body}.toString().contains("${dbName}"))
     }
 
     sql """grant select_priv on ${dbName} to ${user}"""
@@ -59,7 +58,7 @@ suite("test_http_meta_databases_auth","p0,auth") {
     getDatabases.call() {
         respCode, body ->
             log.info("body:${body}")
-            assertTrue(${body}.contains("${dbName}"))
+            assertTrue(${body}.toString().contains("${dbName}"))
     }
 
     sql """drop table if exists `${tableName}`"""
