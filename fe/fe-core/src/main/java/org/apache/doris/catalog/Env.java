@@ -584,6 +584,7 @@ public class Env {
     private final List<String> forceSkipJournalIds = Arrays.asList(Config.force_skip_journal_ids);
 
     private TokenManager tokenManager;
+    private List<Table> phantomTempTableList;
 
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
@@ -833,6 +834,27 @@ public class Env {
         this.splitSourceManager = new SplitSourceManager();
         this.globalExternalTransactionInfoMgr = new GlobalExternalTransactionInfoMgr();
         this.tokenManager = new TokenManager();
+        this.phantomTempTableList = new ArrayList<>();
+    }
+
+    public void addPhantomTempTable(Table table) {
+        phantomTempTableList.add(table);
+    }
+
+    public void removePhantomTempTable(Table table) {
+        phantomTempTableList.remove(table);
+    }
+
+    public void cleanPhantomTempTable() {
+        for (Table table : phantomTempTableList) {
+            try {
+                getInternalCatalog().dropTableWithoutCheck(getInternalCatalog().getDb(table.getDBName()).get(),
+                        table, true);
+            } catch (DdlException e) {
+                LOG.error("drop temp table error: db: {}, table: {}", table.getDBName(), table.getName(), e);
+            }
+        }
+        phantomTempTableList.clear();
     }
 
     public static void destroyCheckpoint() {
@@ -3857,12 +3879,19 @@ public class Env {
                 || table.getType() == TableType.HIVE || table.getType() == TableType.JDBC) {
             sb.append("EXTERNAL ");
         }
+        if (table.getType() == TableType.TEMP) {
+            sb.append("TEMPORARY ");
+        }
         sb.append(table.getType() != TableType.MATERIALIZED_VIEW ? "TABLE " : "MATERIALIZED VIEW ");
 
         if (!Strings.isNullOrEmpty(dbName)) {
             sb.append("`").append(dbName).append("`.");
         }
-        sb.append("`").append(table.getName()).append("`");
+        if (table.getType() == TableType.TEMP) {
+            sb.append("`").append(Util.getTempTableOuterName(table.getName())).append("`");
+        } else {
+            sb.append("`").append(table.getName()).append("`");
+        }
 
 
         sb.append(" (\n");

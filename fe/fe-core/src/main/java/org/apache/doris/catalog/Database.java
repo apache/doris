@@ -37,6 +37,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -381,6 +382,19 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         checkReplicaQuota();
     }
 
+    public boolean isTableExist(String tableName, TableType tableType) {
+        if (Env.isTableNamesCaseInsensitive()) {
+            tableName = tableName.toLowerCase();
+        }
+
+        if (tableType == TableType.TEMP) {
+            Set<String> tableSet = ConnectContext.get().getDbToTempTableNamesMap().get(fullQualifiedName);
+            return tableSet != null && tableSet.contains(tableName);
+        } else {
+            return nameToTable.containsKey(tableName);
+        }
+    }
+
     public boolean isTableExist(String tableName) {
         if (Env.isTableNamesCaseInsensitive()) {
             tableName = lowerCaseToTableName.get(tableName.toLowerCase());
@@ -410,8 +424,16 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 isTableExist = true;
             } else {
                 idToTable.put(table.getId(), table);
-                nameToTable.put(table.getName(), table);
                 lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+                nameToTable.put(table.getName(), table);
+                if (table.getType() == TableType.TEMP) {
+                    if (isReplay) {
+                        // add to to-deleted list, and delete it after catalog is ready
+                        Env.getCurrentEnv().addPhantomTempTable(table);
+                    } else {
+                        ConnectContext.get().addTempTableToDB(table.getQualifiedDbName(), table.getName());
+                    }
+                }
 
                 if (!isReplay) {
                     // Write edit log
@@ -457,8 +479,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         Table table = getTableNullable(tableName);
         if (table != null) {
             this.nameToTable.remove(tableName);
-            this.idToTable.remove(table.getId());
             this.lowerCaseToTableName.remove(tableName.toLowerCase());
+            this.idToTable.remove(table.getId());
             table.markDropped();
         }
     }
@@ -569,7 +591,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 return null;
             }
         }
-        return nameToTable.get(tableName);
+
+        // return temp table first
+        Table table = nameToTable.get(Util.generateTempTableInnerName(tableName));
+        if (table == null) {
+            table = nameToTable.get(tableName);
+        }
+        return table;
     }
 
     /**

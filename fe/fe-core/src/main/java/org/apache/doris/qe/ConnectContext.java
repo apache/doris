@@ -28,6 +28,7 @@ import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.VariableExpr;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
@@ -36,6 +37,7 @@ import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
@@ -85,6 +87,7 @@ import org.xnio.StreamConnection;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -235,6 +238,8 @@ public class ConnectContext {
     private boolean isGroupCommit;
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
+
+    private Map<String, Set<String>> dbToTempTableNamesMap = new HashMap<>();
 
     // internal call like `insert overwrite` need skipAuth
     // For example, `insert overwrite` only requires load permission,
@@ -843,6 +848,22 @@ public class ConnectContext {
         closeChannel();
         threadLocalInfo.remove();
         returnRows = 0;
+        deleteTempTable();
+    }
+
+    protected void deleteTempTable() {
+        for (String dbName : dbToTempTableNamesMap.keySet()) {
+            Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbName).get();
+            for (String tableName : dbToTempTableNamesMap.get(dbName)) {
+                try {
+                    //Env.getCurrentEnv().unprotectDropTable(db, db.getTable(tableName).get(), true, false, 0L);
+                    Env.getCurrentEnv().getInternalCatalog()
+                        .dropTableWithoutCheck(db, db.getTable(tableName).get(), true);
+                } catch (DdlException e) {
+                    LOG.error("drop temp table error: db: {}, table: {}", dbName, tableName, e);
+                }
+            }
+        }
     }
 
     public boolean isKilled() {
@@ -1418,5 +1439,31 @@ public class ConnectContext {
 
     public byte[] getAuthPluginData() {
         return mysqlHandshakePacket == null ? null : mysqlHandshakePacket.getAuthPluginData();
+    }
+
+    @Override
+    public String toString() {
+        return getClass().getName() + "@" + Integer.toHexString(hashCode()) + ":" + qualifiedUser;
+    }
+
+    public Map<String, Set<String>> getDbToTempTableNamesMap() {
+        return dbToTempTableNamesMap;
+    }
+
+    public void addTempTableToDB(String database, String tableName) {
+        Set<String> tableNameSet = dbToTempTableNamesMap.get(database);
+        if (tableNameSet == null) {
+            tableNameSet = new HashSet<>();
+        }
+
+        tableNameSet.add(tableName);
+        dbToTempTableNamesMap.put(database, tableNameSet);
+    }
+
+    public void removeTempTableFromDB(String database, String tableName) {
+        Set<String> tableNameSet = dbToTempTableNamesMap.get(database);
+        if (tableNameSet != null) {
+            tableNameSet.remove(tableName);
+        }
     }
 }

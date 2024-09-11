@@ -1926,6 +1926,7 @@ public class SingleNodePlanner {
         ScanNode scanNode;
         switch (tblRef.getTable().getType()) {
             case OLAP:
+            case TEMP:
             case MATERIALIZED_VIEW:
                 OlapScanNode olapNode = new OlapScanNode(ctx.getNextNodeId(), tblRef.getDesc(),
                         "OlapScanNode");

@@ -380,6 +380,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         try {
             switch (table.getType()) {
                 case OLAP:
+                case TEMP:
                 case MATERIALIZED_VIEW:
                     return makeOlapScan(table, unboundRelation, qualifierWithoutTableName);
                 case VIEW:
