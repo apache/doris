@@ -40,7 +40,7 @@ suite("test_http_meta_auth","p0,auth") {
     def getDatabases = { check_func ->
         httpTest {
             basicAuthorization "${user}","${pwd}"
-            endpoint "http://127.0.0.1:8823"
+            endpoint "127.0.0.1:8823"
             uri "/api/meta/namespaces/internal/databases"
             op "get"
             check check_func
