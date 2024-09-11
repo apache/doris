@@ -105,8 +105,6 @@ public:
     Status init(ExchangeType type, const int num_buckets, const bool should_disable_bucket_shuffle,
                 const std::map<int, int>& shuffle_idx_to_instance_idx) override;
 
-    Status prepare(RuntimeState* state) override;
-
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;

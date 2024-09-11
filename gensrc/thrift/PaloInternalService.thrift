@@ -335,6 +335,13 @@ struct TQueryOptions {
 
   127: optional i32 in_list_value_count_threshold = 10;
 
+  // We need this two fields to make sure thrift id on master is compatible with other branch.
+  128: optional bool enable_verbose_profile = false;
+  129: optional i32 rpc_verbose_profile_max_instance_count = 0;
+
+  130: optional bool enable_adaptive_pipeline_task_serial_read_on_limit = true;
+  131: optional i32 adaptive_pipeline_task_serial_read_on_limit = 10000;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

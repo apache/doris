@@ -40,7 +40,7 @@ import java.util.List;
 //
 // syntax:
 //      SHOW EXPORT [FROM db] [where ...]
-public class ShowExportStmt extends ShowStmt {
+public class ShowExportStmt extends ShowStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(ShowExportStmt.class);
 
     private String dbName;

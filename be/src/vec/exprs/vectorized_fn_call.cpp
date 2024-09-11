@@ -108,10 +108,9 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
                 _fn.name.function_name, argument_template, _data_type, state->be_exec_version());
     }
     if (_function == nullptr) {
-        return Status::InternalError(
-                "Function {} get failed, expr is {} "
-                "and return type is {}.",
-                _fn.name.function_name, _expr_name, _data_type->get_name());
+        return Status::InternalError("Could not find function {}, arg {} return {} ",
+                                     _fn.name.function_name, get_child_names(),
+                                     _data_type->get_name());
     }
     VExpr::register_function_context(state, context);
     _function_name = _fn.name.function_name;

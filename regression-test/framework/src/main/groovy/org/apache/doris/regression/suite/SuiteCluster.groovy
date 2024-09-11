@@ -40,6 +40,7 @@ class ClusterOptions {
     ]
 
     List<String> beConfigs = [
+        'max_sys_mem_available_low_water_mark_bytes=0', //no check mem available memory
         'report_disk_state_interval_seconds=2',
         'report_random_wait=false',
     ]
@@ -50,6 +51,12 @@ class ClusterOptions {
     // 2. cloudMode = false, only create none-cloud cluster.
     // 3. cloudMode = null, create both cloud and none-cloud cluster, depend on the running pipeline mode.
     Boolean cloudMode = false
+
+    // in cloud mode, deployment methods are divided into
+    // 1. master - multi observers
+    // 2. mutli followers - multi observers
+    // default use 1
+    Boolean useFollowersMode = false
 
     // when cloudMode = true/false,  but the running pipeline is diff with cloudMode,
     // skip run this docker test or not.
@@ -290,6 +297,11 @@ class SuiteCluster {
         if (isCloud) {
             cmd += ['--cloud']
         }
+
+        if (isCloud && options.useFollowersMode) {
+            cmd += ['--fe-follower']
+        }
+
         cmd += ['--wait-timeout', String.valueOf(180)]
 
         runCmd(cmd.join(' '), -1)
@@ -419,8 +431,8 @@ class SuiteCluster {
         return new Tuple4(frontends, backends, metaservices, recyclers)
     }
 
-    List<Integer> addFrontend(int num) throws Exception {
-        def result = add(num, 0, null)
+    List<Integer> addFrontend(int num, boolean followerMode=false) throws Exception {
+        def result = add(num, 0, null, followerMode)
         return result.first
     }
 
@@ -429,14 +441,18 @@ class SuiteCluster {
         return result.second
     }
 
-    // APPR: clusterName just used for cloud mode, 1 cluster has n bes
-    Tuple2<List<Integer>, List<Integer>> add(int feNum, int beNum, String clusterName) throws Exception {
+    // ATTN: clusterName just used for cloud mode, 1 cluster has n bes
+    // ATTN: followerMode just used for cloud mode
+    Tuple2<List<Integer>, List<Integer>> add(int feNum, int beNum, String clusterName, boolean followerMode=false) throws Exception {
         assert feNum > 0 || beNum > 0
 
         def sb = new StringBuilder()
         sb.append('up ' + name + ' ')
         if (feNum > 0) {
             sb.append('--add-fe-num ' + feNum + ' ')
+            if (followerMode) {
+                sb.append('--fe-follower' + ' ')
+            }
         }
         if (beNum > 0) {
             sb.append('--add-be-num ' + beNum + ' ')

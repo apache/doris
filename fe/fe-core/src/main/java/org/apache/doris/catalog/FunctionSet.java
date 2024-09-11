@@ -155,6 +155,32 @@ public class FunctionSet<T> {
                     .put(Type.DECIMAL128, Type.DECIMAL128)
                     .build();
 
+    public static final Set<String> nonDeterministicFunctions =
+            ImmutableSet.<String>builder()
+                    .add("RAND")
+                    .add("RANDOM")
+                    .add("RANDOM_BYTES")
+                    .add("CONNECTION_ID")
+                    .add("DATABASE")
+                    .add("USER")
+                    .add("UUID")
+                    .add("CURRENT_USER")
+                    .add("UUID_NUMERIC")
+                    .build();
+
+    public static final Set<String> nonDeterministicTimeFunctions =
+            ImmutableSet.<String>builder()
+                    .add("NOW")
+                    .add("CURDATE")
+                    .add("CURRENT_DATE")
+                    .add("UTC_TIMESTAMP")
+                    .add("CURTIME")
+                    .add("CURRENT_TIMESTAMP")
+                    .add("CURRENT_TIME")
+                    .add("UNIX_TIMESTAMP")
+                    .add()
+                    .build();
+
     private static final Map<Type, String> STDDEV_UPDATE_SYMBOL =
             ImmutableMap.<Type, String>builder()
                 .put(Type.TINYINT,
