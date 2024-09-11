@@ -322,7 +322,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
                 }
             }
         }
-        if (_local_state->low_memory_mode()) {
+        if (!_local_state->low_memory_mode()) {
             // scale up
             RETURN_IF_ERROR(_try_to_scale_up());
         }
