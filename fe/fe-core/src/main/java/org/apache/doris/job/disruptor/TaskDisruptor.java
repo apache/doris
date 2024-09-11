@@ -74,8 +74,7 @@ public class TaskDisruptor<T> {
     public boolean publishEvent(Object... args) {
         try {
             RingBuffer<T> ringBuffer = disruptor.getRingBuffer();
-            ringBuffer.publishEvent(eventTranslator, args);
-            return true;
+            return ringBuffer.tryPublishEvent(eventTranslator, args);
         } catch (Exception e) {
             LOG.warn("Failed to publish event", e);
             // Handle the exception, e.g., retry or alert
