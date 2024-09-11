@@ -353,21 +353,20 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
         }
     }
 
+    std::unique_lock<std::mutex> lock(_spill_lock);
     if (_spilling_streams_count > 0) {
-        std::unique_lock<std::mutex> lock(_spill_lock);
-        if (_spilling_streams_count > 0) {
-            _spill_dependency->block();
-        } else if (_child_eos) {
-            LOG(INFO) << "hash join sink " << _parent->node_id() << " set_ready_to_read"
-                      << ", task id: " << state->task_id();
-            std::for_each(_shared_state->partitioned_build_blocks.begin(),
-                          _shared_state->partitioned_build_blocks.end(), [&](auto& block) {
-                              if (block) {
-                                  COUNTER_UPDATE(_in_mem_rows_counter, block->rows());
-                              }
-                          });
-            _dependency->set_ready_to_read();
-        }
+        _spill_dependency->block();
+    } else if (_child_eos) {
+        VLOG_DEBUG << "query:" << print_id(state->query_id()) << ", hash join sink "
+                   << _parent->node_id() << " set_ready_to_read"
+                   << ", task id: " << state->task_id();
+        std::for_each(_shared_state->partitioned_build_blocks.begin(),
+                      _shared_state->partitioned_build_blocks.end(), [&](auto& block) {
+                          if (block) {
+                              COUNTER_UPDATE(_in_mem_rows_counter, block->rows());
+                          }
+                      });
+        _dependency->set_ready_to_read();
     }
     return Status::OK();
 }
@@ -438,8 +437,9 @@ void PartitionedHashJoinSinkLocalState::_spill_to_disk(
         std::unique_lock<std::mutex> lock(_spill_lock);
         _spill_dependency->set_ready();
         if (_child_eos) {
-            LOG(INFO) << "hash join sink " << _parent->node_id() << " set_ready_to_read"
-                      << ", task id: " << state()->task_id();
+            VLOG_DEBUG << "query:" << print_id(this->state()->query_id()) << ", hash join sink "
+                       << _parent->node_id() << " set_ready_to_read"
+                       << ", task id: " << state()->task_id();
             std::for_each(_shared_state->partitioned_build_blocks.begin(),
                           _shared_state->partitioned_build_blocks.end(), [&](auto& block) {
                               if (block) {
@@ -553,8 +553,9 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
     const auto need_to_spill = local_state._shared_state->need_to_spill;
     if (rows == 0) {
         if (eos) {
-            LOG(INFO) << "hash join sink " << node_id() << " sink eos, set_ready_to_read"
-                      << ", task id: " << state->task_id() << ", need spil: " << need_to_spill;
+            VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", hash join sink "
+                       << node_id() << " sink eos, set_ready_to_read"
+                       << ", task id: " << state->task_id() << ", need spil: " << need_to_spill;
 
             if (!need_to_spill) {
                 if (UNLIKELY(!local_state._shared_state->inner_runtime_state)) {
@@ -613,8 +614,9 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
                 local_state._shared_state->inner_runtime_state.get(), in_block, eos));
 
         if (eos) {
-            LOG(INFO) << "hash join sink " << node_id() << " sink eos, set_ready_to_read"
-                      << ", task id: " << state->task_id();
+            VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", hash join sink "
+                       << node_id() << " sink eos, set_ready_to_read"
+                       << ", task id: " << state->task_id();
             local_state._dependency->set_ready_to_read();
         }
     }
