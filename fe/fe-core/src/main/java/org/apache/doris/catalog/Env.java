@@ -3000,7 +3000,7 @@ public class Env {
         }
         try {
             if (Strings.isNullOrEmpty(nodeName)) {
-                nodeName = genFeNodeName(host, editLogPort, true /* new name style */);
+                nodeName = genFeNodeName(host, editLogPort, false /* new name style */);
             }
 
             Frontend fe = checkFeExist(host, editLogPort);
