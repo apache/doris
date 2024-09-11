@@ -202,7 +202,7 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
 
     _is_merging = true;
     VLOG_DEBUG << "query " << print_id(state->query_id()) << " agg node " << _parent->node_id()
-               << " merge spilled agg data";
+               << ", task id: " << _state->task_id() << " merge spilled agg data";
 
     RETURN_IF_ERROR(Base::_shared_state->in_mem_shared_state->reset_hash_table());
     _spill_dependency->Dependency::block();
@@ -213,6 +213,9 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
     submit_timer.start();
     auto spill_func = [this, state, query_id, submit_timer] {
         _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
+        MonotonicStopWatch execution_timer;
+        execution_timer.start();
+        size_t read_size = 0;
         Defer defer {[&]() {
             if (!_status.ok() || state->is_cancelled()) {
                 if (!_status.ok()) {
@@ -221,9 +224,13 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
                                  << " merge spilled agg data error: " << _status;
                 }
                 _shared_state->close();
-            } else if (_shared_state->spill_partitions.empty()) {
+            } else {
                 VLOG_DEBUG << "query " << print_id(query_id) << " agg node " << _parent->node_id()
-                           << " merge spilled agg data finish";
+                           << ", task id: " << _state->task_id()
+                           << " merge spilled agg data finish, time used: "
+                           << (execution_timer.elapsed_time() / (1000L * 1000 * 1000))
+                           << "s, read size: " << read_size << ", "
+                           << _shared_state->spill_partitions.size() << " partitions left";
             }
             Base::_shared_state->in_mem_shared_state->aggregate_data_container->init_once();
             _is_merging = false;
@@ -256,6 +263,7 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
 
                     if (!block.empty()) {
                         has_agg_data = true;
+                        read_size += block.bytes();
                         _status = parent._agg_source_operator
                                           ->merge_with_serialized_key_helper<false>(
                                                   _runtime_state.get(), &block);
@@ -263,6 +271,15 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
                     }
                 }
                 (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
+
+                if (!has_agg_data) {
+                    VLOG_DEBUG << "query " << print_id(query_id) << " agg node "
+                               << _parent->node_id() << ", task id: " << _state->task_id()
+                               << " merge spilled agg data finish, time used: "
+                               << execution_timer.elapsed_time() << ", empty partition "
+                               << read_size << ", " << _shared_state->spill_partitions.size()
+                               << " partitions left";
+                }
             }
             _shared_state->spill_partitions.pop_front();
         }

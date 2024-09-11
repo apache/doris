@@ -454,7 +454,8 @@ struct PartitionedAggSharedState : public BasicSharedState,
     std::deque<std::shared_ptr<AggSpillPartition>> spill_partitions;
 
     size_t get_partition_index(size_t hash_value) const {
-        return (hash_value >> (32 - partition_count_bits)) & max_partition_index;
+        // return (hash_value >> (32 - partition_count_bits)) & max_partition_index;
+        return hash_value % partition_count;
     }
 };
 
