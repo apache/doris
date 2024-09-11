@@ -213,7 +213,7 @@ public class CloudEnv extends Env {
                 nodeInfoPB = getLocalTypeFromMetaService();
             } catch (Exception e) {
                 LOG.warn("failed to get local fe's type, sleep {} s, try again. exception: {}",
-                        Config.resource_not_ready_sleep_seconds, e.getMessage();
+                        Config.resource_not_ready_sleep_seconds, e.getMessage());
             }
             if (nodeInfoPB == null) {
                 LOG.warn("failed to get local fe's type, sleep {} s, try again.",
