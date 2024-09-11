@@ -200,9 +200,6 @@ public class MetaHelper {
             if (out != null) {
                 out.close();
             }
-            if (!md5Matched && file.exists() & Config.meta_helper_security_mode) {
-                file.delete();
-            }
         }
     }
 
