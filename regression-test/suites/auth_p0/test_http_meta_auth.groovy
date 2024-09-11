@@ -31,10 +31,8 @@ suite("test_http_meta_auth","p0,auth") {
     sql """
         CREATE TABLE `${tableName}` (
           `k1` int,
-          `k2` int'
+          `k2` int
         ) ENGINE=OLAP
-        DUPLICATE KEY(`k1`)
-        COMMENT 'OLAP'
         DISTRIBUTED BY random BUCKETS auto
         PROPERTIES ('replication_num' = '1') ;
         """
