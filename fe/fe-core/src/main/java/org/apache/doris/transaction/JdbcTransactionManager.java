@@ -17,9 +17,26 @@
 
 package org.apache.doris.transaction;
 
-public enum TransactionType {
-    UNKNOWN,
-    HMS,
-    ICEBERG,
-    JDBC
+import org.apache.doris.common.UserException;
+
+public class JdbcTransactionManager implements TransactionManager {
+    @Override
+    public long begin() {
+        return 0;
+    }
+
+    @Override
+    public void commit(long id) throws UserException {
+
+    }
+
+    @Override
+    public void rollback(long id) {
+
+    }
+
+    @Override
+    public Transaction getTransaction(long id) {
+        return null;
+    }
 }
