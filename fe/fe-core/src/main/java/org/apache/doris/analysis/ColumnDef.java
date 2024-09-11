@@ -353,6 +353,10 @@ public class ColumnDef {
         return visible;
     }
 
+    public int getClusterKeyId() {
+        return this.clusterKeyId;
+    }
+
     public void setClusterKeyId(int clusterKeyId) {
         this.clusterKeyId = clusterKeyId;
     }
