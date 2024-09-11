@@ -54,7 +54,7 @@ suite("test_http_meta_tables_auth","p0,auth") {
 
     sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
 
-    getDatabases.call() {
+    getTables.call() {
         respCode, body ->
             log.info("body:${body}")
             assertTrue("${body}".contains("${tableName}"))
