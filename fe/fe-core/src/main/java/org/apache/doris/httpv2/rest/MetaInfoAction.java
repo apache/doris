@@ -17,11 +17,10 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -139,28 +138,23 @@ public class MetaInfoAction extends RestBaseController {
             HttpServletRequest request, HttpServletResponse response) {
         boolean checkAuth = Config.enable_all_http_auth ? true : false;
         checkWithCookie(request, response, checkAuth);
-        // use NS_KEY as catalog, but NS_KEY's default value is 'default_cluster'.
-        if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
-            ns = InternalCatalog.INTERNAL_CATALOG_NAME;
-        }
 
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ns);
-        if (catalog == null) {
-            return ResponseEntityBuilder.badRequest("Unknown catalog " + ns);
+        if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
+            return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
         }
 
         String fullDbName = getFullDbName(dbName);
-        DatabaseIf<TableIf> db;
+        Database db;
         try {
-            db = catalog.getDbOrMetaException(fullDbName);
+            db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
 
         List<String> tblNames = Lists.newArrayList();
-        for (TableIf tbl : db.getTables()) {
+        for (Table tbl : db.getTables()) {
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(ConnectContext.get(), ns, fullDbName,
+                    .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName,
                             tbl.getName(),
                             PrivPredicate.SHOW)) {
                 continue;
@@ -223,28 +217,22 @@ public class MetaInfoAction extends RestBaseController {
         boolean checkAuth = Config.enable_all_http_auth ? true : false;
         checkWithCookie(request, response, checkAuth);
 
-        // use NS_KEY as catalog, but NS_KEY's default value is 'default_cluster'.
-        if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
-            ns = InternalCatalog.INTERNAL_CATALOG_NAME;
-        }
-
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ns);
-        if (catalog == null) {
-            return ResponseEntityBuilder.badRequest("Unknown catalog " + ns);
+        if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
+            return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
         }
 
         String fullDbName = getFullDbName(dbName);
-        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), ns, fullDbName, tblName, PrivPredicate.SHOW);
+        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SHOW);
 
         String withMvPara = request.getParameter(PARAM_WITH_MV);
         boolean withMv = !Strings.isNullOrEmpty(withMvPara) && withMvPara.equals("1");
 
         // get all proc paths
         Map<String, Map<String, Object>> result = Maps.newHashMap();
-        DatabaseIf<TableIf> db;
-        TableIf tbl;
+        Database db;
+        Table tbl;
         try {
-            db = catalog.getDbOrMetaException(fullDbName);
+            db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
             tbl = db.getTableOrMetaException(tblName);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
@@ -254,13 +242,10 @@ public class MetaInfoAction extends RestBaseController {
             long baseId = -1;
             if (tbl.getType() == Table.TableType.OLAP) {
                 baseId = ((OlapTable) tbl).getBaseIndexId();
-            } else if (catalog.isInternalCatalog()) {
-                baseId = tbl.getId();
             } else {
                 baseId += tbl.getId();
             }
-            String procPath = Joiner.on("/")
-                    .join("", "catalogs", catalog.getId(), db.getId(), tbl.getId(), "index_schema/", baseId);
+            String procPath = Joiner.on("/").join("", "dbs", db.getId(), tbl.getId(), "index_schema/", baseId);
             generateResult(tblName, true, procPath, result);
 
             if (withMv && tbl.getType() == Table.TableType.OLAP) {
