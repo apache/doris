@@ -58,9 +58,8 @@ TaskScheduler::~TaskScheduler() {
 
 Status TaskScheduler::start() {
     int cores = _task_queue->cores();
-    // Init the thread pool with cores+1 thread
+    // Init the thread pool with cores thread
     // some for pipeline task running
-    // 1 for spill disk query handler
     RETURN_IF_ERROR(ThreadPoolBuilder(_name)
                             .set_min_threads(cores)
                             .set_max_threads(cores)
