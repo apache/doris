@@ -358,6 +358,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
@@ -2081,6 +2082,10 @@ public interface ScalarFunctionVisitor<R, C> {
     }
 
     default R visitUser(User user, C context) {
+        return visitScalarFunction(user, context);
+    }
+
+    default R visitSessionUser(SessionUser user, C context) {
         return visitScalarFunction(user, context);
     }
 

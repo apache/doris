@@ -41,6 +41,7 @@ suite("test_group_commit_and_wal_back_pressure") {
                 UNIQUE KEY(k)  
                 DISTRIBUTED BY HASH (k) BUCKETS 32  
                 PROPERTIES(  
+                "group_commit_interval_ms" = "100",
                 "replication_num" = "1"
             );
         """

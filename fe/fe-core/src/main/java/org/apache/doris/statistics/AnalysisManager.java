@@ -682,6 +682,9 @@ public class AnalysisManager implements Writable {
         long catalogId = table.getDatabase().getCatalog().getId();
         long dbId = table.getDatabase().getId();
         long tableId = table.getId();
+        if (partitionNames == null || partitionNames.isStar() || partitionNames.getPartitionNames() == null) {
+            tableStats.clearIndexesRowCount();
+        }
         submitAsyncDropStatsTask(catalogId, dbId, tableId, tableStats, partitionNames);
         // Drop stats ddl is master only operation.
         Set<String> partitions = null;
@@ -810,6 +813,8 @@ public class AnalysisManager implements Writable {
         }
         if (allColumn && allPartition) {
             tableStats.removeAllColumn();
+            tableStats.clearIndexesRowCount();
+            removeTableStats(tableId);
         }
         tableStats.updatedTime = 0;
         tableStats.userInjected = false;

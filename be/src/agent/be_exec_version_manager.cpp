@@ -69,7 +69,7 @@ void BeExecVersionManager::check_agg_state_compatibility(int current_be_exec_ver
  * 3: start from doris 2.0.0 (by some mistakes)
  *    a. aggregation function do not serialize bitmap to string.
  *    b. support window funnel mode.
- * 4: start from doris 2.1.0
+ * 4/5: start from doris 2.1.0
  *    a. ignore this line, window funnel mode should be enabled from 2.0.
  *    b. array contains/position/countequal function return nullable in less situations.
  *    c. cleared old version of Version 2.
@@ -79,7 +79,7 @@ void BeExecVersionManager::check_agg_state_compatibility(int current_be_exec_ver
  *    g. do local merge of remote runtime filter
  *    h. "now": ALWAYS_NOT_NULLABLE -> DEPEND_ON_ARGUMENTS
  *
- * 5: start from doris 3.0.0
+ * 7: start from doris 3.0.0
  *    a. change the impl of percentile (need fix)
  *    b. clear old version of version 3->4
  *    c. change FunctionIsIPAddressInRange from AlwaysNotNullable to DependOnArguments

@@ -3030,6 +3030,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"存算分离模式下是否开启大事务提交，默认false"})
     public static boolean enable_cloud_txn_lazy_commit = false;
 
+    @ConfField(mutable = true, description = {"存算分离模式下，当tablet分布的be异常，是否立即映射tablet到新的be上，默认true"})
+    public static boolean enable_immediate_be_assign = true;
+
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
@@ -3049,4 +3052,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"表示最大锁持有时间，超过该时间会打印告警日志，单位秒",
             "Maximum lock hold time; logs a warning if exceeded"})
     public static long max_lock_hold_threshold_seconds = 10;
+
+    @ConfField(mutable = true, description = {"元数据同步是否开启安全模式",
+        "Is metadata synchronization enabled in safe mode"})
+    public static boolean meta_helper_security_mode = false;
 }

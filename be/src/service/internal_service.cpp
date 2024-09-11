@@ -1510,23 +1510,24 @@ void PInternalService::transmit_block(google::protobuf::RpcController* controlle
                                       const PTransmitDataParams* request,
                                       PTransmitDataResult* response,
                                       google::protobuf::Closure* done) {
+    int64_t receive_time = GetCurrentTimeNanos();
     if (config::enable_bthread_transmit_block) {
-        int64_t receive_time = GetCurrentTimeNanos();
         response->set_receive_time(receive_time);
         // under high concurrency, thread pool will have a lot of lock contention.
         // May offer failed to the thread pool, so that we should avoid using thread
         // pool here.
-        _transmit_block(controller, request, response, done, Status::OK());
+        _transmit_block(controller, request, response, done, Status::OK(), 0);
     } else {
-        bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
-            int64_t receive_time = GetCurrentTimeNanos();
+        bool ret = _light_work_pool.try_offer([this, controller, request, response, done,
+                                               receive_time]() {
             response->set_receive_time(receive_time);
             // Sometimes transmit block function is the last owner of PlanFragmentExecutor
             // It will release the object. And the object maybe a JNIContext.
             // JNIContext will hold some TLS object. It could not work correctly under bthread
             // Context. So that put the logic into pthread.
             // But this is rarely happens, so this config is disabled by default.
-            _transmit_block(controller, request, response, done, Status::OK());
+            _transmit_block(controller, request, response, done, Status::OK(),
+                            GetCurrentTimeNanos() - receive_time);
         });
         if (!ret) {
             offer_failed(response, done, _light_work_pool);
@@ -1539,14 +1540,16 @@ void PInternalService::transmit_block_by_http(google::protobuf::RpcController* c
                                               const PEmptyRequest* request,
                                               PTransmitDataResult* response,
                                               google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, controller, response, done]() {
+    int64_t receive_time = GetCurrentTimeNanos();
+    bool ret = _heavy_work_pool.try_offer([this, controller, response, done, receive_time]() {
         PTransmitDataParams* new_request = new PTransmitDataParams();
         google::protobuf::Closure* new_done =
                 new NewHttpClosure<PTransmitDataParams>(new_request, done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         Status st =
                 attachment_extract_request_contain_block<PTransmitDataParams>(new_request, cntl);
-        _transmit_block(controller, new_request, response, new_done, st);
+        _transmit_block(controller, new_request, response, new_done, st,
+                        GetCurrentTimeNanos() - receive_time);
     });
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);
@@ -1557,7 +1560,8 @@ void PInternalService::transmit_block_by_http(google::protobuf::RpcController* c
 void PInternalService::_transmit_block(google::protobuf::RpcController* controller,
                                        const PTransmitDataParams* request,
                                        PTransmitDataResult* response,
-                                       google::protobuf::Closure* done, const Status& extract_st) {
+                                       google::protobuf::Closure* done, const Status& extract_st,
+                                       const int64_t wait_for_worker) {
     if (request->has_query_id()) {
         VLOG_ROW << "transmit block: fragment_instance_id=" << print_id(request->finst_id())
                  << " query_id=" << print_id(request->query_id()) << " node=" << request->node_id();
@@ -1567,7 +1571,7 @@ void PInternalService::_transmit_block(google::protobuf::RpcController* controll
     // give response a default value to avoid null pointers in high concurrency.
     Status st;
     if (extract_st.ok()) {
-        st = _exec_env->vstream_mgr()->transmit_block(request, &done);
+        st = _exec_env->vstream_mgr()->transmit_block(request, &done, wait_for_worker);
         if (!st.ok() && !st.is<END_OF_FILE>()) {
             LOG(WARNING) << "transmit_block failed, message=" << st
                          << ", fragment_instance_id=" << print_id(request->finst_id())

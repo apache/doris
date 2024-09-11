@@ -811,7 +811,8 @@ bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) 
     if ((res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND && is_fallback) ||
         res.code() == ErrorCode::INVERTED_INDEX_BYPASS ||
         res.code() == ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED ||
-        (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS && need_remaining)) {
+        (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS && need_remaining) ||
+        res.code() == ErrorCode::INVERTED_INDEX_FILE_CORRUPTED) {
         // 1. INVERTED_INDEX_FILE_NOT_FOUND means index file has not been built,
         //    usually occurs when creating a new index, queries can be downgraded
         //    without index.
@@ -825,7 +826,10 @@ bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) 
         //    but the column condition value no terms in specified parser,
         //    such as: where A = '' and B = ','
         //    the predicate of A and B need downgrade without index query.
+        // 5. INVERTED_INDEX_FILE_CORRUPTED means the index file is corrupted,
+        //    such as when index segment files are not generated
         // above case can downgrade without index query
+        _opts.stats->inverted_index_downgrade_count++;
         LOG(INFO) << "will downgrade without index to evaluate predicate, because of res: " << res;
         return true;
     }
@@ -921,36 +925,6 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
         return false;
     }
     return true;
-}
-
-bool SegmentIterator::_is_target_expr_match_predicate(const vectorized::VExprSPtr& expr,
-                                                      const MatchPredicate* match_pred,
-                                                      const Schema* schema) {
-    if (!expr || expr->node_type() != TExprNodeType::MATCH_PRED) {
-        return false;
-    }
-
-    const auto& children = expr->children();
-    if (children.size() != 2 || !children[0]->is_slot_ref() || !children[1]->is_constant()) {
-        return false;
-    }
-
-    auto slot_ref = dynamic_cast<vectorized::VSlotRef*>(children[0].get());
-    if (!slot_ref) {
-        LOG(WARNING) << children[0]->debug_string() << " should be SlotRef";
-        return false;
-    }
-    std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
-    // children 1 is VLiteral, we do not need expr context.
-    auto res = children[1]->get_const_col(nullptr /* context */, &const_col_wrapper);
-    if (!res.ok() || !const_col_wrapper) {
-        return false;
-    }
-
-    const auto const_column =
-            check_and_get_column<vectorized::ColumnConst>(const_col_wrapper->column_ptr);
-    return const_column && match_pred->column_id() == schema->column_id(slot_ref->column_id()) &&
-           StringRef(match_pred->get_value()) == const_column->get_data_at(0);
 }
 
 Status SegmentIterator::_apply_inverted_index() {

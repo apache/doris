@@ -124,12 +124,27 @@ public:
         return _s_process_reserved_memory.load(std::memory_order_relaxed);
     }
 
+    // `process_memory_usage` includes all reserved memory. if a thread has `reserved_memory`,
+    // and the memory allocated by thread is less than the thread `reserved_memory`,
+    // even if `process_memory_usage` is greater than `process_mem_limit`, memory can still be allocated.
+    // At this time, `process_memory_usage` will not increase, process physical memory will increase,
+    // and `reserved_memory` will be reduced.
+    static int64_t sub_thread_reserve_memory(int64_t bytes);
+
     static bool is_exceed_soft_mem_limit(int64_t bytes = 0) {
+        bytes = sub_thread_reserve_memory(bytes);
+        if (bytes <= 0) {
+            return false;
+        }
         return process_memory_usage() + bytes >= MemInfo::soft_mem_limit() ||
                sys_mem_available() - bytes < MemInfo::sys_mem_available_warning_water_mark();
     }
 
     static bool is_exceed_hard_mem_limit(int64_t bytes = 0) {
+        bytes = sub_thread_reserve_memory(bytes);
+        if (bytes <= 0) {
+            return false;
+        }
         // Limit process memory usage using the actual physical memory of the process in `/proc/self/status`.
         // This is independent of the consumption value of the mem tracker, which counts the virtual memory
         // of the process malloc.
@@ -172,6 +187,23 @@ public:
     // It is only used after the memory limit is exceeded. When multiple threads are waiting for the available memory of the process,
     // avoid multiple threads starting at the same time and causing OOM.
     static std::atomic<int64_t> refresh_interval_memory_growth;
+
+    static std::mutex cache_adjust_capacity_lock;
+    static std::condition_variable cache_adjust_capacity_cv;
+    static std::atomic<bool> cache_adjust_capacity_notify;
+    static std::atomic<double> last_cache_capacity_adjust_weighted;
+    static void notify_cache_adjust_capacity() {
+        cache_adjust_capacity_notify.store(true, std::memory_order_relaxed);
+        cache_adjust_capacity_cv.notify_all();
+    }
+
+    static std::mutex memtable_memory_refresh_lock;
+    static std::condition_variable memtable_memory_refresh_cv;
+    static std::atomic<bool> memtable_memory_refresh_notify;
+    static void notify_memtable_memory_refresh() {
+        memtable_memory_refresh_notify.store(true, std::memory_order_relaxed);
+        memtable_memory_refresh_cv.notify_all();
+    }
 
 private:
     static std::atomic<int64_t> _s_process_reserved_memory;

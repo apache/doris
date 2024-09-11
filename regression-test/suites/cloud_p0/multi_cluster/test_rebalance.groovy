@@ -20,7 +20,7 @@ import groovy.json.JsonSlurper
 import org.awaitility.Awaitility;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
-suite('test_rebalance_in_cloud', 'multi_cluster') {
+suite('test_rebalance_in_cloud', 'multi_cluster,docker') {
     if (!isCloudMode()) {
         return;
     }
@@ -63,7 +63,7 @@ suite('test_rebalance_in_cloud', 'multi_cluster') {
             PARTITION p1998 VALUES [("19980101"), ("19990101")))
             DISTRIBUTED BY HASH(k1) BUCKETS 3
         """
-        GetDebugPoint().enableDebugPointForAllFEs("CloudReplica.getBackendIdImpl.clusterToBackends");
+        GetDebugPoint().enableDebugPointForAllFEs("CloudReplica.getBackendIdImpl.primaryClusterToBackends");
         sql """set global forward_to_master=false"""
         
         // add a be
