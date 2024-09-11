@@ -35,7 +35,8 @@ suite("test_delete_on_value") {
             DISTRIBUTED BY HASH(`x`) BUCKETS 4
             PROPERTIES (
                 "replication_num" = "1",
-                "enable_unique_key_merge_on_write" = "true"
+                "enable_unique_key_merge_on_write" = "true",
+                "enable_mow_light_delete" = "false"
             );"""
     sql """ insert into ${tableName} values(1,1,1),(2,2,2),(3,3,3),(4,4,4),(5,5,5),(6,6,6),(7,7,7),(8,8,8),(9,9,9); """
     qt_sql "select * from ${tableName} order by x,y,z;"
@@ -92,6 +93,7 @@ suite("test_delete_on_value") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
+                "enable_mow_light_delete" = "false",
                 "function_column.sequence_col" = "z"
             );"""
     sql "insert into ${tableName3} values(1,1,10);"
@@ -127,7 +129,8 @@ suite("test_delete_on_value") {
             DISTRIBUTED BY HASH(`x`) BUCKETS 4
             PROPERTIES (
                 "replication_num" = "1",
-                "function_column.sequence_col" = "z"
+                "function_column.sequence_col" = "z",
+                "enable_mow_light_delete" = "false"
             );"""
     sql "insert into ${tableName4} values(1,1,10);"
     sql "insert into ${tableName4} values(1,1,5);"
