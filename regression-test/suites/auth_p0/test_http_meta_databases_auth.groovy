@@ -26,16 +26,6 @@ suite("test_http_meta_databases_auth","p0,auth") {
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
 
-    sql """drop table if exists `${tableName}`"""
-    sql """
-        CREATE TABLE `${tableName}` (
-          `k1` int,
-          `k2` int
-        ) ENGINE=OLAP
-        DISTRIBUTED BY random BUCKETS auto
-        PROPERTIES ('replication_num' = '1') ;
-        """
-
     def getDatabases = { check_func ->
         httpTest {
             basicAuthorization "${user}","${pwd}"
@@ -45,7 +35,6 @@ suite("test_http_meta_databases_auth","p0,auth") {
             check check_func
         }
     }
-
 
     getDatabases.call() {
         respCode, body ->
@@ -61,6 +50,5 @@ suite("test_http_meta_databases_auth","p0,auth") {
             assertTrue("${body}".contains("${dbName}"))
     }
 
-    sql """drop table if exists `${tableName}`"""
     try_sql("DROP USER ${user}")
 }
