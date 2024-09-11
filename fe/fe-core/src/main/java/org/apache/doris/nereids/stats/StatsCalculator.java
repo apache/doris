@@ -377,6 +377,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
     }
 
+    /**
+     * if the table is not analyzed and BE does not report row count, return -1
+     */
     private double getOlapTableRowCount(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
