@@ -33,8 +33,7 @@ void SchemaScannerHelper::insert_string_value(int col_index, std::string str_val
     mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
     auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
     vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-    assert_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_val.data(),
-                                                                      str_val.size());
+    assert_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_val.data(), str_val.size());
     nullable_column->get_null_map_data().emplace_back(0);
 }
 
@@ -66,8 +65,7 @@ void SchemaScannerHelper::insert_double_value(int col_index, double double_val,
     mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
     auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
     vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-    assert_cast<vectorized::ColumnVector<vectorized::Float64>*>(col_ptr)->insert_value(
-            double_val);
+    assert_cast<vectorized::ColumnVector<vectorized::Float64>*>(col_ptr)->insert_value(double_val);
     nullable_column->get_null_map_data().emplace_back(0);
 }
 } // namespace doris
