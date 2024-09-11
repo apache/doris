@@ -1417,6 +1417,9 @@ DECLARE_mBool(enable_pipeline_task_leakage_detect);
 
 DECLARE_mInt32(check_score_rounds_num);
 
+// MB
+DECLARE_Int32(query_cache_size);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

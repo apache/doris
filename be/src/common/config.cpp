@@ -1329,6 +1329,8 @@ DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 
 DEFINE_mInt32(check_score_rounds_num, "1000");
 
+DEFINE_Int32(query_cache_size, "512");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
