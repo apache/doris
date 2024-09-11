@@ -57,7 +57,7 @@ suite("test_http_meta_tables_schema_auth","p0,auth") {
     getSchema.call() {
         respCode, body ->
             log.info("body:${body}")
-            assertTrue("${body}".contains("k1"))
+            assertTrue("${body}".contains("${tableName}"))
     }
 
     sql """drop table if exists `${tableName}`"""
