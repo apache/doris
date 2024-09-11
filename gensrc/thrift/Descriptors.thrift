@@ -353,14 +353,16 @@ struct TJdbcTable {
 }
 
 struct TMCTable {
-  1: optional string region
+  1: optional string region // deprecated
   2: optional string project
   3: optional string table
   4: optional string access_key
   5: optional string secret_key
-  6: optional string public_access
-  7: optional string odps_url
-  8: optional string tunnel_url
+  6: optional string public_access // deprecated
+  7: optional string odps_url   // deprecated
+  8: optional string tunnel_url // deprecated 
+  9: optional string endpoint
+  10: optional string quota
 }
 
 struct TTrinoConnectorTable {
