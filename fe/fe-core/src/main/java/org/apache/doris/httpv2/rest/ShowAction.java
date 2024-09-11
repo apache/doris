@@ -229,9 +229,7 @@ public class ShowAction extends RestBaseController {
         UserIdentity user = ConnectContext.get().getCurrentUserIdentity();
         if (dbName != null) {
             String fullDbName = getFullDbName(dbName);
-            if (StringUtils.isEmpty(tableName)) {
-                checkDbAuth(user, fullDbName, PrivPredicate.SHOW);
-            } else {
+            if (!StringUtils.isEmpty(tableName)) {
                 checkTblAuth(user, fullDbName, tableName, PrivPredicate.SHOW);
             }
 
@@ -347,6 +345,12 @@ public class ShowAction extends RestBaseController {
             if (Strings.isNullOrEmpty(tableName)) {
                 List<Table> tables = db.getTables();
                 for (Table table : tables) {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
+                                    table.getName(),
+                                    PrivPredicate.SHOW)) {
+                        continue;
+                    }
                     Map<String, Long> tableEntry = getDataSizeOfTable(table, singleReplica);
                     oneEntry.putAll(tableEntry);
                 }
