@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -33,31 +33,27 @@ import java.util.List;
  * ScalarFunction 'array_match_any'.
  */
 public class ArrayMatchAny extends ScalarFunction
-        implements HighOrderFunction, PropagateNullable {
+        implements HighOrderFunction, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BooleanType.INSTANCE).args(ArrayType.of(BooleanType.INSTANCE))
     );
-
-    private ArrayMatchAny(List<Expression> expressions) {
-        super("array_match_any", expressions);
-    }
 
     /**
      * constructor with arguments.
      * array_match_any(lambda, a1, ...) = array_match_any(a1, array_map(lambda, a1, ...))
      */
     public ArrayMatchAny(Expression arg) {
-        super("array_match_any", arg instanceof Lambda ? arg.child(1).child(0) : arg, new ArrayMap(arg));
-        if (!(arg instanceof Lambda)) {
-            throw new AnalysisException(
-                    String.format("The 1st arg of %s must be lambda but is %s", getName(), arg));
-        }
+        super("array_match_any", arg instanceof Lambda ? new ArrayMap(arg) : arg);
     }
 
     @Override
     public ArrayMatchAny withChildren(List<Expression> children) {
-        return new ArrayMatchAny(children);
+        if (children.size() != 1) {
+            throw new AnalysisException(
+                    String.format("The number of args of %s must be 1 but is %d", getName(), children.size()));
+        }
+        return new ArrayMatchAny(children.get(0));
     }
 
     @Override
