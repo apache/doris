@@ -407,4 +407,18 @@ suite("test_auto_partition_behavior") {
     sql """ insert into test_change values ("20001212"); """
     part_result = sql " show tablets from test_change "
     assertEquals(part_result.size, 52 * replicaNum)
+
+    test {
+        sql """
+            CREATE TABLE not_auto_expr (
+                `TIME_STAMP` date NOT NULL
+            )
+            partition by range (date_trunc(`TIME_STAMP`, 'day'))()
+            DISTRIBUTED BY HASH(`TIME_STAMP`) BUCKETS 10
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            );
+        """
+        exception "Non-auto partition table not support partition expr!"
+    }
 }
