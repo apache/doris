@@ -159,7 +159,6 @@ public class MetaHelper {
             throws IOException {
         HttpURLConnection conn = null;
         checkFile(file);
-        boolean md5Matched = true;
         OutputStream out = new FileOutputStream(file);
         try {
             conn = HttpURLUtil.getConnectionWithNodeIdent(urlStr);
@@ -189,7 +188,6 @@ public class MetaHelper {
             if (remoteMd5 != null) {
                 String localMd5 = DigestUtils.md5Hex(new FileInputStream(file));
                 if (!remoteMd5.equals(localMd5)) {
-                    md5Matched = false;
                     throw new IOException("Unexpected image md5, expected: " + remoteMd5 + ", actual: " + localMd5);
                 }
             }
