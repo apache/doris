@@ -26,39 +26,48 @@
         arr5 ARRAY<DATETIME>
     );
     INSERT INTO array_table VALUES(1, array(1, 2, 3), array('a', 'b', 'c'), array(1.2, 1.3), array(date('2023-05-23')), array(datetime('2023-05-23 13:55:12')));
+    INSERT INTO array_table VALUES(1, array(1, 2, 3), array('a', 'b', 'c'), array(1.2, 1.3), array(date('2023-05-23')), array(datetime('2023-05-23 13:55:12')));
     INSERT INTO array_table VALUES(2, array(1, 2, 3), array('a', 'b', 'c'), array(1.2, 1.3), array(date('2023-05-23')), array(datetime('2023-05-23 13:55:12')));
     INSERT INTO array_table VALUES(3, array(1, 2, 3), array('a', 'b', 'c'), array(1.3), array(date('2023-05-23')), array(datetime('2023-05-23 13:55:12')));
 
+    drop table map_table;
     create table map_table (
+        id int.
         arr1 MAP<BIGINT, DOUBLE>,
         arr2 MAP<BIGINT, STRING>
     );
     INSERT INTO map_table (arr1, arr2)
     VALUES (
+        1,
         MAP(1, 2.5, 2, 3.75),
         MAP(1, 'example1', 2, 'example2')
     );
     INSERT INTO map_table (arr1, arr2)
     VALUES (
+        2,
         MAP(3, 2.5, 99, 3.75),
         MAP(349, 'asd', 324, 'uid')
     );
-
+    drop table struct_table;
     create table struct_table (
+        id int,
         user_info STRUCT<id: STRING,age: INT>,
         contact_info STRUCT<phone_number: BIGINT, email: STRING, addr: VARCHAR(10)>
     );
 
     INSERT INTO struct_table VALUES
     (
+        1,
         named_struct('id', 'user1', 'age', 25),
         named_struct('phone_number', 123450, 'email', 'user1@example.com', 'addr', 'Addr1')
     ),
     (
+        2,
         named_struct('id', 'user2', 'age', 30),
         named_struct('phone_number', 2345671, 'email', 'user2@example.com', 'addr', 'Addr2')
     ),
     (
+        3,
         named_struct('id', 'user3', 'age', 35),
         named_struct('phone_number', 3456789, 'email', 'user3@example.com', 'addr', 'Addr3')
     );
@@ -142,7 +151,7 @@
         )
     );
  */
-suite("test_max_compute_complex_type", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_max_compute_complex_type", "p2,external,maxcompute,external_remote,external_remote_maxcompute") {
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String ak = context.config.otherConfigs.get("aliYunAk")
@@ -153,10 +162,9 @@ suite("test_max_compute_complex_type", "p0,external,doris,external_docker,extern
         CREATE CATALOG IF NOT EXISTS ${mc_catalog_name} PROPERTIES (
                 "type" = "max_compute",
                 "mc.default.project" = "jz_datalake",
-                "mc.region" = "cn-beijing",
                 "mc.access_key" = "${ak}",
                 "mc.secret_key" = "${sk}",
-                "mc.public_access" = "true"
+                "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
         );
         """
 
