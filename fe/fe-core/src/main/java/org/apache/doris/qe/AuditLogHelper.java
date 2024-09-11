@@ -54,7 +54,7 @@ public class AuditLogHelper {
 
     private static void logAuditLogImpl(ConnectContext ctx, String origStmt, StatementBase parsedStmt,
             org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
-        origStmt = origStmt.replace("\n", " ");
+        origStmt = origStmt.replace("\n", "\\n");
         // slow query
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();

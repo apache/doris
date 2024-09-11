@@ -80,6 +80,7 @@ suite("test_index_match_regexp", "p0"){
 
         sql "sync"
 
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp ''; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp '^h'; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp '^team'; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp 's\$'; """
