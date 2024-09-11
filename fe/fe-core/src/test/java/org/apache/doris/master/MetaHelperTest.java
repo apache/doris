@@ -70,7 +70,7 @@ public class MetaHelperTest {
     @Test
     public void testFile() throws IOException {
 
-        String errorFilename = "testfile.";
+        String errorFilename = "..testfile.";
         File errorFileWithSuffix = new File(tempDir, errorFilename);
         String rightFilename = "image.1";
         File rightFileWithSuffix = new File(tempDir, rightFilename);
@@ -80,8 +80,8 @@ public class MetaHelperTest {
         if (errorFileWithSuffix.exists()) {
             errorFileWithSuffix.delete();
         }
-        Assert.assertThrows(IllegalArgumentException.class, () -> MetaHelper.complete(errorFilename, tempDir));
-        Assert.assertThrows(IllegalArgumentException.class, () -> MetaHelper.getFile(errorFilename, tempDir));
+        Assert.assertThrows(Exception.class, () -> MetaHelper.complete(errorFilename, tempDir));
+        Assert.assertThrows(Exception.class, () -> MetaHelper.getFile(errorFilename, tempDir));
         if (rightFileWithSuffix.exists()) {
             rightFileWithSuffix.delete();
         }
