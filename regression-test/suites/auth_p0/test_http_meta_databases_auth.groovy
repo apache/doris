@@ -50,7 +50,7 @@ suite("test_http_meta_databases_auth","p0,auth") {
     getDatabases.call() {
         respCode, body ->
             log.info("body:${body}")
-            assertFalse(${body}.toString().contains("${dbName}"))
+            assertFalse("${body}".contains("${dbName}"))
     }
 
     sql """grant select_priv on ${dbName} to ${user}"""
@@ -58,7 +58,7 @@ suite("test_http_meta_databases_auth","p0,auth") {
     getDatabases.call() {
         respCode, body ->
             log.info("body:${body}")
-            assertTrue(${body}.toString().contains("${dbName}"))
+            assertTrue("${body}".contains("${dbName}"))
     }
 
     sql """drop table if exists `${tableName}`"""
