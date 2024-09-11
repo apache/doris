@@ -826,6 +826,7 @@ non_reserved_words :                      // Tokens that are not reserved words 
      | DIR
      | DIRECTORY
      | DISTRIBUTE
+     | E
      | ESCAPED
      | EXEC
      | EXCEPTION
