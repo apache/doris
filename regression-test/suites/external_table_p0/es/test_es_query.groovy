@@ -212,13 +212,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_5_24 """select test2 from test1;"""
             order_qt_sql_5_25 """select test6 from test1;"""
             order_qt_sql_5_26 """select test6 from test2;"""
-            try {
-                sql """select * from composite_type_array;"""
-                fail("Should not reach here")
-            } catch (Exception e) {
-                logger.error(e.getMessage())
-                assertTrue(e.getMessage().contains("Expected value of type: ARRAY; but found type: Varchar/Char; Document slice is : \"soccer\""))
-            }
+            order_qt_sql_5_27 """select * from composite_type_array order by name;"""
 
             sql """switch test_es_query_es6"""
             // order_qt_sql_6_01 """show tables"""
@@ -247,12 +241,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_6_24 """select test2 from test1;"""
             order_qt_sql_6_25 """select test6 from test1;"""
             order_qt_sql_6_26 """select test6 from test2;"""
-            try {
-                sql """select * from composite_type_array;"""
-                fail("Should not reach here")
-            } catch (Exception e) {
-                assertTrue(e.getMessage().contains("Expected value of type: ARRAY; but found type: Varchar/Char; Document slice is : \"soccer\""))
-            }
+            order_qt_sql_6_27 """select * from composite_type_array order by name;"""
 
             List<List<String>> tables6N = sql """show tables"""
             boolean notContainHide = true
@@ -307,12 +296,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_7_31 """select test2 from test1;"""
             order_qt_sql_7_32 """select test6 from test1;"""
             order_qt_sql_7_33 """select test6 from test2;"""
-            try {
-                sql """select * from composite_type_array;"""
-                fail("Should not reach here")
-            } catch (Exception e) {
-                assertTrue(e.getMessage().contains("Expected value of type: ARRAY; but found type: Varchar/Char; Document slice is : \"soccer\""))
-            }
+            order_qt_sql_7_34 """select * from composite_type_array order by name;"""
 
             List<List<String>> tables7N = sql """show tables"""
             boolean notContainHide7 = true
@@ -367,12 +351,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_8_29 """select test2 from test1;"""
             order_qt_sql_8_30 """select test6 from test1;"""
             order_qt_sql_8_31 """select test6 from test2;"""
-            try {
-                sql """select * from composite_type_array;"""
-                fail("Should not reach here")
-            } catch (Exception e) {
-                assertTrue(e.getMessage().contains("Expected value of type: ARRAY; but found type: Varchar/Char; Document slice is : \"soccer\""))
-            }
+            order_qt_sql_8_32 """select * from composite_type_array order by name;"""
         
         }
 
