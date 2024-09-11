@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -30,6 +31,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.HAProtocol;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -212,18 +214,27 @@ public class ShowAction extends RestBaseController {
 
     @RequestMapping(path = "/api/show_table_data", method = RequestMethod.GET)
     public Object show_table_data(HttpServletRequest request, HttpServletResponse response) {
-        if (Config.enable_all_http_auth) {
-            executeCheckPassword(request, response);
-            checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
-        }
+        executeCheckPassword(request, response);
 
         String dbName = request.getParameter(DB_KEY);
         String tableName = request.getParameter(TABLE_KEY);
+
+        if (StringUtils.isEmpty(dbName) && StringUtils.isEmpty(tableName)) {
+            return ResponseEntityBuilder.okWithCommonError("dbName and tableName cannot be empty at the same time");
+        }
+
         String singleReplica = request.getParameter(SINGLE_REPLICA_KEY);
         boolean singleReplicaBool = Boolean.parseBoolean(singleReplica);
         Map<String, Map<String, Long>> oneEntry = Maps.newHashMap();
+        UserIdentity user = ConnectContext.get().getCurrentUserIdentity();
         if (dbName != null) {
             String fullDbName = getFullDbName(dbName);
+            if (StringUtils.isEmpty(tableName)) {
+                checkDbAuth(user, fullDbName, PrivPredicate.SHOW);
+            } else {
+                checkTblAuth(user, fullDbName, tableName, PrivPredicate.SHOW);
+            }
+
             DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(fullDbName);
             if (db == null) {
                 return ResponseEntityBuilder.okWithCommonError("database " + fullDbName + " not found.");
@@ -234,6 +245,11 @@ public class ShowAction extends RestBaseController {
             for (long dbId : Env.getCurrentInternalCatalog().getDbIds()) {
                 DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
                 if (db == null || !(db instanceof Database) || ((Database) db) instanceof MysqlCompatibleDatabase) {
+                    continue;
+                }
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkTblPriv(user, InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), tableName,
+                                PrivPredicate.SHOW)) {
                     continue;
                 }
                 Map<String, Long> tablesEntry = getDataSizeOfTables(db, tableName, singleReplicaBool);

@@ -244,6 +244,15 @@ public class BaseController {
         }
     }
 
+    protected void checkTblAuth(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate predicate)
+            throws UnauthorizedException {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(currentUser, ctl, db, tbl, predicate)) {
+            throw new UnauthorizedException("Access denied; you need (at least one of) the "
+                    + predicate.getPrivs().toString() + " privilege(s) for this operation");
+        }
+    }
+
     // return currentUserIdentity from Doris auth
     protected UserIdentity checkPassword(ActionAuthorizationInfo authInfo)
             throws UnauthorizedException {
