@@ -287,7 +287,7 @@ suite("test_point_query") {
             INDEX col2 (`col2`) USING INVERTED )
         ENGINE=OLAP UNIQUE KEY(`col1`, `col2`, `loc3`)
         DISTRIBUTED BY HASH(`col1`, `col2`, `loc3`) BUCKETS 1
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "bloom_filter_columns" = "col1", "store_row_column" = "true","enable_unique_key_merge_on_write" = "true");
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "bloom_filter_columns" = "col1", "store_row_column" = "true",  "enable_unique_key_merge_on_write" = "true", "enable_mow_light_delete" = "false" );
     """
     sql "insert into table_3821461 values (-10, 20, 'aabc', 'value')"
     sql "insert into table_3821461 values (10, 20, 'aabc', 'value');"
