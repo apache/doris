@@ -86,8 +86,10 @@ suite("test_upgrade_downgrade_compatibility_inverted_index","p0,inverted_index,r
 
         sql "alter table ${tableName} add index idx_b(b)"
         wait_for_latest_op_on_table_finish(tableName, timeout)
-        sql "build index idx_b on ${tableName}"
-        wait_for_build_index_on_partition_finish(tableName, timeout)
+        if (!isCloudMode()) {
+            sql "build index idx_b on ${tableName}"
+            wait_for_build_index_on_partition_finish(tableName, timeout)
+        }
 
         sql "insert into ${tableName} values(10001, 10001, 10001, 'Not yet', '还没')"
         sql "insert into ${tableName} values(10002, 10002, 10002, 'So long', '再见')"
@@ -131,9 +133,11 @@ suite("test_upgrade_downgrade_compatibility_inverted_index","p0,inverted_index,r
         sql "alter table ${tableName} add index idx_b(b)"
         sql "alter table ${tableName} add index idx_en(en) using inverted properties(\"parser\" = \"english\", \"support_phrase\" = \"true\")"
         wait_for_latest_op_on_table_finish(tableName, timeout)
-        sql "build index idx_b on ${tableName}"
-        sql "build index idx_en on ${tableName}"
-        wait_for_build_index_on_partition_finish(tableName, timeout)
+        if (!isCloudMode()) {
+         .   sql "build index idx_b on ${tableName}"
+         .   sql "build index idx_en on ${tableName}"
+         .   wait_for_build_index_on_partition_finish(tableName, timeout)
+        }
         sql "insert into ${tableName} values(10001, 10001, 10001, '2024-1-1', 'Not yet', '还没')"
         sql "insert into ${tableName} values(10002, 10002, 10002, '2024-2-1', 'So long', '再见')"
         sql "insert into ${tableName} values(10003, 10003, 10003, '2024-3-1', 'Why not', '为什么不')"
@@ -180,8 +184,10 @@ suite("test_upgrade_downgrade_compatibility_inverted_index","p0,inverted_index,r
         }
         sql "alter table ${tableName} add index idx_b(b)"
         wait_for_latest_op_on_table_finish(tableName, timeout)
-        sql "build index idx_b on ${tableName}"
-        wait_for_build_index_on_partition_finish(tableName, timeout)
+        if (!isCloudMode()) {
+         .   sql "build index idx_b on ${tableName}"
+         .   wait_for_build_index_on_partition_finish(tableName, timeout)
+        }
         sql "show index from ${tableName}"
         sql "insert into ${tableName} values(\"10001\", 10001, 10001, 10001, 10001, 10001)"
         sql "insert into ${tableName} values(\"10002\", 10002, 10002, 10002, 10002, 10002)"
