@@ -150,10 +150,15 @@ suite("test_iot_auto_detect") {
    qt_sql " select * from dt order by k0; "
    try {
       sql """ insert overwrite table dt partition(*) values ("2023-02-02"), ("3000-12-12"); """
+      fail()
    } catch (Exception e) {
         log.info(e.getMessage())
         assertTrue(e.getMessage().contains('Insert has filtered data in strict mode') || 
             e.getMessage().contains('Cannot found origin partitions in auto detect overwriting'))
-    }
+   }
 
+   // test no rows(no partition hits) overwrite
+   sql " create table dt2 like dt"
+   sql " insert overwrite table dt2 partition(*) select * from dt2"
+   sql " insert overwrite table dt partition(*) select * from dt2"
 }
