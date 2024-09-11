@@ -335,6 +335,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
         wg->check_mem_used(&is_low_wartermark, &is_high_wartermark);
 
         if (!is_low_wartermark && !is_high_wartermark) {
+            // TODO: should check if there is a large reserve size in the query's operators
+            // If it exist, then should find the query and spill it.
             LOG(INFO) << "**** there are " << queries_list.size() << " to resume";
             for (const auto& query : queries_list) {
                 LOG(INFO) << "**** resume paused query: " << query.query_id();
@@ -358,6 +360,14 @@ void WorkloadGroupMgr::handle_paused_queries() {
         size_t max_revocable_size = 0;
         size_t max_memory_usage = 0;
         auto it_to_remove = queries_list.end();
+
+        // TODO: should check buffer type memory first, if could release many these memory, then not need do spill disk
+        // Buffer Memory are:
+        // 1. caches: page cache, segment cache...
+        // 2. memtables: load memtable
+        // 3. scan queue, exchange sink buffer, union queue
+        // 4. streaming aggs.
+        // If we could not recycle memory from these buffers(< 10%), then do spill disk.
 
         for (auto query_it = queries_list.begin(); query_it != queries_list.end();) {
             const auto query_ctx = query_it->query_ctx_.lock();

@@ -264,7 +264,14 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             }
 
             size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
-            size_t raw_bytes_read = 0; bool first_read = true;
+            if (ctx->low_memory_mode() &&
+                raw_bytes_threshold > ctx->low_memory_mode_scan_bytes_per_scanner()) {
+                raw_bytes_threshold = ctx->low_memory_mode_scan_bytes_per_scanner();
+            }
+
+            size_t raw_bytes_read = 0;
+            bool first_read = true;
+
             while (!eos && raw_bytes_read < raw_bytes_threshold) {
                 if (UNLIKELY(ctx->done())) {
                     eos = true;

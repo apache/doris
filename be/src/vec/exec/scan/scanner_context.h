@@ -171,6 +171,17 @@ public:
 
     int batch_size() const { return _batch_size; }
 
+    // During low memory mode, there will be at most 4 scanners running and every scanner will
+    // cache at most 2MB data. So that every instance will keep 8MB buffer.
+    bool low_memory_mode() const;
+
+    // TODO(yiguolei) add this as session variable
+    int32_t low_memory_mode_scan_bytes_per_scanner() const {
+        return 2 * 1024 * 1024; // 2MB
+    }
+
+    int32_t low_memory_mode_scanners() const { return 4; }
+
     // the unique id of this context
     std::string ctx_id;
     TUniqueId _query_id;
@@ -178,6 +189,9 @@ public:
     ThreadPoolToken* thread_token = nullptr;
 
     bool _should_reset_thread_name = true;
+
+    const static int LOW_MEMORY_MODE_SCAN_BYTES = 2 * 1024 * 1024; // 2MB
+    const static int LOW_MEMORY_MODE_MAX_SCANNERS = 4;
 
 protected:
     /// Four criteria to determine whether to increase the parallelism of the scanners
@@ -217,7 +231,7 @@ protected:
     moodycamel::ConcurrentQueue<std::weak_ptr<ScannerDelegate>> _scanners;
     int32_t _num_scheduled_scanners = 0;
     int32_t _num_finished_scanners = 0;
-    int32_t _num_running_scanners = 0;
+    std::atomic_int _num_running_scanners = 0;
     // weak pointer for _scanners, used in stop function
     std::vector<std::weak_ptr<ScannerDelegate>> _all_scanners;
     const int _num_parallel_instances;

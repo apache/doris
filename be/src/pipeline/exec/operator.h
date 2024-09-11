@@ -198,6 +198,8 @@ public:
 
     void reset_estimate_memory_usage() { _estimate_memory_usage = 0; }
 
+    bool low_memory_mode() { return _state->get_query_ctx()->low_memory_mode(); }
+
 protected:
     friend class OperatorXBase;
 
