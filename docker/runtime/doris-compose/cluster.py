@@ -479,12 +479,12 @@ class BE(Node):
                 "deploy_mode = cloud",
             ]
 
-            if not self.cluster.no_be_metaservice_endpoint:
+            if self.cluster.be_metaservice_endpoint:
                 cfg += [
                     "meta_service_endpoint = {}".format(
                         self.cluster.get_meta_server_addr()),
                 ]
-            if not self.cluster.no_be_cloud_instanceid:
+            if self.cluster.be_cloud_instanceid:
                 cfg += [
                     "cloud_instance_id = " + self.cloud_instance_id(),
                 ]
@@ -666,7 +666,7 @@ class Cluster(object):
     def __init__(self, name, subnet, image, is_cloud, fe_config, be_config,
                  ms_config, recycle_config, fe_follower, be_disks, be_cluster,
                  reg_be, coverage_dir, cloud_store_config, sql_mode_node_mgr,
-                 no_be_metaservice_endpoint, no_be_cloud_instanceid):
+                 be_metaservice_endpoint, be_cloud_instanceid):
         self.name = name
         self.subnet = subnet
         self.image = image
@@ -686,8 +686,8 @@ class Cluster(object):
             for node_type in Node.TYPE_ALL
         }
         self.sql_mode_node_mgr = sql_mode_node_mgr
-        self.no_be_metaservice_endpoint = no_be_metaservice_endpoint
-        self.no_be_cloud_instanceid = no_be_cloud_instanceid
+        self.be_metaservice_endpoint = be_metaservice_endpoint
+        self.be_cloud_instanceid = be_cloud_instanceid
 
     @staticmethod
     def new(name, image, is_cloud, fe_config, be_config, ms_config,

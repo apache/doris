@@ -308,16 +308,16 @@ class UpCommand(Command):
                 default=True,
                 action=self._get_parser_bool_action(False),
                 help=
-                "Set BE meta service endpoint in conf. Default is True."
+                "Do not set BE meta service endpoint in conf. Default is False."
             )
         else:
             parser.add_argument(
                 "--no-be-metaservice-endpoint",
-                dest='be-metaservice-endpoint',
+                dest='be_metaservice_endpoint',
                 default=True,
                 action=self._get_parser_bool_action(False),
                 help=
-                "Set BE meta service endpoint in conf. Default is True."
+                "Do set BE meta service endpoint in conf. Default is False."
             )
 
         if self._support_boolean_action():
@@ -326,15 +326,15 @@ class UpCommand(Command):
                 default=True,
                 action=self._get_parser_bool_action(False),
                 help=
-                "Set BE cloud instance ID in conf. Default is True.")
+                "Do not set BE cloud instance ID in conf. Default is False.")
         else:
             parser.add_argument(
                 "--no-be-cloud-instanceid",
-                dest='be-cloud-instanceid',
+                dest='be_cloud_instanceid',
                 default=True,
                 action=self._get_parser_bool_action(False),
                 help=
-                "Set BE cloud instance ID in conf. Default is True.")
+                "Do not set BE cloud instance ID in conf. Default is False.")
 
         parser.add_argument(
             "--fdb-version",
@@ -434,7 +434,7 @@ class UpCommand(Command):
                 args.be_config, args.ms_config, args.recycle_config,
                 args.fe_follower, args.be_disks, args.be_cluster, args.reg_be,
                 args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr,
-                args.no_be_metaservice_endpoint, args.no_be_cloud_instanceid)
+                args.be_metaservice_endpoint, args.be_cloud_instanceid)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
 

@@ -18,7 +18,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import groovy.json.JsonSlurper
 
-suite('test_sql_mode_node_mgr', 'p1') {
+suite('test_sql_mode_node_mgr', 'docker') {
     if (!isCloudMode()) {
         return;
     }
@@ -58,7 +58,7 @@ suite('test_sql_mode_node_mgr', 'p1') {
                 assert frontendResult.size() == 3, "Expected 3 frontends, but got ${frontendResult.size()}"
 
                 // Check that all required columns are present
-                def requiredColumns = ['Name', 'IP', 'EditLogPort', 'HttpPort', 'QueryPort', 'RpcPort', 'Role', 'IsMaster', 'ClusterId', 'Join', 'Alive', 'ReplayedJournalId', 'LastHeartbeat', 'IsHelper', 'ErrMsg']
+                def requiredColumns = ['Name', 'Host', 'EditLogPort', 'HttpPort', 'QueryPort', 'RpcPort', 'Role', 'IsMaster', 'ClusterId', 'Join', 'Alive', 'ReplayedJournalId', 'LastHeartbeat', 'IsHelper', 'ErrMsg']
                 def actualColumns = frontendResult[0].keySet()
                 assert actualColumns.containsAll(requiredColumns), "Missing required columns. Expected: ${requiredColumns}, Actual: ${actualColumns}"
 
@@ -80,7 +80,7 @@ suite('test_sql_mode_node_mgr', 'p1') {
                 assert backendResult.size() == 3, "Expected 3 backends, but got ${backendResult.size()}"
 
                 // Check that all required columns are present
-                def requiredBackendColumns = ['BackendId', 'Cluster', 'IP', 'HeartbeatPort', 'BePort', 'HttpPort', 'BrpcPort', 'LastStartTime', 'LastHeartbeat', 'Alive', 'SystemDecommissioned', 'ClusterDecommissioned', 'TabletNum', 'DataUsedCapacity', 'AvailCapacity', 'TotalCapacity', 'UsedPct', 'MaxDiskUsedPct', 'Tag', 'ErrMsg', 'Version', 'Status']
+                def requiredBackendColumns = ['Host', 'HeartbeatPort', 'BePort', 'HttpPort', 'BrpcPort', 'LastStartTime', 'LastHeartbeat', 'Alive', 'SystemDecommissioned', 'TabletNum', 'DataUsedCapacity', 'AvailCapacity', 'TotalCapacity', 'UsedPct', 'MaxDiskUsedPct', 'Tag', 'ErrMsg', 'Version', 'Status']
                 def actualBackendColumns = backendResult[0].keySet()
                 assert actualBackendColumns.containsAll(requiredBackendColumns), "Missing required backend columns. Expected: ${requiredBackendColumns}, Actual: ${actualBackendColumns}"
 
@@ -104,21 +104,43 @@ suite('test_sql_mode_node_mgr', 'p1') {
             // Call the function to check frontends and backends
             checkFrontendsAndBackends()
 
-            // 2. check read and write work.
-            sql """ drop table if exists example_table """
-            sql """ CREATE TABLE IF NOT EXISTS example_table (
-                        id BIGINT,
-                        username VARCHAR(20)
-                    )
-                    DISTRIBUTED BY HASH(id) BUCKETS 2
-                    PROPERTIES (
-                        "replication_num" = "1"
-                    ); """
-            def result = sql """ insert into example_table values(1, "1") """
-            result = sql """ select * from example_table """
-            assert result.size() == 1
+            def checkClusterStatus = { int expectedFeNum, int expectedBeNum, int existsRows ->
+                logger.info("Checking cluster status...")
+                
+                // Check FE number
+                def frontendResult = sql_return_maparray """SHOW FRONTENDS;"""
+                assert frontendResult.size() == expectedFeNum, "Expected ${expectedFeNum} frontends, but got ${frontendResult.size()}"
+                logger.info("FE number check passed: ${frontendResult.size()} FEs found")
 
-            // 3. check restarting fe and be work.
+                // Check BE number
+                def backendResult = sql_return_maparray """SHOW BACKENDS;"""
+                assert backendResult.size() == expectedBeNum, "Expected ${expectedBeNum} backends, but got ${backendResult.size()}"
+                logger.info("BE number check passed: ${backendResult.size()} BEs found")
+
+                // Create table if not exists
+                sql """
+                CREATE TABLE IF NOT EXISTS test_table (
+                    id INT,
+                    name VARCHAR(50)
+                )
+                DISTRIBUTED BY HASH(id) BUCKETS 3
+                PROPERTIES("replication_num" = "3");
+                """
+
+                logger.info("Table 'test_table' created or already exists")
+                sql """ INSERT INTO test_table VALUES (1, 'test1') """
+
+                def result = sql """ SELECT * FROM test_table ORDER BY id """
+                assert result.size() == existsRows + 1, "Expected ${existsRows + 1} rows, but got ${result.size()}"
+                logger.info("Read/write check passed: ${result.size()} rows found")
+
+                logger.info("All cluster status checks passed successfully")
+            }
+
+            // Call the function to check cluster status
+            checkClusterStatus(3, 3, 0)
+
+            // CASE 1 . check restarting fe and be work.
             logger.info("Restarting frontends and backends...")
             cluster.restartFrontends();
             cluster.restartBackends();
@@ -126,15 +148,9 @@ suite('test_sql_mode_node_mgr', 'p1') {
             sleep(30000)
             context.reconnectFe()
 
-            result = sql """ select * from example_table """
-            assert result.size() == 1
+            checkClusterStatus(3, 3, 1)
 
-            sql """ insert into example_table values(1, "1") """
-
-            result = sql """ select * from example_table order by id """
-            assert result.size() == 2
-
-            // 4. If a be is dropped, query and writing also work.
+            // CASE 2. If a be is dropped, query and writing also work.
             // Get the list of backends
             def backends = sql_return_maparray("SHOW BACKENDS")
             logger.info("Current backends: {}", backends)
@@ -147,7 +163,7 @@ suite('test_sql_mode_node_mgr', 'p1') {
             logger.info("Dropping backend: {}:{}", backendHost, backendHeartbeatPort)
 
             // Drop the selected backend
-            sql """ ALTER SYSTEM DECOMMISSION BACKEND "${backendHost}:${backendHeartbeatPort}"; """
+            sql """ ALTER SYSTEM DROPP BACKEND "${backendHost}:${backendHeartbeatPort}"; """
 
             // Wait for the backend to be fully dropped
             def maxWaitSeconds = 300
@@ -166,20 +182,32 @@ suite('test_sql_mode_node_mgr', 'p1') {
                 throw new Exception("Timeout waiting for backend to be dropped")
             }
 
-            // Verify the backend was dropped
-            def remainingBackends = sql_return_maparray("SHOW BACKENDS")
-            logger.info("Remaining backends: {}", remainingBackends)
-            assert remainingBackends.size() == 2, "Expected 2 remaining backends"
+            checkClusterStatus(3, 2, 2)
 
-            // Verify that write operations still work after dropping a backend
-            sql """ INSERT INTO example_table VALUES (2, '2'); """
+            // CASE 3. Add the dropped backend back
+            logger.info("Adding back the dropped backend: {}:{}", backendHost, backendHeartbeatPort)
+            sql """ ALTER SYSTEM ADD BACKEND "${backendHost}:${backendHeartbeatPort}"; """
 
-            // Verify that read operations still work after dropping a backend
-            result = sql """ SELECT * FROM example_table ORDER BY id; """
-            logger.info("Query result after dropping backend: {}", result)
-            assert result.size() == 3, "Expected 3 rows in example_table after dropping backend"
+            // Wait for the backend to be fully added back
+            maxWaitSeconds = 300
+            waited = 0
+            while (waited < maxWaitSeconds) {
+                def currentBackends = sql_return_maparray("SHOW BACKENDS")
+                if (currentBackends.size() == 3) {
+                    logger.info("Backend successfully added back")
+                    break
+                }
+                sleep(10000)
+                waited += 10
+            }
 
-            // 5. If a fe is dropped, query and writing also work.
+            if (waited >= maxWaitSeconds) {
+                throw new Exception("Timeout waiting for backend to be added back")
+            }
+
+            checkClusterStatus(3, 3, 3)
+
+            // CASE 4. If a fe is dropped, query and writing also work.
             // Get the list of frontends
             def frontends = sql_return_maparray("SHOW FRONTENDS")
             logger.info("Current frontends: {}", frontends)
@@ -213,20 +241,52 @@ suite('test_sql_mode_node_mgr', 'p1') {
                 throw new Exception("Timeout waiting for non-master frontend to be dropped")
             }
 
-            // Verify the frontend was dropped
-            def remainingFrontends = sql_return_maparray("SHOW FRONTENDS")
-            logger.info("Remaining frontends: {}", remainingFrontends)
-            assert remainingFrontends.size() == frontends.size() - 1, "Expected ${frontends.size() - 1} remaining frontends"
+            checkClusterStatus(2, 3, 4)
 
-            // Verify that write operations still work after dropping a frontend
-            sql """ INSERT INTO example_table VALUES (3, '3'); """
+            // CASE 5. Add dropped frontend back
+            logger.info("Adding dropped frontend back")
 
-            // Verify that read operations still work after dropping a frontend
-            result = sql """ SELECT * FROM example_table ORDER BY id; """
-            logger.info("Query result after dropping frontend: {}", result)
-            assert result.size() == 4, "Expected 4 rows in example_table after dropping frontend"
+            // Get the current list of frontends
+            def currentFrontends = sql_return_maparray("SHOW FRONTENDS")
+            
+            // Find the dropped frontend by comparing with the original list
+            def droppedFE = frontends.find { fe ->
+                !currentFrontends.any { it['Host'] == fe['Host'] && it['EditLogPort'] == fe['EditLogPort'] }
+            }
+            
+            assert droppedFE != null, "Could not find the dropped frontend"
 
-            // 6. If fe can not drop itself.
+            feHost = droppedFE['Host']
+            feEditLogPort = droppedFE['EditLogPort']
+
+            logger.info("Adding back frontend: {}:{}", feHost, feEditLogPort)
+
+            // Add the frontend back
+            sql """ ALTER SYSTEM ADD FOLLOWER "${feHost}:${feEditLogPort}"; """
+
+            // Wait for the frontend to be fully added back
+            maxWaitSeconds = 300
+            waited = 0
+            while (waited < maxWaitSeconds) {
+                def updatedFrontends = sql_return_maparray("SHOW FRONTENDS")
+                if (updatedFrontends.size() == frontends.size()) {
+                    logger.info("Frontend successfully added back")
+                    break
+                }
+                sleep(10000)
+                waited += 10
+            }
+
+            if (waited >= maxWaitSeconds) {
+                throw new Exception("Timeout waiting for frontend to be added back")
+            }
+
+            // Verify cluster status after adding the frontend back
+            checkClusterStatus(3, 3, 5)
+
+            logger.info("Frontend successfully added back and cluster status verified")
+
+            // CASE 6. If fe can not drop itself.
             // 6. Attempt to drop the master FE and expect an exception
             logger.info("Attempting to drop the master frontend")
 
@@ -244,14 +304,83 @@ suite('test_sql_mode_node_mgr', 'p1') {
                 throw new Exception("Expected an exception when trying to drop master frontend, but no exception was thrown")
             } catch (Exception e) {
                 logger.info("Received expected exception when trying to drop master frontend: {}", e.getMessage())
-                assert e.getMessage().contains("Cannot drop master"), "Unexpected exception message when trying to drop master frontend"
+                assert e.getMessage().contains("can not drop current master node."), "Unexpected exception message when trying to drop master frontend"
             }
 
             // Verify that the master frontend is still present
-            def currentFrontends = sql_return_maparray("SHOW FRONTENDS")
+            currentFrontends = sql_return_maparray("SHOW FRONTENDS")
             assert currentFrontends.find { it['IsMaster'] == "true" && it['Host'] == masterHost && it['EditLogPort'] == masterEditLogPort } != null, "Master frontend should still be present"
-
             logger.info("Successfully verified that the master frontend cannot be dropped")
+
+
+            // CASE 7. Attempt to drop a non-existent backend
+            logger.info("Attempting to drop a non-existent backend")
+
+            // Generate a non-existent host and port
+            def nonExistentHost = "non.existent.host"
+            def nonExistentPort = 12345
+
+            try {
+                sql """ ALTER SYSTEM DROPP BACKEND "${nonExistentHost}:${nonExistentPort}"; """
+                throw new Exception("Expected an exception when trying to drop non-existent backend, but no exception was thrown")
+            } catch (Exception e) {
+                logger.info("Received expected exception when trying to drop non-existent backend: {}", e.getMessage())
+                assert e.getMessage().contains("backend does not exists"), "Unexpected exception message when trying to drop non-existent backend"
+            }
+
+            // Verify that the number of backends remains unchanged
+            def currentBackends = sql_return_maparray("SHOW BACKENDS")
+            def originalBackendCount = 3 // As per the initial setup in this test
+            assert currentBackends.size() == originalBackendCount, "Number of backends should remain unchanged after attempting to drop a non-existent backend"
+
+            checkClusterStatus(3, 3, 6)
+
+            // CASE 8. Decommission a backend and verify the process
+            logger.info("Attempting to decommission a backend")
+
+            // Get the list of current backends
+            backends = sql_return_maparray("SHOW BACKENDS")
+            assert backends.size() >= 1, "Not enough backends to perform decommission test"
+
+            // Select a backend to decommission (not the first one, as it might be the master)
+            def backendToDecommission = backends[1]
+            def decommissionHost = backendToDecommission['Host']
+            def decommissionPort = backendToDecommission['HeartbeatPort']
+
+            logger.info("Decommissioning backend: {}:{}", decommissionHost, decommissionPort)
+
+            // Decommission the selected backend
+            sql """ ALTER SYSTEM DECOMMISSION BACKEND "${decommissionHost}:${decommissionPort}"; """
+
+            // Wait for the decommission process to complete (this may take some time in a real environment)
+            int maxAttempts = 30
+            int attempts = 0
+            boolean decommissionComplete = false
+
+            while (attempts < maxAttempts && !decommissionComplete) {
+                currentBackends = sql_return_maparray("SHOW BACKENDS")
+                def decommissionedBackend = currentBackends.find { it['Host'] == decommissionHost && it['HeartbeatPort'] == decommissionPort }
+
+                logger.info("decomissionedBackend {}", decommissionedBackend)
+                if (decommissionedBackend && decommissionedBackend['Alive'] == "false" && decommissionedBackend['SystemDecommissioned'] == "true") {
+                    decommissionComplete = true
+                } else {
+                    attempts++
+                    sleep(1000) // Wait for 1 second before checking again
+                }
+            }
+
+            assert decommissionComplete, "Backend decommission did not complete within the expected time"
+
+            // Verify that the decommissioned backend is no longer active
+            def finalBackends = sql_return_maparray("SHOW BACKENDS")
+            def decommissionedBackend = finalBackends.find { it['Host'] == decommissionHost && it['HeartbeatPort'] == decommissionPort }
+            assert decommissionedBackend['Alive'] == "false", "Decommissioned backend should not be alive"
+            assert decommissionedBackend['SystemDecommissioned'] == "true", "Decommissioned backend should have SystemDecommissioned set to true"
+
+            logger.info("Successfully decommissioned backend and verified its status")
+
+            checkClusterStatus(3, 3, 7)
         }
     }
 

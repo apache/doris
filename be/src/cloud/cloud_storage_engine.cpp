@@ -180,7 +180,7 @@ Status CloudStorageEngine::open() {
     }
 
     // vault mode should not support latest_fs to get rid of unexpected storage backends choosen
-    if (!enable_storage_vault) {
+    if (!enable_storage_vault && vault_infos.size() > 0) {
         set_latest_fs(get_filesystem(std::get<0>(vault_infos.back())));
     }
 

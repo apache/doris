@@ -319,12 +319,11 @@ class SuiteCluster {
         if (options.sqlModeNodeMgr) {
             cmd += ['--sql-mode-node-mgr']
         }
-        if (options.beMetaServiceEndpoint) {
-            cmd += ['--be-metaservice-endpoint']
+        if (!options.beMetaServiceEndpoint) {
+            cmd += ['--no-be-metaservice-endpoint']
         }
-        if (options.beCloudInstanceId) {
-            
-            cmd += ['--be-cloud-instanceid']
+        if (!options.beCloudInstanceId) {
+            cmd += ['--no-be-cloud-instanceid']
         }
 
         cmd += ['--wait-timeout', String.valueOf(options.waitTimeout)]

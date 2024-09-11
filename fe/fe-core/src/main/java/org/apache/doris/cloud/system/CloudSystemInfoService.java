@@ -31,6 +31,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.RandomIdentifierGenerator;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.ConnectContext;
@@ -288,7 +289,7 @@ public class CloudSystemInfoService extends SystemInfoService {
                 continue;
             }
             try {
-                Env.getCurrentEnv().dropFrontend(fe.getRole(), fe.getHost(), fe.getEditLogPort());
+                Env.getCurrentEnv().dropFrontendFromBDBJE(fe.getRole(), fe.getHost(), fe.getEditLogPort());
                 LOG.info("dropped cloud frontend={} ", fe);
             } catch (DdlException e) {
                 LOG.warn("failed to drop cloud frontend={} ", fe);
@@ -309,14 +310,14 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
-    private void alterBackendCluster(List<HostInfo> hostInfos, String clusterName,
+    private void alterBackendCluster(List<HostInfo> hostInfos, String clusterId,
                                      Cloud.AlterClusterRequest.Operation operation) throws DdlException {
         if (Strings.isNullOrEmpty(Config.cloud_instance_id)) {
             throw new DdlException("unable to alter backends due to empty cloud_instance_id");
         }
         // Issue rpc to meta to alter node, then fe master would add this node to its frontends
         Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()
-                .setClusterName(clusterName)
+                .setClusterId(clusterId)
                 .setType(Cloud.ClusterPB.Type.COMPUTE)
                 .build();
 
@@ -363,22 +364,46 @@ public class CloudSystemInfoService extends SystemInfoService {
             throw new UserException("clusterName empty");
         }
 
-        tryCreateCluster(clusterName, RandomIdentifierGenerator.generateRandomIdentifier(8));
-        alterBackendCluster(hostInfos, clusterName, Cloud.AlterClusterRequest.Operation.ADD_NODE);
+        String clusterId = tryCreateCluster(clusterName, RandomIdentifierGenerator.generateRandomIdentifier(8));
+        alterBackendCluster(hostInfos, clusterId, Cloud.AlterClusterRequest.Operation.ADD_NODE);
+    }
+
+    // final entry of dropping backend
+    // We can not do it in batch, because be may belong to different clusters.
+    // Maybe we can opt it in the future.
+    @Override
+    public void dropBackend(String host, int heartbeatPort) throws DdlException {
+        Backend droppedBackend = getBackendWithHeartbeatPort(host, heartbeatPort);
+        if (droppedBackend == null) {
+            throw new DdlException("backend does not exists[" + NetUtils
+                    .getHostPortInAccessibleFormat(host, heartbeatPort) + "]");
+        }
+        String clusterId = droppedBackend.getTagMap().get(Tag.CLOUD_CLUSTER_ID);
+        if (clusterId == null || clusterId.isEmpty()) {
+            throw new DdlException("Failed to get cluster ID for backend: " + droppedBackend.getId());
+        }
+
+        List<HostInfo> hostInfos = new ArrayList<>();
+        hostInfos.add(new HostInfo(host, heartbeatPort));
+
+        alterBackendCluster(hostInfos, clusterId, Cloud.AlterClusterRequest.Operation.DROP_NODE);
     }
 
     @Override
-    public void dropBackends(List<HostInfo> hostInfos) throws DdlException {
-        alterBackendCluster(hostInfos, "", Cloud.AlterClusterRequest.Operation.DROP_NODE);
-    }
+    public void decommissionBackend(Backend backend) throws UserException {
+        String clusterId = backend.getTagMap().get(Tag.CLOUD_CLUSTER_ID);
+        if (clusterId == null || clusterId.isEmpty()) {
+            throw new UserException("Failed to get cluster ID for backend: " + backend.getId());
+        }
 
-    @Override
-    public void dropBackendsByIds(List<String> ids) throws DdlException {
-        for (String id : ids) {
-            if (getBackend(Long.parseLong(id)) == null) {
-                throw new DdlException("backend does not exists[" + id + "]");
-            }
-            dropBackend(Long.parseLong(id));
+        List<HostInfo> hostInfos = new ArrayList<>();
+        hostInfos.add(new HostInfo(backend.getHost(), backend.getHeartbeatPort()));
+        try {
+            alterBackendCluster(hostInfos, clusterId, Cloud.AlterClusterRequest.Operation.DECOMMISSION_NODE);
+        } catch (DdlException e) {
+            String errorMessage = e.getMessage();
+            LOG.warn("Failed to decommission backend: {}", errorMessage);
+            throw new UserException(errorMessage);
         }
     }
 
@@ -792,7 +817,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         alterFrontendCluster(role, host, editLogPort, Cloud.AlterClusterRequest.Operation.DROP_NODE);
     }
 
-    private void tryCreateCluster(String clusterName, String clusterId) throws UserException {
+    private String tryCreateCluster(String clusterName, String clusterId) throws UserException {
         if (Strings.isNullOrEmpty(Config.cloud_instance_id)) {
             throw new DdlException("unable to create cluster due to empty cloud_instance_id");
         }
@@ -819,9 +844,31 @@ public class CloudSystemInfoService extends SystemInfoService {
                 throw new UserException("failed to create cluster errorCode: " + response.getStatus().getCode()
                         + " msg: " + response.getStatus().getMsg());
             }
+
+            if (response.getStatus().getCode() == Cloud.MetaServiceCode.OK) {
+                return clusterId;
+            } else if (response.getStatus().getCode() == Cloud.MetaServiceCode.ALREADY_EXISTED) {
+                Cloud.GetClusterResponse clusterResponse = getCloudCluster(clusterName, "", "");
+                if (clusterResponse.getStatus().getCode() == Cloud.MetaServiceCode.OK) {
+                    if (clusterResponse.getClusterCount() > 0) {
+                        Cloud.ClusterPB cluster = clusterResponse.getCluster(0);
+                        return cluster.getClusterId();
+                    } else {
+                        throw new UserException("Cluster information not found in the response");
+                    }
+                } else {
+                    throw new UserException("Failed to get cluster. Error code: "
+                            + clusterResponse.getStatus().getCode() + ", message: "
+                            + clusterResponse.getStatus().getMsg());
+                }
+            } else {
+                throw new UserException("Failed to create or get cluster. Error code: "
+                        + response.getStatus().getCode() + ", message: " + response.getStatus().getMsg());
+            }
         } catch (RpcException e) {
             throw new UserException("failed to create cluster", e);
         }
+
     }
 
     public List<Pair<String, Integer>> getCurrentObFrontends() {

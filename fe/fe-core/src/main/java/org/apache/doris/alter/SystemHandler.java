@@ -156,9 +156,7 @@ public class SystemHandler extends AlterHandler {
             // for decommission operation, here is no decommission job. the system handler will check
             // all backend in decommission state
             for (Backend backend : decommissionBackends) {
-                backend.setDecommissioned(true);
-                Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
-                LOG.info("set backend {} to decommission", backend.getId());
+                Env.getCurrentSystemInfo().decommissionBackend(backend);
             }
 
         } else if (alterClause instanceof AddObserverClause) {
