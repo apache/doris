@@ -706,7 +706,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
         const std::map<int, int>& bucket_seq_to_instance_idx,
         const std::map<int, int>& shuffle_idx_to_instance_idx,
         const bool ignore_data_hash_distribution) {
-    auto& operator_xs = cur_pipe->operators();
+    auto& operators = cur_pipe->operators();
     const auto downstream_pipeline_id = cur_pipe->id();
     auto local_exchange_id = next_operator_id();
     // 1. Create a new pipeline with local exchange sink.
@@ -717,8 +717,8 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
      * `bucket_seq_to_instance_idx` is empty if no scan operator is contained in this fragment.
      * So co-located operators(e.g. Agg, Analytic) should use `HASH_SHUFFLE` instead of `BUCKET_HASH_SHUFFLE`.
      */
-    const bool followed_by_shuffled_join = operator_xs.size() > idx
-                                                   ? operator_xs[idx]->followed_by_shuffled_join()
+    const bool followed_by_shuffled_join = operators.size() > idx
+                                                   ? operators[idx]->followed_by_shuffled_join()
                                                    : cur_pipe->sink()->followed_by_shuffled_join();
     const bool should_disable_bucket_shuffle =
             bucket_seq_to_instance_idx.empty() &&
@@ -790,7 +790,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
         }
         break;
     case ExchangeType::LOCAL_MERGE_SORT: {
-        auto child_op = cur_pipe->sink()->child_x();
+        auto child_op = cur_pipe->sink()->child();
         auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(child_op);
         if (!sort_source) {
             return Status::InternalError(
@@ -825,21 +825,21 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     // pipeline1 [Scan - LocalExchangeSink] and pipeline2 [LocalExchangeSource - AggSink].
 
     // 3.1 Initialize new pipeline's operator list.
-    std::copy(operator_xs.begin(), operator_xs.begin() + idx,
+    std::copy(operators.begin(), operators.begin() + idx,
               std::inserter(new_pip->operators(), new_pip->operators().end()));
 
     // 3.2 Erase unused operators in previous pipeline.
-    operator_xs.erase(operator_xs.begin(), operator_xs.begin() + idx);
+    operators.erase(operators.begin(), operators.begin() + idx);
 
     // 4. Initialize LocalExchangeSource and insert it into this pipeline.
     OperatorPtr source_op;
     source_op.reset(new LocalExchangeSourceOperatorX(pool, local_exchange_id));
     RETURN_IF_ERROR(source_op->set_child(new_pip->operators().back()));
     RETURN_IF_ERROR(source_op->init(data_distribution.distribution_type));
-    if (!operator_xs.empty()) {
-        RETURN_IF_ERROR(operator_xs.front()->set_child(source_op));
+    if (!operators.empty()) {
+        RETURN_IF_ERROR(operators.front()->set_child(source_op));
     }
-    operator_xs.insert(operator_xs.begin(), source_op);
+    operators.insert(operators.begin(), source_op);
 
     shared_state->create_dependencies(local_exchange_id);
 
@@ -896,8 +896,8 @@ Status PipelineFragmentContext::_add_local_exchange(
     }
     *do_local_exchange = true;
 
-    auto& operator_xs = cur_pipe->operators();
-    auto total_op_num = operator_xs.size();
+    auto& operators = cur_pipe->operators();
+    auto total_op_num = operators.size();
     auto new_pip = add_pipeline(cur_pipe, pip_idx + 1);
     RETURN_IF_ERROR(_add_local_exchange_impl(
             idx, pool, cur_pipe, new_pip, data_distribution, do_local_exchange, num_buckets,
@@ -1653,8 +1653,8 @@ void PipelineFragmentContext::_close_fragment_instance() {
     }
 
     if (_query_ctx->enable_profile()) {
-        _query_ctx->add_fragment_profile(_fragment_id, collect_realtime_profile_x(),
-                                         collect_realtime_load_channel_profile_x());
+        _query_ctx->add_fragment_profile(_fragment_id, collect_realtime_profile(),
+                                         collect_realtime_load_channel_profile());
     }
 
     // all submitted tasks done
@@ -1724,7 +1724,7 @@ std::string PipelineFragmentContext::debug_string() {
 }
 
 std::vector<std::shared_ptr<TRuntimeProfileTree>>
-PipelineFragmentContext::collect_realtime_profile_x() const {
+PipelineFragmentContext::collect_realtime_profile() const {
     std::vector<std::shared_ptr<TRuntimeProfileTree>> res;
 
     // we do not have mutex to protect pipeline_id_to_profile
@@ -1749,7 +1749,7 @@ PipelineFragmentContext::collect_realtime_profile_x() const {
 }
 
 std::shared_ptr<TRuntimeProfileTree>
-PipelineFragmentContext::collect_realtime_load_channel_profile_x() const {
+PipelineFragmentContext::collect_realtime_load_channel_profile() const {
     // we do not have mutex to protect pipeline_id_to_profile
     // so we need to make sure this funciton is invoked after fragment context
     // has already been prepared.

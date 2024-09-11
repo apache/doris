@@ -18,7 +18,7 @@ import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 import org.apache.doris.regression.suite.SuiteCluster
 
-suite("test_retry_e-230") {
+suite("test_retry_e-230", 'docker') {
     if (!isCloudMode()) {
         return
     }

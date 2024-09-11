@@ -78,7 +78,7 @@ struct OperationState {
 
 struct FileBuffer {
     FileBuffer(BufferType type, std::function<FileBlocksHolderPtr()> alloc_holder, size_t offset,
-               OperationState state);
+               OperationState state, std::shared_ptr<MemTrackerLimiter> mem_tracker);
     virtual ~FileBuffer();
     /**
     * submit the correspoding task to async executor
@@ -135,8 +135,9 @@ struct DownloadFileBuffer final : public FileBuffer {
     DownloadFileBuffer(std::function<Status(Slice&)> download,
                        std::function<void(FileBlocksHolderPtr, Slice)> write_to_cache,
                        std::function<void(Slice, size_t)> write_to_use_buffer, OperationState state,
-                       size_t offset, std::function<FileBlocksHolderPtr()> alloc_holder)
-            : FileBuffer(BufferType::DOWNLOAD, alloc_holder, offset, state),
+                       size_t offset, std::function<FileBlocksHolderPtr()> alloc_holder,
+                       std::shared_ptr<MemTrackerLimiter> mem_tracker)
+            : FileBuffer(BufferType::DOWNLOAD, alloc_holder, offset, state, std::move(mem_tracker)),
               _download(std::move(download)),
               _write_to_local_file_cache(std::move(write_to_cache)),
               _write_to_use_buffer(std::move(write_to_use_buffer)) {}
@@ -155,8 +156,9 @@ struct DownloadFileBuffer final : public FileBuffer {
 
 struct UploadFileBuffer final : public FileBuffer {
     UploadFileBuffer(std::function<void(UploadFileBuffer&)> upload_cb, OperationState state,
-                     size_t offset, std::function<FileBlocksHolderPtr()> alloc_holder)
-            : FileBuffer(BufferType::UPLOAD, alloc_holder, offset, state),
+                     size_t offset, std::function<FileBlocksHolderPtr()> alloc_holder,
+                     std::shared_ptr<MemTrackerLimiter> mem_tracker)
+            : FileBuffer(BufferType::UPLOAD, alloc_holder, offset, state, std::move(mem_tracker)),
               _upload_to_remote(std::move(upload_cb)) {}
     ~UploadFileBuffer() override = default;
     Status append_data(const Slice& s) override;

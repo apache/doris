@@ -118,7 +118,7 @@ Status SnapshotLoader::init(TStorageBackendType::type type, const std::string& l
     }
     _mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::OTHER,
-            std::format("SnapshotLoader#job_id={}#task_id={}", _job_id, _task_id));
+            fmt::format("SnapShotLoader#job_id={}#task_id={}", _job_id, _task_id));
     return Status::OK();
 }
 

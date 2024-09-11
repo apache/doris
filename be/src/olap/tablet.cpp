@@ -105,6 +105,7 @@
 #include "olap/txn_manager.h"
 #include "olap/types.h"
 #include "olap/utils.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "segment_loader.h"
 #include "service/point_query_executor.h"
 #include "tablet.h"
@@ -267,6 +268,9 @@ Tablet::Tablet(StorageEngine& engine, TabletMetaSharedPtr tablet_meta, DataDir* 
         _tablet_path = fmt::format("{}/{}/{}/{}/{}", _data_dir->path(), DATA_PREFIX,
                                    _tablet_meta->shard_id(), tablet_id(), schema_hash());
     }
+    _upload_cooldown_meta_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER,
+            fmt::format("UploadCoolDownMeta#tablet_id={}", tablet_id()));
 }
 
 bool Tablet::set_tablet_schema_into_rowset_meta() {
@@ -1023,6 +1027,9 @@ uint32_t Tablet::calc_cold_data_compaction_score() const {
 
 uint32_t Tablet::_calc_cumulative_compaction_score(
         std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
+    if (cumulative_compaction_policy == nullptr) [[unlikely]] {
+        return 0;
+    }
 #ifndef BE_TEST
     if (_cumulative_compaction_policy == nullptr ||
         _cumulative_compaction_policy->name() != cumulative_compaction_policy->name()) {
@@ -2096,6 +2103,8 @@ Status Tablet::write_cooldown_meta() {
                                       _tablet_meta->replica_id(),
                                       _cooldown_conf.cooldown_replica_id, tablet_id());
     }
+
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_upload_cooldown_meta_tracker);
 
     auto storage_resource = DORIS_TRY(get_resource_by_storage_policy_id(storage_policy_id()));
 
