@@ -450,27 +450,9 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     const auto* delete_sign_column_data =
             BaseTablet::get_delete_sign_column_data(full_block, data.row_pos + data.num_rows);
 
-    std::vector<RowsetSharedPtr> specified_rowsets;
-    {
-        DBUG_EXECUTE_IF("VerticalSegmentWriter._append_block_with_partial_content.sleep",
-                        { sleep(60); })
-        specified_rowsets = _mow_context->rowset_ptrs;
-        if (specified_rowsets.size() != _mow_context->rowset_ids.size()) {
-            // Only when this is a strict mode partial update that missing rowsets here will lead to problems.
-            // In other case, the missing rowsets will be calculated in later phases(commit phase/publish phase)
-            LOG(WARNING) << fmt::format(
-                    "[Memtable Flush] some rowsets have been deleted due to "
-                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}) in "
-                    "partial update. tablet_id: {}, cur max_version: {}, transaction_id: {}",
-                    specified_rowsets.size(), _mow_context->rowset_ids.size(), _tablet->tablet_id(),
-                    _mow_context->max_version, _mow_context->txn_id);
-            if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
-                return Status::InternalError<false>(
-                        "[Memtable Flush] some rowsets have been deleted due to "
-                        "compaction in strict mode partial update");
-            }
-        }
-    }
+    DBUG_EXECUTE_IF("VerticalSegmentWriter._append_block_with_partial_content.sleep",
+                    { sleep(60); })
+    const std::vector<RowsetSharedPtr>& specified_rowsets = _mow_context->rowset_ptrs;
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
 
     PartialUpdateReadPlan read_plan;
