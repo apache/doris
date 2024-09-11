@@ -505,7 +505,17 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
 
         final CommitTxnRequest commitTxnRequest = builder.build();
-        commitTxn(commitTxnRequest, transactionId, is2PC, dbId, tableList);
+        try {
+            commitTxn(commitTxnRequest, transactionId, is2PC, dbId, tableList);
+        } catch (UserException e) {
+            // For routine load, it is necessary to release the write lock when commit transaction fails,
+            // otherwise it will cause the lock added in beforeCommitted to not be released.
+            if (txnCommitAttachment != null && txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
+                RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
+                Env.getCurrentEnv().getRoutineLoadManager().getJob(rlTaskTxnCommitAttachment.getJobId()).writeUnlock();
+            }
+            throw e;
+        }
     }
 
     private void commitTxn(CommitTxnRequest commitTxnRequest, long transactionId, boolean is2PC, long dbId,
@@ -1037,6 +1047,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             Preconditions.checkNotNull(abortTxnResponse.getStatus());
         } catch (RpcException e) {
             LOG.warn("abortTxn failed, transactionId:{}, Exception", transactionId, e);
+            // For routine load, it is necessary to release the write lock when abort transaction fails,
+            // otherwise it will cause the lock added in beforeAborted to not be released.
+            if (txnCommitAttachment != null && txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
+                RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
+                Env.getCurrentEnv().getRoutineLoadManager().getJob(rlTaskTxnCommitAttachment.getJobId()).writeUnlock();
+            }
             throw new UserException("abortTxn failed, errMsg:" + e.getMessage());
         }
 
