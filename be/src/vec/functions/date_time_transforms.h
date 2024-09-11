@@ -158,6 +158,29 @@ struct DayNameImpl {
 };
 
 template <typename ArgType>
+struct ToIso8601Impl {
+    using OpArgType = ArgType;
+    static constexpr auto name = "to_iso8601";
+    static constexpr auto max_size = std::is_same_v<ArgType, UInt32> ? 10 : 26;
+
+    static inline auto execute(const typename DateTraits<ArgType>::T& dt,
+                               ColumnString::Chars& res_data, size_t& offset) {
+        char buf[50];
+        auto length = dt.to_buffer(buf, std::is_same_v<ArgType, UInt32> ? -1 : 6);
+        if (std::is_same_v<ArgType, UInt64>) {
+            buf[10] = 'T';
+        }
+        memcpy(&res_data[offset], buf, length);
+        offset += length;
+        return offset;
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<typename DateTraits<ArgType>::DateType>()};
+    }
+};
+
+template <typename ArgType>
 struct MonthNameImpl {
     using OpArgType = ArgType;
     static constexpr auto name = "monthname";

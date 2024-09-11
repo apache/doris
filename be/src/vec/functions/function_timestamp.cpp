@@ -1150,7 +1150,9 @@ public:
 
     String get_name() const override { return name; }
 
-    size_t get_number_of_arguments() const override { return 2; }
+    size_t get_number_of_arguments() const override {
+        return get_variadic_argument_types_impl().size();
+    }
 
     bool is_variadic() const override { return Impl::is_variadic(); }
 
@@ -1182,6 +1184,139 @@ public:
     }
 };
 
+struct FromIso8601DateV2 {
+    static constexpr auto name = "from_iso8601_date";
+
+    static bool is_variadic() { return true; } //todo : check is or not is_variadic
+
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeString>()}; }
+
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return make_nullable(std::make_shared<DataTypeDateV2>());
+    }
+
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t input_rows_count) {
+        const auto* src_column_ptr = block.get_by_position(arguments[0]).column.get();
+
+        std::regex calendar_regex(R"((\d{4})(-)?(\d{2})(-)?(\d{2}))"); // YYYY-MM-DD or YYYYMMDD
+        std::regex year_month_regex(R"((\d{4})-(\d{2}))");             // YYYY-MM
+        std::regex year_only_regex(R"((\d{4}))");                      // YYYY
+        std::regex week_regex(
+                R"((\d{4})(-)?W(\d{2})(-)?(\d)?)"); // YYYY-Www or YYYY-Www-D or YYYYWww or YYYYWwwD
+        std::regex day_of_year_regex(R"((\d{4})(-)?(\d{3}))"); // YYYY-DDD or YYYYDDD
+        std::smatch match;
+
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+
+        ColumnPtr res = ColumnDateV2::create(input_rows_count);
+        auto& result_data = static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            std::string iso_date = src_column_ptr->get_data_at(i).to_string();
+            auto& ts_value = *reinterpret_cast<DateV2Value<DateV2ValueType>*>(&result_data[i]);
+            if (std::regex_match(iso_date, match, calendar_regex)) {
+                int year = std::stoi(match[1]);
+                int month = std::stoi(match[3]);
+                int day = std::stoi(match[5]);
+
+                if (!(ts_value.template set_time_unit<YEAR>(year) &&
+                      ts_value.template set_time_unit<MONTH>(month) &&
+                      ts_value.template set_time_unit<DAY>(day))) {
+                    null_map->get_data().data()[i] = true;
+                }
+            } else if (
+                    std::regex_match(
+                            iso_date, match,
+                            year_month_regex)) { // Year and Month format (YYYY-MM, but NOT YYYYMM)
+                int year = std::stoi(match[1]);
+                int month = std::stoi(match[2]);
+
+                if (!(ts_value.template set_time_unit<YEAR>(year) &&
+                      ts_value.template set_time_unit<MONTH>(month))) {
+                    null_map->get_data().data()[i] = true;
+                }
+                ts_value.template unchecked_set_time_unit<DAY>(1);
+            } else if (std::regex_match(iso_date, match,
+                                        year_only_regex)) { // Year only format (YYYY)
+                int year = std::stoi(match[1]);
+
+                if (!ts_value.template set_time_unit<YEAR>(year)) {
+                    null_map->get_data().data()[i] = true;
+                }
+                ts_value.template unchecked_set_time_unit<MONTH>(1);
+                ts_value.template unchecked_set_time_unit<DAY>(1);
+
+            } else if (
+                    std::regex_match(
+                            iso_date, match,
+                            week_regex)) { // Week date format (YYYY-Www, YYYY-Www-D, YYYYWww or YYYYWwwD)
+                int year = std::stoi(match[1]);
+                int week = std::stoi(match[3]);
+                int weekday = match[5].matched ? std::stoi(match[5])
+                                               : 1; // Default to Monday if no day is specified
+
+                // weekday [1,7]    week [1,53]
+                if (weekday < 1 || weekday > 7 || week < 1 || week > 53) {
+                    null_map->get_data().data()[i] = true;
+                    continue;
+                }
+
+                auto first_day_of_week = getFirstDayOfISOWeek(year);
+                ts_value.template unchecked_set_time_unit<YEAR>(
+                        first_day_of_week.year().operator int());
+                ts_value.template unchecked_set_time_unit<MONTH>(
+                        first_day_of_week.month().operator unsigned int());
+                ts_value.template unchecked_set_time_unit<DAY>(
+                        first_day_of_week.day().operator unsigned int());
+
+                auto day_diff = (week - 1) * 7 + weekday - 1;
+                TimeInterval interval(DAY, day_diff, false);
+                ts_value.date_add_interval<DAY>(interval);
+
+            } else if (std::regex_match(
+                               iso_date, match,
+                               day_of_year_regex)) { // Day of year format (YYYYDDD or YYYY-DDD)
+                int year = std::stoi(match[1]);
+                int day_of_year = std::stoi(match[3]);
+
+                if (is_leap(year)) {
+                    if (day_of_year < 0 || day_of_year > 366) {
+                        null_map->get_data().data()[i] = true;
+                    }
+                } else {
+                    if (day_of_year < 0 || day_of_year > 365) {
+                        null_map->get_data().data()[i] = true;
+                    }
+                }
+
+                ts_value.template unchecked_set_time_unit<YEAR>(year);
+                ts_value.template unchecked_set_time_unit<MONTH>(1);
+                ts_value.template unchecked_set_time_unit<DAY>(1);
+                TimeInterval interval(DAY, day_of_year - 1, false);
+                ts_value.template date_add_interval<DAY>(interval);
+
+            } else {
+                null_map->get_data().data()[i] = true;
+            }
+        }
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(res), std::move(null_map));
+        return Status::OK();
+    }
+
+private:
+    //Get the date corresponding to Monday of the first week of the year according to the ISO8601 standard.
+    static std::chrono::year_month_day getFirstDayOfISOWeek(int year) {
+        using namespace std::chrono;
+        auto jan4 = year_month_day {std::chrono::year(year) / January / 4};
+        auto jan4_sys_days = sys_days {jan4};
+        auto weekday_of_jan4 = weekday {jan4_sys_days};
+        auto first_day_of_week = jan4_sys_days - days {(weekday_of_jan4.iso_encoding() - 1)};
+        return year_month_day {floor<days>(first_day_of_week)};
+    }
+};
+
 using FunctionStrToDate = FunctionOtherTypesToDateType<StrToDate<DataTypeDate>>;
 using FunctionStrToDatetime = FunctionOtherTypesToDateType<StrToDate<DataTypeDateTime>>;
 using FunctionStrToDateV2 = FunctionOtherTypesToDateType<StrToDate<DataTypeDateV2>>;
@@ -1191,6 +1326,7 @@ using FunctionDateTruncDate = FunctionOtherTypesToDateType<DateTrunc<DataTypeDat
 using FunctionDateTruncDateV2 = FunctionOtherTypesToDateType<DateTrunc<DataTypeDateV2>>;
 using FunctionDateTruncDatetime = FunctionOtherTypesToDateType<DateTrunc<DataTypeDateTime>>;
 using FunctionDateTruncDatetimeV2 = FunctionOtherTypesToDateType<DateTrunc<DataTypeDateTimeV2>>;
+using FunctionFromIso8601DateV2 = FunctionOtherTypesToDateType<FromIso8601DateV2>;
 
 void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStrToDate>();
@@ -1203,6 +1339,7 @@ void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateTruncDateV2>();
     factory.register_function<FunctionDateTruncDatetime>();
     factory.register_function<FunctionDateTruncDatetimeV2>();
+    factory.register_function<FunctionFromIso8601DateV2>();
 
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampImpl>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDate>>>();
