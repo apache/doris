@@ -2812,7 +2812,7 @@ public class Config extends ConfigBase {
     public static String cloud_instance_id = "";
 
     public static boolean isCloudMode() {
-        return deploy_mode.equals("disaggregated") || !cloud_unique_id.isEmpty() || !cloud_instance_id.isEmpty();
+        return deploy_mode.equals("cloud") || !cloud_unique_id.isEmpty() || !cloud_instance_id.isEmpty();
     }
 
     public static boolean isNotCloudMode() {

@@ -213,7 +213,7 @@ public class CloudEnv extends Env {
                 nodeInfoPB = getLocalTypeFromMetaService();
             } catch (Exception e) {
                 LOG.warn("failed to get local fe's type, sleep {} s, try again. exception: {}",
-                        e.getMessage(), Config.resource_not_ready_sleep_seconds);
+                        Config.resource_not_ready_sleep_seconds, e.getMessage();
             }
             if (nodeInfoPB == null) {
                 LOG.warn("failed to get local fe's type, sleep {} s, try again.",
@@ -222,7 +222,7 @@ public class CloudEnv extends Env {
                     tryAddMyselToMS();
                 }
                 try {
-                    Thread.sleep(Config.resource_not_ready_sleep_seconds);
+                    Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
                 } catch (InterruptedException e) {
                     LOG.info("interrupted by {}", e);
                 }

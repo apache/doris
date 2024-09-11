@@ -407,7 +407,7 @@ class FE(Node):
                 "# For regression-test",
                 "ignore_unsupported_properties_in_cloud_mode = true",
                 "merge_on_write_forced_to_false = true",
-                "deploy_mode = disaggregated"
+                "deploy_mode = cloud"
             ]
 
         if self.cluster.sql_mode_node_mgr:
@@ -476,7 +476,7 @@ class BE(Node):
                 'enable_file_cache = true',
                 'file_cache_path = [ {{"path": "{}/storage/file_cache", "total_size":53687091200, "query_limit": 10737418240}}]'
                 .format(self.docker_home_dir()),
-                "deploy_mode = disaggregated",
+                "deploy_mode = cloud",
             ]
 
             if not self.cluster.no_be_metaservice_endpoint:

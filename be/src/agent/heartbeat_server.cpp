@@ -247,8 +247,8 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
 
     if (master_info.__isset.meta_service_endpoint != config::is_cloud_mode()) {
         return Status::InvalidArgument(
-                "fe and be do not work in same mode, fe dissagregated: {},"
-                " be dissagregated: {}",
+                "fe and be do not work in same mode, fe cloud mode: {},"
+                " be cloud mode: {}",
                 master_info.__isset.meta_service_endpoint, config::is_cloud_mode());
     }
 

@@ -27,7 +27,7 @@ DECLARE_mString(cloud_instance_id);
 DECLARE_mString(cloud_unique_id);
 
 static inline bool is_cloud_mode() {
-    return deploy_mode == "disaggregated" || !cloud_unique_id.empty();
+    return deploy_mode == "cloud" || !cloud_unique_id.empty();
 }
 
 void set_cloud_unique_id(std::string instance_id);

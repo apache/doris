@@ -69,7 +69,7 @@ public class InternalSchemaInitializer extends Thread {
                 FrontendNodeType feType = Env.getCurrentEnv().getFeType();
                 if (feType.equals(FrontendNodeType.INIT) || feType.equals(FrontendNodeType.UNKNOWN)) {
                     LOG.warn("FE is not ready");
-                    Thread.sleep(Config.resource_not_ready_sleep_seconds);
+                    Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
                     continue;
                 }
                 Thread.currentThread()
@@ -79,7 +79,7 @@ public class InternalSchemaInitializer extends Thread {
             } catch (Throwable e) {
                 LOG.warn("Statistics storage initiated failed, will try again later", e);
                 try {
-                    Thread.sleep(Config.resource_not_ready_sleep_seconds);
+                    Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
                 } catch (InterruptedException ex) {
                     LOG.info("Sleep interrupted. {}", ex.getMessage());
                 }
@@ -151,7 +151,7 @@ public class InternalSchemaInitializer extends Thread {
                 }
             }
             try {
-                Thread.sleep(Config.resource_not_ready_sleep_seconds);
+                Thread.sleep(Config.resource_not_ready_sleep_seconds *  1000);
             } catch (InterruptedException t) {
                 // IGNORE
             }
