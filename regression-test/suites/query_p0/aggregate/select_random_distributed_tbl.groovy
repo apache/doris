@@ -123,7 +123,8 @@ suite("select_random_distributed_tbl") {
     // test all keys are NOT NULL for AGG table
     sql "drop table if exists random_distributed_tbl_test_2;"
     sql """ CREATE TABLE random_distributed_tbl_test_2 (
-        `k1` LARGEINT NOT NULL
+        `k1` LARGEINT NOT NULL,
+        `k2` DECIMAL(18, 2) SUM NOT NULL
     ) ENGINE=OLAP
     AGGREGATE KEY(`k1`)
     COMMENT 'OLAP'
@@ -133,17 +134,19 @@ suite("select_random_distributed_tbl") {
     );
     """
 
-    sql """ insert into random_distributed_tbl_test_2 values(1); """
-    sql """ insert into random_distributed_tbl_test_2 values(1); """
-    sql """ insert into random_distributed_tbl_test_2 values(1); """
+    sql """ insert into random_distributed_tbl_test_2 values(1, 999999999999999.99); """
+    sql """ insert into random_distributed_tbl_test_2 values(1, 999999999999999.99); """
+    sql """ insert into random_distributed_tbl_test_2 values(3, 999999999999999.99); """
 
     sql "set enable_nereids_planner = false;"
-    qt_sql_17 "select k1 from random_distributed_tbl_test_2;"
-    qt_sql_18 "select distinct k1 from random_distributed_tbl_test_2;"
+    qt_sql_17 "select k1 from random_distributed_tbl_test_2 order by k1;"
+    qt_sql_18 "select distinct k1 from random_distributed_tbl_test_2 order by k1;"
+    qt_sql_19 "select k2 from random_distributed_tbl_test_2 order by k2;"
 
     sql "set enable_nereids_planner = true;"
-    qt_sql_19 "select k1 from random_distributed_tbl_test_2;"
-    qt_sql_20 "select distinct k1 from random_distributed_tbl_test_2;"
+    qt_sql_20 "select k1 from random_distributed_tbl_test_2 order by k1;"
+    qt_sql_21 "select distinct k1 from random_distributed_tbl_test_2 order by k1;"
+    qt_sql_22 "select k2 from random_distributed_tbl_test_2 order by k2;"
 
     sql "drop table random_distributed_tbl_test_2;"
 }
