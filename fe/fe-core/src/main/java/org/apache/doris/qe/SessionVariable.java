@@ -678,6 +678,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXPAND_RUNTIME_FILTER_BY_INNER_JION)
     public boolean expandRuntimeFilterByInnerJoin = true;
 
+    @VariableMgr.VarAttr(name = "enable_aggregate_cse", needForward = true)
+    public boolean enableAggregateCse = true;
+
     @VariableMgr.VarAttr(name = JDBC_CLICKHOUSE_QUERY_FINAL, needForward = true,
             description = {"是否在查询 ClickHouse JDBC 外部表时，对查询 SQL 添加 FINAL 关键字。",
                     "Whether to add the FINAL keyword to the query SQL when querying ClickHouse JDBC external tables."})
