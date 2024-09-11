@@ -46,20 +46,6 @@ suite("test_http_table_data_auth","p0,auth") {
         }
     }
 
-    getTableData.call() {
-        respCode, body ->
-            log.info("body:${body}")
-            assertTrue("${body}".contains("401"))
-    }
-
-    sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
-
-    getTableData.call() {
-        respCode, body ->
-            log.info("body:${body}")
-            assertFalse("${body}".contains("401"))
-    }
-
     def getDbData = { check_func ->
         httpTest {
             basicAuthorization "${user}","${pwd}"
@@ -70,18 +56,30 @@ suite("test_http_table_data_auth","p0,auth") {
         }
     }
 
-    getDbData.call() {
+    getTableData.call() {
         respCode, body ->
             log.info("body:${body}")
             assertTrue("${body}".contains("401"))
     }
 
-    sql """grant select_priv on ${dbName}.* to ${user}"""
+    getDbData.call() {
+        respCode, body ->
+            log.info("body:${body}")
+            assertFalse("${body}".contains("${tableName}"))
+    }
+
+    sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
+
+    getTableData.call() {
+        respCode, body ->
+            log.info("body:${body}")
+            assertTrue("${body}".contains("${tableName}"))
+    }
 
     getDbData.call() {
         respCode, body ->
             log.info("body:${body}")
-            assertFalse("${body}".contains("401"))
+            assertTrue("${body}".contains("401"))
     }
 
     sql """drop table if exists `${tableName}`"""
