@@ -34,8 +34,10 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
@@ -195,6 +197,16 @@ public class CreateMTMVInfo {
         rewriteQuerySql(ctx);
     }
 
+    /**validate column name*/
+    public void validateColumns(List<ColumnDefinition> columns) throws UserException {
+        Set<String> colSets = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        for (ColumnDefinition col : columns) {
+            if (!colSets.add(col.getName())) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, col.getName());
+            }
+        }
+    }
+
     private void rewriteQuerySql(ConnectContext ctx) {
         analyzeAndFillRewriteSqlMap(querySql, ctx);
         querySql = BaseViewInfo.rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
@@ -256,6 +268,7 @@ public class CreateMTMVInfo {
                 .analyzeAndTransferToMTMVPartitionInfo(planner, ctx, logicalQuery);
         this.partitionDesc = generatePartitionDesc(ctx);
         getColumns(plan, ctx, mvPartitionInfo.getPartitionCol(), distribution);
+        validateColumns(this.columns);
         analyzeKeys();
 
     }
