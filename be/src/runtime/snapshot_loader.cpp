@@ -52,6 +52,7 @@
 #include "olap/tablet_manager.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
@@ -115,6 +116,9 @@ Status SnapshotLoader::init(TStorageBackendType::type type, const std::string& l
     } else {
         return Status::InternalError("Unknown storage type: {}", type);
     }
+    _mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER,
+            std::format("SnapshotLoader#job_id={}#task_id={}", _job_id, _task_id));
     return Status::OK();
 }
 
@@ -125,6 +129,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
     if (!_remote_fs) {
         return Status::InternalError("Storage backend not initialized.");
     }
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     LOG(INFO) << "begin to upload snapshot files. num: " << src_to_dest_path.size()
               << ", broker addr: " << _broker_addr << ", job: " << _job_id << ", task" << _task_id;
 
