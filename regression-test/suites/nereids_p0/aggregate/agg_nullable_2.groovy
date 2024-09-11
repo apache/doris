@@ -1024,7 +1024,7 @@ suite("agg_nullable_2") {
     qt_select_regr_r2_2 """select regr_r2(kint, kint) from agg_nullable_test_2 group by id;"""
     explain {
         sql("verbose select regr_r2(kint, kint) from agg_nullable_test_2 group by id;")
-        contains "colUniqueId=null, type=double, nullable=true"
+        contains "colUniqueId=null, type=double, nullable=false"
     }
 
     qt_select_regr_r2_n """select regr_r2(knint, knint) from agg_nullable_test_2;"""
