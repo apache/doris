@@ -45,6 +45,7 @@
 #include "http/action/health_action.h"
 #include "http/action/http_stream.h"
 #include "http/action/jeprofile_actions.h"
+#include "http/action/load_channel_action.h"
 #include "http/action/load_stream_action.h"
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
@@ -185,6 +186,10 @@ Status HttpService::start() {
     // Register BE LoadStream action
     LoadStreamAction* load_stream_action = _pool.add(new LoadStreamAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/load_streams", load_stream_action);
+
+    // Register BE LoadChannel action
+    LoadChannelAction* load_channel_action = _pool.add(new LoadChannelAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/load_channels", load_channel_action);
 
     // Register Tablets Info action
     TabletsInfoAction* tablets_info_action =

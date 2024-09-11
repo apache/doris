@@ -64,6 +64,16 @@ public:
 
     void stop();
 
+    std::vector<std::string> get_all_load_channel_ids() {
+        std::vector<std::string> result;
+        std::lock_guard<std::mutex> lock(_lock);
+
+        for (auto& [id, _] : _load_channels) {
+            result.push_back(id.to_string());
+        }
+        return result;
+    }
+
 private:
     Status _get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
                              const UniqueId& load_id, const PTabletWriterAddBlockRequest& request);
