@@ -944,36 +944,6 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     return true;
 }
 
-bool SegmentIterator::_is_target_expr_match_predicate(const vectorized::VExprSPtr& expr,
-                                                      const MatchPredicate* match_pred,
-                                                      const Schema* schema) {
-    if (!expr || expr->node_type() != TExprNodeType::MATCH_PRED) {
-        return false;
-    }
-
-    const auto& children = expr->children();
-    if (children.size() != 2 || !children[0]->is_slot_ref() || !children[1]->is_constant()) {
-        return false;
-    }
-
-    auto slot_ref = dynamic_cast<vectorized::VSlotRef*>(children[0].get());
-    if (!slot_ref) {
-        LOG(WARNING) << children[0]->debug_string() << " should be SlotRef";
-        return false;
-    }
-    std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
-    // children 1 is VLiteral, we do not need expr context.
-    auto res = children[1]->get_const_col(nullptr /* context */, &const_col_wrapper);
-    if (!res.ok() || !const_col_wrapper) {
-        return false;
-    }
-
-    const auto const_column =
-            check_and_get_column<vectorized::ColumnConst>(const_col_wrapper->column_ptr);
-    return const_column && match_pred->column_id() == schema->column_id(slot_ref->column_id()) &&
-           StringRef(match_pred->get_value()) == const_column->get_data_at(0);
-}
-
 Status SegmentIterator::_apply_inverted_index() {
     SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
     if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
