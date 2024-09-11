@@ -348,8 +348,8 @@ public class BrokerLoadJob extends BulkLoadJob {
             return;
         }
         int retryTimes = 0;
-        boolean cancelJob = false;
-        while (retryTimes < Config.mow_calculate_delete_bitmap_retry_times && !cancelJob) {
+        boolean finishJob = false;
+        while (!finishJob) {
             try {
                 if (Config.isCloudMode()) {
                     MetaLockUtils.commitLockTables(tableList);
@@ -364,16 +364,24 @@ public class BrokerLoadJob extends BulkLoadJob {
                         dbId, tableList, transactionId, commitInfos, getLoadJobFinalOperation());
                 afterLoadingTaskCommitTransaction(tableList);
                 afterCommit();
+                finishJob = true;
             } catch (UserException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                         .add("database_id", dbId)
+                        .add("retry_times", retryTimes)
                         .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
                         .build(), e);
                 if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
                     retryTimes++;
+                    if (retryTimes >= Config.mow_calculate_delete_bitmap_retry_times) {
+                        LOG.warn("cancelJob because up to max retry time");
+                        cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true,
+                                true);
+                        finishJob = true;
+                    }
                 } else {
                     cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
-                    cancelJob = true;
+                    finishJob = true;
                 }
             } finally {
                 if (Config.isCloudMode()) {
