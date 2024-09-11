@@ -345,8 +345,6 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         }
         LiteralExpr literalExpr = (LiteralExpr) expr;
 
-        literalExpr.toString();
-
         switch (odpsType) {
             case BOOLEAN:
             case TINYINT:

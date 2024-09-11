@@ -280,7 +280,7 @@
     );
   
  */
-suite("test_external_catalog_maxcompute", "p2,external,doris,external_docker,external_docker_doris") {
+suite("test_external_catalog_maxcompute", "p2,external,maxcompute,external_remote,external_remote_maxcompute") {
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String ak = context.config.otherConfigs.get("aliYunAk")
@@ -307,8 +307,8 @@ suite("test_external_catalog_maxcompute", "p2,external,doris,external_docker,ext
         def q02 = {
             order_qt_q2 """ select * from web_site where web_site_id>='WS0003' order by web_site_id; """ // test char,date,varchar,double,decimal
             order_qt_q3 """ select * from int_types  """ // test bool,tinyint,int,bigint
-            order_qt_q3_1 """ select * from int_types order by mc_boolean limit 10 """
-            order_qt_q3_2 """ select * from int_types order by mc_int limit 10 """
+            order_qt_q3_1 """ select * from int_types order by mc_boolean  """
+            order_qt_q3_2 """ select * from int_types order by mc_int"""
         }
         // test partition table filter
         def q03 = {
@@ -344,14 +344,14 @@ suite("test_external_catalog_maxcompute", "p2,external,doris,external_docker,ext
         sql """ switch `${mc_catalog_name}`; """
         sql """ use `${mc_db}`; """
         order_qt_multi_partition_q1 """ show partitions from multi_partitions; """
-        order_qt_multi_partition_q2 """ select pt, create_time, yy, mm, dd from multi_partitions where pt>-1 and yy > '' and mm > '' and dd >'' order by pt , dd  limit 3; """
-        order_qt_multi_partition_q3 """ select sum(pt), create_time, yy, mm, dd from multi_partitions where yy > '' and mm > '' and dd >'' group by create_time, yy, mm, dd order by create_time,dd limit 3; """
+        order_qt_multi_partition_q2 """ select pt, create_time, yy, mm, dd from multi_partitions where pt>-1 and yy > '' and mm > '' and dd >'' order by pt , dd; """
+        order_qt_multi_partition_q3 """ select sum(pt), create_time, yy, mm, dd from multi_partitions where yy > '' and mm > '' and dd >'' group by create_time, yy, mm, dd order by create_time,dd ; """
         order_qt_multi_partition_q4 """ select count(*) from multi_partitions where pt>-1 and yy > '' and mm > '' and dd <= '30'; """
-        order_qt_multi_partition_q5 """ select create_time, yy, mm, dd from multi_partitions where yy = '2023' and mm='08' and dd='04' order by pt limit 3; """
+        order_qt_multi_partition_q5 """ select create_time, yy, mm, dd from multi_partitions where yy = '2023' and mm='08' and dd='04' order by pt ; """
         order_qt_multi_partition_q6 """ select max(pt), yy, mm from multi_partitions where yy = '2023' and mm='08' group by yy, mm order by yy, mm; """
         order_qt_multi_partition_q7 """ select count(*) from multi_partitions where yy < '2023' or dd < '03'; """
         order_qt_multi_partition_q8 """ select count(*) from multi_partitions where pt>=3; """
         order_qt_multi_partition_q9 """ select city,mnt,gender,finished_time,order_rate,cut_date,create_time,pt, yy, mm, dd from multi_partitions where pt >= 2 and pt < 4 and finished_time is not null; """
-        order_qt_multi_partition_q10 """ select pt, yy, mm, dd from multi_partitions where pt >= 2 and create_time > '2023-08-03 03:11:00' order by pt, yy, mm, dd limit 3; """
+        order_qt_multi_partition_q10 """ select pt, yy, mm, dd from multi_partitions where pt >= 2 and create_time > '2023-08-03 03:11:00' order by pt, yy, mm, dd; """
     }
 }
