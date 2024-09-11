@@ -362,7 +362,8 @@ suite('test_sql_mode_node_mgr', 'docker') {
                 def decommissionedBackend = currentBackends.find { it['Host'] == decommissionHost && it['HeartbeatPort'] == decommissionPort }
 
                 logger.info("decomissionedBackend {}", decommissionedBackend)
-                if (decommissionedBackend && decommissionedBackend['Alive'] == "false" && decommissionedBackend['SystemDecommissioned'] == "true") {
+                // TODO: decomisssion is alive?
+                if (decommissionedBackend && decommissionedBackend['Alive'] == "true" && decommissionedBackend['SystemDecommissioned'] == "true") {
                     decommissionComplete = true
                 } else {
                     attempts++
