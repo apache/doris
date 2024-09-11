@@ -37,10 +37,21 @@ suite("test_http_meta_auth","p0,auth") {
         PROPERTIES ('replication_num' = '1') ;
         """
 
-    def (code, out, err) = curl("GET", "http://127.0.0.1:8823/api/meta/namespaces/internal/databases", "-u root:")
-    log.info("code:${code}")
-    log.info("out:${out}")
-    log.info("err:${err}")
+    def getDatabases = { check_func ->
+        httpTest {
+            basicAuthorization "${user}","${pwd}"
+            endpoint "http://127.0.0.1:8823"
+            uri "/api/meta/namespaces/internal/databases"
+            op "get"
+            check check_func
+        }
+    }
+    getDatabases.call() {
+        respCode, body ->
+            String respCodeValue = "${respCode}".toString();
+            log.info("respCodeValue:${respCodeValue}")
+            log.info("body:${body}")
+    }
 
     sql """drop table if exists `${tableName}`"""
     try_sql("DROP USER ${user}")
