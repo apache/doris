@@ -388,6 +388,7 @@ Status PipelineTask::execute(bool* eos) {
                                << ", sink name: " << _sink->get_name()
                                << ", node id: " << _sink->node_id() << " failed: " << st.to_string()
                                << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
+                    _state->get_query_ctx()->set_low_memory_mode();
                     bool is_high_wartermark = false;
                     bool is_low_wartermark = false;
                     workload_group->check_mem_used(&is_low_wartermark, &is_high_wartermark);
