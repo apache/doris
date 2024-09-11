@@ -29,7 +29,6 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/functions/cast_type_to_either.h"
 #include "vec/functions/function.h"
 #include "vec/utils/util.hpp"
 

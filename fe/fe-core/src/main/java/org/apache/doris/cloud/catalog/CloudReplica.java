@@ -150,6 +150,13 @@ public class CloudReplica extends Replica {
     }
 
     private long getBackendIdImpl(String cluster) {
+        // if cluster is SUSPENDED, wait
+        try {
+            cluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStart(cluster);
+        } catch (DdlException e) {
+            // this function cant throw exception. so just log it
+            LOG.warn("cant resume cluster {}, exception", cluster, e);
+        }
         // check default cluster valid.
         if (Strings.isNullOrEmpty(cluster)) {
             LOG.warn("failed to get available be, clusterName: {}", cluster);
@@ -163,13 +170,6 @@ public class CloudReplica extends Replica {
             return -1;
         }
 
-        // if cluster is SUSPENDED, wait
-        try {
-            ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStart(cluster);
-        } catch (DdlException e) {
-            // this function cant throw exception. so just log it
-            LOG.warn("cant resume cluster {}, exception", cluster, e);
-        }
         String clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterIdByName(cluster);
 
         if (isColocated()) {

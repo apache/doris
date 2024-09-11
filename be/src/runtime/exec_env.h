@@ -65,6 +65,7 @@ class InvertedIndexQueryCache;
 class TmpFileDirs;
 } // namespace segment_v2
 
+class QueryCache;
 class WorkloadSchedPolicyMgr;
 class BfdParser;
 class BrokerMgr;
@@ -185,6 +186,9 @@ public:
     std::shared_ptr<MemTrackerLimiter> point_query_executor_mem_tracker() {
         return _point_query_executor_mem_tracker;
     }
+    std::shared_ptr<MemTrackerLimiter> query_cache_mem_tracker() {
+        return _query_cache_mem_tracker;
+    }
     std::shared_ptr<MemTrackerLimiter> block_compression_mem_tracker() {
         return _block_compression_mem_tracker;
     }
@@ -303,6 +307,7 @@ public:
     segment_v2::InvertedIndexQueryCache* get_inverted_index_query_cache() {
         return _inverted_index_query_cache;
     }
+    QueryCache* get_query_cache() { return _query_cache; }
     std::shared_ptr<DummyLRUCache> get_dummy_lru_cache() { return _dummy_lru_cache; }
 
     pipeline::RuntimeFilterTimerQueue* runtime_filter_timer_queue() {
@@ -365,6 +370,7 @@ private:
     // Tracking memory may be shared between multiple queries.
     std::shared_ptr<MemTrackerLimiter> _point_query_executor_mem_tracker;
     std::shared_ptr<MemTrackerLimiter> _block_compression_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _query_cache_mem_tracker;
 
     // TODO, looking forward to more accurate tracking.
     std::shared_ptr<MemTrackerLimiter> _rowid_storage_reader_tracker;
@@ -436,6 +442,7 @@ private:
     CacheManager* _cache_manager = nullptr;
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
+    QueryCache* _query_cache = nullptr;
     std::shared_ptr<DummyLRUCache> _dummy_lru_cache = nullptr;
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
 
