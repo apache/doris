@@ -229,19 +229,28 @@ struct StringInStrImpl {
     using ResultDataType = DataTypeInt32;
     using ResultPaddedPODArray = PaddedPODArray<Int32>;
 
-    static Status scalar_vector(const StringRef& ldata, const ColumnString::Chars& rdata,
+    static Status scalar_vector(const StringRef& strl, const ColumnString::Chars& rdata,
                                 const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
-        StringRef lstr_ref(ldata.data, ldata.size);
-
-        auto size = roffsets.size();
+        const auto size = roffsets.size();
         res.resize(size);
+
+        std::vector<size_t> lstr_index;
+        lstr_index.reserve(size);
+        simd::VStringFunctions::get_char_len(strl.data, strl.size, lstr_index);
+
         for (int i = 0; i < size; ++i) {
             const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
             int r_str_size = roffsets[i] - roffsets[i - 1];
 
-            StringRef rstr_ref(r_raw_str, r_str_size);
-
-            res[i] = execute(lstr_ref, rstr_ref);
+            StringRef strr(r_raw_str, r_str_size);
+            StringSearch search(&strr);
+            // Hive returns positions starting from 1.
+            int loc = search.search(&strl);
+            if (loc > 0) {
+                size_t len = std::min((size_t)loc, strl.size);
+                loc = lstr_index[len];
+            }
+            res[i] = loc + 1;
         }
 
         return Status::OK();
