@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraysOverlap;
@@ -74,9 +73,7 @@ class ArrayContainsToArrayOverlapTest extends ExpressionRewriteTestHelper {
                 .getPlan();
         Expression expression = plan.child(0).getExpressions().get(0).child(0);
         Assertions.assertTrue(expression instanceof Or);
-        Assertions.assertTrue(expression.child(0) instanceof Or);
-        Assertions.assertTrue(expression.child(0).child(0) instanceof ArraysOverlap);
-        Assertions.assertTrue(expression.child(0).child(1) instanceof EqualTo);
+        Assertions.assertTrue(expression.child(0) instanceof ArraysOverlap);
         Assertions.assertTrue(expression.child(1) instanceof And);
     }
 
