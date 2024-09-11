@@ -37,16 +37,18 @@ suite("test_http_meta_auth","p0,auth") {
         PROPERTIES ('replication_num' = '1') ;
         """
 
-    def getDatabases = { check_func ->
+    def sendHttpReq = { uri, check_func ->
         httpTest {
             basicAuthorization "${user}","${pwd}"
             endpoint "127.0.0.1:8823"
-            uri "/api/meta/namespaces/internal/databases"
+            uri "${uri}"
             op "get"
             check check_func
         }
     }
-    getDatabases.call() {
+
+
+    sendHttpReq.call("/api/meta/namespaces/internal/databases") {
         respCode, body ->
             String respCodeValue = "${respCode}".toString();
             log.info("respCodeValue:${respCodeValue}")
