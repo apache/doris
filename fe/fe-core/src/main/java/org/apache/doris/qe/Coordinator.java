@@ -2166,9 +2166,10 @@ public class Coordinator implements CoordInterface {
             FragmentScanRangeAssignment assignment
                     = fragmentExecParamsMap.get(scanNode.getFragmentId()).scanRangeAssignment;
             boolean fragmentContainsColocateJoin = isColocateFragment(scanNode.getFragment(),
-                    scanNode.getFragment().getPlanRoot());
+                    scanNode.getFragment().getPlanRoot()) && (scanNode instanceof OlapScanNode);
             boolean fragmentContainsBucketShuffleJoin = bucketShuffleJoinController
-                    .isBucketShuffleJoin(scanNode.getFragmentId().asInt(), scanNode.getFragment().getPlanRoot());
+                    .isBucketShuffleJoin(scanNode.getFragmentId().asInt(), scanNode.getFragment().getPlanRoot())
+                    && (scanNode instanceof OlapScanNode);
 
             // A fragment may contain both colocate join and bucket shuffle join
             // on need both compute scanRange to init basic data for query coordinator

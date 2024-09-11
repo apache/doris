@@ -613,15 +613,26 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                        uint32_t segment_num_rows) {
+    // Pre-allocate vectors based on an estimated or known size
     std::vector<segment_v2::InvertedIndexIterator*> iterators;
     std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
     std::vector<int> column_ids;
     vectorized::ColumnsWithTypeAndName arguments;
     VExprSPtrs children_exprs;
-    for (auto child : children()) {
-        // if child is cast expr, we need to ensure target data type is the same with storage data type.
-        // or they are all string type
-        // and if data type is array, we need to get the nested data type to ensure that.
+
+    // Reserve space to avoid multiple reallocations
+    const size_t estimated_size = children().size();
+    iterators.reserve(estimated_size);
+    data_type_with_names.reserve(estimated_size);
+    column_ids.reserve(estimated_size);
+    children_exprs.reserve(estimated_size);
+
+    auto index_context = context->get_inverted_index_context();
+
+    // if child is cast expr, we need to ensure target data type is the same with storage data type.
+    // or they are all string type
+    // and if data type is array, we need to get the nested data type to ensure that.
+    for (const auto& child : children()) {
         if (child->node_type() == TExprNodeType::CAST_EXPR) {
             auto* cast_expr = assert_cast<VCastExpr*>(child.get());
             DCHECK_EQ(cast_expr->children().size(), 1);
@@ -663,7 +674,11 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         }
     }
 
-    for (auto child : children_exprs) {
+    if (children_exprs.empty()) {
+        return Status::OK(); // Early exit if no children to process
+    }
+
+    for (const auto& child : children_exprs) {
         if (child->is_slot_ref()) {
             auto* column_slot_ref = assert_cast<VSlotRef*>(child.get());
             auto column_id = column_slot_ref->column_id();
@@ -694,25 +709,21 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                                    column_literal->get_data_type(), column_literal->expr_name());
         }
     }
+
+    if (iterators.empty() || arguments.empty()) {
+        return Status::OK(); // Nothing to evaluate or no literals to compare against
+    }
+
     auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
-    if (iterators.empty()) {
-        return Status::OK();
-    }
-    // If arguments are empty, it means the left value in the expression is not a literal.
-    if (arguments.empty()) {
-        return Status::OK();
-    }
     auto res = function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
                                                  segment_num_rows, result_bitmap);
     if (!res.ok()) {
         return res;
     }
     if (!result_bitmap.is_empty()) {
-        context->get_inverted_index_context()->set_inverted_index_result_for_expr(this,
-                                                                                  result_bitmap);
-        for (auto column_id : column_ids) {
-            context->get_inverted_index_context()->set_true_for_inverted_index_status(this,
-                                                                                      column_id);
+        index_context->set_inverted_index_result_for_expr(this, result_bitmap);
+        for (int column_id : column_ids) {
+            index_context->set_true_for_inverted_index_status(this, column_id);
         }
         // set fast_execute when expr evaluated by inverted index correctly
         _can_fast_execute = true;

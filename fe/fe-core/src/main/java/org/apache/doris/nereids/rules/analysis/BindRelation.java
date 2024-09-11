@@ -17,10 +17,17 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.AggStateType;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionRegistry;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
@@ -43,13 +50,26 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -73,6 +93,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
@@ -214,7 +235,109 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     unboundRelation.getTableSample());
             }
         }
-        return checkAndAddDeleteSignFilter(scan, ConnectContext.get(), (OlapTable) table);
+        if (needGenerateLogicalAggForRandomDistAggTable(scan)) {
+            // it's a random distribution agg table
+            // add agg on olap scan
+            return preAggForRandomDistribution(scan);
+        } else {
+            // it's a duplicate, unique or hash distribution agg table
+            // add delete sign filter on olap scan if needed
+            return checkAndAddDeleteSignFilter(scan, ConnectContext.get(), (OlapTable) table);
+        }
+    }
+
+    private boolean needGenerateLogicalAggForRandomDistAggTable(LogicalOlapScan olapScan) {
+        if (ConnectContext.get() != null && ConnectContext.get().getState() != null
+                && ConnectContext.get().getState().isQuery()) {
+            // we only need to add an agg node for query, and should not do it for deleting
+            // from random distributed table. see https://github.com/apache/doris/pull/37985 for more info
+            OlapTable olapTable = olapScan.getTable();
+            KeysType keysType = olapTable.getKeysType();
+            DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+            return keysType == KeysType.AGG_KEYS
+                    && distributionInfo.getType() == DistributionInfo.DistributionInfoType.RANDOM;
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * add LogicalAggregate above olapScan for preAgg
+     * @param olapScan olap scan plan
+     * @return rewritten plan
+     */
+    private LogicalPlan preAggForRandomDistribution(LogicalOlapScan olapScan) {
+        OlapTable olapTable = olapScan.getTable();
+        List<Slot> childOutputSlots = olapScan.computeOutput();
+        List<Expression> groupByExpressions = new ArrayList<>();
+        List<NamedExpression> outputExpressions = new ArrayList<>();
+        List<Column> columns = olapTable.getBaseSchema();
+
+        for (Column col : columns) {
+            // use exist slot in the plan
+            SlotReference slot = SlotReference.fromColumn(olapTable, col, col.getName(), olapScan.qualified());
+            ExprId exprId = slot.getExprId();
+            for (Slot childSlot : childOutputSlots) {
+                if (childSlot instanceof SlotReference && ((SlotReference) childSlot).getName() == col.getName()) {
+                    exprId = childSlot.getExprId();
+                    slot = slot.withExprId(exprId);
+                    break;
+                }
+            }
+            if (col.isKey()) {
+                groupByExpressions.add(slot);
+                outputExpressions.add(slot);
+            } else {
+                Expression function = generateAggFunction(slot, col);
+                // DO NOT rewrite
+                if (function == null) {
+                    return olapScan;
+                }
+                Alias alias = new Alias(exprId, ImmutableList.of(function), col.getName(),
+                        olapScan.qualified(), true);
+                outputExpressions.add(alias);
+            }
+        }
+        LogicalAggregate<LogicalOlapScan> aggregate = new LogicalAggregate<>(groupByExpressions, outputExpressions,
+                olapScan);
+        return aggregate;
+    }
+
+    /**
+     * generate aggregation function according to the aggType of column
+     *
+     * @param slot slot of column
+     * @return aggFunction generated
+     */
+    private Expression generateAggFunction(SlotReference slot, Column column) {
+        AggregateType aggregateType = column.getAggregationType();
+        switch (aggregateType) {
+            case SUM:
+                return new Sum(slot);
+            case MAX:
+                return new Max(slot);
+            case MIN:
+                return new Min(slot);
+            case HLL_UNION:
+                return new HllUnion(slot);
+            case BITMAP_UNION:
+                return new BitmapUnion(slot);
+            case QUANTILE_UNION:
+                return new QuantileUnion(slot);
+            case GENERIC:
+                Type type = column.getType();
+                if (!type.isAggStateType()) {
+                    return null;
+                }
+                AggStateType aggState = (AggStateType) type;
+                // use AGGREGATE_FUNCTION_UNION to aggregate multiple agg_state into one
+                String funcName = aggState.getFunctionName() + AggCombinerFunctionBuilder.UNION_SUFFIX;
+                FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
+                FunctionBuilder builder = functionRegistry.findFunctionBuilder(funcName, slot);
+                return builder.build(funcName, ImmutableList.of(slot)).first;
+            default:
+                return null;
+        }
     }
 
     /**

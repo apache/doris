@@ -377,6 +377,12 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
                         }
                         break;
                     }
+                    case TYPE_CHAR:
+                    case TYPE_VARCHAR:
+                    case TYPE_STRING: {
+                        _shared_state->hash_table_variants->emplace<MethodOneString>();
+                        break;
+                    }
                     default:
                         _shared_state->hash_table_variants
                                 ->emplace<vectorized::SerializedHashTableContext>();
@@ -488,7 +494,7 @@ Status HashJoinBuildSinkOperatorX::open(RuntimeState* state) {
             _shared_hash_table_context = _shared_hashtable_controller->get_context(node_id());
         }
     }
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_build_expr_ctxs, state, _child_x->row_desc()));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_build_expr_ctxs, state, _child->row_desc()));
     return vectorized::VExpr::open(_build_expr_ctxs, state);
 }
 
@@ -505,7 +511,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
         if (local_state._build_side_mutable_block.empty()) {
             auto tmp_build_block = vectorized::VectorizedUtils::create_empty_columnswithtypename(
-                    _child_x->row_desc());
+                    _child->row_desc());
             tmp_build_block = *(tmp_build_block.create_same_struct_block(1, false));
             local_state._build_col_ids.resize(_build_expr_ctxs.size());
             RETURN_IF_ERROR(local_state._do_evaluate(tmp_build_block, local_state._build_expr_ctxs,

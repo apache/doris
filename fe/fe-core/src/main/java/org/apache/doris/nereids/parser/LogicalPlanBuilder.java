@@ -327,6 +327,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
@@ -593,7 +594,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 isAutoDetect,
                 isOverwrite,
                 ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
-                DMLCommandType.INSERT,
+                ctx.tableId == null ? DMLCommandType.INSERT : DMLCommandType.GROUP_COMMIT,
                 plan);
         Optional<LogicalPlan> cte = Optional.empty();
         if (ctx.cte() != null) {
@@ -2050,6 +2051,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public Expression visitSessionUser(DorisParser.SessionUserContext ctx) {
+        return new SessionUser().alias("SESSION_USER");
+    }
+
+    @Override
     public Expression visitDoublePipes(DorisParser.DoublePipesContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             Expression left = getExpression(ctx.left);
@@ -2781,6 +2787,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 defaultValue = Optional.of(DefaultValue.CURRENT_DATE_DEFAULT_VALUE);
             } else if (ctx.PI() != null) {
                 defaultValue = Optional.of(DefaultValue.PI_DEFAULT_VALUE);
+            } else if (ctx.E() != null) {
+                defaultValue = Optional.of(DefaultValue.E_NUM_DEFAULT_VALUE);
             }
         }
         if (ctx.UPDATE() != null) {

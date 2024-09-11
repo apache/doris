@@ -18,7 +18,7 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
-suite("test_dynamic_partition_mod_distribution_key") {
+suite("test_dynamic_partition_mod_distribution_key", "docker") {
     def options = new ClusterOptions()
     options.setFeNum(2)
     docker(options) {

@@ -170,7 +170,7 @@ Status SingleReplicaCompaction::_get_rowset_verisons_from_peer(
             ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(addr.host,
                                                                              addr.brpc_port);
     if (stub == nullptr) {
-        return Status::Aborted("get rpc stub failed");
+        return Status::Aborted("get rpc stub failed, host={}, port={}", addr.host, addr.brpc_port);
     }
 
     brpc::Controller cntl;
