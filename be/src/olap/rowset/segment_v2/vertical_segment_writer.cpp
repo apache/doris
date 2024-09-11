@@ -352,7 +352,7 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
             _mow_context->delete_bitmap->add(
                     {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
                     segment_pos);
-        } else {
+        } else if (!have_delete_sign) {
             RETURN_IF_ERROR(
                     _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
                             *_tablet_schema));
