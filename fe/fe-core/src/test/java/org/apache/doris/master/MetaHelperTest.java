@@ -89,6 +89,18 @@ public class MetaHelperTest {
 
     }
 
+    @Test
+    public void testFileNameCheck() {
+        Config.meta_helper_security_mode = true;
+        MetaHelper.checkIsValidFileName("VERSION");
+        MetaHelper.checkIsValidFileName("image.1");
+        MetaHelper.checkIsValidFileName("image.1.part");
+        MetaHelper.checkIsValidFileName("image.1.part.1");
+        Assert.assertThrows(IllegalArgumentException.class, () -> MetaHelper.checkIsValidFileName("../testfile."));
+
+
+    }
+
     @AfterEach
     public void tearDown() {
         if (tempDir.exists()) {
