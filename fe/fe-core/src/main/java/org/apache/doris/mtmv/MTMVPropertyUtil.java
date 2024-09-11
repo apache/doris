@@ -66,8 +66,10 @@ public class MTMVPropertyUtil {
                 analyzePartitionSyncLimit(value);
                 break;
             case PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION:
+                analyzeBooleanProperty(value, PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION);
                 break;
             case PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE:
+                analyzeBooleanProperty(value, PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE);
                 break;
             default:
                 throw new AnalysisException("illegal key:" + key);
@@ -141,4 +143,12 @@ public class MTMVPropertyUtil {
         }
     }
 
+    private static void analyzeBooleanProperty(String propertyValue, String propertyName) {
+        if (StringUtils.isEmpty(propertyValue)) {
+            return;
+        }
+        if (!"true".equalsIgnoreCase(propertyValue) && !"false".equalsIgnoreCase(propertyValue)) {
+            throw new AnalysisException(String.format("valid property %s fail", propertyName));
+        }
+    }
 }
