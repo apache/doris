@@ -37,7 +37,7 @@ suite("test_http_meta_auth","p0,auth") {
         PROPERTIES ('replication_num' = '1') ;
         """
 
-    def (code, out, err) = curl("GET", "http://127.0.0.1:8823/api/meta/namespaces/internal/databases")
+    def (code, out, err) = curl("GET", "http://127.0.0.1:8823/api/meta/namespaces/internal/databases", "-u root:")
     log.info("code:${code}")
     log.info("out:${out}")
     log.info("err:${err}")
