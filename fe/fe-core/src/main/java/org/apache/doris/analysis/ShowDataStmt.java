@@ -244,14 +244,16 @@ public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
             replicaCount = olapTable.getReplicaCount();
             remoteSize = olapTable.getRemoteDataSize();
 
+            String tableShowName = olapTable.getType() == TableType.TEMP
+                    ? Util.getTempTableOuterName(tableName.getTbl()) : tableName.getTbl();
             if (!detailed) {
-                totalRowsObject.add(Arrays.asList(table.getName(), tableSize, replicaCount, remoteSize));
+                totalRowsObject.add(Arrays.asList(tableShowName, tableSize, replicaCount, remoteSize));
             } else {
                 long localIndexSize = olapTable.getLocalIndexFileSize();
                 long localSegmentSize = olapTable.getLocalSegmentSize();
                 long remoteIndexSize = olapTable.getRemoteIndexFileSize();
                 long remoteSegmentSize = olapTable.getRemoteSegmentSize();
-                totalRowsObject.add(Arrays.asList(table.getName(), tableSize, replicaCount, remoteSize,
+                totalRowsObject.add(Arrays.asList(tableShowName, tableSize, replicaCount, remoteSize,
                         localIndexSize, localSegmentSize, remoteIndexSize, remoteSegmentSize));
                 totalLocalInvertedSize += localIndexSize;
                 totalLocalSegmentSize += localSegmentSize;
