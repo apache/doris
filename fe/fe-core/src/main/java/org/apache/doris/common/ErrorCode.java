@@ -1228,9 +1228,9 @@ public enum ErrorCode {
             "There can only be one stmt that returns the result and it is at the end."),
 
     ERR_CLOUD_CLUSTER_ERROR(5098, new byte[]{'4', '2', '0', '0', '0'},
-            "Cluster %s not exist, use SQL 'SHOW CLUSTERS' to get a valid cluster"),
+            "Compute group (aka. Cloud cluster) %s not exist, use SQL 'SHOW COMPUTE GROUPS' to get a valid compute group"),
 
-    ERR_NO_CLUSTER_ERROR(5099, new byte[]{'4', '2', '0', '0', '0'}, "No cluster selected"),
+    ERR_NO_CLUSTER_ERROR(5099, new byte[]{'4', '2', '0', '0', '0'}, "No compute group (cloud cluster) selected"),
 
     ERR_NOT_CLOUD_MODE(6000, new byte[]{'4', '2', '0', '0', '0'},
             "Command only support in cloud mode.");
