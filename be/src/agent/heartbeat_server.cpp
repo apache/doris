@@ -260,20 +260,12 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                   << st;
     }
 
-    if (master_info.__isset.cloud_instance_id) {
-        if (!config::cloud_instance_id.empty() &&
-            config::cloud_instance_id != master_info.cloud_instance_id) {
-            return Status::InvalidArgument(
-                    "cloud_instance_id in fe.conf and be.conf are not same, fe: {}, be: {}",
-                    master_info.cloud_instance_id, config::cloud_instance_id);
-        }
-
-        if (config::cloud_instance_id.empty() && !master_info.cloud_instance_id.empty()) {
-            auto st = config::set_config("cloud_instance_id", master_info.cloud_instance_id, true);
-            config::set_cloud_unique_id(master_info.cloud_instance_id);
-            LOG(INFO) << "set config cloud_instance_id " << master_info.cloud_instance_id << " "
-                      << st;
-        }
+    if (config::cluster_id == -1 && master_info.cluster_id != -1) {
+        auto st = config::set_config("cluster_id", std::to_string(master_info.cluster_id),
+                                    true);
+        config::set_cloud_unique_id(std::to_string(master_info.cluster_id));
+        LOG(INFO) << "set config cluster_id " << master_info.cluster_id << " "
+                    << st;
     }
 
     return Status::OK();

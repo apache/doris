@@ -39,7 +39,7 @@ class ClusterOptions {
 
     Boolean sqlModeNodeMgr = false
     Boolean beMetaServiceEndpoint = true
-    Boolean beCloudInstanceId = false
+    Boolean beClusterId = false
 
     int waitTimeout = 180
 
@@ -322,8 +322,8 @@ class SuiteCluster {
         if (!options.beMetaServiceEndpoint) {
             cmd += ['--no-be-metaservice-endpoint']
         }
-        if (!options.beCloudInstanceId) {
-            cmd += ['--no-be-cloud-instanceid']
+        if (!options.beClusterId) {
+            cmd += ['--no-be-cluster-id']
         }
 
         cmd += ['--wait-timeout', String.valueOf(options.waitTimeout)]

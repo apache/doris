@@ -91,14 +91,20 @@ public class CloudEnv extends Env {
         return this.upgradeMgr;
     }
 
+    public String getCloudInstanceId() {
+        return String.valueOf(Config.cluster_id);
+    }
+
     @Override
     public void initialize(String[] args) throws Exception {
+        if (Strings.isNullOrEmpty(Config.cloud_unique_id) && Config.cluster_id == -1) {
+            throw new UserException("cluser_id must be specified in fe.conf if deployed "
+                                    + "in dissaggregated, because fe should known to which it belongs");
+        }
+
         if (Strings.isNullOrEmpty(Config.cloud_unique_id)) {
-            if (Strings.isNullOrEmpty(Config.cloud_instance_id)) {
-                throw new UserException("cloud_instance_id must be specified if deployed in dissaggregated");
-            }
-            LOG.info("cloud_unique_id is not set, setting it using instance_id");
-            Config.cloud_unique_id = "1:" + Config.cloud_instance_id + ":sql_server00";
+            Config.cloud_unique_id = "1:" + getCloudInstanceId() + ":sqlserver";
+            LOG.info("cloud_unique_id is empty, setting it to: {}", Config.cloud_unique_id);
         }
 
         LOG.info("Initializing CloudEnv with cloud_unique_id: {}", Config.cloud_unique_id);
@@ -187,14 +193,11 @@ public class CloudEnv extends Env {
         return local.orElse(null);
     }
 
-    private void tryAddMyselToMS() {
+    private void tryAddMyselfToMS() {
         try {
             try {
-                if (Strings.isNullOrEmpty(Config.cloud_instance_id)) {
-                    throw new DdlException("unable to create instance due to empty cloud_instance_id");
-                }
-                getCloudSystemInfoService().tryCreateInstance(Config.cloud_instance_id,
-                        Config.cloud_instance_id, false);
+                getCloudSystemInfoService().tryCreateInstance(getCloudInstanceId(),
+                        getCloudInstanceId(), false);
             } catch (Exception e) {
                 return;
             }
@@ -219,7 +222,7 @@ public class CloudEnv extends Env {
                 LOG.warn("failed to get local fe's type, sleep {} s, try again.",
                         Config.resource_not_ready_sleep_seconds);
                 if (isStartFromEmpty()) {
-                    tryAddMyselToMS();
+                    tryAddMyselfToMS();
                 }
                 try {
                     Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);

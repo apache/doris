@@ -1670,7 +1670,8 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
 
-    set_cloud_unique_id(cloud_instance_id);
+    std::string cluster_id_str = std::to_string(cluster_id);
+    set_cloud_unique_id(cluster_id_str);
 
     return true;
 }

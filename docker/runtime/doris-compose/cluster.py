@@ -412,7 +412,7 @@ class FE(Node):
 
             if self.cluster.sql_mode_node_mgr:
                 cfg += [
-                    "cloud_instance_id = " + self.cloud_instance_id(),
+                    "cluster_id = " + self.cluster_id(),
                 ]
             else:
                 cfg += [
@@ -439,8 +439,8 @@ class FE(Node):
     def cloud_unique_id(self):
         return "sql_server_{}".format(self.id)
 
-    def cloud_instance_id(self):
-        return "reg_cloud_instance"
+    def cluster_id(self):
+        return 123456;
 
     def entrypoint(self):
         return ["bash", os.path.join(DOCKER_RESOURCE_PATH, "init_fe.sh")]
@@ -484,9 +484,9 @@ class BE(Node):
                     "meta_service_endpoint = {}".format(
                         self.cluster.get_meta_server_addr()),
                 ]
-            if self.cluster.be_cloud_instanceid:
+            if self.cluster.be_cluster_id:
                 cfg += [
-                    "cloud_instance_id = " + self.cloud_instance_id(),
+                    "cluster_id = " + self.cluster_id(),
                 ]
             if not self.cluster.sql_mode_node_mgr:
                 cfg += [
@@ -553,8 +553,8 @@ class BE(Node):
     def cloud_unique_id(self):
         return "compute_node_{}".format(self.id)
 
-    def cloud_instance_id(self):
-        return "reg_cloud_instance"
+    def cluster_id(self):
+        return 12345678;
 
     def docker_home_dir(self):
         return os.path.join(DOCKER_DORIS_PATH, "be")
@@ -666,7 +666,7 @@ class Cluster(object):
     def __init__(self, name, subnet, image, is_cloud, fe_config, be_config,
                  ms_config, recycle_config, fe_follower, be_disks, be_cluster,
                  reg_be, coverage_dir, cloud_store_config, sql_mode_node_mgr,
-                 be_metaservice_endpoint, be_cloud_instanceid):
+                 be_metaservice_endpoint, be_cluster_id):
         self.name = name
         self.subnet = subnet
         self.image = image
@@ -687,13 +687,13 @@ class Cluster(object):
         }
         self.sql_mode_node_mgr = sql_mode_node_mgr
         self.be_metaservice_endpoint = be_metaservice_endpoint
-        self.be_cloud_instanceid = be_cloud_instanceid
+        self.be_cluster_id = be_cluster_id
 
     @staticmethod
     def new(name, image, is_cloud, fe_config, be_config, ms_config,
             recycle_config, fe_follower, be_disks, be_cluster, reg_be,
             coverage_dir, cloud_store_config, sql_mode_node_mgr,
-            be_metaservice_endpoint, be_cloud_instanceid):
+            be_metaservice_endpoint, be_cluster_id):
         if not os.path.exists(LOCAL_DORIS_PATH):
             os.makedirs(LOCAL_DORIS_PATH, exist_ok=True)
             os.chmod(LOCAL_DORIS_PATH, 0o777)
@@ -707,7 +707,7 @@ class Cluster(object):
                               fe_follower, be_disks, be_cluster, reg_be,
                               coverage_dir, cloud_store_config,
                               sql_mode_node_mgr, be_metaservice_endpoint,
-                              be_cloud_instanceid)
+                              be_cluster_id)
             os.makedirs(cluster.get_path(), exist_ok=True)
             os.makedirs(get_status_path(name), exist_ok=True)
             cluster._save_meta()

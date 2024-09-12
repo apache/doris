@@ -40,10 +40,10 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
                 "heartbeat_interval_second=1",]
     }
 
-    clusterOptions[0].beCloudInstanceId = true;
+    clusterOptions[0].beClusterId = true;
     clusterOptions[0].beMetaServiceEndpoint = true;
 
-    clusterOptions[1].beCloudInstanceId = false;
+    clusterOptions[1].beClusterId = false;
     clusterOptions[1].beMetaServiceEndpoint = false;
 
     for (options in clusterOptions) {
@@ -186,7 +186,7 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
 
             // CASE 3. Add the dropped backend back
             logger.info("Adding back the dropped backend: {}:{}", backendHost, backendHeartbeatPort)
-            sql """ ALTER SYSTEM ADD BACKEND "${backendHost}:${backendHeartbeatPort}"; """
+            sql """ ALTER SYSTEM ADD BACKEND "${backendHost}:${backendHeartbeatPort} PROPERTIES ("tag.compute_group" = "another_compute_group")"; """
 
             // Wait for the backend to be fully added back
             maxWaitSeconds = 300
@@ -206,6 +206,30 @@ suite('test_sql_mode_node_mgr', 'docker,p1') {
             }
 
             checkClusterStatus(3, 3, 3)
+
+            // CASE 4. Check compute groups
+            logger.info("Checking compute groups")
+
+            def computeGroups = sql_return_maparray("SHOW compute_groups")
+            logger.info("Compute groups: {}", computeGroups)
+
+            // Verify that we have at least two compute groups
+            assert computeGroups.size() >= 2, "Expected at least 2 compute groups, but got ${computeGroups.size()}"
+
+            // Verify that we have a 'default_compute_group' and 'another_compute_group'
+            def defaultGroup = computeGroups.find { it['GroupName'] == 'default_compute_group' }
+            def anotherGroup = computeGroups.find { it['GroupName'] == 'another_compute_group' }
+
+            assert defaultGroup != null, "Expected to find 'default_compute_group'"
+            assert anotherGroup != null, "Expected to find 'another_compute_group'"
+
+            // Verify that 'another_compute_group' has exactly one backend
+            assert anotherGroup['BackendNum'] == '1', "Expected 'another_compute_group' to have 1 backend, but it has ${anotherGroup['BackendNum']}"
+
+            // Verify that 'default_compute_group' has the remaining backends
+            assert defaultGroup['BackendNum'] == '2', "Expected 'default_compute_group' to have 2 backends, but it has ${defaultGroup['BackendNum']}"
+
+            logger.info("Compute groups verified successfully")
 
             // CASE 4. If a fe is dropped, query and writing also work.
             // Get the list of frontends

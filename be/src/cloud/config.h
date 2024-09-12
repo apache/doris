@@ -23,7 +23,6 @@ namespace doris::config {
 
 DECLARE_String(deploy_mode);
 // deprecated do not configure directly
-DECLARE_mString(cloud_instance_id);
 DECLARE_mString(cloud_unique_id);
 
 static inline bool is_cloud_mode() {
