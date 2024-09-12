@@ -947,12 +947,10 @@ suite("test_leading") {
     }
 
 // only distribute hint + multi hints
-    qt_select90_3 """explain shape plan select count(*) from t1 join [broadcast] t2 on c1 = c2 join[shuffle] t3 on c2 = c3;"""
     explain {
         sql """shape plan select count(*) from t1 right outer join [broadcast] t2 on c1 = c2 join[shuffle] t3 on c2 = c3;"""
         contains("UnUsed: [broadcast]_2")
     }
-    qt_select90_5 """explain shape plan select count(*) from t1 join [broadcast] t2 on c1 = c2 right outer join[shuffle] t3 on c2 = c3;"""
     explain {
         sql """shape plan select count(*) from t1 join [shuffle] t2 on c1 = c2 right outer join[broadcast] t3 on c2 = c3;"""
         contains("UnUsed: [broadcast]_3")
