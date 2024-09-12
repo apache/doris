@@ -185,6 +185,7 @@ public class CastExpr extends Expr {
         targetTypeDef = other.targetTypeDef;
         isImplicit = other.isImplicit;
         noOp = other.noOp;
+        nullableFromNereids = other.nullableFromNereids;
     }
 
     private static String getFnName(Type targetType) {

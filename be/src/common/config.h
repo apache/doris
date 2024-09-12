@@ -133,6 +133,9 @@ DECLARE_String(mem_limit);
 // Soft memory limit as a fraction of hard memory limit.
 DECLARE_Double(soft_mem_limit_frac);
 
+// Cache capacity reduce mem limit as a fraction of soft mem limit.
+DECLARE_mDouble(cache_capacity_reduce_mem_limit_frac);
+
 // Schema change memory limit as a fraction of soft memory limit.
 DECLARE_Double(schema_change_mem_limit_frac);
 
@@ -159,11 +162,11 @@ DECLARE_mInt32(max_fill_rate);
 
 DECLARE_mInt32(double_resize_threshold);
 
-// The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 6.4G,
-// actual low water mark=min(6.4G, MemTotal * 5%), avoid wasting too much memory on machines
-// with large memory larger than 128G.
-// Turn up max. On machines with more than 128G memory, more memory buffers will be reserved for Full GC.
+// The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default -1.
+// if it is -1, then low water mark = min(MemTotal - MemLimit, MemTotal * 5%), which is 3.2G on a 64G machine.
+// Turn up max. more memory buffers will be reserved for Memory GC.
 // Turn down max. will use as much memory as possible.
+// note that: `max_` prefix should be removed, but keep it for compatibility.
 DECLARE_Int64(max_sys_mem_available_low_water_mark_bytes);
 
 // reserve a small amount of memory so we do not trigger MinorGC
@@ -197,6 +200,9 @@ DECLARE_mInt64(stacktrace_in_alloc_large_memory_bytes);
 DECLARE_mInt64(crash_in_alloc_large_memory_bytes);
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
+// !! not modify the default value of this conf!! otherwise memory errors cannot be detected in time.
+// allocator free memory not need to check, because when the thread memory tracker label is Orphan,
+// use the tracker saved in Allocator.
 DECLARE_mBool(enable_memory_orphan_check);
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
@@ -285,6 +291,12 @@ DECLARE_Int32(sys_log_verbose_level);
 DECLARE_Int32(sys_log_verbose_flags_v);
 // log buffer level
 DECLARE_String(log_buffer_level);
+// log enable custom date time format
+DECLARE_Bool(sys_log_enable_custom_date_time_format);
+// log custom date time format (https://en.cppreference.com/w/cpp/io/manip/put_time)
+DECLARE_String(sys_log_custom_date_time_format);
+// log custom date time milliseconds format (fmt::format)
+DECLARE_String(sys_log_custom_date_time_ms_format);
 
 // number of threads available to serve backend execution requests
 DECLARE_Int32(be_service_threads);
@@ -631,12 +643,6 @@ DECLARE_mInt32(memory_maintenance_sleep_time_ms);
 // After full gc, no longer full gc and minor gc during sleep.
 // After minor gc, no minor gc during sleep, but full gc is possible.
 DECLARE_mInt32(memory_gc_sleep_time_ms);
-
-// Sleep time in milliseconds between memtbale flush mgr memory refresh iterations
-DECLARE_mInt64(memtable_mem_tracker_refresh_interval_ms);
-
-// Sleep time in milliseconds between refresh iterations of workload group weighted memory ratio
-DECLARE_mInt64(wg_weighted_memory_ratio_refresh_interval_ms);
 
 // percent of (active memtables size / all memtables size) when reach hard limit
 DECLARE_mInt32(memtable_hard_limit_active_percent);
@@ -1023,10 +1029,6 @@ DECLARE_Bool(enable_debug_points);
 
 DECLARE_Int32(pipeline_executor_size);
 
-// Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
-// Will remove after fully test.
-DECLARE_Bool(enable_index_apply_preds_except_leafnode_of_andnode);
-
 // block file cache
 DECLARE_Bool(enable_file_cache);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
@@ -1044,6 +1046,8 @@ DECLARE_mInt64(file_cache_ttl_valid_check_interval_second);
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DECLARE_Bool(enable_ttl_cache_evict_using_lru);
+// rename ttl filename to new format during read, with some performance cost
+DECLARE_Bool(translate_to_new_ttl_format_during_read);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1155,9 +1159,6 @@ DECLARE_mInt64(lookup_connection_cache_capacity);
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
-// Whether flatten nested arrays in variant column
-// Notice: TEST ONLY
-DECLARE_mBool(variant_enable_flatten_nested);
 // Threshold of a column as sparse column
 // Notice: TEST ONLY
 DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
@@ -1407,7 +1408,17 @@ DECLARE_mBool(enable_hdfs_mem_limiter);
 // we should do agg limit opt
 DECLARE_mInt16(topn_agg_limit_multiplier);
 
+DECLARE_mInt64(tablet_meta_serialize_size_limit);
+
 DECLARE_mInt64(pipeline_task_leakage_detect_period_secs);
+// To be compatible with hadoop's block compression
+DECLARE_mInt32(snappy_compression_block_size);
+DECLARE_mInt32(lz4_compression_block_size);
+
+DECLARE_mBool(enable_pipeline_task_leakage_detect);
+
+// MB
+DECLARE_Int32(query_cache_size);
 
 #ifdef BE_TEST
 // test s3

@@ -605,6 +605,7 @@ public abstract class TestWithFeService {
                 && connectContext.getState().getErrorCode() == null) {
             return stmtExecutor;
         } else {
+            // throw new IllegalStateException(connectContext.getState().getErrorMessage());
             return null;
         }
     }

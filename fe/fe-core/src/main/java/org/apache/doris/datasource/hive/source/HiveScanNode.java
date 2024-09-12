@@ -92,6 +92,11 @@ public class HiveScanNode extends FileQueryScanNode {
     public static final String PROP_MAP_KV_DELIMITER = "mapkey.delim";
     public static final String DEFAULT_MAP_KV_DELIMITER = "\003";
 
+    public static final String PROP_ESCAPE_DELIMITER = "escape.delim";
+    public static final String DEFAULT_ESCAPE_DELIMIER = "\\";
+    public static final String PROP_NULL_FORMAT = "serialization.null.format";
+    public static final String DEFAULT_NULL_FORMAT = "\\N";
+
     protected final HMSExternalTable hmsTable;
     private HiveTransaction hiveTransaction = null;
 
@@ -456,6 +461,21 @@ public class HiveScanNode extends FileQueryScanNode {
         Map<String, String> serdeParams = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
         if (serdeParams.containsKey(PROP_QUOTE_CHAR)) {
             textParams.setEnclose(serdeParams.get(PROP_QUOTE_CHAR).getBytes()[0]);
+        }
+
+        // TODO: support escape char and null format in csv_reader
+        Optional<String> escapeChar = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_ESCAPE_DELIMITER);
+        if (escapeChar.isPresent() && !escapeChar.get().equals(DEFAULT_ESCAPE_DELIMIER)) {
+            throw new UserException(
+                    "not support serde prop " + PROP_ESCAPE_DELIMITER + " in hive text reading");
+        }
+
+        Optional<String> nullFormat = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_NULL_FORMAT);
+        if (nullFormat.isPresent() && !nullFormat.get().equals(DEFAULT_NULL_FORMAT)) {
+            throw new UserException(
+                    "not support serde prop " + PROP_NULL_FORMAT + " in hive text reading");
         }
 
         TFileAttributes fileAttributes = new TFileAttributes();

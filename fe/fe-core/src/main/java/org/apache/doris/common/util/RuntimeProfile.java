@@ -40,12 +40,15 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Formatter;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * It is accessed by two kinds of thread, one is to create this RuntimeProfile
@@ -99,6 +102,8 @@ public class RuntimeProfile {
     private Boolean isSinkOperator = false;
     @SerializedName(value = "nodeid")
     private int nodeid = -1;
+
+    public Map<String, Long> rowsProducedMap = new HashMap<>();
 
     public RuntimeProfile() {
         init();
@@ -494,6 +499,7 @@ public class RuntimeProfile {
             // RuntimeProfile has at least one counter named TotalTime, should exclude it.
             if (newCreatedMergedChildProfile.counterMap.size() > 1) {
                 simpleProfile.addChildWithCheck(newCreatedMergedChildProfile, planNodeMap);
+                simpleProfile.rowsProducedMap.putAll(newCreatedMergedChildProfile.rowsProducedMap);
             }
         }
     }
@@ -504,6 +510,12 @@ public class RuntimeProfile {
             return;
         }
         RuntimeProfile templateProfile = profiles.get(0);
+        Pattern pattern = Pattern.compile("nereids_id=(\\d+)");
+        Matcher matcher = pattern.matcher(templateProfile.getName());
+        String nereidsId = null;
+        if (matcher.find()) {
+            nereidsId = matcher.group(1);
+        }
         Set<String> childCounterSet = templateProfile.childCounterMap.get(parentCounterName);
         if (childCounterSet == null) {
             return;
@@ -516,6 +528,9 @@ public class RuntimeProfile {
                 for (RuntimeProfile profile : profiles) {
                     Counter orgCounter = profile.counterMap.get(childCounterName);
                     aggCounter.addCounter(orgCounter);
+                }
+                if (nereidsId != null && childCounterName.equals("RowsProduced")) {
+                    simpleProfile.rowsProducedMap.put(nereidsId, aggCounter.sum.getValue());
                 }
                 if (simpleProfile.counterMap.containsKey(parentCounterName)) {
                     simpleProfile.addCounter(childCounterName, aggCounter, parentCounterName);

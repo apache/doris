@@ -96,14 +96,9 @@ class StreamLoadContext {
 public:
     StreamLoadContext(ExecEnv* exec_env) : id(UniqueId::gen_uid()), _exec_env(exec_env) {
         start_millis = UnixMillis();
-        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->stream_load_pipe_tracker());
-        schema_buffer = ByteBuffer::allocate(config::stream_tvf_buffer_size);
     }
 
     ~StreamLoadContext() {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
-                ExecEnv::GetInstance()->stream_load_pipe_tracker());
-        schema_buffer.reset();
         if (need_rollback) {
             _exec_env->stream_load_executor()->rollback_txn(this);
             need_rollback = false;
@@ -125,6 +120,17 @@ public:
     std::string brief(bool detail = false) const;
 
     bool is_mow_table() const;
+
+    Status allocate_schema_buffer() {
+        if (_schema_buffer == nullptr) {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                    ExecEnv::GetInstance()->stream_load_pipe_tracker());
+            return ByteBuffer::allocate(config::stream_tvf_buffer_size, &_schema_buffer);
+        }
+        return Status::OK();
+    }
+
+    ByteBufferPtr schema_buffer() { return _schema_buffer; }
 
 public:
     static const int default_txn_id = -1;
@@ -190,8 +196,6 @@ public:
     std::shared_ptr<MessageBodySink> body_sink;
     std::shared_ptr<io::StreamLoadPipe> pipe;
 
-    ByteBufferPtr schema_buffer;
-
     TStreamLoadPutResult put_result;
     TStreamLoadMultiTablePutResult multi_table_put_result;
 
@@ -253,6 +257,7 @@ public:
 
 private:
     ExecEnv* _exec_env = nullptr;
+    ByteBufferPtr _schema_buffer;
 };
 
 } // namespace doris

@@ -34,7 +34,6 @@ import org.apache.doris.thrift.TTableType;
 
 import com.aliyun.odps.OdpsType;
 import com.aliyun.odps.Table;
-import com.aliyun.odps.tunnel.TunnelException;
 import com.aliyun.odps.type.ArrayTypeInfo;
 import com.aliyun.odps.type.CharTypeInfo;
 import com.aliyun.odps.type.DecimalTypeInfo;
@@ -48,10 +47,10 @@ import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -62,6 +61,8 @@ public class MaxComputeExternalTable extends ExternalTable {
         super(id, name, catalog, dbName, TableType.MAX_COMPUTE_EXTERNAL_TABLE);
     }
 
+    private Map<String, com.aliyun.odps.Column> columnNameToOdpsColumn  = new HashMap();
+
     @Override
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
@@ -70,35 +71,6 @@ public class MaxComputeExternalTable extends ExternalTable {
         }
     }
 
-    public long getTotalRows() throws TunnelException {
-        // use for non-partitioned table
-        // partition table will read the entire partition on FE so get total rows is unnecessary.
-        makeSureInitialized();
-        MaxComputeMetadataCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMaxComputeMetadataCache(catalog.getId());
-        MaxComputeExternalCatalog mcCatalog = ((MaxComputeExternalCatalog) catalog);
-        return metadataCache.getCachedRowCount(dbName, name, null, key -> {
-            try {
-                return loadRowCount(mcCatalog, key);
-            } catch (TunnelException e) {
-                throw new RuntimeException(e);
-            }
-        });
-    }
-
-    private long loadRowCount(MaxComputeExternalCatalog catalog, MaxComputeCacheKey key) throws TunnelException {
-        return catalog.getTableTunnel()
-                .getDownloadSession(key.getDbName(), key.getTblName(), null)
-                .getRecordCount();
-    }
-
-    @Override
-    public Set<String> getPartitionNames() {
-        makeSureInitialized();
-        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
-        return schemaCacheValue.map(value -> ((MaxComputeSchemaCacheValue) value).getPartitionColNames())
-                .orElse(Collections.emptySet());
-    }
 
     public List<Column> getPartitionColumns() {
         makeSureInitialized();
@@ -129,7 +101,8 @@ public class MaxComputeExternalTable extends ExternalTable {
         TablePartitionValues partitionValues = new TablePartitionValues();
         partitionValues.addPartitions(partitionSpecs,
                 partitionSpecs.stream()
-                        .map(p -> parsePartitionValues(new ArrayList<>(getPartitionNames()), p))
+                        .map(p -> parsePartitionValues(getPartitionColumns().stream().map(c -> c.getName()).collect(
+                                Collectors.toList()), p))
                         .collect(Collectors.toList()),
                 partitionTypes);
         return partitionValues;
@@ -159,19 +132,34 @@ public class MaxComputeExternalTable extends ExternalTable {
         return partitionValues;
     }
 
+    public Map<String, com.aliyun.odps.Column> getColumnNameToOdpsColumn() {
+        return columnNameToOdpsColumn;
+    }
+
     @Override
     public Optional<SchemaCacheValue> initSchema() {
         // this method will be called at semantic parsing.
         makeSureInitialized();
-        Table odpsTable = ((MaxComputeExternalCatalog) catalog).getClient().tables().get(name);
+        Table odpsTable = ((MaxComputeExternalCatalog) catalog).getClient().tables().get(dbName, name);
         List<com.aliyun.odps.Column> columns = odpsTable.getSchema().getColumns();
+
+
+        for (com.aliyun.odps.Column column : columns) {
+            columnNameToOdpsColumn.put(column.getName(), column);
+        }
+
         List<Column> schema = Lists.newArrayListWithCapacity(columns.size());
         for (com.aliyun.odps.Column field : columns) {
             schema.add(new Column(field.getName(), mcTypeToDorisType(field.getTypeInfo()), true, null,
-                    true, field.getComment(), true, -1));
+                    field.isNullable(), field.getComment(), true, -1));
         }
 
         List<com.aliyun.odps.Column> partitionColumns = odpsTable.getSchema().getPartitionColumns();
+
+        for (com.aliyun.odps.Column partitionColumn : partitionColumns) {
+            columnNameToOdpsColumn.put(partitionColumn.getName(), partitionColumn);
+        }
+
         List<String> partitionSpecs;
         if (!partitionColumns.isEmpty()) {
             partitionSpecs = odpsTable.getPartitions().stream()
@@ -247,9 +235,11 @@ public class MaxComputeExternalTable extends ExternalTable {
             case DATE: {
                 return ScalarType.createDateV2Type();
             }
-            case DATETIME:
-            case TIMESTAMP: {
+            case DATETIME: {
                 return ScalarType.createDatetimeV2Type(3);
+            }
+            case TIMESTAMP_NTZ: {
+                return ScalarType.createDatetimeV2Type(6);
             }
             case ARRAY: {
                 ArrayTypeInfo arrayType = (ArrayTypeInfo) typeInfo;
@@ -283,17 +273,22 @@ public class MaxComputeExternalTable extends ExternalTable {
 
     @Override
     public TTableDescriptor toThrift() {
+        // ak sk endpoint project  quota
         List<Column> schema = getFullSchema();
         TMCTable tMcTable = new TMCTable();
         MaxComputeExternalCatalog mcCatalog = ((MaxComputeExternalCatalog) catalog);
-        tMcTable.setRegion(mcCatalog.getRegion());
+
         tMcTable.setAccessKey(mcCatalog.getAccessKey());
         tMcTable.setSecretKey(mcCatalog.getSecretKey());
-        tMcTable.setOdpsUrl(mcCatalog.getOdpsUrl());
-        tMcTable.setTunnelUrl(mcCatalog.getTunnelUrl());
-        tMcTable.setPublicAccess(String.valueOf(mcCatalog.enablePublicAccess()));
+        tMcTable.setOdpsUrl("deprecated");
+        tMcTable.setRegion("deprecated");
+        tMcTable.setEndpoint(mcCatalog.getEndpoint());
         // use mc project as dbName
         tMcTable.setProject(dbName);
+        tMcTable.setQuota(mcCatalog.getQuota());
+
+        tMcTable.setTunnelUrl("deprecated");
+        tMcTable.setProject("deprecated");
         tMcTable.setTable(name);
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.MAX_COMPUTE_TABLE,
                 schema.size(), 0, getName(), dbName);

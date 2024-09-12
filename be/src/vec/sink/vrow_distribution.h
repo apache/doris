@@ -24,7 +24,9 @@
 #include <gen_cpp/PaloInternalService_types.h>
 
 #include <cstdint>
+#include <functional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
@@ -133,6 +135,10 @@ public:
     Status automatic_create_partition();
     void clear_batching_stats();
 
+    // for auto partition
+    std::unique_ptr<MutableBlock> _batching_block;
+    bool _deal_batched = false; // If true, send batched block before any block's append.
+
 private:
     std::pair<vectorized::VExprContextSPtrs, vectorized::VExprSPtrs> _get_partition_function();
 
@@ -170,17 +176,29 @@ private:
                                     int64_t rows);
     void _reset_find_tablets(int64_t rows);
 
+    struct NullableStringListHash {
+        std::size_t _hash(const TNullableStringLiteral& arg) const {
+            if (arg.is_null) {
+                return 0;
+            }
+            return std::hash<std::string>()(arg.value);
+        }
+        std::size_t operator()(const std::vector<TNullableStringLiteral>& arg) const {
+            std::size_t result = 0;
+            for (const auto& v : arg) {
+                result = (result << 1) ^ _hash(v);
+            }
+            return result;
+        }
+    };
+
     RuntimeState* _state = nullptr;
     int _batch_size = 0;
 
     // for auto partitions
     std::vector<std::vector<TNullableStringLiteral>> _partitions_need_create;
-
-public:
-    std::unique_ptr<MutableBlock> _batching_block;
-    bool _deal_batched = false; // If true, send batched block before any block's append.
-private:
     size_t _batching_rows = 0, _batching_bytes = 0;
+    std::unordered_set<std::vector<TNullableStringLiteral>, NullableStringListHash> _deduper;
 
     OlapTableBlockConvertor* _block_convertor = nullptr;
     OlapTabletFinder* _tablet_finder = nullptr;

@@ -20,7 +20,7 @@ package org.apache.doris.nereids.preprocess;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.MustFallbackException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.qe.ConnectContext;
@@ -47,6 +47,12 @@ public class SelectHintTest {
                 return ctx;
             }
         };
+        new MockUp<Env>() {
+            @Mock
+            public boolean isMaster() {
+                return true;
+            }
+        };
     }
 
     @Test
@@ -59,13 +65,11 @@ public class SelectHintTest {
         SessionVariable sv = ctx.getSessionVariable();
         Assertions.assertNotNull(sv);
         sv.setEnableNereidsPlanner(true);
-        sv.enableFallbackToOriginalPlanner = false;
-        Assertions.assertThrows(AnalysisException.class, () -> new NereidsPlanner(statementContext)
+        Assertions.assertThrows(MustFallbackException.class, () -> new NereidsPlanner(statementContext)
                 .planWithLock(new NereidsParser().parseSingle(sql), PhysicalProperties.ANY));
 
         // manually recover sv
         sv.setEnableNereidsPlanner(true);
-        sv.enableFallbackToOriginalPlanner = false;
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
 
         new Expectations(stmtExecutor) {
@@ -77,6 +81,5 @@ public class SelectHintTest {
         stmtExecutor.execute();
 
         Assertions.assertTrue(sv.isEnableNereidsPlanner());
-        Assertions.assertFalse(sv.enableFallbackToOriginalPlanner);
     }
 }

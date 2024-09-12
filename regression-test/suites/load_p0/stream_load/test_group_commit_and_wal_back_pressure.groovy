@@ -21,7 +21,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
 suite("test_group_commit_and_wal_back_pressure") {
 
     def getRowCount = { table, expectedRowCount ->
-        Awaitility.await().atMost(90, SECONDS).pollInterval(2, SECONDS).until(
+        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until(
             {
                 def result = sql "select count(*) from ${table}"
                 logger.info("table: ${table}, rowCount: ${result}")
@@ -41,6 +41,7 @@ suite("test_group_commit_and_wal_back_pressure") {
                 UNIQUE KEY(k)  
                 DISTRIBUTED BY HASH (k) BUCKETS 32  
                 PROPERTIES(  
+                "group_commit_interval_ms" = "100",
                 "replication_num" = "1"
             );
         """

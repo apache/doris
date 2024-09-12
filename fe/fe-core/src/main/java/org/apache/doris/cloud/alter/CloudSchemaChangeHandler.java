@@ -100,7 +100,8 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE));
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY));
 
         if (properties.size() != 1) {
             throw new UserException("Can only set one table property at a time");
@@ -316,6 +317,8 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             }
             param.enableMowLightDelete = enableMowLightDelete;
             param.type = UpdatePartitionMetaParam.TabletMetaType.ENABLE_MOW_LIGHT_DELETE;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
+            // Do nothing.
         } else {
             LOG.warn("invalid properties:{}", properties);
             throw new UserException("invalid properties");

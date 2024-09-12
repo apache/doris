@@ -58,16 +58,17 @@ suite("test_prepared_stmt", "nonConcurrent") {
         qt_sql """select * from  ${tableName} order by 1, 2, 3"""
         qt_sql """select * from  ${tableName} order by 1, 2, 3"""
         sql "set global max_prepared_stmt_count = 10000"
+        sql "set enable_fallback_to_original_planner = false"
 
         def stmt_read = prepareStatement "select * from ${tableName} where k1 = ? order by k1"
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         stmt_read.setInt(1, 1231)
         qe_select0 stmt_read
         stmt_read.setInt(1, 1232)
         qe_select0 stmt_read
         qe_select0 stmt_read
         def stmt_read1 = prepareStatement "select hex(k3), ? \n from ${tableName} where k1 = ? order by 1"
-        assertEquals(stmt_read1.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         stmt_read1.setString(1, "xxxx---")
         stmt_read1.setInt(2, 1231)
         qe_select1 stmt_read1
@@ -77,7 +78,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
         qe_select1 stmt_read1
         stmt_read1.close()
         def stmt_read2 = prepareStatement "select * from ${tableName} as t1 join ${tableName} as t2 on t1.`k1` = t2.`k1` where t1.`k1` >= ? and t1.`k2` >= ? and size(t1.`k9`) > ? order by 1, 2, 3"
-        assertEquals(stmt_read2.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         stmt_read2.setInt(1, 1237)
         stmt_read2.setBigDecimal(2, new BigDecimal("120939.11130"))
         stmt_read2.setInt(3, 0)
@@ -106,7 +107,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
         sql "sync"
 
         stmt_read = prepareStatement "SELECT *, ? FROM (select *, ? from mytable1 where citycode = ?) AS `SpotfireCustomQuery1` WHERE 1 = 1"
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         stmt_read.setInt(1, 12345)
         stmt_read.setInt(2, 1234)
         stmt_read.setInt(3, 1)
@@ -114,32 +115,32 @@ suite("test_prepared_stmt", "nonConcurrent") {
         stmt_read.close()
 
         stmt_read = prepareStatement "SELECT 10"
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         qe_select4 stmt_read
         stmt_read = prepareStatement "SELECT 1"
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         qe_select5 stmt_read
         stmt_read = prepareStatement "SELECT 'a' FROM mytable1"
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         qe_select5 stmt_read
         stmt_read.close()
 
         stmt_read = prepareStatement "SELECT 1-2 + ?" 
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         stmt_read.setInt(1, 3);
         qe_select5 stmt_read
         stmt_read.setInt(1, -1);
         qe_select5 stmt_read
         stmt_read.close()
 
-        stmt_read = prepareStatement "SELECT 1 + ? AS c1, 'MySQL' AS c2, ? AS c3" 
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        stmt_read = prepareStatement "SELECT 1 + ? AS c1, 'MySQL' AS c2, ? AS c3"
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         stmt_read.setInt(1, 5) 
         stmt_read.setString(2, "Connector/J") 
         qe_select5 stmt_read
 
-        stmt_read = prepareStatement "SELECT ?, ?, ?, ?, ?" 
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        stmt_read = prepareStatement "SELECT ?, ?, ?, ?, ?"
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         boolean value = false;
         stmt_read.setBoolean(1, value);
         stmt_read.setObject(2, value);
@@ -153,7 +154,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
         // sql "set experimental_enable_nereids_planner = false"
 
         stmt_read = prepareStatement "SELECT *, ? FROM (select *, ? from mytable1 where pv is null) AS `SpotfireCustomQuery1` WHERE 1 = 1"
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         stmt_read.setString(1, "xxxlalala")
         stmt_read.setDouble(2, 1234.1111)
         qe_select6 stmt_read
@@ -172,13 +173,13 @@ suite("test_prepared_stmt", "nonConcurrent") {
         qe_select7_1 stmt_read
 
         stmt_read = prepareStatement "SELECT COUNT() from mytable1 WHERE citycode = ? GROUP BY siteid"
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         stmt_read.setString(1, "1")
         qe_select8 stmt_read
         stmt_read.close()
 
         stmt_read = prepareStatement "SELECT COUNT() from mytable1 WHERE citycode = ? GROUP BY ?"
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         stmt_read.setString(1, "1")
         stmt_read.setString(2, "1")
         qe_select9 stmt_read
@@ -209,35 +210,41 @@ suite("test_prepared_stmt", "nonConcurrent") {
 
         // limit
         stmt_read = prepareStatement "SELECT 1 LIMIT ?" 
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ClientPreparedStatement);
+        assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt_read.class)
         stmt_read.setInt(1, 1)
         qe_select14 stmt_read
-        stmt_read = prepareStatement "SELECT 1 LIMIT 1" 
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        stmt_read = prepareStatement "SELECT 1 LIMIT 1"
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         qe_select15 stmt_read
 
         // insert with label
-        stmt_read = prepareStatement "insert into mytable1 with xxx_label 12222 values(?, ?, ?, ?)" 
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ClientPreparedStatement);
+        stmt_read = prepareStatement "insert into mytable1 with xxx_label 12222 values(?, ?, ?, ?)"
+        assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt_read.class)
         // alter stmt
-        stmt_read = prepareStatement "alter table mytable1 rename mytable2" 
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ClientPreparedStatement);
+        stmt_read = prepareStatement "alter table mytable1 rename mytable2"
+        assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt_read.class)
         // update stmt
-        stmt_read = prepareStatement "update tbl_prepared_stmt set k5 = ?" 
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        stmt_read = prepareStatement "update tbl_prepared_stmt set k5 = ?"
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         stmt_read.setString(1, "2021-01-01")
         def result = stmt_read.execute()
         logger.info("result: ${result}")
-        stmt_read = prepareStatement "update tbl_prepared_stmt set k4 = 'Will we ignore LIMIT ?,?'" 
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        stmt_read = prepareStatement "update tbl_prepared_stmt set k4 = 'Will we ignore LIMIT ?,?'"
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         result = stmt_read.execute()
         logger.info("result: ${result}")
         qt_sql "select * from tbl_prepared_stmt where k4 = 'Will we ignore LIMIT ?,?' order by k1"
         // show create table
-        stmt_read = prepareStatement "SHOW CREATE TABLE mytable1" 
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ClientPreparedStatement);
+        stmt_read = prepareStatement "SHOW CREATE TABLE mytable1"
+        assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt_read.class)
         // not stable
         // qe_select16 stmt_read
         stmt_read.close()
+
+        stmt_read = prepareStatement "SELECT connection_id()" 
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        result = stmt_read.execute()
+        logger.info("connection_id: ${result}")
+        // qe_select16 stmt_read
     }
 }

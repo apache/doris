@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #pragma once
+#include <butil/compiler_specific.h>
 #include <glog/logging.h>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
@@ -94,6 +95,12 @@ public:
     // Using jsonb type as most common type, since it's adopted all types of json
     using MostCommonType = DataTypeJsonb;
     constexpr static TypeIndex MOST_COMMON_TYPE_ID = TypeIndex::JSONB;
+    // Nullable(Array(Nullable(Object)))
+    const static DataTypePtr NESTED_TYPE;
+    // Finlize mode for subcolumns, write mode will estimate which subcolumns are sparse columns(too many null values inside column),
+    // merge and encode them into a shared column in root column. Only affects in flush block to segments.
+    // Otherwise read mode should be as default mode.
+    enum class FinalizeMode { WRITE_MODE, READ_MODE };
     class Subcolumn {
     public:
         Subcolumn() = default;
@@ -125,9 +132,6 @@ public:
 
         void get(size_t n, Field& res) const;
 
-        /// Checks the consistency of column's parts stored in @data.
-        void checkTypes() const;
-
         /// Inserts a field, which scalars can be arbitrary, but number of
         /// dimensions should be consistent with current common type.
         /// throws InvalidArgument when meet conflict types
@@ -135,17 +139,27 @@ public:
 
         void insert(Field field, FieldInfo info);
 
-        void insertDefault();
+        void insert_default();
 
-        void insertManyDefaults(size_t length);
+        void insert_many_defaults(size_t length);
 
-        void insertRangeFrom(const Subcolumn& src, size_t start, size_t length);
+        void insert_range_from(const Subcolumn& src, size_t start, size_t length);
+
+        /// Recreates subcolumn with default scalar values and keeps sizes of arrays.
+        /// Used to create columns of type Nested with consistent array sizes.
+        Subcolumn clone_with_default_values(const FieldInfo& field_info) const;
 
         void pop_back(size_t n);
 
+        // Cut a new subcolumns from current one, element from start to start + length
+        Subcolumn cut(size_t start, size_t length) const;
+
         /// Converts all column's parts to the common type and
         /// creates a single column that stores all values.
-        void finalize();
+        void finalize(FinalizeMode mode = FinalizeMode::READ_MODE);
+
+        /// Returns last inserted field.
+        Field get_last_field() const;
 
         bool check_if_sparse_column(size_t num_rows);
 
@@ -176,8 +190,12 @@ public:
 
             const DataTypePtr& get_base() const { return base_type; }
 
+            // The least command type id
             const TypeIndex& get_type_id() const { return type_id; }
 
+            // The inner least common type if of array,
+            // example: Array(Nullable(Object))
+            // then the base type id is Object
             const TypeIndex& get_base_type_id() const { return base_type_id; }
 
             size_t get_dimensions() const { return num_dimensions; }
@@ -269,6 +287,8 @@ public:
     void ensure_root_node_type(const DataTypePtr& type);
 
     // create jsonb root if missing
+    // notice: should only using in VariantRootColumnIterator
+    // since some datastructures(sparse columns are schema on read
     void create_root();
 
     // create root with type and column if missing
@@ -279,6 +299,8 @@ public:
 
     // Only single scalar root column
     bool is_scalar_variant() const;
+
+    bool is_exclusive() const override;
 
     ColumnPtr get_root() const { return subcolumns.get_root()->data.get_finalized_column_ptr(); }
 
@@ -298,9 +320,6 @@ public:
     // return null if not found
     Subcolumn* get_subcolumn(const PathInData& key, size_t index_hint);
 
-    // return null if not found
-    const Subcolumn* get_subcolumn_with_cache(const PathInData& key, size_t index_hint) const;
-
     void incr_num_rows() { ++num_rows; }
 
     void incr_num_rows(size_t n) { num_rows += n; }
@@ -314,6 +333,13 @@ public:
 
     /// Adds a subcolumn of specific size with default values.
     bool add_sub_column(const PathInData& key, size_t new_size);
+    /// Adds a subcolumn of type Nested of specific size with default values.
+    /// It cares about consistency of sizes of Nested arrays.
+    void add_nested_subcolumn(const PathInData& key, const FieldInfo& field_info, size_t new_size);
+    /// Finds a subcolumn from the same Nested type as @entry and inserts
+    /// an array with default values with consistent sizes as in Nested type.
+    bool try_insert_default_from_nested(const Subcolumns::NodePtr& entry) const;
+    bool try_insert_many_defaults_from_nested(const Subcolumns::NodePtr& entry) const;
 
     const Subcolumns& get_subcolumns() const { return subcolumns; }
 
@@ -323,25 +349,8 @@ public:
 
     PathsInData getKeys() const;
 
-    std::string get_keys_str() const {
-        std::stringstream ss;
-        bool first = true;
-        for (auto& k : getKeys()) {
-            if (first) {
-                first = false;
-            } else {
-                ss << ", ";
-            }
-            ss << k.get_path();
-        }
-
-        return ss.str();
-    }
-
-    void remove_subcolumns(const std::unordered_set<std::string>& keys);
-
     // use sparse_subcolumns_schema to record sparse column's path info and type
-    void finalize(bool ignore_sparser);
+    void finalize(FinalizeMode mode);
 
     /// Finalizes all subcolumns.
     void finalize() override;
@@ -350,11 +359,9 @@ public:
 
     MutableColumnPtr clone_finalized() const {
         auto finalized = IColumn::mutate(get_ptr());
-        static_cast<ColumnObject*>(finalized.get())->finalize();
+        static_cast<ColumnObject*>(finalized.get())->finalize(FinalizeMode::READ_MODE);
         return finalized;
     }
-
-    void finalize_if_not();
 
     void clear() override;
 
@@ -398,9 +405,6 @@ public:
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
-    // May throw execption
-    void try_insert(const Field& field);
-
     void insert_from(const IColumn& src, size_t n) override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
@@ -429,8 +433,6 @@ public:
 
     template <typename Func>
     MutableColumnPtr apply_for_subcolumns(Func&& func) const;
-
-    void for_each_imutable_subcolumn(ImutableColumnCallback callback) const;
 
     // Extract path from root column and output to dst
     Status extract_root(const PathInData& path, MutableColumnPtr& dst) const;
@@ -585,6 +587,21 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "replace_column_data" + std::string(get_family_name()));
     }
+
+private:
+    // May throw execption
+    void try_insert(const Field& field);
+
+    /// It's used to get shared sized of Nested to insert correct default values.
+    const Subcolumns::Node* get_leaf_of_the_same_nested(const Subcolumns::NodePtr& entry) const;
+
+    void for_each_imutable_subcolumn(ImutableColumnCallback callback) const;
+
+    // return null if not found
+    const Subcolumn* get_subcolumn_with_cache(const PathInData& key, size_t index_hint) const;
+
+    // unnest nested type columns, and flat them into finlized array subcolumns
+    void unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) const;
 };
 
 } // namespace doris::vectorized

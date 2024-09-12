@@ -43,4 +43,9 @@ public @interface ExecFunction {
      * return type
      */
     String returnType();
+
+    /**
+     * hasVarArgsc
+     */
+    boolean varArgs() default false;
 }

@@ -32,7 +32,7 @@ import java.util.List;
 import java.util.Map;
 
 // ADMIN CHECK TABLET (id1, id2, ...) PROPERTIES ("type" = "check_consistency");
-public class AdminCheckTabletsStmt extends DdlStmt {
+public class AdminCheckTabletsStmt extends DdlStmt implements NotFallbackInParser {
 
     private List<Long> tabletIds;
     private Map<String, String> properties;

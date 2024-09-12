@@ -37,10 +37,10 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "config.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "util/cpu_info.h"
@@ -95,6 +95,9 @@ DEFINE_String(mem_limit, "90%");
 // Soft memory limit as a fraction of hard memory limit.
 DEFINE_Double(soft_mem_limit_frac, "0.9");
 
+// Cache capacity reduce mem limit as a fraction of soft mem limit.
+DEFINE_mDouble(cache_capacity_reduce_mem_limit_frac, "0.6");
+
 // Schema change memory limit as a fraction of soft memory limit.
 DEFINE_Double(schema_change_mem_limit_frac, "0.6");
 
@@ -120,7 +123,12 @@ DEFINE_mInt32(max_fill_rate, "2");
 
 DEFINE_mInt32(double_resize_threshold, "23");
 
-DEFINE_Int64(max_sys_mem_available_low_water_mark_bytes, "6871947673");
+// The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default -1.
+// if it is -1, then low water mark = min(MemTotal - MemLimit, MemTotal * 5%), which is 3.2G on a 64G machine.
+// Turn up max. more memory buffers will be reserved for Memory GC.
+// Turn down max. will use as much memory as possible.
+// note that: `max_` prefix should be removed, but keep it for compatibility.
+DEFINE_Int64(max_sys_mem_available_low_water_mark_bytes, "-1");
 
 DEFINE_Int64(memtable_limiter_reserved_memory_bytes, "838860800");
 
@@ -142,7 +150,11 @@ DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
 
 DEFINE_mInt64(crash_in_alloc_large_memory_bytes, "-1");
 
-DEFINE_mBool(enable_memory_orphan_check, "false");
+// default is true. if any memory tracking in Orphan mem tracker will report error.
+// !! not modify the default value of this conf!! otherwise memory errors cannot be detected in time.
+// allocator free memory not need to check, because when the thread memory tracker label is Orphan,
+// use the tracker saved in Allocator.
+DEFINE_mBool(enable_memory_orphan_check, "true");
 
 // The maximum time a thread waits for full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
@@ -227,6 +239,12 @@ DEFINE_Int32(sys_log_verbose_level, "10");
 DEFINE_Int32(sys_log_verbose_flags_v, "-1");
 // log buffer level
 DEFINE_String(log_buffer_level, "");
+// log enable custom date time format
+DEFINE_Bool(sys_log_enable_custom_date_time_format, "false");
+// log custom date time format (https://en.cppreference.com/w/cpp/io/manip/put_time)
+DEFINE_String(sys_log_custom_date_time_format, "%Y-%m-%d %H:%M:%S");
+// log custom date time milliseconds format (fmt::format)
+DEFINE_String(sys_log_custom_date_time_ms_format, ",{:03d}");
 
 // number of threads available to serve backend execution requests
 DEFINE_Int32(be_service_threads, "64");
@@ -271,7 +289,7 @@ DEFINE_mInt32(exchg_buffer_queue_capacity_factor, "64");
 DEFINE_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
 
 DEFINE_mInt32(cache_prune_interval_sec, "10");
-DEFINE_mInt32(cache_periodic_prune_stale_sweep_sec, "300");
+DEFINE_mInt32(cache_periodic_prune_stale_sweep_sec, "60");
 // the clean interval of tablet lookup cache
 DEFINE_mInt32(tablet_lookup_cache_stale_sweep_time_sec, "30");
 DEFINE_mInt32(point_query_row_cache_stale_sweep_time_sec, "300");
@@ -292,7 +310,7 @@ DEFINE_mInt32(default_num_rows_per_column_file_block, "1024");
 // pending data policy
 DEFINE_mInt32(pending_data_expire_time_sec, "1800");
 // inc_rowset snapshot rs sweep time interval
-DEFINE_mInt32(tablet_rowset_stale_sweep_time_sec, "300");
+DEFINE_mInt32(tablet_rowset_stale_sweep_time_sec, "600");
 // tablet stale rowset sweep by threshold size
 DEFINE_Bool(tablet_rowset_stale_sweep_by_size, "false");
 DEFINE_mInt32(tablet_rowset_stale_sweep_threshold_size, "100");
@@ -550,7 +568,7 @@ DEFINE_String(pprof_profile_dir, "${DORIS_HOME}/log");
 // for jeprofile in jemalloc
 DEFINE_mString(jeprofile_dir, "${DORIS_HOME}/log");
 DEFINE_mBool(enable_je_purge_dirty_pages, "true");
-DEFINE_mString(je_dirty_pages_mem_limit_percent, "5%");
+DEFINE_mString(je_dirty_pages_mem_limit_percent, "2%");
 
 // to forward compatibility, will be removed later
 DEFINE_mBool(enable_token_check, "true");
@@ -567,16 +585,11 @@ DEFINE_Int32(num_cores, "0");
 DEFINE_Bool(ignore_broken_disk, "false");
 
 // Sleep time in milliseconds between memory maintenance iterations
-DEFINE_mInt32(memory_maintenance_sleep_time_ms, "100");
+DEFINE_mInt32(memory_maintenance_sleep_time_ms, "20");
 
 // After full gc, no longer full gc and minor gc during sleep.
 // After minor gc, no minor gc during sleep, but full gc is possible.
 DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
-
-// Sleep time in milliseconds between memtbale flush mgr refresh iterations
-DEFINE_mInt64(memtable_mem_tracker_refresh_interval_ms, "5");
-
-DEFINE_mInt64(wg_weighted_memory_ratio_refresh_interval_ms, "50");
 
 // percent of (active memtables size / all memtables size) when reach hard limit
 DEFINE_mInt32(memtable_hard_limit_active_percent, "50");
@@ -962,19 +975,15 @@ DEFINE_Int32(pipeline_executor_size, "0");
 DEFINE_Bool(enable_workload_group_for_scan, "false");
 DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 
-// Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
-// Will remove after fully test.
-DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
-
-DEFINE_mBool(variant_enable_flatten_nested, "false");
 DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
-DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "1000");
+DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
+// format: {"path": "/path/to/file_cache", "total_size":53687091200, "normal_percent":85, "disposable_percent":10, "index_percent":5}
 DEFINE_String(file_cache_path, "");
 DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
@@ -988,6 +997,8 @@ DEFINE_mInt64(file_cache_ttl_valid_check_interval_second, "0"); // zero for not 
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
+// rename ttl filename to new format during read, with some performance cost
+DEFINE_mBool(translate_to_new_ttl_format_during_read, "false");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1305,7 +1316,20 @@ DEFINE_mBool(enable_hdfs_mem_limiter, "true");
 
 DEFINE_mInt16(topn_agg_limit_multiplier, "2");
 
+// Tablet meta size limit after serialization, 1.5GB
+DEFINE_mInt64(tablet_meta_serialize_size_limit, "1610612736");
+// Protobuf supports a maximum of 2GB, so the size of the tablet meta after serialization must be less than 2GB
+// 1717986918 = 2GB * 0.8
+DEFINE_Validator(tablet_meta_serialize_size_limit,
+                 [](const int64_t config) -> bool { return config < 1717986918; });
+
 DEFINE_mInt64(pipeline_task_leakage_detect_period_secs, "60");
+DEFINE_mInt32(snappy_compression_block_size, "262144");
+DEFINE_mInt32(lz4_compression_block_size, "262144");
+
+DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
+
+DEFINE_Int32(query_cache_size, "512");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1642,6 +1666,8 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<double>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
+
+    set_cloud_unique_id(cloud_instance_id);
 
     return true;
 }

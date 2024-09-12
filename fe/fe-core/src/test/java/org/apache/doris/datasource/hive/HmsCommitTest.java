@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.info.SimpleTableInfo;
@@ -169,14 +170,20 @@ public class HmsCommitTest {
     @Test
     public void testAppendPartitionForUnPartitionedTable() throws IOException {
         genQueryID();
-        System.out.println(DebugUtil.printId(connectContext.queryId()));
         List<THivePartitionUpdate> pus = new ArrayList<>();
         pus.add(createRandomAppend(null));
         pus.add(createRandomAppend(null));
         pus.add(createRandomAppend(null));
+        new MockUp<HMSTransaction.HmsCommitter>(HMSTransaction.HmsCommitter.class) {
+            @Mock
+            private void doNothing() {
+                Assert.assertEquals(Status.ErrCode.NOT_FOUND, fs.exists(getWritePath()).getErrCode());
+            }
+        };
         commit(dbName, tbWithoutPartition, pus);
         Table table = hmsClient.getTable(dbName, tbWithoutPartition);
         assertNumRows(3, table);
+
 
         genQueryID();
         List<THivePartitionUpdate> pus2 = new ArrayList<>();
@@ -204,6 +211,12 @@ public class HmsCommitTest {
 
     @Test
     public void testNewPartitionForPartitionedTable() throws IOException {
+        new MockUp<HMSTransaction.HmsCommitter>(HMSTransaction.HmsCommitter.class) {
+            @Mock
+            private void doNothing() {
+                Assert.assertEquals(Status.ErrCode.NOT_FOUND, fs.exists(getWritePath()).getErrCode());
+            }
+        };
         genQueryID();
         List<THivePartitionUpdate> pus = new ArrayList<>();
         pus.add(createRandomNew("a"));
@@ -377,6 +390,11 @@ public class HmsCommitTest {
                 genOnePartitionUpdate("c3=" + partition, TUpdateMode.OVERWRITE);
     }
 
+    private String getWritePath() {
+        String queryId = DebugUtil.printId(ConnectContext.get().queryId());
+        return writeLocation + queryId + "/";
+    }
+
     public void commit(String dbName,
             String tableName,
             List<THivePartitionUpdate> hivePUs) {
@@ -385,7 +403,7 @@ public class HmsCommitTest {
         HiveInsertCommandContext ctx = new HiveInsertCommandContext();
         String queryId = DebugUtil.printId(ConnectContext.get().queryId());
         ctx.setQueryId(queryId);
-        ctx.setWritePath(writeLocation + queryId + "/");
+        ctx.setWritePath(getWritePath());
         hmsTransaction.beginInsertTable(ctx);
         hmsTransaction.finishInsertTable(new SimpleTableInfo(dbName, tableName));
         hmsTransaction.commit();
