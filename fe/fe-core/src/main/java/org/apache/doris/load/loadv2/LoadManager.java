@@ -851,25 +851,24 @@ public class LoadManager implements Writable {
                     }
                 } else {
                     List<LoadJob> jobs = labelToJob.get(label);
-                    if (jobs == null) {
-                        // no job for this label, just return
-                        return;
-                    }
-                    Iterator<LoadJob> iter = jobs.iterator();
-                    while (iter.hasNext()) {
-                        LoadJob job = iter.next();
-                        if (!job.isCompleted()) {
-                            continue;
+                    if (jobs != null) {
+                        // stream load labelToJob is null
+                        Iterator<LoadJob> iter = jobs.iterator();
+                        while (iter.hasNext()) {
+                            LoadJob job = iter.next();
+                            if (!job.isCompleted()) {
+                                continue;
+                            }
+                            if (job instanceof BulkLoadJob) {
+                                ((BulkLoadJob) job).recycleProgress();
+                            }
+                            iter.remove();
+                            idToLoadJob.remove(job.getId());
+                            ++counter;
                         }
-                        if (job instanceof BulkLoadJob) {
-                            ((BulkLoadJob) job).recycleProgress();
+                        if (jobs.isEmpty()) {
+                            labelToJob.remove(label);
                         }
-                        iter.remove();
-                        idToLoadJob.remove(job.getId());
-                        ++counter;
-                    }
-                    if (jobs.isEmpty()) {
-                        labelToJob.remove(label);
                     }
                 }
             }

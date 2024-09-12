@@ -254,6 +254,8 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
         }
     }
 
+    response->set_enable_storage_vault(instance.enable_storage_vault());
+
     // Iterate all the resources to return to the rpc caller
     if (!instance.resource_ids().empty()) {
         std::string storage_vault_start = storage_vault_key({instance.instance_id(), ""});

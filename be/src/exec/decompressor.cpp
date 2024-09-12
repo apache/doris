@@ -44,6 +44,9 @@ Status Decompressor::create_decompressor(CompressType type,
     case CompressType::BZIP2:
         decompressor->reset(new Bzip2Decompressor());
         break;
+    case CompressType::ZSTD:
+        decompressor->reset(new ZstdDecompressor());
+        break;
     case CompressType::LZ4FRAME:
         decompressor->reset(new Lz4FrameDecompressor());
         break;
@@ -85,6 +88,9 @@ Status Decompressor::create_decompressor(TFileCompressType::type type,
         break;
     case TFileCompressType::BZ2:
         compress_type = CompressType::BZIP2;
+        break;
+    case TFileCompressType::ZSTD:
+        compress_type = CompressType::ZSTD;
         break;
     case TFileCompressType::LZ4FRAME:
         compress_type = CompressType::LZ4FRAME;
@@ -300,6 +306,50 @@ std::string Bzip2Decompressor::debug_info() {
     return ss.str();
 }
 
+ZstdDecompressor::~ZstdDecompressor() {
+    ZSTD_freeDStream(_zstd_strm);
+}
+
+Status ZstdDecompressor::init() {
+    _zstd_strm = ZSTD_createDStream();
+    if (!_zstd_strm) {
+        std::stringstream ss;
+        return Status::InternalError("ZSTD_dctx creation error");
+    }
+    auto ret = ZSTD_initDStream(_zstd_strm);
+    if (ZSTD_isError(ret)) {
+        return Status::InternalError("ZSTD_initDStream error: {}", ZSTD_getErrorName(ret));
+    }
+    return Status::OK();
+}
+
+Status ZstdDecompressor::decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
+                                    uint8_t* output, size_t output_max_len,
+                                    size_t* decompressed_len, bool* stream_end,
+                                    size_t* more_input_bytes, size_t* more_output_bytes) {
+    // 1. set input and output
+    ZSTD_inBuffer inputBuffer = {input, input_len, 0};
+    ZSTD_outBuffer outputBuffer = {output, output_max_len, 0};
+
+    // decompress
+    int ret = ZSTD_decompressStream(_zstd_strm, &outputBuffer, &inputBuffer);
+    *input_bytes_read = inputBuffer.pos;
+    *decompressed_len = outputBuffer.pos;
+
+    if (ZSTD_isError(ret)) {
+        return Status::InternalError("Failed to zstd decompress: {}", ZSTD_getErrorName(ret));
+    }
+
+    *stream_end = ret == 0;
+    return Status::OK();
+}
+
+std::string ZstdDecompressor::debug_info() {
+    std::stringstream ss;
+    ss << "ZstdDecompressor.";
+    return ss.str();
+}
+
 // Lz4Frame
 // Lz4 version: 1.7.5
 // define LZ4F_VERSION = 100
@@ -468,7 +518,7 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t
         }
 
         std::size_t decompressed_large_block_len = 0;
-        do {
+        while (remaining_decompressed_large_block_len > 0) {
             // Check that input length should not be negative.
             if (input_len < sizeof(uint32_t)) {
                 *more_input_bytes = sizeof(uint32_t) - input_len;
@@ -505,8 +555,7 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t
             output_ptr += decompressed_small_block_len;
             remaining_decompressed_large_block_len -= decompressed_small_block_len;
             decompressed_large_block_len += decompressed_small_block_len;
-
-        } while (remaining_decompressed_large_block_len > 0);
+        };
 
         if (*more_input_bytes != 0) {
             // Need more input buffer
@@ -586,7 +635,7 @@ Status SnappyBlockDecompressor::decompress(uint8_t* input, size_t input_len,
         }
 
         std::size_t decompressed_large_block_len = 0;
-        do {
+        while (remaining_decompressed_large_block_len > 0) {
             // Check that input length should not be negative.
             if (input_len < sizeof(uint32_t)) {
                 *more_input_bytes = sizeof(uint32_t) - input_len;
@@ -630,8 +679,7 @@ Status SnappyBlockDecompressor::decompress(uint8_t* input, size_t input_len,
             output_ptr += decompressed_small_block_len;
             remaining_decompressed_large_block_len -= decompressed_small_block_len;
             decompressed_large_block_len += decompressed_small_block_len;
-
-        } while (remaining_decompressed_large_block_len > 0);
+        };
 
         if (*more_input_bytes != 0) {
             // Need more input buffer

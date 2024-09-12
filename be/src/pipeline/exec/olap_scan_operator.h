@@ -181,6 +181,7 @@ private:
     RuntimeProfile::Counter* _inverted_index_searcher_search_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_cache_miss_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 
@@ -197,11 +198,13 @@ private:
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
 public:
     OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                      const DescriptorTbl& descs, int parallel_tasks);
+                      const DescriptorTbl& descs, int parallel_tasks,
+                      const TQueryCacheParam& cache_param);
 
 private:
     friend class OlapScanLocalState;
     TOlapScanNode _olap_scan_node;
+    TQueryCacheParam _cache_param;
 };
 
 } // namespace doris::pipeline

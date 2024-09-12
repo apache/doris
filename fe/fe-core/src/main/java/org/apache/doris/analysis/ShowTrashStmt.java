@@ -34,7 +34,7 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 
-public class ShowTrashStmt extends ShowStmt {
+public class ShowTrashStmt extends ShowStmt implements NotFallbackInParser {
     private List<Backend> backends = Lists.newArrayList();
 
     public ShowTrashStmt() throws AnalysisException {

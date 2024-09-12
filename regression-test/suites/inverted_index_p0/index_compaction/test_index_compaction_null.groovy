@@ -120,6 +120,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
     }
 
     def run_sql = { -> 
+        sql """ set enable_common_expr_pushdown=true """
         // select all data
         qt_select_0 "SELECT * FROM ${tableName} ORDER BY id"
 

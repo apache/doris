@@ -499,23 +499,24 @@ public class CloudTabletRebalancer extends MasterDaemon {
             List<Long> tabletIds = new ArrayList<Long>();
             for (Tablet tablet : index.getTablets()) {
                 for (Replica replica : tablet.getReplicas()) {
-                    Map<String, List<Long>> clusterToBackends =
-                            ((CloudReplica) replica).getClusterToBackends();
-                    if (!clusterToBackends.containsKey(cluster)) {
+                    Map<String, List<Long>> primaryClusterToBackends =
+                            ((CloudReplica) replica).getprimaryClusterToBackends();
+                    if (!primaryClusterToBackends.containsKey(cluster)) {
                         long beId = ((CloudReplica) replica).hashReplicaToBe(cluster, true);
+                        ((CloudReplica) replica).updateClusterToBe(cluster, beId, true);
                         if (beId <= 0) {
                             assignedErrNum++;
                             continue;
                         }
                         List<Long> bes = new ArrayList<Long>();
                         bes.add(beId);
-                        clusterToBackends.put(cluster, bes);
+                        primaryClusterToBackends.put(cluster, bes);
 
                         assigned = true;
                         beIds.add(beId);
                         tabletIds.add(tablet.getId());
                     } else {
-                        beIds.add(clusterToBackends.get(cluster).get(0));
+                        beIds.add(primaryClusterToBackends.get(cluster).get(0));
                         tabletIds.add(tablet.getId());
                     }
                 }
@@ -569,9 +570,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
         loopCloudReplica((Database db, Table table, Partition partition, MaterializedIndex index, String cluster) -> {
             for (Tablet tablet : index.getTablets()) {
                 for (Replica replica : tablet.getReplicas()) {
-                    Map<String, List<Long>> clusterToBackends =
-                            ((CloudReplica) replica).getClusterToBackends();
-                    for (Map.Entry<String, List<Long>> entry : clusterToBackends.entrySet()) {
+                    Map<String, List<Long>> primaryClusterToBackends =
+                            ((CloudReplica) replica).getprimaryClusterToBackends();
+                    for (Map.Entry<String, List<Long>> entry : primaryClusterToBackends.entrySet()) {
                         if (!cluster.equals(entry.getKey())) {
                             continue;
                         }
@@ -615,10 +616,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
-                if (!table.writeLockIfExist()) {
-                    continue;
-                }
-
+                table.readLock();
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -629,7 +627,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                         } // end for indices
                     } // end for partitions
                 } finally {
-                    table.writeUnlock();
+                    table.readUnlock();
                 }
             }
         }
@@ -729,7 +727,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
     private void updateClusterToBeMap(Tablet pickedTablet, long destBe, String clusterId,
                                       List<UpdateCloudReplicaInfo> infos) {
         CloudReplica cloudReplica = (CloudReplica) pickedTablet.getReplicas().get(0);
-        cloudReplica.updateClusterToBe(clusterId, destBe);
+        cloudReplica.updateClusterToBe(clusterId, destBe, true);
         Database db = Env.getCurrentInternalCatalog().getDbNullable(cloudReplica.getDbId());
         if (db == null) {
             return;
@@ -973,7 +971,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             String clusterId = be.getCloudClusterId();
             String clusterName = be.getCloudClusterName();
             // update replica location info
-            cloudReplica.updateClusterToBe(clusterId, dstBe);
+            cloudReplica.updateClusterToBe(clusterId, dstBe, true);
             LOG.info("cloud be migrate tablet {} from srcBe={} to dstBe={}, clusterId={}, clusterName={}",
                     tablet.getId(), srcBe, dstBe, clusterId, clusterName);
 
@@ -1068,7 +1066,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 newInfo.setPartitionId(partitionId);
                 newInfo.setIndexId(indexId);
                 newInfo.setClusterId(clusterId);
-                // APPR: in unprotectUpdateCloudReplica, use batch must set tabletId = -1
+                // ATTN: in unprotectUpdateCloudReplica, use batch must set tabletId = -1
                 newInfo.setTabletId(-1);
                 rets.add(newInfo);
             });

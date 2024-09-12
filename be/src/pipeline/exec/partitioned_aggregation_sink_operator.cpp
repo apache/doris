@@ -141,13 +141,9 @@ Status PartitionedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* s
     }
 
     _agg_sink_operator->set_dests_id(DataSinkOperatorX<PartitionedAggSinkLocalState>::dests_id());
-    RETURN_IF_ERROR(_agg_sink_operator->set_child(
-            DataSinkOperatorX<PartitionedAggSinkLocalState>::_child_x));
+    RETURN_IF_ERROR(
+            _agg_sink_operator->set_child(DataSinkOperatorX<PartitionedAggSinkLocalState>::_child));
     return _agg_sink_operator->init(tnode, state);
-}
-
-Status PartitionedAggSinkOperatorX::prepare(RuntimeState* state) {
-    return _agg_sink_operator->prepare(state);
 }
 
 Status PartitionedAggSinkOperatorX::open(RuntimeState* state) {

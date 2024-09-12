@@ -298,8 +298,7 @@ private:
 
     void _convert_dict_code_for_predicate_if_necessary_impl(ColumnPredicate* predicate);
 
-    bool _check_apply_by_inverted_index(ColumnId col_id);
-    bool _check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound = false);
+    bool _check_apply_by_inverted_index(ColumnPredicate* pred);
 
     void _output_index_result_column_for_expr(uint16_t* sel_rowid_idx, uint16_t select_size,
                                               vectorized::Block* block);
@@ -362,22 +361,6 @@ private:
         }
         return 0;
     }
-
-    bool _is_match_predicate_and_not_remaining(
-            ColumnPredicate* pred, const std::vector<ColumnPredicate*>& remaining_predicates) {
-        return pred->type() == PredicateType::MATCH &&
-               std::find(remaining_predicates.begin(), remaining_predicates.end(), pred) ==
-                       remaining_predicates.end();
-    }
-
-    void _delete_expr_from_conjunct_roots(const vectorized::VExprSPtr& expr,
-                                          vectorized::VExprSPtrs& conjunct_roots) {
-        conjunct_roots.erase(std::remove(conjunct_roots.begin(), conjunct_roots.end(), expr),
-                             conjunct_roots.end());
-    }
-
-    bool _is_target_expr_match_predicate(const vectorized::VExprSPtr& expr,
-                                         const MatchPredicate* match_pred, const Schema* schema);
 
     Status _convert_to_expected_type(const std::vector<ColumnId>& col_ids);
 

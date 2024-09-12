@@ -255,7 +255,7 @@ private:
     void _transmit_block(::google::protobuf::RpcController* controller,
                          const ::doris::PTransmitDataParams* request,
                          ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done,
-                         const Status& extract_st);
+                         const Status& extract_st, const int64_t wait_for_worker);
 
     Status _tablet_fetch_data(const PTabletKeyLookupRequest* request,
                               PTabletKeyLookupResponse* response);

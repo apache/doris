@@ -39,8 +39,8 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
-import org.apache.doris.plugin.audit.AuditEvent.AuditEventBuilder;
-import org.apache.doris.plugin.audit.AuditEvent.EventType;
+import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
+import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.service.FrontendOptions;
 
@@ -89,14 +89,14 @@ public class AuditLogHelper {
         }
         int maxLen = GlobalVariable.auditPluginMaxSqlLength;
         if (origStmt.length() <= maxLen) {
-            return origStmt.replace("\n", " ")
-                .replace("\t", " ")
-                .replace("\r", " ");
+            return origStmt.replace("\n", "\\n")
+                .replace("\t", "\\t")
+                .replace("\r", "\\r");
         }
         origStmt = truncateByBytes(origStmt)
-            .replace("\n", " ")
-            .replace("\t", " ")
-            .replace("\r", " ");
+            .replace("\n", "\\n")
+            .replace("\t", "\\t")
+            .replace("\r", "\\r");
         int rowCnt = 0;
         // old planner
         if (parsedStmt instanceof NativeInsertStmt) {

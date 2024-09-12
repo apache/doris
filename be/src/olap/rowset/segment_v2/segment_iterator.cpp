@@ -503,35 +503,41 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     }
 
     RETURN_IF_ERROR(_apply_bitmap_index());
-    RETURN_IF_ERROR(_apply_inverted_index());
-    RETURN_IF_ERROR(_apply_index_expr());
-    size_t input_rows = _row_bitmap.cardinality();
-    for (auto it = _common_expr_ctxs_push_down.begin(); it != _common_expr_ctxs_push_down.end();) {
-        if ((*it)->all_expr_inverted_index_evaluated()) {
-            const auto* result =
-                    (*it)->get_inverted_index_context()->get_inverted_index_result_for_expr(
-                            (*it)->root().get());
-            if (result != nullptr) {
-                _row_bitmap &= *result->get_data_bitmap();
-                auto root = (*it)->root();
-                auto iter_find = std::find(_remaining_conjunct_roots.begin(),
-                                           _remaining_conjunct_roots.end(), root);
-                if (iter_find != _remaining_conjunct_roots.end()) {
-                    _remaining_conjunct_roots.erase(iter_find);
+    {
+        if (_opts.runtime_state &&
+            _opts.runtime_state->query_options().enable_inverted_index_query) {
+            SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
+            size_t input_rows = _row_bitmap.cardinality();
+            RETURN_IF_ERROR(_apply_inverted_index());
+            RETURN_IF_ERROR(_apply_index_expr());
+            for (auto it = _common_expr_ctxs_push_down.begin();
+                 it != _common_expr_ctxs_push_down.end();) {
+                if ((*it)->all_expr_inverted_index_evaluated()) {
+                    const auto* result =
+                            (*it)->get_inverted_index_context()->get_inverted_index_result_for_expr(
+                                    (*it)->root().get());
+                    if (result != nullptr) {
+                        _row_bitmap &= *result->get_data_bitmap();
+                        auto root = (*it)->root();
+                        auto iter_find = std::find(_remaining_conjunct_roots.begin(),
+                                                   _remaining_conjunct_roots.end(), root);
+                        if (iter_find != _remaining_conjunct_roots.end()) {
+                            _remaining_conjunct_roots.erase(iter_find);
+                        }
+                        it = _common_expr_ctxs_push_down.erase(it);
+                    }
+                } else {
+                    ++it;
                 }
-                it = _common_expr_ctxs_push_down.erase(it);
             }
-        } else {
-            ++it;
-        }
-    }
+            _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
+            for (auto cid : _schema->column_ids()) {
+                bool result_true = _check_all_conditions_passed_inverted_index_for_column(cid);
 
-    _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
-    for (auto cid : _schema->column_ids()) {
-        bool result_true = _check_all_conditions_passed_inverted_index_for_column(cid);
-
-        if (result_true) {
-            _need_read_data_indices[cid] = false;
+                if (result_true) {
+                    _need_read_data_indices[cid] = false;
+                }
+            }
         }
     }
     if (!_row_bitmap.isEmpty() &&
@@ -734,18 +740,7 @@ Status SegmentIterator::_extract_common_expr_columns(const vectorized::VExprSPtr
     return Status::OK();
 }
 
-bool SegmentIterator::_check_apply_by_inverted_index(ColumnId col_id) {
-    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
-        return false;
-    }
-    if (_inverted_index_iterators[col_id] == nullptr) {
-        //this column without inverted index
-        return false;
-    }
-    return true;
-}
-
-bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound) {
+bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
     if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
         return false;
     }
@@ -763,11 +758,6 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
         auto predicate_param = pred->predicate_params();
         // in_list or not_in_list predicate produced by runtime filter
         if (predicate_param->marked_by_runtime_filter) {
-            return false;
-        }
-        // the in_list or not_in_list value count cannot be greater than threshold
-        int32_t threshold = _opts.runtime_state->query_options().in_list_value_count_threshold;
-        if (pred_in_compound && predicate_param->values.size() > threshold) {
             return false;
         }
     }
@@ -788,15 +778,11 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
 
     bool handle_by_fulltext = _column_has_fulltext_index(pred_column_id);
     if (handle_by_fulltext) {
-        // when predicate in compound condition which except leafNode of andNode,
-        // only can apply match query for fulltext index,
         // when predicate is leafNode of andNode,
-        // can apply 'match qeury' and 'equal query' and 'list query' for fulltext index.
-        return (pred_in_compound ? pred->type() == PredicateType::MATCH
-                                 : (pred->type() == PredicateType::MATCH ||
-                                    pred->type() == PredicateType::IS_NULL ||
-                                    pred->type() == PredicateType::IS_NOT_NULL ||
-                                    PredicateTypeTraits::is_equal_or_list(pred->type())));
+        // can apply 'match query' and 'equal query' and 'list query' for fulltext index.
+        return pred->type() == PredicateType::MATCH || pred->type() == PredicateType::IS_NULL ||
+               pred->type() == PredicateType::IS_NOT_NULL ||
+               PredicateTypeTraits::is_equal_or_list(pred->type());
     }
 
     return true;
@@ -825,7 +811,8 @@ bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) 
     if ((res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND && is_fallback) ||
         res.code() == ErrorCode::INVERTED_INDEX_BYPASS ||
         res.code() == ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED ||
-        (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS && need_remaining)) {
+        (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS && need_remaining) ||
+        res.code() == ErrorCode::INVERTED_INDEX_FILE_CORRUPTED) {
         // 1. INVERTED_INDEX_FILE_NOT_FOUND means index file has not been built,
         //    usually occurs when creating a new index, queries can be downgraded
         //    without index.
@@ -839,7 +826,10 @@ bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) 
         //    but the column condition value no terms in specified parser,
         //    such as: where A = '' and B = ','
         //    the predicate of A and B need downgrade without index query.
+        // 5. INVERTED_INDEX_FILE_CORRUPTED means the index file is corrupted,
+        //    such as when index segment files are not generated
         // above case can downgrade without index query
+        _opts.stats->inverted_index_downgrade_count++;
         LOG(INFO) << "will downgrade without index to evaluate predicate, because of res: " << res;
         return true;
     }
@@ -937,42 +927,7 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     return true;
 }
 
-bool SegmentIterator::_is_target_expr_match_predicate(const vectorized::VExprSPtr& expr,
-                                                      const MatchPredicate* match_pred,
-                                                      const Schema* schema) {
-    if (!expr || expr->node_type() != TExprNodeType::MATCH_PRED) {
-        return false;
-    }
-
-    const auto& children = expr->children();
-    if (children.size() != 2 || !children[0]->is_slot_ref() || !children[1]->is_constant()) {
-        return false;
-    }
-
-    auto slot_ref = dynamic_cast<vectorized::VSlotRef*>(children[0].get());
-    if (!slot_ref) {
-        LOG(WARNING) << children[0]->debug_string() << " should be SlotRef";
-        return false;
-    }
-    std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
-    // children 1 is VLiteral, we do not need expr context.
-    auto res = children[1]->get_const_col(nullptr /* context */, &const_col_wrapper);
-    if (!res.ok() || !const_col_wrapper) {
-        return false;
-    }
-
-    const auto const_column =
-            check_and_get_column<vectorized::ColumnConst>(const_col_wrapper->column_ptr);
-    return const_column && match_pred->column_id() == schema->column_id(slot_ref->column_id()) &&
-           StringRef(match_pred->get_value()) == const_column->get_data_at(0);
-}
-
 Status SegmentIterator::_apply_inverted_index() {
-    SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
-    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
-        return Status::OK();
-    }
-    size_t input_rows = _row_bitmap.cardinality();
     std::vector<ColumnPredicate*> remaining_predicates;
     std::set<const ColumnPredicate*> no_need_to_pass_column_predicate_set;
 
@@ -990,7 +945,6 @@ Status SegmentIterator::_apply_inverted_index() {
     }
 
     _col_predicates = std::move(remaining_predicates);
-    _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
     return Status::OK();
 }
 
@@ -1015,6 +969,12 @@ Status SegmentIterator::_apply_inverted_index() {
  */
 bool SegmentIterator::_check_all_conditions_passed_inverted_index_for_column(ColumnId cid,
                                                                              bool default_return) {
+    // If common_expr_pushdown is disabled, we cannot guarantee that all conditions are processed by the inverted index.
+    // Consider a scenario where there is a column predicate and an expression involving the same column in the SQL query,
+    // such as 'a < 0' and 'abs(a) > 1'. This could potentially lead to errors.
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_common_expr_pushdown) {
+        return false;
+    }
     auto pred_it = _column_predicate_inverted_index_status.find(cid);
     if (pred_it != _column_predicate_inverted_index_status.end()) {
         const auto& pred_map = pred_it->second;

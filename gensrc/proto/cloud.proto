@@ -140,8 +140,10 @@ message ClusterPB {
 message NodeInfoPB {
     enum NodeType {
         UNKNOWN = 0;
+         // lagacy logic for one-master-multi-observer mode
         FE_MASTER = 1;
         FE_OBSERVER = 2;
+        FE_FOLLOWER = 3;
     }
     optional string cloud_unique_id = 1;
     optional string name = 2;
@@ -893,6 +895,7 @@ message GetObjStoreInfoResponse {
     repeated StorageVaultPB storage_vault = 3;
     optional string default_storage_vault_id = 4;
     optional string default_storage_vault_name = 5;
+    optional bool enable_storage_vault = 6;
 };
 
 message CreateTabletsRequest {
