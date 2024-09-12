@@ -55,7 +55,7 @@ private:
     template <class HashTableContext, bool is_intersected>
     friend struct vectorized::HashTableProbe;
 
-    size_t _estimate_memory_usage = 0;
+    int64_t _estimate_memory_usage = 0;
 
     //record insert column id during probe
     std::vector<uint16_t> _probe_column_inserted_id;

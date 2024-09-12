@@ -126,7 +126,7 @@ protected:
 
     std::unique_ptr<ExecutorBase> _executor = nullptr;
 
-    size_t _memory_usage_last_executing = 0;
+    int64_t _memory_usage_last_executing = 0;
 };
 
 class AggSinkOperatorX final : public DataSinkOperatorX<AggSinkLocalState> {

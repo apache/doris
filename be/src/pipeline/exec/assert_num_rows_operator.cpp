@@ -42,7 +42,7 @@ Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                                     bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    ScopedMemTracker scoped_mem_tracker(local_state.estimate_memory_usage());
+    SCOPED_PEAK_MEM(&local_state.estimate_memory_usage());
     local_state.add_num_rows_returned(block->rows());
     int64_t num_rows_returned = local_state.num_rows_returned();
     bool assert_res = false;

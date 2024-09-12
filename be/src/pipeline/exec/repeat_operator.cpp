@@ -171,7 +171,7 @@ Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block
     auto& _expr_ctxs = local_state._expr_ctxs;
     DCHECK(!_intermediate_block || _intermediate_block->rows() == 0);
     if (input_block->rows() > 0) {
-        ScopedMemTracker scoped_mem_tracker(local_state._estimate_memory_usage);
+        SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
         _intermediate_block = vectorized::Block::create_unique();
 
         for (auto& expr : _expr_ctxs) {
@@ -198,7 +198,7 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
     auto& _intermediate_block = local_state._intermediate_block;
     RETURN_IF_CANCELLED(state);
 
-    ScopedMemTracker scoped_mem_tracker(local_state._estimate_memory_usage);
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
 
     DCHECK(_repeat_id_idx >= 0);
     for (const std::vector<int64_t>& v : _grouping_list) {

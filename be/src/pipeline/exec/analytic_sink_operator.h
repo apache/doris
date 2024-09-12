@@ -62,7 +62,7 @@ private:
 
     std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
 
-    size_t _reserve_mem_size = 0;
+    int64_t _reserve_mem_size = 0;
 };
 
 class AnalyticSinkOperatorX final : public DataSinkOperatorX<AnalyticSinkLocalState> {
