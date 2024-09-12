@@ -1058,6 +1058,8 @@ DECLARE_mInt64(file_cache_ttl_valid_check_interval_second);
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DECLARE_Bool(enable_ttl_cache_evict_using_lru);
+// rename ttl filename to new format during read, with some performance cost
+DECLARE_Bool(translate_to_new_ttl_format_during_read);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
