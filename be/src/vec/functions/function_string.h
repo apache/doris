@@ -2088,18 +2088,8 @@ private:
                 continue;
             }
             if (delimiter_ref.size == 0) {
-                for (size_t str_pos = 0; str_pos < str_ref.size;) {
-                    const size_t str_offset = str_pos;
-                    const size_t old_size = column_string_chars.size();
-                    str_pos++;
-                    const size_t new_size = old_size + 1;
-                    column_string_chars.resize(new_size);
-                    memcpy(column_string_chars.data() + old_size, str_ref.data + str_offset, 1);
-                    (*dest_nested_null_map).push_back(false);
-                    string_pos++;
-                    dest_pos++;
-                    column_string_offsets.push_back(string_pos);
-                }
+                split_empty_delimiter(str_ref, column_string_chars, column_string_offsets,
+                                      dest_nested_null_map, string_pos, dest_pos);
             } else {
                 for (size_t str_pos = 0; str_pos <= str_ref.size;) {
                     const size_t str_offset = str_pos;
@@ -2154,18 +2144,8 @@ private:
                 continue;
             }
             if (delimiter_ref.size == 0) {
-                for (size_t str_pos = 0; str_pos < str_ref.size;) {
-                    const size_t str_offset = str_pos;
-                    const size_t old_size = column_string_chars.size();
-                    str_pos++;
-                    const size_t new_size = old_size + 1;
-                    column_string_chars.resize(new_size);
-                    memcpy(column_string_chars.data() + old_size, str_ref.data + str_offset, 1);
-                    (*dest_nested_null_map).push_back(false);
-                    string_pos++;
-                    dest_pos++;
-                    column_string_offsets.push_back(string_pos);
-                }
+                split_empty_delimiter(str_ref, column_string_chars, column_string_offsets,
+                                      dest_nested_null_map, string_pos, dest_pos);
             } else {
                 for (size_t str_pos = 0; str_pos <= str_ref.size;) {
                     const size_t str_offset = str_pos;
@@ -2206,18 +2186,8 @@ private:
             const StringRef delimiter_ref = delimiter_col.get_data_at(i);
 
             if (delimiter_ref.size == 0) {
-                for (size_t str_pos = 0; str_pos < str_ref.size;) {
-                    const size_t str_offset = str_pos;
-                    const size_t old_size = column_string_chars.size();
-                    str_pos++;
-                    const size_t new_size = old_size + 1;
-                    column_string_chars.resize(new_size);
-                    memcpy(column_string_chars.data() + old_size, str_ref.data + str_offset, 1);
-                    (*dest_nested_null_map).push_back(false);
-                    string_pos++;
-                    dest_pos++;
-                    column_string_offsets.push_back(string_pos);
-                }
+                split_empty_delimiter(str_ref, column_string_chars, column_string_offsets,
+                                      dest_nested_null_map, string_pos, dest_pos);
             } else {
                 for (size_t str_pos = 0; str_pos <= str_ref.size;) {
                     const size_t str_offset = str_pos;
@@ -2250,6 +2220,25 @@ private:
             pos++;
         }
         return pos - old_size;
+    }
+
+    void split_empty_delimiter(const StringRef& str_ref, ColumnString::Chars& column_string_chars,
+                               ColumnString::Offsets& column_string_offsets,
+                               NullMapType* dest_nested_null_map, ColumnArray::Offset64& string_pos,
+                               ColumnArray::Offset64& dest_pos) const {
+        const size_t old_size = column_string_chars.size();
+        const size_t new_size = old_size + str_ref.size;
+        column_string_chars.resize(new_size);
+        memcpy(column_string_chars.data() + old_size, str_ref.data, str_ref.size);
+        for (size_t i = 0, utf8_char_len = 0; i < str_ref.size; i += utf8_char_len) {
+            utf8_char_len = UTF8_BYTE_LENGTH[(unsigned char)str_ref.data[i]];
+
+            string_pos += utf8_char_len;
+            column_string_offsets.push_back(string_pos);
+
+            (*dest_nested_null_map).push_back(false);
+            dest_pos++;
+        }
     }
 };
 
