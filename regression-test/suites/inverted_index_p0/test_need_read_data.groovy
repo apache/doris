@@ -113,4 +113,29 @@ suite("test_need_read_data", "p0"){
     qt_sql2 """ select  *  from  ${indexTbName2}  WHERE  a  >=  '2024-06-15  00:00:00'  AND  b  =  'tengxun2'  and    `b`  match  'tengxun2'  ; """
     qt_sql3 """ select  COUNT(1)  from  ${indexTbName2}  WHERE  a  >=  '2024-06-15  00:00:00'  AND  b  like  '%tengxun%'  and    `b`  match  'tengxun2'  ; """
     qt_sql4 """ select  *  from  ${indexTbName2}  WHERE  a  >=  '2024-06-15  00:00:00'  AND  b  like  '%tengxun%'  and    `b`  match  'tengxun2'  ; """
+
+    def indexTblName3 = "test_need_read_data_3"
+
+    sql "DROP TABLE IF EXISTS ${indexTblName3}"
+    // create 1 replica table
+    sql """
+	CREATE TABLE IF NOT EXISTS ${indexTblName3}(
+	    `id` int(11) NOT NULL,
+        `value` int(11) NULL,
+	    INDEX c_value_idx(`value`) USING INVERTED COMMENT ''
+	) ENGINE=OLAP
+	DUPLICATE KEY(`id`)
+	COMMENT 'OLAP'
+	DISTRIBUTED BY HASH(`id`) BUCKETS 1
+	PROPERTIES(
+	    "replication_allocation" = "tag.location.default: 1"
+	);
+    """
+
+    def var_result = sql "show variables"
+    logger.info("show variales result: " + var_result )
+
+    sql "INSERT INTO ${indexTblName3} VALUES (1, 1),(1, -2),(1, -1);"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=false) */ id FROM ${indexTblName3} WHERE value<0 and abs(value)>1;"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${indexTblName3} WHERE value<0 and abs(value)>1;"
 }
