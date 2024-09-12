@@ -35,6 +35,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -105,12 +106,12 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         filter = visitChildren(this, filter, context);
         Set<Expression> filterPredicates = pullUpPredicates(filter);
         filterPredicates.removeAll(pullUpPredicates(filter.child()));
-        filter.getConjuncts().forEach(filterPredicates::remove);
-        if (!filterPredicates.isEmpty()) {
-            filterPredicates.addAll(filter.getConjuncts());
-            return new LogicalFilter<>(ImmutableSet.copyOf(filterPredicates), filter.child());
-        }
-        return filter;
+        // filter.getConjuncts().forEach(filterPredicates::remove);
+        // if (!filterPredicates.isEmpty()) {
+        //     filterPredicates.addAll(filter.getConjuncts());
+        return new LogicalFilter<>(ImmutableSet.copyOf(filterPredicates), filter.child());
+        // }
+        // return filter;
     }
 
     @Override
@@ -156,8 +157,19 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         Set<Expression> baseExpressions = pullUpPredicates(left);
         baseExpressions.addAll(pullUpPredicates(right));
         condition.ifPresent(on -> baseExpressions.addAll(ExpressionUtils.extractConjunction(on)));
-        baseExpressions.addAll(PredicatePropagation.infer(baseExpressions));
-        return baseExpressions;
+        // Set<Expression> newExpressions = new HashSet<>();
+        // newExpressions.addAll(PredicatePropagation.infer(baseExpressions));
+        // newExpressions.addAll(NonEqualPredicateInfer.inferUnequalPredicates(baseExpressions));
+
+        Set<Expression> inferPredicates = new HashSet<>();
+        Set<Expression> complexPredicates = new HashSet<>();
+        Set<Expression> simplePredicates = new HashSet<>();
+        Set<Expression> tmp = PredicatePropagation.infer(baseExpressions);
+        tmp.addAll(baseExpressions);
+        ExpressionUtils.getComplexAndSimplePredicates(tmp, complexPredicates, simplePredicates);
+        inferPredicates.addAll(complexPredicates);
+        inferPredicates.addAll(NonEqualPredicateInfer.inferUnequalPredicates(simplePredicates));
+        return inferPredicates;
     }
 
     private Set<Expression> pullUpPredicates(Plan plan) {
