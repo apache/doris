@@ -402,6 +402,10 @@ public:
 #endif
     }
 
+    std::shared_ptr<MemTrackerLimiter> get_memory_tracker() { return query_mem_tracker; }
+
+    WorkloadGroupPtr get_workload_group_ptr() { return wg_wptr.lock(); }
+
     TUniqueId query_id;
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
     std::weak_ptr<WorkloadGroup> wg_wptr;
