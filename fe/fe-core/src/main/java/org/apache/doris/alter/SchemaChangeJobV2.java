@@ -641,11 +641,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
         postProcessOriginIndex();
         // Drop table column stats after schema change finished.
-        try {
-            Env.getCurrentEnv().getAnalysisManager().dropStats(tbl, null);
-        } catch (Exception e) {
-            LOG.info("Failed to drop stats after schema change finished. Reason: {}", e.getMessage());
-        }
+        Env.getCurrentEnv().getAnalysisManager().dropStats(tbl, null);
     }
 
     private void onFinished(OlapTable tbl) {
