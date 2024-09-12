@@ -129,7 +129,8 @@ MemTrackerLimiter::~MemTrackerLimiter() {
     if (_consumption->current_value() != 0) {
 // TODO, expect mem tracker equal to 0 at the load/compaction/etc. task end.
 #ifndef NDEBUG
-        if (_type == Type::QUERY || (_type == Type::LOAD && !is_group_commit_load)) {
+        if (_type == Type::COMPACTION || _type == Type::SCHEMA_CHANGE || _type == Type::QUERY ||
+            (_type == Type::LOAD && !is_group_commit_load)) {
             std::string err_msg =
                     fmt::format("mem tracker label: {}, consumption: {}, peak consumption: {}, {}.",
                                 label(), _consumption->current_value(), _consumption->peak_value(),
