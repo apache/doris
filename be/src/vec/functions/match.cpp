@@ -19,6 +19,7 @@
 
 #include <hs/hs.h>
 
+#include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_points.h"
@@ -184,9 +185,10 @@ void FunctionMatchBase::analyse_query_str_token(std::vector<std::string>* query_
         query_tokens->emplace_back(match_query_str);
         return;
     }
-    auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
-                                                                        match_query_str);
-    doris::segment_v2::InvertedIndexReader::get_analyse_result(
+    auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
+            inverted_index_ctx->char_filter_map);
+    reader->init(match_query_str.data(), match_query_str.size(), true);
+    doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
             *query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
             get_query_type_from_fn_name());
 }
@@ -205,12 +207,13 @@ inline std::vector<std::string> FunctionMatchBase::analyse_data_token(
                 data_tokens.emplace_back(str_ref.to_string());
                 continue;
             }
-            auto reader = doris::segment_v2::InvertedIndexReader::create_reader(
-                    inverted_index_ctx, str_ref.to_string());
+            auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
+                    inverted_index_ctx->char_filter_map);
+            reader->init(str_ref.data, str_ref.size, true);
 
             std::vector<std::string> element_tokens;
 
-            doris::segment_v2::InvertedIndexReader::get_analyse_result(
+            doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
                     element_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
                     query_type, false);
             data_tokens.insert(data_tokens.end(), element_tokens.begin(), element_tokens.end());
@@ -220,9 +223,10 @@ inline std::vector<std::string> FunctionMatchBase::analyse_data_token(
         if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
             data_tokens.emplace_back(str_ref.to_string());
         } else {
-            auto reader = doris::segment_v2::InvertedIndexReader::create_reader(
-                    inverted_index_ctx, str_ref.to_string());
-            doris::segment_v2::InvertedIndexReader::get_analyse_result(
+            auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
+                    inverted_index_ctx->char_filter_map);
+            reader->init(str_ref.data, str_ref.size, true);
+            doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
                     data_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
                     query_type, false);
         }
