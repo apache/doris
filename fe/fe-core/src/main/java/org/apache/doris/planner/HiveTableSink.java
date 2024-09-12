@@ -129,6 +129,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
                 HiveInsertCommandContext context = (HiveInsertCommandContext) insertCtx.get();
                 tSink.setOverwrite(context.isOverwrite());
                 context.setWritePath(storageLocation);
+                context.setFileType(fileType);
             }
         } else {
             String writeTempPath = createTempPath(location);
@@ -139,6 +140,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
                 HiveInsertCommandContext context = (HiveInsertCommandContext) insertCtx.get();
                 tSink.setOverwrite(context.isOverwrite());
                 context.setWritePath(writeTempPath);
+                context.setFileType(fileType);
             }
         }
         locationParams.setFileType(fileType);
