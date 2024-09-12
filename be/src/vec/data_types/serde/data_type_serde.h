@@ -152,8 +152,8 @@ public:
          *      NULL
          *      null
          */
-        const char* null_format;
-        int null_len;
+        const char* null_format = "\\N";
+        int null_len = 2;
 
         /**
          * The wrapper char for string type in nested type.
