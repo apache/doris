@@ -40,7 +40,7 @@ suite("test_http_meta_tables_auth","p0,auth,nonConcurrent") {
                 httpTest {
                     basicAuthorization "${user}","${pwd}"
                     endpoint "${context.config.feHttpAddress}"
-                    uri "/api/meta/namespaces/default_cluster/databases/${dbName}/tables"
+                    uri "/rest/v2/api/meta/namespaces/default_cluster/databases/${dbName}/tables"
                     op "get"
                     check check_func
                 }

@@ -41,7 +41,7 @@ suite("test_http_meta_tables_schema_auth","p0,auth,nonConcurrent") {
         httpTest {
             basicAuthorization "${user}","${pwd}"
             endpoint "${context.config.feHttpAddress}"
-            uri "/api/meta/namespaces/default_cluster/databases/${dbName}/tables/${tableName}/schema"
+            uri "/rest/v2/api/meta/namespaces/default_cluster/databases/${dbName}/tables/${tableName}/schema"
             op "get"
             check check_func
         }

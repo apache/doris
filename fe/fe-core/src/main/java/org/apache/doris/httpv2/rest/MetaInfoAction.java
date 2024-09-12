@@ -59,6 +59,7 @@ import javax.servlet.http.HttpServletResponse;
  * And meta info like databases, tables and schema
  */
 @RestController
+@Deprecated
 public class MetaInfoAction extends RestBaseController {
 
     private static final String NAMESPACES = "namespaces";
@@ -101,22 +102,22 @@ public class MetaInfoAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Unknown catalog " + ns);
         }
         List<String> dbNames = catalog.getDbNames();
-        List<String> filteredDbNames = Lists.newArrayList();
+        List<String> dbNameSet = Lists.newArrayList();
         for (String fullName : dbNames) {
             final String db = ClusterNamespace.getNameFromFullName(fullName);
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), ns, fullName,
+                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullName,
                             PrivPredicate.SHOW)) {
                 continue;
             }
-            filteredDbNames.add(db);
+            dbNameSet.add(db);
         }
 
-        Collections.sort(filteredDbNames);
+        Collections.sort(dbNames);
 
         // handle limit offset
-        Pair<Integer, Integer> fromToIndex = getFromToIndex(request, filteredDbNames.size());
-        return ResponseEntityBuilder.ok(filteredDbNames.subList(fromToIndex.first, fromToIndex.second));
+        Pair<Integer, Integer> fromToIndex = getFromToIndex(request, dbNames.size());
+        return ResponseEntityBuilder.ok(dbNames.subList(fromToIndex.first, fromToIndex.second));
     }
 
     /** Get all tables of a database
