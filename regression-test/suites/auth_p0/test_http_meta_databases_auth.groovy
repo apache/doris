@@ -17,7 +17,7 @@
 
 import org.junit.Assert;
 
-suite("test_http_meta_databases_auth","p0,auth") {
+suite("test_http_meta_databases_auth","p0,auth,nonConcurrent") {
     String suiteName = "test_http_meta_databases_auth"
     String dbName = context.config.getDbNameByFile(context.file)
     String tableName = "${suiteName}_table"
@@ -25,30 +25,34 @@ suite("test_http_meta_databases_auth","p0,auth") {
     String pwd = 'C123_567p'
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
-
-    def getDatabases = { check_func ->
-        httpTest {
-            basicAuthorization "${user}","${pwd}"
-            endpoint "${context.config.feHttpAddress}"
-            uri "/api/meta/namespaces/default_cluster/databases"
-            op "get"
-            check check_func
+     try {
+        sql """ ADMIN SET ALL FRONTENDS CONFIG ("enable_all_http_auth" = "true"); """
+        def getDatabases = { check_func ->
+            httpTest {
+                basicAuthorization "${user}","${pwd}"
+                endpoint "${context.config.feHttpAddress}"
+                uri "/api/meta/namespaces/default_cluster/databases"
+                op "get"
+                check check_func
+            }
         }
-    }
 
-    getDatabases.call() {
-        respCode, body ->
-            log.info("body:${body}")
-            assertFalse("${body}".contains("${dbName}"))
-    }
+        getDatabases.call() {
+            respCode, body ->
+                log.info("body:${body}")
+                assertFalse("${body}".contains("${dbName}"))
+        }
 
-    sql """grant select_priv on ${dbName} to ${user}"""
+        sql """grant select_priv on ${dbName} to ${user}"""
 
-    getDatabases.call() {
-        respCode, body ->
-            log.info("body:${body}")
-            assertTrue("${body}".contains("${dbName}"))
-    }
+        getDatabases.call() {
+            respCode, body ->
+                log.info("body:${body}")
+                assertTrue("${body}".contains("${dbName}"))
+        }
 
-    try_sql("DROP USER ${user}")
+        try_sql("DROP USER ${user}")
+     } finally {
+          sql """ ADMIN SET ALL FRONTENDS CONFIG ("enable_all_http_auth" = "false"); """
+     }
 }

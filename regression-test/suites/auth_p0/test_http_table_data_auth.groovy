@@ -17,7 +17,7 @@
 
 import org.junit.Assert;
 
-suite("test_http_table_data_auth","p0,auth") {
+suite("test_http_table_data_auth","p0,auth,nonConcurrent") {
     String suiteName = "test_http_table_data_auth"
     String dbName = context.config.getDbNameByFile(context.file)
     String tableName = "${suiteName}_table"
@@ -35,7 +35,8 @@ suite("test_http_table_data_auth","p0,auth") {
         PROPERTIES ('replication_num' = '1') ;
         """
     sql """insert into ${tableName} values(1,1)"""
-
+    try {
+        sql """ ADMIN SET ALL FRONTENDS CONFIG ("enable_all_http_auth" = "true"); """
     def getTableData = { check_func ->
         httpTest {
             basicAuthorization "${user}","${pwd}"
@@ -84,4 +85,7 @@ suite("test_http_table_data_auth","p0,auth") {
 
     sql """drop table if exists `${tableName}`"""
     try_sql("DROP USER ${user}")
+    } finally {
+          sql """ ADMIN SET ALL FRONTENDS CONFIG ("enable_all_http_auth" = "false"); """
+     }
 }

@@ -17,7 +17,7 @@
 
 import org.junit.Assert;
 
-suite("test_http_meta_tables_auth","p0,auth") {
+suite("test_http_meta_tables_auth","p0,auth,nonConcurrent") {
     String suiteName = "test_http_meta_tables_auth"
     String dbName = context.config.getDbNameByFile(context.file)
     String tableName = "${suiteName}_table"
@@ -34,32 +34,37 @@ suite("test_http_meta_tables_auth","p0,auth") {
         DISTRIBUTED BY random BUCKETS auto
         PROPERTIES ('replication_num' = '1') ;
         """
+    try {
+            sql """ ADMIN SET ALL FRONTENDS CONFIG ("enable_all_http_auth" = "true"); """
+            def getTables = { check_func ->
+                httpTest {
+                    basicAuthorization "${user}","${pwd}"
+                    endpoint "${context.config.feHttpAddress}"
+                    uri "/api/meta/namespaces/default_cluster/databases/${dbName}/tables"
+                    op "get"
+                    check check_func
+                }
+            }
 
+            getTables.call() {
+                respCode, body ->
+                    log.info("body:${body}")
+                    assertFalse("${body}".contains("${tableName}"))
+            }
 
-    def getTables = { check_func ->
-        httpTest {
-            basicAuthorization "${user}","${pwd}"
-            endpoint "${context.config.feHttpAddress}"
-            uri "/api/meta/namespaces/default_cluster/databases/${dbName}/tables"
-            op "get"
-            check check_func
-        }
+            sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
+
+            getTables.call() {
+                respCode, body ->
+                    log.info("body:${body}")
+                    assertTrue("${body}".contains("${tableName}"))
+            }
+
+            sql """drop table if exists `${tableName}`"""
+            try_sql("DROP USER ${user}")
+    } finally {
+         sql """ ADMIN SET ALL FRONTENDS CONFIG ("enable_all_http_auth" = "false"); """
     }
 
-    getTables.call() {
-        respCode, body ->
-            log.info("body:${body}")
-            assertFalse("${body}".contains("${tableName}"))
-    }
 
-    sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
-
-    getTables.call() {
-        respCode, body ->
-            log.info("body:${body}")
-            assertTrue("${body}".contains("${tableName}"))
-    }
-
-    sql """drop table if exists `${tableName}`"""
-    try_sql("DROP USER ${user}")
 }
