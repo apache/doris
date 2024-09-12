@@ -1274,7 +1274,7 @@ Status StreamingAggLocalState::close(RuntimeState* state) {
 
 Status StreamingAggOperatorX::pull(RuntimeState* state, vectorized::Block* block, bool* eos) const {
     auto& local_state = get_local_state(state);
-    ScopedMemTracker scoped_mem_tracker(local_state._estimate_memory_usage);
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
     if (!local_state._pre_aggregated_block->empty()) {
         local_state._pre_aggregated_block->swap(*block);
     } else {
@@ -1291,7 +1291,7 @@ Status StreamingAggOperatorX::pull(RuntimeState* state, vectorized::Block* block
 Status StreamingAggOperatorX::push(RuntimeState* state, vectorized::Block* in_block,
                                    bool eos) const {
     auto& local_state = get_local_state(state);
-    ScopedMemTracker scoped_mem_tracker(local_state._estimate_memory_usage);
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
 
     local_state._input_num_rows += in_block->rows();
     if (in_block->rows() > 0) {

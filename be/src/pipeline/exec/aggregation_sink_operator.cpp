@@ -178,7 +178,7 @@ Status AggSinkLocalState::_execute_without_key(vectorized::Block* block) {
     DCHECK(_agg_data->without_key != nullptr);
     SCOPED_TIMER(_build_timer);
     _memory_usage_last_executing = 0;
-    ScopedMemTracker mem_tracker(_memory_usage_last_executing);
+    SCOPED_PEAK_MEM(&_memory_usage_last_executing);
     for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
         RETURN_IF_ERROR(Base::_shared_state->aggregate_evaluators[i]->execute_single_add(
                 block,
@@ -191,7 +191,7 @@ Status AggSinkLocalState::_execute_without_key(vectorized::Block* block) {
 
 Status AggSinkLocalState::_merge_with_serialized_key(vectorized::Block* block) {
     _memory_usage_last_executing = 0;
-    ScopedMemTracker mem_tracker(_memory_usage_last_executing);
+    SCOPED_PEAK_MEM(&_memory_usage_last_executing);
     if (_shared_state->reach_limit) {
         return _merge_with_serialized_key_helper<true, false>(block);
     } else {
@@ -401,7 +401,7 @@ Status AggSinkLocalState::_merge_without_key(vectorized::Block* block) {
     DCHECK(_agg_data->without_key != nullptr);
 
     _memory_usage_last_executing = 0;
-    ScopedMemTracker mem_tracker(_memory_usage_last_executing);
+    SCOPED_PEAK_MEM(&_memory_usage_last_executing);
     for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
         if (Base::_shared_state->aggregate_evaluators[i]->is_merge()) {
             int col_id = AggSharedState::get_slot_column_id(
@@ -440,7 +440,7 @@ void AggSinkLocalState::_update_memusage_without_key() {
 
 Status AggSinkLocalState::_execute_with_serialized_key(vectorized::Block* block) {
     _memory_usage_last_executing = 0;
-    ScopedMemTracker mem_tracker(_memory_usage_last_executing);
+    SCOPED_PEAK_MEM(&_memory_usage_last_executing);
     if (_shared_state->reach_limit) {
         return _execute_with_serialized_key_helper<true>(block);
     } else {
