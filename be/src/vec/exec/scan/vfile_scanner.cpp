@@ -960,6 +960,10 @@ Status VFileScanner::_get_next_reader() {
             return Status::InternalError("Not supported file format: {}", _params->format_type);
         }
 
+        if (_cur_reader == nullptr) {
+            return Status::InternalError("Failed to create reader for  file format: {}",
+                                         _params->format_type);
+        }
         COUNTER_UPDATE(_file_counter, 1);
         // The VFileScanner for external table may try to open not exist files,
         // Because FE file cache for external table may out of date.
