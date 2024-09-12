@@ -55,7 +55,7 @@ public class Storage {
     public static final String IMAGE_NEW = "image.ckpt";
     public static final String VERSION_FILE = "VERSION";
     public static final String ROLE_FILE = "ROLE";
-    public static final String MODE_FILE = "MODE";
+    public static final String MODE_FILE = "DEPLOY_MODE";
     public static final String DEPLOY_MODE = "mode";
     public static final String CLOUD_MODE = "cloud";
     public static final String LOCAL_MODE = "local";

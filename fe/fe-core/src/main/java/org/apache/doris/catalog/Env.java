@@ -1355,10 +1355,18 @@ public class Env {
         if (modeFile.exists()) {
             String actualMode = storage.getDeployMode();
             Preconditions.checkArgument(expectedMode.equals(actualMode),
-                    "You can't switch deploy mode from %s to %s", actualMode, expectedMode);
+                    "You can't switch deploy mode from %s to %s, maybe you need to check fe.conf",
+                    actualMode, expectedMode);
+            LOG.info("The current deployment mode is " + expectedMode + ".");
         } else {
             storage.setDeployMode(expectedMode);
             storage.writeClusterMode();
+            LOG.info("The file DEPLOY_MADE doesn't exist, create it.");
+            File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
+            if (versionFile.exists()) {
+                LOG.warn("This may be an upgrade from old version, "
+                        "or the DEPLOY_MADE file has been manually deleted");
+            }
         }
     }
 
