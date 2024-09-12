@@ -337,12 +337,7 @@ public:
     /// Check that size of null map equals to size of nested column.
     void check_consistency() const;
 
-    bool has_null() const override {
-        if (UNLIKELY(_need_update_has_null)) {
-            const_cast<ColumnNullable*>(this)->_update_has_null();
-        }
-        return _has_null;
-    }
+    bool has_null() const override;
 
     bool has_null(size_t size) const override;
 
