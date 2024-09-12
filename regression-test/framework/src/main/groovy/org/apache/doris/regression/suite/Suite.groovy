@@ -309,6 +309,7 @@ class Suite implements GroovyInterceptable {
                 Thread.sleep(1000)
             }
 
+            logger.info("get fe {}", fe)
             assertNotNull(fe)
             if (!dockerIsCloud) {
                 for (def be : cluster.getAllBackends()) {
@@ -325,8 +326,8 @@ class Suite implements GroovyInterceptable {
             def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
             logger.info("try create database if not exists {}", context.dbName)
             JdbcUtils.executeToList(conn, sql)
-            url = Config.buildUrlWithDb(url, context.dbName)
 
+            url = Config.buildUrlWithDb(url, context.dbName)
             logger.info("connect to docker cluster: suite={}, url={}", name, url)
             connect(user, password, url, actionSupplier)
         } finally {
