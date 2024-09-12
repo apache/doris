@@ -82,7 +82,6 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
-#include "olap/partial_update_info.h"
 #include "olap/primary_key_index.h"
 #include "olap/rowid_conversion.h"
 #include "olap/rowset/beta_rowset.h"
