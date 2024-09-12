@@ -199,7 +199,7 @@ public:
 
     void update_estimate_memory_usage(size_t usage) { _estimate_memory_usage += usage; }
 
-    size_t& estimate_memory_usage() { return _estimate_memory_usage; }
+    int64_t& estimate_memory_usage() { return _estimate_memory_usage; }
 
     void reset_estimate_memory_usage() { _estimate_memory_usage = 0; }
 
@@ -210,7 +210,7 @@ protected:
 
     ObjectPool* _pool = nullptr;
     int64_t _num_rows_returned {0};
-    size_t _estimate_memory_usage {0};
+    int64_t _estimate_memory_usage {0};
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
 
@@ -241,24 +241,6 @@ protected:
 
     bool _closed = false;
     vectorized::Block _origin_block;
-};
-
-class ScopedMemTracker {
-public:
-    ScopedMemTracker(size_t& counter) : _counter(counter), _mem_tracker("ScopedMemTracker") {
-        thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(&_mem_tracker);
-        _peak_usage = _mem_tracker.peak_consumption();
-    }
-
-    ~ScopedMemTracker() {
-        thread_context()->thread_mem_tracker_mgr->pop_consumer_tracker();
-        _counter += (_mem_tracker.peak_consumption() - _peak_usage);
-    }
-
-private:
-    size_t& _counter;
-    size_t _peak_usage = 0;
-    MemTracker _mem_tracker;
 };
 
 template <typename SharedStateArg = FakeSharedState>

@@ -141,7 +141,7 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
     auto& local_state = state->get_local_state(operator_id())->cast<UnionSourceLocalState>();
     DCHECK_LT(local_state._const_expr_list_idx, _const_expr_lists.size());
 
-    ScopedMemTracker scoped_mem_tracker(local_state._estimate_memory_usage);
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
 
     auto& _const_expr_list_idx = local_state._const_expr_list_idx;
     vectorized::MutableBlock mblock =

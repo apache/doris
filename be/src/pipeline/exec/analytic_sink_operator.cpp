@@ -269,7 +269,7 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
 
     local_state._reserve_mem_size = 0;
-    ScopedMemTracker mem_tracker(local_state._reserve_mem_size);
+    SCOPED_PEAK_MEM(&local_state._reserve_mem_size);
 
     local_state._shared_state->input_eos = eos;
     if (local_state._shared_state->input_eos && input_block->rows() == 0) {
