@@ -317,7 +317,7 @@ class UpCommand(Command):
                 default=True,
                 action=self._get_parser_bool_action(False),
                 help=
-                "Do set BE meta service endpoint in conf. Default is False."
+                "Do not set BE meta service endpoint in conf. Default is False."
             )
 
         if self._support_boolean_action():
