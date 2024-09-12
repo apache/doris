@@ -270,9 +270,9 @@ public:
     // 3. the process reached soft mem_limit, if not release these, if not release buffer, the query will be cancelled.
     // 4. If the query reserve memory failed.
     // Under low memory mode, the query should release some buffers such as scan operator block queue, union operator queue, exchange buffer size, streaming agg
-    bool low_memory_mode() {
+    void update_low_memory_mode() {
         if (_low_memory_mode) {
-            return true;
+            return;
         }
 
         // If less than 100MB left, then it is low memory mode
@@ -280,7 +280,7 @@ public:
             _low_memory_mode = true;
             LOG(INFO) << "Query " << print_id(_query_id)
                       << " goes to low memory mode due to exceed process soft memory limit";
-            return true;
+            return;
         }
 
         if (_workload_group) {
@@ -292,7 +292,7 @@ public:
                         << "Query " << print_id(_query_id)
                         << " goes to low memory mode due to workload group high water mark reached";
                 _low_memory_mode = true;
-                return true;
+                return;
             }
 
             if (is_low_wartermark &&
@@ -303,14 +303,16 @@ public:
                           << " goes to low memory mode due to workload group low water mark "
                              "reached and the query enable spill";
                 _low_memory_mode = true;
-                return true;
+                return;
             }
         }
 
-        return _low_memory_mode;
+        return;
     }
 
     void set_low_memory_mode() { _low_memory_mode = true; }
+
+    bool low_memory_mode() { return _low_memory_mode; }
 
 private:
     int _timeout_second;
