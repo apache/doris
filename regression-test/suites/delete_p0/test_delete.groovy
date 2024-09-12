@@ -449,7 +449,6 @@ suite("test_delete") {
                 "replication_allocation" = "tag.location.default: 1"
             ); 
     """
-    sql "set experimental_enable_nereids_planner = false;"
     sql "delete from test3 where statistic_date >= date_sub('2024-01-16',INTERVAL 1 day);"
 
     sql "drop table if exists bi_acti_per_period_plan"

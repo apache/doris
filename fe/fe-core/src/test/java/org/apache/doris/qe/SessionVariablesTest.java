@@ -26,11 +26,9 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.VariableAnnotation;
-import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -42,7 +40,6 @@ public class SessionVariablesTest extends TestWithFeService {
 
     private SessionVariable sessionVariable;
     private int numOfForwardVars;
-    private ProfileManager profileManager = ProfileManager.getInstance();
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -68,33 +65,33 @@ public class SessionVariablesTest extends TestWithFeService {
         connectContext.setThreadLocalInfo();
         // 1. set without experimental
         SessionVariable sessionVar = connectContext.getSessionVariable();
-        boolean enableNereids = sessionVar.isEnableNereidsPlanner();
-        String sql = "set enable_nereids_planner=" + (enableNereids ? "false" : "true");
+        boolean enableShareScan = sessionVar.getEnableSharedScan();
+        String sql = "set enable_shared_scan=" + (enableShareScan ? "false" : "true");
         SetStmt setStmt = (SetStmt) parseAndAnalyzeStmt(sql, connectContext);
         SetExecutor setExecutor = new SetExecutor(connectContext, setStmt);
         setExecutor.execute();
-        Assert.assertNotEquals(sessionVar.isEnableNereidsPlanner(), enableNereids);
+        Assertions.assertNotEquals(sessionVar.getEnableSharedScan(), enableShareScan);
         // 2. set with experimental
-        enableNereids = sessionVar.isEnableNereidsPlanner();
-        sql = "set experimental_enable_nereids_planner=" + (enableNereids ? "false" : "true");
+        enableShareScan = sessionVar.getEnableSharedScan();
+        sql = "set experimental_enable_shared_scan=" + (enableShareScan ? "false" : "true");
         setStmt = (SetStmt) parseAndAnalyzeStmt(sql, connectContext);
         setExecutor = new SetExecutor(connectContext, setStmt);
         setExecutor.execute();
-        Assert.assertNotEquals(sessionVar.isEnableNereidsPlanner(), enableNereids);
+        Assertions.assertNotEquals(sessionVar.getEnableSharedScan(), enableShareScan);
         // 3. set global without experimental
-        enableNereids = sessionVar.isEnableNereidsPlanner();
-        sql = "set global enable_nereids_planner=" + (enableNereids ? "false" : "true");
+        enableShareScan = sessionVar.getEnableSharedScan();
+        sql = "set global enable_shared_scan=" + (enableShareScan ? "false" : "true");
         setStmt = (SetStmt) parseAndAnalyzeStmt(sql, connectContext);
         setExecutor = new SetExecutor(connectContext, setStmt);
         setExecutor.execute();
-        Assert.assertNotEquals(sessionVar.isEnableNereidsPlanner(), enableNereids);
+        Assertions.assertNotEquals(sessionVar.getEnableSharedScan(), enableShareScan);
         // 4. set global with experimental
-        enableNereids = sessionVar.isEnableNereidsPlanner();
-        sql = "set global experimental_enable_nereids_planner=" + (enableNereids ? "false" : "true");
+        enableShareScan = sessionVar.getEnableSharedScan();
+        sql = "set global experimental_enable_shared_scan=" + (enableShareScan ? "false" : "true");
         setStmt = (SetStmt) parseAndAnalyzeStmt(sql, connectContext);
         setExecutor = new SetExecutor(connectContext, setStmt);
         setExecutor.execute();
-        Assert.assertNotEquals(sessionVar.isEnableNereidsPlanner(), enableNereids);
+        Assertions.assertNotEquals(sessionVar.getEnableSharedScan(), enableShareScan);
 
         // 5. set experimental for EXPERIMENTAL_ONLINE var
         boolean bucketShuffle = sessionVar.isEnableBucketShuffleJoin();
@@ -102,7 +99,7 @@ public class SessionVariablesTest extends TestWithFeService {
         setStmt = (SetStmt) parseAndAnalyzeStmt(sql, connectContext);
         setExecutor = new SetExecutor(connectContext, setStmt);
         setExecutor.execute();
-        Assert.assertNotEquals(sessionVar.isEnableBucketShuffleJoin(), bucketShuffle);
+        Assertions.assertNotEquals(sessionVar.isEnableBucketShuffleJoin(), bucketShuffle);
 
         // 6. set non experimental for EXPERIMENTAL_ONLINE var
         bucketShuffle = sessionVar.isEnableBucketShuffleJoin();
@@ -110,14 +107,14 @@ public class SessionVariablesTest extends TestWithFeService {
         setStmt = (SetStmt) parseAndAnalyzeStmt(sql, connectContext);
         setExecutor = new SetExecutor(connectContext, setStmt);
         setExecutor.execute();
-        Assert.assertNotEquals(sessionVar.isEnableBucketShuffleJoin(), bucketShuffle);
+        Assertions.assertNotEquals(sessionVar.isEnableBucketShuffleJoin(), bucketShuffle);
 
         // 4. set experimental for none experimental var
         sql = "set experimental_group_concat_max_len=5";
         setStmt = (SetStmt) parseAndAnalyzeStmt(sql, connectContext);
         SetExecutor setExecutor2 = new SetExecutor(connectContext, setStmt);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Unknown system variable",
-                () -> setExecutor2.execute());
+                setExecutor2::execute);
 
         // 5. show variables
         String showSql = "show variables like '%experimental%'";
@@ -129,7 +126,7 @@ public class SessionVariablesTest extends TestWithFeService {
         }
         int num = sessionVar.getVariableNumByVariableAnnotation(VariableAnnotation.EXPERIMENTAL);
         List<List<String>> result = VariableMgr.dump(showStmt.getType(), sessionVar, matcher);
-        Assert.assertEquals(num, result.size());
+        Assertions.assertEquals(num, result.size());
     }
 
     @Test
@@ -140,7 +137,7 @@ public class SessionVariablesTest extends TestWithFeService {
 
         vars.put(SessionVariable.ENABLE_PROFILE, "true");
         sessionVariable.setForwardedSessionVariables(vars);
-        Assertions.assertEquals(true, sessionVariable.enableProfile);
+        Assertions.assertTrue(sessionVariable.enableProfile);
     }
 
     @Test
