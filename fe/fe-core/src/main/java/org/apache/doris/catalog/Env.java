@@ -1075,6 +1075,7 @@ public class Env {
 
         // 2. get cluster id and role (Observer or Follower)
         if (!Config.enable_check_compatibility_mode) {
+            checkDeployMode();
             getClusterIdAndRole();
         } else {
             isElectable = true;
@@ -1342,6 +1343,23 @@ public class Env {
         Preconditions.checkState(helperNodes.size() == 1);
         LOG.info("finished to get cluster id: {}, isElectable: {}, role: {} and node name: {}",
                 clusterId, isElectable, role.name(), nodeName);
+    }
+
+    /**
+     * write cloud/local to MODE_FILE.
+     */
+    protected void checkDeployMode() throws IOException {
+        File modeFile = new File(this.imageDir, Storage.MODE_FILE);
+        Storage storage = new Storage(this.imageDir);
+        String expectedMode = Config.isCloudMode() ? Storage.CLOUD_MODE : Storage.LOCAL_MODE;
+        if (modeFile.exists()) {
+            String actualMode = storage.getDeployMode();
+            Preconditions.checkArgument(expectedMode.equals(actualMode),
+                    "You can't switch deploy mode from %s to %s", actualMode, expectedMode);
+        } else {
+            storage.setDeployMode(expectedMode);
+            storage.writeClusterMode();
+        }
     }
 
     public static String genFeNodeName(String host, int port, boolean isOldStyle) {
@@ -6642,3 +6660,4 @@ public class Env {
         System.exit(0);
     }
 }
+
