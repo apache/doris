@@ -110,7 +110,7 @@ public class BindSink implements AnalysisRuleFactory {
                             return fileSink.withOutputExprs(output);
                         })
                 ),
-                // TODO: bind hive taget table
+                // TODO: bind hive target table
                 RuleType.BINDING_INSERT_HIVE_TABLE.build(unboundHiveTableSink().thenApply(this::bindHiveTableSink)),
                 RuleType.BINDING_INSERT_ICEBERG_TABLE.build(
                     unboundIcebergTableSink().thenApply(this::bindIcebergTableSink)),
@@ -593,11 +593,6 @@ public class BindSink implements AnalysisRuleFactory {
         Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
                 cascadesContext.getConnectContext().getEnv());
         if (!(pair.second instanceof OlapTable)) {
-            try {
-                cascadesContext.getConnectContext().getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            } catch (Exception e) {
-                throw new AnalysisException("fall back failed");
-            }
             throw new AnalysisException("the target table of insert into is not an OLAP table");
         }
         return Pair.of(((Database) pair.first), (OlapTable) pair.second);
