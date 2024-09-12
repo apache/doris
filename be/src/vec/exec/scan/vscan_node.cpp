@@ -307,13 +307,13 @@ void VScanNode::_start_scanners(const std::list<std::shared_ptr<ScannerDelegate>
                                 const int query_parallel_instance_num) {
     if (_is_pipeline_scan) {
         int max_queue_size = _shared_scan_opt ? std::max(query_parallel_instance_num, 1) : 1;
-        _scanner_ctx = pipeline::PipScannerContext::create_shared(
-                _state, this, _output_tuple_desc, _output_row_descriptor.get(), scanners, limit(),
-                _state->scan_queue_mem_limit(), max_queue_size);
+        _scanner_ctx = pipeline::PipScannerContext::create_shared(_state, this, _output_tuple_desc,
+                                                                  _output_row_descriptor.get(),
+                                                                  scanners, limit(), false);
     } else {
         _scanner_ctx = ScannerContext::create_shared(_state, this, _output_tuple_desc,
                                                      _output_row_descriptor.get(), scanners,
-                                                     limit(), _state->scan_queue_mem_limit());
+                                                     limit(), false);
     }
 }
 
