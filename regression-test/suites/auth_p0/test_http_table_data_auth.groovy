@@ -39,7 +39,7 @@ suite("test_http_table_data_auth","p0,auth") {
     def getTableData = { check_func ->
         httpTest {
             basicAuthorization "${user}","${pwd}"
-            endpoint "127.0.0.1:8823"
+            endpoint "${context.config.feHttpAddress}"
             uri "/api/show_table_data?db=${dbName}&table=${tableName}"
             op "get"
             check check_func
@@ -49,7 +49,7 @@ suite("test_http_table_data_auth","p0,auth") {
     def getDbData = { check_func ->
         httpTest {
             basicAuthorization "${user}","${pwd}"
-            endpoint "127.0.0.1:8823"
+            endpoint "${context.config.feHttpAddress}"
             uri "/api/show_table_data?db=${dbName}"
             op "get"
             check check_func

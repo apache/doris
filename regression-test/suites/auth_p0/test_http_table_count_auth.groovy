@@ -39,7 +39,7 @@ suite("test_http_table_count_auth","p0,auth") {
     def getCount = { check_func ->
         httpTest {
             basicAuthorization "${user}","${pwd}"
-            endpoint "127.0.0.1:8823"
+            endpoint "${context.config.feHttpAddress}"
             uri "/api/${dbName}/${tableName}/_count"
             op "get"
             check check_func
