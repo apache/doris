@@ -943,7 +943,7 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool
         j->mutable_obj_info()->set_sk(j->obj_info().sk().substr(0, 2) + "xxx");
     }
 
-    LOG(INFO) << "get storage vault, enable_storage_vault=" << is_vault_mode
+    LOG(INFO) << "get storage vault, enable_storage_vault=" << *is_vault_mode
               << " response=" << resp.ShortDebugString();
     return Status::OK();
 }
