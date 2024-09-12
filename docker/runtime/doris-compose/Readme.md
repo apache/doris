@@ -23,7 +23,16 @@ Use doris compose to create doris docker compose clusters.
 
 ## Requirements
 
-1. The doris image should contains:
+##### 1. Make sure you have docker permissions
+
+ run:
+```
+docker run hello-world
+```
+
+if have problem with permission denied, then [add-docker-permission](https://docs.docker.com/engine/install/linux-postinstall/).
+
+##### 2. The doris image should contains
 
 ```
 /opt/apache-doris/{fe, be, cloud}
@@ -32,22 +41,34 @@ Use doris compose to create doris docker compose clusters.
 if don't create cloud cluster, the image no need to contains the cloud pkg.
 
 
-if build doris use `sh build.sh --fe --be --cloud`, then its output satisfy with all above, then run command in doris root
+if build doris use `sh build.sh --fe --be --cloud`, then its output satisfy with all above, then run command in doris root directory
+ will generate such a image.
 
 ```
 docker build -f docker/runtime/doris-compose/Dockerfile -t <image> .
 ```
 
-will generate a image.
-
-2. Install the dependent python library in 'docker/runtime/doris-compose/requirements.txt'
-
+##### 3. Install the dependent python library in 'docker/runtime/doris-compose/requirements.txt'
 
 ```
 python -m pip install --user -r docker/runtime/doris-compose/requirements.txt
 ```
 
 ## Usage
+
+### Notice
+
+Each cluster will have a directory in '/tmp/doris/{cluster-name}', user can set env LOCAL_DORIS_PATH to change its directory.
+
+For example, if user export LOCAL_DORIS_PATH=/mydoris, then the cluster's directory is '/mydoris/{cluster-name}'.
+
+And cluster's directory will contains all its containers's logs and data, like fe-1, fe-2, be-1, ..., etc.
+
+If there are multiple users run doris-compose on the same machine, suggest don't change LOCAL_DORIS_PATH or they should export the same LOCAL_DORIS_PATH.
+
+Because when create a new cluster, doris-compose will search the local doris path, and choose a docker network which is different with this path's clusters.
+
+So if multiple users use different LOCAL_DORIS_PATH, their clusters may have docker network conflict!!!
 
 ### Create a cluster or recreate its containers
 
@@ -65,9 +86,11 @@ add fe/be nodes with the specific image, or update existing nodes with `--fe-id`
 
 
 For create a cloud cluster, steps are as below:
+
 1. Write cloud s3 store config file, its default path is '/tmp/doris/cloud.ini'.
    It's defined in environment variable DORIS_CLOUD_CFG_FILE, user can change this env var to change its path.
    A Example file is locate in 'docker/runtime/doris-compose/resource/cloud.ini.example'.
+
 2. Use doris compose up command with option '--cloud' to create a new cloud cluster.
 
 The simplest way to create a cloud cluster:
@@ -127,7 +150,7 @@ Generate regression-conf-custom.groovy to connect to the specific docker cluster
 
 steps:
 
-1. Create a new cluster:  `python doris-compose.py up my-cluster  my-image  --add-fe-num 2  --add-be-num 4 --cloud`
-2. Generate regression-conf-custom.groovy: `python doris-compose.py config my-cluster  <doris-root-path> --connect-follow-fe`
+1. Create a new cluster:  `python docker/runtime/doris-compose/doris-compose.py up my-cluster  my-image  --add-fe-num 2  --add-be-num 4 --cloud`
+2. Generate regression-conf-custom.groovy: `python docker/runtime/doris-compose/doris-compose.py config my-cluster  <doris-root-path> --connect-follow-fe`
 3. Run regression test: `bash run-regression-test.sh --run -times 1 -parallel 1 -suiteParallel 1 -d cloud/multi_cluster`
 

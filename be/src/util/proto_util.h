@@ -71,11 +71,26 @@ Status transmit_block_httpv2(ExecEnv* exec_env, std::unique_ptr<Closure> closure
                              TNetworkAddress brpc_dest_addr) {
     RETURN_IF_ERROR(request_embed_attachment_contain_blockv2(closure->request_.get(), closure));
 
+    std::string host = brpc_dest_addr.hostname;
+    auto dns_cache = ExecEnv::GetInstance()->dns_cache();
+    if (dns_cache == nullptr) {
+        LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
+    } else if (!is_valid_ip(brpc_dest_addr.hostname)) {
+        Status status = dns_cache->get(brpc_dest_addr.hostname, &host);
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to get ip from host " << brpc_dest_addr.hostname << ": "
+                         << status.to_string();
+            return Status::InternalError("failed to get ip from host {}", brpc_dest_addr.hostname);
+        }
+    }
     //format an ipv6 address
     std::string brpc_url = get_brpc_http_url(brpc_dest_addr.hostname, brpc_dest_addr.port);
 
     std::shared_ptr<PBackendService_Stub> brpc_http_stub =
             exec_env->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url, "http");
+    if (brpc_http_stub == nullptr) {
+        return Status::InternalError("failed to open brpc http client to {}", brpc_url);
+    }
     closure->cntl_->http_request().uri() =
             brpc_url + "/PInternalServiceImpl/transmit_block_by_http";
     closure->cntl_->http_request().set_method(brpc::HTTP_METHOD_POST);
