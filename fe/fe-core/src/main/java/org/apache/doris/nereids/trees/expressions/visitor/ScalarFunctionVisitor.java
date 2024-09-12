@@ -268,6 +268,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbValid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L1Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LastDay;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.LastQueryId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
@@ -2241,5 +2242,9 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMultiMatch(MultiMatch multiMatch, C context) {
         return visitScalarFunction(multiMatch, context);
+    }
+
+    default R visitLastQueryId(LastQueryId queryId, C context) {
+        return visitScalarFunction(queryId, context);
     }
 }

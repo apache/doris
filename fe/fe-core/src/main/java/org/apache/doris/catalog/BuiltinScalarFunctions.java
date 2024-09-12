@@ -265,6 +265,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbValid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L1Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LastDay;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.LastQueryId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
@@ -940,7 +941,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(YearsDiff.class, "years_diff"),
             scalar(YearsSub.class, "years_sub"),
             scalar(MultiMatch.class, "multi_match"),
-            scalar(SessionUser.class, "session_user"));
+            scalar(SessionUser.class, "session_user"),
+            scalar(LastQueryId.class, "last_query_id"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 

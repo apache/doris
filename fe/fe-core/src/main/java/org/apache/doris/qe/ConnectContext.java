@@ -122,6 +122,7 @@ public class ConnectContext {
     protected volatile TUniqueId queryId = null;
     protected volatile AtomicInteger instanceIdGenerator = new AtomicInteger();
     protected volatile String traceId;
+    protected volatile TUniqueId lastQueryId = null;
     // id for this connection
     protected volatile int connectionId;
     // Timestamp when the connection is make
@@ -861,6 +862,9 @@ public class ConnectContext {
     }
 
     public void setQueryId(TUniqueId queryId) {
+        if (this.queryId != null) {
+            this.lastQueryId = this.queryId.deepCopy();
+        }
         this.queryId = queryId;
         if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
             connectScheduler.putTraceId2QueryId(traceId, queryId);
@@ -877,6 +881,10 @@ public class ConnectContext {
 
     public TUniqueId queryId() {
         return queryId;
+    }
+
+    public TUniqueId getLastQueryId() {
+        return lastQueryId;
     }
 
     public TUniqueId nextInstanceId() {
