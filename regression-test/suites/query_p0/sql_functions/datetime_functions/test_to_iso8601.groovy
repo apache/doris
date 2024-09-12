@@ -106,6 +106,12 @@ suite("test_to_iso8601") {
     qt_test_13 """select to_iso8601(k66) from tb order by id;"""
     qt_test_14 """select to_iso8601(k77) from tb order by id;"""
 
+    qt_test_7_2 """select to_iso8601(nullable(k7)) from tb order by id;"""
+    qt_test_14_2 """select to_iso8601(nullable(k77)) from tb order by id;"""
+    qt_test_14_2 """select to_iso8601(NULL) from tb order by id;"""
+
+
+
     sql """ drop table tb """ 
 
 
@@ -133,5 +139,10 @@ suite("test_to_iso8601") {
 
     qt_test_29 """SELECT to_iso8601(CAST('1970-01-01' AS DATE));"""
     qt_test_30 """SELECT to_iso8601(CAST('1970-01-01 00:00:00' AS DATETIME));"""
+
+    qt_test_31 """ SELECT to_iso8601(nullable(CAST('1970-01-01' AS DATE))); """
+    qt_test_32 """ SELECT to_iso8601(nullable(NULL)); """
+    qt_test_33 """ SELECT to_iso8601(NULL); """
+
 
 }
