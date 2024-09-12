@@ -72,7 +72,7 @@ public class CreateViewStmt extends BaseViewStmt implements NotFallbackInParser 
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
         if (orReplace && ifNotExists) {
-            throw new AnalysisException("OR REPLACE and IF NOT EXISTS cannot used at the same time");
+            throw new AnalysisException("[OR REPLACE] and [IF NOT EXISTS] cannot used at the same time");
         }
 
         // check privilege
