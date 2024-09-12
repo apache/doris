@@ -182,7 +182,7 @@ public class TabletStatMgr extends MasterDaemon {
                             index.setRowCount(indexRowCount);
                             LOG.debug("Table {} index {} all tablets reported[{}], row count {}",
                                     olapTable.getName(), olapTable.getIndexNameById(index.getId()),
-                                    indexReported, tableRowCount);
+                                    indexReported, indexRowCount);
                         } // end for indices
                     } // end for partitions
 
