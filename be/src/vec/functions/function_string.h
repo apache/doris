@@ -17,26 +17,22 @@
 
 #pragma once
 
-#include <limits.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/types.h>
 
 #include <algorithm>
 #include <array>
 #include <boost/iterator/iterator_facade.hpp>
+#include <climits>
 #include <cmath>
 #include <codecvt>
 #include <cstddef>
 #include <cstdlib>
+#include <cstring>
 #include <iomanip>
-#include <limits>
 #include <memory>
 #include <ostream>
 #include <random>
-#include <regex>
 #include <sstream>
-#include <stdexcept>
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
@@ -50,7 +46,6 @@
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
 #include "runtime/decimalv2_value.h"
-#include "runtime/runtime_state.h"
 #include "runtime/string_search.hpp"
 #include "util/sha.h"
 #include "util/string_util.h"
@@ -65,17 +60,11 @@
 #include "vec/common/memcpy_small.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
-#include "vec/common/string_utils/string_utils.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/functions/function_binary_arithmetic.h"
-#include "vec/functions/round.h"
-#include "vec/io/io_helper.h"
 #include "vec/utils/template_helpers.hpp"
 
 #ifndef USE_LIBCPP
@@ -2762,10 +2751,8 @@ public:
         return std::make_shared<DataTypeString>();
     }
 
-    Status execute_impl(FunctionContext* context, Block& block,
-
-                        const ColumnNumbers& arguments, size_t result,
-                        size_t input_rows_count) const override {
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
         auto res = ColumnString::create();
         auto& res_offsets = res->get_offsets();
         auto& res_chars = res->get_chars();
@@ -2785,7 +2772,9 @@ public:
             auto source = url_col->get_data_at(i);
             StringRef url_val(const_cast<char*>(source.data), source.size);
 
-            url_encode(url_val.to_string(), &encoded_url);
+            if (!url_encode(url_val.to_string(), &encoded_url)) {
+                return Status::InternalError("Encode url failed");
+            }
 
             StringOP::push_value_string(encoded_url, i, res_chars, res_offsets);
             encoded_url.clear();

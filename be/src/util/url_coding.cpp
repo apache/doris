@@ -24,10 +24,14 @@
 
 namespace doris {
 
-void url_encode(const std::string& in, std::string* out) {
+bool url_encode(const std::string& in, std::string* out) {
     auto* encoded_url = curl_easy_escape(nullptr, in.c_str(), static_cast<int>(in.length()));
+    if (encoded_url == nullptr) {
+        return false;
+    }
     *out = std::string(encoded_url);
     curl_free(static_cast<void*>(encoded_url));
+    return true;
 }
 
 // Adapted from
