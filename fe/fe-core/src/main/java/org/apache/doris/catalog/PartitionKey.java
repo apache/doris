@@ -80,7 +80,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         types = Lists.newArrayList();
     }
 
-    public PartitionKey(PartitionKey other) {
+    private PartitionKey(PartitionKey other) {
         this.keys = new ArrayList<>(other.keys.size());
         for (LiteralExpr expr : other.keys) {
             try {

@@ -197,8 +197,6 @@ public class OlapScanNode extends ScanNode {
 
     private PartitionPruner partitionPruner = null;
 
-    private Map<Long, Set<Long>> backendId2TabletIds = Maps.newHashMap();
-
     private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
 
     // Maps partition column names to a RangeMap that associates ColumnBound ranges with lists of partition IDs,
@@ -269,14 +267,6 @@ public class OlapScanNode extends ScanNode {
 
     public HashSet<Long> getScanBackendIds() {
         return scanBackendIds;
-    }
-
-    public Map<Long, Set<Long>> getBackendId2TabletIds() {
-        return backendId2TabletIds;
-    }
-
-    public void clearBackendId2TabletIds() {
-        backendId2TabletIds.clear();
     }
 
     public Map<String, RangeMap<ColumnBound, List<Long>>> getPartitionCol2PartitionID() {
@@ -974,11 +964,7 @@ public class OlapScanNode extends ScanNode {
                     totalBytes += dataSize;
                     collectedStat = true;
                 }
-                Long beId = backend.getId();
-                scanBackendIds.add(beId);
-                backendId2TabletIds
-                        .computeIfAbsent(beId, k -> new HashSet<>())
-                        .add(tabletId);
+                scanBackendIds.add(backend.getId());
                 // For skipping missing version of tablet, we only select the backend with the highest last
                 // success version replica to save as much data as possible.
                 if (skipMissingVersion) {
@@ -1327,6 +1313,8 @@ public class OlapScanNode extends ScanNode {
         // Lazy evaluation
         selectedIndexId = olapTable.getBaseIndexId();
         // Only key columns
+        distributionKeys2TabletID.clear();
+        partitionCol2PartitionID.clear();
         computeColumnsFilter(olapTable.getBaseSchemaKeyColumns(), olapTable.getPartitionInfo());
         computePartitionInfo();
         scanBackendIds.clear();

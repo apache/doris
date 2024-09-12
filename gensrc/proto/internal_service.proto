@@ -322,6 +322,7 @@ message PTabletKeyLookupRequest {
     optional int64 version = 7;
     // serilized from TQueryOptions 
     optional bytes query_options = 8;
+    required int64 replica_id = 9;
 }
 
 message PTabletBatchKeyLookupRequest {
@@ -335,7 +336,8 @@ message PTabletKeyLookupResponse {
 }
 
 message PTabletBatchKeyLookupResponse {
-    repeated PTabletKeyLookupResponse sub_key_lookup_res = 1;
+    optional PStatus status = 1;
+    repeated PTabletKeyLookupResponse sub_key_lookup_res = 2;
 }
 
 //Add message definition to fetch and update cache

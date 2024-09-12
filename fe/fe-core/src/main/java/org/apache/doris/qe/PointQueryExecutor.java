@@ -28,8 +28,10 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.MysqlCommand;
@@ -55,17 +57,16 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.RangeMap;
 import com.google.common.collect.Sets;
+import com.google.common.collect.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 
-// import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -75,16 +76,45 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 public class PointQueryExecutor implements CoordInterface {
     private static final Logger LOG = LogManager.getLogger(PointQueryExecutor.class);
     private static final ConcurrentHashMap<Class<? extends Expr>, ConjunctHandler> handlers = new ConcurrentHashMap<>();
-    private List<Long> tabletIDs = new ArrayList<>();
+
+    private class RoundRobinScheduler<T> {
+        private final List<T> list;
+        private AtomicInteger currentIndex;
+
+        public RoundRobinScheduler(List<T> list) {
+            this.list = list;
+            this.currentIndex = new AtomicInteger(0);
+        }
+
+        public T next() {
+            if (list.isEmpty()) {
+                return null;
+            }
+            int index = currentIndex.getAndUpdate(i -> (i + 1) % list.size());
+            return list.get(index);
+        }
+    }
+
+    private List<Long> scanTabletIDs = new ArrayList<>();
     private long timeoutMs = Config.point_query_timeout_ms; // default 10s
 
     private boolean isCancel = false;
     private List<Backend> candidateBackends;
+
+    // key: tablet id, value: backend and replica id
+    private HashMap<Long, Pair<Backend, Long>> pickedCandidateReplicas = Maps.newHashMap();
+
+    RoundRobinScheduler<Backend> roundRobinscheduler = null;
+
+    // tablet id -> backend id -> replica
+    Table<Long, Long, Replica> replicaMetaTable = null;
+
     private final int maxMsgSizeOfResultReceiver;
 
     // used for snapshot read in cloud mode
@@ -93,15 +123,13 @@ public class PointQueryExecutor implements CoordInterface {
 
     private final ShortCircuitQueryContext shortCircuitQueryContext;
 
-    Map<Long, Set<Long>> backendId2TabletIds;
-
     Map<PartitionKey, Set<Long>> distributionKeys2TabletID = null;
 
     // Maps partition column names to a RangeMap that associates ColumnBound ranges with lists of partition IDs,
     // similar to the implementation in PartitionPrunerV2Base.
     Map<String, RangeMap<ColumnBound, List<Long>>> partitionCol2PartitionID = null;
 
-    List<Set<Long>> keyTupleID2TabletID = null;  // key tuple id is the index in array
+    List<Set<Long>> keyTupleIndex2TabletID = null;
 
     List<List<String>> allKeyTuples = null;
 
@@ -145,7 +173,7 @@ public class PointQueryExecutor implements CoordInterface {
         }
         this.distributionKeys2TabletID = scanNode.getDistributionKeys2TabletID();
         this.partitionCol2PartitionID = scanNode.getPartitionCol2PartitionID();
-        this.tabletIDs = scanNode.getScanTabletIds();
+        this.scanTabletIDs = scanNode.getScanTabletIds();
 
         // update partition version if cloud mode
         if (Config.isCloudMode()
@@ -161,10 +189,9 @@ public class PointQueryExecutor implements CoordInterface {
                 candidateBackends.add(backend);
             }
         }
-        // Random read replicas
-        Collections.shuffle(this.candidateBackends);
+
         if (LOG.isDebugEnabled()) {
-            LOG.debug("set scan locations, backend ids {}, tablet ids {}", candidateBackends, tabletIDs);
+            LOG.debug("set scan locations, backend ids {}, tablet ids {}", candidateBackends, scanTabletIDs);
         }
     }
 
@@ -205,10 +232,6 @@ public class PointQueryExecutor implements CoordInterface {
         private InPredicateHandler() {
         }
 
-        public static InPredicateHandler getInstance() {
-            return INSTANCE;
-        }
-
         @Override
         public int handle(Expr expr, List<Expr> conjunctVals, int handledConjunctVals) throws AnalysisException {
             InPredicate inPredicate = (InPredicate) expr;
@@ -230,10 +253,6 @@ public class PointQueryExecutor implements CoordInterface {
         public static final BinaryPredicateHandler INSTANCE = new BinaryPredicateHandler();
 
         private BinaryPredicateHandler() {
-        }
-
-        public static BinaryPredicateHandler getInstance() {
-            return INSTANCE;
         }
 
         @Override
@@ -266,8 +285,8 @@ public class PointQueryExecutor implements CoordInterface {
     }
 
     private static void initHandler() {
-        handlers.put(InPredicate.class, InPredicateHandler.getInstance());
-        handlers.put(BinaryPredicate.class, BinaryPredicateHandler.getInstance());
+        handlers.put(InPredicate.class, InPredicateHandler.INSTANCE);
+        handlers.put(BinaryPredicate.class, BinaryPredicateHandler.INSTANCE);
     }
 
     private static void updateScanNodeConjuncts(OlapScanNode scanNode, List<Expr> conjunctVals) {
@@ -329,6 +348,29 @@ public class PointQueryExecutor implements CoordInterface {
         return leftMostPartitionIDs;
     }
 
+    private void pickCandidateBackends() {
+        for (Long tabletID : scanTabletIDs) {
+            roundRobinPickReplica(tabletID);
+        }
+    }
+
+    private void roundRobinPickReplica(Long tabletID) {
+        while (true) {
+            Backend backend = roundRobinscheduler.next();
+            if (backend == null) {
+                break;
+            }
+            Map<Long, Replica> beWithReplica = replicaMetaTable.row(tabletID);
+            if (!beWithReplica.containsKey(backend.getId())) {
+                continue;
+            }
+            pickedCandidateReplicas
+                    .putIfAbsent(tabletID,
+                                 Pair.of(backend, beWithReplica.get(backend.getId()).getId()));
+            break;
+        }
+    }
+
     // Use the leftmost matching partition to prune the tablet
     private void addTabletIDsForKeyTuple(List<String> orderedKeyTuple, List<Column> keyColumns,
                                          OlapTable olapTable, Set<Long> leftMostPartitionIDs) {
@@ -363,7 +405,7 @@ public class PointQueryExecutor implements CoordInterface {
                 break;
             }
         }
-        keyTupleID2TabletID.add(tabletIDs);
+        keyTupleIndex2TabletID.add(tabletIDs.isEmpty() ? null : tabletIDs);
     }
 
     void getAllKeyTupleCombination(List<Expr> conjuncts, int index,
@@ -420,33 +462,14 @@ public class PointQueryExecutor implements CoordInterface {
         }
     }
 
-    void addKeyTuples(
-            InternalService.PTabletKeyLookupRequest.Builder requestBuilder) {
-        // TODO handle IN predicates
-        Map<String, Expr> columnExpr = Maps.newHashMap();
-        KeyTuple.Builder kBuilder = KeyTuple.newBuilder();
-        for (Expr expr : shortCircuitQueryContext.scanNode.getConjuncts()) {
-            BinaryPredicate predicate = (BinaryPredicate) expr;
-            Expr left = predicate.getChild(0);
-            Expr right = predicate.getChild(1);
-            SlotRef columnSlot = left.unwrapSlotRef();
-            columnExpr.put(columnSlot.getColumnName(), right);
-        }
-        // add key tuple in keys order
-        for (Column column : shortCircuitQueryContext.scanNode.getOlapTable().getBaseSchemaKeyColumns()) {
-            kBuilder.addKeyColumnRep(columnExpr.get(column.getName()).getStringValue());
-        }
-        requestBuilder.addKeyTuples(kBuilder);
-    }
-
     List<List<String>> addAllKeyTuples(List<Column> keyColumns) {
         List<Expr> conjuncts = shortCircuitQueryContext.scanNode.getConjuncts();
         List<List<String>> keyTuples = Lists.newArrayList();
-        if (keyTupleID2TabletID == null) {
-            keyTupleID2TabletID = Lists.newArrayList();
+        if (keyTupleIndex2TabletID == null) {
+            keyTupleIndex2TabletID = Lists.newArrayList();
         }
         getAllKeyTupleCombination(conjuncts, 0, new ArrayList<>(), keyTuples, Lists.newArrayList(), keyColumns);
-        Preconditions.checkState(keyTuples.size() == keyTupleID2TabletID.size());
+        Preconditions.checkState(keyTuples.size() == keyTupleIndex2TabletID.size());
         return keyTuples;
     }
 
@@ -463,6 +486,12 @@ public class PointQueryExecutor implements CoordInterface {
         if (candidateBackends == null || candidateBackends.isEmpty()) {
             return new RowBatch();
         }
+
+        // pick candidate backends
+        roundRobinscheduler = new RoundRobinScheduler<>(candidateBackends);
+        replicaMetaTable = Env.getCurrentInvertedIndex().getReplicaMetaTable();
+        pickCandidateBackends();
+
         OlapScanNode scanNode = shortCircuitQueryContext.scanNode;
         OlapTable olapTable = scanNode.getOlapTable();
         List<Column> keyColumns = olapTable.getBaseSchemaKeyColumns();
@@ -475,30 +504,30 @@ public class PointQueryExecutor implements CoordInterface {
                 distributionKeyColumns.add(i);
             }
         }
-        Iterator<Backend> backendIter = candidateBackends.iterator();
         RowBatch rowBatch = new RowBatch();
-        int tryCount = 0;
-        int maxTry = Math.min(Config.max_point_query_retry_time, candidateBackends.size());
         Status status = new Status();
         this.allKeyTuples = addAllKeyTuples(keyColumns);
-        this.backendId2TabletIds = scanNode.getBackendId2TabletIds();
         TResultBatch resultBatch = new TResultBatch();
         resultBatch.setRows(Lists.newArrayList());
         List<byte[]> batchSerialResult = Lists.newArrayList();
-        do {
-            Backend backend = backendIter.next();
-            List<byte[]> subSerialResult = batchGetNext(status, backend);
-            if (subSerialResult == null) {
-                continue;
-            }
-            batchSerialResult.addAll(subSerialResult);
-            if (++tryCount >= maxTry) {
+        Map<Backend, InternalService.PTabletBatchKeyLookupRequest.Builder> batchRequestBuilders =
+                buildBatchRequest(status);
+        // send batch request
+        if (batchRequestBuilders.isEmpty()) {
+            status.updateStatus(TStatusCode.OK, "");
+            rowBatch.setEos(true);
+            return rowBatch;
+        }
+        for (Map.Entry<Backend, InternalService.PTabletBatchKeyLookupRequest.Builder> entry :
+                    batchRequestBuilders.entrySet()) {
+            List<byte[]> subSerialResult = batchGetNext(status, entry.getKey(), entry.getValue());
+
+            if (!status.ok()) {
                 break;
             }
-        } while (backendIter.hasNext());
-        distributionKeys2TabletID.clear();
-        partitionCol2PartitionID.clear();
-        scanNode.clearBackendId2TabletIds();
+            batchSerialResult.addAll(subSerialResult);
+        }
+
         // todo: maybe there is a better way
         if (!batchSerialResult.isEmpty()) {
             TDeserializer deserializer = new TDeserializer(
@@ -549,60 +578,86 @@ public class PointQueryExecutor implements CoordInterface {
         // only handles in getNext()
     }
 
-    private List<byte[]> batchGetNext(Status status, Backend backend) throws TException {
-        TResultBatch resultBatch = new TResultBatch();
-        List<byte[]> result = Lists.newArrayList();
-        resultBatch.setRows(Lists.newArrayList());
-        InternalService.PTabletBatchKeyLookupRequest.Builder pBatchRequestBuilder
-                = InternalService.PTabletBatchKeyLookupRequest.newBuilder();
-        Set<Long> tabletIdsOfBe = backendId2TabletIds.get(backend.getId());
-        Preconditions.checkNotNull(shortCircuitQueryContext.serializedDescTable);
-        // assemble sub request
-        for (int i = 0; i < keyTupleID2TabletID.size(); ++i) {
+    private void collectBatchRequests(
+            Map<Backend, InternalService.PTabletBatchKeyLookupRequest.Builder> batchRequests,
+            KeyTuple.Builder kBuilder, Set<Long> tabletIDsOfKeyTuple) {
+        // check containsKey
+        for (Long tabletID : tabletIDsOfKeyTuple) {
+            Preconditions.checkState(pickedCandidateReplicas.containsKey(tabletID));
+            Pair<Backend, Long> beWithReplicaID = pickedCandidateReplicas.get(tabletID);
+            Backend candidate = beWithReplicaID.first;
+            batchRequests.putIfAbsent(
+                    candidate,
+                    InternalService.PTabletBatchKeyLookupRequest.newBuilder());
+            buildSubRequest(tabletID, kBuilder, beWithReplicaID.second,
+                            batchRequests.get(candidate));
+        }
+    }
+
+    // Find the tabletID, backend, and replica corresponding to each keyTuple,
+    // and then add them to batchRequests. Each backend corresponds to a batchRequest.
+    private Map<Backend, InternalService.PTabletBatchKeyLookupRequest.Builder>
+            buildBatchRequest(Status status) throws TException {
+        Map<Backend, InternalService.PTabletBatchKeyLookupRequest.Builder> batchRequestBuilders =
+                Maps.newHashMap();
+        for (int i = 0; i < keyTupleIndex2TabletID.size(); ++i) {
+            if (keyTupleIndex2TabletID.get(i) == null) {
+                continue;
+            }
             KeyTuple.Builder kBuilder = KeyTuple.newBuilder();
             for (String key : this.allKeyTuples.get(i)) {
                 kBuilder.addKeyColumnRep(key);
             }
-            Set<Long> prunedTabletIdsOfBe = Sets.newHashSet(tabletIdsOfBe);
-            prunedTabletIdsOfBe.retainAll(keyTupleID2TabletID.get(i));
-            if (!prunedTabletIdsOfBe.isEmpty()) {
-                for (Long tabletId : prunedTabletIdsOfBe) {
-                    InternalService.PTabletKeyLookupRequest.Builder requestBuilder
-                            = InternalService.PTabletKeyLookupRequest.newBuilder()
-                            .setDescTbl(shortCircuitQueryContext.serializedDescTable)
-                            .setOutputExpr(shortCircuitQueryContext.serializedOutputExpr)
-                            .setQueryOptions(shortCircuitQueryContext.serializedQueryOptions)
-                            .setIsBinaryRow(ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE);
+            collectBatchRequests(batchRequestBuilders, kBuilder, keyTupleIndex2TabletID.get(i));
+        }
+        return batchRequestBuilders;
+    }
 
-                    // TODO: optimize me
-                    if (snapshotVisibleVersions != null && !snapshotVisibleVersions.isEmpty()) {
-                        Long versionToSet = -1L;
-                        for (Map.Entry<CloudPartition, Long> entry : snapshotVisibleVersions.entrySet()) {
-                            MaterializedIndex selectedTable =
-                                    entry.getKey().getIndex(shortCircuitQueryContext.scanNode.getSelectedIndexId());
-                            if (selectedTable.getTabletIdsInOrder().contains(tabletId)) {
-                                versionToSet = entry.getValue();
-                                break;
-                            }
-                        }
-                        requestBuilder.setVersion(versionToSet);
-                    }
-                    if (shortCircuitQueryContext.cacheID != null) {
-                        InternalService.UUID.Builder uuidBuilder = InternalService.UUID.newBuilder();
-                        uuidBuilder.setUuidHigh(shortCircuitQueryContext.cacheID.getMostSignificantBits());
-                        uuidBuilder.setUuidLow(shortCircuitQueryContext.cacheID.getLeastSignificantBits());
-                        requestBuilder.setUuid(uuidBuilder);
-                    }
-                    requestBuilder.addKeyTuples(kBuilder);
-                    requestBuilder.setTabletId(tabletId);
-                    pBatchRequestBuilder.addSubKeyLookupReq(requestBuilder);
+    // Build a request about a keyTuple, that is, SubRequest
+    private void buildSubRequest(
+            Long prunedTabletIdsOfBe, KeyTuple.Builder kBuilder, Long replicaID,
+            InternalService.PTabletBatchKeyLookupRequest.Builder pBatchRequestBuilder) {
+        InternalService.PTabletKeyLookupRequest.Builder requestBuilder
+                = InternalService.PTabletKeyLookupRequest.newBuilder()
+                .setDescTbl(shortCircuitQueryContext.serializedDescTable)
+                .setOutputExpr(shortCircuitQueryContext.serializedOutputExpr)
+                .setQueryOptions(shortCircuitQueryContext.serializedQueryOptions)
+                .setIsBinaryRow(ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE);
+
+        // TODO: optimize me
+        if (snapshotVisibleVersions != null && !snapshotVisibleVersions.isEmpty()) {
+            Long versionToSet = -1L;
+            for (Map.Entry<CloudPartition, Long> entry : snapshotVisibleVersions.entrySet()) {
+                MaterializedIndex selectedTable =
+                        entry.getKey().getIndex(shortCircuitQueryContext.scanNode.getSelectedIndexId());
+                if (selectedTable.getTabletIdsInOrder().contains(prunedTabletIdsOfBe)) {
+                    versionToSet = entry.getValue();
+                    break;
                 }
             }
+            requestBuilder.setVersion(versionToSet);
         }
-        if (pBatchRequestBuilder.getSubKeyLookupReqCount() == 0) {
-            status.updateStatus(TStatusCode.OK, "");
-            return result;
+        if (shortCircuitQueryContext.cacheID != null) {
+            InternalService.UUID.Builder uuidBuilder = InternalService.UUID.newBuilder();
+            uuidBuilder.setUuidHigh(shortCircuitQueryContext.cacheID.getMostSignificantBits());
+            uuidBuilder.setUuidLow(shortCircuitQueryContext.cacheID.getLeastSignificantBits());
+            requestBuilder.setUuid(uuidBuilder);
         }
+        requestBuilder.addKeyTuples(kBuilder);
+        requestBuilder.setTabletId(prunedTabletIdsOfBe);
+        requestBuilder.setReplicaId(replicaID);
+        pBatchRequestBuilder.addSubKeyLookupReq(requestBuilder);
+    }
+
+    private List<byte[]> batchGetNext(
+            Status status, Backend backend,
+            InternalService.PTabletBatchKeyLookupRequest.Builder pBatchRequestBuilder) throws TException {
+        TResultBatch resultBatch = new TResultBatch();
+        List<byte[]> result = Lists.newArrayList();
+        resultBatch.setRows(Lists.newArrayList());
+
+        Preconditions.checkState(pBatchRequestBuilder.getSubKeyLookupReqCount() > 0);
+
         // batch fetch data
         InternalService.PTabletBatchKeyLookupRequest pBatchRequest = pBatchRequestBuilder.build();
         long timeoutTs = System.currentTimeMillis() + timeoutMs;
