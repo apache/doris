@@ -176,7 +176,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             if (newChild != child) {
                 hasNewChildren = true;
             }
-            if (newChild.getDataType() != child.getDataType()) {
+            if (!newChild.getDataType().equals(child.getDataType())) {
                 newChildren.add(newChild.castTo(child.getDataType()));
             } else {
                 newChildren.add(newChild);
