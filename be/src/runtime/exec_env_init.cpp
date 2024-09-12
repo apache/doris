@@ -636,7 +636,8 @@ Status ExecEnv::_check_deploy_mode() {
                 DCHECK_EQ(fsize, bytes_read);
                 if (expected_mode != actual_mode) {
                     return Status::InternalError(
-                            "You can't switch deploy mode from {} to {}, maybe you need to check be.conf\n",
+                            "You can't switch deploy mode from {} to {}, " +
+                            "maybe you need to check be.conf\n",
                             actual_mode.c_str(), expected_mode.c_str());
                 }
                 LOG(INFO) << "The current deployment mode is " << expected_mode << ".";
@@ -651,8 +652,8 @@ Status ExecEnv::_check_deploy_mode() {
             auto cluster_id_path = fmt::format("{}/{}", _path.path, CLUSTER_ID_PREFIX);
             RETURN_IF_ERROR(io::global_local_filesystem()->exists(cluster_id_path, &exists));
             if (exists) {
-                LOG(WARNING) << "This may be an upgrade from old version,
-                             << or the deploy_mode file has been manually deleted";
+                LOG(WARNING) << "This may be an upgrade from old version,"
+                             << "or the deploy_mode file has been manually deleted";
             }
         }
     }

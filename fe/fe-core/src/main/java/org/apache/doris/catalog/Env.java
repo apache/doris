@@ -1364,8 +1364,8 @@ public class Env {
             LOG.info("The file DEPLOY_MODE doesn't exist, create it.");
             File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
             if (versionFile.exists()) {
-                LOG.warn("This may be an upgrade from old version, " +
-                        "or the DEPLOY_MODE file has been manually deleted");
+                LOG.warn("This may be an upgrade from old version, "
+                        + "or the DEPLOY_MODE file has been manually deleted");
             }
         }
     }
