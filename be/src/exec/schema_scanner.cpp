@@ -43,6 +43,7 @@
 #include "exec/schema_scanner/schema_rowsets_scanner.h"
 #include "exec/schema_scanner/schema_schema_privileges_scanner.h"
 #include "exec/schema_scanner/schema_schemata_scanner.h"
+#include "exec/schema_scanner/schema_table_options_scanner.h"
 #include "exec/schema_scanner/schema_table_privileges_scanner.h"
 #include "exec/schema_scanner/schema_table_properties_scanner.h"
 #include "exec/schema_scanner/schema_tables_scanner.h"
@@ -239,6 +240,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaTablePropertiesScanner::create_unique();
     case TSchemaTableType::SCH_CATALOG_META_CACHE_STATISTICS:
         return SchemaCatalogMetaCacheStatsScanner::create_unique();
+    case TSchemaTableType::SCH_TABLE_OPTIONS:
+        return SchemaTableOptionsScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;
@@ -449,6 +452,17 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, vectorized:
         break;
     }
 
+    case TYPE_DATETIME: {
+        std::vector<void*> datas(1);
+        VecDateTimeValue src[1];
+        src[0].from_date_str(cell.stringVal.data(), cell.stringVal.size());
+        datas[0] = src;
+        auto data = datas[0];
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
+                reinterpret_cast<char*>(data), 0);
+        nullable_column->get_null_map_data().emplace_back(0);
+        break;
+    }
     default: {
         std::stringstream ss;
         ss << "unsupported column type:" << type;

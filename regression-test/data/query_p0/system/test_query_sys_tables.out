@@ -152,8 +152,6 @@ PARTITION_COMMENT	text	Yes	false	\N
 NODEGROUP	varchar(256)	Yes	false	\N	
 TABLESPACE_NAME	varchar(268)	Yes	false	\N	
 
--- !select_partitions --
-
 -- !desc_rowsets --
 BACKEND_ID	bigint	Yes	false	\N	
 ROWSET_ID	varchar(64)	Yes	false	\N	

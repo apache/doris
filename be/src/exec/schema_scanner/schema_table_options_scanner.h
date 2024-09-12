@@ -16,7 +16,6 @@
 // under the License.
 
 #pragma once
-
 #include <gen_cpp/FrontendService_types.h>
 
 #include <vector>
@@ -30,12 +29,12 @@ namespace vectorized {
 class Block;
 } // namespace vectorized
 
-class SchemaPartitionsScanner : public SchemaScanner {
-    ENABLE_FACTORY_CREATOR(SchemaPartitionsScanner);
+class SchemaTableOptionsScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaTableOptionsScanner);
 
 public:
-    SchemaPartitionsScanner();
-    ~SchemaPartitionsScanner() override;
+    SchemaTableOptionsScanner();
+    ~SchemaTableOptionsScanner() override = default;
 
     Status start(RuntimeState* state) override;
     Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
@@ -50,8 +49,7 @@ private:
     TGetDbsResult _db_result;
     int _row_idx = 0;
     int _total_rows = 0;
-    std::unique_ptr<vectorized::Block> _partitions_block = nullptr;
+    std::unique_ptr<vectorized::Block> _tableoptions_block = nullptr;
     int _rpc_timeout_ms = 3000;
 };
-
-} // namespace doris
+}; // namespace doris

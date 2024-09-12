@@ -27,6 +27,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "exec/schema_scanner/schema_scanner_helper.h"
 #include "io/fs/local_file_reader.h"
 #include "olap/storage_engine.h"
 #include "pipeline/task_queue.h"
