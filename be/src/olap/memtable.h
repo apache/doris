@@ -62,7 +62,11 @@ struct RowInBlock {
         _agg_state_offset = agg_state_offset;
     }
 
-    char* agg_places(size_t offset) const { return _agg_mem + _agg_state_offset[offset]; }
+    char* agg_places(size_t offset) const {
+        LOG(WARNING) << "mytest _agg_mem: " << _agg_mem << ", offset: " << offset
+                     << ", _agg_state_offset[offset]: " << _agg_state_offset[offset];
+        return _agg_mem + _agg_state_offset[offset];
+    }
 
     inline bool has_init_agg() const { return _has_init_agg; }
 

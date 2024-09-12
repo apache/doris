@@ -125,10 +125,12 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
     for (uint32_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
         _offsets_of_aggregate_states[cid] = _total_size_of_aggregate_states;
         _total_size_of_aggregate_states += _agg_functions[cid]->size_of_data();
+        DCHECK_NE(_agg_functions[cid]->size_of_data(), 0);
 
         // If not the last aggregate_state, we need pad it so that next aggregate_state will be aligned.
         if (cid + 1 < _num_columns) {
             size_t alignment_of_next_state = _agg_functions[cid + 1]->align_of_data();
+            DCHECK_NE(_agg_functions[cid + 1]->align_of_data(), 0);
 
             /// Extend total_size to next alignment requirement
             /// Add padding by rounding up 'total_size_of_aggregate_states' to be a multiplier of alignment_of_next_state.
@@ -148,11 +150,13 @@ MemTable::~MemTable() {
             if (!(*it)->has_init_agg()) {
                 continue;
             }
+            LOG(WARNING) << "mytest (*it): " << (*it);
             // We should release agg_places here, because they are not released when a
             // load is canceled.
             for (size_t i = _tablet_schema->num_key_columns(); i < _num_columns; ++i) {
                 auto function = _agg_functions[i];
                 DCHECK(function != nullptr);
+                LOG(WARNING) << "mytest (*it)->agg_places(i): " << (*it)->agg_places(i);
                 function->destroy((*it)->agg_places(i));
             }
         }
