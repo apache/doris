@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -33,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
@@ -41,7 +39,6 @@ import com.google.common.collect.ImmutableMultimap;
 import java.lang.reflect.Array;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
@@ -99,12 +96,11 @@ public enum ExpressionEvaluator {
     }
 
     private Expression invoke(Expression expression, String fnName, DataType[] args) {
-        FunctionSignature signature = new FunctionSignature(fnName, args, null, false);
-        FunctionInvoker invoker = getFunction(signature);
+        FunctionInvoker invoker = getFunction(fnName, expression.children());
         if (invoker != null) {
             try {
                 if (invoker.getSignature().hasVarArgs()) {
-                    int fixedArgsSize = invoker.getSignature().getArgTypes().length - 1;
+                    int fixedArgsSize = invoker.getMethod().getParameterTypes().length - 1;
                     int totalSize = expression.children().size();
                     Class<?>[] parameterTypes = invoker.getMethod().getParameterTypes();
                     Class<?> parameterType = parameterTypes[parameterTypes.length - 1];
@@ -131,49 +127,48 @@ public enum ExpressionEvaluator {
         return expression;
     }
 
-    private FunctionInvoker getFunction(FunctionSignature signature) {
-        Collection<FunctionInvoker> functionInvokers = functions.get(signature.getName());
-        for (FunctionInvoker candidate : functionInvokers) {
-            DataType[] candidateTypes = candidate.getSignature().getArgTypes();
-            DataType[] expectedTypes = signature.getArgTypes();
+    private boolean canDownCastTo(Class<?> expect, Class<?> input) {
+        return expect.isAssignableFrom(input);
+    }
 
-            if (candidate.getSignature().hasVarArgs()) {
-                if (candidateTypes.length > expectedTypes.length) {
-                    continue;
-                }
-                boolean match = true;
-                for (int i = 0; i < candidateTypes.length - 1; i++) {
-                    if (!(expectedTypes[i].toCatalogDataType().matchesType(candidateTypes[i].toCatalogDataType()))) {
-                        match = false;
-                        break;
-                    }
-                }
-                Type varType = candidateTypes[candidateTypes.length - 1].toCatalogDataType();
-                for (int i = candidateTypes.length - 1; i < expectedTypes.length; i++) {
-                    if (!(expectedTypes[i].toCatalogDataType().matchesType(varType))) {
-                        match = false;
-                        break;
-                    }
-                }
-                if (match) {
-                    return candidate;
-                } else {
-                    continue;
-                }
-            }
-            if (candidateTypes.length != expectedTypes.length) {
-                continue;
-            }
-
+    private FunctionInvoker getFunction(String fnName, List<Expression> inputs) {
+        Collection<FunctionInvoker> functionInvokers = functions.get(fnName);
+        for (FunctionInvoker expect : functionInvokers) {
             boolean match = true;
-            for (int i = 0; i < candidateTypes.length; i++) {
-                if (!(expectedTypes[i].toCatalogDataType().matchesType(candidateTypes[i].toCatalogDataType()))) {
-                    match = false;
-                    break;
+            if (expect.getSignature().hasVarArgs()) {
+                int fixedArgsSize = expect.getMethod().getParameterTypes().length - 1;
+                int inputSize = inputs.size();
+                if (inputSize <= fixedArgsSize) {
+                    continue;
+                }
+                Class<?>[] expectVarTypes = expect.getMethod().getParameterTypes();
+                for (int i = 0; i < fixedArgsSize; i++) {
+                    if (!canDownCastTo(expectVarTypes[i], inputs.get(i).getClass())) {
+                        match = false;
+                    }
+                }
+                Class<?> varArgsType = expectVarTypes[expectVarTypes.length - 1];
+                Class<?> varArgType = varArgsType.getComponentType();
+                for (int i = fixedArgsSize; i < inputSize; i++) {
+                    if (!canDownCastTo(varArgType, inputs.get(i).getClass())) {
+                        match = false;
+                    }
+                }
+            } else {
+                int fixedArgsSize = expect.getMethod().getParameterTypes().length;
+                int inputSize = inputs.size();
+                if (inputSize != fixedArgsSize) {
+                    continue;
+                }
+                Class<?>[] expectVarTypes = expect.getMethod().getParameterTypes();
+                for (int i = 0; i < fixedArgsSize; i++) {
+                    if (!canDownCastTo(expectVarTypes[i], inputs.get(i).getClass())) {
+                        match = false;
+                    }
                 }
             }
             if (match) {
-                return candidate;
+                return expect;
             }
         }
         return null;
@@ -212,16 +207,7 @@ public enum ExpressionEvaluator {
             Method method, ExecFunction annotation) {
         if (annotation != null) {
             String name = annotation.name();
-            DataType returnType = DataType.convertFromString(annotation.returnType());
-            List<DataType> argTypes = new ArrayList<>();
-            for (String type : annotation.argTypes()) {
-                argTypes.add(TypeCoercionUtils.replaceDecimalV3WithWildcard(DataType.convertFromString(type)));
-            }
-            DataType[] array = new DataType[argTypes.size()];
-            for (int i = 0; i < argTypes.size(); i++) {
-                array[i] = argTypes.get(i);
-            }
-            FunctionSignature signature = new FunctionSignature(name, array, returnType, annotation.varArgs());
+            FunctionSignature signature = new FunctionSignature(name, annotation.varArgs());
             mapBuilder.put(name, new FunctionInvoker(method, signature));
         }
     }
@@ -268,23 +254,11 @@ public enum ExpressionEvaluator {
      */
     public static class FunctionSignature {
         private final String name;
-        private final DataType[] argTypes;
-        private final DataType returnType;
         private final boolean hasVarArgs;
 
-        public FunctionSignature(String name, DataType[] argTypes, DataType returnType, boolean hasVarArgs) {
+        public FunctionSignature(String name, boolean hasVarArgs) {
             this.name = name;
-            this.argTypes = argTypes;
-            this.returnType = returnType;
             this.hasVarArgs = hasVarArgs;
-        }
-
-        public DataType[] getArgTypes() {
-            return argTypes;
-        }
-
-        public DataType getReturnType() {
-            return returnType;
         }
 
         public String getName() {

@@ -35,16 +35,6 @@ public @interface ExecFunction {
     String name();
 
     /**
-     * args type
-     */
-    String[] argTypes();
-
-    /**
-     * return type
-     */
-    String returnType();
-
-    /**
      * hasVarArgsc
      */
     boolean varArgs() default false;
