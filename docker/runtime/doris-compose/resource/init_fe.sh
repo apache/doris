@@ -88,6 +88,21 @@ start_cloud_fe() {
         return
     fi
 
+    # Check if SQL_MODE_NODE_MGR is set to 1
+    if [ "${SQL_MODE_NODE_MGR}" = "1" ]; then
+        health_log "SQL_MODE_NODE_MGR is set to 1. Skipping add FE."
+
+        touch $REGISTER_FILE
+
+        fe_daemon &
+        bash $DORIS_HOME/bin/start_fe.sh --daemon
+
+        if [ "$MY_ID" == "1" ]; then
+            echo $MY_IP >$MASTER_FE_IP_FILE
+        fi
+        return
+    fi
+
     wait_create_instance
 
     action=add_cluster
