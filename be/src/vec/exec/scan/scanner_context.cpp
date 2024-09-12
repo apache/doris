@@ -115,7 +115,7 @@ Status ScannerContext::init() {
     // of the scan operator is regarded as 1 (actually maybe not).
     // That will make the number of scan task can be submitted to the scheduler
     // in a vary large value. This logicl is kept from the older implementation.
-    // https://github.com/apache/doris/pull/28266
+    // https://github.com/apache/doris/pull/33037
     if (_ignore_data_distribution) {
         num_parallel_instances = 1;
     }
@@ -149,7 +149,10 @@ Status ScannerContext::init() {
     _max_thread_num =
             _state->num_scanner_threads() > 0
                     ? _state->num_scanner_threads()
-                    : 2 * (config::doris_scanner_thread_pool_thread_num / num_parallel_instances);
+                    : (_local_state == nullptr ? 2 * (config::doris_scanner_thread_pool_thread_num /
+                                                      num_parallel_instances)
+                                               : config::doris_scanner_thread_pool_thread_num /
+                                                         _state->query_parallel_instance_num());
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
     // In some situation, there are not too many big tablets involed, so we can reduce the thread number.
     // NOTE: when _all_scanners.size is zero, the _max_thread_num will be 0.
