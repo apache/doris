@@ -86,7 +86,7 @@ public class MetaInfoActionV2 extends RestBaseController {
             HttpServletRequest request, HttpServletResponse response) {
         checkWithCookie(request, response, false);
 
-        if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER) || !ns.equalsIgnoreCase(
+        if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER) && !ns.equalsIgnoreCase(
                 InternalCatalog.INTERNAL_CATALOG_NAME)) {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster/internal' now");
         }
@@ -130,7 +130,7 @@ public class MetaInfoActionV2 extends RestBaseController {
             HttpServletRequest request, HttpServletResponse response) {
         checkWithCookie(request, response, false);
 
-        if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER) || !ns.equalsIgnoreCase(
+        if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER) && !ns.equalsIgnoreCase(
                 InternalCatalog.INTERNAL_CATALOG_NAME)) {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster/internal' now");
         }
@@ -201,7 +201,7 @@ public class MetaInfoActionV2 extends RestBaseController {
             HttpServletRequest request, HttpServletResponse response) throws UserException {
         checkWithCookie(request, response, false);
 
-        if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER) || !ns.equalsIgnoreCase(
+        if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER) && !ns.equalsIgnoreCase(
                 InternalCatalog.INTERNAL_CATALOG_NAME)) {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster/internal' now");
         }
