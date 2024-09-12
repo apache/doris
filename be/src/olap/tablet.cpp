@@ -855,8 +855,8 @@ Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
                              << ", version already has been merged. spec_version: " << spec_version
                              << ", max_version: " << max_version_unlocked();
             }
-            status = Status::Error<VERSION_ALREADY_MERGED>(
-                    "missed_versions is empty, spec_version "
+            status = Status::Error<VERSION_ALREADY_MERGED, false>(
+                    "versions are already compacted, spec_version "
                     "{}, max_version {}, tablet_id {}",
                     spec_version.second, max_version_unlocked(), tablet_id());
         } else {
