@@ -375,7 +375,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 DCHECK(output_rowset_schema->has_inverted_index_with_index_id(index_id, ""));
                 _olap_data_convertor->add_column_data_convertor(column);
                 return_columns.emplace_back(column_idx);
-                std::unique_ptr<Field> field(FieldFactory::create(column));
+                auto field = FieldFactory::create(column);
                 const auto* index_meta = output_rowset_schema->get_inverted_index(column);
                 std::unique_ptr<segment_v2::InvertedIndexColumnWriter> inverted_index_builder;
                 try {
@@ -498,7 +498,7 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
         }
         auto column = tablet_schema->column(column_idx);
         auto writer_sign = std::make_pair(segment_idx, index_id);
-        std::unique_ptr<Field> field(FieldFactory::create(column));
+        auto field = FieldFactory::create(column);
         auto converted_result = _olap_data_convertor->convert_column_data(i);
         if (converted_result.first != Status::OK()) {
             LOG(WARNING) << "failed to convert block, errcode: " << converted_result.first;

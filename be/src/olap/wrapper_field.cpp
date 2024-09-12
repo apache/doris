@@ -50,7 +50,7 @@ Result<WrapperField*> WrapperField::create(const TabletColumn& column, uint32_t 
                 "length of string parameter is too long[len={}, max_len={}].", len, max_length)};
     }
 
-    Field* rep = FieldFactory::create(column);
+    FieldSPtr rep = FieldFactory::create(column);
     if (rep == nullptr) {
         return unexpected {Status::Uninitialized("Unsupport field creation of {}", column.name())};
     }
@@ -74,7 +74,7 @@ Result<WrapperField*> WrapperField::create(const TabletColumn& column, uint32_t 
 }
 
 WrapperField* WrapperField::create_by_type(const FieldType& type, int32_t var_length) {
-    Field* rep = FieldFactory::create_by_type(type);
+    FieldSPtr rep = FieldFactory::create_by_type(type);
     if (rep == nullptr) {
         return nullptr;
     }
@@ -87,7 +87,7 @@ WrapperField* WrapperField::create_by_type(const FieldType& type, int32_t var_le
     return new WrapperField(rep, var_length, is_string_type);
 }
 
-WrapperField::WrapperField(Field* rep, size_t variable_len, bool is_string_type)
+WrapperField::WrapperField(FieldSPtr rep, size_t variable_len, bool is_string_type)
         : _rep(rep), _is_string_type(is_string_type), _var_length(0) {
     size_t fixed_len = _rep->size();
     _length = fixed_len + 1;
