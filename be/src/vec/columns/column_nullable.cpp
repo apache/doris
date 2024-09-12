@@ -601,6 +601,12 @@ void ColumnNullable::_update_has_null() {
     _need_update_has_null = false;
 }
 
+bool ColumnNullable::has_null() const {
+    // TODO: Need to cache the '_has_null' value
+    const UInt8* null_pos = get_null_map_data().data();
+    return simd::contain_byte(null_pos, get_null_map_data().size(), 1);
+}
+
 bool ColumnNullable::has_null(size_t size) const {
     if (!_has_null && !_need_update_has_null) {
         return false;
