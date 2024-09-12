@@ -77,6 +77,8 @@ struct StrToDate {
 
     static bool is_variadic() { return false; }
 
+    static size_t get_number_of_arguments() { return 2; }
+
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
     }
@@ -245,6 +247,8 @@ struct MakeDateImpl {
 
     static bool is_variadic() { return false; }
 
+    static size_t get_number_of_arguments() { return 2; }
+
     static DataTypes get_variadic_argument_types() { return {}; }
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
@@ -408,6 +412,8 @@ struct DateTrunc {
     using ArgType = date_cast::ValueTypeOfColumnV<ColumnType>;
 
     static bool is_variadic() { return true; }
+
+    static size_t get_number_of_arguments() { return 2; }
 
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DateType>(), std::make_shared<DataTypeString>()};
@@ -1150,7 +1156,7 @@ public:
 
     String get_name() const override { return name; }
 
-    size_t get_number_of_arguments() const override { return 2; }
+    size_t get_number_of_arguments() const override { return Impl::get_number_of_arguments(); }
 
     bool is_variadic() const override { return Impl::is_variadic(); }
 
@@ -1184,6 +1190,8 @@ public:
 
 struct FromIso8601DateV2 {
     static constexpr auto name = "from_iso8601_date";
+
+    static size_t get_number_of_arguments() { return 1; }
 
     static bool is_variadic() { return false; }
 
