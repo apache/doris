@@ -126,6 +126,27 @@ std::string PartialUpdateInfo::summary() const {
             update_cids.size(), missing_cids.size(), is_strict_mode, max_version_in_flush_phase);
 }
 
+Status PartialUpdateInfo::handle_non_strict_mode_not_found_error(
+        const TabletSchema& tablet_schema) {
+    if (!can_insert_new_rows_in_partial_update) {
+        std::string error_column;
+        for (auto cid : missing_cids) {
+            const TabletColumn& col = tablet_schema.column(cid);
+            if (!col.has_default_value() && !col.is_nullable() &&
+                !(tablet_schema.auto_increment_column() == col.name())) {
+                error_column = col.name();
+                break;
+            }
+        }
+        return Status::Error<ErrorCode::INVALID_SCHEMA, false>(
+                "the unmentioned column `{}` should have default value or be nullable "
+                "for "
+                "newly inserted rows in non-strict mode partial update",
+                error_column);
+    }
+    return Status::OK();
+}
+
 void PartialUpdateInfo::_generate_default_values_for_missing_cids(
         const TabletSchema& tablet_schema) {
     for (unsigned int cur_cid : missing_cids) {
