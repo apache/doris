@@ -1310,4 +1310,86 @@ suite("nereids_scalar_fn_Array") {
     qt_array_empty_fe """select array()"""
     sql """ set debug_skip_fold_constant=true; """
     qt_array_empty_be """select array()"""
+
+    // array_min/max with nested array for args
+    test {
+        sql "select array_min(array(1,2,3),array(4,5,6));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    test {
+        sql "select array_max(array(1,2,3),array(4,5,6));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+    test {
+        sql "select array_min(array(split_by_string('a,b,c',',')));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    test {
+        sql "select array_max(array(split_by_string('a,b,c',',')));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    // array_map with string is can be succeed
+    qt_sql_array_map """select array_map(x->x!='', split_by_string('amory,is,better,committing', ','))"""
+
+    // array_apply with string should be failed
+    test {
+       sql """select array_apply(split_by_string("amory,is,better,committing", ","), '!=', '');"""
+       exception("errCode = 2")
+    }
+
+
+	// array_match_any && array_match_all
+	// for table
+	qt_sql_array_match_any_1 "select kastr, array_match_any(x->x!='', kastr) from fn_test_am order by id"
+	qt_sql_array_match_all_1 "select kastr, array_match_all(x->x!='', kastr) from fn_test_am order by id"
+	qt_sql_array_match_any_2 "select kastr, array_match_any(x->x!=null, kastr) from fn_test_am order by id"
+	qt_sql_array_match_all_2 "select kastr, array_match_all(x->x!=null, kastr) from fn_test_am order by id"
+	qt_sql_array_match_any_3 "select kaint, array_match_any(x->x!=null, kaint) from fn_test_am order by id"
+	qt_sql_array_match_all_3 "select kaint, array_match_all(x->x!=null, kaint) from fn_test_am order by id"
+	qt_sql_array_match_any_4 "select kastr, array_match_any(x->x='a', kastr) from fn_test_am order by id"
+	qt_sql_array_match_all_4 "select kastr, array_match_all(x->x='a', kastr) from fn_test_am order by id"
+	qt_sql_array_match_any_5 "select kaint, array_match_any(x->x=2, kaint) from fn_test_am order by id"
+	qt_sql_array_match_all_5 "select kaint, array_match_all(x->x=2, kaint) from fn_test_am order by id"
+	qt_sql_array_match_any_6 "select kaint, array_match_any(x->x!=2, kaint) from fn_test_am order by id"
+	qt_sql_array_match_all_6 "select kaint, array_match_any(x->x!=2, kaint) from fn_test_am order by id"
+
+	// for literal
+	qt_sql_array_match_any_7 "select array_match_any(x->x!=null, array('a', 'b', 'c'))"
+	qt_sql_array_match_all_7 "select array_match_all(x->x!=null, array('a', 'b', 'c'))"
+	qt_sql_array_match_any_8 "select array_match_any(x->x!=null, array('a', null, 'c'))"
+	qt_sql_array_match_all_8 "select array_match_all(x->x!=null, array('a', null, 'c'))"
+	qt_sql_array_match_any_9 "select array_match_any(x->x!=null, array())"
+	qt_sql_array_match_all_9 "select array_match_all(x->x!=null, array())"
+	qt_sql_array_match_any_10 "select array_match_any(x->x!=null, array(null, null))"
+	qt_sql_array_match_all_10 "select array_match_all(x->x!=null, array(null, null))"
+	qt_sql_array_match_any_11 "select array_match_any(x->x='a', array('a', 'b', 'c'))"
+	qt_sql_array_match_all_11 "select array_match_all(x->x='a', array('a', 'b', 'c'))"
+	qt_sql_array_match_any_12 "select array_match_any(x->x=2, array(1, 2, 3))"
+	qt_sql_array_match_all_12 "select array_match_all(x->x=2, array(1, 2, 3))"
+	qt_sql_array_match_any_13 "select array_match_any(x->x=2, array(1, null, 3))"
+	qt_sql_array_match_all_13 "select array_match_all(x->x=2, array(1, null, 3))"
+	qt_sql_array_match_any_14 "select array_match_any(x->x=2, array())"
+	qt_sql_array_match_all_14 "select array_match_all(x->x=2, array())"
+	qt_sql_array_match_any_15 "select array_match_any(x->x=2, array(null, null))"
+	qt_sql_array_match_all_15 "select array_match_all(x->x=2, array(null, null))"
+	qt_sql_array_match_any_16 "select array_match_any(x->x=2, array(1, 2, 3))"
+	qt_sql_array_match_all_16 "select array_match_all(x->x=2, array(1, 2, 3))"
+	qt_sql_array_match_any_17 "select array_match_any(x->x=2, array(1, null, 3))"
+	qt_sql_array_match_all_17 "select array_match_all(x->x=2, array(1, null, 3))"
+	qt_sql_array_match_any_18 "select array_match_any(x->x=2, array())"
+	qt_sql_array_match_all_18 "select array_match_all(x->x=2, array())"
+
 }

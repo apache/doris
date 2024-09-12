@@ -323,11 +323,25 @@ public:
     ~FdbTxnKv() override = default;
 
     TxnErrorCode create_txn(std::unique_ptr<Transaction>* txn) override;
+    TxnErrorCode create_txn_with_system_access(std::unique_ptr<Transaction>* txn);
 
     int init() override;
 
     std::unique_ptr<FullRangeGetIterator> full_range_get(std::string begin, std::string end,
                                                          FullRangeGetIteratorOptions opts) override;
+
+    // Return the partition boundaries of the database.
+    TxnErrorCode get_partition_boundaries(std::vector<std::string>* boundaries);
+
+    // Returns a value where 0 indicates that the client is idle and 1 (or larger) indicates that
+    // the client is saturated. This value is updated every second.
+    double get_client_thread_busyness() const;
+
+    static std::string_view fdb_partition_key_prefix() { return "\xff/keyServers/"; }
+    static std::string_view fdb_partition_key_end() {
+        // '0' is the next byte after '/' in the ASCII table
+        return "\xff/keyServers0";
+    }
 
 private:
     std::shared_ptr<fdb::Network> network_;
@@ -478,6 +492,7 @@ public:
      * @return TxnErrorCode for success otherwise false
      */
     TxnErrorCode init();
+    TxnErrorCode enable_access_system_keys();
 
     void put(std::string_view key, std::string_view val) override;
 

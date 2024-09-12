@@ -402,10 +402,9 @@ public class PropertyConverterTest extends TestWithFeService {
         String queryDlf1 = "create catalog hms_mc properties (\n"
                 + "    'type'='max_compute',\n"
                 + "    'mc.default.project' = 'project0',\n"
-                + "    'mc.region' = 'cn-beijing',\n"
                 + "    'mc.access_key' = 'ak',\n"
                 + "    'mc.secret_key' = 'sk',\n"
-                + "    'mc.public_access' = 'true'\n"
+                + "    'mc.endpoint' = 'http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api' \n"
                 + ");";
         String catalogName = "hms_mc";
         CreateCatalogStmt analyzedStmt = createStmt(queryDlf1);
@@ -414,10 +413,10 @@ public class PropertyConverterTest extends TestWithFeService {
                 .getCatalogMgr().getCatalog(catalogName);
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
         Assertions.assertEquals(properties.get("type"), "max_compute");
-        Assertions.assertEquals(properties.get("mc.region"), "cn-beijing");
         Assertions.assertEquals(properties.get("mc.access_key"), "ak");
         Assertions.assertEquals(properties.get("mc.secret_key"), "sk");
-        Assertions.assertEquals(properties.get("mc.public_access"), "true");
+        Assertions.assertEquals(properties.get("mc.endpoint"),
+                "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api");
         Assertions.assertEquals(properties.get("mc.default.project"), "project0");
     }
 
@@ -483,7 +482,7 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'oss.secret_key' = 'skk'\n"
                 + ");";
         testS3CompatibleCatalogProperties(catalogName1, OssProperties.OSS_PREFIX,
-                "oss.oss-cn-beijing.aliyuncs.com", query1, 12, 17);
+                "oss.oss-cn-beijing.aliyuncs.com", query1, 12, 16);
 
         String catalogName2 = "hms_minio";
         String query2 = "create catalog " + catalogName2 + " properties (\n"

@@ -122,6 +122,11 @@ public:
     const char* get_family_name() const override { return "Array"; }
     bool is_column_array() const override { return true; }
     bool is_variable_length() const override { return true; }
+
+    bool is_exclusive() const override {
+        return IColumn::is_exclusive() && data->is_exclusive() && offsets->is_exclusive();
+    }
+
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override;
     void resize(size_t n) override;
@@ -171,11 +176,11 @@ public:
     const IColumn& get_offsets_column() const { return *offsets; }
 
     Offsets64& ALWAYS_INLINE get_offsets() {
-        return assert_cast<ColumnOffsets&>(*offsets).get_data();
+        return assert_cast<ColumnOffsets&, TypeCheckOnRelease::DISABLE>(*offsets).get_data();
     }
 
     const Offsets64& ALWAYS_INLINE get_offsets() const {
-        return assert_cast<const ColumnOffsets&>(*offsets).get_data();
+        return assert_cast<const ColumnOffsets&, TypeCheckOnRelease::DISABLE>(*offsets).get_data();
     }
 
     bool has_equal_offsets(const ColumnArray& other) const;

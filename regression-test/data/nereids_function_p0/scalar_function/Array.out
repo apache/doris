@@ -14451,3 +14451,1326 @@ true
 -- !array_empty_be --
 []
 
+-- !sql_array_map --
+[1, 1, 1, 1]
+
+-- !sql_array_match_any_1 --
+["a", "b", "c"]	true
+["a", null, "c"]	true
+[]	false
+\N	\N
+[null, null]	\N
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["a", "b", "c"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+[]	false
+[null, null]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["a", null, "c"]	true
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["a", "b", "c"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+\N	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+[]	false
+[null, null]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["a", "b", "c"]	true
+[]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["a", null, "c"]	true
+["a", null, "c"]	true
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+[null, null]	\N
+\N	\N
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+\N	\N
+[]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+[]	false
+\N	\N
+[null, null]	\N
+["a", null, "c"]	true
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+[null, null]	\N
+\N	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["a", "b", "c"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+
+-- !sql_array_match_all_1 --
+["a", "b", "c"]	true
+["a", null, "c"]	\N
+[]	true
+\N	\N
+[null, null]	\N
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["a", "b", "c"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+[]	true
+[null, null]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["a", null, "c"]	\N
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["a", "b", "c"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+\N	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+[]	true
+[null, null]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["a", "b", "c"]	true
+[]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["a", null, "c"]	\N
+["a", null, "c"]	\N
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+[null, null]	\N
+\N	\N
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+\N	\N
+[]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+[]	true
+\N	\N
+[null, null]	\N
+["a", null, "c"]	\N
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+[null, null]	\N
+\N	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	true
+["a", "b", "c"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	true
+
+-- !sql_array_match_any_2 --
+["a", "b", "c"]	\N
+["a", null, "c"]	\N
+[]	false
+\N	\N
+[null, null]	\N
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["a", "b", "c"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+[]	false
+[null, null]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["a", null, "c"]	\N
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["a", "b", "c"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+\N	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+[]	false
+[null, null]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["a", "b", "c"]	\N
+[]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["a", null, "c"]	\N
+["a", null, "c"]	\N
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+[null, null]	\N
+\N	\N
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+\N	\N
+[]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+[]	false
+\N	\N
+[null, null]	\N
+["a", null, "c"]	\N
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+[null, null]	\N
+\N	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["a", "b", "c"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+
+-- !sql_array_match_all_2 --
+["a", "b", "c"]	\N
+["a", null, "c"]	\N
+[]	true
+\N	\N
+[null, null]	\N
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["a", "b", "c"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+[]	true
+[null, null]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["a", null, "c"]	\N
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["a", "b", "c"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+\N	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+[]	true
+[null, null]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["a", "b", "c"]	\N
+[]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["a", null, "c"]	\N
+["a", null, "c"]	\N
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+[null, null]	\N
+\N	\N
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+\N	\N
+[]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+[]	true
+\N	\N
+[null, null]	\N
+["a", null, "c"]	\N
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+[null, null]	\N
+\N	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	\N
+["a", "b", "c"]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	\N
+
+-- !sql_array_match_any_3 --
+[]	false
+[1, 2, 3]	\N
+[]	false
+[1, null, 3]	\N
+\N	\N
+\N	\N
+[1]	\N
+[7]	\N
+[11]	\N
+[2]	\N
+[8]	\N
+[12]	\N
+[3]	\N
+[5]	\N
+[9]	\N
+[4]	\N
+[6]	\N
+[10]	\N
+\N	\N
+[2]	\N
+[12]	\N
+[10]	\N
+[]	false
+[1]	\N
+[8]	\N
+[3]	\N
+[]	false
+\N	\N
+[11]	\N
+[9]	\N
+[6]	\N
+[1, 2, 3]	\N
+[1, null, 3]	\N
+[7]	\N
+[5]	\N
+[4]	\N
+\N	\N
+[2]	\N
+[12]	\N
+[10]	\N
+[2]	\N
+[1]	\N
+[9]	\N
+[5]	\N
+[]	false
+[1]	\N
+[8]	\N
+[3]	\N
+\N	\N
+[12]	\N
+[8]	\N
+[6]	\N
+[7]	\N
+[4]	\N
+[]	false
+\N	\N
+[11]	\N
+[9]	\N
+[6]	\N
+[]	false
+[]	false
+[11]	\N
+[1, 2, 3]	\N
+[1, 2, 3]	\N
+[1, null, 3]	\N
+[7]	\N
+[5]	\N
+[4]	\N
+[10]	\N
+[3]	\N
+\N	\N
+[1, null, 3]	\N
+\N	\N
+[2]	\N
+[12]	\N
+[10]	\N
+[2]	\N
+[1]	\N
+[9]	\N
+[5]	\N
+\N	\N
+[2]	\N
+[8]	\N
+\N	\N
+[]	false
+[6]	\N
+[]	false
+[1, null, 3]	\N
+\N	\N
+[1, 2, 3]	\N
+[1, null, 3]	\N
+[7]	\N
+[5]	\N
+[4]	\N
+[10]	\N
+[3]	\N
+\N	\N
+[1, null, 3]	\N
+[12]	\N
+[9]	\N
+[]	false
+[8]	\N
+
+-- !sql_array_match_all_3 --
+[]	true
+[1, 2, 3]	\N
+[]	true
+[1, null, 3]	\N
+\N	\N
+\N	\N
+[1]	\N
+[7]	\N
+[11]	\N
+[2]	\N
+[8]	\N
+[12]	\N
+[3]	\N
+[5]	\N
+[9]	\N
+[4]	\N
+[6]	\N
+[10]	\N
+\N	\N
+[2]	\N
+[12]	\N
+[10]	\N
+[]	true
+[1]	\N
+[8]	\N
+[3]	\N
+[]	true
+\N	\N
+[11]	\N
+[9]	\N
+[6]	\N
+[1, 2, 3]	\N
+[1, null, 3]	\N
+[7]	\N
+[5]	\N
+[4]	\N
+\N	\N
+[2]	\N
+[12]	\N
+[10]	\N
+[2]	\N
+[1]	\N
+[9]	\N
+[5]	\N
+[]	true
+[1]	\N
+[8]	\N
+[3]	\N
+\N	\N
+[12]	\N
+[8]	\N
+[6]	\N
+[7]	\N
+[4]	\N
+[]	true
+\N	\N
+[11]	\N
+[9]	\N
+[6]	\N
+[]	true
+[]	true
+[11]	\N
+[1, 2, 3]	\N
+[1, 2, 3]	\N
+[1, null, 3]	\N
+[7]	\N
+[5]	\N
+[4]	\N
+[10]	\N
+[3]	\N
+\N	\N
+[1, null, 3]	\N
+\N	\N
+[2]	\N
+[12]	\N
+[10]	\N
+[2]	\N
+[1]	\N
+[9]	\N
+[5]	\N
+\N	\N
+[2]	\N
+[8]	\N
+\N	\N
+[]	true
+[6]	\N
+[]	true
+[1, null, 3]	\N
+\N	\N
+[1, 2, 3]	\N
+[1, null, 3]	\N
+[7]	\N
+[5]	\N
+[4]	\N
+[10]	\N
+[3]	\N
+\N	\N
+[1, null, 3]	\N
+[12]	\N
+[9]	\N
+[]	true
+[8]	\N
+
+-- !sql_array_match_any_4 --
+["a", "b", "c"]	true
+["a", null, "c"]	true
+[]	false
+\N	\N
+[null, null]	\N
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["a", "b", "c"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+[]	false
+[null, null]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["a", null, "c"]	true
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["a", "b", "c"]	true
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+\N	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+[]	false
+[null, null]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["a", "b", "c"]	true
+[]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["a", null, "c"]	true
+["a", null, "c"]	true
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+[null, null]	\N
+\N	\N
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+\N	\N
+[]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+[]	false
+\N	\N
+[null, null]	\N
+["a", null, "c"]	true
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+[null, null]	\N
+\N	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["a", "b", "c"]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+
+-- !sql_array_match_all_4 --
+["a", "b", "c"]	false
+["a", null, "c"]	false
+[]	true
+\N	\N
+[null, null]	\N
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["a", "b", "c"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+[]	true
+[null, null]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["a", null, "c"]	false
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["a", "b", "c"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+\N	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+[]	true
+[null, null]	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["a", "b", "c"]	false
+[]	true
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["a", null, "c"]	false
+["a", null, "c"]	false
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+[null, null]	\N
+\N	\N
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+\N	\N
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+\N	\N
+[]	true
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+[]	true
+\N	\N
+[null, null]	\N
+["a", null, "c"]	false
+\N	\N
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+[null, null]	\N
+\N	\N
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]	false
+["a", "b", "c"]	false
+["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]	false
+
+-- !sql_array_match_any_5 --
+[]	false
+[1, 2, 3]	true
+[]	false
+[1, null, 3]	\N
+\N	\N
+\N	\N
+[1]	false
+[7]	false
+[11]	false
+[2]	true
+[8]	false
+[12]	false
+[3]	false
+[5]	false
+[9]	false
+[4]	false
+[6]	false
+[10]	false
+\N	\N
+[2]	true
+[12]	false
+[10]	false
+[]	false
+[1]	false
+[8]	false
+[3]	false
+[]	false
+\N	\N
+[11]	false
+[9]	false
+[6]	false
+[1, 2, 3]	true
+[1, null, 3]	\N
+[7]	false
+[5]	false
+[4]	false
+\N	\N
+[2]	true
+[12]	false
+[10]	false
+[2]	true
+[1]	false
+[9]	false
+[5]	false
+[]	false
+[1]	false
+[8]	false
+[3]	false
+\N	\N
+[12]	false
+[8]	false
+[6]	false
+[7]	false
+[4]	false
+[]	false
+\N	\N
+[11]	false
+[9]	false
+[6]	false
+[]	false
+[]	false
+[11]	false
+[1, 2, 3]	true
+[1, 2, 3]	true
+[1, null, 3]	\N
+[7]	false
+[5]	false
+[4]	false
+[10]	false
+[3]	false
+\N	\N
+[1, null, 3]	\N
+\N	\N
+[2]	true
+[12]	false
+[10]	false
+[2]	true
+[1]	false
+[9]	false
+[5]	false
+\N	\N
+[2]	true
+[8]	false
+\N	\N
+[]	false
+[6]	false
+[]	false
+[1, null, 3]	\N
+\N	\N
+[1, 2, 3]	true
+[1, null, 3]	\N
+[7]	false
+[5]	false
+[4]	false
+[10]	false
+[3]	false
+\N	\N
+[1, null, 3]	\N
+[12]	false
+[9]	false
+[]	false
+[8]	false
+
+-- !sql_array_match_all_5 --
+[]	true
+[1, 2, 3]	false
+[]	true
+[1, null, 3]	false
+\N	\N
+\N	\N
+[1]	false
+[7]	false
+[11]	false
+[2]	true
+[8]	false
+[12]	false
+[3]	false
+[5]	false
+[9]	false
+[4]	false
+[6]	false
+[10]	false
+\N	\N
+[2]	true
+[12]	false
+[10]	false
+[]	true
+[1]	false
+[8]	false
+[3]	false
+[]	true
+\N	\N
+[11]	false
+[9]	false
+[6]	false
+[1, 2, 3]	false
+[1, null, 3]	false
+[7]	false
+[5]	false
+[4]	false
+\N	\N
+[2]	true
+[12]	false
+[10]	false
+[2]	true
+[1]	false
+[9]	false
+[5]	false
+[]	true
+[1]	false
+[8]	false
+[3]	false
+\N	\N
+[12]	false
+[8]	false
+[6]	false
+[7]	false
+[4]	false
+[]	true
+\N	\N
+[11]	false
+[9]	false
+[6]	false
+[]	true
+[]	true
+[11]	false
+[1, 2, 3]	false
+[1, 2, 3]	false
+[1, null, 3]	false
+[7]	false
+[5]	false
+[4]	false
+[10]	false
+[3]	false
+\N	\N
+[1, null, 3]	false
+\N	\N
+[2]	true
+[12]	false
+[10]	false
+[2]	true
+[1]	false
+[9]	false
+[5]	false
+\N	\N
+[2]	true
+[8]	false
+\N	\N
+[]	true
+[6]	false
+[]	true
+[1, null, 3]	false
+\N	\N
+[1, 2, 3]	false
+[1, null, 3]	false
+[7]	false
+[5]	false
+[4]	false
+[10]	false
+[3]	false
+\N	\N
+[1, null, 3]	false
+[12]	false
+[9]	false
+[]	true
+[8]	false
+
+-- !sql_array_match_any_6 --
+[]	false
+[1, 2, 3]	true
+[]	false
+[1, null, 3]	true
+\N	\N
+\N	\N
+[1]	true
+[7]	true
+[11]	true
+[2]	false
+[8]	true
+[12]	true
+[3]	true
+[5]	true
+[9]	true
+[4]	true
+[6]	true
+[10]	true
+\N	\N
+[2]	false
+[12]	true
+[10]	true
+[]	false
+[1]	true
+[8]	true
+[3]	true
+[]	false
+\N	\N
+[11]	true
+[9]	true
+[6]	true
+[1, 2, 3]	true
+[1, null, 3]	true
+[7]	true
+[5]	true
+[4]	true
+\N	\N
+[2]	false
+[12]	true
+[10]	true
+[2]	false
+[1]	true
+[9]	true
+[5]	true
+[]	false
+[1]	true
+[8]	true
+[3]	true
+\N	\N
+[12]	true
+[8]	true
+[6]	true
+[7]	true
+[4]	true
+[]	false
+\N	\N
+[11]	true
+[9]	true
+[6]	true
+[]	false
+[]	false
+[11]	true
+[1, 2, 3]	true
+[1, 2, 3]	true
+[1, null, 3]	true
+[7]	true
+[5]	true
+[4]	true
+[10]	true
+[3]	true
+\N	\N
+[1, null, 3]	true
+\N	\N
+[2]	false
+[12]	true
+[10]	true
+[2]	false
+[1]	true
+[9]	true
+[5]	true
+\N	\N
+[2]	false
+[8]	true
+\N	\N
+[]	false
+[6]	true
+[]	false
+[1, null, 3]	true
+\N	\N
+[1, 2, 3]	true
+[1, null, 3]	true
+[7]	true
+[5]	true
+[4]	true
+[10]	true
+[3]	true
+\N	\N
+[1, null, 3]	true
+[12]	true
+[9]	true
+[]	false
+[8]	true
+
+-- !sql_array_match_all_6 --
+[]	false
+[1, 2, 3]	true
+[]	false
+[1, null, 3]	true
+\N	\N
+\N	\N
+[1]	true
+[7]	true
+[11]	true
+[2]	false
+[8]	true
+[12]	true
+[3]	true
+[5]	true
+[9]	true
+[4]	true
+[6]	true
+[10]	true
+\N	\N
+[2]	false
+[12]	true
+[10]	true
+[]	false
+[1]	true
+[8]	true
+[3]	true
+[]	false
+\N	\N
+[11]	true
+[9]	true
+[6]	true
+[1, 2, 3]	true
+[1, null, 3]	true
+[7]	true
+[5]	true
+[4]	true
+\N	\N
+[2]	false
+[12]	true
+[10]	true
+[2]	false
+[1]	true
+[9]	true
+[5]	true
+[]	false
+[1]	true
+[8]	true
+[3]	true
+\N	\N
+[12]	true
+[8]	true
+[6]	true
+[7]	true
+[4]	true
+[]	false
+\N	\N
+[11]	true
+[9]	true
+[6]	true
+[]	false
+[]	false
+[11]	true
+[1, 2, 3]	true
+[1, 2, 3]	true
+[1, null, 3]	true
+[7]	true
+[5]	true
+[4]	true
+[10]	true
+[3]	true
+\N	\N
+[1, null, 3]	true
+\N	\N
+[2]	false
+[12]	true
+[10]	true
+[2]	false
+[1]	true
+[9]	true
+[5]	true
+\N	\N
+[2]	false
+[8]	true
+\N	\N
+[]	false
+[6]	true
+[]	false
+[1, null, 3]	true
+\N	\N
+[1, 2, 3]	true
+[1, null, 3]	true
+[7]	true
+[5]	true
+[4]	true
+[10]	true
+[3]	true
+\N	\N
+[1, null, 3]	true
+[12]	true
+[9]	true
+[]	false
+[8]	true
+
+-- !sql_array_match_any_7 --
+\N
+
+-- !sql_array_match_all_7 --
+\N
+
+-- !sql_array_match_any_8 --
+\N
+
+-- !sql_array_match_all_8 --
+\N
+
+-- !sql_array_match_any_9 --
+false
+
+-- !sql_array_match_all_9 --
+true
+
+-- !sql_array_match_any_10 --
+\N
+
+-- !sql_array_match_all_10 --
+\N
+
+-- !sql_array_match_any_11 --
+true
+
+-- !sql_array_match_all_11 --
+false
+
+-- !sql_array_match_any_12 --
+true
+
+-- !sql_array_match_all_12 --
+false
+
+-- !sql_array_match_any_13 --
+\N
+
+-- !sql_array_match_all_13 --
+false
+
+-- !sql_array_match_any_14 --
+false
+
+-- !sql_array_match_all_14 --
+true
+
+-- !sql_array_match_any_15 --
+\N
+
+-- !sql_array_match_all_15 --
+\N
+
+-- !sql_array_match_any_16 --
+true
+
+-- !sql_array_match_all_16 --
+false
+
+-- !sql_array_match_any_17 --
+\N
+
+-- !sql_array_match_all_17 --
+false
+
+-- !sql_array_match_any_18 --
+false
+
+-- !sql_array_match_all_18 --
+true
+

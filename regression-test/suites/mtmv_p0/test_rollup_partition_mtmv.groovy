@@ -46,230 +46,52 @@ suite("test_rollup_partition_mtmv") {
         insert into ${tableName} values(1,"2020-01-01", "2020-01-01"),(2,"2020-01-02", "2020-01-02"),(3,"2020-02-01", "2020-02-01");
         """
 
-    // list date month
-    sql """
-        CREATE MATERIALIZED VIEW ${mvName}
-            BUILD DEFERRED REFRESH AUTO ON MANUAL
-            partition by (date_trunc(`k2`,'month'))
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-            'replication_num' = '1'
-            )
-            AS
-            SELECT * FROM ${tableName};
-    """
-    showPartitionsResult = sql """show partitions from ${mvName}"""
-    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
-    assertEquals(2, showPartitionsResult.size())
+    test {
+          sql """
+              CREATE MATERIALIZED VIEW ${mvName}
+              BUILD DEFERRED REFRESH AUTO ON MANUAL
+              partition by (date_trunc(`k2`,'month'))
+              DISTRIBUTED BY RANDOM BUCKETS 2
+              PROPERTIES (
+              'replication_num' = '1'
+              )
+              AS
+              SELECT * FROM ${tableName};
+          """
+          exception "only support"
+      }
 
-    sql """
-            REFRESH MATERIALIZED VIEW ${mvName} AUTO
-        """
-    def jobName = getJobName(dbName, mvName);
-    log.info(jobName)
-    waitingMTMVTaskFinished(jobName)
-    order_qt_date_list_month "SELECT * FROM ${mvName} order by k1,k2"
-
-    sql """drop materialized view if exists ${mvName};"""
-    sql """
-        CREATE MATERIALIZED VIEW ${mvName}
-            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
-            partition by (month_alias)
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-            'replication_num' = '1'
-            )
-            AS
-            SELECT date_trunc(`k2`,'month') as month_alias, * FROM ${tableName};
-    """
-    def date_list_month_partitions = sql """show partitions from ${mvName}"""
-    logger.info("showPartitionsResult: " + date_list_month_partitions.toString())
-    assertEquals(2, date_list_month_partitions.size())
-    waitingMTMVTaskFinished(getJobName(dbName, mvName))
-    order_qt_date_list_month_partition_by_column "SELECT * FROM ${mvName}"
-
-    sql """drop materialized view if exists ${mvName};"""
-    sql """
-        CREATE MATERIALIZED VIEW ${mvName}
-            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
-            partition by (date_trunc(month_alias, 'month'))
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-            'replication_num' = '1'
-            )
-            AS
-            SELECT date_trunc(`k2`,'day') as month_alias, * FROM ${tableName};
-    """
-    def date_list_month_partitions_level = sql """show partitions from ${mvName}"""
-    logger.info("showPartitionsResult: " + date_list_month_partitions_level.toString())
-    assertEquals(2, date_list_month_partitions_level.size())
-    waitingMTMVTaskFinished(getJobName(dbName, mvName))
-    order_qt_date_list_month_level "SELECT * FROM ${mvName}"
-
-
-    sql """drop materialized view if exists ${mvName};"""
-    sql """
-        CREATE MATERIALIZED VIEW ${mvName}
-            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
-            partition by (date_trunc(month_alias, 'month'))
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-            'replication_num' = '1'
-            )
-            AS
-            SELECT date_trunc(`k2`,'day') as month_alias, k1, count(*) FROM ${tableName} group by month_alias, k1;
-    """
-    def date_list_month_partitions_level_agg = sql """show partitions from ${mvName}"""
-    logger.info("showPartitionsResult: " + date_list_month_partitions_level_agg.toString())
-    assertEquals(2, date_list_month_partitions_level_agg.size())
-    waitingMTMVTaskFinished(getJobName(dbName, mvName))
-    order_qt_date_list_month_level_agg "SELECT * FROM ${mvName}"
-
-
-    sql """drop materialized view if exists ${mvName};"""
-    sql """
-        CREATE MATERIALIZED VIEW ${mvName}
-            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
-            partition by (date_trunc(month_alias, 'month'))
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-            'replication_num' = '1'
-            )
-            AS
-            SELECT date_trunc(`k2`,'day') as month_alias, k3, count(*) FROM ${tableName} group by date_trunc(`k2`,'day'), k3;
-    """
-    def date_list_month_partitions_level_agg_multi = sql """show partitions from ${mvName}"""
-    logger.info("showPartitionsResult: " + date_list_month_partitions_level_agg_multi.toString())
-    assertEquals(2, date_list_month_partitions_level_agg_multi.size())
-    waitingMTMVTaskFinished(getJobName(dbName, mvName))
-    order_qt_date_list_month_level_agg_multi "SELECT * FROM ${mvName}"
-
-
-    sql """drop materialized view if exists ${mvName};"""
-    sql """
-        CREATE MATERIALIZED VIEW ${mvName}
-            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
-            partition by (date_trunc(month_alias, 'month'))
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-            'replication_num' = '1'
-            )
-            AS
-            SELECT date_trunc(`k2`,'day') as month_alias, count(*) FROM ${tableName} group by k2;
-    """
-    def date_list_month_partitions_level_agg_direct = sql """show partitions from ${mvName}"""
-    logger.info("showPartitionsResult: " + date_list_month_partitions_level_agg_direct.toString())
-    assertEquals(2, date_list_month_partitions_level_agg_direct.size())
-    waitingMTMVTaskFinished(getJobName(dbName, mvName))
-    order_qt_date_list_month_level_agg "SELECT * FROM ${mvName}"
-
-
-
-    // mv partition level should be higher or equal then query, should fail
-    sql """drop materialized view if exists ${mvName};"""
-    try {
-        sql """
-        CREATE MATERIALIZED VIEW ${mvName}
-            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
-            partition by (date_trunc(month_alias, 'day'))
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-            'replication_num' = '1'
-            )
-            AS
-            SELECT date_trunc(`k2`,'month') as month_alias, * FROM ${tableName};
-        """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("partition column time unit level should be greater than sql select column"))
-    }
-
-    // mv partition use a column not in mv sql select, should fail
-    sql """drop materialized view if exists ${mvName};"""
-    try {
-        sql """
-        CREATE MATERIALIZED VIEW ${mvName}
-            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
-            partition by (date_trunc(`k2`, 'month'))
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-            'replication_num' = '1'
-            )
-            AS
-            SELECT date_trunc(`k2`,'day') as month_alias FROM ${tableName};
-        """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("partition column can not find from sql select column"))
-    }
-
-    sql """drop materialized view if exists ${mvName};"""
-    // list date year
-    sql """
-        CREATE MATERIALIZED VIEW ${mvName}
-            BUILD DEFERRED REFRESH AUTO ON MANUAL
-            partition by (date_trunc(`k2`,'year'))
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-            'replication_num' = '1'
-            )
-            AS
-            SELECT * FROM ${tableName};
-    """
-    showPartitionsResult = sql """show partitions from ${mvName}"""
-    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
-    assertEquals(1, showPartitionsResult.size())
-
-    sql """drop materialized view if exists ${mvName};"""
-    // list date year
-    sql """
-        CREATE MATERIALIZED VIEW ${mvName}
-            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
-            partition by (year_alias)
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-            'replication_num' = '1'
-            )
-            AS
-            SELECT date_trunc(`k2`,'year') as year_alias, * FROM ${tableName};
-    """
-    def date_list_year_partitions = sql """show partitions from ${mvName}"""
-    assertEquals(1, date_list_year_partitions.size())
-    order_qt_date_list_year_partition_by_column "SELECT * FROM ${mvName}"
-
-    // list string month
+    // quarter
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
     sql """
         CREATE TABLE `${tableName}` (
           `k1` LARGEINT NOT NULL COMMENT '\"用户id\"',
-          `k2` varchar(200) NOT NULL COMMENT '\"数据灌入日期时间\"'
+          `k2` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
+          `k3` DATE NOT NULL COMMENT '\"日期时间\"'
         ) ENGINE=OLAP
         DUPLICATE KEY(`k1`)
         COMMENT 'OLAP'
-        PARTITION BY list(`k2`)
+        PARTITION BY range(`k2`)
         (
-        PARTITION p_20200101 VALUES IN ("2020==01==01"),
-        PARTITION p_20200102 VALUES IN ("2020==01==02"),
-        PARTITION p_20200201 VALUES IN ("2020==02==01")
+        PARTITION p_20200101 VALUES [("2020-01-01"),("2020-01-02")),
+        PARTITION p_20200401 VALUES [("2020-04-01"),("2020-04-02")),
+        PARTITION p_20200201 VALUES [("2020-02-01"),("2020-02-02"))
         )
         DISTRIBUTED BY HASH(`k1`) BUCKETS 2
         PROPERTIES ('replication_num' = '1') ;
         """
     sql """
-        insert into ${tableName} values(1,"2020==01==01"),(2,"2020==01==02"),(3,"2020==02==01");
+        insert into ${tableName} values(1,"2020-01-01", "2020-01-01"),(2,"2020-04-01", "2020-04-01"),(3,"2020-02-01", "2020-02-01");
         """
 
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
             BUILD DEFERRED REFRESH AUTO ON MANUAL
-            partition by (date_trunc(`k2`,'month'))
+            partition by (date_trunc(`k2`,'quarter'))
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES (
-            'replication_num' = '1',
-            'partition_date_format'='%Y==%m==%d'
+            'replication_num' = '1'
             )
             AS
             SELECT * FROM ${tableName};
@@ -277,95 +99,63 @@ suite("test_rollup_partition_mtmv") {
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertEquals(2, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("2020-01-01"))
+    assertTrue(showPartitionsResult.toString().contains("2020-04-01"))
+    assertTrue(showPartitionsResult.toString().contains("2020-07-01"))
 
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
-    jobName = getJobName(dbName, mvName);
-    log.info(jobName)
-    waitingMTMVTaskFinished(jobName)
-    order_qt_string_list_month "SELECT * FROM ${mvName} order by k1,k2"
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_date_range_quarter "SELECT * FROM ${mvName} order by k1,k2"
 
-
+    // week
+    sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
-    try {
-        sql """
+    sql """
+        CREATE TABLE `${tableName}` (
+          `k1` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `k2` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
+          `k3` DATE NOT NULL COMMENT '\"日期时间\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        COMMENT 'OLAP'
+        PARTITION BY range(`k2`)
+        (
+        PARTITION p_20200101 VALUES [("2020-01-01"),("2020-01-02")),
+        PARTITION p_20200102 VALUES [("2020-01-02"),("2020-01-03")),
+        PARTITION p_20200108 VALUES [("2020-01-08"),("2020-01-09"))
+        )
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+    sql """
+        insert into ${tableName} values(1,"2020-01-01", "2020-01-01"),(2,"2020-01-02", "2020-01-02"),(3,"2020-01-08", "2020-01-08");
+        """
+
+    sql """
         CREATE MATERIALIZED VIEW ${mvName}
-            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
-            partition by (date_trunc(month_alias, 'month'))
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by (date_trunc(`k2`,'week'))
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES (
             'replication_num' = '1'
             )
             AS
-            SELECT date_trunc(`k2`,'day') as month_alias, * FROM ${tableName};
-        """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("use invalid implicit expression"))
-    }
+            SELECT * FROM ${tableName};
+    """
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(2, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("2019-12-30"))
+    assertTrue(showPartitionsResult.toString().contains("2020-01-06"))
+    assertTrue(showPartitionsResult.toString().contains("2020-01-13"))
 
-    // mv partition level should be higher or equal then query, should fail
-    sql """drop materialized view if exists ${mvName};"""
-    try {
-        sql """
-        CREATE MATERIALIZED VIEW ${mvName}
-            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
-            partition by (date_trunc(month_alias, 'day'))
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-            'replication_num' = '1'
-            )
-            AS
-            SELECT date_trunc(`k2`,'month') as month_alias, * FROM ${tableName};
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("use invalid implicit expression"))
-    }
-
-    // mv partition use a column not in mv sql select, should fail
-    sql """drop materialized view if exists ${mvName};"""
-    try {
-        sql """
-        CREATE MATERIALIZED VIEW ${mvName}
-            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
-            partition by (date_trunc(`k2`, 'month'))
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-            'replication_num' = '1'
-            )
-            AS
-            SELECT date_trunc(`k2`,'day') as month_alias FROM ${tableName};
-        """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("partition column can not find from sql select column"))
-    }
-
-    // mv partition column type is date, base table is string, partition mapping fail
-    // support later
-    sql """drop materialized view if exists ${mvName};"""
-    try {
-        sql """
-        CREATE MATERIALIZED VIEW ${mvName}
-            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
-            partition by (month_alias)
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-            'replication_num' = '1',
-            'partition_date_format'='%Y==%m==%d'
-            )
-            AS
-            SELECT date_trunc(`k2`,'month') as month_alias, * FROM ${tableName};
-        """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_date_range_week "SELECT * FROM ${mvName} order by k1,k2"
 
     // range date month
     sql """drop table if exists `${tableName}`"""

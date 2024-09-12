@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
@@ -51,21 +53,21 @@ public class Least extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(TinyIntType.INSTANCE).varArgs(TinyIntType.INSTANCE),
-            FunctionSignature.ret(SmallIntType.INSTANCE).varArgs(SmallIntType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(IntegerType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(BigIntType.INSTANCE),
-            FunctionSignature.ret(LargeIntType.INSTANCE).varArgs(LargeIntType.INSTANCE),
-            FunctionSignature.ret(FloatType.INSTANCE).varArgs(FloatType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).varArgs(DoubleType.INSTANCE),
-            FunctionSignature.ret(DateType.INSTANCE).varArgs(DateType.INSTANCE),
-            FunctionSignature.ret(DateV2Type.INSTANCE).varArgs(DateV2Type.INSTANCE),
-            FunctionSignature.ret(DateTimeType.INSTANCE).varArgs(DateTimeType.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).varArgs(DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT).varArgs(DecimalV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DecimalV3Type.WILDCARD).varArgs(DecimalV3Type.WILDCARD),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE)
+            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE),
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).varArgs(DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DateTimeType.INSTANCE).varArgs(DateTimeType.INSTANCE),
+            FunctionSignature.ret(DateV2Type.INSTANCE).varArgs(DateV2Type.INSTANCE),
+            FunctionSignature.ret(DateType.INSTANCE).varArgs(DateType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).varArgs(DoubleType.INSTANCE),
+            FunctionSignature.ret(FloatType.INSTANCE).varArgs(FloatType.INSTANCE),
+            FunctionSignature.ret(DecimalV3Type.WILDCARD).varArgs(DecimalV3Type.WILDCARD),
+            FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT).varArgs(DecimalV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(LargeIntType.INSTANCE).varArgs(LargeIntType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(BigIntType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(IntegerType.INSTANCE),
+            FunctionSignature.ret(SmallIntType.INSTANCE).varArgs(SmallIntType.INSTANCE),
+            FunctionSignature.ret(TinyIntType.INSTANCE).varArgs(TinyIntType.INSTANCE)
     );
 
     /**
@@ -80,9 +82,26 @@ public class Least extends ScalarFunction
      */
     @Override
     public Least withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
+        Preconditions.checkArgument(!children.isEmpty());
         return new Least(children.get(0),
                 children.subList(1, children.size()).toArray(new Expression[0]));
+    }
+
+    @Override
+    public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
+        List<DataType> argTypes = getArgumentsTypes();
+        if (argTypes.stream().anyMatch(CharacterType.class::isInstance)) {
+            return FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE);
+        } else if (argTypes.stream().anyMatch(DateTimeV2Type.class::isInstance)) {
+            return FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).varArgs(DateTimeV2Type.SYSTEM_DEFAULT);
+        } else if (argTypes.stream().anyMatch(DateTimeType.class::isInstance)) {
+            return FunctionSignature.ret(DateTimeType.INSTANCE).varArgs(DateTimeType.INSTANCE);
+        } else if (argTypes.stream().anyMatch(DateV2Type.class::isInstance)) {
+            return FunctionSignature.ret(DateV2Type.INSTANCE).varArgs(DateV2Type.INSTANCE);
+        } else if (argTypes.stream().anyMatch(DateType.class::isInstance)) {
+            return FunctionSignature.ret(DateType.INSTANCE).varArgs(DateType.INSTANCE);
+        }
+        return ExplicitlyCastableSignature.super.searchSignature(signatures);
     }
 
     @Override

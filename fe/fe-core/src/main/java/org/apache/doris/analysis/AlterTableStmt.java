@@ -29,7 +29,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -38,7 +37,7 @@ import java.util.List;
 import java.util.Map;
 
 // Alter table statement.
-public class AlterTableStmt extends DdlStmt {
+public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
     private TableName tbl;
     private List<AlterClause> ops;
 
@@ -66,8 +65,6 @@ public class AlterTableStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
         }
         tbl.analyze(analyzer);
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tbl.getCtl(), this.getClass().getSimpleName());
         InternalDatabaseUtil.checkDatabase(tbl.getDb(), ConnectContext.get());
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tbl.getCtl(), tbl.getDb(), tbl.getTbl(),

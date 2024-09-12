@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
@@ -45,6 +46,7 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -111,7 +113,8 @@ public class If extends ScalarFunction
      * constructor with 3 arguments.
      */
     public If(Expression arg0, Expression arg1, Expression arg2) {
-        super("if", arg0, arg1, arg2);
+        super("if", arg0 instanceof Unbound ? arg0 : TypeCoercionUtils.castIfNotSameType(arg0, BooleanType.INSTANCE),
+                arg1, arg2);
     }
 
     /**
@@ -144,5 +147,11 @@ public class If extends ScalarFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
+
+        return ExplicitlyCastableSignature.super.searchSignature(signatures);
     }
 }

@@ -33,6 +33,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
@@ -101,7 +102,13 @@ public abstract class ExternalCatalog
     public static final String DORIS_VERSION = "doris.version";
     public static final String DORIS_VERSION_VALUE = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
     public static final String USE_META_CACHE = "use_meta_cache";
+    public static final String CREATE_TIME = "create_time";
     public static final boolean DEFAULT_USE_META_CACHE = true;
+
+    // Properties that should not be shown in the `show create catalog` result
+    public static final Set<String> HIDDEN_PROPERTIES = Sets.newHashSet(
+            CREATE_TIME,
+            USE_META_CACHE);
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -121,6 +128,9 @@ public abstract class ExternalCatalog
     protected Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
     @SerializedName(value = "lastUpdateTime")
     protected long lastUpdateTime;
+    // <db name, table name> to tableAutoAnalyzePolicy
+    @SerializedName(value = "taap")
+    protected Map<Pair<String, String>, String> tableAutoAnalyzePolicy = Maps.newHashMap();
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
@@ -238,7 +248,7 @@ public abstract class ExternalCatalog
                             name,
                             OptionalLong.of(86400L),
                             OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
-                            Config.max_hive_table_cache_num,
+                            Config.max_meta_object_cache_num,
                             ignored -> getFilteredDatabaseNames(),
                             dbName -> Optional.ofNullable(
                                     buildDbForInit(dbName, Util.genIdByName(name, dbName), logType)),
@@ -291,11 +301,11 @@ public abstract class ExternalCatalog
             }
         }
 
-        if (properties.getOrDefault(ExternalCatalog.USE_META_CACHE, "true").equals("false")) {
-            LOG.warn("force to set use_meta_cache to true for catalog: {} when creating", name);
-            getCatalogProperty().addProperty(ExternalCatalog.USE_META_CACHE, "true");
-            useMetaCache = Optional.of(true);
-        }
+        // if (properties.getOrDefault(ExternalCatalog.USE_META_CACHE, "true").equals("false")) {
+        //     LOG.warn("force to set use_meta_cache to true for catalog: {} when creating", name);
+        //     getCatalogProperty().addProperty(ExternalCatalog.USE_META_CACHE, "true");
+        //     useMetaCache = Optional.of(true);
+        // }
     }
 
     /**
@@ -390,6 +400,15 @@ public abstract class ExternalCatalog
         synchronized (this.propLock) {
             this.convertedProperties = null;
         }
+
+        refreshOnlyCatalogCache(invalidCache);
+    }
+
+    public void onRefreshCache(boolean invalidCache) {
+        refreshOnlyCatalogCache(invalidCache);
+    }
+
+    private void refreshOnlyCatalogCache(boolean invalidCache) {
         if (useMetaCache.isPresent()) {
             if (useMetaCache.get() && metaCache != null) {
                 metaCache.invalidateAll();
@@ -660,8 +679,6 @@ public abstract class ExternalCatalog
                 return new IcebergExternalDatabase(this, dbId, dbName);
             case MAX_COMPUTE:
                 return new MaxComputeExternalDatabase(this, dbId, dbName);
-            //case HUDI:
-                //return new HudiExternalDatabase(this, dbId, dbName);
             case LAKESOUL:
                 return new LakeSoulExternalDatabase(this, dbId, dbName);
             case TEST:
@@ -710,6 +727,9 @@ public abstract class ExternalCatalog
         this.propLock = new byte[0];
         this.initialized = false;
         setDefaultPropsIfMissing(true);
+        if (tableAutoAnalyzePolicy == null) {
+            tableAutoAnalyzePolicy = Maps.newHashMap();
+        }
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
@@ -870,5 +890,14 @@ public abstract class ExternalCatalog
 
     public String getQualifiedName(String dbName) {
         return String.join(".", name, dbName);
+    }
+
+    public void setAutoAnalyzePolicy(String dbName, String tableName, String policy) {
+        Pair<String, String> key = Pair.of(dbName, tableName);
+        if (policy == null) {
+            tableAutoAnalyzePolicy.remove(key);
+        } else {
+            tableAutoAnalyzePolicy.put(key, policy);
+        }
     }
 }

@@ -72,13 +72,13 @@ public class Config extends ConfigBase {
     @ConfField(description = {"FE 日志的级别", "The level of FE log"}, options = {"INFO", "WARN", "ERROR", "FATAL"})
     public static String sys_log_level = "INFO";
 
-    @ConfField(description = {"FE 日志的输出模式，其中 NORMAL 模式是日志同步输出且包含位置信息，BRIEF 模式是日志同步输出"
-                    + "但不包含位置信息，ASYNC 模式为默认的输出模式，是日志异步输出且不包含位置信息，三种日志输出模式的性能依次递增",
-            "The output mode of FE log, and NORMAL mode means the logs are synchronized and contain location "
-                    + "information. BRIEF mode is synchronized and does not contain location information. "
-                    + "ASYNC mode is the default output mode, which is asynchronous and does not contain "
-                    + "location information. The performance of the three log output modes increases in sequence"},
-            options = {"NORMAL", "BRIEF", "ASYNC"})
+    @ConfField(description = {"FE 日志的输出模式，其中 NORMAL 模式是日志同步输出且包含位置信息；ASYNC 模式为默认模式，日志异步输出"
+            + "且包含位置信息；BRIEF 是日志异步输出但不包含位置信息，三种日志输出模式的性能依次递增",
+            "The output mode of FE log. NORMAL mode is synchronous output with location information; "
+                    + "ASYNC mode is the default mode, asynchronous output with location information; "
+                    + "BRIEF is asynchronous output without location information. "
+                    + "The performance of the three log output modes increases in turn"},
+            options = {"NORMAL", "ASYNC", "BRIEF"})
     public static String sys_log_mode = "ASYNC";
 
     @ConfField(description = {"FE 日志文件的最大数量。超过这个数量后，最老的日志文件会被删除",
@@ -801,6 +801,7 @@ public class Config extends ConfigBase {
     /**
      * The default user resource publishing timeout.
      */
+    @Deprecated
     @ConfField public static int meta_publish_timeout_ms = 1000;
     @ConfField public static boolean proxy_auth_enable = false;
     @ConfField public static String proxy_auth_magic_prefix = "x@8";
@@ -916,6 +917,7 @@ public class Config extends ConfigBase {
      * Max number of load jobs, include PENDING、ETL、LOADING、QUORUM_FINISHED.
      * If exceed this number, load job is not allowed to be submitted.
      */
+    @Deprecated
     @ConfField(mutable = true, masterOnly = true)
     public static long max_unfinished_load_job = 1000;
 
@@ -979,9 +981,9 @@ public class Config extends ConfigBase {
     public static int db_used_data_quota_update_interval_secs = 300;
 
     /**
-     * Load using hadoop cluster will be deprecated in future.
      * Set to true to disable this kind of load.
      */
+    @Deprecated
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_hadoop_load = false;
 
@@ -1070,6 +1072,7 @@ public class Config extends ConfigBase {
     /**
      * Deprecated after 0.10
      */
+    @Deprecated
     @ConfField public static boolean use_new_tablet_scheduler = true;
 
     /**
@@ -1530,6 +1533,15 @@ public class Config extends ConfigBase {
     public static int max_backup_restore_job_num_per_db = 10;
 
     /**
+     * Control the max num of tablets per backup job involved.
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "用于控制每次 backup job 允许备份的 tablet 上限，以避免 OOM",
+        "Control the max num of tablets per backup job involved, to avoid OOM"
+    })
+    public static int max_backup_tablets_per_job = 300000;
+
+    /**
      * whether to ignore table that not support type when backup, and not report exception.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1548,6 +1560,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = true)
     public static int partition_info_update_interval_secs = 60;
 
+    @Deprecated
     @ConfField(masterOnly = true)
     public static boolean enable_concurrent_update = false;
 
@@ -1652,23 +1665,26 @@ public class Config extends ConfigBase {
     /*
      * the max unfinished statistics job number
      */
+    @Deprecated
     @ConfField(mutable = true, masterOnly = true)
     public static int cbo_max_statistics_job_num = 20;
     /*
      * the max timeout of a statistics task
      */
+    @Deprecated
     @ConfField(mutable = true, masterOnly = true)
     public static int max_cbo_statistics_task_timeout_sec = 300;
     /*
      * the concurrency of statistics task
      */
-    // TODO change it to mutable true
+    @Deprecated
     @ConfField(mutable = false, masterOnly = true)
     public static int cbo_concurrency_statistics_task_num = 10;
     /*
      * default sample percentage
      * The value from 0 ~ 100. The 100 means no sampling and fetch all data.
      */
+    @Deprecated
     @ConfField(mutable = true, masterOnly = true)
     public static int cbo_default_sample_percentage = 10;
 
@@ -1762,6 +1778,7 @@ public class Config extends ConfigBase {
      * This configuration is used to control the max saved time.
      * Default is 3 days.
      */
+    @Deprecated
     @ConfField
     public static int finish_job_max_saved_second = 60 * 60 * 24 * 3;
 
@@ -1814,7 +1831,7 @@ public class Config extends ConfigBase {
     public static boolean enable_date_conversion = true;
 
     @ConfField(mutable = false, masterOnly = true)
-    public static boolean enable_multi_tags = false;
+    public static boolean enable_multi_tags = true;
 
     /**
      * If set to TRUE, FE will convert DecimalV2 to DecimalV3 automatically.
@@ -1825,6 +1842,7 @@ public class Config extends ConfigBase {
     /**
      * Support complex data type ARRAY.
      */
+    @Deprecated
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_array_type = false;
 
@@ -1840,7 +1858,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 6;
+    public static int max_be_exec_version = 7;
 
     /**
      * Min data version of backends serialize block.
@@ -1861,21 +1879,26 @@ public class Config extends ConfigBase {
     public static boolean enable_mtmv = false;
 
     /* Max running task num at the same time, otherwise the submitted task will still be keep in pending poll*/
+    @Deprecated
     @ConfField(mutable = true, masterOnly = true)
     public static int max_running_mtmv_scheduler_task_num = 100;
 
     /* Max pending task num keep in pending poll, otherwise it reject the task submit*/
+    @Deprecated
     @ConfField(mutable = true, masterOnly = true)
     public static int max_pending_mtmv_scheduler_task_num = 100;
 
     /* Remove the completed mtmv job after this expired time. */
+    @Deprecated
     @ConfField(mutable = true, masterOnly = true)
     public static long scheduler_mtmv_job_expired = 24 * 60 * 60L; // 1day
 
     /* Remove the finished mtmv task after this expired time. */
+    @Deprecated
     @ConfField(mutable = true, masterOnly = true)
     public static long scheduler_mtmv_task_expired = 24 * 60 * 60L; // 1day
 
+    @Deprecated
     @ConfField(mutable = true, masterOnly = true)
     public static boolean keep_scheduler_mtmv_task_when_job_deleted = false;
 
@@ -1910,7 +1933,7 @@ public class Config extends ConfigBase {
      * Max query profile num.
      */
     @ConfField(mutable = true, masterOnly = false)
-    public static int max_query_profile_num = 100;
+    public static int max_query_profile_num = 500;
 
     /**
      * Set to true to disable backend black list, so that even if we failed to send task to a backend,
@@ -1979,16 +2002,20 @@ public class Config extends ConfigBase {
      * Max cache num of hive partition.
      * Decrease this value if FE's memory is small
      */
-    @ConfField(mutable = false, masterOnly = false)
-    public static long max_hive_partition_cache_num = 100000;
+    @ConfField(description = {"Hive Metastore 表级别分区缓存的最大数量。",
+            "Max cache number of partition at table level in Hive Metastore."})
+    public static long max_hive_partition_cache_num = 10000;
 
-    @ConfField(mutable = false, masterOnly = false, description = {"Hive表名缓存的最大数量。",
-            "Max cache number of hive table name list."})
-    public static long max_hive_table_cache_num = 1000;
+    @ConfField(description = {"Hudi/Iceberg 表级别缓存的最大数量。",
+            "Max cache number of hudi/iceberg table."})
+    public static long max_external_table_cache_num = 1000;
 
-    @ConfField(mutable = false, masterOnly = false, description = {
-            "Hive分区表缓存的最大数量", "Max cache number of hive partition table"
-    })
+    @ConfField(description = {"External Catalog 中，Database 和 Table 的实例缓存的最大数量。",
+            "Max cache number of database and table instance in external catalog."})
+    public static long max_meta_object_cache_num = 1000;
+
+    @ConfField(description = {"Hive分区表缓存的最大数量",
+            "Max cache number of hive partition table"})
     public static long max_hive_partition_table_cache_num = 1000;
 
     @ConfField(mutable = false, masterOnly = false, description = {"获取Hive分区值时候的最大返回数量，-1代表没有限制。",
@@ -2015,7 +2042,7 @@ public class Config extends ConfigBase {
      * Decrease this value if FE's memory is small
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static long max_external_file_cache_num = 100000;
+    public static long max_external_file_cache_num = 10000;
 
     /**
      * Max cache num of external table's schema
@@ -2363,6 +2390,7 @@ public class Config extends ConfigBase {
     @ConfField
     public static int auto_analyze_simultaneously_running_task_num = 1;
 
+    @Deprecated
     @ConfField
     public static final int period_analyze_simultaneously_running_task_num = 1;
 
@@ -2380,6 +2408,7 @@ public class Config extends ConfigBase {
             "The maximum number of partitions allowed by Export job"})
     public static int maximum_number_of_export_partitions = 2000;
 
+    @Deprecated
     @ConfField(mutable = true, description = {
             "Export任务允许的最大并行数",
             "The maximum parallelism allowed by Export job"})
@@ -2689,6 +2718,12 @@ public class Config extends ConfigBase {
             "Whether to enable proxy protocol"
     })
     public static boolean enable_proxy_protocol = false;
+
+    @ConfField(description = {
+            "Profile 异步收集过期时间，在 query 完成后，如果在该参数指定的时长内 profile 没有收集完成，则未完成的 profile 会被放弃。",
+            "Profile async collect expire time, after the query is completed, if the profile is not collected within "
+                    + " the time specified by this parameter, the uncompleted profile will be abandoned."
+    })
     public static int profile_async_collect_expire_time_secs = 5;
 
     // Used to check compatibility when upgrading.
@@ -2765,14 +2800,23 @@ public class Config extends ConfigBase {
     @ConfField public static int audit_sys_accumulated_file_size = 4;
 
     @ConfField
+    public static String deploy_mode = "";
+
+    // compatibily with elder version.
+    // cloud_unique_id is introduced before cloud_instance_id, so it has higher priority.
+    @ConfField
     public static String cloud_unique_id = "";
 
+    // If cloud_unique_id is empty, cloud_instance_id works, otherwise cloud_unique_id works.
+    @ConfField
+    public static String cloud_instance_id = "";
+
     public static boolean isCloudMode() {
-        return !cloud_unique_id.isEmpty();
+        return deploy_mode.equals("cloud") || !cloud_unique_id.isEmpty() || !cloud_instance_id.isEmpty();
     }
 
     public static boolean isNotCloudMode() {
-        return cloud_unique_id.isEmpty();
+        return !isCloudMode();
     }
 
     /**
@@ -2983,14 +3027,21 @@ public class Config extends ConfigBase {
         "create table in cloud mode, check recycler key remained, default true"})
     public static boolean check_create_table_recycle_key_remained = true;
 
-    @ConfField(mutable = true, description = {"存算分离模式下fe向ms请求锁的过期时间，默认10s"})
-    public static int delete_bitmap_lock_expiration_seconds = 10;
+    @ConfField(mutable = true, description = {"存算分离模式下fe向ms请求锁的过期时间，默认60s"})
+    public static int delete_bitmap_lock_expiration_seconds = 60;
 
     @ConfField(mutable = true, description = {"存算分离模式下calculate delete bitmap task 超时时间，默认15s"})
     public static int calculate_delete_bitmap_task_timeout_seconds = 15;
 
     @ConfField(mutable = true, description = {"存算分离模式下commit阶段等锁超时时间，默认5s"})
     public static int try_commit_lock_timeout_seconds = 5;
+
+    @ConfField(mutable = true, description = {"存算分离模式下是否开启大事务提交，默认false"})
+    public static boolean enable_cloud_txn_lazy_commit = false;
+
+    @ConfField(mutable = true, description = {"存算分离模式下，当tablet分布的be异常，是否立即映射tablet到新的be上，默认true"})
+    public static boolean enable_immediate_be_assign = true;
+
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
@@ -3009,5 +3060,13 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = {"表示最大锁持有时间，超过该时间会打印告警日志，单位秒",
             "Maximum lock hold time; logs a warning if exceeded"})
-    public static long  max_lock_hold_threshold_seconds = 10;
+    public static long max_lock_hold_threshold_seconds = 10;
+
+    @ConfField(mutable = true, description = {"元数据同步是否开启安全模式",
+        "Is metadata synchronization enabled in safe mode"})
+    public static boolean meta_helper_security_mode = false;
+
+    @ConfField(description = {"检查资源就绪的周期，单位秒",
+            "Interval checking if resource is ready"})
+    public static long resource_not_ready_sleep_seconds = 5;
 }

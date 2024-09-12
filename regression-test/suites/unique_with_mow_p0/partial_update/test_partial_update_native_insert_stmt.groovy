@@ -250,12 +250,10 @@ suite("test_partial_update_native_insert_stmt", "p0") {
         logger.info("current params: use_nerieds: ${use_nerieds}")
         if (use_nerieds) {
             sql "set enable_nereids_planner=true;"
-            sql "set enable_nereids_dml=true;"
             sql "set enable_fallback_to_original_planner=false;"
             sql "sync;"
         } else {
             sql "set enable_nereids_planner=false;"
-            sql "set enable_nereids_dml=false;"
             sql "sync;"
         }
 

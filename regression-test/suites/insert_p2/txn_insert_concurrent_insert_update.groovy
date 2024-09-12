@@ -23,6 +23,11 @@ import java.util.concurrent.CompletableFuture
 
 // test partial columns update
 suite("txn_insert_concurrent_insert_update") {
+    if (isCloudMode()) {
+        logger.info("cloud txn load does not support mow")
+        return
+    }
+
     def tableName = "txn_insert_concurrent_insert_update"
     List<String> errors = new ArrayList<>()
 

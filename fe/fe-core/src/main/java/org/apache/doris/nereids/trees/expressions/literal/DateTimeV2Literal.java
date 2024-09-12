@@ -105,6 +105,11 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     @Override
+    public double getDouble() {
+        return super.getDouble() + microSecond / 1000000.0;
+    }
+
+    @Override
     public String toString() {
         return getStringValue();
     }
@@ -215,8 +220,14 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         return fromJavaDateType(toJavaDateType().plusSeconds(seconds), getDataType().getScale());
     }
 
+    // When performing addition or subtraction with MicroSeconds, the precision must
+    // be set to 6 to display it completely.
     public Expression plusMicroSeconds(long microSeconds) {
-        return fromJavaDateType(toJavaDateType().plusNanos(microSeconds * 1000L), getDataType().getScale());
+        return fromJavaDateType(toJavaDateType().plusNanos(microSeconds * 1000L), 6);
+    }
+
+    public Expression plusMilliSeconds(long microSeconds) {
+        return plusMicroSeconds(microSeconds * 1000L);
     }
 
     /**
@@ -285,6 +296,6 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             return false;
         }
         DateTimeV2Literal literal = (DateTimeV2Literal) o;
-        return Objects.equals(dataType, literal.dataType);
+        return Objects.equals(dataType, literal.dataType) && Objects.equals(microSecond, literal.microSecond);
     }
 }

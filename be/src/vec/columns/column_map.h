@@ -96,6 +96,11 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
     bool is_variable_length() const override { return true; }
 
+    bool is_exclusive() const override {
+        return IColumn::is_exclusive() && keys_column->is_exclusive() &&
+               values_column->is_exclusive() && offsets_column->is_exclusive();
+    }
+
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     StringRef get_data_at(size_t n) const override;
@@ -141,10 +146,11 @@ public:
     }
 
     ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() {
-        return assert_cast<COffsets&>(*offsets_column).get_data();
+        return assert_cast<COffsets&, TypeCheckOnRelease::DISABLE>(*offsets_column).get_data();
     }
     const ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() const {
-        return assert_cast<const COffsets&>(*offsets_column).get_data();
+        return assert_cast<const COffsets&, TypeCheckOnRelease::DISABLE>(*offsets_column)
+                .get_data();
     }
     IColumn& get_offsets_column() { return *offsets_column; }
     const IColumn& get_offsets_column() const { return *offsets_column; }

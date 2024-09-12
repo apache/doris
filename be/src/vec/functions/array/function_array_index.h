@@ -115,19 +115,18 @@ public:
         return Status::OK();
     }
 
-    /**
-     * eval inverted index. we can filter array rows with inverted index iter
-     */
-    Status eval_inverted_index(FunctionContext* context,
-                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
-                               segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
-                               roaring::Roaring* bitmap) const override {
-        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
-        auto* param_value = reinterpret_cast<ParamValue*>(
-                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-        if (param_value == nullptr || param_value->value.is_null()) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
-                    "Inverted index evaluate skipped, param_value is nullptr or value is null");
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+        DCHECK(arguments.size() == 1);
+        DCHECK(data_type_with_names.size() == 1);
+        DCHECK(iterators.size() == 1);
+        auto* iter = iterators[0];
+        auto data_type_with_name = data_type_with_names[0];
+        if (iter == nullptr) {
+            return Status::OK();
         }
         if (iter->get_inverted_index_reader_type() ==
             segment_v2::InvertedIndexReaderType::FULLTEXT) {
@@ -137,21 +136,35 @@ public:
             // but query is also tokenized, and FULLTEXT reader will catch this row as matched,
             // so array_index(array, 'tall:120cm, weight: 35kg') return this rowid,
             // but we expect it to be filtered, because we want row is equal to 'tall:120cm, weight: 35kg'
-            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
-                    "Inverted index evaluate skipped, FULLTEXT reader can not support array_index");
+            return Status::OK();
+        }
+        Field param_value;
+        arguments[0].column->get(0, param_value);
+        auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
+        // The current implementation for the inverted index of arrays cannot handle cases where the array contains null values,
+        // meaning an item in the array is null.
+        if (param_value.is_null()) {
+            return Status::OK();
+        }
+
+        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
+        std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
+        if (iter->has_null()) {
+            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
+            null_bitmap = null_bitmap_cache_handle.get_bitmap();
         }
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
-        RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
-                param_value->type, &param_value->value, query_param));
-        if (is_string_type(param_value->type)) {
+        RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
+                                                                           query_param));
+        if (is_string_type(param_type)) {
             Status st = iter->read_from_inverted_index(
                     data_type_with_name.first, query_param->get_value(),
                     segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring);
             if (st.code() == ErrorCode::INVERTED_INDEX_NO_TERMS) {
                 // if analyzed param with no term, we do not filter any rows
                 // return all rows with OK status
-                bitmap->addRange(0, num_rows);
-                return Status::OK();
+                roaring->addRange(0, num_rows);
             } else if (st != Status::OK()) {
                 return st;
             }
@@ -160,18 +173,30 @@ public:
                     data_type_with_name.first, query_param->get_value(),
                     segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring));
         }
-
-        // mask out null_bitmap, since NULL cmp VALUE will produce NULL
-        //  and be treated as false in WHERE
-        // keep it after query, since query will try to read null_bitmap and put it to cache
-        segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-        RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
-        std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
-        if (null_bitmap) {
-            *bitmap -= *null_bitmap;
+        // here debug for check array_contains function really filter rows by inverted index correctly
+        DBUG_EXECUTE_IF("array_func.array_contains", {
+            auto result_bitmap = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                    "array_func.array_contains", "result_bitmap", 0);
+            if (result_bitmap < 0) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "result_bitmap count cannot be negative");
+            }
+            if (roaring->cardinality() != result_bitmap) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "array_contains really filtered {} by inverted index not equal to expected "
+                        "{}",
+                        roaring->cardinality(), result_bitmap);
+            }
+        })
+        if (iter->has_null()) {
+            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
+            null_bitmap = null_bitmap_cache_handle.get_bitmap();
         }
+        segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+        bitmap_result = result;
+        bitmap_result.mask_out_null();
 
-        *bitmap = *roaring;
         return Status::OK();
     }
 

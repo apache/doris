@@ -104,7 +104,7 @@ public class AlterViewInfo extends BaseViewInfo {
         AlterViewStmt alterViewStmt = new AlterViewStmt(viewName.transferToTableName(), cols,
                 null);
         // expand star(*) in project list and replace table name with qualifier
-        String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString());
+        String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
 
         // rewrite project alias
         rewrittenSql = rewriteProjectsToUserDefineAlias(rewrittenSql);

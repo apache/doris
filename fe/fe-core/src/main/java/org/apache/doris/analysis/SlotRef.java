@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.ToSqlContext;
+import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -351,6 +352,17 @@ public class SlotRef extends Expr {
         msg.slot_ref = new TSlotRef(desc.getId().asInt(), desc.getParent().getId().asInt());
         msg.slot_ref.setColUniqueId(desc.getUniqueId());
         msg.setLabel(label);
+    }
+
+    @Override
+    protected void normalize(TExprNode msg, Normalizer normalizer) {
+        msg.node_type = TExprNodeType.SLOT_REF;
+        // we should eliminate the different tuple id to reuse query cache
+        msg.slot_ref = new TSlotRef(
+                normalizer.normalizeSlotId(desc.getId().asInt()),
+                0
+        );
+        msg.slot_ref.setColUniqueId(desc.getUniqueId());
     }
 
     @Override
@@ -679,6 +691,11 @@ public class SlotRef extends Expr {
 
     @Override
     public void replaceSlot(TupleDescriptor tuple) {
+        // do not analyze slot after replaceSlot to avoid duplicate columns in desc
         desc = tuple.getColumnSlot(col);
+        type = desc.getType();
+        if (!isAnalyzed) {
+            analysisDone();
+        }
     }
 }

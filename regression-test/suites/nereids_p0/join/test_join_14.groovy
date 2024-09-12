@@ -144,10 +144,10 @@ suite("test_join_14", "nereids_p0") {
            order by 1 limit 65535"""
     check2_doris(res63, res64)
 
-    sql"drop view if exists nullable"
-    sql"""create view nullable(n1, n2) as select a.k1, b.k2 from baseall 
+    sql"drop view if exists nullable_14"
+    sql"""create view nullable_14(n1, n2) as select a.k1, b.k2 from baseall 
             a left join bigtable b on a.k1 = b.k1 + 10 where b.k2 is null"""
-    qt_join_bug1"""select k1, n1 from baseall a right outer join nullable b on a.k1 % 2 = b.n1 % 2 
+    qt_join_bug1"""select k1, n1 from baseall a right outer join nullable_14 b on a.k1 % 2 = b.n1 % 2 
            order by a.k1, b.n1"""
     qt_join_bug2"""select n.k1, m.k1, m.k2, n.k2 from (select a.k1, a.k2, a.k3 from 
            baseall a join baseall b on (a.k1 = b.k1 and a.k2 = b.k2 and a.k3 = b.k3)) m 

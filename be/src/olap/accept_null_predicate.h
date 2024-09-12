@@ -34,6 +34,7 @@ namespace doris {
  *  but pass (set/return true) for NULL value rows.
  *
  * At parent, it's used for topn runtime predicate.
+ * Eg: original input indexs is '1,2,3,7,8,9' and value of index9 is null, we get nested predicate output index is '1,2,3', but we finally output '1,2,3,9'
 */
 class AcceptNullPredicate : public ColumnPredicate {
     ENABLE_FACTORY_CREATOR(AcceptNullPredicate);
@@ -43,8 +44,6 @@ public:
             : ColumnPredicate(nested->column_id(), nested->opposite()), _nested {nested} {}
 
     PredicateType type() const override { return _nested->type(); }
-
-    void set_nested(ColumnPredicate* nested) { _nested.reset(nested); }
 
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* roaring) const override {
@@ -64,11 +63,14 @@ public:
     void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                       bool* flags) const override {
         if (column.has_null()) {
+            std::vector<uint8_t> original_flags(size);
+            memcpy(original_flags.data(), flags, size);
+
             const auto& nullable_col = assert_cast<const vectorized::ColumnNullable&>(column);
             _nested->evaluate_and(nullable_col.get_nested_column(), sel, size, flags);
             const auto& nullmap = nullable_col.get_null_map_data();
             for (uint16_t i = 0; i < size; ++i) {
-                flags[i] |= nullmap[sel[i]];
+                flags[i] |= (original_flags[i] && nullmap[sel[i]]);
             }
         } else {
             _nested->evaluate_and(column, sel, size, flags);
@@ -77,20 +79,7 @@ public:
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {
-        if (column.has_null()) {
-            const auto& nullable_col = assert_cast<const vectorized::ColumnNullable&>(column);
-            _nested->evaluate_or(nullable_col.get_nested_column(), sel, size, flags);
-
-            // call evaluate_or and set true for NULL rows
-            for (uint16_t i = 0; i < size; ++i) {
-                uint16_t idx = sel[i];
-                if (!flags[i] && nullable_col.is_null_at(idx)) {
-                    flags[i] = true;
-                }
-            }
-        } else {
-            _nested->evaluate_or(column, sel, size, flags);
-        }
+        DCHECK(false) << "should not reach here";
     }
 
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
@@ -158,6 +147,8 @@ private:
             }
             // create selected_flags
             uint16_t max_idx = sel[size - 1];
+            std::vector<uint16_t> old_sel(size);
+            memcpy(old_sel.data(), sel, sizeof(uint16_t) * size);
 
             const auto& nullable_col = assert_cast<const vectorized::ColumnNullable&>(column);
             // call nested predicate evaluate
@@ -165,13 +156,17 @@ private:
 
             // process NULL values
             if (new_size < size) {
-                std::vector<uint8_t> selected(max_idx + 1);
-                memcpy(selected.data(), nullable_col.get_null_map_data().data(),
-                       (max_idx + 1) * sizeof(bool));
+                std::vector<uint8_t> selected(max_idx + 1, 0);
+                const auto* nullmap = nullable_col.get_null_map_data().data();
                 // add rows selected by _nested->evaluate
                 for (uint16_t i = 0; i < new_size; ++i) {
                     uint16_t row_idx = sel[i];
                     selected[row_idx] = true;
+                }
+                // reset null from original data
+                for (uint16_t i = 0; i < size; ++i) {
+                    uint16_t row_idx = old_sel[i];
+                    selected[row_idx] |= nullmap[row_idx];
                 }
 
                 // recaculate new_size and sel array

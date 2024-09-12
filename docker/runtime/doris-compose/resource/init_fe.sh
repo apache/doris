@@ -81,8 +81,25 @@ fe_daemon() {
     done
 }
 
-add_cloud_fe() {
+start_cloud_fe() {
     if [ -f "$REGISTER_FILE" ]; then
+        fe_daemon &
+        bash $DORIS_HOME/bin/start_fe.sh --daemon
+        return
+    fi
+
+    # Check if SQL_MODE_NODE_MGR is set to 1
+    if [ "${SQL_MODE_NODE_MGR}" = "1" ]; then
+        health_log "SQL_MODE_NODE_MGR is set to 1. Skipping add FE."
+
+        touch $REGISTER_FILE
+
+        fe_daemon &
+        bash $DORIS_HOME/bin/start_fe.sh --daemon
+
+        if [ "$MY_ID" == "1" ]; then
+            echo $MY_IP >$MASTER_FE_IP_FILE
+        fi
         return
     fi
 
@@ -94,6 +111,10 @@ add_cloud_fe() {
         wait_master_fe_ready
         action=add_node
         node_type=FE_OBSERVER
+    fi
+
+    if [ "a$IS_FE_FOLLOWER" == "a1" ]; then
+        node_type=FE_FOLLOWER
     fi
 
     nodes='{
@@ -139,6 +160,10 @@ add_cloud_fe() {
     fi
 
     touch $REGISTER_FILE
+
+    fe_daemon &
+    bash $DORIS_HOME/bin/start_fe.sh --daemon
+
     if [ "$MY_ID" == "1" ]; then
         echo $MY_IP >$MASTER_FE_IP_FILE
     fi
@@ -180,11 +205,6 @@ start_local_fe() {
         fe_daemon &
         bash $DORIS_HOME/bin/start_fe.sh --helper $MASTER_FE_IP:$FE_EDITLOG_PORT --daemon
     fi
-}
-
-start_cloud_fe() {
-    add_cloud_fe
-    bash $DORIS_HOME/bin/start_fe.sh --daemon
 }
 
 main() {

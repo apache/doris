@@ -32,7 +32,7 @@ import org.apache.logging.log4j.Logger;
 /**
  * Representation of a USE db statement.
  */
-public class UseStmt extends StatementBase {
+public class UseStmt extends StatementBase implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(UseStmt.class);
     private String catalogName;
     private String database;

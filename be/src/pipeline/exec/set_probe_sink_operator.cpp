@@ -55,14 +55,9 @@ Status SetProbeSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, Runtime
 }
 
 template <bool is_intersect>
-Status SetProbeSinkOperatorX<is_intersect>::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::prepare(state));
-    return vectorized::VExpr::prepare(_child_exprs, state, _child_x->row_desc());
-}
-
-template <bool is_intersect>
 Status SetProbeSinkOperatorX<is_intersect>::open(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::open(state));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_exprs, state, _child->row_desc()));
     return vectorized::VExpr::open(_child_exprs, state);
 }
 
@@ -114,6 +109,9 @@ Status SetProbeSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSink
     }
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
     child_exprs_lists[parent._cur_child_id] = _child_exprs;
+
+    RETURN_IF_ERROR(_shared_state->update_build_not_ignore_null(_child_exprs));
+
     return Status::OK();
 }
 

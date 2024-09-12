@@ -76,7 +76,7 @@ public class RefreshManager {
     private void refreshCatalogInternal(CatalogIf catalog, boolean invalidCache) {
         String catalogName = catalog.getName();
         if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            ((ExternalCatalog) catalog).onRefresh(invalidCache);
+            ((ExternalCatalog) catalog).onRefreshCache(invalidCache);
             LOG.info("refresh catalog {} with invalidCache {}", catalogName, invalidCache);
         }
     }

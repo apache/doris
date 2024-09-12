@@ -28,40 +28,7 @@ mariadb_jdbc_catalog
 115	abg
 
 -- !information_schema --
-active_queries
-backend_active_tasks
-character_sets
-collations
-column_privileges
-column_statistics
-columns
-engines
-events
-files
-global_variables
-key_column_usage
-metadata_name_ids
-parameters
-partitions
 processlist
-profiling
-referential_constraints
-routines
-rowsets
-schema_privileges
-schemata
-session_variables
-statistics
-table_constraints
-table_options
-table_privileges
-tables
-triggers
-user_privileges
-views
-workload_group_privileges
-workload_groups
-workload_policy
 
 -- !auto_default_t --
 0

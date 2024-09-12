@@ -41,14 +41,12 @@ public:
               _sub_types(std::move(sub_types)),
               _function_name(std::move(function_name)),
               _be_exec_version(be_exec_version) {
-        _agg_function = AggregateFunctionSimpleFactory::instance().get(_function_name, _sub_types,
-                                                                       _result_is_nullable);
-        if (_agg_function == nullptr) {
+        _agg_function = AggregateFunctionSimpleFactory::instance().get(
+                _function_name, _sub_types, _result_is_nullable, _be_exec_version);
+        if (_agg_function == nullptr ||
+            !BeExecVersionManager::check_be_exec_version(be_exec_version)) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "DataTypeAggState function get failed, type={}", do_get_name());
-        }
-        if (!BeExecVersionManager::check_be_exec_version(be_exec_version)) {
-            LOG(WARNING) << "meet old agg-state, be_exec_version=" << be_exec_version;
         }
         _agg_function->set_version(be_exec_version);
         _agg_serialized_type = _agg_function->get_serialized_type();
@@ -123,6 +121,11 @@ public:
     };
 
     DataTypePtr get_serialized_type() const { return _agg_serialized_type; }
+
+    void check_agg_state_compatibility(int read_be_exec_version) const {
+        BeExecVersionManager::check_agg_state_compatibility(read_be_exec_version, _be_exec_version,
+                                                            get_nested_function()->get_name());
+    }
 
 private:
     std::string get_types_string() const {

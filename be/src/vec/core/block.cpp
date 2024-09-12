@@ -45,12 +45,10 @@
 #include "util/runtime_profile.h"
 #include "util/simd/bits.h"
 #include "util/slice.h"
-#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
@@ -744,6 +742,15 @@ void Block::clear_column_data(int column_size) noexcept {
         }
     }
     row_same_bit.clear();
+}
+
+void Block::erase_tmp_columns() noexcept {
+    auto all_column_names = get_names();
+    for (auto& name : all_column_names) {
+        if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
+            erase(name);
+        }
+    }
 }
 
 void Block::swap(Block& other) noexcept {

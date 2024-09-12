@@ -95,7 +95,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     // partition id -> (shadow index id -> (shadow tablet id -> origin tablet id))
     @SerializedName(value = "partitionIndexTabletMap")
-    private Table<Long, Long, Map<Long, Long>> partitionIndexTabletMap = HashBasedTable.create();
+    protected Table<Long, Long, Map<Long, Long>> partitionIndexTabletMap = HashBasedTable.create();
     // partition id -> (shadow index id -> shadow index))
     @SerializedName(value = "partitionIndexMap")
     protected Table<Long, Long, MaterializedIndex> partitionIndexMap = HashBasedTable.create();
@@ -299,7 +299,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     binlogConfig,
                                     tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                     objectPool,
-                                    tbl.rowStorePageSize());
+                                    tbl.rowStorePageSize(),
+                                    tbl.variantEnableFlattenNested());
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
@@ -553,7 +554,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 if (task.getFailedTimes() > 0) {
                     task.setFinished(true);
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
-                    LOG.warn("schema change task failed: " + task.getErrorMsg());
+                    LOG.warn("schema change task failed: {}", task.getErrorMsg());
                     List<Long> failedBackends = failedTabletBackends.get(task.getTabletId());
                     if (failedBackends == null) {
                         failedBackends = Lists.newArrayList();
@@ -564,8 +565,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             .getReplicaAllocation(task.getPartitionId()).getTotalReplicaNum();
                     int failedTaskCount = failedBackends.size();
                     if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
-                        throw new AlterCancelException("schema change tasks failed on same tablet reach threshold "
-                                + failedTaskCount);
+                        throw new AlterCancelException(
+                                String.format("schema change tasks failed, error reason: %s", task.getErrorMsg()));
                     }
                 }
             }
@@ -719,6 +720,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
         // rebuild table's full schema
         tbl.rebuildFullSchema();
+        tbl.rebuildDistributionInfo();
 
         // update bloom filter
         if (hasBfChange) {
@@ -755,12 +757,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         pruneMeta();
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
-        LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
-        Env.getCurrentEnv().getEditLog().logAlterJob(this);
-
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL when cancel, table id: {}, job id: {}", tableId, jobId);
-        postProcessShadowIndex();
+        jobState = JobState.CANCELLED;
+        Env.getCurrentEnv().getEditLog().logAlterJob(this);
+        LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
+        onCancel();
 
         return true;
     }
@@ -797,8 +799,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 }
             }
         }
-
-        jobState = JobState.CANCELLED;
     }
 
     // Check whether transactions of the given database which txnId is less than 'watershedTxnId' are finished
@@ -908,7 +908,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     private void replayCancelled(SchemaChangeJobV2 replayedJob) {
         cancelInternal();
         // try best to drop shadow index
-        postProcessShadowIndex();
+        onCancel();
         this.jobState = JobState.CANCELLED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         this.errMsg = replayedJob.errMsg;
@@ -1011,7 +1011,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     protected void commitShadowIndex() throws AlterCancelException {}
 
     // try best to drop shadow index, when job is cancelled in cloud mode
-    protected void postProcessShadowIndex() {}
+    protected void onCancel() {}
 
     // try best to drop origin index in cloud mode
     protected void postProcessOriginIndex() {}

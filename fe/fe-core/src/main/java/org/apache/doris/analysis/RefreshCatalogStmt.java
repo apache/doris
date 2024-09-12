@@ -33,7 +33,7 @@ import java.util.Map;
  * RefreshCatalogStmt
  * Manually refresh the catalog metadata.
  */
-public class RefreshCatalogStmt extends DdlStmt {
+public class RefreshCatalogStmt extends DdlStmt implements NotFallbackInParser {
     private static final String INVALID_CACHE = "invalid_cache";
 
     private final String catalogName;
@@ -67,9 +67,9 @@ public class RefreshCatalogStmt extends DdlStmt {
         }
 
         if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(
-                ConnectContext.get(), catalogName, PrivPredicate.ALTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
-                    analyzer.getQualifiedUser(), catalogName);
+                ConnectContext.get(), catalogName, PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED_ERROR,
+                    PrivPredicate.SHOW.getPrivs().toString(), catalogName);
         }
 
         // Set to false only if user set the property "invalid_cache"="false"

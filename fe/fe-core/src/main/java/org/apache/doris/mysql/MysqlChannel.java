@@ -81,6 +81,9 @@ public class MysqlChannel implements BytesChannel {
     // mysql flag CLIENT_DEPRECATE_EOF
     private boolean clientDeprecatedEOF;
 
+    // mysql flag CLIENT_MULTI_STATEMENTS
+    private boolean clientMultiStatements;
+
     private ConnectContext context;
 
     protected MysqlChannel() {
@@ -93,6 +96,14 @@ public class MysqlChannel implements BytesChannel {
 
     public boolean clientDeprecatedEOF() {
         return clientDeprecatedEOF;
+    }
+
+    public void setClientMultiStatements() {
+        clientMultiStatements = true;
+    }
+
+    public boolean clientMultiStatements() {
+        return clientMultiStatements;
     }
 
     public MysqlChannel(StreamConnection connection, ConnectContext context) {

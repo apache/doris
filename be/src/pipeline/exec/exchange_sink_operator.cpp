@@ -99,7 +99,10 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     // Make sure brpc stub is ready before execution.
     for (int i = 0; i < channels.size(); ++i) {
         RETURN_IF_ERROR(channels[i]->init_stub(state));
+        _wait_channel_timer.push_back(_profile->add_nonzero_counter(
+                fmt::format("WaitForLocalExchangeBuffer{}", i), TUnit ::TIME_NS, timer_name, 1));
     }
+    _wait_broadcast_buffer_timer = ADD_CHILD_TIMER(_profile, "WaitForBroadcastBuffer", timer_name);
     return Status::OK();
 }
 
@@ -142,8 +145,6 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
         _sink_buffer->set_broadcast_dependency(_broadcast_dependency);
         _broadcast_pb_mem_limiter =
                 vectorized::BroadcastPBlockHolderMemLimiter::create_shared(_broadcast_dependency);
-        _wait_broadcast_buffer_timer =
-                ADD_CHILD_TIMER(_profile, "WaitForBroadcastBuffer", timer_name);
     } else if (local_size > 0) {
         size_t dep_id = 0;
         for (auto* channel : channels) {
@@ -151,9 +152,6 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
                 if (auto dep = channel->get_local_channel_dependency()) {
                     _local_channels_dependency.push_back(dep);
                     DCHECK(_local_channels_dependency[dep_id] != nullptr);
-                    _wait_channel_timer.push_back(_profile->add_nonzero_counter(
-                            fmt::format("WaitForLocalExchangeBuffer{}", dep_id), TUnit ::TIME_NS,
-                            timer_name, 1));
                     dep_id++;
                 } else {
                     LOG(WARNING) << "local recvr is null: query id = "
@@ -321,14 +319,10 @@ Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
     return Status::OK();
 }
 
-Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
+Status ExchangeSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<ExchangeSinkLocalState>::open(state));
     _state = state;
     _mem_tracker = std::make_unique<MemTracker>("ExchangeSinkOperatorX:");
-    return Status::OK();
-}
-
-Status ExchangeSinkOperatorX::open(RuntimeState* state) {
-    DCHECK(state != nullptr);
     _compression_type = state->fragement_transmission_compression_type();
     return Status::OK();
 }
@@ -654,10 +648,10 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
 }
 
 DataDistribution ExchangeSinkOperatorX::required_data_distribution() const {
-    if (_child_x && _enable_local_merge_sort) {
+    if (_child && _enable_local_merge_sort) {
         // SORT_OPERATOR -> DATA_STREAM_SINK_OPERATOR
         // SORT_OPERATOR -> LOCAL_MERGE_SORT -> DATA_STREAM_SINK_OPERATOR
-        if (auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(_child_x);
+        if (auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(_child);
             sort_source && sort_source->use_local_merge()) {
             // Sort the data local
             return ExchangeType::LOCAL_MERGE_SORT;

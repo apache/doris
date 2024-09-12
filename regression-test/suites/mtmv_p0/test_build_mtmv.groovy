@@ -101,6 +101,21 @@ suite("test_build_mtmv") {
     logger.info("showDataResult: " + showDataResult.toString())
     assertTrue(showDataResult.toString().contains("${mvName}"))
 
+    // show full tables
+    def showFullTablesResult = sql """SHOW FULL TABLES WHERE Table_type = 'BASE TABLE';"""
+    logger.info("showFullTablesResult: " + showFullTablesResult.toString())
+    assertTrue(showFullTablesResult.toString().contains("${mvName}"))
+
+    // views should not contains mtmv
+    def selectViewsResult = sql """ SELECT * from INFORMATION_SCHEMA.VIEWS;"""
+    logger.info("selectViewsResult: " + selectViewsResult.toString())
+    assertFalse(selectViewsResult.toString().contains("${mvName}"))
+
+    // views should not contains mtmv
+    def selectTablesResult = sql """ SELECT * from INFORMATION_SCHEMA.TABLES;"""
+    logger.info("selectTablesResult: " + selectTablesResult.toString())
+    assertTrue(selectTablesResult.toString().contains("${mvName}"))
+
     // if not exist
     try {
         sql """
@@ -500,12 +515,12 @@ suite("test_build_mtmv") {
     sql """
         DROP MATERIALIZED VIEW ${mvName}
     """
-    def jobs = sql """select count(1) from jobs("type"="mv")  where name= '${jobName}'"""
-    println jobs
-    assertEquals(jobs.get(0).get(0), 0);
-    def tasks = sql """select count(1) from tasks("type"="mv") where jobname = '${jobName}'"""
-    println tasks
-    assertEquals(tasks.get(0).get(0), 0);
+    def jobs = sql """select * from jobs("type"="mv")  where MvName= '${mvName}'"""
+    log.info(jobs.toString())
+    assertEquals(0, jobs.size());
+    def tasks = sql """select * from tasks("type"="mv") where MvName = '${mvName}'"""
+    log.info(tasks.toString())
+    assertEquals(0, tasks.size());
 
     // test bitmap
     sql """drop table if exists `${tableName}`"""

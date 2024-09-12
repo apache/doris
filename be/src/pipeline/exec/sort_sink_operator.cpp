@@ -46,19 +46,19 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     case TSortAlgorithm::HEAP_SORT: {
         _shared_state->sorter = vectorized::HeapSorter::create_unique(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
-                p._child_x->row_desc());
+                p._child->row_desc());
         break;
     }
     case TSortAlgorithm::TOPN_SORT: {
         _shared_state->sorter = vectorized::TopNSorter::create_unique(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
-                p._child_x->row_desc(), state, _profile);
+                p._child->row_desc(), state, _profile);
         break;
     }
     case TSortAlgorithm::FULL_SORT: {
         _shared_state->sorter = vectorized::FullSorter::create_unique(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
-                p._child_x->row_desc(), state, _profile);
+                p._child->row_desc(), state, _profile);
         break;
     }
     default: {
@@ -100,17 +100,15 @@ Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 
     auto* query_ctx = state->get_query_ctx();
     // init runtime predicate
-    if (query_ctx->has_runtime_predicate(_node_id)) {
+    if (query_ctx->has_runtime_predicate(_node_id) && _algorithm == TSortAlgorithm::HEAP_SORT) {
         query_ctx->get_runtime_predicate(_node_id).set_detected_source();
     }
     return Status::OK();
 }
 
-Status SortSinkOperatorX::prepare(RuntimeState* state) {
-    return _vsort_exec_exprs.prepare(state, _child_x->row_desc(), _row_descriptor);
-}
-
 Status SortSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<SortSinkLocalState>::open(state));
+    RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child->row_desc(), _row_descriptor));
     return _vsort_exec_exprs.open(state);
 }
 

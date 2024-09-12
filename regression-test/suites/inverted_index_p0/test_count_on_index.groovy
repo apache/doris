@@ -141,8 +141,12 @@ suite("test_count_on_index_httplogs", "p0") {
         load_httplogs_data.call(testTable_unique, 'test_httplogs_load_count_on_index', 'true', 'json', 'documents-1000.json')
 
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true """
         sql """set experimental_enable_nereids_planner=true;"""
         sql """set enable_fallback_to_original_planner=false;"""
+        sql """analyze table ${testTable_dup} with sync""";
+        // wait BE report every partition's row count
+        sleep(10000)
         // case1: test duplicate table
         explain {
             sql("select COUNT() from ${testTable_dup} where request match 'GET'")
@@ -155,6 +159,7 @@ suite("test_count_on_index_httplogs", "p0") {
 
         // case1.1: test duplicate table with null values.
         sql " insert into ${testTable_dup} values(1683964756,null,'GET /images/hm_bg.jpg HTTP/1.0 ',null,null); "
+        sql """analyze table ${testTable_dup} with sync""";
         explain {
             sql("select COUNT(request) from ${testTable_dup} where request match 'GET'")
             contains "pushAggOp=COUNT_ON_INDEX"
@@ -205,6 +210,7 @@ suite("test_count_on_index_httplogs", "p0") {
 
         // case2.1: test duplicate table with null values.
         sql " insert into ${testTable_unique} values(1683964756,null,'GET /images/hm_bg.jpg HTTP/1.0 ',null,null); "
+        sql """analyze table ${testTable_unique} with sync""";
         explain {
             sql("select COUNT(request) from ${testTable_unique} where request match 'GET'")
             contains "pushAggOp=COUNT_ON_INDEX"
@@ -262,7 +268,7 @@ suite("test_count_on_index_httplogs", "p0") {
         sql "INSERT INTO ${tableName} values ('dt_bjn003');"
 
         sql "sync"
-
+        sql "analyze table  ${tableName} with sync;"
         explain {
             sql("select COUNT() from ${tableName} where key_id match 'bjn002'")
             contains "pushAggOp=COUNT_ON_INDEX"

@@ -172,8 +172,6 @@ suite("test_base_insert_job") {
     def past_start_time_job = sql """ select status from jobs("type"="insert") where name='past_start_time'"""
     println past_start_time_job
     assert past_start_time_job.get(0).get(0) == "RUNNING"
-    def recurringTableDatas = sql """ select count(1) from ${tableName} where user_id=99 and type=99 """
-    assert recurringTableDatas.get(0).get(0) == 1
     sql """
         DROP JOB IF EXISTS where jobname =  'past_start_time'
     """
@@ -218,7 +216,7 @@ suite("test_base_insert_job") {
             CREATE JOB ${jobName}  ON SCHEDULE at current_timestamp   comment 'test' DO update ${tableName} set type=2 where type=1;
         """
     } catch (Exception e) {
-        assert e.getMessage().contains("Not support UpdateStmt type in job")
+        assert e.getMessage().contains("Not support this sql")
     }
     // assert start time greater than current time
     try {

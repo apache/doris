@@ -88,16 +88,20 @@ class ShardedKVCache;
 namespace doris::vectorized {
 using namespace ErrorCode;
 
-VFileScanner::VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* local_state,
-                           int64_t limit,
-                           std::shared_ptr<vectorized::SplitSourceConnector> split_source,
-                           RuntimeProfile* profile, ShardedKVCache* kv_cache)
+VFileScanner::VFileScanner(
+        RuntimeState* state, pipeline::FileScanLocalState* local_state, int64_t limit,
+        std::shared_ptr<vectorized::SplitSourceConnector> split_source, RuntimeProfile* profile,
+        ShardedKVCache* kv_cache,
+        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+        const std::unordered_map<std::string, int>* colname_to_slot_id)
         : VScanner(state, local_state, limit, profile),
           _split_source(split_source),
           _cur_reader(nullptr),
           _cur_reader_eof(false),
+          _colname_to_value_range(colname_to_value_range),
           _kv_cache(kv_cache),
-          _strict_mode(false) {
+          _strict_mode(false),
+          _col_name_to_slot_id(colname_to_slot_id) {
     if (state->get_query_ctx() != nullptr &&
         state->get_query_ctx()->file_scan_range_params_map.count(local_state->parent_id()) > 0) {
         _params = &(state->get_query_ctx()->file_scan_range_params_map[local_state->parent_id()]);
@@ -116,13 +120,8 @@ VFileScanner::VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* lo
     _is_load = (_input_tuple_desc != nullptr);
 }
 
-Status VFileScanner::prepare(
-        const VExprContextSPtrs& conjuncts,
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-        const std::unordered_map<std::string, int>* colname_to_slot_id) {
-    RETURN_IF_ERROR(VScanner::prepare(_state, conjuncts));
-    _colname_to_value_range = colname_to_value_range;
-    _col_name_to_slot_id = colname_to_slot_id;
+Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    RETURN_IF_ERROR(VScanner::prepare(state, conjuncts));
     _get_block_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerGetBlockTime");
     _open_reader_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerOpenReaderTime");
     _cast_to_input_block_timer =
@@ -582,8 +581,11 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                                                                          _num_of_columns_from_file);
                                 },
                                 [&]() -> std::string {
-                                    auto raw_value = _src_block_ptr->get_by_position(ctx_idx)
-                                                             .column->get_data_at(i);
+                                    auto raw_value =
+                                            _src_block_ptr
+                                                    ->get_by_position(_dest_slot_to_src_slot_index
+                                                                              [dest_index])
+                                                    .column->get_data_at(i);
                                     std::string raw_string = raw_value.to_string();
                                     fmt::memory_buffer error_msg;
                                     fmt::format_to(error_msg,
@@ -750,6 +752,9 @@ Status VFileScanner::_get_next_reader() {
                 range.table_format_params.table_format_type == "max_compute") {
                 const auto* mc_desc = static_cast<const MaxComputeTableDescriptor*>(
                         _real_tuple_desc->table_desc());
+                if (!mc_desc->init_status()) {
+                    return mc_desc->init_status();
+                }
                 std::unique_ptr<MaxComputeJniReader> mc_reader = MaxComputeJniReader::create_unique(
                         mc_desc, range.table_format_params.max_compute_params, _file_slot_descs,
                         range, _state, _profile);
@@ -788,7 +793,7 @@ Status VFileScanner::_get_next_reader() {
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
                     _profile, *_params, range, _state->query_options().batch_size,
                     const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state,
-                    _shoudl_enable_file_meta_cache() ? ExecEnv::GetInstance()->file_meta_cache()
+                    _should_enable_file_meta_cache() ? ExecEnv::GetInstance()->file_meta_cache()
                                                      : nullptr,
                     _state->query_options().enable_parquet_lazy_mat);
             {
@@ -821,7 +826,7 @@ Status VFileScanner::_get_next_reader() {
                 std::unique_ptr<PaimonParquetReader> paimon_reader =
                         PaimonParquetReader::create_unique(std::move(parquet_reader), _profile,
                                                            *_params);
-                RETURN_IF_ERROR(paimon_reader->init_row_filters(range));
+                RETURN_IF_ERROR(paimon_reader->init_row_filters(range, _io_ctx.get()));
                 _cur_reader = std::move(paimon_reader);
             } else {
                 bool hive_parquet_use_column_names = true;
@@ -869,7 +874,7 @@ Status VFileScanner::_get_next_reader() {
                         _file_col_names, _colname_to_value_range, _push_down_conjuncts,
                         _real_tuple_desc, _default_val_row_desc.get(),
                         &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
-                RETURN_IF_ERROR(tran_orc_reader->init_row_filters(range));
+                RETURN_IF_ERROR(tran_orc_reader->init_row_filters(range, _io_ctx.get()));
                 _cur_reader = std::move(tran_orc_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "iceberg") {
@@ -891,7 +896,7 @@ Status VFileScanner::_get_next_reader() {
                         &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
                 std::unique_ptr<PaimonOrcReader> paimon_reader =
                         PaimonOrcReader::create_unique(std::move(orc_reader), _profile, *_params);
-                RETURN_IF_ERROR(paimon_reader->init_row_filters(range));
+                RETURN_IF_ERROR(paimon_reader->init_row_filters(range, _io_ctx.get()));
                 _cur_reader = std::move(paimon_reader);
             } else {
                 bool hive_orc_use_column_names = true;
@@ -955,6 +960,10 @@ Status VFileScanner::_get_next_reader() {
             return Status::InternalError("Not supported file format: {}", _params->format_type);
         }
 
+        if (_cur_reader == nullptr) {
+            return Status::InternalError("Failed to create reader for  file format: {}",
+                                         _params->format_type);
+        }
         COUNTER_UPDATE(_file_counter, 1);
         // The VFileScanner for external table may try to open not exist files,
         // Because FE file cache for external table may out of date.

@@ -267,7 +267,7 @@ public class MasterImpl {
 
                 // this should be called before 'countDownLatch()'
                 Env.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(),
-                        request.getReportVersion(), task.getDbId(), task.getTableId());
+                        request.getReportVersion(), task.getDbId(), task.getTableId(), true);
 
                 createReplicaTask.countDownLatch(task.getBackendId(), task.getSignature());
                 if (LOG.isDebugEnabled()) {
@@ -383,7 +383,7 @@ public class MasterImpl {
             // should be done before addReplicaPersistInfos and countDownLatch
             long reportVersion = request.getReportVersion();
             Env.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), reportVersion,
-                                                                       task.getDbId(), task.getTableId());
+                                                                       task.getDbId(), task.getTableId(), true);
 
             List<Long> tabletIds = finishTabletInfos.stream().map(
                     tTabletInfo -> tTabletInfo.getTabletId()).collect(Collectors.toList());
@@ -515,7 +515,7 @@ public class MasterImpl {
             // report version is required. here we check if set, for compatibility.
             long reportVersion = request.getReportVersion();
             Env.getCurrentSystemInfo().updateBackendReportVersion(
-                    task.getBackendId(), reportVersion, task.getDbId(), task.getTableId());
+                    task.getBackendId(), reportVersion, task.getDbId(), task.getTableId(), true);
         }
 
         PublishVersionTask publishVersionTask = (PublishVersionTask) task;
@@ -545,7 +545,7 @@ public class MasterImpl {
             if (request.isSetReportVersion()) {
                 long reportVersion = request.getReportVersion();
                 Env.getCurrentSystemInfo().updateBackendReportVersion(
-                        task.getBackendId(), reportVersion, task.getDbId(), task.getTableId());
+                        task.getBackendId(), reportVersion, task.getDbId(), task.getTableId(), true);
             }
             Env.getCurrentEnv().getTabletScheduler().finishCloneTask(cloneTask, request);
         } else {
@@ -628,7 +628,7 @@ public class MasterImpl {
             if (request.isSetReportVersion()) {
                 long reportVersion = request.getReportVersion();
                 Env.getCurrentSystemInfo().updateBackendReportVersion(
-                        task.getBackendId(), reportVersion, task.getDbId(), task.getTableId());
+                        task.getBackendId(), reportVersion, task.getDbId(), task.getTableId(), true);
             }
         } catch (MetaNotFoundException e) {
             LOG.warn("failed to handle finish alter task: {}, {}", task.getSignature(), e.getMessage());
@@ -671,6 +671,17 @@ public class MasterImpl {
                         "backend: " + task.getBackendId() + ", error_tablet_size: "
                                 + request.getErrorTabletIdsSize() + ", err_msg: "
                                 + request.getTaskStatus().getErrorMsgs().toString());
+            } else if (request.isSetRespPartitions()
+                    && calcDeleteBitmapTask.isFinishRequestStale(request.getRespPartitions())) {
+                LOG.warn("get staled response from backend: {}, report version: {}. calcDeleteBitmapTask's"
+                        + "partitionInfos: {}. response's partitionInfos: {}", task.getBackendId(),
+                                request.getReportVersion(),
+                                        calcDeleteBitmapTask.getCalcDeleteBimapPartitionInfos().toString(),
+                                                request.getRespPartitions().toString());
+                // DELETE_BITMAP_LOCK_ERROR will be retried
+                calcDeleteBitmapTask.countDownToZero(TStatusCode.DELETE_BITMAP_LOCK_ERROR,
+                        "get staled response from backend " + task.getBackendId() + ", report version: "
+                                + request.getReportVersion());
             } else {
                 calcDeleteBitmapTask.countDownLatch(task.getBackendId(), calcDeleteBitmapTask.getTransactionId());
                 if (LOG.isDebugEnabled()) {

@@ -28,9 +28,11 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
+import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -266,6 +268,11 @@ public class InsertUtils {
                 throw new AnalysisException("View is not support in hive external table.");
             }
         }
+        if (table instanceof JdbcExternalTable) {
+            // todo:
+            // For JDBC External Table, we always allow certain columns to be missing during insertion
+            // Specific check for non-nullable columns only if insertion is direct VALUES or SELECT constants
+        }
         if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS) {
             if (unboundLogicalSink instanceof UnboundTableSink
                     && ((UnboundTableSink<? extends Plan>) unboundLogicalSink).isPartialUpdate()) {
@@ -282,7 +289,7 @@ public class InsertUtils {
                         if (unboundLogicalSink.getColNames().isEmpty()) {
                             ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
                         } else {
-                            boolean hasMissingColExceptAutoInc = false;
+                            boolean hasMissingColExceptAutoIncKey = false;
                             for (Column col : olapTable.getFullSchema()) {
                                 Optional<String> insertCol = unboundLogicalSink.getColNames().stream()
                                         .filter(c -> c.equalsIgnoreCase(col.getName())).findFirst();
@@ -296,11 +303,11 @@ public class InsertUtils {
                                             + " all ordinary columns referenced"
                                             + " by generated columns, missing: " + col.getName());
                                 }
-                                if (!col.isAutoInc() && !insertCol.isPresent() && col.isVisible()) {
-                                    hasMissingColExceptAutoInc = true;
+                                if (!(col.isAutoInc() && col.isKey()) && !insertCol.isPresent() && col.isVisible()) {
+                                    hasMissingColExceptAutoIncKey = true;
                                 }
                             }
-                            if (!hasMissingColExceptAutoInc) {
+                            if (!hasMissingColExceptAutoIncKey) {
                                 ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
                             }
                         }
@@ -408,6 +415,8 @@ public class InsertUtils {
             unboundTableSink = (UnboundHiveTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundIcebergTableSink) {
             unboundTableSink = (UnboundIcebergTableSink<? extends Plan>) plan;
+        } else if (plan instanceof UnboundJdbcTableSink) {
+            unboundTableSink = (UnboundJdbcTableSink<? extends Plan>) plan;
         } else {
             throw new AnalysisException("the root of plan should be"
                     + " [UnboundTableSink, UnboundHiveTableSink, UnboundIcebergTableSink],"
@@ -427,7 +436,9 @@ public class InsertUtils {
                 return new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())), column.getName());
             }
             if (column.getDefaultValue() == null) {
-                throw new AnalysisException("Column has no default value, column=" + column.getName());
+                if (!column.isAllowNull() && !column.isAutoInc()) {
+                    throw new AnalysisException("Column has no default value, column=" + column.getName());
+                }
             }
             if (column.getDefaultValueExpr() != null) {
                 Expression defualtValueExpression = new NereidsParser().parseExpression(
@@ -450,14 +461,6 @@ public class InsertUtils {
      * get plan for explain.
      */
     public static Plan getPlanForExplain(ConnectContext ctx, LogicalPlan logicalQuery) {
-        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
-            try {
-                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            } catch (Exception e) {
-                throw new AnalysisException("failed to set fallback to original planner to true", e);
-            }
-            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
-        }
         return InsertUtils.normalizePlan(logicalQuery, InsertUtils.getTargetTable(logicalQuery, ctx), Optional.empty());
     }
 

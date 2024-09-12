@@ -57,40 +57,36 @@ private:
         using ColumnType = ColumnVector<ArgType>;
         const ColumnPtr& column = argument.column;
 
-        if (const auto* col = typeid_cast<const ColumnType*>(column.get())) {
-            const typename ColumnType::Container& vec_in = col->get_data();
-            auto col_res = ColumnString::create();
+        const auto* col = assert_cast<const ColumnType*>(column.get());
+        const typename ColumnType::Container& vec_in = col->get_data();
+        auto col_res = ColumnString::create();
 
-            ColumnString::Chars& vec_res = col_res->get_chars();
-            ColumnString::Offsets& offsets_res = col_res->get_offsets();
+        ColumnString::Chars& vec_res = col_res->get_chars();
+        ColumnString::Offsets& offsets_res = col_res->get_offsets();
 
-            vec_res.resize(vec_in.size() *
-                           (IPV4_MAX_TEXT_LENGTH + 1)); /// the longest value is: 255.255.255.255\0
-            offsets_res.resize(vec_in.size());
-            char* begin = reinterpret_cast<char*>(vec_res.data());
-            char* pos = begin;
+        vec_res.resize(vec_in.size() *
+                       (IPV4_MAX_TEXT_LENGTH + 1)); /// the longest value is: 255.255.255.255\0
+        offsets_res.resize(vec_in.size());
+        char* begin = reinterpret_cast<char*>(vec_res.data());
+        char* pos = begin;
 
-            auto null_map = ColumnUInt8::create(vec_in.size(), 0);
-            size_t src_size = std::min(sizeof(ArgType), (unsigned long)4);
-            for (size_t i = 0; i < vec_in.size(); ++i) {
-                auto value = vec_in[i];
-                if (value < IPV4_MIN_NUM_VALUE || value > IPV4_MAX_NUM_VALUE) {
-                    offsets_res[i] = pos - begin;
-                    null_map->get_data()[i] = 1;
-                } else {
-                    format_ipv4(reinterpret_cast<const unsigned char*>(&vec_in[i]), src_size, pos);
-                    offsets_res[i] = pos - begin;
-                }
+        auto null_map = ColumnUInt8::create(vec_in.size(), 0);
+        size_t src_size = std::min(sizeof(ArgType), (unsigned long)4);
+        for (size_t i = 0; i < vec_in.size(); ++i) {
+            auto value = vec_in[i];
+            if (value < IPV4_MIN_NUM_VALUE || value > IPV4_MAX_NUM_VALUE) {
+                offsets_res[i] = pos - begin;
+                null_map->get_data()[i] = 1;
+            } else {
+                format_ipv4(reinterpret_cast<const unsigned char*>(&vec_in[i]), src_size, pos);
+                offsets_res[i] = pos - begin;
             }
-
-            vec_res.resize(pos - begin);
-            block.replace_by_position(
-                    result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
-            return Status::OK();
-        } else {
-            return Status::RuntimeError("Illegal column {} of argument of function {}",
-                                        argument.column->get_name(), get_name());
         }
+
+        vec_res.resize(pos - begin);
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(col_res), std::move(null_map)));
+        return Status::OK();
     }
 
 public:
@@ -391,18 +387,20 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
     const Chars& vec_src = string_column.get_chars();
 
     size_t src_offset = 0;
-    char src_ipv4_buf[sizeof("::ffff:") + IPV4_MAX_TEXT_LENGTH + 1] = "::ffff:";
 
     /// ColumnString contains not null terminated strings. But functions parseIPv6, parseIPv4 expect null terminated string.
     /// TODO fix this - now parseIPv6/parseIPv4 accept end iterator, so can be parsed in-place
     std::string string_buffer;
 
     int offset_inc = 1;
+    ColumnString* column_string = nullptr;
     if constexpr (std::is_same_v<ToColumn, ColumnString>) {
         offset_inc = IPV6_BINARY_LENGTH;
+        column_string = assert_cast<ColumnString*>(col_res.get());
     }
 
     for (size_t out_offset = 0, i = 0; i < column_size; out_offset += offset_inc, ++i) {
+        char src_ipv4_buf[sizeof("::ffff:") + IPV4_MAX_TEXT_LENGTH + 1] = "::ffff:";
         size_t src_next_offset = src_offset;
 
         const char* src_value = nullptr;
@@ -429,7 +427,7 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
                 (*vec_null_map_to)[i] = true;
             }
             if constexpr (std::is_same_v<ToColumn, ColumnString>) {
-                auto* column_string = assert_cast<ColumnString*>(col_res.get());
+                DCHECK(column_string != nullptr);
                 column_string->get_offsets().push_back((i + 1) * IPV6_BINARY_LENGTH);
             }
             src_offset = src_next_offset;
@@ -446,7 +444,7 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
         size_t string_length = src_next_offset - src_offset;
         if (string_length != 0) {
             if (try_parse_ipv4(src_value, dummy_result)) {
-                strcat(src_ipv4_buf, src_value);
+                strncat(src_ipv4_buf, src_value, sizeof(src_ipv4_buf) - strlen(src_ipv4_buf) - 1);
                 parse_result = parse_ipv6_whole(src_ipv4_buf, res_value);
             } else {
                 parse_result = parse_ipv6_whole(src_value, res_value);

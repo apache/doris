@@ -87,7 +87,7 @@ import java.util.function.Predicate;
       type of routine load:
           KAFKA
 */
-public class CreateRoutineLoadStmt extends DdlStmt {
+public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CreateRoutineLoadStmt.class);
 
     // routine load properties
@@ -347,7 +347,14 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         // check dbName and tableName
         checkDBTable(analyzer);
         // check name
-        FeNameFormat.checkCommonName(NAME_TYPE, name);
+        try {
+            FeNameFormat.checkCommonName(NAME_TYPE, name);
+        } catch (AnalysisException e) {
+            // 64 is the length of regular expression matching
+            // (FeNameFormat.COMMON_NAME_REGEX/UNDERSCORE_COMMON_NAME_REGEX)
+            throw new AnalysisException(e.getMessage()
+                    + " Maybe routine load job name is longer than 64 or contains illegal characters");
+        }
         // check load properties include column separator etc.
         checkLoadProperties();
         // check routine load job properties include desired concurrent number etc.
