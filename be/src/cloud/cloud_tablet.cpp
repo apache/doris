@@ -96,6 +96,7 @@ Status CloudTablet::capture_rs_readers(const Version& spec_version,
         auto missed_versions = get_missed_versions(spec_version.second);
         if (missed_versions.empty()) {
             st.set_code(VERSION_ALREADY_MERGED); // Reset error code
+            st.append(" versions are already compacted, ");
         }
         st.append(" tablet_id=" + std::to_string(tablet_id()));
         // clang-format off
