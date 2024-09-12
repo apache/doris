@@ -258,6 +258,10 @@ public class MTMVTask extends AbstractTask {
     @Override
     protected synchronized void executeCancelLogic() {
         LOG.info("mtmv task cancel, taskId: {}", super.getTaskId());
+        // If the be scheduling has not been triggered yet, cancel the scheduling first
+        if (command != null) {
+            command.cancel();
+        }
         // Cancel the ongoing scheduling
         if (executor != null) {
             executor.cancel();
