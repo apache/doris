@@ -259,8 +259,14 @@ public class NereidsPlanner extends Planner {
             }
         }
 
-        if (!FeConstants.runningUnitTest && !cascadesContext.isLeadingDisableJoinReorder()) {
-            List<LogicalOlapScan> scans = getAllOlapScans(cascadesContext.getRewritePlan());
+        // if we cannot get table row count, skip join reorder
+        // except:
+        //   1. user set leading hint
+        //   2. ut test. In ut test, FeConstants.enableInternalSchemaDb is false or FeConstants.runningUnitTest is true
+        if (FeConstants.enableInternalSchemaDb && !FeConstants.runningUnitTest
+                && !cascadesContext.isLeadingDisableJoinReorder()) {
+            List<LogicalOlapScan> scans = cascadesContext.getRewritePlan()
+                    .collectToList(LogicalOlapScan.class::isInstance);
             StatsCalculator.disableJoinReorderIfTableRowCountNotAvailable(scans, cascadesContext);
         }
 
@@ -294,18 +300,6 @@ public class NereidsPlanner extends Planner {
         NereidsTracer.output(statementContext.getConnectContext());
 
         return physicalPlan;
-    }
-
-    private List<LogicalOlapScan> getAllOlapScans(Plan plan) {
-        List<LogicalOlapScan> scans = Lists.newArrayList();
-        if (plan instanceof LogicalOlapScan) {
-            scans.add((LogicalOlapScan) plan);
-        } else {
-            for (Plan child : plan.children()) {
-                scans.addAll(getAllOlapScans(child));
-            }
-        }
-        return scans;
     }
 
     private LogicalPlan preprocess(LogicalPlan logicalPlan) {
