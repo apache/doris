@@ -178,7 +178,7 @@ public class AuditLogHelper {
         String cloudCluster = "";
         try {
             if (Config.isCloudMode()) {
-                cloudCluster = ctx.getCloudCluster();
+                cloudCluster = ctx.getCloudCluster(false);
             }
         } catch (ClusterException e) {
             LOG.warn("Failed to get cloud cluster", e);

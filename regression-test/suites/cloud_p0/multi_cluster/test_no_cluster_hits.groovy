@@ -20,7 +20,7 @@ import groovy.json.JsonSlurper
 import org.awaitility.Awaitility;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
-suite('test_no_cluster_hits', 'multi_cluster') {
+suite('test_no_cluster_hits', 'multi_cluster, docker') {
     if (!isCloudMode()) {
         return;
     }
@@ -28,7 +28,8 @@ suite('test_no_cluster_hits', 'multi_cluster') {
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
         'sys_log_verbose_modules=org',
-        'max_query_retry_time=2000'
+        'max_query_retry_time=2000',
+        'heartbeat_interval_second=1'
     ]
     options.setFeNum(3)
     options.setBeNum(3)
@@ -106,6 +107,7 @@ suite('test_no_cluster_hits', 'multi_cluster') {
         }
 
         cluster.startBackends(1, 2, 3)
+        Thread.sleep(3000) 
         result = sql """insert into $table values (3, 3)"""
         result = sql """select * from $table"""
         log.info("result = {}", result)

@@ -510,11 +510,11 @@ public class CloudTabletRebalancer extends MasterDaemon {
                             LOG.warn("failed to hash replica to be {}", cluster, e);
                             beId = -1;
                         }
-                        ((CloudReplica) replica).updateClusterToBe(cluster, beId, true);
                         if (beId <= 0) {
                             assignedErrNum++;
                             continue;
                         }
+                        ((CloudReplica) replica).updateClusterToBe(cluster, beId, true);
                         List<Long> bes = new ArrayList<Long>();
                         bes.add(beId);
                         primaryClusterToBackends.put(cluster, bes);

@@ -1264,12 +1264,12 @@ public class ConnectContext {
 
         if (Strings.isNullOrEmpty(cluster)) {
             LOG.warn("cant get a valid cluster for user {} to use", getCurrentUserIdentity());
-            if (updateErr) {
-                getState().setError(ErrorCode.ERR_NO_CLUSTER_ERROR,
-                        "Cant get a Valid cluster for you to use, plz connect admin");
-            }
-            throw new ClusterException("the user is not granted permission to the cluster",
+            ClusterException exception = new ClusterException("the user is not granted permission to the cluster",
                     ClusterException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_ANY_CLUSTER);
+            if (updateErr) {
+                getState().setError(ErrorCode.ERR_CLOUD_CLUSTER_ERROR, exception.getMessage());
+            }
+            throw exception;
         } else {
             this.cloudCluster = cluster;
             LOG.info("finally set context cluster name {} for user {} with chose way '{}'",

@@ -174,11 +174,17 @@ public class CloudReplica extends Replica {
 
     private long getBackendIdImpl(String cluster) throws ClusterException {
         // if cluster is SUSPENDED, wait
+        String wakeUPCluster = "";
         try {
-            cluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStart(cluster);
+            wakeUPCluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStart(cluster);
         } catch (DdlException e) {
             // this function cant throw exception. so just log it
             LOG.warn("cant resume cluster {}, exception", cluster, e);
+        }
+        if (!Strings.isNullOrEmpty(wakeUPCluster) && !cluster.equals(wakeUPCluster)) {
+            cluster = wakeUPCluster;
+            LOG.warn("get backend input cluster {} useless, so auto start choose a new one cluster {}",
+                    cluster, wakeUPCluster);
         }
         // check default cluster valid.
         if (Strings.isNullOrEmpty(cluster)) {
