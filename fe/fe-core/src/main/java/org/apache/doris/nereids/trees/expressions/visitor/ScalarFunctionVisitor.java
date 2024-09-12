@@ -917,18 +917,6 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(connectionId, context);
     }
 
-    default R visitNormalCdf(NormalCdf normalCdf, C context) {
-        return visitScalarFunction(normalCdf, context);
-    }
-
-    default R visitToIso8601(ToIso8601 toIso8601, C context) {
-        return visitScalarFunction(toIso8601, context);
-    }
-
-    default R visitFromIso8601Date(FromIso8601Date fromIso8601Date, C context) {
-        return visitScalarFunction(fromIso8601Date, context);
-    }
-
     default R visitConv(Conv conv, C context) {
         return visitScalarFunction(conv, context);
     }
@@ -1203,6 +1191,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitFromDays(FromDays fromDays, C context) {
         return visitScalarFunction(fromDays, context);
+    }
+
+    default R visitFromIso8601Date(FromIso8601Date fromIso8601Date, C context) {
+        return visitScalarFunction(fromIso8601Date, context);
     }
 
     default R visitFromUnixtime(FromUnixtime fromUnixtime, C context) {
@@ -1653,6 +1645,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(ngramSearch, context);
     }
 
+    default R visitNormalCdf(NormalCdf normalCdf, C context) {
+        return visitScalarFunction(normalCdf, context);
+    }
+
     default R visitNotNullOrEmpty(NotNullOrEmpty notNullOrEmpty, C context) {
         return visitScalarFunction(notNullOrEmpty, context);
     }
@@ -2075,6 +2071,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitToIpv6OrNull(ToIpv6OrNull toIpv6OrNull, C context) {
         return visitScalarFunction(toIpv6OrNull, context);
+    }
+
+    default R visitToIso8601(ToIso8601 toIso8601, C context) {
+        return visitScalarFunction(toIso8601, context);
     }
 
     default R visitToMonday(ToMonday toMonday, C context) {

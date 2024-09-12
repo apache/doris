@@ -353,11 +353,15 @@ using FunctionPow = FunctionBinaryArithmetic<PowImpl, PowName, false>;
 class FunctionNormalCdf : public IFunction {
 public:
     static constexpr auto name = "normal_cdf";
+
     String get_name() const override { return name; }
+
     static FunctionPtr create() { return std::make_shared<FunctionNormalCdf>(); }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeFloat64>());
     }
+
     DataTypes get_variadic_argument_types_impl() const override {
         return {std::make_shared<DataTypeFloat64>(), std::make_shared<DataTypeFloat64>(),
                 std::make_shared<DataTypeFloat64>()};
