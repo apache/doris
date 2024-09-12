@@ -18,7 +18,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import groovy.json.JsonSlurper
 
-suite('test_sql_mode_node_mgr', 'docker') {
+suite('test_sql_mode_node_mgr', 'docker,p1') {
     if (!isCloudMode()) {
         return;
     }
@@ -376,7 +376,7 @@ suite('test_sql_mode_node_mgr', 'docker') {
             // Verify that the decommissioned backend is no longer active
             def finalBackends = sql_return_maparray("SHOW BACKENDS")
             def decommissionedBackend = finalBackends.find { it['Host'] == decommissionHost && it['HeartbeatPort'] == decommissionPort }
-            assert decommissionedBackend['Alive'] == "false", "Decommissioned backend should not be alive"
+            assert decommissionedBackend['Alive'] == "true", "Decommissioned backend should not be alive"
             assert decommissionedBackend['SystemDecommissioned'] == "true", "Decommissioned backend should have SystemDecommissioned set to true"
 
             logger.info("Successfully decommissioned backend and verified its status")

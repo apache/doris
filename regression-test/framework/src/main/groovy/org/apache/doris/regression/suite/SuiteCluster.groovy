@@ -38,7 +38,7 @@ class ClusterOptions {
     int beNum = 3
 
     Boolean sqlModeNodeMgr = false
-    Boolean beMetaServiceEndpoint = false
+    Boolean beMetaServiceEndpoint = true
     Boolean beCloudInstanceId = false
 
     int waitTimeout = 180
