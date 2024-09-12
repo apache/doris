@@ -35,12 +35,10 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
@@ -98,8 +96,7 @@ public class MTMVPlanUtil {
     public static MTMVRelation generateMTMVRelation(MTMV mtmv, ConnectContext ctx) {
         // Should not make table without data to empty relation when analyze the related table,
         // so add disable rules
-        Plan plan = getPlanBySql(mtmv.getQuerySql(), ctx, ExplainLevel.ANALYZED_PLAN,
-                CreateMTMVInfo.MTMV_PLANER_DISABLE_RULES);
+        Plan plan = getAnalyzePlanBySql(mtmv.getQuerySql(), ctx);
         return generateMTMVRelation(plan);
     }
 
@@ -139,8 +136,7 @@ public class MTMVPlanUtil {
         return result;
     }
 
-    private static Plan getPlanBySql(String querySql, ConnectContext ctx,
-            ExplainLevel explainLevel, String disableRules) {
+    private static Plan getAnalyzePlanBySql(String querySql, ConnectContext ctx) {
         List<StatementBase> statements;
         try {
             statements = new NereidsParser().parseSQL(querySql);
@@ -151,19 +147,11 @@ public class MTMVPlanUtil {
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         StatementContext original = ctx.getStatementContext();
         ctx.setStatementContext(new StatementContext());
-
-        Set<String> tempDisableRules = ctx.getSessionVariable().getDisableNereidsRuleNames();
-        ctx.getSessionVariable().setDisableNereidsRules(disableRules);
-        if (ctx.getStatementContext() != null) {
-            ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
-        }
         try {
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-            return planner.planWithLock(logicalPlan, PhysicalProperties.ANY, explainLevel);
+            return planner.planWithLock(logicalPlan, PhysicalProperties.ANY, ExplainLevel.ANALYZED_PLAN);
         } finally {
             ctx.setStatementContext(original);
-            ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
-            ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         }
     }
 }
