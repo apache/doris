@@ -86,13 +86,10 @@ std::unique_ptr<lucene::analysis::Analyzer> InvertedIndexAnalyzer::create_analyz
     return analyzer;
 }
 
-void InvertedIndexAnalyzer::get_analyse_result(std::vector<std::string>& analyse_result,
-                                               lucene::util::Reader* reader,
-                                               lucene::analysis::Analyzer* analyzer,
-                                               const std::string& field_name,
-                                               InvertedIndexQueryType query_type,
-                                               bool drop_duplicates) {
-    analyse_result.clear();
+std::vector<std::string> InvertedIndexAnalyzer::get_analyse_result(
+        lucene::util::Reader* reader, lucene::analysis::Analyzer* analyzer,
+        const std::string& field_name, InvertedIndexQueryType query_type, bool drop_duplicates) {
+    std::vector<std::string> analyse_result;
 
     std::wstring field_ws = StringUtil::string_to_wstring(field_name);
     std::unique_ptr<lucene::analysis::TokenStream> token_stream(
@@ -115,6 +112,7 @@ void InvertedIndexAnalyzer::get_analyse_result(std::vector<std::string>& analyse
         std::set<std::string> unrepeated_result(analyse_result.begin(), analyse_result.end());
         analyse_result.assign(unrepeated_result.begin(), unrepeated_result.end());
     }
+    return analyse_result;
 }
 
 } // namespace doris::segment_v2::inverted_index

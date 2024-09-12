@@ -282,8 +282,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
             auto reader = inverted_index::InvertedIndexAnalyzer::create_reader(
                     inverted_index_ctx->char_filter_map);
             reader->init(search_str.data(), search_str.size(), true);
-            inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                    query_info.terms, reader.get(), analyzer.get(), column_name, query_type);
+            query_info.terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                    reader.get(), analyzer.get(), column_name, query_type);
         }
         if (query_info.terms.empty()) {
             auto msg = fmt::format(

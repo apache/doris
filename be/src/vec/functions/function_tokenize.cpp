@@ -84,10 +84,10 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
                 inverted_index_ctx.char_filter_map);
         reader->init(tokenize_str.data, tokenize_str.size, true);
 
-        std::vector<std::string> query_tokens;
-        doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                query_tokens, reader.get(), inverted_index_ctx.analyzer, "tokenize",
-                doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY);
+        std::vector<std::string> query_tokens =
+                doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                        reader.get(), inverted_index_ctx.analyzer, "tokenize",
+                        doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY);
         for (auto token : query_tokens) {
             const size_t old_size = column_string_chars.size();
             const size_t split_part_size = token.length();

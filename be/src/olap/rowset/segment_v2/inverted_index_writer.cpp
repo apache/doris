@@ -146,14 +146,13 @@ public:
         return open_index_directory();
     }
 
-    Status create_char_string_reader(std::unique_ptr<lucene::util::Reader>& string_reader,
-                                     CharFilterMap& char_filter_map) {
+    Result<std::unique_ptr<lucene::util::Reader>> create_char_string_reader(
+            CharFilterMap& char_filter_map) {
         try {
-            string_reader = inverted_index::InvertedIndexAnalyzer::create_reader(char_filter_map);
-            return Status::OK();
+            return inverted_index::InvertedIndexAnalyzer::create_reader(char_filter_map);
         } catch (CLuceneError& e) {
-            return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "inverted index create string reader failed: {}", e.what());
+            return ResultError(Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "inverted index create string reader failed: {}", e.what()));
         }
     }
 
@@ -162,10 +161,10 @@ public:
         return Status::OK();
     }
 
-    Status create_index_writer(std::unique_ptr<lucene::index::IndexWriter>& index_writer) {
+    std::unique_ptr<lucene::index::IndexWriter> create_index_writer() {
         bool create_index = true;
         bool close_dir_on_shutdown = true;
-        index_writer = std::make_unique<lucene::index::IndexWriter>(
+        auto index_writer = std::make_unique<lucene::index::IndexWriter>(
                 _dir, _analyzer.get(), create_index, close_dir_on_shutdown);
         index_writer->setRAMBufferSizeMB(config::inverted_index_ram_buffer_size);
         index_writer->setMaxBufferedDocs(config::inverted_index_max_buffered_docs);
@@ -173,7 +172,7 @@ public:
         index_writer->setMergeFactor(MERGE_FACTOR);
         index_writer->setUseCompoundFile(false);
 
-        return Status::OK();
+        return index_writer;
     }
 
     Status create_field(lucene::document::Field** field) {
@@ -189,15 +188,13 @@ public:
         return Status::OK();
     }
 
-    Status create_analyzer(std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
-                           std::shared_ptr<InvertedIndexCtx>& inverted_index_ctx) {
+    Result<std::unique_ptr<lucene::analysis::Analyzer>> create_analyzer(
+            std::shared_ptr<InvertedIndexCtx>& inverted_index_ctx) {
         try {
-            analyzer = inverted_index::InvertedIndexAnalyzer::create_analyzer(
-                    inverted_index_ctx.get());
-            return Status::OK();
+            return inverted_index::InvertedIndexAnalyzer::create_analyzer(inverted_index_ctx.get());
         } catch (CLuceneError& e) {
-            return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                    "inverted index create analyzer failed: {}", e.what());
+            return ResultError(Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                    "inverted index create analyzer failed: {}", e.what()));
         }
     }
 
@@ -210,10 +207,10 @@ public:
                 get_parser_lowercase_from_properties<true>(_index_meta->properties()),
                 get_parser_stopwords_from_properties(_index_meta->properties()));
         RETURN_IF_ERROR(open_index_directory());
-        RETURN_IF_ERROR(create_char_string_reader(_char_string_reader,
-                                                  _inverted_index_ctx->char_filter_map));
-        RETURN_IF_ERROR(create_analyzer(_analyzer, _inverted_index_ctx));
-        RETURN_IF_ERROR(create_index_writer(_index_writer));
+        _char_string_reader =
+                DORIS_TRY(create_char_string_reader(_inverted_index_ctx->char_filter_map));
+        _analyzer = DORIS_TRY(create_analyzer(_inverted_index_ctx));
+        _index_writer = create_index_writer();
         _doc = std::make_unique<lucene::document::Document>();
         if (_single_field) {
             RETURN_IF_ERROR(create_field(&_field));
@@ -372,9 +369,9 @@ public:
                             // stream can not reuse for different field
                             bool own_token_stream = true;
                             bool own_reader = true;
-                            std::unique_ptr<lucene::util::Reader> char_string_reader = nullptr;
-                            RETURN_IF_ERROR(create_char_string_reader(
-                                    char_string_reader, _inverted_index_ctx->char_filter_map));
+                            std::unique_ptr<lucene::util::Reader> char_string_reader =
+                                    DORIS_TRY(create_char_string_reader(
+                                            _inverted_index_ctx->char_filter_map));
                             char_string_reader->init(v->get_data(), v->get_size(), false);
                             _analyzer->set_ownReader(own_reader);
                             ts = _analyzer->tokenStream(new_field->name(),

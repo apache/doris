@@ -39,10 +39,10 @@ public:
     static std::unique_ptr<lucene::analysis::Analyzer> create_analyzer(
             const InvertedIndexCtx* inverted_index_ctx);
 
-    static void get_analyse_result(std::vector<std::string>& analyse_result,
-                                   lucene::util::Reader* reader,
-                                   lucene::analysis::Analyzer* analyzer,
-                                   const std::string& field_name, InvertedIndexQueryType query_type,
-                                   bool drop_duplicates = true);
+    static std::vector<std::string> get_analyse_result(lucene::util::Reader* reader,
+                                                       lucene::analysis::Analyzer* analyzer,
+                                                       const std::string& field_name,
+                                                       InvertedIndexQueryType query_type,
+                                                       bool drop_duplicates = true);
 };
 } // namespace doris::segment_v2::inverted_index
