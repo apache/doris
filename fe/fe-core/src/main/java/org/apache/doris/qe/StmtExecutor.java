@@ -619,8 +619,7 @@ public class StmtExecutor {
                         throw new AnalysisException(e.getMessage());
                     }
                     if (e instanceof NereidsException
-                            && !(((NereidsException) e).getException() instanceof MustFallbackException)
-                            && !context.getSessionVariable().enableFallbackToOriginalPlanner) {
+                            && !(((NereidsException) e).getException() instanceof MustFallbackException)) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         context.getState().setError(e.getMessage());
                         return;
@@ -3550,7 +3549,7 @@ public class StmtExecutor {
                         throw ((NereidsException) e).getException();
                     }
                     if (e instanceof NereidsException
-                            && !context.getSessionVariable().enableFallbackToOriginalPlanner) {
+                            && !(((NereidsException) e).getException() instanceof MustFallbackException)) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }

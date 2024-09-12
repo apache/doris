@@ -16,7 +16,10 @@
 // under the License.
 
 suite("valid_grouping"){
-    sql "SET enable_fallback_to_original_planner=true"
+
+    // this suite test legacy  planner
+    sql "set enable_nereids_planner=false"
+
     sql "drop table if exists valid_grouping"
     sql """
     CREATE TABLE `valid_grouping` (
