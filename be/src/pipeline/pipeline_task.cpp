@@ -362,6 +362,8 @@ Status PipelineTask::execute(bool* eos) {
         });
 
         DEFER_RELEASE_RESERVED();
+        // Every loop should check if memory is not enough.
+        _state->get_query_ctx()->update_low_memory_mode();
 
         // `_dry_run` means sink operator need no more data
         // `_sink->is_finished(_state)` means sink operator should be finished
