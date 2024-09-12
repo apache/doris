@@ -927,36 +927,6 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     return true;
 }
 
-bool SegmentIterator::_is_target_expr_match_predicate(const vectorized::VExprSPtr& expr,
-                                                      const MatchPredicate* match_pred,
-                                                      const Schema* schema) {
-    if (!expr || expr->node_type() != TExprNodeType::MATCH_PRED) {
-        return false;
-    }
-
-    const auto& children = expr->children();
-    if (children.size() != 2 || !children[0]->is_slot_ref() || !children[1]->is_constant()) {
-        return false;
-    }
-
-    auto slot_ref = dynamic_cast<vectorized::VSlotRef*>(children[0].get());
-    if (!slot_ref) {
-        LOG(WARNING) << children[0]->debug_string() << " should be SlotRef";
-        return false;
-    }
-    std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
-    // children 1 is VLiteral, we do not need expr context.
-    auto res = children[1]->get_const_col(nullptr /* context */, &const_col_wrapper);
-    if (!res.ok() || !const_col_wrapper) {
-        return false;
-    }
-
-    const auto const_column =
-            check_and_get_column<vectorized::ColumnConst>(const_col_wrapper->column_ptr);
-    return const_column && match_pred->column_id() == schema->column_id(slot_ref->column_id()) &&
-           StringRef(match_pred->get_value()) == const_column->get_data_at(0);
-}
-
 Status SegmentIterator::_apply_inverted_index() {
     std::vector<ColumnPredicate*> remaining_predicates;
     std::set<const ColumnPredicate*> no_need_to_pass_column_predicate_set;
@@ -999,6 +969,12 @@ Status SegmentIterator::_apply_inverted_index() {
  */
 bool SegmentIterator::_check_all_conditions_passed_inverted_index_for_column(ColumnId cid,
                                                                              bool default_return) {
+    // If common_expr_pushdown is disabled, we cannot guarantee that all conditions are processed by the inverted index.
+    // Consider a scenario where there is a column predicate and an expression involving the same column in the SQL query,
+    // such as 'a < 0' and 'abs(a) > 1'. This could potentially lead to errors.
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_common_expr_pushdown) {
+        return false;
+    }
     auto pred_it = _column_predicate_inverted_index_status.find(cid);
     if (pred_it != _column_predicate_inverted_index_status.end()) {
         const auto& pred_map = pred_it->second;

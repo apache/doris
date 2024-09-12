@@ -300,7 +300,7 @@ public abstract class ConnectProcessor {
                 }
             }
 
-            if (stmts == null && !ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
+            if (stmts == null) {
                 String errMsg;
                 Throwable exception = null;
                 if (nereidsParseException != null) {
@@ -333,12 +333,6 @@ public abstract class ConnectProcessor {
             try {
                 stmts = parse(convertedStmt);
             } catch (Throwable throwable) {
-                // if NereidsParser and oldParser both failed,
-                // prove is a new feature implemented only on the nereids,
-                // so an error message for the new nereids is thrown
-                if (nereidsSyntaxException != null) {
-                    throwable = nereidsSyntaxException;
-                }
                 // Parse sql failed, audit it and return
                 handleQueryException(throwable, convertedStmt, null, null);
                 return;
