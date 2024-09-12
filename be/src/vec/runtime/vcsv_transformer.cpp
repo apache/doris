@@ -63,6 +63,7 @@ VCSVTransformer::VCSVTransformer(RuntimeState* state, doris::io::FileWriter* fil
     }
 
     if (_is_text_format) {
+        _options.field_delim = hive_serde_properties->field_delim;
         _options.collection_delim = hive_serde_properties->collection_delim[0];
         _options.map_key_delim = hive_serde_properties->mapkv_delim[0];
         if (hive_serde_properties->__isset.escape_char) {
