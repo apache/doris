@@ -1443,6 +1443,8 @@ public class HMSTransaction implements Transaction {
             runS3cleanWhenSuccess();
             doAddPartitionsTask();
             doUpdateStatisticsTasks();
+            //delete write path
+            pruneAndDeleteStagingDirectories();
             doNothing();
         }
 
