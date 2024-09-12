@@ -237,17 +237,17 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      * Create and hold the catalog instance and write the meta log.
      */
     public void createCatalog(CreateCatalogStmt stmt) throws UserException {
+        if (nameToCatalog.containsKey(stmt.getCatalogName())) {
+            LOG.warn("Catalog {} is already exist.", stmt.getCatalogName());
+            throw new DdlException("Catalog had already exist with name: " + stmt.getCatalogName());
+        }
+
         long id = Env.getCurrentEnv().getNextId();
         CatalogIf catalog = CatalogFactory.createFromStmt(id, stmt);
         writeLock();
+
         try {
-            if (nameToCatalog.containsKey(catalog.getName())) {
-                if (stmt.isSetIfNotExists()) {
-                    LOG.warn("Catalog {} is already exist.", stmt.getCatalogName());
-                    return;
-                }
-                throw new DdlException("Catalog had already exist with name: " + stmt.getCatalogName());
-            }
+
             createCatalogInternal(catalog, false);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_CREATE_CATALOG, catalog.constructEditLog());
         } finally {
