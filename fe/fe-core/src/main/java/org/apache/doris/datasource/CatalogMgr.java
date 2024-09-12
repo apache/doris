@@ -238,8 +238,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      */
     public void createCatalog(CreateCatalogStmt stmt) throws UserException {
         if (nameToCatalog.containsKey(stmt.getCatalogName())) {
-            LOG.warn("Catalog {} is already exist.", stmt.getCatalogName());
-            throw new DdlException("Catalog had already exist with name: " + stmt.getCatalogName());
+            if (stmt.isSetIfNotExists()) {
+                LOG.warn("Catalog {} is already exist.", stmt.getCatalogName());
+                throw new DdlException("Catalog had already exist with name: " + stmt.getCatalogName());
+            }
         }
 
         long id = Env.getCurrentEnv().getNextId();
