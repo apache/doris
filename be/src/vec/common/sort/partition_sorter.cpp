@@ -78,6 +78,8 @@ void PartitionSorter::reset_sorter_state(RuntimeState* runtime_state) {
     std::swap(_block_priority_queue, empty_queue);
     _state = MergeSorterState::create_unique(_row_desc, _offset, _limit, runtime_state, nullptr);
     _previous_row->reset();
+    _output_total_rows = 0;
+    _output_distinct_rows = 0;
 }
 
 Status PartitionSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
