@@ -76,11 +76,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         auto result_col = block.get_by_position(result).type->create_column();
-        auto struct_column = typeid_cast<ColumnStruct*>(result_col.get());
-        if (!struct_column) {
-            return Status::RuntimeError("unsupported types for function {} return {}", get_name(),
-                                        block.get_by_position(result).type->get_name());
-        }
+        auto struct_column = assert_cast<ColumnStruct*>(result_col.get());
         ColumnNumbers args_num;
         for (size_t i = 0; i < arguments.size(); i++) {
             if (Impl::pred(i)) {

@@ -255,9 +255,9 @@ void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
     block->reserve(_workload_groups.size());
     for (const auto& [id, wg] : _workload_groups) {
-        SchemaScannerHelper::insert_int_value(0, be_id, block);
-        SchemaScannerHelper::insert_int_value(1, wg->id(), block);
-        SchemaScannerHelper::insert_int_value(2, wg->get_mem_used(), block);
+        SchemaScannerHelper::insert_int64_value(0, be_id, block);
+        SchemaScannerHelper::insert_int64_value(1, wg->id(), block);
+        SchemaScannerHelper::insert_int64_value(2, wg->get_mem_used(), block);
 
         double cpu_usage_p =
                 (double)wg->get_cpu_usage() / (double)total_cpu_time_ns_per_second * 100;
@@ -265,8 +265,8 @@ void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
 
         SchemaScannerHelper::insert_double_value(3, cpu_usage_p, block);
 
-        SchemaScannerHelper::insert_int_value(4, wg->get_local_scan_bytes_per_second(), block);
-        SchemaScannerHelper::insert_int_value(5, wg->get_remote_scan_bytes_per_second(), block);
+        SchemaScannerHelper::insert_int64_value(4, wg->get_local_scan_bytes_per_second(), block);
+        SchemaScannerHelper::insert_int64_value(5, wg->get_remote_scan_bytes_per_second(), block);
     }
 }
 

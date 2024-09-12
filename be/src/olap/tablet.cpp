@@ -1023,6 +1023,9 @@ uint32_t Tablet::calc_cold_data_compaction_score() const {
 
 uint32_t Tablet::_calc_cumulative_compaction_score(
         std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
+    if (cumulative_compaction_policy == nullptr) [[unlikely]] {
+        return 0;
+    }
 #ifndef BE_TEST
     if (_cumulative_compaction_policy == nullptr ||
         _cumulative_compaction_policy->name() != cumulative_compaction_policy->name()) {

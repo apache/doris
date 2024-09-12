@@ -637,7 +637,10 @@ public class PointQueryExecutor implements CoordInterface {
             }
             requestBuilder.setVersion(versionToSet);
         }
-        if (shortCircuitQueryContext.cacheID != null) {
+        // Only set cacheID for prepared statement excute phase,
+        // otherwise leading to many redundant cost in BE side
+        if (shortCircuitQueryContext.cacheID != null
+                        && ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE) {
             InternalService.UUID.Builder uuidBuilder = InternalService.UUID.newBuilder();
             uuidBuilder.setUuidHigh(shortCircuitQueryContext.cacheID.getMostSignificantBits());
             uuidBuilder.setUuidLow(shortCircuitQueryContext.cacheID.getLeastSignificantBits());

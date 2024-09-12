@@ -203,5 +203,7 @@ check_and_modify_fqdn_config
 link_config_files
 variables_inital
 check_or_register_in_ms
+
+check_or_register_in_ms
 /opt/apache-doris/fe/bin/start_fe.sh --console
 

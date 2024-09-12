@@ -209,7 +209,7 @@ Status SetSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, RuntimeState
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_exprs, state, _child_x->row_desc()));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_exprs, state, _child->row_desc()));
     return vectorized::VExpr::open(_child_exprs, state);
 }
 

@@ -22,7 +22,7 @@ import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 
-suite("test_routine_load_restart_fe", "p0, nonConcurrent") {
+suite("test_routine_load_restart_fe", "docker") {
     def kafkaCsvTpoics = [
                   "test_out_of_range",
                 ]

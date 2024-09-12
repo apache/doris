@@ -127,9 +127,10 @@ MemTrackerLimiter::~MemTrackerLimiter() {
             "4. If you need to "
             "transfer memory tracking value between two trackers, can use transfer_to.";
     if (_consumption->current_value() != 0) {
-        // TODO, expect mem tracker equal to 0 at the load/compaction/etc. task end.
+// TODO, expect mem tracker equal to 0 at the load/compaction/etc. task end.
 #ifndef NDEBUG
-        if (_type == Type::QUERY || (_type == Type::LOAD && !is_group_commit_load)) {
+        if (_type == Type::COMPACTION || _type == Type::SCHEMA_CHANGE || _type == Type::QUERY ||
+            (_type == Type::LOAD && !is_group_commit_load)) {
             std::string err_msg =
                     fmt::format("mem tracker label: {}, consumption: {}, peak consumption: {}, {}.",
                                 label(), _consumption->current_value(), _consumption->peak_value(),
@@ -739,10 +740,10 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
         LOG(INFO) << log_prefix << "finished, no task need be canceled.";
         return 0;
     }
-    if (query_consumption.size() == 1) {
+    if (small_num == 0 && canceling_task.empty() && query_consumption.size() == 1) {
         auto iter = query_consumption.begin();
-        LOG(INFO) << log_prefix << "finished, only one task: " << iter->first
-                  << ", memory consumption: " << iter->second << ", no cancel.";
+        LOG(INFO) << log_prefix << "finished, only one overcommit task: " << iter->first
+                  << ", memory consumption: " << iter->second << ", no other tasks, so no cancel.";
         return 0;
     }
 

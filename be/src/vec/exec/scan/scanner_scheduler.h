@@ -57,7 +57,7 @@ public:
 
     [[nodiscard]] Status init(ExecEnv* env);
 
-    void submit(std::shared_ptr<ScannerContext> ctx, std::shared_ptr<ScanTask> scan_task);
+    Status submit(std::shared_ptr<ScannerContext> ctx, std::shared_ptr<ScanTask> scan_task);
 
     void stop();
 

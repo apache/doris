@@ -302,7 +302,6 @@ suite("test_point_query", "nonConcurrent") {
     } finally {
         set_be_config.call("disable_storage_row_cache", "true")
         sql """set global enable_nereids_planner=true"""
-        sql "set global enable_fallback_to_original_planner = true"
     }
 
     // test partial update/delete
@@ -317,7 +316,7 @@ suite("test_point_query", "nonConcurrent") {
             INDEX col2 (`col2`) USING INVERTED )
         ENGINE=OLAP UNIQUE KEY(`col1`, `col2`, `loc3`)
         DISTRIBUTED BY HASH(`col1`, `col2`, `loc3`) BUCKETS 1
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "bloom_filter_columns" = "col1", "store_row_column" = "true" );
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "bloom_filter_columns" = "col1", "store_row_column" = "true", "enable_mow_light_delete" = "false" );
     """
     sql "insert into table_3821461 values (-10, 20, 'aabc', 'value')"
     sql "insert into table_3821461 values (10, 20, 'aabc', 'value');"

@@ -79,6 +79,9 @@ public class InsertOverwriteUtil {
                 ReplacePartitionClause replacePartitionClause = new ReplacePartitionClause(
                         new PartitionNames(false, partitionNames),
                         new PartitionNames(true, tempPartitionNames), true, properties);
+                if (replacePartitionClause.getTempPartitionNames().isEmpty()) {
+                    return;
+                }
                 Env.getCurrentEnv()
                         .replaceTempPartition((Database) olapTable.getDatabase(),
                                 (OlapTable) olapTable, replacePartitionClause);
