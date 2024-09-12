@@ -33,6 +33,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/functions/date_format_type.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
@@ -184,8 +185,24 @@ struct DateFormatImpl {
 
     static constexpr auto name = "date_format";
 
+    template <typename Impl>
     static inline auto execute(const FromType& t, StringRef format, ColumnString::Chars& res_data,
-                               size_t& offset) {
+                               size_t& offset, const cctz::time_zone& time_zone) {
+        const auto& dt = (DateType&)t;
+        if (!dt.is_valid_date()) {
+            return std::pair {offset, true};
+        }
+        auto len = Impl::apply(dt, (char*)res_data.data());
+        offset += len;
+        res_data.resize(offset);
+        return std::pair {offset, false};
+    }
+
+    template <>
+    static inline auto execute<time_format_type::NoneImpl>(const FromType& t, StringRef format,
+                                                           ColumnString::Chars& res_data,
+                                                           size_t& offset,
+                                                           const cctz::time_zone& time_zone) {
         const auto& dt = (DateType&)t;
         if (format.size > 128) {
             return std::pair {offset, true};
@@ -203,15 +220,11 @@ struct DateFormatImpl {
     }
 
     static DataTypes get_variadic_argument_types() {
-        return std::vector<DataTypePtr> {
-                std::dynamic_pointer_cast<const IDataType>(
-                        std::make_shared<typename DateTraits<ArgType>::DateType>()),
-                std::dynamic_pointer_cast<const IDataType>(
-                        std::make_shared<vectorized::DataTypeString>())};
+        return std::vector<DataTypePtr> {std::make_shared<typename DateTraits<ArgType>::DateType>(),
+                                         std::make_shared<vectorized::DataTypeString>()};
     }
 };
 
-// TODO: This function should be depend on arguments not always nullable
 template <typename DateType>
 struct FromUnixTimeImpl {
     using FromType = Int64;
@@ -220,8 +233,26 @@ struct FromUnixTimeImpl {
     static const int64_t TIMESTAMP_VALID_MAX = 32536771199;
     static constexpr auto name = "from_unixtime";
 
+    template <typename Impl>
     static inline auto execute(FromType val, StringRef format, ColumnString::Chars& res_data,
                                size_t& offset, const cctz::time_zone& time_zone) {
+        DateType dt;
+        if (val < 0 || val > TIMESTAMP_VALID_MAX) {
+            return std::pair {offset, true};
+        }
+        dt.from_unixtime(val, time_zone);
+
+        auto len = Impl::apply(dt, (char*)res_data.data());
+        offset += len;
+        res_data.resize(offset);
+        return std::pair {offset, false};
+    }
+
+    template <>
+    static inline auto execute<time_format_type::NoneImpl>(FromType val, StringRef format,
+                                                           ColumnString::Chars& res_data,
+                                                           size_t& offset,
+                                                           const cctz::time_zone& time_zone) {
         DateType dt;
         if (format.size > 128 || val < 0 || val > TIMESTAMP_VALID_MAX) {
             return std::pair {offset, true};

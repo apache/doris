@@ -1,0 +1,160 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include "vec/common/string_ref.h"
+namespace doris::vectorized {
+
+namespace time_format_type {
+
+inline StringRef rewrite_specific_format(const char* raw_str, size_t str_size) {
+    const static std::string specific_format_strs[3] = {"%Y%m%d", "%Y-%m-%d", "%Y-%m-%d %H:%i:%s"};
+    const static std::string specific_format_rewrite[3] = {"yyyyMMdd", "yyyy-MM-dd",
+                                                           "yyyy-MM-dd HH:mm:ss"};
+    for (int i = 0; i < 3; i++) {
+        const StringRef specific_format {specific_format_strs[i].data(),
+                                         specific_format_strs[i].size()};
+        if (specific_format == StringRef {raw_str, str_size}) {
+            return {specific_format_rewrite[i].data(), specific_format_rewrite[i].size()};
+        }
+    }
+    return {raw_str, str_size};
+}
+
+enum class TimeFormatType {
+    None = 0,
+    yyyyMMdd,
+    yyyy_MM_dd,
+    yyyy_MM_dd_HH_mm_ss,
+    yyyy_MM,
+    yyyyMM,
+    yyyy
+};
+
+inline TimeFormatType string_to_type(const std::string& format) {
+    if (format == "yyyyMMdd") {
+        return TimeFormatType::yyyyMMdd;
+    } else if (format == "yyyy-MM-dd") {
+        return TimeFormatType::yyyy_MM_dd;
+    } else if (format == "yyyy-MM-dd HH:mm:ss") {
+        return TimeFormatType::yyyy_MM_dd_HH_mm_ss;
+    } else if (format == "yyyy-MM") {
+        return TimeFormatType::yyyy_MM;
+    } else if (format == "yyyyMM") {
+        return TimeFormatType::yyyyMM;
+    } else if (format == "yyyy") {
+        return TimeFormatType::yyyy;
+    } else {
+        return TimeFormatType::None;
+    }
+}
+
+template <typename T>
+void inline put_year(T y, char* buf, int& i) {
+    int t = y / 100;
+    buf[i++] = t / 10 + '0';
+    buf[i++] = t % 10 + '0';
+
+    t = y % 100;
+    buf[i++] = t / 10 + '0';
+    buf[i++] = t % 10 + '0';
+}
+
+template <typename T>
+void inline put_other(T m, char* buf, int& i) {
+    buf[i++] = m / 10 + '0';
+    buf[i++] = m % 10 + '0';
+}
+
+struct NoneImpl {};
+
+struct yyyyMMddImpl {
+    template <typename DateType>
+    size_t static apply(const DateType& date_value, char* buf) {
+        int i = 0;
+        put_year(date_value.year(), buf, i);
+        put_other(date_value.month(), buf, i);
+        put_other(date_value.day(), buf, i);
+        return i;
+    }
+};
+
+struct yyyy_MM_ddImpl {
+    template <typename DateType>
+    size_t static apply(const DateType& date_value, char* buf) {
+        int i = 0;
+        put_year(date_value.year(), buf, i);
+        buf[i++] = '-';
+        put_other(date_value.month(), buf, i);
+        buf[i++] = '-';
+        put_other(date_value.day(), buf, i);
+        return i;
+    }
+};
+
+struct yyyy_MM_dd_HH_mm_ssImpl {
+    template <typename DateType>
+    size_t static apply(const DateType& date_value, char* buf) {
+        int i = 0;
+        put_year(date_value.year(), buf, i);
+        buf[i++] = '-';
+        put_other(date_value.month(), buf, i);
+        buf[i++] = '-';
+        put_other(date_value.day(), buf, i);
+        buf[i++] = ' ';
+        put_other(date_value.hour(), buf, i);
+        buf[i++] = ':';
+        put_other(date_value.minute(), buf, i);
+        buf[i++] = ':';
+        put_other(date_value.second(), buf, i);
+        return i;
+    }
+};
+
+struct yyyy_MMImpl {
+    template <typename DateType>
+    size_t static apply(const DateType& date_value, char* buf) {
+        int i = 0;
+        put_year(date_value.year(), buf, i);
+        buf[i++] = '-';
+        put_other(date_value.month(), buf, i);
+        return i;
+    }
+};
+struct yyyyMMImpl {
+    template <typename DateType>
+    size_t static apply(const DateType& date_value, char* buf) {
+        int i = 0;
+        put_year(date_value.year(), buf, i);
+        put_other(date_value.month(), buf, i);
+        return i;
+    }
+};
+
+struct yyyyImpl {
+    template <typename DateType>
+    size_t static apply(const DateType& date_value, char* buf) {
+        int i = 0;
+        put_year(date_value.year(), buf, i);
+        return i;
+    }
+};
+
+} // namespace time_format_type
+
+} // namespace doris::vectorized

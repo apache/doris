@@ -29,6 +29,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -38,6 +39,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/functions/date_format_type.h"
 #include "vec/functions/date_time_transforms.h"
 #include "vec/functions/function.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -66,6 +68,50 @@ public:
         return {};
     }
 
+    struct FormatState {
+        std::string format_str;
+        // Check if the format string is null or exceeds the length limit.
+        bool is_valid = true;
+        time_format_type::TimeFormatType format_type = time_format_type::TimeFormatType::None;
+    };
+
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            return Status::OK();
+        }
+        std::shared_ptr<FormatState> state = std::make_shared<FormatState>();
+        DCHECK((context->get_num_args() == 1) || (context->get_num_args() == 2));
+        context->set_function_state(scope, state);
+        if (context->get_num_args() == 1) {
+            // default argument
+            state->format_str = "yyyy-MM-dd HH:mm:ss";
+            state->format_type = time_format_type::TimeFormatType::yyyy_MM_dd_HH_mm_ss;
+            return IFunction::open(context, scope);
+        }
+
+        const auto* column_string = context->get_constant_col(1);
+        if (column_string == nullptr) {
+            // func(col , null);
+            state->is_valid = false;
+            return IFunction::open(context, scope);
+        }
+
+        auto string_vale = column_string->column_ptr->get_data_at(0).trim();
+        auto format_str =
+                time_format_type::rewrite_specific_format(string_vale.data, string_vale.size);
+        if (format_str.size > 128) {
+            //  exceeds the length limit.
+            state->is_valid = false;
+            return IFunction::open(context, scope);
+        }
+
+        // Preprocess special format strings.
+        state->format_str = format_str;
+        state->format_type = time_format_type::string_to_type(state->format_str);
+
+        return IFunction::open(context, scope);
+    }
+
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
     }
@@ -78,41 +124,96 @@ public:
         const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
 
         const auto* nullable_column = check_and_get_column<ColumnNullable>(source_col.get());
-        const auto* sources = check_and_get_column<ColumnVector<typename Transform::FromType>>(
+        const auto* sources = assert_cast<const ColumnVector<typename Transform::FromType>*>(
                 nullable_column ? nullable_column->get_nested_column_ptr().get()
                                 : source_col.get());
 
-        if (sources) {
-            auto col_res = ColumnString::create();
-            ColumnUInt8::MutablePtr col_null_map_to;
-            col_null_map_to = ColumnUInt8::create();
-            auto& vec_null_map_to = col_null_map_to->get_data();
+        auto col_res = ColumnString::create();
+        ColumnUInt8::MutablePtr col_null_map_to;
+        col_null_map_to = ColumnUInt8::create();
+        auto& vec_null_map_to = col_null_map_to->get_data();
 
-            if (arguments.size() == 2) {
-                const IColumn& source_col1 = *block.get_by_position(arguments[1]).column;
-                StringRef formatter =
-                        source_col1.get_data_at(0); // for both ColumnString or ColumnConst.
-                TransformerToStringTwoArgument<Transform>::vector_constant(
-                        context, sources->get_data(), formatter, col_res->get_chars(),
-                        col_res->get_offsets(), vec_null_map_to);
-            } else { //default argument
-                TransformerToStringTwoArgument<Transform>::vector_constant(
-                        context, sources->get_data(), StringRef("%Y-%m-%d %H:%i:%s"),
-                        col_res->get_chars(), col_res->get_offsets(), vec_null_map_to);
-            }
+        RETURN_IF_ERROR(vector_constant(context, sources->get_data(), col_res->get_chars(),
+                                        col_res->get_offsets(), vec_null_map_to));
 
-            if (nullable_column) {
-                const auto& origin_null_map = nullable_column->get_null_map_column().get_data();
-                for (int i = 0; i < origin_null_map.size(); ++i) {
-                    vec_null_map_to[i] |= origin_null_map[i];
-                }
+        if (nullable_column) {
+            const auto& origin_null_map = nullable_column->get_null_map_column().get_data();
+            for (int i = 0; i < origin_null_map.size(); ++i) {
+                vec_null_map_to[i] |= origin_null_map[i];
             }
-            block.get_by_position(result).column =
-                    ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
-        } else {
-            return Status::InternalError("Illegal column {} of first argument of function {}",
-                                         block.get_by_position(arguments[0]).column->get_name(),
-                                         name);
+        }
+
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
+
+        return Status::OK();
+    }
+
+    Status vector_constant(FunctionContext* context,
+                           const PaddedPODArray<typename Transform::FromType>& ts,
+                           ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
+                           PaddedPODArray<UInt8>& null_map) const {
+        auto* format_state = reinterpret_cast<FormatState*>(
+                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+        if (!format_state) {
+            return Status::RuntimeError("funciton context for function '{}' must have FormatState;",
+                                        get_name());
+        }
+
+        StringRef format(format_state->format_str);
+
+        auto len = ts.size();
+        res_offsets.resize(len);
+        res_data.reserve(len * format.size + len);
+        null_map.resize_fill(len, false);
+
+        if (!format_state->is_valid) {
+            return Status::OK();
+        }
+
+        auto execute_for_format_type = [&]<typename Impl>() {
+            size_t offset = 0;
+            for (int i = 0; i < len; ++i) {
+                const auto& t = ts[i];
+                size_t new_offset;
+                bool is_null;
+                std::tie(new_offset, is_null) = Transform::template execute<Impl>(
+                        t, format, res_data, offset, context->state()->timezone_obj());
+                res_offsets[i] = new_offset;
+                null_map[i] = is_null;
+            }
+        };
+
+        switch (format_state->format_type) {
+        case time_format_type::TimeFormatType::None: {
+            execute_for_format_type.template operator()<time_format_type::NoneImpl>();
+            break;
+        }
+        case time_format_type::TimeFormatType::yyyyMMdd: {
+            execute_for_format_type.template operator()<time_format_type::yyyyMMddImpl>();
+            break;
+        }
+        case time_format_type::TimeFormatType::yyyy_MM_dd: {
+            execute_for_format_type.template operator()<time_format_type::yyyy_MM_ddImpl>();
+            break;
+        }
+        case time_format_type::TimeFormatType::yyyy_MM_dd_HH_mm_ss: {
+            execute_for_format_type
+                    .template operator()<time_format_type::yyyy_MM_dd_HH_mm_ssImpl>();
+            break;
+        }
+        case time_format_type::TimeFormatType::yyyy_MM: {
+            execute_for_format_type.template operator()<time_format_type::yyyy_MMImpl>();
+            break;
+        }
+        case time_format_type::TimeFormatType::yyyyMM: {
+            execute_for_format_type.template operator()<time_format_type::yyyyMMImpl>();
+            break;
+        }
+        case time_format_type::TimeFormatType::yyyy: {
+            execute_for_format_type.template operator()<time_format_type::yyyyImpl>();
+            break;
+        }
         }
         return Status::OK();
     }
