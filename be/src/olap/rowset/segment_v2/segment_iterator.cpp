@@ -969,6 +969,12 @@ Status SegmentIterator::_apply_inverted_index() {
  */
 bool SegmentIterator::_check_all_conditions_passed_inverted_index_for_column(ColumnId cid,
                                                                              bool default_return) {
+    // If common_expr_pushdown is disabled, we cannot guarantee that all conditions are processed by the inverted index.
+    // Consider a scenario where there is a column predicate and an expression involving the same column in the SQL query,
+    // such as 'a < 0' and 'abs(a) > 1'. This could potentially lead to errors.
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_common_expr_pushdown) {
+        return false;
+    }
     auto pred_it = _column_predicate_inverted_index_status.find(cid);
     if (pred_it != _column_predicate_inverted_index_status.end()) {
         const auto& pred_map = pred_it->second;

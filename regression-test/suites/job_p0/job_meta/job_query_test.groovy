@@ -14,27 +14,15 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
-suite("filter_to_select") {
-    sql "SET enable_nereids_planner=true;"
-
-    sql "drop table if exists t_filter_to_select;"
-    sql """
-        CREATE TABLE `t_filter_to_select` (
-        `k1` int(11) NULL, 
-        `k2` int(11) NULL
-        ) ENGINE = OLAP DUPLICATE KEY(`k1`, `k2`) COMMENT 'OLAP' DISTRIBUTED BY HASH(`k1`) BUCKETS 1 PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1", 
-        "in_memory" = "false", "storage_format" = "V2", 
-        "disable_auto_compaction" = "false"
-        );
+suite('job_query_test', 'p0,restart_fe') {
+    def oneTimeJobName = "JOB_ONETIME"
+    def recurringJobName = "JOB_RECURRING"
+    qt_select1  """
+       select name, ExecuteType,RecurringStrategy,ExecuteSql from jobs("type" = "insert") where name = '${oneTimeJobName}'
     """
-
-    sql """
-        insert into t_filter_to_select values (5,4), (6,2), (7,0);
+    qt_select2  """
+       select name, ExecuteType,RecurringStrategy,ExecuteSql from jobs("type" = "insert") where name = '${recurringJobName}'
     """
-
-    qt_select """ 
-        select * from (select * from t_filter_to_select order by k1 desc limit 2) a where k1 > 5;
-    """
+   
+    
 }
