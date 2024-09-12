@@ -830,17 +830,14 @@ public class Analyzer {
                 .getDbOrAnalysisException(tableName.getDb());
         TableIf table = database.getTableOrAnalysisException(tableName.getTbl());
 
-        if (table.isManagedTable() && (((OlapTable) table).getState() == OlapTableState.RESTORE
-                || ((OlapTable) table).getState() == OlapTableState.RESTORE_WITH_LOAD)) {
-            Boolean isAnyPartitionRestoring = ((OlapTable) table).getPartitions().stream()
-                    .anyMatch(partition -> partition.getState() == PartitionState.RESTORE);
-            if (isAnyPartitionRestoring) {
-                // if doing restore with partitions, the status check push down to OlapScanNode::computePartitionInfo to
-                // support query that partitions is not restoring.
-            } else {
-                // if doing restore with table, throw exception here
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_STATE, "RESTORING");
-            }
+        Boolean isAllPartitionRestoring = ((OlapTable) table).getPartitions().stream()
+                .allMatch(partition -> partition.getState() == PartitionState.RESTORE);
+
+        // if doing restore with table, all partition state will set also, throw exception here
+        // if doing restore with a few of partitions, the status check push down to OlapScanNode::computePartitionInfo to
+        // support query that partitions is not restoring.
+        if (table.isManagedTable() && isAllPartitionRestoring) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_STATE, "RESTORING");
         }
 
         // Now hms table only support a bit of table kinds in the whole hive system.
