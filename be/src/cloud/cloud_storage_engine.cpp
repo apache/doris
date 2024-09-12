@@ -160,29 +160,7 @@ struct RefreshFSVaultVisitor {
 };
 
 Status CloudStorageEngine::open() {
-    cloud::StorageVaultInfos vault_infos;
-    bool enable_storage_vault = false;
-    do {
-        auto st = _meta_mgr->get_storage_vault_info(&vault_infos, &enable_storage_vault);
-        if (st.ok()) {
-            break;
-        }
-
-        LOG(WARNING) << "failed to get vault info, retry after 5s, err=" << st;
-        std::this_thread::sleep_for(5s);
-    } while (vault_infos.empty());
-
-    for (auto& [id, vault_info, path_format] : vault_infos) {
-        if (auto st = std::visit(VaultCreateFSVisitor {id, path_format}, vault_info); !st.ok())
-                [[unlikely]] {
-            return vault_process_error(id, vault_info, std::move(st));
-        }
-    }
-
-    // vault mode should not support latest_fs to get rid of unexpected storage backends choosen
-    if (!enable_storage_vault) {
-        set_latest_fs(get_filesystem(std::get<0>(vault_infos.back())));
-    }
+    sync_storage_vault();
 
     // TODO(plat1ko): DeleteBitmapTxnManager
 
