@@ -647,11 +647,12 @@ Status ExecEnv::_check_deploy_mode() {
                     io::global_local_filesystem()->create_file(deploy_mode_path, &file_writer));
             RETURN_IF_ERROR(file_writer->append(expected_mode));
             RETURN_IF_ERROR(file_writer->close());
-            LOG(INFO) << "The file deploy_made doesn't exist, create it.";
+            LOG(INFO) << "The file deploy_mode doesn't exist, create it.";
             auto cluster_id_path = fmt::format("{}/{}", _path.path, CLUSTER_ID_PREFIX);
             RETURN_IF_ERROR(io::global_local_filesystem()->exists(cluster_id_path, &exists));
             if (exists) {
-                LOG(WARNING) << "This may be an upgrade from old version, or the DEPLOY_MADE file has been manually deleted";
+                LOG(WARNING) << "This may be an upgrade from old version,
+                             << or the deploy_mode file has been manually deleted";
             }
         }
     }
