@@ -124,6 +124,8 @@ public:
     void return_free_block(vectorized::BlockUPtr block);
     inline void inc_block_usage(size_t usage) { _block_memory_usage += usage; }
 
+    int64_t block_memory_usage() { return _block_memory_usage; }
+
     // Caller should make sure the pipeline task is still running when calling this function
     void update_peak_running_scanner(int num);
     // Caller should make sure the pipeline task is still running when calling this function
@@ -172,12 +174,12 @@ public:
     int batch_size() const { return _batch_size; }
 
     // During low memory mode, there will be at most 4 scanners running and every scanner will
-    // cache at most 2MB data. So that every instance will keep 8MB buffer.
+    // cache at most 1MB data. So that every instance will keep 8MB buffer.
     bool low_memory_mode() const;
 
     // TODO(yiguolei) add this as session variable
     int32_t low_memory_mode_scan_bytes_per_scanner() const {
-        return 2 * 1024 * 1024; // 2MB
+        return 1 * 1024 * 1024; // 1MB
     }
 
     int32_t low_memory_mode_scanners() const { return 4; }
@@ -189,9 +191,6 @@ public:
     ThreadPoolToken* thread_token = nullptr;
 
     bool _should_reset_thread_name = true;
-
-    const static int LOW_MEMORY_MODE_SCAN_BYTES = 2 * 1024 * 1024; // 2MB
-    const static int LOW_MEMORY_MODE_MAX_SCANNERS = 4;
 
 protected:
     /// Four criteria to determine whether to increase the parallelism of the scanners

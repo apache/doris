@@ -271,8 +271,12 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 
             size_t raw_bytes_read = 0;
             bool first_read = true;
+            // If the first block is full, then it is true. Or the first block + second block > batch_size
+            bool has_first_full_block = false;
 
-            while (!eos && raw_bytes_read < raw_bytes_threshold) {
+            // During low memory mode, every scan task will return at most 2 block to reduce memory usage.
+            while (!eos && raw_bytes_read < raw_bytes_threshold &&
+                   !(ctx->low_memory_mode() && has_first_full_block)) {
                 if (UNLIKELY(ctx->done())) {
                     eos = true;
                     break;
@@ -318,6 +322,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     ctx->inc_block_usage(scan_task->cached_blocks.back().first->allocated_bytes() -
                                          block_size);
                 } else {
+                    if (!scan_task->cached_blocks.empty()) {
+                        has_first_full_block = true;
+                    }
                     ctx->inc_block_usage(free_block->allocated_bytes());
                     scan_task->cached_blocks.emplace_back(std::move(free_block), free_block_bytes);
                 }
