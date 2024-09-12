@@ -1243,7 +1243,7 @@ public class PropertyAnalyzer {
             tagMap.put(tag.type, tag.value);
             iter.remove();
         }
-        if (tagMap.isEmpty() && defaultValue != null) {
+        if (defaultValue != null && !tagMap.containsKey(defaultValue.type)) {
             tagMap.put(defaultValue.type, defaultValue.value);
         }
         return tagMap;
