@@ -465,10 +465,19 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
+    public Set<String> getClusterStatus(List<Backend> backends) {
+        // ATTN: found bug, In the same cluster, the cluster status in the tags of BE nodes is inconsistent.
+        // Using a set to collect the cluster statuses from the BE nodes.
+        return backends.stream().map(Backend::getCloudClusterStatus).collect(Collectors.toSet());
+    }
+
     public String getCloudStatusByIdNoLock(final String clusterId) {
-        return clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>())
-            .stream().map(Backend::getCloudClusterStatus).findFirst()
-            .orElse(String.valueOf(Cloud.ClusterStatus.UNKNOWN));
+        Set<String> clusterStatusSet = getClusterStatus(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
+        if (clusterStatusSet.contains(String.valueOf(Cloud.ClusterStatus.NORMAL))) {
+            return String.valueOf(Cloud.ClusterStatus.NORMAL);
+        }
+
+        return clusterStatusSet.stream().findFirst().orElse(String.valueOf(Cloud.ClusterStatus.UNKNOWN));
     }
 
     public void updateClusterNameToId(final String newName,
@@ -738,6 +747,9 @@ public class CloudSystemInfoService extends SystemInfoService {
         if (Config.isNotCloudMode()) {
             return;
         }
+        if (!Config.enable_auto_start_for_cloud_cluster) {
+            return;
+        }
         clusterName = getClusterNameAutoStart(clusterName);
         if (Strings.isNullOrEmpty(clusterName)) {
             LOG.warn("auto start in cloud mode, but clusterName empty {}", clusterName);
@@ -786,7 +798,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             }
         }
         // wait 5 mins
-        int retryTimes = 5 * 60;
+        int retryTimes = Config.auto_start_wait_to_resume_times < 0 ? 300 : Config.auto_start_wait_to_resume_times;
         int retryTime = 0;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();

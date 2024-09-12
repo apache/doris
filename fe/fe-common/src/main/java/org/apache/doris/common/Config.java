@@ -2951,6 +2951,15 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = {"存算分离模式下commit阶段等锁超时时间，默认5s"})
     public static int try_commit_lock_timeout_seconds = 5;
+
+    @ConfField(mutable = true, description = {"存算分离模式下是否启用自动启停功能，默认true",
+        "Whether to enable the automatic start-stop feature in cloud model, default is true."})
+    public static boolean enable_auto_start_for_cloud_cluster = true;
+
+    @ConfField(mutable = true, description = {"存算分离模式下自动启停等待cluster唤醒退避重试次数，默认300次大约5分钟",
+        "The automatic start-stop wait time for cluster wake-up backoff retry count in the cloud "
+            + "model is set to 300 times, which is approximately 5 minutes by default."})
+    public static int auto_start_wait_to_resume_times = 300;
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
