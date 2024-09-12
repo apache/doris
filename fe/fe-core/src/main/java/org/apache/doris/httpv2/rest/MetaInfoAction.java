@@ -101,7 +101,7 @@ public class MetaInfoAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Unknown catalog " + ns);
         }
         List<String> dbNames = catalog.getDbNames();
-        List<String> dbNameSet = Lists.newArrayList();
+        List<String> filteredDbNames = Lists.newArrayList();
         for (String fullName : dbNames) {
             final String db = ClusterNamespace.getNameFromFullName(fullName);
             if (!Env.getCurrentEnv().getAccessManager()
@@ -109,14 +109,14 @@ public class MetaInfoAction extends RestBaseController {
                             PrivPredicate.SHOW)) {
                 continue;
             }
-            dbNameSet.add(db);
+            filteredDbNames.add(db);
         }
 
-        Collections.sort(dbNameSet);
+        Collections.sort(filteredDbNames);
 
         // handle limit offset
-        Pair<Integer, Integer> fromToIndex = getFromToIndex(request, dbNameSet.size());
-        return ResponseEntityBuilder.ok(dbNameSet.subList(fromToIndex.first, fromToIndex.second));
+        Pair<Integer, Integer> fromToIndex = getFromToIndex(request, filteredDbNames.size());
+        return ResponseEntityBuilder.ok(filteredDbNames.subList(fromToIndex.first, fromToIndex.second));
     }
 
     /** Get all tables of a database
