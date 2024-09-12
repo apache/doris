@@ -274,7 +274,6 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                 config::cluster_id);
     }
 
-
     return Status::OK();
 }
 
