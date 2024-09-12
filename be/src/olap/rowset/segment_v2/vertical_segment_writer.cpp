@@ -693,7 +693,7 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
         _opts.rowset_ctx->partial_update_info->is_partial_update &&
         _opts.write_type == DataWriteType::TYPE_DIRECT &&
         !_opts.rowset_ctx->is_transient_rowset_writer) {
-        if (block->columns() <= _tablet_schema->num_key_columns() ||
+        if (block->columns() < _tablet_schema->num_key_columns() ||
             block->columns() >= _tablet_schema->num_columns()) {
             return Status::InternalError(fmt::format(
                     "illegal partial update block columns: {}, num key columns: {}, total "
