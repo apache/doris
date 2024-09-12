@@ -268,11 +268,10 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
 
     if (config::cluster_id != master_info.cluster_id && master_info.cluster_id != -1) {
         LOG(WARNING) << "fe and be run in different cluster, fe in cluster_id: "
-                     << master_info.cluster_id << " while be in cluster_id: "
-                     << config::cluster_id;
+                     << master_info.cluster_id << " while be in cluster_id: " << config::cluster_id;
         return Status::InvalidArgument<false>(
-                "cluster_id in be and fe are different, fe: {}, be : {}",
-                master_info.cluster_id, config::cluster_id);
+                "cluster_id in be and fe are different, fe: {}, be : {}", master_info.cluster_id,
+                config::cluster_id);
     }
 
 
