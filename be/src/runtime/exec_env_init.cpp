@@ -636,7 +636,7 @@ Status ExecEnv::_check_deploy_mode() {
                 DCHECK_EQ(fsize, bytes_read);
                 if (expected_mode != actual_mode) {
                     return Status::InternalError(
-                            "You can't switch deploy mode from {} to {}, " +
+                            "You can't switch deploy mode from {} to {}, "
                             "maybe you need to check be.conf\n",
                             actual_mode.c_str(), expected_mode.c_str());
                 }
