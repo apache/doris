@@ -703,7 +703,9 @@ Status PipelineXFragmentContext::_build_pipeline_x_tasks(
         }
         return Status::OK();
     };
-    if (target_size > 1) {
+    if (target_size > 1 &&
+        (_runtime_state->query_options().__isset.parallel_prepare_threshold &&
+         target_size > _runtime_state->query_options().parallel_prepare_threshold)) {
         Status prepare_status[target_size];
         std::mutex m;
         std::condition_variable cv;
@@ -730,7 +732,9 @@ Status PipelineXFragmentContext::_build_pipeline_x_tasks(
             }
         }
     } else {
-        RETURN_IF_ERROR(pre_and_submit(0, this));
+        for (size_t i = 0; i < target_size; i++) {
+            RETURN_IF_ERROR(pre_and_submit(i, this));
+        }
     }
     _pipeline_parent_map.clear();
     _dag.clear();
