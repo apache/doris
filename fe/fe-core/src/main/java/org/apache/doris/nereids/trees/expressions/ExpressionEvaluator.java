@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.executable.NumericAr
 import org.apache.doris.nereids.trees.expressions.functions.executable.StringArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRoundSeries;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.DataType;
@@ -128,6 +129,10 @@ public enum ExpressionEvaluator {
     }
 
     private boolean canDownCastTo(Class<?> expect, Class<?> input) {
+        if (DateLiteral.class.isAssignableFrom(expect)
+                || DateTimeLiteral.class.isAssignableFrom(expect)) {
+            return expect.equals(input);
+        }
         return expect.isAssignableFrom(input);
     }
 
