@@ -324,10 +324,17 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSiz
     cnt_val->global_size += request->filter_size();
     cnt_val->source_addrs.push_back(request->source_addr());
 
+    Status st = Status::OK();
     if (cnt_val->source_addrs.size() == cnt_val->producer_size) {
         for (auto addr : cnt_val->source_addrs) {
             std::shared_ptr<PBackendService_Stub> stub(
                     ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(addr));
+            if (stub == nullptr) {
+                LOG(WARNING) << "Failed to init rpc to " << addr.hostname() << ":" << addr.port();
+                st = Status::InternalError("Failed to init rpc to {}:{}", addr.hostname(),
+                                           addr.port());
+                continue;
+            }
 
             auto closure = AutoReleaseClosure<PSyncFilterSizeRequest,
                                               DummyBrpcCallback<PSyncFilterSizeResponse>>::
@@ -347,7 +354,7 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSiz
             closure.release();
         }
     }
-    return Status::OK();
+    return st;
 }
 
 Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
@@ -376,6 +383,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
     int64_t start_merge = MonotonicMillis();
     auto filter_id = request->filter_id();
     std::map<int, CntlValwithLock>::iterator iter;
+    Status st = Status::OK();
     {
         std::shared_lock<std::shared_mutex> guard(_filter_map_mutex);
         iter = _filter_map.find(filter_id);
@@ -460,6 +468,12 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                     ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                             target.target_fragment_instance_addr));
             if (stub == nullptr) {
+                LOG(WARNING) << "Failed to init rpc to "
+                             << target.target_fragment_instance_addr.hostname << ":"
+                             << target.target_fragment_instance_addr.port;
+                st = Status::InternalError("Failed to init rpc to {}:{}",
+                                           target.target_fragment_instance_addr.hostname,
+                                           target.target_fragment_instance_addr.port);
                 continue;
             }
             stub->apply_filterv2(closure->cntl_.get(), closure->request_.get(),
@@ -467,7 +481,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             closure.release();
         }
     }
-    return Status::OK();
+    return st;
 }
 
 Status RuntimeFilterMergeController::acquire(

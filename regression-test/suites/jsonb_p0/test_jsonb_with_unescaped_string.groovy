@@ -24,9 +24,6 @@ suite("test_jsonb_with_unescaped_string", "p0") {
     def dataFile = "test_jsonb_unescaped.csv"
     def dataFileJson = "test_jsonb_unescaped.json"
 
-    sql """ set experimental_enable_nereids_planner = true """
-    sql """ set enable_fallback_to_original_planner = true """
-
     sql "DROP TABLE IF EXISTS ${testTable}"
 
     sql """
