@@ -23,7 +23,6 @@
 #include <memory>
 #include <string>
 
-#include "cloud/cloud_tablet_mgr.h"
 #include "common/status.h"
 #include "http/http_handler_with_auth.h"
 #include "http/http_request.h"
@@ -52,13 +51,10 @@ public:
     explicit CompactionScoreAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
                                    TPrivilegeType::type type, TabletManager* tablet_mgr);
 
-    explicit CompactionScoreAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
-                                   TPrivilegeType::type type, CloudTabletMgr& tablet_mgr);
-
     void handle(HttpRequest* req) override;
 
 private:
-    Status _handle(size_t top_n, bool sync_meta, std::string* result);
+    Status _handle(size_t top_n, std::string* result);
 
     std::unique_ptr<CompactionScoresAccessor> _accessor;
 };
