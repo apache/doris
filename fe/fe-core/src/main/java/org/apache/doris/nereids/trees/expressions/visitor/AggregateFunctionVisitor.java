@@ -53,6 +53,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCou
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum0;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiTopN;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersect;
@@ -332,6 +333,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitJavaUdaf(JavaUdaf javaUdaf, C context) {
         return visitAggregateFunction(javaUdaf, context);
+    }
+
+    default R visitMultiTopN(MultiTopN multiTopN, C context) {
+        return visitNullableAggregateFunction(multiTopN, context);
     }
 
 }
