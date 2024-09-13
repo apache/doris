@@ -137,15 +137,6 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state) {
         size_to_reserve += rows * sizeof(uint8_t); // JoinHashTable::visited
     }
     size_to_reserve += _evaluate_mem_usage;
-
-    if (size_to_reserve > 2L * 1024 * 1024 * 1024) [[unlikely]] {
-        LOG(INFO) << "**** too big reserve size: " << size_to_reserve << ", rows: " << rows
-                  << ", bucket_size: " << bucket_size
-                  << ", mutable block size: " << _build_side_mutable_block.allocated_bytes()
-                  << ", mutable block cols: " << _build_side_mutable_block.columns()
-                  << ", _build_col_ids.size: " << _build_col_ids.size();
-    }
-
     return size_to_reserve;
 }
 
