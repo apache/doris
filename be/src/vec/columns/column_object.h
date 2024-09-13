@@ -300,6 +300,8 @@ public:
     // Only single scalar root column
     bool is_scalar_variant() const;
 
+    bool is_exclusive() const override;
+
     ColumnPtr get_root() const { return subcolumns.get_root()->data.get_finalized_column_ptr(); }
 
     bool has_subcolumn(const PathInData& key) const;

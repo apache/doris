@@ -22,9 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecrypt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncrypt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailingCharIfAbsent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayApply;
@@ -49,6 +47,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayJoin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLast;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLastIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMatchAll;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMatchAny;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMax;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPopBack;
@@ -362,6 +362,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondTimesta
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
@@ -370,9 +371,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Decrypt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4DecryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Encrypt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4EncryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Space;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByChar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByRegexp;
@@ -479,9 +478,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Abs.class, "abs"),
             scalar(Acos.class, "acos"),
             scalar(AesDecrypt.class, "aes_decrypt"),
-            scalar(AesDecryptV2.class, "aes_decrypt_v2"),
             scalar(AesEncrypt.class, "aes_encrypt"),
-            scalar(AesEncryptV2.class, "aes_encrypt_v2"),
             scalar(AppendTrailingCharIfAbsent.class, "append_trailing_char_if_absent"),
             scalar(Array.class, "array"),
             scalar(ArrayApply.class, "array_apply"),
@@ -506,6 +503,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayLast.class, "array_last"),
             scalar(ArrayLastIndex.class, "array_last_index"),
             scalar(ArrayMap.class, "array_map"),
+            scalar(ArrayMatchAll.class, "array_match_all"),
+            scalar(ArrayMatchAny.class, "array_match_any"),
             scalar(ArrayMax.class, "array_max"),
             scalar(ArrayMin.class, "array_min"),
             scalar(ArrayPopBack.class, "array_popback"),
@@ -849,9 +848,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Sm3.class, "sm3"),
             scalar(Sm3sum.class, "sm3sum"),
             scalar(Sm4Decrypt.class, "sm4_decrypt"),
-            scalar(Sm4DecryptV2.class, "sm4_decrypt_v2"),
             scalar(Sm4Encrypt.class, "sm4_encrypt"),
-            scalar(Sm4EncryptV2.class, "sm4_encrypt_v2"),
             scalar(Space.class, "space"),
             scalar(SplitByChar.class, "split_by_char"),
             scalar(SplitByRegexp.class, "split_by_regexp"),
@@ -942,7 +939,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(YearsAdd.class, "years_add"),
             scalar(YearsDiff.class, "years_diff"),
             scalar(YearsSub.class, "years_sub"),
-            scalar(MultiMatch.class, "multi_match"));
+            scalar(MultiMatch.class, "multi_match"),
+            scalar(SessionUser.class, "session_user"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 

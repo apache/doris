@@ -30,6 +30,7 @@
 #include "vec/common/hash_table/partitioned_hash_map.h"
 #include "vec/common/hash_table/string_hash_map.h"
 #include "vec/common/string_ref.h"
+#include "vec/common/typeid_cast.h"
 #include "vec/core/types.h"
 #include "vec/utils/util.hpp"
 
@@ -284,29 +285,47 @@ struct MethodStringNoCache : public MethodBase<TData> {
     using State =
             ColumnsHashing::HashMethodString<typename Base::Value, typename Base::Mapped, true>;
 
-    std::vector<StringRef> stored_keys;
+    // need keep until the hash probe end.
+    std::vector<StringRef> _build_stored_keys;
+    // refresh each time probe
+    std::vector<StringRef> _stored_keys;
 
     size_t serialized_keys_size(bool is_build) const override {
-        return stored_keys.size() * sizeof(StringRef);
+        return is_build ? (_build_stored_keys.size() * sizeof(StringRef))
+                        : (_stored_keys.size() * sizeof(StringRef));
+    }
+
+    void init_serialized_keys_impl(const ColumnRawPtrs& key_columns, size_t num_rows,
+                                   std::vector<StringRef>& stored_keys) {
+        const IColumn& column = *key_columns[0];
+        const auto& nested_column =
+                column.is_nullable()
+                        ? assert_cast<const ColumnNullable&>(column).get_nested_column()
+                        : column;
+        auto serialized_str = [](const auto& column_string, std::vector<StringRef>& stored_keys) {
+            const auto& offsets = column_string.get_offsets();
+            const auto* chars = column_string.get_chars().data();
+            stored_keys.resize(column_string.size());
+            for (size_t row = 0; row < column_string.size(); row++) {
+                stored_keys[row] =
+                        StringRef(chars + offsets[row - 1], offsets[row] - offsets[row - 1]);
+            }
+        };
+        if (nested_column.is_column_string64()) {
+            const auto& column_string = assert_cast<const ColumnString64&>(nested_column);
+            serialized_str(column_string, stored_keys);
+        } else {
+            const auto& column_string = assert_cast<const ColumnString&>(nested_column);
+            serialized_str(column_string, stored_keys);
+        }
+        Base::keys = stored_keys.data();
     }
 
     void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
                               bool is_build = false, uint32_t bucket_size = 0) override {
-        const IColumn& column = *key_columns[0];
-        const auto& column_string = assert_cast<const ColumnString&>(
-                column.is_nullable()
-                        ? assert_cast<const ColumnNullable&>(column).get_nested_column()
-                        : column);
-        const auto& offsets = column_string.get_offsets();
-        const auto* chars = column_string.get_chars().data();
-
-        stored_keys.resize(column_string.size());
-        for (size_t row = 0; row < column_string.size(); row++) {
-            stored_keys[row] = StringRef(chars + offsets[row - 1], offsets[row] - offsets[row - 1]);
-        }
-
-        Base::keys = stored_keys.data();
+        init_serialized_keys_impl(key_columns, num_rows,
+                                  is_build ? _build_stored_keys : _stored_keys);
         if (is_join) {
             Base::init_join_bucket_num(num_rows, bucket_size, null_map);
         } else {
@@ -606,5 +625,6 @@ using SetPrimaryTypeHashTableContext =
 
 using SetSerializedHashTableContext =
         MethodSerialized<HashMap<StringRef, pipeline::RowRefListWithFlags>>;
+using SetMethodOneString = MethodStringNoCache<HashMap<StringRef, pipeline::RowRefListWithFlags>>;
 
 } // namespace doris::vectorized

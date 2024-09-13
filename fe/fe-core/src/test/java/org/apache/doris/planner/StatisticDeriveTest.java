@@ -61,18 +61,6 @@ public class StatisticDeriveTest extends TestWithFeService {
                         + "  \"replication_num\" = \"1\"\n"
                         + ");");
 
-        createTable("create external table test.mysql_table\n"
-                + "(k1 int, k2 int)\n"
-                + "ENGINE=MYSQL\n"
-                + "PROPERTIES (\n"
-                + "\"host\" = \"127.0.0.1\",\n"
-                + "\"port\" = \"3306\",\n"
-                + "\"user\" = \"root\",\n"
-                + "\"password\" = \"123\",\n"
-                + "\"database\" = \"db1\",\n"
-                + "\"table\" = \"tbl1\"\n"
-                + ");");
-
         createTable("create external table test.odbc_oracle\n"
                 + "(k1 float, k2 int)\n"
                 + "ENGINE=ODBC\n"
@@ -214,21 +202,6 @@ public class StatisticDeriveTest extends TestWithFeService {
         Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
         System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
         assertSQLPlanOrErrorMsgContains(sql, "HASH JOIN");
-    }
-
-    @Test
-    public void testMysqlScanStatsDerive() throws Exception {
-        String sql = "select * from test.mysql_table";
-        SessionVariable sessionVariable = connectContext.getSessionVariable();
-        sessionVariable.setEnableJoinReorderBasedCost(true);
-        sessionVariable.setDisableJoinReorder(false);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        stmtExecutor.execute();
-        Assert.assertNotNull(stmtExecutor.planner());
-        Assert.assertNotNull(stmtExecutor.planner().getFragments());
-        Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
-        System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
-        assertSQLPlanOrErrorMsgContains(sql, "SCAN MYSQL");
     }
 
     @Test

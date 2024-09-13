@@ -137,7 +137,8 @@ enum TSchemaTableType {
     SCH_WORKLOAD_GROUP_PRIVILEGES = 48,
     SCH_WORKLOAD_GROUP_RESOURCE_USAGE = 49,
     SCH_TABLE_PROPERTIES = 50,
-    SCH_FILE_CACHE_STATISTICS = 51
+    SCH_FILE_CACHE_STATISTICS = 51,
+    SCH_CATALOG_META_CACHE_STATISTICS = 52;
 }
 
 enum THdfsCompression {
@@ -352,14 +353,16 @@ struct TJdbcTable {
 }
 
 struct TMCTable {
-  1: optional string region
+  1: optional string region // deprecated
   2: optional string project
   3: optional string table
   4: optional string access_key
   5: optional string secret_key
-  6: optional string public_access
-  7: optional string odps_url
-  8: optional string tunnel_url
+  6: optional string public_access // deprecated
+  7: optional string odps_url   // deprecated
+  8: optional string tunnel_url // deprecated 
+  9: optional string endpoint
+  10: optional string quota
 }
 
 struct TTrinoConnectorTable {

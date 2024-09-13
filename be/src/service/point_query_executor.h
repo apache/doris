@@ -100,6 +100,9 @@ public:
 
     RuntimeState* runtime_state() { return _runtime_state.get(); }
 
+    // delete sign idx in block
+    int32_t delete_sign_idx() const { return _delete_sign_idx; }
+
 private:
     // caching TupleDescriptor, output_expr, etc...
     std::unique_ptr<RuntimeState> _runtime_state;
@@ -118,6 +121,8 @@ private:
     std::unordered_set<int32_t> _missing_col_uids;
     // included cids in rowstore(column group)
     std::unordered_set<int32_t> _include_col_uids;
+    // delete sign idx in block
+    int32_t _delete_sign_idx = -1;
 };
 
 // RowCache is a LRU cache for row store
@@ -241,8 +246,8 @@ private:
         auto* value = new CacheValue;
         value->item = item;
         LOG(INFO) << "Add item mem"
-                  << ", cache_capacity: " << get_total_capacity()
-                  << ", cache_usage: " << get_usage() << ", mem_consum: " << mem_consumption();
+                  << ", cache_capacity: " << get_capacity() << ", cache_usage: " << get_usage()
+                  << ", mem_consum: " << mem_consumption();
         auto* lru_handle = insert(key, value, 1, sizeof(Reusable), CachePriority::NORMAL);
         release(lru_handle);
     }
@@ -260,6 +265,7 @@ private:
 
     class CacheValue : public LRUCacheValueBase {
     public:
+        ~CacheValue() override;
         std::shared_ptr<Reusable> item;
     };
 };

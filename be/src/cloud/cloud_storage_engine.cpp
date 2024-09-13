@@ -160,24 +160,7 @@ struct RefreshFSVaultVisitor {
 };
 
 Status CloudStorageEngine::open() {
-    cloud::StorageVaultInfos vault_infos;
-    do {
-        auto st = _meta_mgr->get_storage_vault_info(&vault_infos);
-        if (st.ok()) {
-            break;
-        }
-
-        LOG(WARNING) << "failed to get vault info, retry after 5s, err=" << st;
-        std::this_thread::sleep_for(5s);
-    } while (vault_infos.empty());
-
-    for (auto& [id, vault_info, path_format] : vault_infos) {
-        if (auto st = std::visit(VaultCreateFSVisitor {id, path_format}, vault_info); !st.ok())
-                [[unlikely]] {
-            return vault_process_error(id, vault_info, std::move(st));
-        }
-    }
-    set_latest_fs(get_filesystem(std::get<0>(vault_infos.back())));
+    sync_storage_vault();
 
     // TODO(plat1ko): DeleteBitmapTxnManager
 
@@ -340,7 +323,8 @@ void CloudStorageEngine::_check_file_cache_ttl_block_valid() {
 
 void CloudStorageEngine::sync_storage_vault() {
     cloud::StorageVaultInfos vault_infos;
-    auto st = _meta_mgr->get_storage_vault_info(&vault_infos);
+    bool enable_storage_vault = false;
+    auto st = _meta_mgr->get_storage_vault_info(&vault_infos, &enable_storage_vault);
     if (!st.ok()) {
         LOG(WARNING) << "failed to get storage vault info. err=" << st;
         return;
@@ -363,7 +347,7 @@ void CloudStorageEngine::sync_storage_vault() {
     }
 
     if (auto& id = std::get<0>(vault_infos.back());
-        latest_fs() == nullptr || latest_fs()->id() != id) {
+        (latest_fs() == nullptr || latest_fs()->id() != id) && !enable_storage_vault) {
         set_latest_fs(get_filesystem(id));
     }
 }

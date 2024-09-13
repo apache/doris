@@ -41,7 +41,7 @@ import java.util.List;
 //
 // syntax:
 //      SHOW STREAM LOAD [FROM db] [LIKE mask]
-public class ShowStreamLoadStmt extends ShowStmt {
+public class ShowStreamLoadStmt extends ShowStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(ShowStreamLoadStmt.class);
 
     public enum StreamLoadState {

@@ -203,7 +203,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
             if (distributionInfo instanceof HashDistributionInfo) {
                 // Do not enable shuffle for duplicate key tables when its tablet num is less than threshold.
                 if (targetTable.getKeysType() == KeysType.DUP_KEYS) {
-                    final long partitionNums = targetTable.getPartitionInfo().getAllPartitions().size();
+                    final long partitionNums = Math.max(targetTable.getPartitionInfo().getAllPartitions().size(), 1);
                     final long tabletNums = partitionNums * distributionInfo.getBucketNum();
                     if (tabletNums < Config.min_tablets_for_dup_table_shuffle) {
                         return PhysicalProperties.ANY;

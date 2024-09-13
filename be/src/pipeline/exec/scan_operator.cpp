@@ -45,6 +45,8 @@
 
 namespace doris::pipeline {
 
+const static int32_t ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT_DEFAULT = 10000;
+
 #define RETURN_IF_PUSH_DOWN(stmt, status)    \
     if (pdt == PushDownType::UNACCEPTABLE) { \
         status = stmt;                       \
@@ -994,13 +996,7 @@ Status ScanLocalState<Derived>::_start_scanners(
     auto& p = _parent->cast<typename Derived::Parent>();
     _scanner_ctx = vectorized::ScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
-            state()->scan_queue_mem_limit(), _scan_dependency,
-            // 1. If data distribution is ignored , we use 1 instance to scan.
-            // 2. Else if this operator is not file scan operator, we use config::doris_scanner_thread_pool_thread_num scanners to scan.
-            // 3. Else, file scanner will consume much memory so we use config::doris_scanner_thread_pool_thread_num / query_parallel_instance_num scanners to scan.
-            p.ignore_data_distribution() || !p.is_file_scan_operator()
-                    ? 1
-                    : state()->query_parallel_instance_num());
+            _scan_dependency, p.ignore_data_distribution());
     return Status::OK();
 }
 
@@ -1055,6 +1051,9 @@ Status ScanLocalState<Derived>::_init_profile() {
     _memory_usage_counter = ADD_LABEL_COUNTER_WITH_LEVEL(_scanner_profile, "MemoryUsage", 1);
     _free_blocks_memory_usage =
             _scanner_profile->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES, "MemoryUsage", 1);
+    _scanner_peak_memory_usage =
+            _scanner_profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES);
+
     _newly_create_free_blocks_num =
             ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
     _scale_up_scanners_counter = ADD_COUNTER(_scanner_profile, "NumScaleUpScanners", TUnit::UNIT);
@@ -1073,6 +1072,8 @@ Status ScanLocalState<Derived>::_init_profile() {
 
     _max_scanner_thread_num = ADD_COUNTER(_runtime_profile, "MaxScannerThreadNum", TUnit::UNIT);
 
+    _peak_running_scanner =
+            _scanner_profile->AddHighWaterMarkCounter("PeakRunningScanner", TUnit::UNIT);
     return Status::OK();
 }
 
@@ -1147,12 +1148,6 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
         : OperatorX<LocalStateType>(pool, tnode, operator_id, descs),
           _runtime_filter_descs(tnode.runtime_filters),
           _parallel_tasks(parallel_tasks) {
-    if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
-        // Which means the request could be fullfilled in a single segment iterator request.
-        if (tnode.limit > 0 && tnode.limit < 1024) {
-            _should_run_serial = true;
-        }
-    }
     if (tnode.__isset.push_down_count) {
         _push_down_count = tnode.push_down_count;
     }
@@ -1185,6 +1180,34 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
     if (tnode.__isset.topn_filter_source_node_ids) {
         topn_filter_source_node_ids = tnode.topn_filter_source_node_ids;
     }
+
+    // The first branch is kept for compatibility with the old version of the FE
+    if (!query_options.__isset.enable_adaptive_pipeline_task_serial_read_on_limit) {
+        if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
+            // Which means the request could be fullfilled in a single segment iterator request.
+            if (tnode.limit > 0 &&
+                tnode.limit <= ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT_DEFAULT) {
+                _should_run_serial = true;
+            }
+        }
+    } else {
+        DCHECK(query_options.__isset.adaptive_pipeline_task_serial_read_on_limit);
+        // The set of enable_adaptive_pipeline_task_serial_read_on_limit
+        // is checked in previous branch.
+        if (query_options.enable_adaptive_pipeline_task_serial_read_on_limit) {
+            int32_t adaptive_pipeline_task_serial_read_on_limit =
+                    ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT_DEFAULT;
+            if (query_options.__isset.adaptive_pipeline_task_serial_read_on_limit) {
+                adaptive_pipeline_task_serial_read_on_limit =
+                        query_options.adaptive_pipeline_task_serial_read_on_limit;
+            }
+
+            if (tnode.limit > 0 && tnode.limit <= adaptive_pipeline_task_serial_read_on_limit) {
+                _should_run_serial = true;
+            }
+        }
+    }
+
     return Status::OK();
 }
 

@@ -832,11 +832,9 @@ public class Analyzer {
 
         if (table.isManagedTable() && (((OlapTable) table).getState() == OlapTableState.RESTORE
                 || ((OlapTable) table).getState() == OlapTableState.RESTORE_WITH_LOAD)) {
-            Boolean isNotRestoring = ((OlapTable) table).getPartitions().stream()
-                    .filter(partition -> partition.getState() == PartitionState.RESTORE).collect(Collectors.toList())
-                    .isEmpty();
-
-            if (!isNotRestoring) {
+            Boolean isAnyPartitionRestoring = ((OlapTable) table).getPartitions().stream()
+                    .anyMatch(partition -> partition.getState() == PartitionState.RESTORE);
+            if (isAnyPartitionRestoring) {
                 // if doing restore with partitions, the status check push down to OlapScanNode::computePartitionInfo to
                 // support query that partitions is not restoring.
             } else {

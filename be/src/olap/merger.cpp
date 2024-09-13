@@ -47,6 +47,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_fwd.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_reader.h"
 #include "olap/utils.h"
 #include "util/slice.h"
@@ -136,7 +137,8 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     size_t output_rows = 0;
     bool eof = false;
     while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
-        if (tablet->tablet_state() == TABLET_SHUTDOWN) {
+        auto tablet_state = tablet->tablet_state();
+        if (tablet_state != TABLET_RUNNING && tablet_state != TABLET_NOTREADY) {
             tablet->clear_cache();
             return Status::Error<INTERNAL_ERROR>("tablet {} is not used any more",
                                                  tablet->tablet_id());
@@ -303,6 +305,12 @@ Status Merger::vertical_compact_one_group(
     size_t output_rows = 0;
     bool eof = false;
     while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
+        auto tablet_state = tablet->tablet_state();
+        if (tablet_state != TABLET_RUNNING && tablet_state != TABLET_NOTREADY) {
+            tablet->clear_cache();
+            return Status::Error<INTERNAL_ERROR>("tablet {} is not used any more",
+                                                 tablet->tablet_id());
+        }
         // Read one block from block reader
         RETURN_NOT_OK_STATUS_WITH_WARN(reader.next_block_with_aggregation(&block, &eof),
                                        "failed to read next block when merging rowsets of tablet " +

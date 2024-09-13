@@ -131,6 +131,7 @@ import org.apache.doris.consistency.ConsistencyChecker;
 import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.InternalCatalog;
@@ -423,7 +424,7 @@ public class Env {
     // node name is used for bdbje NodeName.
     protected String nodeName;
     protected FrontendNodeType role;
-    private FrontendNodeType feType;
+    protected FrontendNodeType feType;
     // replica and observer use this value to decide provide read service or not
     private long synchronizedTimeMs;
     private MasterInfo masterInfo;
@@ -742,7 +743,7 @@ public class Env {
 
         this.auth = new Auth();
         this.accessManager = new AccessControllerManager(auth);
-        this.authenticatorManager = new AuthenticatorManager(AuthenticateType.getAuthTypeConfig());
+        this.authenticatorManager = new AuthenticatorManager(AuthenticateType.getAuthTypeConfigString());
         this.domainResolver = new DomainResolver(auth);
 
         this.metaContext = new MetaContext();
@@ -1140,6 +1141,13 @@ public class Env {
 
     public void setHttpReady(boolean httpReady) {
         this.httpReady.set(httpReady);
+    }
+
+    protected boolean isStartFromEmpty() {
+        File roleFile = new File(this.imageDir, Storage.ROLE_FILE);
+        File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
+
+        return !roleFile.exists() && !versionFile.exists();
     }
 
     protected void getClusterIdAndRole() throws IOException {
@@ -1679,10 +1687,15 @@ public class Env {
      */
     void advanceNextId() {
         long currentId = idGenerator.getBatchEndId();
-        long currentNanos = System.nanoTime();
+        long currentMill = System.currentTimeMillis();
         long nextId = currentId + 1;
-        if (nextId < currentNanos) {
-            nextId = currentNanos;
+        // Reserve ~1 trillion for use in case of bugs or frequent reboots (~2 billion reboots)
+        if ((1L << 63) - nextId < (1L << 40)) {
+            LOG.warn("nextId is too large: {}, it may be a bug and consider backup and migration", nextId);
+        } else {
+            // Keep compatible with previous impl, the previous impl may result in extreme large nextId,
+            // and guess there are no more than 1L<<32 (~4e9) ids used since last reboot
+            nextId = (currentId + 1) < currentMill ? currentMill : currentId + (1L << 32);
         }
 
         // ATTN: Because MetaIdGenerator has guaranteed that each id it returns must have
@@ -2977,21 +2990,25 @@ public class Env {
         };
     }
 
+    public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
+        addFrontend(role, host, editLogPort, "");
+    }
+
     public void addFrontend(FrontendNodeType role, String host, int editLogPort, String nodeName) throws DdlException {
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire env lock. Try again");
         }
         try {
+            if (Strings.isNullOrEmpty(nodeName)) {
+                nodeName = genFeNodeName(host, editLogPort, false /* new name style */);
+            }
+
             Frontend fe = checkFeExist(host, editLogPort);
             if (fe != null) {
                 throw new DdlException("frontend already exists " + fe);
             }
             if (Config.enable_fqdn_mode && StringUtils.isEmpty(host)) {
                 throw new DdlException("frontend's hostName should not be empty while enable_fqdn_mode is true");
-            }
-
-            if (Strings.isNullOrEmpty(nodeName)) {
-                nodeName = genFeNodeName(host, editLogPort, false /* new name style */);
             }
 
             if (removedFrontends.contains(nodeName)) {
@@ -3026,7 +3043,7 @@ public class Env {
         modifyFrontendHost(fe.getNodeName(), destHost);
     }
 
-    public void modifyFrontendHost(String nodeName, String destHost) throws DdlException {
+    private void modifyFrontendHost(String nodeName, String destHost) throws DdlException {
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire env lock. Try again");
         }
@@ -3054,6 +3071,11 @@ public class Env {
     }
 
     public void dropFrontend(FrontendNodeType role, String host, int port) throws DdlException {
+        dropFrontendFromBDBJE(role, host, port);
+    }
+
+    public void dropFrontendFromBDBJE(FrontendNodeType role, String host, int port) throws DdlException {
+
         if (port == selfNode.getPort() && feType == FrontendNodeType.MASTER
                 && selfNode.getHost().equals(host)) {
             throw new DdlException("can not drop current master node.");
@@ -4303,8 +4325,8 @@ public class Env {
         return cooldownConfHandler;
     }
 
-    public SystemHandler getClusterHandler() {
-        return (SystemHandler) this.alter.getClusterHandler();
+    public SystemHandler getSystemHandler() {
+        return (SystemHandler) this.alter.getSystemHandler();
     }
 
     public BackupHandler getBackupHandler() {
@@ -5109,11 +5131,7 @@ public class Env {
                     indexIdToSchemaVersion);
             editLog.logColumnRename(info);
             LOG.info("rename coloumn[{}] to {}", colName, newColName);
-            try {
-                Env.getCurrentEnv().getAnalysisManager().dropStats(table, null);
-            } catch (Exception e) {
-                LOG.info("Failed to drop stats after rename column. Reason: {}", e.getMessage());
-            }
+            Env.getCurrentEnv().getAnalysisManager().dropStats(table, null);
         }
     }
 
@@ -5286,7 +5304,8 @@ public class Env {
                 .buildEnableSingleReplicaCompaction()
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
                 .buildTimeSeriesCompactionLevelThreshold()
-                .buildTTLSeconds();
+                .buildTTLSeconds()
+                .buildAutoAnalyzeProperty();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
@@ -5313,9 +5332,16 @@ public class Env {
 
     public void replayModifyTableProperty(short opCode, ModifyTablePropertyOperationLog info)
             throws MetaNotFoundException {
+        String ctlName = info.getCtlName();
         long dbId = info.getDbId();
         long tableId = info.getTableId();
         Map<String, String> properties = info.getProperties();
+
+        // Handle HMSExternalTable set auto analyze policy.
+        if (ctlName != null && !(InternalCatalog.INTERNAL_CATALOG_NAME.equalsIgnoreCase(ctlName))) {
+            setExternalTableAutoAnalyze(properties, info);
+            return;
+        }
 
         Database db = getInternalCatalog().getDbOrMetaException(dbId);
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
@@ -5353,6 +5379,33 @@ public class Env {
             }
         } finally {
             olapTable.writeUnlock();
+        }
+    }
+
+    private void setExternalTableAutoAnalyze(Map<String, String> properties, ModifyTablePropertyOperationLog info) {
+        if (properties.size() != 1) {
+            LOG.warn("External table property should contain exactly 1 entry.");
+            return;
+        }
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
+            LOG.warn("External table property should only contain auto_analyze_policy");
+            return;
+        }
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
+        if (!PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY.equalsIgnoreCase(value)
+                && !PropertyAnalyzer.DISABLE_AUTO_ANALYZE_POLICY.equalsIgnoreCase(value)
+                && !PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY.equalsIgnoreCase(value)) {
+            LOG.warn("External table property should be 'enable', 'disable' or 'base_on_catalog'");
+            return;
+        }
+        try {
+            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrException(info.getCtlName(),
+                        ctlName -> new DdlException("Unknown catalog " + ctlName));
+            value = value.equalsIgnoreCase(PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY) ? null : value;
+            ((ExternalCatalog) catalog).setAutoAnalyzePolicy(info.getDbName(), info.getTableName(), value);
+        } catch (Exception e) {
+            LOG.warn("Failed to replay external table set property.", e);
         }
     }
 
@@ -5425,15 +5478,15 @@ public class Env {
     }
 
     /*
-     * used for handling AlterClusterStmt
-     * (for client is the ALTER CLUSTER command).
+     * used for handling AlterSystemStmt
+     * (for client is the ALTER SYSTEM command).
      */
-    public void alterCluster(AlterSystemStmt stmt) throws DdlException, UserException {
-        this.alter.processAlterCluster(stmt);
+    public void alterSystem(AlterSystemStmt stmt) throws DdlException, UserException {
+        this.alter.processAlterSystem(stmt);
     }
 
-    public void cancelAlterCluster(CancelAlterSystemStmt stmt) throws DdlException {
-        this.alter.getClusterHandler().cancel(stmt);
+    public void cancelAlterSystem(CancelAlterSystemStmt stmt) throws DdlException {
+        this.alter.getSystemHandler().cancel(stmt);
     }
 
     // Switch catalog of this session
