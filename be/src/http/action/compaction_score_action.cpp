@@ -140,7 +140,6 @@ void CompactionScoreAction::handle(HttpRequest* req) {
 }
 
 Status CompactionScoreAction::_handle(size_t top_n, std::string* result) {
-
     auto scores = _accessor->get_all_tablet_compaction_scores();
     top_n = std::min(top_n, scores.size());
     std::partial_sort(scores.begin(), scores.begin() + top_n, scores.end(), std::greater<>());
