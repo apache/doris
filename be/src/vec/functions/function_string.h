@@ -4211,43 +4211,72 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        // We need a local variable to hold a reference to the converted column.
-        // So that the converted column will not be released before we use it.
-        auto col_source =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto col_source_str = assert_cast<const ColumnString*>(col_source.get());
-        auto col_from =
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        auto col_from_str = assert_cast<const ColumnString*>(col_from.get());
-        auto col_to = block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
-        auto col_to_str = assert_cast<const ColumnString*>(col_to.get());
-
-        ColumnString::MutablePtr col_res = ColumnString::create();
-        for (int i = 0; i < input_rows_count; ++i) {
-            StringRef source_str = col_source_str->get_data_at(i);
-            StringRef from_str = col_from_str->get_data_at(i);
-            StringRef to_str = col_to_str->get_data_at(i);
-
-            std::string res = translate(source_str.to_string(), from_str.to_string_view(),
-                                        to_str.to_string_view());
-            col_res->insert_data(res.data(), res.length());
+        CHECK_EQ(arguments.size(), 3);
+        auto col_res = ColumnString::create();
+        bool col_const[3];
+        ColumnPtr argument_columns[3];
+        for (int i = 0; i < 3; ++i) {
+            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
         }
+        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
+                                                     *block.get_by_position(arguments[0]).column)
+                                                     .convert_to_full_column()
+                                           : block.get_by_position(arguments[0]).column;
+        default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
-        block.replace_by_position(result, std::move(col_res));
+        const auto* col_source = assert_cast<const ColumnString*>(argument_columns[0].get());
+        const auto* col_from = assert_cast<const ColumnString*>(argument_columns[1].get());
+        const auto* col_to = assert_cast<const ColumnString*>(argument_columns[2].get());
+
+        if (col_const[1] && col_const[2]) {
+            impl_vectors<true>(col_source, col_from, col_to, col_res);
+        } else {
+            impl_vectors<false>(col_source, col_from, col_to, col_res);
+        }
+        block.get_by_position(result).column = std::move(col_res);
         return Status::OK();
     }
 
 private:
-    std::string translate(const std::string& source_str, const std::string_view& from_str,
-                          const std::string_view& to_str) const {
-        std::string result;
-        result.reserve(source_str.size());
+    template <bool IsConst>
+    static void impl_vectors(const ColumnString* col_source, const ColumnString* col_from,
+                             const ColumnString* col_to, ColumnString* col_res) {
+        col_res->get_chars().reserve(col_source->get_chars().size());
+        col_res->get_offsets().reserve(col_source->get_offsets().size());
         std::unordered_map<char, char> translate_map;
-        for (int i = 0; i < from_str.size(); ++i) {
+        if (IsConst) {
+            const auto& from_str = col_from->get_data_at(0);
+            const auto& to_str = col_to->get_data_at(0);
+            translate_map = build_translate_map(from_str.to_string_view(), to_str.to_string_view());
+        }
+        for (size_t i = 0; i < col_source->size(); ++i) {
+            const auto& source_str = col_source->get_data_at(i);
+            if (!IsConst) {
+                const auto& from_str = col_from->get_data_at(i);
+                const auto& to_str = col_to->get_data_at(i);
+                translate_map =
+                        build_translate_map(from_str.to_string_view(), to_str.to_string_view());
+            }
+            auto translated_str = translate(source_str.to_string_view(), translate_map);
+            col_res->insert_data(translated_str.data(), translated_str.size());
+        }
+    }
+
+    static std::unordered_map<char, char> build_translate_map(const std::string_view& from_str,
+                                                              const std::string_view& to_str) {
+        std::unordered_map<char, char> translate_map;
+        for (size_t i = 0; i < from_str.size(); ++i) {
             if (translate_map.find(from_str[i]) == translate_map.end()) {
                 translate_map[from_str[i]] = i < to_str.size() ? to_str[i] : 0;
             }
         }
+        return translate_map;
+    }
+
+    static std::string translate(const std::string_view& source_str,
+                                 std::unordered_map<char, char>& translate_map) {
+        std::string result;
+        result.reserve(source_str.size());
         for (auto const& c : source_str) {
             if (translate_map.find(c) != translate_map.end()) {
                 if (translate_map[c]) {
