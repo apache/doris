@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -322,6 +324,46 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             return null;
         }
         return rewrittenExpression;
+    }
+
+    /**
+     * Not all query after rewritten successfully can compensate union all
+     * Such as:
+     * mv def sql is as following, partition column is a
+     * select a, b, count(*) from t1 group by a, b
+     * Query is as following:
+     * select b, count(*) from t1 group by b, after rewritten by materialized view successfully
+     * If mv part partition is invalid, can not compensate union all, because result is wrong after
+     * compensate union all.
+     */
+    @Override
+    protected boolean canUnionRewrite(Plan queryPlan, MTMV mtmv, CascadesContext cascadesContext) {
+        // check query plan is contain the partition column
+        Optional<LogicalAggregate<Plan>> logicalAggregateOptional =
+                queryPlan.collectFirst(planTreeNode -> planTreeNode instanceof LogicalAggregate);
+        if (!logicalAggregateOptional.isPresent()) {
+            return true;
+        }
+
+        List<Expression> groupByExpressions = logicalAggregateOptional.get().getGroupByExpressions();
+        if (groupByExpressions.isEmpty()) {
+            // Scalar aggregate can not compensate union all
+            return false;
+        }
+        String relatedCol = mtmv.getMvPartitionInfo().getRelatedCol();
+        boolean canUnionRewrite = false;
+        // Check the query plan group by expression contains partition col or not
+        for (Expression expression : groupByExpressions) {
+            Expression shuttledExpression =
+                    ExpressionUtils.shuttleExpressionWithLineage(expression, queryPlan, new BitSet());
+            canUnionRewrite = !shuttledExpression.collectToSet(expr -> expr instanceof SlotReference
+                    && ((SlotReference) expr).isColumnFromTable()
+                    && ((SlotReference) expr).getColumn().get().getName().equals(relatedCol)).isEmpty();
+            if (canUnionRewrite) {
+                break;
+            }
+        }
+        return canUnionRewrite;
     }
 
     /**
