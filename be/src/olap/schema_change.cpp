@@ -509,6 +509,14 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
                                              TabletSchemaSPtr new_tablet_schema) {
     bool eof = false;
     do {
+        // tablet may be dropped due to user cancel, schema change thread should fast fail
+        // and release tablet lock.
+        if (new_tablet->tablet_state() == TABLET_SHUTDOWN) {
+            return Status::Error<TABLE_ALREADY_DELETED_ERROR>(
+                    "fail to process tablet because it is to be deleted. tablet_id={}",
+                    new_tablet->tablet_id());
+        }
+
         auto new_block = vectorized::Block::create_unique(new_tablet_schema->create_block());
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
 
@@ -579,6 +587,14 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
 
     bool eof = false;
     do {
+        // tablet may be dropped due to user cancel, schema change thread should fast fail
+        // and release tablet lock.
+        if (new_tablet->tablet_state() == TABLET_SHUTDOWN) {
+            return Status::Error<TABLE_ALREADY_DELETED_ERROR>(
+                    "fail to process tablet because it is to be deleted. tablet_id={}",
+                    new_tablet->tablet_id());
+        }
+
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
         auto st = rowset_reader->next_block(ref_block.get());
         if (!st) {
