@@ -17,7 +17,7 @@
 
 suite("test_show_create_table_with_storage_policy") {
     def tableName = "test_show_create_table_with_storage_policy"
-    def resourceName = "remote_hdfs"
+    def resourceName = "S3_COOLDOWN"
     def storagePolicyName = "ods_ods_invalid_events"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
