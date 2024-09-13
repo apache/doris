@@ -26,11 +26,11 @@ namespace doris {
 
 // Utility method to URL-encode a string (that is, replace special
 // characters with %<hex value in ascii>).
-bool url_encode(const std::string& in, std::string* out);
+bool url_encode(const std::string_view& in, std::string* out);
 
 // Utility method to decode a string that was URL-encoded. Returns
 // true unless the string could not be correctly decoded.
-bool url_decode(const std::string& in, std::string* out);
+bool url_decode(const std::string_view& in, std::string* out);
 
 void base64_encode(const std::string& in, std::string* out);
 size_t base64_encode(const unsigned char* data, size_t length, unsigned char* encoded_data);
