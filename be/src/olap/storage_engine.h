@@ -224,6 +224,8 @@ public:
 
     std::set<string> get_broken_paths() { return _broken_paths; }
 
+    int64_t memory_limitation_bytes_per_thread_for_schema_change() const;
+
     int get_disk_num() { return _disk_num; }
 
 private:
@@ -470,6 +472,8 @@ private:
     std::unique_ptr<CreateTabletIdxCache> _create_tablet_idx_lru_cache;
 
     int _disk_num {-1};
+
+    int64_t _memory_limitation_bytes_for_schema_change;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
