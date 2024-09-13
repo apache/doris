@@ -220,7 +220,13 @@ public class CloudClusterChecker extends MasterDaemon {
                 LOG.debug("current cluster status {} {}", currentClusterStatus, newClusterStatus);
             }
             boolean needChange = false;
-            Set<String> clusterStatusInMem = cloudSystemInfoService.getClusterStatus(currentBes);
+            // ATTN: found bug, In the same cluster, the cluster status in the tags of BE nodes is inconsistent.
+            // Using a set to collect the cluster statuses from the BE nodes.
+            Set<String> clusterStatusInMem = new HashSet<>();
+            for (Backend backend : currentBes) {
+                String beClusterStatus = backend.getTagMap().get(Tag.CLOUD_CLUSTER_STATUS);
+                clusterStatusInMem.add(beClusterStatus == null ? "NOT_SET" : beClusterStatus);
+            }
             if (clusterStatusInMem.size() != 1) {
                 LOG.warn("cluster {}, multi be nodes cluster status inconsistent, fix it {}", cid, clusterStatusInMem);
                 needChange = true;

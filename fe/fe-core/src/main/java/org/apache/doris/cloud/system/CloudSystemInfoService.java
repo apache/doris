@@ -52,6 +52,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -465,19 +466,12 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
-    public Set<String> getClusterStatus(List<Backend> backends) {
-        // ATTN: found bug, In the same cluster, the cluster status in the tags of BE nodes is inconsistent.
-        // Using a set to collect the cluster statuses from the BE nodes.
-        return backends.stream().map(Backend::getCloudClusterStatus).collect(Collectors.toSet());
-    }
-
     public String getCloudStatusByIdNoLock(final String clusterId) {
-        Set<String> clusterStatusSet = getClusterStatus(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
-        if (clusterStatusSet.contains(String.valueOf(Cloud.ClusterStatus.NORMAL))) {
-            return String.valueOf(Cloud.ClusterStatus.NORMAL);
-        }
-
-        return clusterStatusSet.stream().findFirst().orElse(String.valueOf(Cloud.ClusterStatus.UNKNOWN));
+        List<Backend> bes = clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>());
+        Optional<String> hasNormal = bes.stream().map(Backend::getCloudClusterStatus)
+                .filter(status -> status.equals(String.valueOf(Cloud.ClusterStatus.NORMAL))).findAny();
+        return hasNormal.orElseGet(() -> bes.stream().map(Backend::getCloudClusterStatus).findFirst()
+            .orElse(String.valueOf(Cloud.ClusterStatus.NORMAL)));
     }
 
     public void updateClusterNameToId(final String newName,
