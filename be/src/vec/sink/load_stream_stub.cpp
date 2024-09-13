@@ -152,7 +152,6 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
         return _init_st;
     }
     _dst_id = node_info.id;
-    std::string host_port = get_host_port(node_info.host, node_info.brpc_port);
     brpc::StreamOptions opt;
     opt.max_buf_size = config::load_stream_max_buf_size;
     opt.idle_timeout_ms = idle_timeout_ms;
@@ -185,7 +184,11 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     }
     POpenLoadStreamResponse response;
     // set connection_group "streaming" to distinguish with non-streaming connections
-    const auto& stub = client_cache->get_client(host_port);
+    const auto& stub = client_cache->get_client(node_info.host, node_info.brpc_port);
+    if (stub == nullptr) {
+        return Status::InternalError("failed to init brpc client to {}:{}", node_info.host,
+                                     node_info.brpc_port);
+    }
     stub->open_load_stream(&cntl, &request, &response, nullptr);
     for (const auto& resp : response.tablet_schemas()) {
         auto tablet_schema = std::make_unique<TabletSchema>();
@@ -200,7 +203,8 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                                          cntl.ErrorText());
         return _init_st;
     }
-    LOG(INFO) << "open load stream to " << host_port << ", " << *this;
+    LOG(INFO) << "open load stream to host=" << node_info.host << ", port=" << node_info.brpc_port
+              << ", " << *this;
     _is_init.store(true);
     return Status::OK();
 }
