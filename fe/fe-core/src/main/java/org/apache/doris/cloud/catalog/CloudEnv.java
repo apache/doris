@@ -407,6 +407,6 @@ public class CloudEnv extends Env {
 
     @Override
     public void modifyFrontendHostName(String srcHost, int srcPort, String destHost) throws DdlException {
-        throw new DdlException("modify frontend host name is not supported in cloud mode");
+        throw new DdlException("Modifying frontend hostname is not supported in cloud mode");
     }
 }

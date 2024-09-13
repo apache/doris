@@ -17,6 +17,8 @@
 
 package org.apache.doris.cloud.system;
 
+import org.apache.doris.analysis.ModifyBackendClause;
+import org.apache.doris.analysis.ModifyBackendHostNameClause;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -406,6 +408,16 @@ public class CloudSystemInfoService extends SystemInfoService {
             LOG.warn("Failed to decommission backend: {}", errorMessage);
             throw new UserException(errorMessage);
         }
+    }
+
+    @Override
+    public void modifyBackends(ModifyBackendClause alterClause) throws UserException {
+        throw new UserException("Modifying backends is not supported in cloud mode");
+    }
+
+    @Override
+    public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
+        throw new UserException("Modifying backend hostname is not supported in cloud mode");
     }
 
     @Override
