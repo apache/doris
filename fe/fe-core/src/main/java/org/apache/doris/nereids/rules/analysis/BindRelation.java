@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.analysis.MetaTableName;
 import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -66,7 +65,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
-import org.apache.doris.nereids.trees.expressions.functions.table.PartitionValues;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -370,9 +368,18 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return scan;
     }
 
+    private Optional<LogicalPlan> handleMetaTable(TableIf table, UnboundRelation unboundRelation) {
+        Optional<TableValuedFunction> tvf = table.getDatabase().getCatalog().getMetaTableFunction(
+                table, unboundRelation.getNameParts().get(2));
+        if (tvf.isPresent()) {
+            return Optional.of(new LogicalTVFRelation(unboundRelation.getRelationId(), tvf.get()));
+        }
+        return Optional.empty();
+    }
+
     private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation,
-                                               List<String> qualifiedTableName, CascadesContext cascadesContext) {
-        // for create view stmt replace tableNname to ctl.db.tableName
+                                       List<String> qualifiedTableName, CascadesContext cascadesContext) {
+        // for create view stmt replace tableName to ctl.db.tableName
         unboundRelation.getIndexInSqlString().ifPresent(pair -> {
             StatementContext statementContext = cascadesContext.getStatementContext();
             statementContext.addIndexInSqlToString(pair,
@@ -380,16 +387,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
         });
         List<String> qualifierWithoutTableName = Lists.newArrayList();
         qualifierWithoutTableName.addAll(qualifiedTableName.subList(0, qualifiedTableName.size() - 1));
-        if (unboundRelation.getMetaTableName().isPresent()) {
-            String metaTableName = unboundRelation.getMetaTableName().get().getTableName();
-            TableValuedFunction tvf;
-            if (metaTableName.equalsIgnoreCase(MetaTableName.PARTITIONS)) {
-                tvf = PartitionValues.create(qualifiedTableName);
-            } else {
-                throw new AnalysisException("Unsupported meta table: " + metaTableName);
-            }
-            return new LogicalTVFRelation(unboundRelation.getRelationId(), tvf);
+
+        // Handle meta table like "table_name$partitions"
+        Optional<LogicalPlan> logicalPlan = handleMetaTable(table, unboundRelation);
+        if (logicalPlan.isPresent()) {
+            return logicalPlan.get();
         }
+
         boolean isView = false;
         try {
             switch (table.getType()) {
