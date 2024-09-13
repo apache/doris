@@ -69,7 +69,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -324,11 +324,9 @@ public class PointQueryExecutor implements CoordInterface {
                 ColumnBound partitionKey = ColumnBound.of(LiteralExpr.create(orderedKeyTuple.get(colIdx),
                         keyColumns.get(colIdx).getType()));
                 List<Long> partitionIDs = Lists.newArrayList(
-                        Objects.requireNonNullElse(
-                            partitionCol2PartitionID.get(partitionColName).get(partitionKey),
-                            Collections.emptyList()
-                        )
-                );
+                        Optional.ofNullable(
+                                partitionCol2PartitionID.get(partitionColName).get(partitionKey))
+                                .orElse(Collections.emptyList()));
                 // Add the first partition column directly
                 if (i == 0) {
                     leftMostPartitionIDs.addAll(partitionIDs);
@@ -488,11 +486,11 @@ public class PointQueryExecutor implements CoordInterface {
         }
 
         // pick candidate backends
+        OlapScanNode scanNode = shortCircuitQueryContext.scanNode;
+        replicaMetaTable = scanNode.getScanBackendReplicaTable();
         roundRobinscheduler = new RoundRobinScheduler<>(candidateBackends);
-        replicaMetaTable = Env.getCurrentInvertedIndex().getReplicaMetaTable();
         pickCandidateBackends();
 
-        OlapScanNode scanNode = shortCircuitQueryContext.scanNode;
         OlapTable olapTable = scanNode.getOlapTable();
         List<Column> keyColumns = olapTable.getBaseSchemaKeyColumns();
         for (int i = 0; i < keyColumns.size(); ++i) {
