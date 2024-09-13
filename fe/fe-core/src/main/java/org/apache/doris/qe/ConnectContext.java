@@ -1157,10 +1157,10 @@ public class ConnectContext {
         StringBuilder sb = new StringBuilder();
         if (ConnectContext.get() != null) {
             String clusterName = ConnectContext.get().getCloudCluster();
-            String hits = "or you may not have permission to access the current cluster = ";
+            String hits = "or you may not have permission to access the current compute group = ";
             sb.append(" ");
             if (Strings.isNullOrEmpty(clusterName)) {
-                return sb.append(hits).append("cluster name empty").toString();
+                return sb.append(hits).append("compute group name empty").toString();
             }
             String clusterStatus = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                     .getCloudStatusByName(clusterName);
