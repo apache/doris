@@ -26,6 +26,7 @@
 #include "CLucene/StdHeader.h"
 #include "CLucene/config/repl_wchar.h"
 #include "olap/inverted_index_parser.h"
+#include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
@@ -79,13 +80,14 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
             dest_offsets.push_back(dest_pos);
             continue;
         }
-        auto reader = doris::segment_v2::InvertedIndexReader::create_reader(
-                &inverted_index_ctx, tokenize_str.to_string());
+        auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
+                inverted_index_ctx.char_filter_map);
+        reader->init(tokenize_str.data, tokenize_str.size, true);
 
-        std::vector<std::string> query_tokens;
-        doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                query_tokens, reader.get(), inverted_index_ctx.analyzer, "tokenize",
-                doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY);
+        std::vector<std::string> query_tokens =
+                doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                        reader.get(), inverted_index_ctx.analyzer, "tokenize",
+                        doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY);
         for (auto token : query_tokens) {
             const size_t old_size = column_string_chars.size();
             const size_t split_part_size = token.length();
@@ -143,18 +145,18 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             inverted_index_ctx.parser_mode = get_parser_mode_string_from_properties(properties);
             inverted_index_ctx.char_filter_map =
                     get_parser_char_filter_map_from_properties(properties);
+            inverted_index_ctx.lower_case = get_parser_lowercase_from_properties(properties);
+            inverted_index_ctx.stop_words = get_parser_stopwords_from_properties(properties);
 
             std::unique_ptr<lucene::analysis::Analyzer> analyzer;
             try {
-                analyzer = doris::segment_v2::InvertedIndexReader::create_analyzer(
-                        &inverted_index_ctx);
+                analyzer =
+                        doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(
+                                &inverted_index_ctx);
             } catch (CLuceneError& e) {
                 return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                         "inverted index create analyzer failed: {}", e.what());
             }
-            doris::segment_v2::FullTextIndexReader::setup_analyzer_lowercase(analyzer, properties);
-            doris::segment_v2::FullTextIndexReader::setup_analyzer_use_stopwords(analyzer,
-                                                                                 properties);
 
             inverted_index_ctx.analyzer = analyzer.get();
             _do_tokenize(*col_left, inverted_index_ctx, *dest_nested_column, dest_offsets,

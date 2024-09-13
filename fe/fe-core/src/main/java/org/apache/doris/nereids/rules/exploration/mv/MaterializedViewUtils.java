@@ -429,6 +429,20 @@ public class MaterializedViewUtils {
                         + "but now is %s", relation.getClass().getSimpleName()));
                 return null;
             }
+            SlotReference contextPartitionColumn = getContextPartitionColumn(context);
+            if (contextPartitionColumn == null) {
+                context.addFailReason(String.format("mv partition column is not from table when relation check, "
+                        + "mv partition column is %s", context.getMvPartitionColumn()));
+                return null;
+            }
+            // Check the table which mv partition column belonged to is same as the current check relation or not
+            if (!((LogicalCatalogRelation) relation).getTable().getFullQualifiers().equals(
+                    contextPartitionColumn.getTable().map(TableIf::getFullQualifiers).orElse(ImmutableList.of()))) {
+                context.addFailReason(String.format("mv partition column name is not belonged to current check , "
+                                + "table, current table is %s",
+                        ((LogicalCatalogRelation) relation).getTable().getFullQualifiers()));
+                return null;
+            }
             LogicalCatalogRelation logicalCatalogRelation = (LogicalCatalogRelation) relation;
             TableIf table = logicalCatalogRelation.getTable();
             // if self join, self join can not partition track now, remove the partition column correspondingly
@@ -457,10 +471,6 @@ public class MaterializedViewUtils {
                 return null;
             }
             Set<Column> partitionColumnSet = new HashSet<>(relatedTable.getPartitionColumns());
-            SlotReference contextPartitionColumn = getContextPartitionColumn(context);
-            if (contextPartitionColumn == null) {
-                return null;
-            }
             Column mvReferenceColumn = contextPartitionColumn.getColumn().get();
             Expr definExpr = mvReferenceColumn.getDefineExpr();
             if (definExpr instanceof SlotRef) {

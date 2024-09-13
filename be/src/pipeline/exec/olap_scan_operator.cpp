@@ -257,10 +257,8 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     }
     auto& p = _parent->cast<OlapScanOperatorX>();
 
-    if (!p._olap_scan_node.output_column_unique_ids.empty()) {
-        for (auto uid : p._olap_scan_node.output_column_unique_ids) {
-            _maybe_read_column_ids.emplace(uid);
-        }
+    for (auto uid : p._olap_scan_node.output_column_unique_ids) {
+        _maybe_read_column_ids.emplace(uid);
     }
 
     // ranges constructed from scan keys
