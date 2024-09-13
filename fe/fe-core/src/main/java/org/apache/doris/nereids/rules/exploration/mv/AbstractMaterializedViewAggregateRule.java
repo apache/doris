@@ -353,10 +353,10 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         String relatedCol = mtmv.getMvPartitionInfo().getRelatedCol();
         boolean canUnionRewrite = false;
         // Check the query plan group by expression contains partition col or not
-        for (Expression expression : groupByExpressions) {
-            Expression shuttledExpression =
-                    ExpressionUtils.shuttleExpressionWithLineage(expression, queryPlan, new BitSet());
-            canUnionRewrite = !shuttledExpression.collectToSet(expr -> expr instanceof SlotReference
+        List<? extends Expression> groupByShuttledExpressions =
+                ExpressionUtils.shuttleExpressionWithLineage(groupByExpressions, queryPlan, new BitSet());
+        for (Expression expression : groupByShuttledExpressions) {
+            canUnionRewrite = !expression.collectToSet(expr -> expr instanceof SlotReference
                     && ((SlotReference) expr).isColumnFromTable()
                     && ((SlotReference) expr).getColumn().get().getName().equals(relatedCol)).isEmpty();
             if (canUnionRewrite) {
