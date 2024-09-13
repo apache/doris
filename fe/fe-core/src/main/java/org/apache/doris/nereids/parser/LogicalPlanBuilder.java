@@ -20,7 +20,6 @@ package org.apache.doris.nereids.parser;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ColumnNullableType;
-import org.apache.doris.analysis.MetaTableName;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableScanParams;
@@ -1454,19 +1453,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
 
-        MetaTableName metaTableName = null;
-        if (ctx.metaTableParams() != null) {
-            metaTableName = new MetaTableName(ctx.metaTableParams().identifier().getText());
-        }
-
         TableSample tableSample = ctx.sample() == null ? null : (TableSample) visit(ctx.sample());
         UnboundRelation relation = new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
-                nameParts, Optional.empty(), Optional.empty(), partitionNames, isTempPart,
-                tabletIdLists, relationHints,
-                Optional.ofNullable(tableSample),
-                indexName, scanParams, Optional.empty(),
-                Optional.ofNullable(tableSnapshot),
-                Optional.ofNullable(metaTableName));
+                nameParts, partitionNames, isTempPart, tabletIdLists, relationHints,
+                Optional.ofNullable(tableSample), indexName, scanParams, Optional.ofNullable(tableSnapshot));
 
         LogicalPlan checkedRelation = LogicalPlanBuilderAssistant.withCheckPolicy(relation);
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
