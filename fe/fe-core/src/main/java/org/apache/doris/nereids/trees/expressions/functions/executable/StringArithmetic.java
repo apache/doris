@@ -298,7 +298,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions ConcatWs
      */
-    @ExecFunction(varArgs = true, name = "concat_ws")
+    @ExecFunction(name = "concat_ws")
     public static Expression concatWsVarcharVarchar(StringLikeLiteral first, VarcharLiteral... second) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < second.length - 1; i++) {
@@ -365,7 +365,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions md5
      */
-    @ExecFunction(varArgs = true, name = "md5sum")
+    @ExecFunction(name = "md5sum")
     public static Expression md5Sum(VarcharLiteral... first) {
         try {
             // Step 1: Create a MessageDigest instance for MD5
@@ -419,7 +419,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field")
+    @ExecFunction(name = "field")
     public static Expression fieldInt(IntegerLiteral first, IntegerLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -427,7 +427,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field")
+    @ExecFunction(name = "field")
     public static Expression fieldTinyInt(TinyIntLiteral first, TinyIntLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -435,7 +435,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field")
+    @ExecFunction(name = "field")
     public static Expression fieldSmallInt(SmallIntLiteral first, SmallIntLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -443,7 +443,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field")
+    @ExecFunction(name = "field")
     public static Expression fieldBigInt(BigIntLiteral first, BigIntLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -451,7 +451,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field")
+    @ExecFunction(name = "field")
     public static Expression fieldLargeInt(LargeIntLiteral first, LargeIntLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -459,7 +459,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field")
+    @ExecFunction(name = "field")
     public static Expression fieldFloat(FloatLiteral first, FloatLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -467,7 +467,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field")
+    @ExecFunction(name = "field")
     public static Expression fieldDouble(DoubleLiteral first, DoubleLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -475,7 +475,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field")
+    @ExecFunction(name = "field")
     public static Expression fieldDecimalV2(DecimalLiteral first, DecimalLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -483,7 +483,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field")
+    @ExecFunction(name = "field")
     public static Expression fieldDecimalV3(DecimalV3Literal first, DecimalV3Literal... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -491,7 +491,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field")
+    @ExecFunction(name = "field")
     public static Expression fieldDateTime(DateTimeLiteral first, DateTimeLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -499,7 +499,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field")
+    @ExecFunction(name = "field")
     public static Expression fieldDateTimeV2(DateTimeV2Literal first, DateTimeV2Literal... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -507,7 +507,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field")
+    @ExecFunction(name = "field")
     public static Expression fieldVarchar(StringLikeLiteral first, VarcharLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }

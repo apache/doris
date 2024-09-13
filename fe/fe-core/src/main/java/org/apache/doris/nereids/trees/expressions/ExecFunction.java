@@ -34,8 +34,4 @@ public @interface ExecFunction {
      */
     String name();
 
-    /**
-     * hasVarArgsc
-     */
-    boolean varArgs() default false;
 }
