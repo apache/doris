@@ -88,7 +88,6 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionComb
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.HighOrderFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
@@ -507,11 +506,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
         FunctionCallExpr functionCallExpr;
         // create catalog FunctionCallExpr without analyze again
-        if (function instanceof HighOrderFunction) {
-            functionCallExpr = new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
-        } else {
-            functionCallExpr = new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
-        }
+        functionCallExpr = new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
         functionCallExpr.setNullableFromNereids(function.nullable());
         return functionCallExpr;
     }

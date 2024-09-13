@@ -108,6 +108,12 @@ std::shared_ptr<MemTrackerLimiter> MemTrackerLimiter::create_shared(MemTrackerLi
     return tracker;
 }
 
+bool MemTrackerLimiter::open_memory_tracker_inaccurate_detect() {
+    return doris::config::crash_in_memory_tracker_inaccurate &&
+           (_type == Type::COMPACTION || _type == Type::SCHEMA_CHANGE || _type == Type::QUERY ||
+            (_type == Type::LOAD && !is_group_commit_load));
+}
+
 MemTrackerLimiter::~MemTrackerLimiter() {
     consume(_untracked_mem);
     static std::string mem_tracker_inaccurate_msg =
@@ -127,34 +133,29 @@ MemTrackerLimiter::~MemTrackerLimiter() {
             "4. If you need to "
             "transfer memory tracking value between two trackers, can use transfer_to.";
     if (_consumption->current_value() != 0) {
-        // TODO, expect mem tracker equal to 0 at the load/compaction/etc. task end.
-#ifndef NDEBUG
-        if (_type == Type::QUERY || (_type == Type::LOAD && !is_group_commit_load)) {
+        if (open_memory_tracker_inaccurate_detect()) {
             std::string err_msg =
                     fmt::format("mem tracker label: {}, consumption: {}, peak consumption: {}, {}.",
                                 label(), _consumption->current_value(), _consumption->peak_value(),
                                 mem_tracker_inaccurate_msg);
             LOG(FATAL) << err_msg << print_address_sanitizers();
         }
-#endif
         if (ExecEnv::tracking_memory()) {
             ExecEnv::GetInstance()->orphan_mem_tracker()->consume(_consumption->current_value());
         }
         _consumption->set(0);
-#ifndef NDEBUG
-    } else if (!_address_sanitizers.empty() && !is_group_commit_load) {
+    } else if (doris::config::crash_in_memory_tracker_inaccurate && !_address_sanitizers.empty() &&
+               !is_group_commit_load) {
         LOG(FATAL) << "[Address Sanitizer] consumption is 0, but address sanitizers not empty. "
                    << ", mem tracker label: " << _label
                    << ", peak consumption: " << _consumption->peak_value()
                    << print_address_sanitizers();
-#endif
     }
     memory_memtrackerlimiter_cnt << -1;
 }
 
-#ifndef NDEBUG
 void MemTrackerLimiter::add_address_sanitizers(void* buf, size_t size) {
-    if (_type == Type::QUERY || (_type == Type::LOAD && !is_group_commit_load)) {
+    if (open_memory_tracker_inaccurate_detect()) {
         std::lock_guard<std::mutex> l(_address_sanitizers_mtx);
         auto it = _address_sanitizers.find(buf);
         if (it != _address_sanitizers.end()) {
@@ -176,7 +177,7 @@ void MemTrackerLimiter::add_address_sanitizers(void* buf, size_t size) {
 }
 
 void MemTrackerLimiter::remove_address_sanitizers(void* buf, size_t size) {
-    if (_type == Type::QUERY || (_type == Type::LOAD && !is_group_commit_load)) {
+    if (open_memory_tracker_inaccurate_detect()) {
         std::lock_guard<std::mutex> l(_address_sanitizers_mtx);
         auto it = _address_sanitizers.find(buf);
         if (it != _address_sanitizers.end()) {
@@ -220,7 +221,6 @@ std::string MemTrackerLimiter::print_address_sanitizers() {
     }
     return detail;
 }
-#endif
 
 MemTracker::Snapshot MemTrackerLimiter::make_snapshot() const {
     Snapshot snapshot;

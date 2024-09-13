@@ -309,6 +309,7 @@ class Suite implements GroovyInterceptable {
                 Thread.sleep(1000)
             }
 
+            logger.info("get fe {}", fe)
             assertNotNull(fe)
             if (!dockerIsCloud) {
                 for (def be : cluster.getAllBackends()) {
@@ -325,8 +326,8 @@ class Suite implements GroovyInterceptable {
             def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
             logger.info("try create database if not exists {}", context.dbName)
             JdbcUtils.executeToList(conn, sql)
-            url = Config.buildUrlWithDb(url, context.dbName)
 
+            url = Config.buildUrlWithDb(url, context.dbName)
             logger.info("connect to docker cluster: suite={}, url={}", name, url)
             connect(user, password, url, actionSupplier)
         } finally {
@@ -1382,6 +1383,20 @@ class Suite implements GroovyInterceptable {
             }
         }
         Assert.assertEquals("FINISHED", result)
+    }
+
+    void testFoldConst(String foldSql) {
+        String openFoldConstant = "set debug_skip_fold_constant=false";
+        sql(openFoldConstant)
+        logger.info(foldSql)
+        List<List<Object>> resultByFoldConstant = sql(foldSql)
+        logger.info("result by fold constant: " + resultByFoldConstant.toString())
+        String closeFoldConstant = "set debug_skip_fold_constant=true";
+        sql(closeFoldConstant)
+        logger.info(foldSql)
+        List<List<Object>> resultExpected = sql(foldSql)
+        logger.info("result expected: " + resultExpected.toString())
+        Assert.assertEquals(resultExpected, resultByFoldConstant)
     }
 
     String getJobName(String dbName, String mtmvName) {

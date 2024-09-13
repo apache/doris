@@ -1831,7 +1831,7 @@ public class Config extends ConfigBase {
     public static boolean enable_date_conversion = true;
 
     @ConfField(mutable = false, masterOnly = true)
-    public static boolean enable_multi_tags = false;
+    public static boolean enable_multi_tags = true;
 
     /**
      * If set to TRUE, FE will convert DecimalV2 to DecimalV3 automatically.
@@ -2800,14 +2800,23 @@ public class Config extends ConfigBase {
     @ConfField public static int audit_sys_accumulated_file_size = 4;
 
     @ConfField
+    public static String deploy_mode = "";
+
+    // compatibily with elder version.
+    // cloud_unique_id is introduced before cloud_instance_id, so it has higher priority.
+    @ConfField
     public static String cloud_unique_id = "";
 
+    // If cloud_unique_id is empty, cloud_instance_id works, otherwise cloud_unique_id works.
+    @ConfField
+    public static String cloud_instance_id = "";
+
     public static boolean isCloudMode() {
-        return !cloud_unique_id.isEmpty();
+        return deploy_mode.equals("cloud") || !cloud_unique_id.isEmpty() || !cloud_instance_id.isEmpty();
     }
 
     public static boolean isNotCloudMode() {
-        return cloud_unique_id.isEmpty();
+        return !isCloudMode();
     }
 
     /**
@@ -3056,4 +3065,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"元数据同步是否开启安全模式",
         "Is metadata synchronization enabled in safe mode"})
     public static boolean meta_helper_security_mode = false;
+
+    @ConfField(description = {"检查资源就绪的周期，单位秒",
+            "Interval checking if resource is ready"})
+    public static long resource_not_ready_sleep_seconds = 5;
 }

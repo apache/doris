@@ -17,19 +17,13 @@
 
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 
-#include <CLucene/analysis/AnalysisHeader.h>
-#include <CLucene/analysis/Analyzers.h>
-#include <CLucene/analysis/LanguageBasedAnalyzer.h>
 #include <CLucene/debug/error.h>
 #include <CLucene/debug/mem.h>
 #include <CLucene/index/Term.h>
-#include <CLucene/search/IndexSearcher.h>
 #include <CLucene/search/Query.h>
 #include <CLucene/search/RangeQuery.h>
-#include <CLucene/search/TermQuery.h>
 #include <CLucene/store/Directory.h>
 #include <CLucene/store/IndexInput.h>
-#include <CLucene/util/CLStreams.h>
 #include <CLucene/util/FutureArrays.h>
 #include <CLucene/util/bkd/bkd_docid_iterator.h>
 #include <CLucene/util/stringUtil.h>
@@ -40,26 +34,16 @@
 #include <set>
 #include <string>
 
-#include "gutil/integral_types.h"
-#include "inverted_index_query_type.h"
-#include "olap/rowset/segment_v2/inverted_index/query/phrase_query.h"
-
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wshadow-field"
-#endif
-#include "CLucene/analysis/standard95/StandardAnalyzer.h"
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "io/fs/file_system.h"
+#include "gutil/integral_types.h"
+#include "inverted_index_query_type.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
+#include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/query/phrase_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query_factory.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
@@ -114,81 +98,8 @@ CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_STRING)
 CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_IPV4)
 CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_IPV6)
 
-std::unique_ptr<lucene::analysis::Analyzer> InvertedIndexReader::create_analyzer(
-        InvertedIndexCtx* inverted_index_ctx) {
-    std::unique_ptr<lucene::analysis::Analyzer> analyzer;
-    auto analyser_type = inverted_index_ctx->parser_type;
-    if (analyser_type == InvertedIndexParserType::PARSER_STANDARD ||
-        analyser_type == InvertedIndexParserType::PARSER_UNICODE) {
-        analyzer = std::make_unique<lucene::analysis::standard95::StandardAnalyzer>();
-    } else if (analyser_type == InvertedIndexParserType::PARSER_ENGLISH) {
-        analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
-    } else if (analyser_type == InvertedIndexParserType::PARSER_CHINESE) {
-        auto chinese_analyzer =
-                std::make_unique<lucene::analysis::LanguageBasedAnalyzer>(L"chinese", false);
-        chinese_analyzer->initDict(config::inverted_index_dict_path);
-        auto mode = inverted_index_ctx->parser_mode;
-        if (mode == INVERTED_INDEX_PARSER_COARSE_GRANULARITY) {
-            chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::Default);
-        } else {
-            chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::All);
-        }
-        analyzer = std::move(chinese_analyzer);
-    } else {
-        // default
-        analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
-    }
-    return analyzer;
-}
-
-std::unique_ptr<lucene::util::Reader> InvertedIndexReader::create_reader(
-        InvertedIndexCtx* inverted_index_ctx, const std::string& value) {
-    std::unique_ptr<lucene::util::Reader> reader =
-            std::make_unique<lucene::util::SStringReader<char>>();
-    CharFilterMap& char_filter_map = inverted_index_ctx->char_filter_map;
-    if (!char_filter_map.empty()) {
-        reader = std::unique_ptr<lucene::util::Reader>(CharFilterFactory::create(
-                char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE], reader.release(),
-                char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN],
-                char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT]));
-    }
-    reader->init(value.data(), value.size(), true);
-    return reader;
-}
-
 std::string InvertedIndexReader::get_index_file_path() {
     return _inverted_index_file_reader->get_index_file_path(&_index_meta);
-}
-
-void InvertedIndexReader::get_analyse_result(std::vector<std::string>& analyse_result,
-                                             lucene::util::Reader* reader,
-                                             lucene::analysis::Analyzer* analyzer,
-                                             const std::string& field_name,
-                                             InvertedIndexQueryType query_type,
-                                             bool drop_duplicates) {
-    analyse_result.clear();
-
-    std::wstring field_ws = StringUtil::string_to_wstring(field_name);
-    std::unique_ptr<lucene::analysis::TokenStream> token_stream(
-            analyzer->tokenStream(field_ws.c_str(), reader));
-
-    lucene::analysis::Token token;
-
-    while (token_stream->next(&token)) {
-        if (token.termLength<char>() != 0) {
-            analyse_result.emplace_back(token.termBuffer<char>(), token.termLength<char>());
-        }
-    }
-
-    if (token_stream != nullptr) {
-        token_stream->close();
-    }
-
-    if (drop_duplicates && (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
-                            query_type == InvertedIndexQueryType::MATCH_ALL_QUERY)) {
-        std::set<std::string> unrepeated_result(analyse_result.begin(), analyse_result.end());
-        analyse_result.assign(unrepeated_result.begin(), unrepeated_result.end());
-    }
 }
 
 Status InvertedIndexReader::read_null_bitmap(OlapReaderStatistics* stats,
@@ -362,14 +273,17 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
                     get_inverted_index_parser_type_from_string(
                             get_parser_string_from_properties(_index_meta.properties())),
                     get_parser_mode_string_from_properties(_index_meta.properties()),
-                    get_parser_char_filter_map_from_properties(_index_meta.properties()));
-            auto analyzer = create_analyzer(inverted_index_ctx.get());
-            setup_analyzer_lowercase(analyzer, _index_meta.properties());
-            setup_analyzer_use_stopwords(analyzer, _index_meta.properties());
+                    get_parser_char_filter_map_from_properties(_index_meta.properties()),
+                    get_parser_lowercase_from_properties(_index_meta.properties()),
+                    get_parser_stopwords_from_properties(_index_meta.properties()));
+            auto analyzer = inverted_index::InvertedIndexAnalyzer::create_analyzer(
+                    inverted_index_ctx.get());
             inverted_index_ctx->analyzer = analyzer.get();
-            auto reader = create_reader(inverted_index_ctx.get(), search_str);
-            get_analyse_result(query_info.terms, reader.get(), analyzer.get(), column_name,
-                               query_type);
+            auto reader = inverted_index::InvertedIndexAnalyzer::create_reader(
+                    inverted_index_ctx->char_filter_map);
+            reader->init(search_str.data(), search_str.size(), true);
+            query_info.terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                    reader.get(), analyzer.get(), column_name, query_type);
         }
         if (query_info.terms.empty()) {
             auto msg = fmt::format(
@@ -431,28 +345,6 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
 
 InvertedIndexReaderType FullTextIndexReader::type() {
     return InvertedIndexReaderType::FULLTEXT;
-}
-
-void FullTextIndexReader::setup_analyzer_lowercase(
-        std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
-        const std::map<string, string>& properties) {
-    auto lowercase = get_parser_lowercase_from_properties(properties);
-    if (lowercase == INVERTED_INDEX_PARSER_TRUE) {
-        analyzer->set_lowercase(true);
-    } else if (lowercase == INVERTED_INDEX_PARSER_FALSE) {
-        analyzer->set_lowercase(false);
-    }
-}
-
-void FullTextIndexReader::setup_analyzer_use_stopwords(
-        std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
-        const std::map<string, string>& properties) {
-    auto stop_words = get_parser_stopwords_from_properties(properties);
-    if (stop_words == "none") {
-        analyzer->set_stopwords(nullptr);
-    } else {
-        analyzer->set_stopwords(&lucene::analysis::standard95::stop_words);
-    }
 }
 
 Status StringTypeInvertedIndexReader::new_iterator(

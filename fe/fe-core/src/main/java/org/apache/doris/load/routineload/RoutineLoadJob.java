@@ -485,7 +485,7 @@ public abstract class RoutineLoadJob
         lock.writeLock().lock();
     }
 
-    protected void writeUnlock() {
+    public void writeUnlock() {
         lock.writeLock().unlock();
     }
 
