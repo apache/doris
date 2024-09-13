@@ -17,12 +17,23 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
-// run docker suite steps:
+// Run docker suite steps:
 // 1. Read 'docker/runtime/doris-compose/Readme.md', make sure you can setup a doris docker cluster;
 // 2. update regression-conf-custom.groovy with config:
 //    image = "xxxx"                // your doris docker image
-//    excludeDockerTest = false     // do run docker suite, default is false
+//    excludeDockerTest = false     // do run docker suite, default is true
 //    dockerEndDeleteFiles = false  // after run docker suite, whether delete contains's log and data in directory '/tmp/doris/<suite-name>'
+
+// When run docker suite, then no need an external doris cluster.
+// But whether run a docker suite, need more check.
+// Firstly, get the pipeline's run mode (cloud or not_cloud):
+// If there's an external doris cluster, then fetch pipeline's runMode from it.
+// If there's no external doris cluster, then set pipeline's runMode with command args.
+//    for example:  sh run-regression-test.sh --run docker_action  -runMode=cloud/not_cloud
+// Secondly, compare ClusterOptions.cloudMode and pipeline's runMode
+// If ClusterOptions.cloudMode = null then let ClusterOptions.cloudMode = pipeline's cloudMode, and run docker suite.
+// if ClusterOptions.cloudMode = true or false, if cloudMode == pipeline's cloudMode or pipeline's cloudMode is unknown,
+//      then run docker suite, otherwise don't run docker suite.
 
 // need add 'docker' to suite's group, and don't add 'nonConcurrent' to it
 suite('docker_action', 'docker') {
@@ -48,7 +59,7 @@ suite('docker_action', 'docker') {
 
     def options = new ClusterOptions()
     // add fe config items
-    options.feConfigs = ['example_conf_k1=v1', 'example_conf_k2=v2']
+    options.feConfigs += ['example_conf_k1=v1', 'example_conf_k2=v2']
     // contains 5 backends
     options.beNum = 5
     // each backend has 1 HDD disk and 3 SSD disks
@@ -63,8 +74,6 @@ suite('docker_action', 'docker') {
     options2.beNum = 1
     // create cloud cluster
     options2.cloudMode = true
-    //// cloud docker only run in cloud pipeline, but enable it run in none-cloud pipeline
-    // options2.skipRunWhenPipelineDiff = false
     // run another docker, create a cloud cluster
     docker(options2) {
         // cloud cluster will ignore replication_num, always set to 1. so create table succ even has 1 be.

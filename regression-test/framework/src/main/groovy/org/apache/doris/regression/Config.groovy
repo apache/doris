@@ -70,7 +70,7 @@ class Config {
     public String metaServiceHttpAddress
     public String recycleServiceHttpAddress
 
-    public RunMode isCloudMode = RunMode.UNKNOWN
+    public RunMode runMode = RunMode.UNKNOWN
 
     public String suitePath
     public String dataPath
@@ -300,6 +300,20 @@ class Config {
         config.dorisComposePath = FileUtils.getCanonicalPath(config.dorisComposePath)
         config.image = cmd.getOptionValue(imageOpt, config.image)
         config.dockerEndNoKill = cmd.hasOption(noKillDockerOpt)
+        if (cmd.hasOption(runModeOpt)) {
+            String runMode = cmd.getOptionValue(runModeOpt, "unknown")
+            if (runMode.equalsIgnoreCase("unknown")) {
+                config.runMode = RunMode.UNKNOWN;
+            } else if (runMode.equalsIgnoreCase("cloud")) {
+                config.runMode = RunMode.CLOUD;
+            } else if (runMode.equalsIgnoreCase("not_cloud")) {
+                config.runMode = RunMode.NOT_CLOUD;
+            } else {
+                throw new IllegalStateException("Bad runMode: ${runMode}, should be one of unknown/cloud/not_cloud, "
+                        + "if is unknown, fetch it from fe")
+            }
+        }
+        log.info("runMode: ${config.runMode}")
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
                 .collect({s -> s.trim()})
@@ -500,7 +514,7 @@ class Config {
         Properties props = cmd.getOptionProperties("conf")
         config.otherConfigs.putAll(props)
 
-        config.tryCreateDbIfNotExist()
+        // config.tryCreateDbIfNotExist()
         config.buildUrlWithDefaultDb()
 
         return config
@@ -952,17 +966,15 @@ class Config {
         }
     }
 
-    boolean fetchRunMode() {
-        if (isCloudMode == RunMode.UNKNOWN) {
+    void fetchCloudMode() {
+        if (runMode == RunMode.UNKNOWN) {
             try {
                 def result = JdbcUtils.executeToMapArray(getRootConnection(), "SHOW FRONTEND CONFIG LIKE 'cloud_unique_id'")
-                isCloudMode = result[0].Value.toString().isEmpty() ? RunMode.NOT_CLOUD : RunMode.CLOUD
+                runMode = result[0].Value.toString().isEmpty() ? RunMode.NOT_CLOUD : RunMode.CLOUD
             } catch (Throwable t) {
                 throw new IllegalStateException("Fetch server config 'cloud_unique_id' failed, jdbcUrl: ${jdbcUrl}", t)
             }
         }
-        return isCloudMode == RunMode.CLOUD
-
     }
 
     Connection getConnection() {

@@ -45,8 +45,8 @@ fe_daemon() {
         sleep 1
         output=$(mysql -P $FE_QUERY_PORT -h $MY_IP -u root --execute "SHOW FRONTENDS;")
         code=$?
-        health_log "$output"
         if [ $code -ne 0 ]; then
+            health_log "exec show frontends bad: $output"
             continue
         fi
         header=$(grep IsMaster <<<$output)
