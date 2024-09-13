@@ -439,7 +439,7 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
             assertEquals(1, json.NumberTotalRows)
-            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(1, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
@@ -1029,7 +1029,7 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
             assertEquals(1, json.NumberTotalRows)
-            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(1, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
