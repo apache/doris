@@ -213,7 +213,7 @@ struct DateFormatImpl {
 
             // No buffer is needed here because these specially optimized formats have fixed lengths,
             // and sufficient memory has already been reserved.
-            auto len = Impl::apply(dt, (char*)res_data.data() + offset);
+            auto len = Impl::date_to_str(dt, (char*)res_data.data() + offset);
             offset += len;
 
             return false;
@@ -268,7 +268,7 @@ struct FromUnixTimeImpl {
 
             // No buffer is needed here because these specially optimized formats have fixed lengths,
             // and sufficient memory has already been reserved.
-            auto len = Impl::apply(dt, (char*)res_data.data() + offset);
+            auto len = Impl::date_to_str(dt, (char*)res_data.data() + offset);
             offset += len;
 
             return false;

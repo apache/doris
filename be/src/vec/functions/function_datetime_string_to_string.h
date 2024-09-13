@@ -85,8 +85,8 @@ public:
         context->set_function_state(scope, state);
         if (context->get_num_args() == 1) {
             // default argument
-            state->format_str = "yyyy-MM-dd HH:mm:ss";
-            state->format_type = time_format_type::yyyy_MM_dd_HH_mm_ssImpl {};
+            state->format_str = time_format_type::default_format;
+            state->format_type = time_format_type::default_impl;
             return IFunction::open(context, scope);
         }
 
@@ -97,9 +97,7 @@ public:
             return IFunction::open(context, scope);
         }
 
-        auto string_vale = column_string->column_ptr->get_data_at(0).trim();
-        auto format_str =
-                time_format_type::rewrite_specific_format(string_vale.data, string_vale.size);
+        auto format_str = column_string->column_ptr->get_data_at(0).trim();
         if (format_str.size > 128) {
             //  exceeds the length limit.
             state->is_valid = false;

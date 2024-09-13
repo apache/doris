@@ -24,48 +24,6 @@ namespace doris::vectorized {
 
 namespace time_format_type {
 
-inline StringRef rewrite_specific_format(const char* raw_str, size_t str_size) {
-    const static std::string specific_format_strs[3] = {"%Y%m%d", "%Y-%m-%d", "%Y-%m-%d %H:%i:%s"};
-    const static std::string specific_format_rewrite[3] = {"yyyyMMdd", "yyyy-MM-dd",
-                                                           "yyyy-MM-dd HH:mm:ss"};
-    for (int i = 0; i < 3; i++) {
-        const StringRef specific_format {specific_format_strs[i].data(),
-                                         specific_format_strs[i].size()};
-        if (specific_format == StringRef {raw_str, str_size}) {
-            return {specific_format_rewrite[i].data(), specific_format_rewrite[i].size()};
-        }
-    }
-    return {raw_str, str_size};
-}
-
-enum class TimeFormatType {
-    None = 0,
-    yyyyMMdd,
-    yyyy_MM_dd,
-    yyyy_MM_dd_HH_mm_ss,
-    yyyy_MM,
-    yyyyMM,
-    yyyy
-};
-
-inline TimeFormatType string_to_type(const std::string& format) {
-    if (format == "yyyyMMdd") {
-        return TimeFormatType::yyyyMMdd;
-    } else if (format == "yyyy-MM-dd") {
-        return TimeFormatType::yyyy_MM_dd;
-    } else if (format == "yyyy-MM-dd HH:mm:ss") {
-        return TimeFormatType::yyyy_MM_dd_HH_mm_ss;
-    } else if (format == "yyyy-MM") {
-        return TimeFormatType::yyyy_MM;
-    } else if (format == "yyyyMM") {
-        return TimeFormatType::yyyyMM;
-    } else if (format == "yyyy") {
-        return TimeFormatType::yyyy;
-    } else {
-        return TimeFormatType::None;
-    }
-}
-
 template <typename T>
 void inline put_year(T y, char* buf, int& i) {
     int t = y / 100;
@@ -87,7 +45,7 @@ struct NoneImpl {};
 
 struct yyyyMMddImpl {
     template <typename DateType>
-    size_t static apply(const DateType& date_value, char* buf) {
+    size_t static date_to_str(const DateType& date_value, char* buf) {
         int i = 0;
         put_year(date_value.year(), buf, i);
         put_other(date_value.month(), buf, i);
@@ -98,7 +56,7 @@ struct yyyyMMddImpl {
 
 struct yyyy_MM_ddImpl {
     template <typename DateType>
-    size_t static apply(const DateType& date_value, char* buf) {
+    size_t static date_to_str(const DateType& date_value, char* buf) {
         int i = 0;
         put_year(date_value.year(), buf, i);
         buf[i++] = '-';
@@ -111,7 +69,7 @@ struct yyyy_MM_ddImpl {
 
 struct yyyy_MM_dd_HH_mm_ssImpl {
     template <typename DateType>
-    size_t static apply(const DateType& date_value, char* buf) {
+    size_t static date_to_str(const DateType& date_value, char* buf) {
         int i = 0;
         put_year(date_value.year(), buf, i);
         buf[i++] = '-';
@@ -130,7 +88,7 @@ struct yyyy_MM_dd_HH_mm_ssImpl {
 
 struct yyyy_MMImpl {
     template <typename DateType>
-    size_t static apply(const DateType& date_value, char* buf) {
+    size_t static date_to_str(const DateType& date_value, char* buf) {
         int i = 0;
         put_year(date_value.year(), buf, i);
         buf[i++] = '-';
@@ -140,7 +98,7 @@ struct yyyy_MMImpl {
 };
 struct yyyyMMImpl {
     template <typename DateType>
-    size_t static apply(const DateType& date_value, char* buf) {
+    size_t static date_to_str(const DateType& date_value, char* buf) {
         int i = 0;
         put_year(date_value.year(), buf, i);
         put_other(date_value.month(), buf, i);
@@ -150,7 +108,7 @@ struct yyyyMMImpl {
 
 struct yyyyImpl {
     template <typename DateType>
-    size_t static apply(const DateType& date_value, char* buf) {
+    size_t static date_to_str(const DateType& date_value, char* buf) {
         int i = 0;
         put_year(date_value.year(), buf, i);
         return i;
@@ -160,12 +118,14 @@ struct yyyyImpl {
 using FormatImplVariant = std::variant<NoneImpl, yyyyMMddImpl, yyyy_MM_ddImpl,
                                        yyyy_MM_dd_HH_mm_ssImpl, yyyy_MMImpl, yyyyMMImpl, yyyyImpl>;
 
+const static std::string default_format = "yyyy-MM-dd HH:mm:ss";
+const static auto default_impl = yyyy_MM_dd_HH_mm_ssImpl {};
 inline FormatImplVariant string_to_impl(const std::string& format) {
-    if (format == "yyyyMMdd") {
+    if (format == "yyyyMMdd" || format == "%Y%m%d") {
         return yyyyMMddImpl {};
-    } else if (format == "yyyy-MM-dd") {
+    } else if (format == "yyyy-MM-dd" || format == "%Y-%m-%d") {
         return yyyy_MM_ddImpl {};
-    } else if (format == "yyyy-MM-dd HH:mm:ss") {
+    } else if (format == "yyyy-MM-dd HH:mm:ss" || format == "%Y-%m-%d %H:%i:%s") {
         return yyyy_MM_dd_HH_mm_ssImpl {};
     } else if (format == "yyyy-MM") {
         return yyyy_MMImpl {};
