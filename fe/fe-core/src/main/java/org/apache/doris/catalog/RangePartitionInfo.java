@@ -330,9 +330,10 @@ public class RangePartitionInfo extends PartitionInfo {
                     PartitionInfo.toPartitionValue(range.upperEndpoint()));
 
             Map<String, String> properties = Maps.newHashMap();
-            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
-                if (!p.equals("")) {
-                    properties.put("STORAGE POLICY", p);
+            Optional.ofNullable(this.idToDataProperty.get(entry.getKey())).ifPresent(p -> {
+                String storagePolicy = p.getStoragePolicy();
+                if (!storagePolicy.equals("")) {
+                    properties.put("STORAGE POLICY", storagePolicy);
                 }
             });
 
