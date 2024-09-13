@@ -108,6 +108,11 @@ public:
 
     virtual size_t revocable_mem_size(RuntimeState* state) const { return 0; }
 
+    // If this method is not overwrite by child, its default value is 1MB
+    [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state) {
+        return state->minimum_operator_memory_required_bytes();
+    }
+
     virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); }
     [[nodiscard]] virtual bool require_data_distribution() const { return false; }
     OperatorPtr child() { return _child; }
@@ -550,8 +555,6 @@ public:
 
     [[nodiscard]] std::string get_name() const override { return _name; }
 
-    [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state) { return 0; }
-
     [[nodiscard]] virtual bool try_reserve_memory(RuntimeState* state, vectorized::Block* block,
                                                   bool eos) {
         return true;
@@ -801,8 +804,6 @@ public:
     void set_parallel_tasks(int parallel_tasks) { _parallel_tasks = parallel_tasks; }
     int parallel_tasks() const { return _parallel_tasks; }
 
-    [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state) { return 0; }
-
     virtual void reset_reserve_mem_size(RuntimeState* state) {}
 
 protected:
@@ -866,8 +867,13 @@ public:
     size_t get_reserve_mem_size(RuntimeState* state) override {
         auto& local_state = get_local_state(state);
         auto estimated_size = local_state.estimate_memory_usage();
+        if (estimated_size < state->minimum_operator_memory_required_bytes()) {
+            estimated_size = state->minimum_operator_memory_required_bytes();
+        }
         if (!is_source() && _child_x) {
-            estimated_size += _child_x->get_reserve_mem_size(state);
+            auto child_reserve_size = _child_x->get_reserve_mem_size(state);
+            estimated_size +=
+                    std::max(state->minimum_operator_memory_required_bytes(), child_reserve_size);
         }
         return estimated_size;
     }

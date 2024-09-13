@@ -664,6 +664,7 @@ public class SessionVariable implements Serializable, Writable {
                                     "enable_adaptive_pipeline_task_serial_read_on_limit";
     public static final String ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT =
                                     "adaptive_pipeline_task_serial_read_on_limit";
+    public static final String MINIMUM_OPERATOR_MEMORY_REQUIRED_KB = "minimum_operator_memory_required_kb";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -1957,6 +1958,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             description = {"对外表启用 count(*) 下推优化", "enable count(*) pushdown optimization for external table"})
     private boolean enableCountPushDownForExternalTable = true;
+
+    @VariableMgr.VarAttr(name = MINIMUM_OPERATOR_MEMORY_REQUIRED_KB, needForward = true,
+            description = {"一个算子运行需要的最小的内存大小",
+                    "The minimum memory required to be used by an operator, if not meet, the operator will not run"})
+    public int minimumOperatorMemoryRequiredKB = 1000;
 
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
@@ -3784,6 +3790,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableAdaptivePipelineTaskSerialReadOnLimit(enableAdaptivePipelineTaskSerialReadOnLimit);
         tResult.setAdaptivePipelineTaskSerialReadOnLimit(adaptivePipelineTaskSerialReadOnLimit);
         tResult.setInListValueCountThreshold(inListValueCountThreshold);
+        tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
         return tResult;
     }
 
