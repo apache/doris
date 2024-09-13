@@ -93,6 +93,9 @@ public enum ExpressionEvaluator {
         if (method != null) {
             try {
                 int varSize = method.getParameterTypes().length;
+                if (varSize == 0) {
+                    return (Literal) method.invoke(null, expression.children().toArray());
+                }
                 boolean hasVarArgs = method.getParameterTypes()[varSize - 1].isArray();
                 if (hasVarArgs) {
                     int fixedArgsSize = varSize - 1;
@@ -135,6 +138,13 @@ public enum ExpressionEvaluator {
         for (Method expect : expectMethods) {
             boolean match = true;
             int varSize = expect.getParameterTypes().length;
+            if (varSize == 0) {
+                if (inputs.size() == 0) {
+                    return expect;
+                } else {
+                    continue;
+                }
+            }
             boolean hasVarArgs = expect.getParameterTypes()[varSize - 1].isArray();
             if (hasVarArgs) {
                 int fixedArgsSize = varSize - 1;
