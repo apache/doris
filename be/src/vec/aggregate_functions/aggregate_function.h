@@ -52,6 +52,20 @@ using DataTypes = std::vector<DataTypePtr>;
 using AggregateDataPtr = char*;
 using ConstAggregateDataPtr = const char*;
 
+template <typename NestFuction, bool result_is_nullable>
+class AggregateFunctionNullVariadicInline;
+
+template <bool is_include_counts>
+class AggregateFunctionMultiTopN;
+
+template <typename T>
+struct is_aggregate_function_null_variadic_inline : std::false_type {};
+
+// Currently only supports AggregateFunctionMultiTopN
+template <bool result_is_nullable, bool is_include_counts>
+struct is_aggregate_function_null_variadic_inline<AggregateFunctionNullVariadicInline<
+        AggregateFunctionMultiTopN<is_include_counts>, result_is_nullable>> : std::true_type {};
+
 #define SAFE_CREATE(create, destroy) \
     do {                             \
         try {                        \
@@ -290,8 +304,13 @@ public:
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
         const Derived* derived = assert_cast<const Derived*>(this);
-        for (size_t i = 0; i < batch_size; ++i) {
-            derived->add(place, columns, i, arena);
+
+        if constexpr (is_aggregate_function_null_variadic_inline<Derived>::value) {
+            derived->add_range(place, columns, 0, batch_size, arena);
+        } else {
+            for (size_t i = 0; i < batch_size; ++i) {
+                derived->add(place, columns, i, arena);
+            }
         }
     }
     //now this is use for sum/count/avg/min/max win function, other win function should override this function in class
