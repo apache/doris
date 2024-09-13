@@ -673,7 +673,7 @@ public class NereidsPlanner extends Planner {
         if (physicalPlan instanceof ComputeResultSet) {
             Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
             Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan)
-                    .computeResultInFe(cascadesContext, sqlCacheContext);
+                    .computeResultInFe(cascadesContext, sqlCacheContext, physicalPlan.getOutput());
             if (resultSet.isPresent()) {
                 return resultSet;
             }

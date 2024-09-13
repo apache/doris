@@ -167,7 +167,7 @@ public class PhysicalSqlCache extends PhysicalLeaf implements SqlCache, TreeStri
 
     @Override
     public Optional<ResultSet> computeResultInFe(
-            CascadesContext cascadesContext, Optional<SqlCacheContext> sqlCacheContext) {
+            CascadesContext cascadesContext, Optional<SqlCacheContext> sqlCacheContext, List<Slot> outputSlots) {
         return resultSet;
     }
 }
