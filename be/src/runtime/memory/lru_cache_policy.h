@@ -117,7 +117,7 @@ public:
         if (value != nullptr) {
             mem_tracker()->consume(tracking_bytes_with_handle);
             ((LRUCacheValueBase*)value)
-                    ->set_tracking_bytes(tracking_bytes_with_handle, _mem_tracker.get());
+                    ->set_tracking_bytes(tracking_bytes_with_handle, _mem_tracker);
         }
         return _cache->insert(key, value, charge, priority);
     }

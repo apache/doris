@@ -31,14 +31,15 @@ public:
         }
     }
 
-    void set_tracking_bytes(size_t tracking_bytes, MemTrackerLimiter* mem_tracker) {
+    void set_tracking_bytes(size_t tracking_bytes,
+                            const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
         this->_tracking_bytes = tracking_bytes;
         this->_mem_tracker = mem_tracker;
     }
 
 protected:
     size_t _tracking_bytes = 0;
-    MemTrackerLimiter* _mem_tracker = nullptr;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
 } // namespace doris
