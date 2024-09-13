@@ -25,15 +25,12 @@
 namespace doris {
 
 /*
- * A tracker that keeps track of the current and peak memory usage seen.
- * Relaxed ordering, not accurate in real time.
- *
  * can be consumed manually by consume()/release(), or put into SCOPED_CONSUME_MEM_TRACKER,
  * which will automatically track all memory usage of the code segment where it is located.
  *
  * This class is thread-safe.
 */
-class MemTracker {
+class MemTracker final {
 public:
     MemTracker() = default;
     MemTracker(const std::string& label);

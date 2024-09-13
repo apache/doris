@@ -138,12 +138,13 @@ MemTrackerLimiter::~MemTrackerLimiter() {
         if (ExecEnv::tracking_memory()) {
             ExecEnv::GetInstance()->orphan_mem_tracker()->consume(consumption());
         }
-        set_consumption(0);
+        _mem_counter.set(0);
     } else if (open_memory_tracker_inaccurate_detect() && !_address_sanitizers.empty()) {
         LOG(FATAL) << "[Address Sanitizer] consumption is 0, but address sanitizers not empty. "
                    << ", mem tracker label: " << _label
                    << ", peak consumption: " << peak_consumption() << print_address_sanitizers();
     }
+    DCHECK(reserved_consumption() == 0);
     memory_memtrackerlimiter_cnt << -1;
 }
 

@@ -200,6 +200,7 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_che
             // if _untracked_mem less than -SYNC_PROC_RESERVED_INTERVAL_BYTES, increase process reserved memory.
             if (std::abs(_untracked_mem) >= SYNC_PROC_RESERVED_INTERVAL_BYTES) {
                 doris::GlobalMemoryArbitrator::release_process_reserved_memory(_untracked_mem);
+                _limiter_tracker->release_reserved(_untracked_mem);
                 _untracked_mem = 0;
             }
             return;
@@ -211,6 +212,7 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_che
             size -= _reserved_mem;
             doris::GlobalMemoryArbitrator::release_process_reserved_memory(_reserved_mem +
                                                                            _untracked_mem);
+            _limiter_tracker->release_reserved(_reserved_mem + _untracked_mem);
             _reserved_mem = 0;
             _untracked_mem = 0;
         }
@@ -295,6 +297,7 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
         if (!wg_ptr->add_wg_refresh_interval_memory_growth(size)) {
             auto err_msg = fmt::format("reserve memory failed, size: {}, because {}", size,
                                        wg_ptr->memory_debug_string());
+            _limiter_tracker->release(size);          // rollback
             _limiter_tracker->release_reserved(size); // rollback
             return doris::Status::MemoryLimitExceeded(err_msg);
         }
@@ -302,6 +305,7 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
     if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
         auto err_msg = fmt::format("reserve memory failed, size: {}, because {}", size,
                                    GlobalMemoryArbitrator::process_mem_log_str());
+        _limiter_tracker->release(size);          // rollback
         _limiter_tracker->release_reserved(size); // rollback
         if (wg_ptr) {
             wg_ptr->sub_wg_refresh_interval_memory_growth(size); // rollback
@@ -316,7 +320,8 @@ inline void ThreadMemTrackerMgr::release_reserved() {
     if (_reserved_mem != 0) {
         doris::GlobalMemoryArbitrator::release_process_reserved_memory(_reserved_mem +
                                                                        _untracked_mem);
-        _limiter_tracker->release_reserved(_reserved_mem);
+        _limiter_tracker->release_reserved(_reserved_mem + _untracked_mem);
+        _limiter_tracker->release(_reserved_mem);
         auto wg_ptr = _wg_wptr.lock();
         if (wg_ptr) {
             wg_ptr->sub_wg_refresh_interval_memory_growth(_reserved_mem);

@@ -59,12 +59,14 @@ struct TrackerLimiterGroup {
     std::mutex group_lock;
 };
 
-// Track and limit the memory usage of process and query.
-// Contains an limit, arranged into a tree structure.
-//
-// Automatically track every once malloc/free of the system memory allocator (Currently, based on TCMlloc hook).
-// Put Query MemTrackerLimiter into SCOPED_ATTACH_TASK when the thread starts,all memory used by this thread
-// will be recorded on this Query, otherwise it will be recorded in Orphan Tracker by default.
+/*
+ * Track and limit the memory usage of process and query.
+ *
+ * Usually, put Query MemTrackerLimiter into SCOPED_ATTACH_TASK when the thread starts,
+ * all memory used by this thread will be recorded on this Query.
+ *
+ * This class is thread-safe.
+*/
 class MemTrackerLimiter final {
 public:
     /*
@@ -83,10 +85,6 @@ public:
         OTHER = 5,
     };
 
-    // Corresponding to MemTrackerLimiter::Type.
-    // MemCounter contains atomic variables, which are not allowed to be copied or moved.
-    inline static std::unordered_map<Type, MemCounter> TypeMemSum;
-
     struct Snapshot {
         std::string type;
         std::string label;
@@ -96,6 +94,10 @@ public:
 
         bool operator<(const Snapshot& rhs) const { return cur_consumption < rhs.cur_consumption; }
     };
+
+    // Corresponding to MemTrackerLimiter::Type.
+    // MemCounter contains atomic variables, which are not allowed to be copied or moved.
+    inline static std::unordered_map<Type, MemCounter> TypeMemSum;
 
     /*
     * Part 2, Constructors and property methods
@@ -147,6 +149,23 @@ public:
 
     void release(int64_t bytes) { _mem_counter.sub(bytes); }
 
+    bool try_consume(int64_t bytes) {
+        if (UNLIKELY(bytes == 0)) {
+            return true;
+        }
+        bool rt = true;
+        if (is_overcommit_tracker() && !config::enable_query_memory_overcommit) {
+            rt = _mem_counter.try_add(bytes, _limit);
+        } else {
+            _mem_counter.add(bytes);
+        }
+        if (rt && _query_statistics) {
+            _query_statistics->set_max_peak_memory_bytes(peak_consumption());
+            _query_statistics->set_current_used_memory_bytes(consumption());
+        }
+        return rt;
+    }
+
     void set_consumption(int64_t bytes) { _mem_counter.set(bytes); }
 
     // Transfer 'bytes' of consumption from this tracker to 'dst'.
@@ -169,24 +188,14 @@ public:
     int64_t reserved_peak_consumption() const { return _reserved_counter.peak_value(); }
 
     bool try_reserve(int64_t bytes) {
-        bool rt = true;
-        if (is_overcommit_tracker() && !config::enable_query_memory_overcommit) {
-            rt = _mem_counter.try_add(bytes, _limit);
-        } else {
-            _mem_counter.add(bytes);
-        }
+        bool rt = try_consume(bytes);
         if (rt) {
             _reserved_counter.add(bytes);
-        }
-        if (rt && _query_statistics) {
-            _query_statistics->set_max_peak_memory_bytes(peak_consumption());
-            _query_statistics->set_current_used_memory_bytes(consumption());
         }
         return rt;
     }
 
     void release_reserved(int64_t bytes) {
-        release(bytes);
         _reserved_counter.sub(bytes);
         DCHECK(reserved_consumption() >= 0);
     }
