@@ -2713,7 +2713,7 @@ public:
         std::string decoded_url;
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto url = url_col->get_data_at(i);
-            if (!url_decode(url.to_string_view(), &decoded_url)) {
+            if (!url_decode(url.to_string(), &decoded_url)) {
                 return Status::InternalError("Decode url failed");
             }
             res->insert_data(decoded_url.data(), decoded_url.size());

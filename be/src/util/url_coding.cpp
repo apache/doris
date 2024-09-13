@@ -38,7 +38,7 @@ bool url_encode(const std::string_view& in, std::string* out) {
 // http://www.boost.org/doc/libs/1_40_0/doc/html/boost_asio/
 //   example/http/server3/request_handler.cpp
 // See http://www.boost.org/LICENSE_1_0.txt for license for this method.
-bool url_decode(const std::string_view& in, std::string* out) {
+bool url_decode(const std::string& in, std::string* out) {
     out->clear();
     out->reserve(in.size());
 
