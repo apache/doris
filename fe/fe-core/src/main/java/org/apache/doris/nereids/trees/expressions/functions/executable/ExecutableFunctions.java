@@ -28,9 +28,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DoubleType;
 
 import java.math.BigInteger;
@@ -103,15 +101,6 @@ public class ExecutableFunctions {
         } else {
             return new DoubleLiteral(result);
         }
-    }
-
-    @ExecFunction(name = "append_trailing_char_if_absent")
-    public static Expression appendTrailingIfCharAbsent(StringLikeLiteral literal, StringLikeLiteral chr) {
-        if (literal.getValue().length() != 1) {
-            return null;
-        }
-        return literal.getValue().endsWith(chr.getValue()) ? literal
-                : new VarcharLiteral(literal.getValue() + chr.getValue());
     }
 
     @ExecFunction(name = "e")

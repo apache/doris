@@ -197,6 +197,7 @@ suite("fold_constant_string_arithmatic") {
 
     testFoldConst("select append_trailing_char_if_absent('a','c')")
     testFoldConst("select append_trailing_char_if_absent('ac','c')")
+    testFoldConst("select append_trailing_char_if_absent('it','a')")
 
     testFoldConst("select ascii('1')")
     testFoldConst("select ascii('a')")
