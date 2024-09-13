@@ -48,8 +48,7 @@ RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, RuntimeFilterParams
     _state = state;
     _state->runtime_filter_mgr = this;
     _query_mem_tracker = query_mem_tracker;
-    _tracker = std::make_unique<MemTracker>("RuntimeFilterMgr(experimental)",
-                                            _query_mem_tracker.get());
+    _tracker = std::make_unique<MemTracker>("RuntimeFilterMgr(experimental)");
 }
 
 RuntimeFilterMgr::~RuntimeFilterMgr() {
@@ -264,8 +263,7 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id,
                                                 const TRuntimeFilterParams& runtime_filter_params,
                                                 const TQueryOptions& query_options) {
     _query_id = query_id;
-    _mem_tracker = std::make_shared<MemTracker>("RuntimeFilterMergeControllerEntity(experimental)",
-                                                ExecEnv::GetInstance()->details_mem_tracker_set());
+    _mem_tracker = std::make_shared<MemTracker>("RuntimeFilterMergeControllerEntity(experimental)");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     if (runtime_filter_params.__isset.rid_to_runtime_filter) {
         for (const auto& filterid_to_desc : runtime_filter_params.rid_to_runtime_filter) {

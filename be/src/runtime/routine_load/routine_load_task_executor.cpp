@@ -315,7 +315,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
 bool RoutineLoadTaskExecutor::_reach_memory_limit() {
     bool is_exceed_soft_mem_limit = GlobalMemoryArbitrator::is_exceed_soft_mem_limit();
     auto current_load_mem_value =
-            MemTrackerLimiter::TypeMemSum[MemTrackerLimiter::Type::LOAD]->current_value();
+            MemTrackerLimiter::TypeMemSum[MemTrackerLimiter::Type::LOAD].current_value();
     if (is_exceed_soft_mem_limit || current_load_mem_value > _load_mem_limit) {
         LOG(INFO) << "is_exceed_soft_mem_limit: " << is_exceed_soft_mem_limit
                   << " current_load_mem_value: " << current_load_mem_value

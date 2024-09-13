@@ -591,12 +591,9 @@ void ExecEnv::init_mem_tracker() {
     _s_tracking_memory = true;
     _orphan_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "Orphan");
-    _details_mem_tracker_set =
-            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "DetailsTrackerSet");
-    _page_no_cache_mem_tracker =
-            std::make_shared<MemTracker>("PageNoCache", _details_mem_tracker_set.get());
+    _page_no_cache_mem_tracker = std::make_shared<MemTracker>("PageNoCache");
     _brpc_iobuf_block_memory_tracker =
-            std::make_shared<MemTracker>("IOBufBlockMemory", _details_mem_tracker_set.get());
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "IOBufBlockMemory");
     _segcompaction_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "SegCompaction");
     _point_query_executor_mem_tracker =
