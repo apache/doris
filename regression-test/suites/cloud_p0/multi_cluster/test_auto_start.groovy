@@ -178,7 +178,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
         // add 1 nodes, check it status NORMAL
         cluster.addBackend(1, null)
         dockerAwaitUntil(5) {
-            def result = sql """SHOW BACKENDS"""
+            result = sql """SHOW BACKENDS"""
             result.size() == 4
         }
 
@@ -189,7 +189,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
                 return
             }
             jsonObject = jsonSlurper.parseText(tag)
-            String cluster_status = jsonObject.cloud_cluster_status
+            cluster_status = jsonObject.cloud_cluster_status
             assertEquals("NORMAL", cluster_status)
         }
     }

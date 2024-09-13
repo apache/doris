@@ -579,7 +579,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         Optional<String> hasNormal = bes.stream().map(Backend::getCloudClusterStatus)
                 .filter(status -> status.equals(String.valueOf(Cloud.ClusterStatus.NORMAL))).findAny();
         return hasNormal.orElseGet(() -> bes.stream().map(Backend::getCloudClusterStatus).findFirst()
-            .orElse(String.valueOf(Cloud.ClusterStatus.UNKNOWN)));
+            .orElse(String.valueOf(Cloud.ClusterStatus.NORMAL)));
     }
 
     public void updateClusterNameToId(final String newName,
