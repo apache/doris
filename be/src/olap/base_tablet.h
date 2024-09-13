@@ -86,7 +86,7 @@ public:
                                       bool skip_missing_version) const = 0;
 
     virtual size_t tablet_footprint() = 0;
-    
+
     // this method just return the compaction sum on each rowset
     // note(tsy): we should unify the compaction score calculation finally
     uint32_t get_real_compaction_score() const;
