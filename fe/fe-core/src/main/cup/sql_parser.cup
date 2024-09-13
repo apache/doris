@@ -692,7 +692,8 @@ terminal String
     KW_LINES,
     KW_IGNORE,
     KW_CONVERT_LSC,
-    KW_VAULT;
+    KW_VAULT,
+    KW_VAULTS;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, LBRACE, RBRACE, DIVIDE, MOD, ADD, SUBTRACT, PLACEHOLDER, ARROW;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -3508,10 +3509,6 @@ opt_cluster_keys ::=
     {:
         RESULT = keys;
     :}
-    | KW_COMPUTE KW_GROUP KW_BY LPAREN ident_list:keys RPAREN
-    {:
-        RESULT = keys;
-    :}
     ;
 
 opt_all_partition_desc_list ::=
@@ -4219,6 +4216,10 @@ show_stmt ::=
     {:
         RESULT = new ShowStorageVaultStmt();
     :}
+    | KW_SHOW KW_STORAGE KW_VAULTS
+    {:
+        RESULT = new ShowStorageVaultStmt();
+    :}
     ;
 
 show_param ::=
@@ -4728,7 +4729,7 @@ show_param ::=
     {:
         RESULT = new ShowClusterStmt(false);
     :}
-    /* Cloud Cluster */
+    /* Compute Group */
     | KW_COMPUTE KW_GROUPS
     {:
         RESULT = new ShowClusterStmt(true);
@@ -8557,6 +8558,8 @@ keyword ::=
     | KW_STAGE:id
     {: RESULT = id; :}
     | KW_VAULT:id
+    {: RESULT = id; :}
+    | KW_VAULTS:id
     {: RESULT = id; :}
     | KW_VARIANT:id
     {: RESULT = id; :}

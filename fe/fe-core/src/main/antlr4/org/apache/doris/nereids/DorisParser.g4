@@ -184,7 +184,7 @@ unsupportedOtherStatement
     | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables
     | UNLOCK TABLES                                                                 #unlockTables
     | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
-        (CLUSTER | COMPUTE GROUP) source=identifier | (warmUpItem (COMMA warmUpItem)*) FORCE?       #warmUpCluster
+        ((CLUSTER | COMPUTE GROUP) source=identifier | (warmUpItem (COMMA warmUpItem)*)) FORCE?       #warmUpCluster
     | BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #backup
@@ -208,7 +208,7 @@ unsupportedShowStatement
     | SHOW ROW POLICY (FOR (userIdentify | (ROLE role=identifier)))?                #showRowPolicy
     | SHOW STORAGE POLICY (USING (FOR policy=identifierOrText)?)?                   #showStoragePolicy
     | SHOW STAGES                                                                   #showStages
-    | SHOW STORAGE VAULT                                                            #showStorageVault
+    | SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault
     | SHOW CREATE REPOSITORY FOR identifier                                         #showCreateRepository
     | SHOW WHITELIST                                                                #showWhitelist
     | SHOW (GLOBAL | SESSION | LOCAL)? VARIABLES wildWhere?                         #showVariables
@@ -307,7 +307,7 @@ unsupportedShowStatement
             | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
     | SHOW BUILD INDEX ((FROM | IN) database=multipartIdentifier)?
         wildWhere? sortClause? limitClause?                                         #showBuildIndex
-    | SHOW (CLUSTERS | COMPUTE GROUPS)                                            #showClusters
+    | SHOW (CLUSTERS | (COMPUTE GROUPS))                                            #showClusters
     | SHOW CONVERT_LSC ((FROM | IN) database=multipartIdentifier)?                  #showConvertLsc
     | SHOW REPLICA STATUS FROM baseTableRef wildWhere?                              #showReplicaStatus
     | SHOW REPLICA DISTRIBUTION FROM baseTableRef                                   #showREplicaDistribution

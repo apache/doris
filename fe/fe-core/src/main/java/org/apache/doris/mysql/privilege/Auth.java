@@ -1436,6 +1436,13 @@ public class Auth implements Writable {
             userAuthInfo.add(Joiner.on("; ").join(workloadGroupPrivs));
         }
 
+        // compute groups
+        if (cloudClusterPrivs.isEmpty()) {
+            userAuthInfo.add(FeConstants.null_string);
+        } else {
+            userAuthInfo.add(Joiner.on("; ").join(cloudClusterPrivs));
+        }
+
         userAuthInfos.add(userAuthInfo);
     }
 
