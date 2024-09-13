@@ -174,14 +174,11 @@ public:
         auto execute_for_format_type = [&]<typename Impl>() {
             size_t offset = 0;
             for (int i = 0; i < len; ++i) {
-                const auto& t = ts[i];
-                size_t new_offset;
-                bool is_null;
-                std::tie(new_offset, is_null) = Transform::template execute<Impl>(
-                        t, format, res_data, offset, context->state()->timezone_obj());
-                res_offsets[i] = new_offset;
-                null_map[i] = is_null;
+                null_map[i] = Transform::template execute<Impl>(ts[i], format, res_data, offset,
+                                                                context->state()->timezone_obj());
+                res_offsets[i] = offset;
             }
+            res_data.resize(offset);
         };
 
         switch (format_state->format_type) {

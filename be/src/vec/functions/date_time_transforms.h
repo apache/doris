@@ -186,37 +186,38 @@ struct DateFormatImpl {
     static constexpr auto name = "date_format";
 
     template <typename Impl>
-    static inline auto execute(const FromType& t, StringRef format, ColumnString::Chars& res_data,
+    static inline bool execute(const FromType& t, StringRef format, ColumnString::Chars& res_data,
                                size_t& offset, const cctz::time_zone& time_zone) {
-        const auto& dt = (DateType&)t;
-        if (!dt.is_valid_date()) {
-            return std::pair {offset, true};
-        }
-        auto len = Impl::apply(dt, (char*)res_data.data());
-        offset += len;
-        res_data.resize(offset);
-        return std::pair {offset, false};
-    }
+        if constexpr (std::is_same_v<Impl, time_format_type::NoneImpl>) {
+            // Handle non-special formats.
+            const auto& dt = (DateType&)t;
+            if (format.size > 128) {
+                return true;
+            }
+            char buf[100 + SAFE_FORMAT_STRING_MARGIN];
+            if (!dt.to_format_string_conservative(format.data, format.size, buf,
+                                                  100 + SAFE_FORMAT_STRING_MARGIN)) {
+                return true;
+            }
 
-    template <>
-    static inline auto execute<time_format_type::NoneImpl>(const FromType& t, StringRef format,
-                                                           ColumnString::Chars& res_data,
-                                                           size_t& offset,
-                                                           const cctz::time_zone& time_zone) {
-        const auto& dt = (DateType&)t;
-        if (format.size > 128) {
-            return std::pair {offset, true};
-        }
-        char buf[100 + SAFE_FORMAT_STRING_MARGIN];
-        if (!dt.to_format_string_conservative(format.data, format.size, buf,
-                                              100 + SAFE_FORMAT_STRING_MARGIN)) {
-            return std::pair {offset, true};
-        }
+            auto len = strlen(buf);
+            res_data.insert(buf, buf + len);
+            offset += len;
+            return false;
+        } else {
+            const auto& dt = (DateType&)t;
 
-        auto len = strlen(buf);
-        res_data.insert(buf, buf + len);
-        offset += len;
-        return std::pair {offset, false};
+            if (!dt.is_valid_date()) {
+                return true;
+            }
+
+            // No buffer is needed here because these specially optimized formats have fixed lengths,
+            // and sufficient memory has already been reserved.
+            auto len = Impl::apply(dt, (char*)res_data.data() + offset);
+            offset += len;
+
+            return false;
+        }
     }
 
     static DataTypes get_variadic_argument_types() {
@@ -234,41 +235,44 @@ struct FromUnixTimeImpl {
     static constexpr auto name = "from_unixtime";
 
     template <typename Impl>
-    static inline auto execute(FromType val, StringRef format, ColumnString::Chars& res_data,
+    static inline bool execute(const FromType& val, StringRef format, ColumnString::Chars& res_data,
                                size_t& offset, const cctz::time_zone& time_zone) {
-        DateType dt;
-        if (val < 0 || val > TIMESTAMP_VALID_MAX) {
-            return std::pair {offset, true};
+        if constexpr (std::is_same_v<Impl, time_format_type::NoneImpl>) {
+            DateType dt;
+            if (format.size > 128 || val < 0 || val > TIMESTAMP_VALID_MAX) {
+                return true;
+            }
+            dt.from_unixtime(val, time_zone);
+
+            char buf[100 + SAFE_FORMAT_STRING_MARGIN];
+            if (!dt.to_format_string_conservative(format.data, format.size, buf,
+                                                  100 + SAFE_FORMAT_STRING_MARGIN)) {
+                return true;
+            }
+
+            auto len = strlen(buf);
+            res_data.insert(buf, buf + len);
+            offset += len;
+            return false;
+
+        } else {
+            DateType dt;
+            if (val < 0 || val > TIMESTAMP_VALID_MAX) {
+                return true;
+            }
+            dt.from_unixtime(val, time_zone);
+
+            if (!dt.is_valid_date()) {
+                return true;
+            }
+
+            // No buffer is needed here because these specially optimized formats have fixed lengths,
+            // and sufficient memory has already been reserved.
+            auto len = Impl::apply(dt, (char*)res_data.data() + offset);
+            offset += len;
+
+            return false;
         }
-        dt.from_unixtime(val, time_zone);
-
-        auto len = Impl::apply(dt, (char*)res_data.data());
-        offset += len;
-        res_data.resize(offset);
-        return std::pair {offset, false};
-    }
-
-    template <>
-    static inline auto execute<time_format_type::NoneImpl>(FromType val, StringRef format,
-                                                           ColumnString::Chars& res_data,
-                                                           size_t& offset,
-                                                           const cctz::time_zone& time_zone) {
-        DateType dt;
-        if (format.size > 128 || val < 0 || val > TIMESTAMP_VALID_MAX) {
-            return std::pair {offset, true};
-        }
-        dt.from_unixtime(val, time_zone);
-
-        char buf[100 + SAFE_FORMAT_STRING_MARGIN];
-        if (!dt.to_format_string_conservative(format.data, format.size, buf,
-                                              100 + SAFE_FORMAT_STRING_MARGIN)) {
-            return std::pair {offset, true};
-        }
-
-        auto len = strlen(buf);
-        res_data.insert(buf, buf + len);
-        offset += len;
-        return std::pair {offset, false};
     }
 };
 
