@@ -296,6 +296,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String AUTO_BROADCAST_JOIN_THRESHOLD = "auto_broadcast_join_threshold";
 
+    public static final String PARALLEL_PREPARE_THRESHOLD = "parallel_prepare_threshold";
+
     public static final String ENABLE_PROJECTION = "enable_projection";
 
     public static final String ENABLE_SHORT_CIRCUIT_QUERY = "enable_short_circuit_query";
@@ -1046,7 +1048,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
-    private long parallelScanMinRowsPerScanner = 16384; // 16K
+    private long parallelScanMinRowsPerScanner = 2097152; // 16K
 
     @VariableMgr.VarAttr(name = IGNORE_STORAGE_DATA_DISTRIBUTION, fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
@@ -1088,6 +1090,9 @@ public class SessionVariable implements Serializable, Writable {
     // Default value is 1Gto
     @VariableMgr.VarAttr(name = AUTO_BROADCAST_JOIN_THRESHOLD)
     public double autoBroadcastJoinThreshold = 0.8;
+
+    @VariableMgr.VarAttr(name = PARALLEL_PREPARE_THRESHOLD)
+    public int parallelPrepareThreshold = 32;
 
     @VariableMgr.VarAttr(name = ENABLE_COST_BASED_JOIN_REORDER)
     private boolean enableJoinReorderBasedCost = false;
@@ -3645,6 +3650,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setNumScannerThreads(numScannerThreads);
         tResult.setScannerScaleUpRatio(scannerScaleUpRatio);
         tResult.setMaxColumnReaderNum(maxColumnReaderNum);
+        tResult.setParallelPrepareThreshold(parallelPrepareThreshold);
 
         // TODO chenhao, reservation will be calculated by cost
         tResult.setMinReservation(0);
