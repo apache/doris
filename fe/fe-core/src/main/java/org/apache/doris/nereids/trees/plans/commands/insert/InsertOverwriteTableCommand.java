@@ -235,17 +235,27 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
      * wait insert overwrite not running
      */
     public void waitNotRunning() {
+        long waitMaxTimeMills = 10 * 1000L;
+        long waitTime = 0;
         while (true) {
             if (!isRunning) {
                 break;
             }
+            if (waitTime >= waitMaxTimeMills) {
+                LOG.warn("waiting time exceeds {} ms, stop wait, labelName: {}", waitMaxTimeMills,
+                        labelName.isPresent() ? labelName.get() : "");
+                break;
+            }
             try {
                 Thread.sleep(100);
+                waitTime += 100;
             } catch (InterruptedException e) {
                 LOG.warn(e);
+                break;
             }
             if (LOG.isDebugEnabled()) {
-                LOG.debug("insert overwrite waitNotRunning");
+                LOG.debug("insert overwrite waitNotRunning, labelName: {}",
+                        labelName.isPresent() ? labelName.get() : "");
             }
         }
     }
