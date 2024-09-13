@@ -407,15 +407,6 @@ public:
         _auto_increment_column = auto_increment_column;
     }
     std::string auto_increment_column() const { return _auto_increment_column; }
-    void set_sequence_map_column(std::string name) { _sequence_map_column = name; }
-    std::string sequence_map_column() const { return _sequence_map_column; }
-    bool sequence_col_use_default_value() const {
-        if (!_sequence_map_column.empty()) {
-            auto seq_map_column = *DORIS_TRY(column(_sequence_map_column));
-            return seq_map_column.has_default_value();
-        }
-        return false;
-    }
     void set_table_id(int64_t table_id) { _table_id = table_id; }
     int64_t table_id() const { return _table_id; }
     void set_db_id(int64_t db_id) { _db_id = db_id; }
@@ -531,7 +522,6 @@ private:
     long _row_store_page_size = segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     size_t _next_column_unique_id = 0;
     std::string _auto_increment_column;
-    std::string _sequence_map_column;
 
     bool _has_bf_fpp = false;
     double _bf_fpp = 0;

@@ -967,8 +967,6 @@ Status BaseTablet::generate_new_block_for_partial_update(
 
     CHECK(update_rows >= old_rows);
 
-    bool sequence_col_use_default_value = rowset_schema->sequence_col_use_default_value();
-
     // build full block
     for (auto i = 0; i < missing_cids.size(); ++i) {
         const auto& rs_column = rowset_schema->column(missing_cids[i]);

@@ -102,7 +102,6 @@ public:
     std::string timezone() const { return _timezone; }
     bool is_strict_mode() const { return _is_strict_mode; }
     std::string debug_string() const;
-    std::string sequence_map_column() const { return _sequence_map_column; }
 
 private:
     int64_t _db_id;
@@ -117,7 +116,6 @@ private:
     std::set<std::string> _partial_update_input_columns;
     bool _is_strict_mode = false;
     std::string _auto_increment_column;
-    std::string _sequence_map_column {};
     int32_t _auto_increment_column_unique_id;
     int64_t _timestamp_ms = 0;
     int32_t _nano_seconds {0};
