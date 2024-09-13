@@ -369,9 +369,10 @@ public class PointQueryExecutor implements CoordInterface {
         }
     }
 
-    // Use the leftmost matching partition to prune the tablet
+    // Use the leftmost matching partitions to filter out tablets that do not belong to these partitions
     private void addTabletIDsForKeyTuple(List<String> orderedKeyTuple, List<Column> keyColumns,
                                          OlapTable olapTable, Set<Long> leftMostPartitionIDs) {
+        // get part of the key tuple using distribution columns
         List<String> keyTupleForDistributionPrune = Lists.newArrayList();
         for (Integer idx : distributionKeyColumns) {
             keyTupleForDistributionPrune.add(orderedKeyTuple.get(idx));
@@ -384,6 +385,7 @@ public class PointQueryExecutor implements CoordInterface {
             }
             if (distributionKeys.equals(keyTupleForDistributionPrune)) {
                 Set<Long> originTabletIDs = Sets.newHashSet(distributionKeys2TabletID.get(key));
+                // If partitions are not explicitly created, this condition holds true
                 if (leftMostPartitionIDs.isEmpty()) {
                     tabletIDs.addAll(originTabletIDs);
                 } else {
@@ -392,6 +394,7 @@ public class PointQueryExecutor implements CoordInterface {
                         Partition partition = olapTable.getPartition(partitionID);
                         MaterializedIndex selectedTable =
                                 partition.getIndex(shortCircuitQueryContext.scanNode.getSelectedIndexId());
+                        // filter out tablets that do not belong to this partition
                         selectedTable.getTablets().forEach(tablet -> {
                             if (originTabletIDs.contains(tablet.getId())) {
                                 prunedTabletIDs.add(tablet.getId());
@@ -406,6 +409,7 @@ public class PointQueryExecutor implements CoordInterface {
         keyTupleIndex2TabletID.add(tabletIDs.isEmpty() ? null : tabletIDs);
     }
 
+    // Get all possible key tuple combinations
     void getAllKeyTupleCombination(List<Expr> conjuncts, int index,
                         List<String> currentKeyTuple,
                         List<List<String>> result,

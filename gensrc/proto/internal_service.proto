@@ -322,7 +322,7 @@ message PTabletKeyLookupRequest {
     optional int64 version = 7;
     // serilized from TQueryOptions 
     optional bytes query_options = 8;
-    required int64 replica_id = 9;
+    optional int64 replica_id = 9;
 }
 
 message PTabletBatchKeyLookupRequest {

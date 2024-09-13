@@ -199,11 +199,12 @@ suite("test_prepared_stmt_in_list", "nonConcurrent") {
                      `k3` int NULL COMMENT ""
                    ) ENGINE=OLAP
                    UNIQUE KEY(`k1`, `k2`)
-                   DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1
+                   DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 16
                    PROPERTIES (
                    "replication_allocation" = "tag.location.default: 1",
                    "light_schema_change" = "true",
-                   "storage_format" = "V2"
+                   "storage_format" = "V2",
+                   "store_row_column" = "true"
                    )
                """
 
