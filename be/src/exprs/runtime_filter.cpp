@@ -1339,6 +1339,7 @@ void IRuntimeFilter::signal() {
 }
 
 void IRuntimeFilter::set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer> timer) {
+    std::unique_lock lock(_inner_mutex);
     _filter_timer.push_back(timer);
 }
 
