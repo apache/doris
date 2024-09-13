@@ -4280,8 +4280,9 @@ public class Env {
                         if (dataProperty.getStorageMedium() == TStorageMedium.SSD
                                 && dataProperty.getCooldownTimeMs() < currentTimeMs) {
                             // expire. change to HDD.
-                            DataProperty hddProperty = new DataProperty(TStorageMedium.HDD);
-                            partitionInfo.setDataProperty(partition.getId(), hddProperty);
+                            DataProperty newProperty = new DataProperty(TStorageMedium.HDD);
+                            newProperty.setStoragePolicy(partitionInfo.getStoragePolicy(partitionId));
+                            partitionInfo.setDataProperty(partition.getId(), newProperty);
                             storageMediumMap.put(partitionId, TStorageMedium.HDD);
                             LOG.info("partition[{}-{}-{}] storage medium changed from SSD to HDD. "
                                             + "cooldown time: {}. current time: {}", dbId, tableId, partitionId,
@@ -4290,9 +4291,8 @@ public class Env {
 
                             // log
                             ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(),
-                                    partition.getId(), hddProperty, ReplicaAllocation.NOT_SET,
-                                    partitionInfo.getIsInMemory(partition.getId()),
-                                    partitionInfo.getStoragePolicy(partitionId), Maps.newHashMap());
+                                    partition.getId(), newProperty, ReplicaAllocation.NOT_SET,
+                                    partitionInfo.getIsInMemory(partition.getId()), Maps.newHashMap());
 
                             editLog.logModifyPartition(info);
                         }
@@ -5249,8 +5249,7 @@ public class Env {
 
         // log
         ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), table.getId(), partition.getId(),
-                newDataProperty, replicaAlloc, isInMemory, partitionInfo.getStoragePolicy(partition.getId()),
-                tblProperties);
+                newDataProperty, replicaAlloc, isInMemory, tblProperties);
         editLog.logModifyPartition(info);
         if (LOG.isDebugEnabled()) {
             LOG.debug("modify partition[{}-{}-{}] replica allocation to {}",

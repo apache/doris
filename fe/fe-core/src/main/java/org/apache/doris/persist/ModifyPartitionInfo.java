@@ -51,13 +51,11 @@ public class ModifyPartitionInfo implements Writable {
     @SerializedName(value = "replicaAlloc")
     private ReplicaAllocation replicaAlloc;
 
-    @SerializedName(value = "storagePolicy")
-    private String storagePolicy;
     @SerializedName(value = "tableProperties")
     private Map<String, String> tblProperties;
 
     public String getStoragePolicy() {
-        return storagePolicy;
+        return dataProperty.getStoragePolicy();
     }
 
     public ModifyPartitionInfo() {
@@ -65,15 +63,13 @@ public class ModifyPartitionInfo implements Writable {
     }
 
     public ModifyPartitionInfo(long dbId, long tableId, long partitionId, DataProperty dataProperty,
-            ReplicaAllocation replicaAlloc, boolean isInMemory, String storagePolicy,
-            Map<String, String> tblProperties) {
+            ReplicaAllocation replicaAlloc, boolean isInMemory, Map<String, String> tblProperties) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
         this.dataProperty = dataProperty;
         this.replicaAlloc = replicaAlloc;
         this.isInMemory = isInMemory;
-        this.storagePolicy = storagePolicy;
         this.tblProperties = tblProperties;
         if (this.tblProperties == null) {
             this.tblProperties = Maps.newHashMap();
@@ -134,7 +130,7 @@ public class ModifyPartitionInfo implements Writable {
         ModifyPartitionInfo otherInfo = (ModifyPartitionInfo) other;
         return dbId == otherInfo.getDbId() && tableId == otherInfo.getTableId()
                 && dataProperty.equals(otherInfo.getDataProperty()) && replicaAlloc.equals(otherInfo.replicaAlloc)
-                && isInMemory == otherInfo.isInMemory() && storagePolicy.equals(otherInfo.storagePolicy);
+                && isInMemory == otherInfo.isInMemory();
     }
 
     @Override
