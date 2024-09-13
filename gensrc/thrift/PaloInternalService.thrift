@@ -335,6 +335,7 @@ struct TQueryOptions {
 
   127: optional i32 in_list_value_count_threshold = 10;
 
+
   // We need this two fields to make sure thrift id on master is compatible with other branch.
   128: optional bool enable_verbose_profile = false;
   129: optional i32 rpc_verbose_profile_max_instance_count = 0;
@@ -347,6 +348,9 @@ struct TQueryOptions {
   134: optional i32 partition_topn_pre_partition_rows = 1000;
 
   135: optional bool enable_parallel_outfile = false;
+
+  // The minimum memory that an operator required to run.
+  136: optional i32 minimum_operator_memory_required_kb = 1024;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.

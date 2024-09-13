@@ -376,6 +376,8 @@ Status PipelineTask::execute(bool* eos) {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
             size_t sink_reserve_size = _sink->get_reserve_mem_size(_state);
+            sink_reserve_size =
+                    std::max(sink_reserve_size, _state->minimum_operator_memory_required_bytes());
             reserve_size = _root->get_reserve_mem_size(_state) + sink_reserve_size;
             _root->reset_reserve_mem_size(_state);
             DCHECK_EQ(_root->get_reserve_mem_size(_state), 0);
