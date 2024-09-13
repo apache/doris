@@ -68,6 +68,7 @@ void register_aggregate_function_bitmap_agg(AggregateFunctionSimpleFactory& fact
 void register_aggregate_functions_corr(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_covar_pop(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_covar_samp(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_multi_topn(AggregateFunctionSimpleFactory& factory);
 
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
@@ -108,17 +109,15 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_histogram(instance);
         register_aggregate_function_map_agg(instance);
         register_aggregate_function_bitmap_agg(instance);
-
         register_aggregate_function_stddev_variance_samp(instance);
         register_aggregate_function_replace_reader_load(instance);
         register_aggregate_function_window_lead_lag_first_last(instance);
         register_aggregate_function_HLL_union_agg(instance);
-
         register_aggregate_functions_corr(instance);
         register_aggregate_function_covar_pop(instance);
         register_aggregate_function_covar_samp(instance);
-
         register_aggregate_function_combinator_foreach(instance);
+        register_aggregate_function_multi_topn(instance);
     });
     return instance;
 }

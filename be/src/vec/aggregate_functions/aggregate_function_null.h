@@ -328,6 +328,45 @@ public:
                                    arena);
     }
 
+    void add_range(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t min,
+                   ssize_t max, Arena* arena) const {
+        std::vector<const IColumn*> nested_columns(number_of_arguments);
+        std::vector<int> valid_rows;
+
+        for (size_t i = 0; i < number_of_arguments; ++i) {
+            if (is_nullable[i]) {
+                const auto& nullable_col =
+                        assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                *columns[i]);
+                nested_columns[i] = &nullable_col.get_nested_column();
+            } else {
+                nested_columns[i] = columns[i];
+            }
+        }
+
+        for (ssize_t row_num = min; row_num < max; ++row_num) {
+            bool has_null = false;
+            for (size_t i = 0; i < number_of_arguments; ++i) {
+                if (is_nullable[i]) {
+                    if (nested_columns[i]->is_null_at(row_num)) {
+                        has_null = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!has_null) {
+                valid_rows.push_back(row_num);
+            }
+        }
+
+        if (!valid_rows.empty()) {
+            this->set_flag(place);
+            this->nested_function->add_many(this->nested_place(place), nested_columns.data(),
+                                            valid_rows, arena);
+        }
+    }
+
     bool allocates_memory_in_arena() const override {
         return this->nested_function->allocates_memory_in_arena();
     }

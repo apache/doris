@@ -21,6 +21,7 @@
 #pragma once
 
 #include "util/defer_op.h"
+#include "vec/aggregate_functions/aggregate_function_multi_top.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
@@ -290,8 +291,14 @@ public:
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
         const Derived* derived = assert_cast<const Derived*>(this);
-        for (size_t i = 0; i < batch_size; ++i) {
-            derived->add(place, columns, i, arena);
+
+        if constexpr (is_aggregate_function_multi_top<Derived>::value ||
+                      is_aggregate_function_multi_top_with_null_variadic_inline<Derived>::value) {
+            derived->add_range(place, columns, 0, batch_size, arena);
+        } else {
+            for (size_t i = 0; i < batch_size; ++i) {
+                derived->add(place, columns, i, arena);
+            }
         }
     }
     //now this is use for sum/count/avg/min/max win function, other win function should override this function in class
