@@ -20,6 +20,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "vec/common/custom_allocator.h"
 
 namespace doris {
 class RuntimeState;
@@ -71,7 +72,7 @@ protected:
     size_t _get_hash_table_size();
 
     vectorized::PODArray<vectorized::AggregateDataPtr> _places;
-    std::vector<char> _deserialize_buffer;
+    MyVector<char> _deserialize_buffer;
 
     RuntimeProfile::Counter* _get_results_timer = nullptr;
     RuntimeProfile::Counter* _serialize_result_timer = nullptr;
@@ -117,7 +118,7 @@ private:
 
     // left / full join will change the key nullable make output/input solt
     // nullable diff. so we need make nullable of it.
-    std::vector<size_t> _make_nullable_keys;
+    MyVector<size_t> _make_nullable_keys;
 };
 
 } // namespace pipeline

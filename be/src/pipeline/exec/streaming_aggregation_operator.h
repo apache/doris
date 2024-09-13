@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -119,7 +120,7 @@ private:
     size_t _input_num_rows = 0;
 
     vectorized::PODArray<vectorized::AggregateDataPtr> _places;
-    std::vector<char> _deserialize_buffer;
+    MyVector<char> _deserialize_buffer;
 
     struct ExecutorBase {
         virtual Status execute(StreamingAggLocalState* local_state, vectorized::Block* block) = 0;
@@ -243,7 +244,7 @@ private:
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     bool _can_short_circuit = false;
-    std::vector<size_t> _make_nullable_keys;
+    MyVector<size_t> _make_nullable_keys;
     bool _have_conjuncts;
     RowDescriptor _agg_fn_output_row_descriptor;
 };

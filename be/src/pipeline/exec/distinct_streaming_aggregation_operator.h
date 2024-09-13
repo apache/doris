@@ -25,6 +25,7 @@
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -132,7 +133,7 @@ private:
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
-    std::vector<size_t> _make_nullable_keys;
+    MyVector<size_t> _make_nullable_keys;
     /// The total size of the row from the aggregate functions.
     size_t _total_size_of_aggregate_states = 0;
     bool _is_streaming_preagg = false;

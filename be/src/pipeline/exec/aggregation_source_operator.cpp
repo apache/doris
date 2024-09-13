@@ -665,7 +665,7 @@ Status AggLocalState::close(RuntimeState* state) {
     vectorized::PODArray<vectorized::AggregateDataPtr> tmp_places;
     _places.swap(tmp_places);
 
-    std::vector<char> tmp_deserialize_buffer;
+    MyVector<char> tmp_deserialize_buffer;
     _deserialize_buffer.swap(tmp_deserialize_buffer);
     return Base::close(state);
 }

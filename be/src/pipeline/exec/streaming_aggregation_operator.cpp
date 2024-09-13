@@ -1253,7 +1253,7 @@ Status StreamingAggLocalState::close(RuntimeState* state) {
     vectorized::PODArray<vectorized::AggregateDataPtr> tmp_places;
     _places.swap(tmp_places);
 
-    std::vector<char> tmp_deserialize_buffer;
+    MyVector<char> tmp_deserialize_buffer;
     _deserialize_buffer.swap(tmp_deserialize_buffer);
     Base::_mem_tracker->release(_mem_usage_record.used_in_state + _mem_usage_record.used_in_arena);
 

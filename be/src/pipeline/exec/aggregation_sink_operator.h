@@ -21,6 +21,7 @@
 
 #include "pipeline/exec/operator.h"
 #include "runtime/exec_env.h"
+#include "vec/common/custom_allocator.h"
 
 namespace doris::pipeline {
 
@@ -114,7 +115,7 @@ protected:
     bool _should_limit_output = false;
 
     vectorized::PODArray<vectorized::AggregateDataPtr> _places;
-    std::vector<char> _deserialize_buffer;
+    MyVector<char> _deserialize_buffer;
 
     vectorized::Block _preagg_block = vectorized::Block();
 
