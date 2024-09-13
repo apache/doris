@@ -435,7 +435,7 @@ endif()
 
 if (NOT EXISTS "${THIRDPARTY_SRC}/${FDB_LIB}")
     file(MAKE_DIRECTORY ${THIRDPARTY_SRC})
-    execute_process(COMMAND "curl" "${FDB_LIB_URL}"
+    execute_process(COMMAND "curl --retry 10 --retry-delay 2 --retry-max-time 30" "${FDB_LIB_URL}"
                             "-o" "${THIRDPARTY_SRC}/${FDB_LIB}" "-k"
                     RESULTS_VARIABLE DOWNLOAD_RET)
     if (NOT ${DOWNLOAD_RET} STREQUAL "0")

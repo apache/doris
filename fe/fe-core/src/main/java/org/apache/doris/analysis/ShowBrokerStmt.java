@@ -28,7 +28,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-public class ShowBrokerStmt extends ShowStmt {
+public class ShowBrokerStmt extends ShowStmt implements NotFallbackInParser {
     public ShowBrokerStmt() {
     }
 

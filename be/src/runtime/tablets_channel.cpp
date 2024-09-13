@@ -582,12 +582,15 @@ Status BaseTabletsChannel::_write_block_data(
 
         // add_batch may concurrency with inc_open but not under _lock.
         // so need to protect it with _tablet_writers_lock.
-        std::lock_guard<SpinLock> l(_tablet_writers_lock);
-
-        auto tablet_writer_it = _tablet_writers.find(tablet_id);
-        if (tablet_writer_it == _tablet_writers.end()) {
-            return Status::InternalError("unknown tablet to append data, tablet={}", tablet_id);
+        decltype(_tablet_writers.find(tablet_id)) tablet_writer_it;
+        {
+            std::lock_guard<SpinLock> l(_tablet_writers_lock);
+            tablet_writer_it = _tablet_writers.find(tablet_id);
+            if (tablet_writer_it == _tablet_writers.end()) {
+                return Status::InternalError("unknown tablet to append data, tablet={}", tablet_id);
+            }
         }
+
         Status st = write_func(tablet_writer_it->second.get());
         if (!st.ok()) {
             auto err_msg =

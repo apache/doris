@@ -28,6 +28,9 @@ public:
     AssertNumRowsLocalState(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<FakeSharedState>(state, parent) {}
     ~AssertNumRowsLocalState() = default;
+
+private:
+    friend class AssertNumRowsOperatorX;
 };
 
 class AssertNumRowsOperatorX final : public StreamingOperatorX<AssertNumRowsLocalState> {

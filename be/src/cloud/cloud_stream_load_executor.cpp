@@ -129,7 +129,7 @@ void CloudStreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
     std::stringstream ss;
     ss << "db_id=" << ctx->db_id << " txn_id=" << ctx->txn_id << " label=" << ctx->label;
     std::string op_info = ss.str();
-    LOG(INFO) << "rollback stream laod txn " << op_info;
+    LOG(INFO) << "rollback stream load txn " << op_info;
     TxnOpParamType topt = ctx->txn_id > 0       ? TxnOpParamType::WITH_TXN_ID
                           : !ctx->label.empty() ? TxnOpParamType::WITH_LABEL
                                                 : TxnOpParamType::ILLEGAL;

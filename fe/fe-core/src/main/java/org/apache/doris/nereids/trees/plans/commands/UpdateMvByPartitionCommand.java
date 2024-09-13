@@ -65,6 +65,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -79,6 +81,8 @@ import java.util.stream.Collectors;
  * Update mv by partition
  */
 public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
+    private static final Logger LOG = LogManager.getLogger(UpdateMvByPartitionCommand.class);
+
     private UpdateMvByPartitionCommand(LogicalPlan logicalQuery) {
         super(logicalQuery, Optional.empty(), Optional.empty());
     }
@@ -104,6 +108,10 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         }
         LogicalSink<? extends Plan> sink = UnboundTableSinkCreator.createUnboundTableSink(mv.getFullQualifiers(),
                 ImmutableList.of(), ImmutableList.of(), parts, plan);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("MTMVTask plan for mvName: {}, partitionNames: {}, plan: {}", mv.getName(), partitionNames,
+                    sink.treeString());
+        }
         return new UpdateMvByPartitionCommand(sink);
     }
 

@@ -171,7 +171,7 @@ size_t count_true_with_notnull(const ColumnPtr& col) {
             return null_count;
         }
     } else {
-        const auto* bool_col = typeid_cast<const ColumnUInt8*>(col.get());
+        const auto* bool_col = assert_cast<const ColumnUInt8*>(col.get());
         const auto* __restrict bool_data = bool_col->get_data().data();
         return count - simd::count_zero_num((const int8_t*)bool_data, count);
     }
@@ -612,7 +612,7 @@ public:
             return Status::OK();
         }
 
-        const auto* cond_col = typeid_cast<const ColumnUInt8*>(arg_cond.column.get());
+        const auto* cond_col = assert_cast<const ColumnUInt8*>(arg_cond.column.get());
         const ColumnConst* cond_const_col =
                 check_and_get_column_const<ColumnVector<UInt8>>(arg_cond.column.get());
 
@@ -620,13 +620,6 @@ public:
             block.get_by_position(result).column =
                     cond_const_col->get_value<UInt8>() ? arg_then.column : arg_else.column;
             return Status::OK();
-        }
-
-        if (!cond_col) {
-            return Status::InvalidArgument(
-                    "Illegal column {} of first argument of function {},Must be ColumnUInt8 or "
-                    "ColumnConstUInt8.",
-                    arg_cond.column->get_name(), get_name());
         }
 
         WhichDataType which_type(arg_then.type);

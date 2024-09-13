@@ -32,7 +32,7 @@ import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableMap;
 
-public class ShowTrashDiskStmt extends ShowStmt {
+public class ShowTrashDiskStmt extends ShowStmt implements NotFallbackInParser {
 
     private Backend backend;
 

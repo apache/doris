@@ -118,7 +118,8 @@ ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, const RowDescriptor& r
     _name = "ResultSink";
 }
 
-Status ResultSinkOperatorX::prepare(RuntimeState* state) {
+Status ResultSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<ResultSinkLocalState>::open(state));
     // prepare output_expr
     // From the thrift expressions create the real exprs.
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
@@ -136,10 +137,6 @@ Status ResultSinkOperatorX::prepare(RuntimeState* state) {
                 state->query_id(), _result_sink_buffer_size_rows, &_sender,
                 state->execution_timeout(), state->batch_size()));
     }
-    return Status::OK();
-}
-
-Status ResultSinkOperatorX::open(RuntimeState* state) {
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
 

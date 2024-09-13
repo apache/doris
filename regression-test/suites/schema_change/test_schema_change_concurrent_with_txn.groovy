@@ -18,7 +18,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 
-suite('test_schema_change_concurrent_with_txn') {
+suite('test_schema_change_concurrent_with_txn', 'docker') {
     def options = new ClusterOptions()
     options.enableDebugPoints()
     options.feConfigs.add('publish_wait_time_second=-1')

@@ -20,6 +20,9 @@ suite("test_pull_up_predicate_literal") {
     sql "set enable_fallback_to_original_planner=false"
     sql """SET ignore_shape_nodes='PhysicalDistribute'"""
     sql 'set runtime_filter_mode=off'
+    sql 'set enable_fold_constant_by_be=true'
+    sql 'set debug_skip_fold_constant=false'
+    sql 'set disable_join_reorder=true'
 
     sql """
      CREATE TABLE `test_pull_up_predicate_literal` (
@@ -50,9 +53,11 @@ suite("test_pull_up_predicate_literal") {
     ) tmp
     inner join test_pull_up_predicate_literal ds on tmp.col1 = ds.col1  and tmp.col2 = ds.col2;
     """
+    qt_test_pull_up_literal1 """
+    explain shape plan select * from test_pull_up_predicate_literal_view;
+    """
 
-
-    qt_test_pull_up_literal """explain shape plan select * from test_pull_up_predicate_literal_view where col1='abc' and col2='def';"""
+    qt_test_pull_up_literal2 """explain shape plan select * from test_pull_up_predicate_literal_view where col1='abc' and col2='def';"""
     qt_test_pull_up_literal_suquery """
         explain shape plan
         SELECT *

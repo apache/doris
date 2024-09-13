@@ -264,4 +264,27 @@ suite("load") {
     sql """
         insert into fn_test_bitmap_not_nullable select * from fn_test_bitmap where id is not null
     """
+
+	// array_match_any && array_match_all
+	sql """ drop table if exists fn_test_am """
+	sql """ CREATE TABLE IF NOT EXISTS fn_test_am (id int, kastr array<string>, kaint array<int>) engine=olap
+                                                                                         DISTRIBUTED BY HASH(`id`) BUCKETS 4
+                                                                                         properties("replication_num" = "1") """
+    streamLoad {
+        table "fn_test_am"
+        db "regression_test_nereids_function_p0"
+        file "fn_test_am.csv"
+        time 60000
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals(102, json.NumberTotalRows)
+            assertEquals(102, json.NumberLoadedRows)
+        }
+    }
+
 }

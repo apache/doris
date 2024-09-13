@@ -27,6 +27,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprId;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -34,13 +35,18 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Id;
 import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.statistics.PlanStats;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TNormalizedPlanNode;
 import org.apache.doris.thrift.TPlan;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPushAggOp;
@@ -49,15 +55,18 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -883,6 +892,90 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     // Convert this plan node into msg (excluding children), which requires setting
     // the node type and the node-specific field.
     protected abstract void toThrift(TPlanNode msg);
+
+    public TNormalizedPlanNode normalize(Normalizer normalizer) {
+        TNormalizedPlanNode normalizedPlan = new TNormalizedPlanNode();
+        normalizedPlan.setNodeId(normalizer.normalizePlanId(id.asInt()));
+        normalizedPlan.setNumChildren(children.size());
+        Set<Integer> tupleIds = this.tupleIds
+                .stream()
+                .map(Id::asInt)
+                .collect(Collectors.toSet());
+        normalizedPlan.setTupleIds(
+                tupleIds.stream()
+                    .map(normalizer::normalizeTupleId)
+                    .collect(Collectors.toSet())
+        );
+        normalizedPlan.setNullableTuples(
+                nullableTupleIds
+                    .stream()
+                    .map(Id::asInt)
+                    .filter(tupleIds::contains)
+                    .map(normalizer::normalizeTupleId)
+                    .collect(Collectors.toSet())
+        );
+        normalize(normalizedPlan, normalizer);
+        normalizeConjuncts(normalizedPlan, normalizer);
+        normalizeProjects(normalizedPlan, normalizer);
+        normalizedPlan.setLimit(limit);
+        return normalizedPlan;
+    }
+
+    public void normalize(TNormalizedPlanNode normalizedPlan, Normalizer normalizer) {
+        throw new IllegalStateException("Unsupported normalization");
+    }
+
+    protected void normalizeProjects(TNormalizedPlanNode normalizedPlanNode, Normalizer normalizer) {
+        throw new IllegalStateException("Unsupported normalize project for " + getClass().getSimpleName());
+    }
+
+    public List<TExpr> normalizeProjects(
+            List<SlotDescriptor> outputSlotDescs, List<Expr> projects, Normalizer normalizer) {
+        Map<SlotId, Expr> outputSlotToProject = Maps.newLinkedHashMap();
+        for (int i = 0; i < outputSlotDescs.size(); i++) {
+            SlotId slotId = outputSlotDescs.get(i).getId();
+            Expr projectExpr = projects.get(i);
+            if (projectExpr instanceof SlotRef) {
+                int outputSlotId = slotId.asInt();
+                int refId = ((SlotRef) projectExpr).getSlotId().asInt();
+                normalizer.setSlotIdToNormalizeId(outputSlotId, normalizer.normalizeSlotId(refId));
+            }
+            outputSlotToProject.put(slotId, projectExpr);
+        }
+        return normalizeProjects(outputSlotToProject, normalizer);
+    }
+
+    protected void normalizeConjuncts(TNormalizedPlanNode normalizedPlan, Normalizer normalizer) {
+        normalizedPlan.setConjuncts(normalizeExprs(getConjuncts(), normalizer));
+    }
+
+    protected List<TExpr> normalizeProjects(Map<SlotId, Expr> project, Normalizer normalizer) {
+        List<Pair<SlotId, TExpr>> sortByTExpr = Lists.newArrayListWithCapacity(project.size());
+        for (Entry<SlotId, Expr> kv : project.entrySet()) {
+            SlotId slotId = kv.getKey();
+            Expr expr = kv.getValue();
+            TExpr thriftExpr = expr.normalize(normalizer);
+            sortByTExpr.add(Pair.of(slotId, thriftExpr));
+        }
+        sortByTExpr.sort(Comparator.comparing(Pair::value));
+
+        // we should normalize slot id by fix order, then the upper nodes can reference the same normalized slot id
+        for (Pair<SlotId, TExpr> pair : sortByTExpr) {
+            int originOutputSlotId = pair.first.asInt();
+            normalizer.normalizeSlotId(originOutputSlotId);
+        }
+
+        return sortByTExpr.stream().map(Pair::value).collect(Collectors.toList());
+    }
+
+    public static List<TExpr> normalizeExprs(Collection<? extends Expr> exprs, Normalizer normalizer) {
+        List<TExpr> normalizedWithoutSort = Lists.newArrayListWithCapacity(exprs.size());
+        for (Expr expr : exprs) {
+            normalizedWithoutSort.add(expr.normalize(normalizer));
+        }
+        normalizedWithoutSort.sort(Comparator.naturalOrder());
+        return normalizedWithoutSort;
+    }
 
     protected String debugString() {
         // not using Objects.toStrHelper because

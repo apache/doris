@@ -155,6 +155,7 @@ suite("test_index_match_phrase_select", "inverted_index_select"){
                 wait_for_build_index_on_partition_finish(indexTbName1, timeout)
             }
         }
+        sql """ set enable_common_expr_pushdown = true; """
 
         // case1: test match_phrase ""
         try {

@@ -43,7 +43,7 @@ import com.google.common.base.Preconditions;
 //
 // SHOW GRANTS;
 // SHOW GRANTS FOR user@'xxx'
-public class ShowGrantsStmt extends ShowStmt {
+public class ShowGrantsStmt extends ShowStmt implements NotFallbackInParser {
 
     private static final ShowResultSetMetaData META_DATA;
 

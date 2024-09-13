@@ -401,7 +401,7 @@ QueryContext::_collect_realtime_query_profile() const {
                 continue;
             }
 
-            auto profile = fragment_ctx->collect_realtime_profile_x();
+            auto profile = fragment_ctx->collect_realtime_profile();
 
             if (profile.empty()) {
                 std::string err_msg = fmt::format(

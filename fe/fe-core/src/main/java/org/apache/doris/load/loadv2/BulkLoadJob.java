@@ -46,7 +46,7 @@ import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.plugin.audit.AuditEvent;
+import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.audit.LoadAuditEvent;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;

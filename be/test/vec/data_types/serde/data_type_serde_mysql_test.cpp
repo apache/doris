@@ -250,7 +250,7 @@ void serialize_and_deserialize_mysql_test() {
         case TYPE_IPV4:
             tslot.__set_slotType(type_desc.to_thrift());
             {
-                auto column_vector_ipv4 = vectorized::ColumnVector<vectorized::IPv4>::create();
+                auto column_vector_ipv4 = vectorized::ColumnVector<IPv4>::create();
                 auto& ipv4_data = column_vector_ipv4->get_data();
                 for (int i = 0; i < row_num; ++i) {
                     IPv4Value ipv4_value;
@@ -267,7 +267,7 @@ void serialize_and_deserialize_mysql_test() {
         case TYPE_IPV6:
             tslot.__set_slotType(type_desc.to_thrift());
             {
-                auto column_vector_ipv6 = vectorized::ColumnVector<vectorized::IPv6>::create();
+                auto column_vector_ipv6 = vectorized::ColumnVector<IPv6>::create();
                 auto& ipv6_data = column_vector_ipv6->get_data();
                 for (int i = 0; i < row_num; ++i) {
                     IPv6Value ipv6_value;

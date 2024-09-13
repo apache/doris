@@ -21,7 +21,6 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.NotFallbackInParser;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
@@ -300,6 +299,27 @@ public abstract class ConnectProcessor {
                     nereidsSyntaxException = e;
                 }
             }
+
+            if (stmts == null) {
+                String errMsg;
+                Throwable exception = null;
+                if (nereidsParseException != null) {
+                    errMsg = nereidsParseException.getMessage();
+                    exception = nereidsParseException;
+                } else if (nereidsSyntaxException != null) {
+                    errMsg = nereidsSyntaxException.getMessage();
+                    exception = nereidsSyntaxException;
+                } else {
+                    errMsg = "Nereids parse statements failed. " + originStmt;
+                }
+                if (exception == null) {
+                    exception = new AnalysisException(errMsg);
+                } else {
+                    exception = new AnalysisException(errMsg, exception);
+                }
+                handleQueryException(exception, originStmt, null, null);
+                return;
+            }
         }
 
         // stmts == null when Nereids cannot planner this query or Nereids is disabled.
@@ -313,41 +333,10 @@ public abstract class ConnectProcessor {
             try {
                 stmts = parse(convertedStmt);
             } catch (Throwable throwable) {
-                // if NereidsParser and oldParser both failed,
-                // prove is a new feature implemented only on the nereids,
-                // so an error message for the new nereids is thrown
-                if (nereidsSyntaxException != null) {
-                    throwable = nereidsSyntaxException;
-                }
                 // Parse sql failed, audit it and return
                 handleQueryException(throwable, convertedStmt, null, null);
                 return;
             }
-        }
-
-        if (mysqlCommand == MysqlCommand.COM_QUERY
-                && ctx.getSessionVariable().isEnableNereidsPlanner()
-                && !ctx.getSessionVariable().enableFallbackToOriginalPlanner
-                && !stmts.isEmpty()
-                && stmts.stream().allMatch(s -> s instanceof NotFallbackInParser)) {
-            String errMsg;
-            Throwable exception = null;
-            if (nereidsParseException != null) {
-                errMsg = nereidsParseException.getMessage();
-                exception = nereidsParseException;
-            } else if (nereidsSyntaxException != null) {
-                errMsg = nereidsSyntaxException.getMessage();
-                exception = nereidsSyntaxException;
-            } else {
-                errMsg = "Nereids parse DQL failed. " + originStmt;
-            }
-            if (exception == null) {
-                exception = new AnalysisException(errMsg);
-            } else {
-                exception = new AnalysisException(errMsg, exception);
-            }
-            handleQueryException(exception, originStmt, null, null);
-            return;
         }
 
         List<String> origSingleStmtList = null;

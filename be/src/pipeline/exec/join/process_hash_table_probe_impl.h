@@ -739,6 +739,7 @@ struct ExtractType<T(U)> {
     INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<true>));     \
     INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<false>));    \
     INSTANTIATION(JoinOpType, (I136FixedKeyHashTableContext<true>));     \
+    INSTANTIATION(JoinOpType, (MethodOneString));                        \
     INSTANTIATION(JoinOpType, (I136FixedKeyHashTableContext<false>));
 
 } // namespace doris::pipeline

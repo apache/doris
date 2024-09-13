@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions.functions.window;
 
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -64,7 +63,6 @@ public interface RequireTrivialTypes {
             DateTimeV2Type.SYSTEM_DEFAULT,
             TimeType.INSTANCE,
             TimeV2Type.INSTANCE,
-            CharType.SYSTEM_DEFAULT,
             VarcharType.SYSTEM_DEFAULT,
             StringType.INSTANCE
     );

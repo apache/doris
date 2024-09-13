@@ -130,7 +130,6 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
@@ -306,46 +305,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     /**
      * returns the sum of deltaRowCount for all selected partitions or for the table.
      */
-    private long computeDeltaRowCount(OlapScan olapScan, SlotReference slot) {
+    private long computeDeltaRowCount(OlapScan olapScan) {
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
         long deltaRowCount = 0;
         if (tableMeta != null) {
-            ColStatsMeta colMeta = tableMeta.findColumnStatsMeta(
-                    olapScan.getTable().getIndexNameById(olapScan.getSelectedIndexId()), slot.getName());
-            if (colMeta != null && colMeta.partitionUpdateRows != null) {
-                // when fe upgraded from old version, colMeta object may be deserialized from json,
-                // and colMeta.partitionUpdateRows could be null
-                if (olapScan.getSelectedPartitionIds().isEmpty()) {
-                    deltaRowCount = tableMeta.updatedRows.get() - colMeta.updatedRows;
-                } else {
-                    // sum partition delta row
-                    for (long partitionId : olapScan.getSelectedPartitionIds()) {
-                        deltaRowCount += tableMeta.partitionUpdateRows.getOrDefault(partitionId, 0L)
-                                - colMeta.partitionUpdateRows.getOrDefault(partitionId, 0L);
-                    }
-                }
-            }
+            deltaRowCount = tableMeta.getBaseIndexDeltaRowCount(olapScan.getTable());
         }
         return deltaRowCount;
-    }
-
-    private void adjustColStats(OlapScan olapScan, SlotReference slot,
-            ColumnStatisticBuilder builder) {
-        if (builder.getAvgSizeByte() <= 0) {
-            builder.setAvgSizeByte(slot.getDataType().toCatalogDataType().getSlotSize());
-        }
-        long delta = computeDeltaRowCount(olapScan, slot);
-        if (delta > 0) {
-            builder.setCount(builder.getCount() + delta);
-            // clear min-max to avoid error estimation
-            // for example, after yesterday data loaded, user send query about yesterday immediately.
-            // since yesterday data are not analyzed, the max date is before yesterday, and hence optimizer
-            // estimates the filter result is zero
-            builder.setMinExpr(null).setMinValue(Double.NEGATIVE_INFINITY)
-                    .setMaxExpr(null).setMaxValue(Double.POSITIVE_INFINITY);
-        }
-
     }
 
     private ColumnStatistic getColumnStatsFromTableCache(CatalogRelation catalogRelation, SlotReference slot) {
@@ -397,19 +364,28 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
     }
 
-    private Statistics computeOlapScan(OlapScan olapScan) {
+    private double getOlapTableRowCount(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
-        double tableRowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId());
-        if (tableRowCount <= 0) {
-            AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-            TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
-            if (tableMeta != null) {
-                // create-view after analyzing, we may get -1 for this view row count
-                tableRowCount = Math.max(1, tableMeta.getRowCount(olapScan.getSelectedIndexId()));
-            } else {
-                tableRowCount = 1;
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
+        double rowCount = -1;
+        if (tableMeta != null && tableMeta.userInjected) {
+            rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
+        } else {
+            rowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
+            if (rowCount == -1) {
+                if (tableMeta != null) {
+                    rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
+                }
             }
         }
+        return rowCount;
+    }
+
+    private Statistics computeOlapScan(OlapScan olapScan) {
+        OlapTable olapTable = olapScan.getTable();
+        double tableRowCount = getOlapTableRowCount(olapScan);
+        tableRowCount = Math.max(1, tableRowCount);
 
         if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId() || olapTable instanceof MTMV) {
             // mv is selected, return its estimated stats
@@ -462,6 +438,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
 
         // build Stats for olapScan
+        double deltaRowCount = computeDeltaRowCount(olapScan);
+        builder.setDeltaRowCount(deltaRowCount);
         // if slot is invisible, use UNKNOWN
         List<SlotReference> visibleOutputSlots = new ArrayList<>();
         for (Slot slot : ((Plan) olapScan).getOutput()) {
@@ -472,10 +450,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
 
+        boolean useTableLevelStats = true;
         if (olapScan.getSelectedPartitionIds().size() < olapScan.getTable().getPartitionNum()) {
             // partition pruned
+            // try to use selected partition stats, if failed, fall back to table stats
             double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan);
-            if (selectedPartitionsRowCount > 0) {
+            if (selectedPartitionsRowCount >= 0) {
+                useTableLevelStats = false;
                 List<String> selectedPartitionNames = new ArrayList<>(olapScan.getSelectedPartitionIds().size());
                 olapScan.getSelectedPartitionIds().forEach(id -> {
                     selectedPartitionNames.add(olapScan.getTable().getPartition(id).getName());
@@ -484,34 +465,26 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     ColumnStatistic cache = getColumnStatsFromPartitionCache(olapScan, slot, selectedPartitionNames);
                     ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
                     colStatsBuilder.setCount(selectedPartitionsRowCount);
-                    adjustColStats(olapScan, slot, colStatsBuilder);
+                    colStatsBuilder.normalizeAvgSizeByte(slot);
                     builder.putColumnStatistics(slot, colStatsBuilder.build());
                 }
                 checkIfUnknownStatsUsedAsKey(builder);
-                builder.setRowCount(selectedPartitionsRowCount);
-            } else {
-                // if partition row count is invalid (-1), fallback to table stats
-                for (SlotReference slot : visibleOutputSlots) {
-                    ColumnStatistic cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, slot);
-                    ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
-                    colStatsBuilder.setCount(tableRowCount);
-                    adjustColStats(olapScan, slot, colStatsBuilder);
-                    builder.putColumnStatistics(slot, colStatsBuilder.build());
-                }
-                checkIfUnknownStatsUsedAsKey(builder);
-                builder.setRowCount(tableRowCount);
+                builder.setRowCount(selectedPartitionsRowCount + deltaRowCount);
             }
-        } else {
+        }
+        // 1. no partition is pruned, or
+        // 2. fall back to table stats
+        if (useTableLevelStats) {
             // get table level stats
             for (SlotReference slot : visibleOutputSlots) {
                 ColumnStatistic cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, slot);
                 ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
                 colStatsBuilder.setCount(tableRowCount);
-                adjustColStats(olapScan, slot, colStatsBuilder);
+                colStatsBuilder.normalizeAvgSizeByte(slot);
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
             checkIfUnknownStatsUsedAsKey(builder);
-            builder.setRowCount(tableRowCount);
+            builder.setRowCount(tableRowCount + deltaRowCount);
         }
         return builder.build();
     }

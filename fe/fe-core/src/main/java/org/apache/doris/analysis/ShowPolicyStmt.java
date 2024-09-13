@@ -38,7 +38,7 @@ import org.apache.commons.lang3.StringUtils;
  * syntax:
  * SHOW ROW POLICY [FOR user｜ROLE role]
  **/
-public class ShowPolicyStmt extends ShowStmt {
+public class ShowPolicyStmt extends ShowStmt implements NotFallbackInParser {
 
     @Getter
     private final PolicyTypeEnum type;

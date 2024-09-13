@@ -187,7 +187,6 @@ public:
     NestedLoopJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                  const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;

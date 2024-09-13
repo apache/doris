@@ -45,7 +45,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class ShowColumnHistStmt extends ShowStmt {
+public class ShowColumnHistStmt extends ShowStmt implements NotFallbackInParser {
 
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()

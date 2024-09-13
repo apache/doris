@@ -102,7 +102,7 @@ size_t PartitionedHashJoinSinkLocalState::revocable_mem_size(RuntimeState* state
 Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeState* state) {
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     _shared_state->inner_shared_state->hash_table_variants.reset();
-    auto row_desc = p._child_x->row_desc();
+    auto row_desc = p._child->row_desc();
     const auto num_slots = row_desc.num_slots();
     vectorized::Block build_block;
     auto inner_sink_state_ = _shared_state->inner_runtime_state->get_sink_local_state();
@@ -424,13 +424,10 @@ Status PartitionedHashJoinSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
     return Status::OK();
 }
 
-Status PartitionedHashJoinSinkOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(_inner_sink_operator->set_child(_child_x));
-    RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->row_desc()));
-    return _inner_sink_operator->prepare(state);
-}
-
 Status PartitionedHashJoinSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState>::open(state));
+    RETURN_IF_ERROR(_inner_sink_operator->set_child(_child));
+    RETURN_IF_ERROR(_partitioner->prepare(state, _child->row_desc()));
     RETURN_IF_ERROR(_partitioner->open(state));
     return _inner_sink_operator->open(state);
 }

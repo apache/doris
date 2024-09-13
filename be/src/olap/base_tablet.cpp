@@ -29,6 +29,7 @@
 #include "olap/rowid_conversion.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/tablet_fwd.h"
 #include "olap/txn_manager.h"
@@ -180,6 +181,14 @@ Status BaseTablet::update_by_least_common_schema(const TabletSchemaSPtr& update_
     _max_version_schema = final_schema;
     VLOG_DEBUG << "dump updated tablet schema: " << final_schema->dump_structure();
     return Status::OK();
+}
+
+uint32_t BaseTablet::get_real_compaction_score() const {
+    const auto& rs_metas = _tablet_meta->all_rs_metas();
+    return std::accumulate(rs_metas.begin(), rs_metas.end(), 0,
+                           [](uint32_t score, const RowsetMetaSharedPtr& rs_meta) {
+                               return score + rs_meta->get_compaction_score();
+                           });
 }
 
 Status BaseTablet::capture_rs_readers_unlocked(const Versions& version_path,

@@ -96,6 +96,7 @@ suite("test_topn_fault_injection", "nonConcurrent") {
       load_httplogs_data.call(indexTbName2, 'test_topn_fault_injection2', 'true', 'json', 'documents-1000.json')
 
       sql "sync"
+      sql """ set enable_common_expr_pushdown = true """
 
       try {
         GetDebugPoint().enableDebugPointForAllBEs("segment_iterator.topn_opt_1")

@@ -17,7 +17,7 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
-suite('test_decommission_mtmv') {
+suite('test_decommission_mtmv', 'docker') {
     def options = new ClusterOptions()
     options.feConfigs += [
         'disable_balance=true',

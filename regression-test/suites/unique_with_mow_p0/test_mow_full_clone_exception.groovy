@@ -29,7 +29,7 @@ import org.apache.doris.regression.util.NodeType
 //
 // the bug is fixed in #37001
 
-suite('test_full_clone_exception') {
+suite('test_full_clone_exception', 'docker') {
     def options = new ClusterOptions()
     options.feConfigs += [
         'disable_tablet_scheduler=true',

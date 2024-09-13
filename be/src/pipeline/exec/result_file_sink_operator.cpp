@@ -72,13 +72,9 @@ Status ResultFileSinkOperatorX::init(const TDataSink& tsink) {
     return Status::OK();
 }
 
-Status ResultFileSinkOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::prepare(state));
-    return vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc);
-}
-
 Status ResultFileSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::open(state));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
 

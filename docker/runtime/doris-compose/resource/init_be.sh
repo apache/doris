@@ -48,6 +48,12 @@ add_cloud_be() {
         return
     fi
 
+    # Check if SQL_MODE_NODE_MGR is set to 1
+    if [ "$SQL_MODE_NODE_MGR" -eq 1 ]; then
+        health_log "SQL_MODE_NODE_MGR is set to 1, skipping cluster creation"
+        return
+    fi
+
     cluster_file_name="${DORIS_HOME}/conf/CLUSTER_NAME"
     cluster_name=$(cat $cluster_file_name)
     if [ -z $cluster_name ]; then

@@ -34,6 +34,7 @@
 #include "common/status.h"
 #include "olap/tablet.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/async_io.h" // IWYU pragma: keep
@@ -119,23 +120,23 @@ Status ScannerScheduler::init(ExecEnv* env) {
     return Status::OK();
 }
 
-void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
-                              std::shared_ptr<ScanTask> scan_task) {
+Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
+                                std::shared_ptr<ScanTask> scan_task) {
     scan_task->last_submit_time = GetCurrentTimeNanos();
     if (ctx->done()) {
-        return;
+        return Status::OK();
     }
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
         LOG(INFO) << "could not lock task execution context, query " << ctx->debug_string()
                   << " maybe finished";
-        return;
+        return Status::OK();
     }
 
     if (ctx->thread_token != nullptr) {
         std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
         if (scanner_delegate == nullptr) {
-            return;
+            return Status::OK();
         }
 
         scanner_delegate->_scanner->start_wait_worker_timer();
@@ -152,13 +153,12 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
         });
         if (!s.ok()) {
             scan_task->set_status(s);
-            ctx->append_block_to_queue(scan_task);
-            return;
+            return s;
         }
     } else {
         std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
         if (scanner_delegate == nullptr) {
-            return;
+            return Status::OK();
         }
 
         scanner_delegate->_scanner->start_wait_worker_timer();
@@ -186,14 +186,18 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
             return scan_sched->submit_scan_task(simple_scan_task);
         };
 
-        if (auto ret = sumbit_task(); !ret) {
-            scan_task->set_status(Status::InternalError(
-                    "Failed to submit scanner to scanner pool reason:" + std::string(ret.msg()) +
-                    "|type:" + std::to_string(type)));
-            ctx->append_block_to_queue(scan_task);
-            return;
+        Status submit_status = sumbit_task();
+        if (!submit_status.ok()) {
+            // User will see TooManyTasks error. It looks like a more reasonable error.
+            Status scan_task_status = Status::TooManyTasks(
+                    "Failed to submit scanner to scanner pool reason:" +
+                    std::string(submit_status.msg()) + "|type:" + std::to_string(type));
+            scan_task->set_status(scan_task_status);
+            return scan_task_status;
         }
     }
+
+    return Status::OK();
 }
 
 std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
@@ -209,6 +213,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     if (task_lock == nullptr) {
         return;
     }
+
+    ctx->update_peak_running_scanner(1);
+    Defer defer([&] { ctx->update_peak_running_scanner(-1); });
 
     std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
     if (scanner_delegate == nullptr) {
@@ -267,13 +274,18 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 if (free_block == nullptr) {
                     break;
                 }
+                // We got a new created block or a reused block.
+                ctx->update_peak_memory_usage(free_block->allocated_bytes());
+                ctx->update_peak_memory_usage(-free_block->allocated_bytes());
                 status = scanner->get_block_after_projects(state, free_block.get(), &eos);
+                // Projection will truncate useless columns, makes block size change.
+                auto free_block_bytes = free_block->allocated_bytes();
+                ctx->update_peak_memory_usage(free_block_bytes);
                 first_read = false;
                 if (!status.ok()) {
                     LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
                     break;
                 }
-                auto free_block_bytes = free_block->allocated_bytes();
                 raw_bytes_read += free_block_bytes;
                 if (!scan_task->cached_blocks.empty() &&
                     scan_task->cached_blocks.back().first->rows() + free_block->rows() <=
@@ -281,18 +293,25 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     size_t block_size = scan_task->cached_blocks.back().first->allocated_bytes();
                     vectorized::MutableBlock mutable_block(
                             scan_task->cached_blocks.back().first.get());
+                    ctx->update_peak_memory_usage(-mutable_block.allocated_bytes());
                     status = mutable_block.merge(*free_block);
+                    ctx->update_peak_memory_usage(mutable_block.allocated_bytes());
                     if (!status.ok()) {
                         LOG(WARNING) << "Block merge failed: " << status.to_string();
                         break;
                     }
+                    scan_task->cached_blocks.back().second = mutable_block.allocated_bytes();
                     scan_task->cached_blocks.back().first.get()->set_columns(
                             std::move(mutable_block.mutable_columns()));
+
+                    // Return block succeed or not, this free_block is not used by this scan task any more.
+                    ctx->update_peak_memory_usage(-free_block_bytes);
+                    // If block can be reused, its memory usage will be added back.
                     ctx->return_free_block(std::move(free_block));
-                    ctx->inc_free_block_usage(
-                            scan_task->cached_blocks.back().first->allocated_bytes() - block_size);
+                    ctx->inc_block_usage(scan_task->cached_blocks.back().first->allocated_bytes() -
+                                         block_size);
                 } else {
-                    ctx->inc_free_block_usage(free_block->allocated_bytes());
+                    ctx->inc_block_usage(free_block->allocated_bytes());
                     scan_task->cached_blocks.emplace_back(std::move(free_block), free_block_bytes);
                 }
             } // end for while

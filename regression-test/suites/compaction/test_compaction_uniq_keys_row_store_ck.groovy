@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 
-suite("test_compaction_uniq_keys_row_store_ck", "nonConcurrent") {
+suite("test_compaction_uniq_keys_row_store_ck", "p0") {
     if (isCloudMode()) {
         logger.info("cloud does not support mow cluster key")
         return

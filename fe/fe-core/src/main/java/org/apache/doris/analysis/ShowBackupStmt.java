@@ -37,7 +37,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.function.Predicate;
 
-public class ShowBackupStmt extends ShowStmt {
+public class ShowBackupStmt extends ShowStmt implements NotFallbackInParser {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("JobId").add("SnapshotName").add("DbName").add("State").add("BackupObjs").add("CreateTime")
             .add("SnapshotFinishedTime").add("UploadFinishedTime").add("FinishedTime").add("UnfinishedTasks")

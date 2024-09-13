@@ -239,28 +239,8 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
                 new_block_wrapper->unref(local_state._shared_state, local_state._channel_id);
             }
         }
-    } else if (bucket_seq_to_instance_idx.empty()) {
-        /**
-         * If type is `BUCKET_HASH_SHUFFLE` and `_bucket_seq_to_instance_idx` is empty, which
-         * means no scan operators is included in this fragment so we also need a `HASH_SHUFFLE` here.
-         */
-        const auto& map = local_state._parent->cast<LocalExchangeSinkOperatorX>()
-                                  ._shuffle_idx_to_instance_idx;
-        DCHECK(!map.empty());
-        new_block_wrapper->ref(map.size());
-        for (const auto& it : map) {
-            DCHECK(it.second >= 0 && it.second < _num_partitions)
-                    << it.first << " : " << it.second << " " << _num_partitions;
-            uint32_t start = local_state._partition_rows_histogram[it.first];
-            uint32_t size = local_state._partition_rows_histogram[it.first + 1] - start;
-            if (size > 0) {
-                _enqueue_data_and_set_ready(it.second, local_state,
-                                            {new_block_wrapper, {row_idx, start, size}});
-            } else {
-                new_block_wrapper->unref(local_state._shared_state, local_state._channel_id);
-            }
-        }
     } else {
+        DCHECK(!bucket_seq_to_instance_idx.empty());
         new_block_wrapper->ref(_num_partitions);
         for (size_t i = 0; i < _num_partitions; i++) {
             uint32_t start = local_state._partition_rows_histogram[i];

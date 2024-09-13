@@ -34,7 +34,7 @@ import lombok.Getter;
  * syntax:
  * SHOW STORAGE POLICY USING [for policy_name]
  **/
-public class ShowStoragePolicyUsingStmt extends ShowStmt {
+public class ShowStoragePolicyUsingStmt extends ShowStmt implements NotFallbackInParser {
 
     public static final ShowResultSetMetaData RESULT_META_DATA =
             ShowResultSetMetaData.builder()

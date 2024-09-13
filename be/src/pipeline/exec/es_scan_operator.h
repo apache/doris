@@ -72,7 +72,7 @@ public:
                     const DescriptorTbl& descs, int parallel_tasks);
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
 
 private:
     friend class EsScanLocalState;

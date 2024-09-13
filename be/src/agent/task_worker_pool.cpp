@@ -102,7 +102,7 @@ namespace {
 std::mutex s_task_signatures_mtx;
 std::unordered_map<TTaskType::type, std::unordered_set<int64_t>> s_task_signatures;
 
-std::atomic_ulong s_report_version(time(nullptr) * 10000);
+std::atomic_ulong s_report_version(time(nullptr) * 100000);
 
 void increase_report_version() {
     s_report_version.fetch_add(1, std::memory_order_relaxed);
@@ -189,7 +189,7 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
         auto mem_tracker = MemTrackerLimiter::create_shared(
-                MemTrackerLimiter::Type::OTHER,
+                MemTrackerLimiter::Type::SCHEMA_CHANGE,
                 fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
                             std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
@@ -265,7 +265,7 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
     if (status.ok()) {
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         auto mem_tracker = MemTrackerLimiter::create_shared(
-                MemTrackerLimiter::Type::OTHER,
+                MemTrackerLimiter::Type::SCHEMA_CHANGE,
                 fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
                             std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
@@ -1074,6 +1074,7 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
     request.__set_backend(BackendOptions::get_local_backend());
     request.__isset.tablets = true;
 
+    increase_report_version();
     uint64_t report_version;
     for (int i = 0; i < 5; i++) {
         request.tablets.clear();

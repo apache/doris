@@ -50,6 +50,13 @@ check_init_cloud() {
 
         lock_cluster
 
+        # Check if SQL_MODE_NODE_MGR is set
+        if [[ "$SQL_MODE_NODE_MGR" -eq 1 ]]; then
+            health_log "SQL_MODE_NODE_MGR is set, skipping create_instance"
+            touch $HAS_CREATE_INSTANCE_FILE
+            return
+        fi
+
         output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/create_instance?token=greedisgood9999" \
             -d '{"instance_id":"default_instance_id",
                     "name": "default_instance",

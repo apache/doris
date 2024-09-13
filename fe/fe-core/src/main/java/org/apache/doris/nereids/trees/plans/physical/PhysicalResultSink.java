@@ -58,10 +58,6 @@ public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CH
                 logicalProperties, physicalProperties, statistics, child);
     }
 
-    public List<NamedExpression> getOutputExprs() {
-        return outputExprs;
-    }
-
     @Override
     public PhysicalResultSink<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,

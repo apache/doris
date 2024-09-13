@@ -31,7 +31,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
  * syntax:
  * SHOW STORAGE VAULT
  **/
-public class ShowStorageVaultStmt extends ShowStmt {
+public class ShowStorageVaultStmt extends ShowStmt implements NotFallbackInParser {
 
     private final String stmt = "SHOW STORAGE VAULT";
 

@@ -90,6 +90,15 @@ public:
 
     bool is_variable_length() const override { return true; }
 
+    bool is_exclusive() const override {
+        for (const auto& col : columns) {
+            if (!col->is_exclusive()) {
+                return false;
+            }
+        }
+        return IColumn::is_exclusive();
+    }
+
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
 

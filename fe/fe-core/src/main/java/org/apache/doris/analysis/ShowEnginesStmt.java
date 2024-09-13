@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-public class ShowEnginesStmt extends ShowStmt {
+public class ShowEnginesStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Engine", ScalarType.createVarchar(64)))

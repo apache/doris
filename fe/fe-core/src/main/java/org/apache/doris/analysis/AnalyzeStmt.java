@@ -30,7 +30,7 @@ import org.apache.logging.log4j.core.util.CronExpression;
 
 import java.util.Map;
 
-public class AnalyzeStmt extends StatementBase {
+public class AnalyzeStmt extends StatementBase implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(AnalyzeStmt.class);
 
     protected AnalyzeProperties analyzeProperties;

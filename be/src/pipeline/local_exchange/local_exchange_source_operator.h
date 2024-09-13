@@ -70,13 +70,12 @@ public:
         _exchange_type = type;
         return Status::OK();
     }
-    Status prepare(RuntimeState* state) override { return Status::OK(); }
     Status open(RuntimeState* state) override { return Status::OK(); }
     const RowDescriptor& intermediate_row_desc() const override {
-        return _child_x->intermediate_row_desc();
+        return _child->intermediate_row_desc();
     }
-    RowDescriptor& row_descriptor() override { return _child_x->row_descriptor(); }
-    const RowDescriptor& row_desc() const override { return _child_x->row_desc(); }
+    RowDescriptor& row_descriptor() override { return _child->row_descriptor(); }
+    const RowDescriptor& row_desc() const override { return _child->row_desc(); }
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 

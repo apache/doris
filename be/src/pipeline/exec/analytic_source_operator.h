@@ -122,7 +122,6 @@ public:
     bool is_source() const override { return true; }
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
 private:

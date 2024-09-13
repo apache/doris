@@ -56,6 +56,7 @@
 #include "olap/tablet_schema_cache.h"
 #include "olap/wal/wal_manager.h"
 #include "pipeline/pipeline_tracing.h"
+#include "pipeline/query_cache/query_cache.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/broker_mgr.h"
@@ -298,7 +299,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         _stream_load_executor = StreamLoadExecutor::create_shared(this);
     }
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
-    RETURN_IF_ERROR(_routine_load_task_executor->init());
+    RETURN_IF_ERROR(_routine_load_task_executor->init(MemInfo::mem_limit()));
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _group_commit_mgr = new GroupCommitMgr(this);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
@@ -578,6 +579,9 @@ Status ExecEnv::_init_mem_env() {
     _orc_memory_pool = new doris::vectorized::ORCMemoryPool();
     _arrow_memory_pool = new doris::vectorized::ArrowMemoryPool();
 
+    _query_cache = QueryCache::create_global_cache(config::query_cache_size * 1024L * 1024L);
+    LOG(INFO) << "query cache memory limit: " << config::query_cache_size << "MB";
+
     return Status::OK();
 }
 
@@ -587,7 +591,6 @@ void ExecEnv::init_mem_tracker() {
     _s_tracking_memory = true;
     _orphan_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "Orphan");
-    _orphan_mem_tracker_raw = _orphan_mem_tracker.get();
     _details_mem_tracker_set =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "DetailsTrackerSet");
     _page_no_cache_mem_tracker =
@@ -598,7 +601,9 @@ void ExecEnv::init_mem_tracker() {
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "SegCompaction");
     _point_query_executor_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "PointQueryExecutor");
-    _block_compression_mem_tracker =
+    _query_cache_mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "QueryCache");
+    _block_compression_mem_tracker = _block_compression_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "BlockCompression");
     _rowid_storage_reader_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "RowIdStorageReader");
@@ -607,7 +612,7 @@ void ExecEnv::init_mem_tracker() {
     _s3_file_buffer_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "S3FileBuffer");
     _stream_load_pipe_tracker =
-            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "StreamLoadPipe");
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::LOAD, "StreamLoadPipe");
 }
 
 void ExecEnv::_register_metrics() {
@@ -688,6 +693,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_schema_cache);
     SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_row_cache);
+    SAFE_DELETE(_query_cache);
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...

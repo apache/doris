@@ -28,7 +28,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW CREATE LOAD statement.
-public class ShowCreateLoadStmt extends ShowStmt {
+public class ShowCreateLoadStmt extends ShowStmt implements NotFallbackInParser {
 
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()

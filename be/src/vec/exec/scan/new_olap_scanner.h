@@ -75,8 +75,6 @@ public:
 
     Status close(RuntimeState* state) override;
 
-    void set_compound_filters(const std::vector<TCondition>& compound_filters);
-
     doris::TabletStorageType get_storage_type() override;
 
 protected:
@@ -101,7 +99,6 @@ private:
 
     std::vector<uint32_t> _return_columns;
     std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
-    std::vector<TCondition> _compound_filters;
 
     // ========= profiles ==========
     int64_t _compressed_bytes_read = 0;

@@ -248,7 +248,7 @@ void test_file_cache(io::FileCacheType cache_type) {
         ASSERT_TRUE(mgr.initialize().ok());
 
         for (int i = 0; i < 100; i++) {
-            if (mgr.get_lazy_open_success()) {
+            if (mgr.get_async_open_success()) {
                 break;
             };
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -586,7 +586,7 @@ void test_file_cache(io::FileCacheType cache_type) {
         io::BlockFileCache cache2(cache_base_path, settings);
         ASSERT_TRUE(cache2.initialize().ok());
         for (int i = 0; i < 100; i++) {
-            if (cache2.get_lazy_open_success()) {
+            if (cache2.get_async_open_success()) {
                 break;
             };
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -624,7 +624,7 @@ void test_file_cache(io::FileCacheType cache_type) {
         io::BlockFileCache cache2(cache_path2, settings2);
         ASSERT_TRUE(cache2.initialize().ok());
         for (int i = 0; i < 100; i++) {
-            if (cache2.get_lazy_open_success()) {
+            if (cache2.get_async_open_success()) {
                 break;
             };
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -677,7 +677,7 @@ TEST_F(BlockFileCacheTest, resize) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -711,12 +711,12 @@ TEST_F(BlockFileCacheTest, max_ttl_size) {
     ASSERT_TRUE(cache.initialize());
     int i = 0;
     for (; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    ASSERT_TRUE(cache.get_lazy_open_success());
+    ASSERT_TRUE(cache.get_async_open_success());
     int64_t offset = 0;
     for (; offset < 100000000; offset += 100000) {
         auto holder = cache.get_or_set(key1, offset, 100000, context);
@@ -759,7 +759,7 @@ TEST_F(BlockFileCacheTest, query_limit_heap_use_after_free) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -844,7 +844,7 @@ TEST_F(BlockFileCacheTest, query_limit_dcheck) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -961,7 +961,7 @@ TEST_F(BlockFileCacheTest, reset_range) {
     EXPECT_EQ(cache.capacity(), 15);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1011,7 +1011,7 @@ TEST_F(BlockFileCacheTest, change_cache_type) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1030,7 +1030,8 @@ TEST_F(BlockFileCacheTest, change_cache_type) {
         std::string data(size, '0');
         Slice result(data.data(), size);
         ASSERT_TRUE(blocks[0]->append(result).ok());
-        ASSERT_TRUE(blocks[0]->change_cache_type_self(io::FileCacheType::INDEX));
+        ASSERT_TRUE(
+                blocks[0]->change_cache_type_between_normal_and_index(io::FileCacheType::INDEX));
         ASSERT_TRUE(blocks[0]->finalize().ok());
         auto key_str = key.to_string();
         auto subdir = fs::path(cache_base_path) / key_str.substr(0, 3) /
@@ -1061,7 +1062,7 @@ TEST_F(BlockFileCacheTest, fd_cache_remove) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1143,7 +1144,7 @@ TEST_F(BlockFileCacheTest, fd_cache_evict) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1289,7 +1290,7 @@ void test_file_cache_run_in_resource_limit(io::FileCacheType cache_type) {
         cache._index_queue.hot_data_interval = 0;
         ASSERT_TRUE(cache.initialize());
         for (int i = 0; i < 100; i++) {
-            if (cache.get_lazy_open_success()) {
+            if (cache.get_async_open_success()) {
                 break;
             };
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1421,7 +1422,7 @@ TEST_F(BlockFileCacheTest, fix_tmp_file) {
     }
 }
 
-TEST_F(BlockFileCacheTest, test_lazy_load) {
+TEST_F(BlockFileCacheTest, test_async_load) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -1471,7 +1472,7 @@ TEST_F(BlockFileCacheTest, test_lazy_load) {
     ASSERT_TRUE(blocks[0]->finalize());
     flag1 = true;
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1482,7 +1483,7 @@ TEST_F(BlockFileCacheTest, test_lazy_load) {
     }
 }
 
-TEST_F(BlockFileCacheTest, test_lazy_load_with_limit) {
+TEST_F(BlockFileCacheTest, test_async_load_with_limit) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -1533,7 +1534,7 @@ TEST_F(BlockFileCacheTest, test_lazy_load_with_limit) {
     ASSERT_TRUE(blocks[0]->finalize());
     flag1 = true;
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1576,7 +1577,7 @@ TEST_F(BlockFileCacheTest, ttl_normal) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1671,7 +1672,7 @@ TEST_F(BlockFileCacheTest, ttl_modify) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1746,7 +1747,7 @@ TEST_F(BlockFileCacheTest, ttl_change_to_normal) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1810,7 +1811,7 @@ TEST_F(BlockFileCacheTest, ttl_change_expiration_time) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1873,12 +1874,12 @@ TEST_F(BlockFileCacheTest, ttl_reverse) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    ASSERT_TRUE(cache.get_lazy_open_success());
+    ASSERT_TRUE(cache.get_async_open_success());
     for (size_t offset = 0; offset < 30; offset += 6) {
         auto holder = cache.get_or_set(key2, offset, 6, context);
         auto blocks = fromHolder(holder);
@@ -1925,7 +1926,7 @@ TEST_F(BlockFileCacheTest, io_error) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2081,7 +2082,7 @@ TEST_F(BlockFileCacheTest, remove_directly_when_normal_change_to_ttl) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2157,7 +2158,7 @@ TEST_F(BlockFileCacheTest, recyle_cache_async) {
     sp->enable_processing();
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2228,7 +2229,7 @@ TEST_F(BlockFileCacheTest, recyle_cache_async_ttl) {
     sp->enable_processing();
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2291,7 +2292,7 @@ TEST_F(BlockFileCacheTest, remove_directly) {
     context.expiration_time = UnixSeconds() + 3600;
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2368,7 +2369,7 @@ TEST_F(BlockFileCacheTest, test_factory_1) {
     auto cache = FileCacheFactory::instance()->get_by_path(key1);
     int i = 0;
     while (i++ < 1000) {
-        if (cache->get_lazy_open_success()) {
+        if (cache->get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2434,7 +2435,7 @@ TEST_F(BlockFileCacheTest, test_factory_2) {
     auto cache = FileCacheFactory::instance()->get_by_path(key);
     int i = 0;
     while (i++ < 1000) {
-        if (cache->get_lazy_open_success()) {
+        if (cache->get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2469,7 +2470,7 @@ TEST_F(BlockFileCacheTest, test_factory_3) {
     auto cache = FileCacheFactory::instance()->get_by_path(key);
     int i = 0;
     while (i++ < 1000) {
-        if (cache->get_lazy_open_success()) {
+        if (cache->get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2545,7 +2546,7 @@ TEST_F(BlockFileCacheTest, test_disposable) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2593,7 +2594,7 @@ TEST_F(BlockFileCacheTest, test_query_limit) {
         auto cache = FileCacheFactory::instance()->get_by_path(key);
         int i = 0;
         while (i++ < 1000) {
-            if (cache->get_lazy_open_success()) {
+            if (cache->get_async_open_success()) {
                 break;
             };
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2656,7 +2657,7 @@ TEST_F(BlockFileCacheTest, append_many_time) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2676,7 +2677,8 @@ TEST_F(BlockFileCacheTest, append_many_time) {
         auto holder = cache.get_or_set(key, 0, 5, context);
         auto blocks = fromHolder(holder);
         assert_range(1, blocks[0], io::FileBlock::Range(0, 4), io::FileBlock::State::DOWNLOADED);
-        ASSERT_TRUE(blocks[0]->change_cache_type_self(FileCacheType::INDEX).ok());
+        ASSERT_TRUE(
+                blocks[0]->change_cache_type_between_normal_and_index(FileCacheType::INDEX).ok());
         if (auto storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
             storage != nullptr) {
             auto dir = storage->get_path_in_local_cache(blocks[0]->get_hash_value(),
@@ -2684,7 +2686,8 @@ TEST_F(BlockFileCacheTest, append_many_time) {
             EXPECT_TRUE(fs::exists(storage->get_path_in_local_cache(dir, blocks[0]->offset(),
                                                                     blocks[0]->cache_type())));
         }
-        ASSERT_TRUE(blocks[0]->change_cache_type_self(FileCacheType::INDEX).ok());
+        ASSERT_TRUE(
+                blocks[0]->change_cache_type_between_normal_and_index(FileCacheType::INDEX).ok());
         auto sp = SyncPoint::get_instance();
         sp->enable_processing();
         SyncPoint::CallbackGuard guard1;
@@ -2697,15 +2700,9 @@ TEST_F(BlockFileCacheTest, append_many_time) {
                 },
                 &guard1);
         {
-            ASSERT_FALSE(blocks[0]->change_cache_type_self(FileCacheType::NORMAL).ok());
-            EXPECT_EQ(blocks[0]->cache_type(), FileCacheType::INDEX);
-            std::string buffer;
-            buffer.resize(5);
-            EXPECT_TRUE(blocks[0]->read(Slice(buffer.data(), 5), 0).ok());
-            EXPECT_EQ(buffer, std::string(5, '0'));
-        }
-        {
-            EXPECT_FALSE(blocks[0]->change_cache_type_by_mgr(FileCacheType::NORMAL).ok());
+            ASSERT_FALSE(blocks[0]
+                                 ->change_cache_type_between_normal_and_index(FileCacheType::NORMAL)
+                                 .ok());
             EXPECT_EQ(blocks[0]->cache_type(), FileCacheType::INDEX);
             std::string buffer;
             buffer.resize(5);
@@ -2776,7 +2773,7 @@ TEST_F(BlockFileCacheTest, query_file_cache) {
         io::BlockFileCache cache(cache_base_path, settings);
         ASSERT_TRUE(cache.initialize());
         for (int i = 0; i < 100; i++) {
-            if (cache.get_lazy_open_success()) {
+            if (cache.get_async_open_success()) {
                 break;
             };
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2787,7 +2784,7 @@ TEST_F(BlockFileCacheTest, query_file_cache) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2844,7 +2841,7 @@ TEST_F(BlockFileCacheTest, query_file_cache_reserve) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -3085,7 +3082,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_error_handle) {
     ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(cache_base_path, settings).ok());
     auto cache = FileCacheFactory::instance()->_caches[0].get();
     for (int i = 0; i < 100; i++) {
-        if (cache->get_lazy_open_success()) {
+        if (cache->get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -3356,7 +3353,7 @@ TEST_F(BlockFileCacheTest, test_hot_data) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -3418,7 +3415,7 @@ TEST_F(BlockFileCacheTest, test_hot_data) {
     EXPECT_EQ(cache.get_hot_blocks_meta(key2).size(), 1);
 }
 
-TEST_F(BlockFileCacheTest, test_lazy_load_with_error_file_1) {
+TEST_F(BlockFileCacheTest, test_async_load_with_error_file_1) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -3439,7 +3436,7 @@ TEST_F(BlockFileCacheTest, test_lazy_load_with_error_file_1) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -3466,7 +3463,7 @@ TEST_F(BlockFileCacheTest, test_lazy_load_with_error_file_1) {
         ASSERT_TRUE(writer->append(Slice("111", 3)).ok());
         ASSERT_TRUE(writer->close().ok());
     });
-    sp->set_call_back("BlockFileCache::REMOVE_FILE_2", [&](auto&& args) {
+    sp->set_call_back("BlockFileCache::REMOVE_FILE", [&](auto&& args) {
         if (*try_any_cast<std::string*>(args[0]) == "30086_idx") {
             static_cast<void>(global_local_filesystem()->delete_file(dir / "30086_idx"));
         }
@@ -3491,7 +3488,7 @@ TEST_F(BlockFileCacheTest, test_lazy_load_with_error_file_1) {
     }
 }
 
-TEST_F(BlockFileCacheTest, test_lazy_load_with_error_file_2) {
+TEST_F(BlockFileCacheTest, test_async_load_with_error_file_2) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -3538,7 +3535,7 @@ TEST_F(BlockFileCacheTest, test_lazy_load_with_error_file_2) {
         while (!flag1) {
         }
     });
-    sp->set_call_back("BlockFileCache::REMOVE_FILE_1", [&](auto&& args) {
+    sp->set_call_back("BlockFileCache::REMOVE_FILE", [&](auto&& args) {
         if (*try_any_cast<std::string*>(args[0]) == "30086_idx") {
             static_cast<void>(global_local_filesystem()->delete_file(dir / "30086_idx"));
         }
@@ -3562,7 +3559,7 @@ TEST_F(BlockFileCacheTest, test_lazy_load_with_error_file_2) {
     ASSERT_TRUE(blocks[0]->finalize());
     flag1 = true;
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -3588,7 +3585,7 @@ TEST_F(BlockFileCacheTest, test_check_disk_reource_limit_1) {
             config::file_cache_exit_disk_resource_limit_mode_percent = 50;
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -3618,7 +3615,7 @@ TEST_F(BlockFileCacheTest, test_check_disk_reource_limit_2) {
     config::file_cache_exit_disk_resource_limit_mode_percent = 1;
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -3649,7 +3646,7 @@ TEST_F(BlockFileCacheTest, test_check_disk_reource_limit_3) {
     config::file_cache_exit_disk_resource_limit_mode_percent = 98;
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -3749,7 +3746,7 @@ TEST_F(BlockFileCacheTest, remove_if_cached_when_isnt_releasable) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -3898,7 +3895,7 @@ TEST_F(BlockFileCacheTest, remove_from_other_queue_1) {
 
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -3969,7 +3966,7 @@ TEST_F(BlockFileCacheTest, remove_from_other_queue_2) {
 
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -4088,7 +4085,7 @@ TEST_F(BlockFileCacheTest, recyle_unvalid_ttl_async) {
     sp->enable_processing();
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -4143,7 +4140,7 @@ TEST_F(BlockFileCacheTest, ttl_reserve_wo_evict_using_lru) {
 
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -4206,7 +4203,7 @@ TEST_F(BlockFileCacheTest, ttl_reserve_with_evict_using_lru) {
 
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -4275,7 +4272,7 @@ TEST_F(BlockFileCacheTest, ttl_reserve_with_evict_using_lru_meet_max_ttl_cache_r
 
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -4350,7 +4347,7 @@ TEST_F(BlockFileCacheTest, reset_capacity) {
     sp->enable_processing();
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -4419,7 +4416,7 @@ TEST_F(BlockFileCacheTest, change_cache_type1) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -4444,7 +4441,7 @@ TEST_F(BlockFileCacheTest, change_cache_type1) {
         ASSERT_EQ(segments.size(), 1);
         assert_range(1, segments[0], io::FileBlock::Range(50, 59),
                      io::FileBlock::State::DOWNLOADED);
-        EXPECT_EQ(segments[0]->cache_type(), io::FileCacheType::TTL);
+        EXPECT_EQ(segments[0]->cache_type(), io::FileCacheType::NORMAL);
         EXPECT_EQ(segments[0]->expiration_time(), 0);
     }
     sp->clear_call_back("FileBlock::change_cache_type");
@@ -4493,7 +4490,7 @@ TEST_F(BlockFileCacheTest, change_cache_type2) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -4518,7 +4515,7 @@ TEST_F(BlockFileCacheTest, change_cache_type2) {
         ASSERT_EQ(segments.size(), 1);
         assert_range(1, segments[0], io::FileBlock::Range(50, 59),
                      io::FileBlock::State::DOWNLOADED);
-        EXPECT_EQ(segments[0]->cache_type(), io::FileCacheType::NORMAL);
+        EXPECT_EQ(segments[0]->cache_type(), io::FileCacheType::TTL);
         EXPECT_EQ(segments[0]->expiration_time(), context.expiration_time);
     }
     sp->clear_call_back("FileBlock::change_cache_type");
@@ -4552,6 +4549,7 @@ TEST_F(BlockFileCacheTest, change_cache_type2) {
     }
 }
 
+/*
 TEST_F(BlockFileCacheTest, load_cache1) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -4577,7 +4575,7 @@ TEST_F(BlockFileCacheTest, load_cache1) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -4624,7 +4622,7 @@ TEST_F(BlockFileCacheTest, load_cache2) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
-        if (cache.get_lazy_open_success()) {
+        if (cache.get_async_open_success()) {
             break;
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -4642,6 +4640,106 @@ TEST_F(BlockFileCacheTest, load_cache2) {
         }
         EXPECT_EQ(cur_path, cache_base_path + key1.to_string().substr(0, 3) + "/" +
                                     key1.to_string() + "_0/" + std::to_string(offset));
+    }
+}
+*/
+
+TEST_F(BlockFileCacheTest, test_load) {
+    // test both path formats when loading file cache into memory
+    // old file path format, [hash]_[expiration]/[offset]_ttl
+    // new file path format, [hash]_[expiration]/[offset]
+    const int64_t expiration = 1987654321;
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    auto sp = SyncPoint::get_instance();
+    Defer defer {[sp] { sp->clear_all_call_backs(); }};
+    io::FileCacheSettings settings;
+    settings.index_queue_size = 30;
+    settings.index_queue_elements = 5;
+    settings.capacity = 30;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+    io::CacheContext context;
+    context.cache_type = io::FileCacheType::TTL;
+    context.expiration_time = expiration;
+    auto key = io::BlockFileCache::hash("key1");
+    io::BlockFileCache cache(cache_base_path, settings);
+    std::string dir = cache_base_path + key.to_string().substr(0, 3) + "/" + key.to_string() + "_" +
+                      std::to_string(expiration);
+    std::cout << dir << std::endl;
+    auto st = global_local_filesystem()->create_directory(dir, false);
+    if (!st.ok()) {
+        std::cout << dir << " create failed";
+        ASSERT_TRUE(false);
+    }
+    sp->set_call_back("BlockFileCache::BeforeScan", [&](auto&&) {
+        FileWriterPtr writer;
+        ASSERT_TRUE(global_local_filesystem()->create_file(dir / "10086_ttl", &writer).ok());
+        ASSERT_TRUE(writer->append(Slice("111", 3)).ok());
+        ASSERT_TRUE(writer->close().ok());
+
+        // no suffix, but it is not NORMAL, instead it is TTL because the
+        // dirname contains non-zero expiration time
+        ASSERT_TRUE(global_local_filesystem()->create_file(dir / "20086", &writer).ok());
+        ASSERT_TRUE(writer->append(Slice("222", 3)).ok());
+        ASSERT_TRUE(writer->close().ok());
+
+        ASSERT_TRUE(global_local_filesystem()->create_file(dir / "30086_idx", &writer).ok());
+        ASSERT_TRUE(writer->append(Slice("333", 3)).ok());
+        ASSERT_TRUE(writer->close().ok());
+    });
+    sp->enable_processing();
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        };
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    {
+        auto type = cache.dump_single_cache_type(key, 10086);
+        ASSERT_TRUE(type == "_ttl");
+        auto holder = cache.get_or_set(key, 10086, 3, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        assert_range(1, blocks[0], io::FileBlock::Range(10086, 10086 + 3 - 1),
+                     io::FileBlock::State::DOWNLOADED);
+        ASSERT_TRUE(blocks[0]->cache_type() == io::FileCacheType::TTL);
+        // OK, looks like old format is correctly loaded, let's read it
+        std::string buffer;
+        buffer.resize(3);
+        ASSERT_TRUE(blocks[0]->read(Slice(buffer.data(), buffer.size()), 0).ok());
+        ASSERT_EQ(buffer, "111");
+        // OK, read successfully, let's try removing it
+        std::mutex m1, m2;
+        std::lock_guard cache_lock(m1);
+        std::lock_guard block_lock(m2);
+        cache.remove(blocks[0], cache_lock, block_lock);
+        ASSERT_FALSE(fs::exists(dir / "10086_ttl"));
+    }
+    {
+        auto type = cache.dump_single_cache_type(key, 20086);
+        ASSERT_TRUE(type == "_ttl");
+        auto holder = cache.get_or_set(key, 20086, 3, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        assert_range(1, blocks[0], io::FileBlock::Range(20086, 20086 + 3 - 1),
+                     io::FileBlock::State::DOWNLOADED);
+        ASSERT_TRUE(blocks[0]->cache_type() == io::FileCacheType::TTL);
+        // OK, looks like old format is correctly loaded, let's read it
+        std::string buffer;
+        buffer.resize(3);
+        ASSERT_TRUE(blocks[0]->read(Slice(buffer.data(), buffer.size()), 0).ok());
+        ASSERT_EQ(buffer, "222");
+        // OK, read successfully, let's try removing it
+        std::mutex m1, m2;
+        std::lock_guard cache_lock(m1);
+        std::lock_guard block_lock(m2);
+        cache.remove(blocks[0], cache_lock, block_lock);
+        ASSERT_FALSE(fs::exists(dir / "20086"));
     }
 }
 

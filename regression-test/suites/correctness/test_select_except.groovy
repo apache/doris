@@ -63,6 +63,19 @@ suite("test_select_except") {
             """
             exception "errCode"
         }
+        test {
+            sql """
+            select * except (siteid, citycode, username, pv) from tbl_select_except"""
+            exception "errCode"
+        }
+        qt_except_agg """
+        select * except (siteid, username, pv), sum(pv) 
+        from tbl_select_except 
+        group by citycode order by citycode"""
+        qt_except_agg_ordinal """
+        select * except (siteid, username, pv), sum(pv) 
+        from tbl_select_except 
+        group by 1 order by citycode"""
     } finally {
         sql "drop table if exists tbl_select_except"
     }

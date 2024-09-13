@@ -27,7 +27,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginLoader.PluginStatus;
-import org.apache.doris.plugin.audit.AuditLoaderPlugin;
+import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.plugin.audit.AuditLogBuilder;
 import org.apache.doris.plugin.dialect.HttpDialectConverterPlugin;
 
@@ -113,7 +113,7 @@ public class PluginMgr implements Writable {
         }
 
         // AuditLoader: log audit log to internal table
-        AuditLoaderPlugin auditLoaderPlugin = new AuditLoaderPlugin();
+        AuditLoader auditLoaderPlugin = new AuditLoader();
         if (!registerBuiltinPlugin(auditLoaderPlugin.getPluginInfo(), auditLoaderPlugin)) {
             LOG.warn("failed to register audit log builder");
         }

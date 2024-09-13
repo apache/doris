@@ -43,6 +43,8 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vliteral.h"
+#include "vec/exprs/vslot_ref.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {
@@ -130,9 +132,35 @@ void VMatchPredicate::close(VExprContext* context, FunctionContext::FunctionStat
     VExpr::close(context, scope);
 }
 
+Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+    DCHECK_EQ(get_num_children(), 2);
+    return _evaluate_inverted_index(context, _function, segment_num_rows);
+}
+
 Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
     DCHECK(_open_finished || _getting_const_col);
-    // TODO: not execute const expr again, but use the const column in function context
+    if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
+        return Status::OK();
+    }
+    DBUG_EXECUTE_IF("VMatchPredicate.execute", {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "{} not support slow path, hit debug point.", _expr_name);
+    });
+    DBUG_EXECUTE_IF("VMatchPredicate.must_in_slow_path", {
+        auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
+                "VMatchPredicate.must_in_slow_path", "column_name", "");
+
+        std::vector<std::string> column_names;
+        boost::split(column_names, debug_col_name, boost::algorithm::is_any_of(","));
+
+        auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
+        std::string column_name = column_slot_ref->expr_name();
+        auto it = std::find(column_names.begin(), column_names.end(), column_name);
+        if (it == column_names.end()) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "column {} should in slow path while VMatchPredicate::execute.", column_name);
+        }
+    })
     doris::vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {
         int column_id = -1;

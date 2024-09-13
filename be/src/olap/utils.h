@@ -34,7 +34,6 @@
 #include "olap/olap_common.h"
 
 namespace doris {
-void write_log_info(char* buf, size_t buf_len, const char* fmt, ...);
 static const std::string DELETE_SIGN = "__DORIS_DELETE_SIGN__";
 static const std::string WHERE_SIGN = "__DORIS_WHERE_SIGN__";
 static const std::string VERSION_COL = "__DORIS_VERSION_COL__";
@@ -101,63 +100,9 @@ uint32_t olap_adler32(uint32_t adler, const char* buf, size_t len);
 // 获取系统当前时间，并将时间转换为字符串
 Status gen_timestamp_string(std::string* out_string);
 
-// iterator offset，用于二分查找
-using iterator_offset_t = size_t;
-
-class BinarySearchIterator : public std::iterator_traits<iterator_offset_t*> {
-public:
-    BinarySearchIterator() : _offset(0u) {}
-    explicit BinarySearchIterator(iterator_offset_t offset) : _offset(offset) {}
-
-    iterator_offset_t operator*() const { return _offset; }
-
-    BinarySearchIterator& operator++() {
-        ++_offset;
-        return *this;
-    }
-
-    BinarySearchIterator& operator--() {
-        --_offset;
-        return *this;
-    }
-
-    BinarySearchIterator& operator-=(size_t step) {
-        _offset = _offset - step;
-        return *this;
-    }
-
-    BinarySearchIterator& operator+=(size_t step) {
-        _offset = _offset + step;
-        return *this;
-    }
-
-    bool operator!=(const BinarySearchIterator& iterator) {
-        return this->_offset != iterator._offset;
-    }
-
-private:
-    iterator_offset_t _offset;
-};
-
-int operator-(const BinarySearchIterator& left, const BinarySearchIterator& right);
-
-// 不用sse4指令的crc32c的计算函数
-unsigned int crc32c_lut(char const* b, unsigned int off, unsigned int len, unsigned int crc);
-
 Status check_datapath_rw(const std::string& path);
 
 Status read_write_test_file(const std::string& test_file_path);
-
-//转换两个list
-template <typename T1, typename T2>
-void static_cast_assign_vector(std::vector<T1>* v1, const std::vector<T2>& v2) {
-    if (nullptr != v1) {
-        //GCC3.4的模板展开貌似有问题， 这里如果使用迭代器会编译失败
-        for (size_t i = 0; i < v2.size(); i++) {
-            v1->push_back(static_cast<T1>(v2[i]));
-        }
-    }
-}
 
 // 打印Errno
 class Errno {
@@ -171,8 +116,6 @@ private:
     static const int BUF_SIZE = 256;
     static __thread char _buf[BUF_SIZE];
 };
-
-#define ENDSWITH(str, suffix) ((str).rfind(suffix) == (str).size() - strlen(suffix))
 
 // 检查int8_t, int16_t, int32_t, int64_t的值是否溢出
 template <typename T>

@@ -91,7 +91,8 @@ void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFact
         auto function_combinator = std::make_shared<AggregateFunctionCombinatorDistinct>();
         auto transform_arguments = function_combinator->transform_arguments(nested_types);
         auto nested_function_name = name.substr(DISTINCT_FUNCTION_PREFIX.size());
-        auto nested_function = factory.get(nested_function_name, transform_arguments);
+        auto nested_function = factory.get(nested_function_name, transform_arguments, false,
+                                           BeExecVersionManager::get_newest_version());
         return function_combinator->transform_aggregate_function(nested_function, types,
                                                                  result_is_nullable);
     };

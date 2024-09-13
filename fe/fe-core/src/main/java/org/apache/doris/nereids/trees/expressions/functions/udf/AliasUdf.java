@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
 
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 
@@ -62,8 +61,7 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return ImmutableList.of(Suppliers.memoize(() -> FunctionSignature
-                .of(NullType.INSTANCE, argTypes)).get());
+        return ImmutableList.of(FunctionSignature.of(NullType.INSTANCE, argTypes));
     }
 
     public List<String> getParameters() {

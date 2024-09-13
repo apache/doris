@@ -342,14 +342,9 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         if (columnStat.isUnKnown) {
             return ColumnStatistic.UNKNOWN;
         }
-        /*
-        we keep columnStat.min and columnStat.max, but set ndv=1.
-        if there is group-by keys, we will update count when visiting group clause
-        */
-        double width = min.child().getDataType().width();
-        return new ColumnStatisticBuilder().setCount(1).setNdv(1).setAvgSizeByte(width)
-                .setMinValue(columnStat.minValue).setMinExpr(columnStat.minExpr)
-                .setMaxValue(columnStat.maxValue).setMaxExpr(columnStat.maxExpr).build();
+        // if this is scalar agg, we will update count and ndv to 1 when visiting group clause
+        return new ColumnStatisticBuilder(columnStat)
+                .build();
     }
 
     @Override
@@ -359,14 +354,8 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         if (columnStat.isUnKnown) {
             return ColumnStatistic.UNKNOWN;
         }
-        /*
-        we keep columnStat.min and columnStat.max, but set ndv=1.
-        if there is group-by keys, we will update count when visiting group clause
-        */
-        int width = max.child().getDataType().width();
-        return new ColumnStatisticBuilder().setCount(1D).setNdv(1D).setAvgSizeByte(width)
-                .setMinValue(columnStat.minValue).setMinExpr(columnStat.minExpr)
-                .setMaxValue(columnStat.maxValue).setMaxExpr(columnStat.maxExpr)
+        // if this is scalar agg, we will update count and ndv to 1 when visiting group clause
+        return new ColumnStatisticBuilder(columnStat)
                 .build();
     }
 

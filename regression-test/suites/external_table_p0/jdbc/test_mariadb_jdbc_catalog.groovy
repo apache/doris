@@ -68,7 +68,7 @@ suite("test_mariadb_jdbc_catalog", "p0,external,mariadb,external_docker,external
         sql  """ insert into internal.${internal_db_name}.${inDorisTable} select id, name from ${ex_tb0}; """
         order_qt_in_tb  """ select id, name from internal.${internal_db_name}.${inDorisTable} order by id; """
 
-        order_qt_information_schema """ show tables from information_schema; """
+        order_qt_information_schema """ show tables from information_schema like "processlist"; """
         order_qt_auto_default_t """insert into ${auto_default_t}(name) values('a'); """
         order_qt_dt """select * from ${dt}; """
 

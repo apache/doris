@@ -54,31 +54,32 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------hashAgg[GLOBAL]
 --------PhysicalDistribute[DistributionSpecGather]
 ----------hashAgg[LOCAL]
-------------PhysicalUnion
---------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF9 d_date_sk->[ss_sold_date_sk]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[store_sales] apply RFs: RF9
---------------------PhysicalProject
-----------------------filter((date_dim.d_year <= 2002) and (date_dim.d_year >= 2000))
-------------------------PhysicalOlapScan[date_dim]
---------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF10 d_date_sk->[cs_sold_date_sk]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[catalog_sales] apply RFs: RF10
---------------------PhysicalProject
-----------------------filter((date_dim.d_year <= 2002) and (date_dim.d_year >= 2000))
-------------------------PhysicalOlapScan[date_dim]
---------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF11 d_date_sk->[ws_sold_date_sk]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[web_sales] apply RFs: RF11
---------------------PhysicalProject
-----------------------filter((date_dim.d_year <= 2002) and (date_dim.d_year >= 2000))
-------------------------PhysicalOlapScan[date_dim]
+------------PhysicalProject
+--------------PhysicalUnion
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF9 d_date_sk->[ss_sold_date_sk]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[store_sales] apply RFs: RF9
+----------------------PhysicalProject
+------------------------filter((date_dim.d_year <= 2002) and (date_dim.d_year >= 2000))
+--------------------------PhysicalOlapScan[date_dim]
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF10 d_date_sk->[cs_sold_date_sk]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF10
+----------------------PhysicalProject
+------------------------filter((date_dim.d_year <= 2002) and (date_dim.d_year >= 2000))
+--------------------------PhysicalOlapScan[date_dim]
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF11 d_date_sk->[ws_sold_date_sk]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[web_sales] apply RFs: RF11
+----------------------PhysicalProject
+------------------------filter((date_dim.d_year <= 2002) and (date_dim.d_year >= 2000))
+--------------------------PhysicalOlapScan[date_dim]
 ----PhysicalResultSink
 ------PhysicalTopN[MERGE_SORT]
 --------PhysicalDistribute[DistributionSpecGather]

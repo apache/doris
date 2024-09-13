@@ -27,7 +27,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-public class RefreshTableStmt extends DdlStmt {
+public class RefreshTableStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(RefreshTableStmt.class);
 
     private TableName tableName;

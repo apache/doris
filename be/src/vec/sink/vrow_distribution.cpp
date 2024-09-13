@@ -68,8 +68,10 @@ Status VRowDistribution::_save_missing_values(
             }
             cur_row_values.push_back(node);
         }
-        //For duplicate cur_values, they will be filtered in FE
-        _partitions_need_create.emplace_back(cur_row_values);
+        if (!_deduper.contains(cur_row_values)) {
+            _deduper.insert(cur_row_values);
+            _partitions_need_create.emplace_back(cur_row_values);
+        }
     }
 
     // to avoid too large mem use

@@ -411,7 +411,20 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         for (const auto& in_predicate : delete_condition.in_predicates()) {
             TCondition condition;
             condition.__set_column_name(in_predicate.column_name());
-            auto col_unique_id = in_predicate.column_unique_id();
+
+            int32_t col_unique_id = -1;
+            if (in_predicate.has_column_unique_id()) {
+                col_unique_id = in_predicate.column_unique_id();
+            } else {
+                // if upgrade from version 2.0.x, column_unique_id maybe not set
+                const auto& pre_column =
+                        *DORIS_TRY(delete_pred_related_schema->column(condition.column_name));
+                col_unique_id = pre_column.unique_id();
+            }
+            if (col_unique_id == -1) {
+                return Status::Error<ErrorCode::DELETE_INVALID_CONDITION>(
+                        "cannot get column_unique_id for column {}", condition.column_name);
+            }
             condition.__set_column_unique_id(col_unique_id);
 
             if (in_predicate.is_not_in()) {

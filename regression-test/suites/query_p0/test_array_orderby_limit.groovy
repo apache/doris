@@ -20,7 +20,7 @@ suite("test_array_char_orderby", "query") {
     def testTable = "test_array_char_orderby"
 
     sql """
-            CREATE TABLE IF NOT EXISTS ${testTable} (
+            CREATE TABLE IF NOT EXISTS test_array_char_orderby (
               `k1` INT(11) NULL,
               `k2` array<array<char(50)>> NULL
             ) ENGINE=OLAP
@@ -35,16 +35,17 @@ suite("test_array_char_orderby", "query") {
             )
             """
     // prepare data
-    sql """ INSERT INTO ${testTable} VALUES (100, [['abc']]) """
+    sql """ INSERT INTO test_array_char_orderby VALUES (100, [['abc']]), (200, [['xyz']]) """
+    sql "analyze table test_array_char_orderby with sync"
     // set topn_opt_limit_threshold = 1024 to make sure _internal_service to be request with proto request
     sql """ set topn_opt_limit_threshold = 1024 """
 
     explain{
-        sql("select * from ${testTable} order by k1 limit 1")
+        sql("select * from test_array_char_orderby order by k1 limit 1")
         contains "TOPN"
     }
 
-    qt_select """ select * from ${testTable} order by k1 limit 1 """
+    qt_select """ select * from test_array_char_orderby order by k1 limit 1 """
 
     sql "DROP TABLE IF EXISTS unpart_tbl_parquet_struct_3;"
     sql """

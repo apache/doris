@@ -144,7 +144,7 @@ public class DecommissionTest {
                 + ":" + backend.getHeartbeatPort() + "\"";
         AlterSystemStmt decommissionStmt =
                 (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(decommissionStmtStr, connectContext);
-        Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
+        Env.getCurrentEnv().getAlterInstance().processAlterSystem(decommissionStmt);
 
         Assert.assertEquals(true, backend.isDecommissioned());
 

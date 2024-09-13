@@ -42,6 +42,9 @@ struct decimal12_t;
 struct uint24_t;
 struct StringRef;
 
+using IPv4 = uint32_t;
+using IPv6 = uint128_t;
+
 namespace vectorized {
 
 /// Data types for representing elementary values from a database in RAM.
@@ -295,9 +298,6 @@ struct TypeId<String> {
 
 /// Not a data type in database, defined just for convenience.
 using Strings = std::vector<String>;
-
-using IPv4 = uint32_t;
-using IPv6 = uint128_t;
 
 template <>
 inline constexpr bool IsNumber<IPv6> = true;

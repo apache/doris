@@ -74,7 +74,6 @@ public class CreateFunctionTest {
     public void test() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         ctx.getSessionVariable().setEnableNereidsPlanner(false);
-        ctx.getSessionVariable().enableFallbackToOriginalPlanner = true;
         ctx.getSessionVariable().setEnableFoldConstantByBe(false);
         // create database db1
         createDatabase(ctx, "create database db1;");

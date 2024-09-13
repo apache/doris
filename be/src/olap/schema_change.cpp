@@ -30,6 +30,7 @@
 #include <tuple>
 #include <utility>
 
+#include "agent/be_exec_version_manager.h"
 #include "cloud/cloud_schema_change_job.h"
 #include "cloud/config.h"
 #include "common/consts.h"
@@ -133,7 +134,8 @@ public:
                 try {
                     vectorized::AggregateFunctionPtr function =
                             tablet_schema->column(i).get_aggregate_function(
-                                    vectorized::AGG_LOAD_SUFFIX);
+                                    vectorized::AGG_LOAD_SUFFIX,
+                                    tablet_schema->column(i).get_be_exec_version());
                     agg_functions.push_back(function);
                     // create aggregate data
                     auto* place = new char[function->size_of_data()];
@@ -777,6 +779,7 @@ SchemaChangeJob::SchemaChangeJob(StorageEngine& local_storage_engine,
 // The admin should upgrade all BE and then upgrade FE.
 // Should delete the old code after upgrade finished.
 Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& request) {
+    DBUG_EXECUTE_IF("SchemaChangeJob._do_process_alter_tablet.sleep", { sleep(10); })
     Status res;
     signal::tablet_id = _base_tablet->get_table_id();
 

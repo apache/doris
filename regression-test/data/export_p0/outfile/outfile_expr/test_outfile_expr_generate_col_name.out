@@ -100,12 +100,12 @@ id	int	Yes	false	\N	NONE
 9	1	string	27	false	5	true	1
 
 -- !desc_s3 --
-__add_5	int	Yes	false	\N	NONE
-__bit_or_7	int	Yes	false	\N	NONE
+__add_5	smallint	Yes	false	\N	NONE
+__bit_or_7	tinyint	Yes	false	\N	NONE
 __cast_3	bigint	Yes	false	\N	NONE
 __greater_than_4	boolean	Yes	false	\N	NONE
 __in_predicate_6	boolean	Yes	false	\N	NONE
-__literal_1	int	Yes	false	\N	NONE
+__literal_1	tinyint	Yes	false	\N	NONE
 __literal_2	text	Yes	false	\N	NONE
 id	int	Yes	false	\N	NONE
 

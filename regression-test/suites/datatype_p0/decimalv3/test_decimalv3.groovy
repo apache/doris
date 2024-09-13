@@ -68,7 +68,6 @@ suite("test_decimalv3") {
     // nereids
     sql "set enable_nereids_planner = true;"
 
-    sql """ set enable_fallback_to_original_planner=false """
     sql "set enable_decimal256 = true;"
     qt_decimal256_const_0 "select 1.4E-45;"
     qt_decimal256_const_1 "select 1.4E-80;"
@@ -76,7 +75,6 @@ suite("test_decimalv3") {
     qt_decimal256_const_2 "select 1.4E-45;"
     qt_decimal256_const_3 "select 1.4E-80;"
 
-    sql """ set enable_fallback_to_original_planner=true """
     sql "set enable_decimal256 = true;"
     qt_decimal256_const_4 "select 1.4E-45;"
     qt_decimal256_const_5 "select 1.4E-80;"

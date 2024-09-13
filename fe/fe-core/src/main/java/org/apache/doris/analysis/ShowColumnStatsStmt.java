@@ -50,7 +50,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class ShowColumnStatsStmt extends ShowStmt {
+public class ShowColumnStatsStmt extends ShowStmt implements NotFallbackInParser {
 
     private static final ImmutableList<String> TABLE_COLUMN_TITLE_NAMES =
             new ImmutableList.Builder<String>()

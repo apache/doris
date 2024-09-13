@@ -186,14 +186,14 @@ public class GroupCommitManager {
         return size;
     }
 
-    public Backend selectBackendForGroupCommit(long tableId, ConnectContext context, boolean isCloud)
+    public Backend selectBackendForGroupCommit(long tableId, ConnectContext context)
             throws LoadException, DdlException {
         // If a group commit request is sent to the follower FE, we will send this request to the master FE. master FE
         // can select a BE and return this BE id to follower FE.
         if (!Env.getCurrentEnv().isMaster()) {
             try {
                 long backendId = new MasterOpExecutor(context)
-                        .getGroupCommitLoadBeId(tableId, context.getCloudCluster(), isCloud);
+                        .getGroupCommitLoadBeId(tableId, context.getCloudCluster());
                 return Env.getCurrentSystemInfo().getBackend(backendId);
             } catch (Exception e) {
                 throw new LoadException(e.getMessage());
@@ -201,11 +201,11 @@ public class GroupCommitManager {
         } else {
             // Master FE will select BE by itself.
             return Env.getCurrentSystemInfo()
-                    .getBackend(selectBackendForGroupCommitInternal(tableId, context.getCloudCluster(), isCloud));
+                    .getBackend(selectBackendForGroupCommitInternal(tableId, context.getCloudCluster()));
         }
     }
 
-    public long selectBackendForGroupCommitInternal(long tableId, String cluster, boolean isCloud)
+    public long selectBackendForGroupCommitInternal(long tableId, String cluster)
             throws LoadException, DdlException {
         // Understanding Group Commit and Backend Selection Logic
         //
@@ -237,7 +237,7 @@ public class GroupCommitManager {
         // a BE is chosen at random. This BE is then recorded along with the mapping of table A and its load level.
         // This approach ensures that group commits can effectively batch data together
         // while managing the load on each BE efficiently.
-        return isCloud ? selectBackendForCloudGroupCommitInternal(tableId, cluster)
+        return Config.isCloudMode() ? selectBackendForCloudGroupCommitInternal(tableId, cluster)
                 : selectBackendForLocalGroupCommitInternal(tableId);
     }
 

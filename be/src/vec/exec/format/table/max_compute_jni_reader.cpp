@@ -63,19 +63,21 @@ MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_des
         }
         index++;
     }
-    std::map<String, String> params = {{"region", _table_desc->region()},
-                                       {"odps_url", _table_desc->odps_url()},
-                                       {"tunnel_url", _table_desc->tunnel_url()},
-                                       {"access_key", _table_desc->access_key()},
-                                       {"secret_key", _table_desc->secret_key()},
-                                       {"project", _table_desc->project()},
-                                       {"partition_spec", _max_compute_params.partition_spec},
-                                       {"table", _table_desc->table()},
-                                       {"public_access", _table_desc->public_access()},
-                                       {"start_offset", std::to_string(_range.start_offset)},
-                                       {"split_size", std::to_string(_range.size)},
-                                       {"required_fields", required_fields.str()},
-                                       {"columns_types", columns_types.str()}};
+    std::map<String, String> params = {
+            {"access_key", _table_desc->access_key()},
+            {"secret_key", _table_desc->secret_key()},
+            {"endpoint", _table_desc->endpoint()},
+            {"quota", _table_desc->quota()},
+            {"project", _table_desc->project()},
+            {"table", _table_desc->table()},
+
+            {"session_id", _max_compute_params.session_id},
+            {"scan_serializer", _max_compute_params.table_batch_read_session},
+
+            {"start_offset", std::to_string(_range.start_offset)},
+            {"split_size", std::to_string(_range.size)},
+            {"required_fields", required_fields.str()},
+            {"columns_types", columns_types.str()}};
     _jni_connector = std::make_unique<JniConnector>(
             "org/apache/doris/maxcompute/MaxComputeJniScanner", params, column_names);
 }

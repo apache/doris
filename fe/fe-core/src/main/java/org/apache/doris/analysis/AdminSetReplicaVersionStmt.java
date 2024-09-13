@@ -37,7 +37,7 @@ import java.util.Map;
  *      "last_success_version" = "100",
  *      "last_failed_version" = "-1",
  */
-public class AdminSetReplicaVersionStmt extends DdlStmt {
+public class AdminSetReplicaVersionStmt extends DdlStmt implements NotFallbackInParser {
 
     public static final String TABLET_ID = "tablet_id";
     public static final String BACKEND_ID = "backend_id";

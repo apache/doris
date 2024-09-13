@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -26,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeA
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.executable.ExecutableFunctions;
 import org.apache.doris.nereids.trees.expressions.functions.executable.NumericArithmetic;
+import org.apache.doris.nereids.trees.expressions.functions.executable.StringArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRoundSeries;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -36,6 +38,7 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
 
+import java.lang.reflect.Array;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -96,10 +99,30 @@ public enum ExpressionEvaluator {
     }
 
     private Expression invoke(Expression expression, String fnName, DataType[] args) {
-        FunctionSignature signature = new FunctionSignature(fnName, args, null);
+        FunctionSignature signature = new FunctionSignature(fnName, args, null, false);
         FunctionInvoker invoker = getFunction(signature);
         if (invoker != null) {
             try {
+                if (invoker.getSignature().hasVarArgs()) {
+                    int fixedArgsSize = invoker.getSignature().getArgTypes().length - 1;
+                    int totalSize = expression.children().size();
+                    Class<?>[] parameterTypes = invoker.getMethod().getParameterTypes();
+                    Class<?> parameterType = parameterTypes[parameterTypes.length - 1];
+                    Class<?> componentType = parameterType.getComponentType();
+                    Object varArgs = Array.newInstance(componentType, totalSize - fixedArgsSize);
+                    for (int i = fixedArgsSize; i < totalSize; i++) {
+                        if (!(expression.children().get(i) instanceof NullLiteral)) {
+                            Array.set(varArgs, i - fixedArgsSize, expression.children().get(i));
+                        }
+                    }
+                    Object[] objects = new Object[fixedArgsSize + 1];
+                    for (int i = 0; i < fixedArgsSize; i++) {
+                        objects[i] = expression.children().get(i);
+                    }
+                    objects[fixedArgsSize] = varArgs;
+
+                    return invoker.invokeVars(objects);
+                }
                 return invoker.invoke(expression.children());
             } catch (AnalysisException e) {
                 return expression;
@@ -114,9 +137,34 @@ public enum ExpressionEvaluator {
             DataType[] candidateTypes = candidate.getSignature().getArgTypes();
             DataType[] expectedTypes = signature.getArgTypes();
 
+            if (candidate.getSignature().hasVarArgs()) {
+                if (candidateTypes.length > expectedTypes.length) {
+                    continue;
+                }
+                boolean match = true;
+                for (int i = 0; i < candidateTypes.length - 1; i++) {
+                    if (!(expectedTypes[i].toCatalogDataType().matchesType(candidateTypes[i].toCatalogDataType()))) {
+                        match = false;
+                        break;
+                    }
+                }
+                Type varType = candidateTypes[candidateTypes.length - 1].toCatalogDataType();
+                for (int i = candidateTypes.length - 1; i < expectedTypes.length; i++) {
+                    if (!(expectedTypes[i].toCatalogDataType().matchesType(varType))) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) {
+                    return candidate;
+                } else {
+                    continue;
+                }
+            }
             if (candidateTypes.length != expectedTypes.length) {
                 continue;
             }
+
             boolean match = true;
             for (int i = 0; i < candidateTypes.length; i++) {
                 if (!(expectedTypes[i].toCatalogDataType().matchesType(candidateTypes[i].toCatalogDataType()))) {
@@ -143,6 +191,7 @@ public enum ExpressionEvaluator {
                 DateLiteral.class,
                 DateTimeArithmetic.class,
                 NumericArithmetic.class,
+                StringArithmetic.class,
                 TimeRoundSeries.class
         );
         for (Class<?> cls : classes) {
@@ -172,7 +221,7 @@ public enum ExpressionEvaluator {
             for (int i = 0; i < argTypes.size(); i++) {
                 array[i] = argTypes.get(i);
             }
-            FunctionSignature signature = new FunctionSignature(name, array, returnType);
+            FunctionSignature signature = new FunctionSignature(name, array, returnType, annotation.varArgs());
             mapBuilder.put(name, new FunctionInvoker(method, signature));
         }
     }
@@ -204,6 +253,14 @@ public enum ExpressionEvaluator {
                 throw new AnalysisException(e.getLocalizedMessage());
             }
         }
+
+        public Literal invokeVars(Object[] args) throws AnalysisException {
+            try {
+                return (Literal) method.invoke(null, args);
+            } catch (InvocationTargetException | IllegalAccessException | IllegalArgumentException e) {
+                throw new AnalysisException(e.getLocalizedMessage());
+            }
+        }
     }
 
     /**
@@ -213,11 +270,13 @@ public enum ExpressionEvaluator {
         private final String name;
         private final DataType[] argTypes;
         private final DataType returnType;
+        private final boolean hasVarArgs;
 
-        public FunctionSignature(String name, DataType[] argTypes, DataType returnType) {
+        public FunctionSignature(String name, DataType[] argTypes, DataType returnType, boolean hasVarArgs) {
             this.name = name;
             this.argTypes = argTypes;
             this.returnType = returnType;
+            this.hasVarArgs = hasVarArgs;
         }
 
         public DataType[] getArgTypes() {
@@ -230,6 +289,10 @@ public enum ExpressionEvaluator {
 
         public String getName() {
             return name;
+        }
+
+        public boolean hasVarArgs() {
+            return hasVarArgs;
         }
     }
 

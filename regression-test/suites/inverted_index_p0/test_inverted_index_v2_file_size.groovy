@@ -122,6 +122,7 @@ suite("test_index_index_V2_file_size", "nonConcurrent") {
 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
+        sql """ set enable_common_expr_pushdown = true """
 
         sql """ INSERT INTO ${tableName} VALUES (1, "andy", "andy love apple", 100); """
         sql """ INSERT INTO ${tableName} VALUES (1, "bason", "bason hate pear", 99); """

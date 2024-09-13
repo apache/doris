@@ -27,6 +27,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -280,6 +281,16 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @Override
     public List<Column> getColumns() {
         return getFullSchema();
+    }
+
+    @Override
+    public boolean autoAnalyzeEnabled() {
+        makeSureInitialized();
+        String policy = catalog.getTableAutoAnalyzePolicy().get(Pair.of(dbName, name));
+        if (policy == null) {
+            return catalog.enableAutoAnalyze();
+        }
+        return policy.equalsIgnoreCase(PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY);
     }
 
     @Override

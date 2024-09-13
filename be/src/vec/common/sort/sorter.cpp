@@ -93,8 +93,10 @@ Status MergeSorterState::merge_sort_read(doris::vectorized::Block* block, int ba
     if (priority_queue_.empty()) {
         *eos = true;
     } else if (priority_queue_.size() == 1) {
-        if (offset_ != 0) {
-            priority_queue_.top().impl->block->skip_num_rows(offset_);
+        if (offset_ != 0 || priority_queue_.top()->pos != 0) {
+            // Skip rows already returned or need to be ignored
+            int64_t offset = offset_ + (int64_t)priority_queue_.top()->pos;
+            priority_queue_.top().impl->block->skip_num_rows(offset);
         }
         block->swap(*priority_queue_.top().impl->block);
         *eos = true;

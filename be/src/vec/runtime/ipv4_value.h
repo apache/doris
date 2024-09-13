@@ -32,19 +32,19 @@ class IPv4Value {
 public:
     IPv4Value() = default;
 
-    explicit IPv4Value(vectorized::IPv4 ipv4) { _value = ipv4; }
+    explicit IPv4Value(IPv4 ipv4) { _value = ipv4; }
 
-    const vectorized::IPv4& value() const { return _value; }
+    const IPv4& value() const { return _value; }
 
-    vectorized::IPv4& value() { return _value; }
+    IPv4& value() { return _value; }
 
-    void set_value(vectorized::IPv4 ipv4) { _value = ipv4; }
+    void set_value(IPv4 ipv4) { _value = ipv4; }
 
     bool from_string(const std::string& ipv4_str) { return from_string(_value, ipv4_str); }
 
     std::string to_string() const { return to_string(_value); }
 
-    static bool from_string(vectorized::IPv4& value, const char* ipv4_str, size_t len) {
+    static bool from_string(IPv4& value, const char* ipv4_str, size_t len) {
         if (len == 0) {
             return false;
         }
@@ -61,15 +61,15 @@ public:
                                           reinterpret_cast<unsigned char*>(&parse_value))) {
             return false;
         }
-        value = static_cast<vectorized::IPv4>(parse_value);
+        value = static_cast<IPv4>(parse_value);
         return true;
     }
 
-    static bool from_string(vectorized::IPv4& value, const std::string& ipv4_str) {
+    static bool from_string(IPv4& value, const std::string& ipv4_str) {
         return from_string(value, ipv4_str.c_str(), ipv4_str.size());
     }
 
-    static std::string to_string(vectorized::IPv4 value) {
+    static std::string to_string(IPv4 value) {
         char buf[IPV4_MAX_TEXT_LENGTH + 1];
         char* start = buf;
         char* end = buf;
@@ -97,7 +97,7 @@ public:
     }
 
 private:
-    vectorized::IPv4 _value;
+    IPv4 _value;
 };
 
 } // namespace doris

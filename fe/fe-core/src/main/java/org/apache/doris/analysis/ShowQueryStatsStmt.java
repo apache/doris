@@ -39,7 +39,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
-public class ShowQueryStatsStmt extends ShowStmt {
+public class ShowQueryStatsStmt extends ShowStmt implements NotFallbackInParser {
 
     private static final ShowResultSetMetaData SHOW_QUERY_STATS_CATALOG_META_DATA = ShowResultSetMetaData.builder()
             .addColumn(new Column("Database", ScalarType.createVarchar(20)))

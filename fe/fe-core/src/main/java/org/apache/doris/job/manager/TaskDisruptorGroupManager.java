@@ -31,15 +31,16 @@ import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.task.AbstractTask;
 
-import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.EventFactory;
 import com.lmax.disruptor.EventTranslatorVararg;
+import com.lmax.disruptor.LiteTimeoutBlockingWaitStrategy;
 import com.lmax.disruptor.WorkHandler;
 import lombok.Getter;
 
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 
 public class TaskDisruptorGroupManager<T extends AbstractTask> {
 
@@ -86,7 +87,8 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
                 (event, sequence, args) -> event.setJob((AbstractJob) args[0]);
         this.dispatchDisruptor = new TaskDisruptor<>(dispatchEventFactory, DISPATCH_TIMER_JOB_QUEUE_SIZE,
                 dispatchThreadFactory,
-                new BlockingWaitStrategy(), dispatchTaskExecutorHandlers, eventTranslator);
+                new LiteTimeoutBlockingWaitStrategy(10, TimeUnit.MILLISECONDS),
+                dispatchTaskExecutorHandlers, eventTranslator);
     }
 
     private void registerInsertDisruptor() {
@@ -102,7 +104,8 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
                     event.setJobConfig((JobExecutionConfiguration) args[1]);
                 };
         TaskDisruptor insertDisruptor = new TaskDisruptor<>(insertEventFactory, DISPATCH_INSERT_TASK_QUEUE_SIZE,
-                insertTaskThreadFactory, new BlockingWaitStrategy(), insertTaskExecutorHandlers, eventTranslator);
+                insertTaskThreadFactory, new LiteTimeoutBlockingWaitStrategy(10, TimeUnit.MILLISECONDS),
+                insertTaskExecutorHandlers, eventTranslator);
         disruptorMap.put(JobType.INSERT, insertDisruptor);
     }
 
@@ -119,17 +122,14 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
                     event.setJobConfig((JobExecutionConfiguration) args[1]);
                 };
         TaskDisruptor mtmvDisruptor = new TaskDisruptor<>(mtmvEventFactory, DISPATCH_MTMV_TASK_QUEUE_SIZE,
-                mtmvTaskThreadFactory, new BlockingWaitStrategy(), insertTaskExecutorHandlers, eventTranslator);
+                mtmvTaskThreadFactory, new LiteTimeoutBlockingWaitStrategy(10, TimeUnit.MILLISECONDS),
+                insertTaskExecutorHandlers, eventTranslator);
         disruptorMap.put(JobType.MV, mtmvDisruptor);
     }
 
-    public void dispatchTimerJob(AbstractJob job) {
-        dispatchDisruptor.publishEvent(job);
-    }
-
-    public void dispatchInstantTask(AbstractTask task, JobType jobType,
-                                    JobExecutionConfiguration jobExecutionConfiguration) {
-        disruptorMap.get(jobType).publishEvent(task, jobExecutionConfiguration);
+    public boolean dispatchInstantTask(AbstractTask task, JobType jobType,
+                                       JobExecutionConfiguration jobExecutionConfiguration) {
+        return disruptorMap.get(jobType).publishEvent(task, jobExecutionConfiguration);
     }
 
 

@@ -33,14 +33,19 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.OverwriteFiles;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.ReplacePartitions;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -91,10 +96,15 @@ public class IcebergTransaction implements Transaction {
         PartitionSpec spec = table.spec();
         FileFormat fileFormat = IcebergUtils.getFileFormat(table);
 
-        //convert commitDataList to writeResult
-        WriteResult writeResult = IcebergWriterHelper
-                .convertToWriterResult(fileFormat, spec, commitDataList);
-        List<WriteResult> pendingResults = Lists.newArrayList(writeResult);
+        List<WriteResult> pendingResults;
+        if (commitDataList.isEmpty()) {
+            pendingResults = Collections.emptyList();
+        } else {
+            //convert commitDataList to writeResult
+            WriteResult writeResult = IcebergWriterHelper
+                    .convertToWriterResult(fileFormat, spec, commitDataList);
+            pendingResults = Lists.newArrayList(writeResult);
+        }
 
         if (updateMode == TUpdateMode.APPEND) {
             commitAppendTxn(table, pendingResults);
@@ -138,6 +148,22 @@ public class IcebergTransaction implements Transaction {
 
 
     private void commitReplaceTxn(Table table, List<WriteResult> pendingResults) {
+        if (pendingResults.isEmpty()) {
+            // such as : insert overwrite table `dst_tb` select * from `empty_tb`
+            // 1. if dst_tb is a partitioned table, it will return directly.
+            // 2. if dst_tb is an unpartitioned table, the `dst_tb` table will be emptied.
+            if (!table.spec().isPartitioned()) {
+                OverwriteFiles overwriteFiles = table.newOverwrite();
+                try (CloseableIterable<FileScanTask> fileScanTasks = table.newScan().planFiles()) {
+                    fileScanTasks.forEach(f -> overwriteFiles.deleteFile(f.file()));
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+                overwriteFiles.commit();
+            }
+            return;
+        }
+
         // commit replace partitions
         ReplacePartitions appendPartitionOp = table.newReplacePartitions();
         for (WriteResult result : pendingResults) {

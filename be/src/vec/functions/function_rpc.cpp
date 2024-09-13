@@ -46,6 +46,11 @@ Status RPCFnImpl::vec_call(FunctionContext* context, Block& block, const ColumnN
                            size_t result, size_t input_rows_count) {
     PFunctionCallRequest request;
     PFunctionCallResponse response;
+    if (_client == nullptr) {
+        return Status::InternalError(
+                "call to rpc function {} failed: init rpc error, server addr = {}", _signature,
+                _server_addr);
+    }
     request.set_function_name(_function_name);
     RETURN_IF_ERROR(_convert_block_to_proto(block, arguments, input_rows_count, &request));
     brpc::Controller cntl;

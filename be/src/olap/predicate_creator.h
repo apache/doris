@@ -242,7 +242,7 @@ std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldType& ty
     case FieldType::OLAP_FIELD_TYPE_IPV4: {
         return std::make_unique<CustomPredicateCreator<TYPE_IPV4, PT, ConditionType>>(
                 [](const std::string& condition) {
-                    vectorized::IPv4 value;
+                    IPv4 value;
                     bool res = IPv4Value::from_string(value, condition);
                     DCHECK(res);
                     return value;
@@ -251,7 +251,7 @@ std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldType& ty
     case FieldType::OLAP_FIELD_TYPE_IPV6: {
         return std::make_unique<CustomPredicateCreator<TYPE_IPV6, PT, ConditionType>>(
                 [](const std::string& condition) {
-                    vectorized::IPv6 value;
+                    IPv6 value;
                     bool res = IPv6Value::from_string(value, condition);
                     DCHECK(res);
                     return value;

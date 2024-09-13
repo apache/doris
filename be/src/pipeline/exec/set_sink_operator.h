@@ -86,8 +86,6 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
-
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
@@ -95,6 +93,7 @@ public:
         return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
+    bool require_shuffled_data_distribution() const override { return true; }
 
 private:
     template <class HashTableContext, bool is_intersected>
@@ -112,7 +111,7 @@ private:
     vectorized::VExprContextSPtrs _child_exprs;
     const bool _is_colocate;
     const std::vector<TExpr> _partition_exprs;
-    using OperatorBase::_child_x;
+    using OperatorBase::_child;
 };
 
 } // namespace pipeline

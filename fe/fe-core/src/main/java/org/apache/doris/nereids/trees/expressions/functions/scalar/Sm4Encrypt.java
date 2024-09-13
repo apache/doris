@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -58,17 +57,7 @@ public class Sm4Encrypt extends Sm4CryptoFunction {
      * constructor with 2 arguments.
      */
     public Sm4Encrypt(Expression arg0, Expression arg1) {
-        // if there are only 2 params, we need add an empty string as the third param
-        // and set encryption mode to SM4_128_ECB
-        // this keeps the behavior consistent with old doris ver.
-        super("sm4_encrypt", arg0, arg1, new StringLiteral(""), new StringLiteral("SM4_128_ECB"));
-
-        // check if encryptionMode from session variables is valid
-        StringLiteral encryptionMode = CryptoFunction.getDefaultBlockEncryptionMode("SM4_128_ECB");
-        if (!SM4_MODES.contains(encryptionMode.getValue())) {
-            throw new AnalysisException(
-                    "session variable block_encryption_mode is invalid with sm4");
-        }
+        super("sm4_encrypt", arg0, arg1, new StringLiteral(""), getDefaultBlockEncryptionMode());
     }
 
     /**
@@ -93,7 +82,7 @@ public class Sm4Encrypt extends Sm4CryptoFunction {
         } else if (children().size() == 3) {
             return new Sm4Encrypt(children.get(0), children.get(1), children.get(2));
         } else {
-            return new Sm4Encrypt(children.get(0), children.get(1), children.get(2), (StringLiteral) children.get(3));
+            return new Sm4Encrypt(children.get(0), children.get(1), children.get(2), children.get(3));
         }
     }
 

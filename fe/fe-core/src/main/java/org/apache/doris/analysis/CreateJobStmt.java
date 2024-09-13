@@ -32,14 +32,14 @@ import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-
-import java.util.HashSet;
 
 /**
  * syntax:
@@ -61,7 +61,7 @@ import java.util.HashSet;
  * WEEK | SECOND }
  */
 @Slf4j
-public class CreateJobStmt extends DdlStmt {
+public class CreateJobStmt extends DdlStmt implements NotFallbackInParser {
 
     @Getter
     private StatementBase doStmt;
@@ -91,12 +91,6 @@ public class CreateJobStmt extends DdlStmt {
     // exclude job name prefix, which is used by inner job
     private static final String excludeJobNamePrefix = "inner_";
 
-    private static final ImmutableSet<Class<? extends DdlStmt>> supportStmtSuperClass
-            = new ImmutableSet.Builder<Class<? extends DdlStmt>>().add(InsertStmt.class)
-            .build();
-
-    private static final HashSet<String> supportStmtClassNamesCache = new HashSet<>(16);
-
     public CreateJobStmt(LabelName labelName, JobExecuteType executeType, String onceJobStartTimestamp,
                          Long interval, String intervalTimeUnit,
                          String startsTimeStamp, String endsTimeStamp, String comment, StatementBase doStmt) {
@@ -118,7 +112,6 @@ public class CreateJobStmt extends DdlStmt {
         labelName.analyze(analyzer);
         String dbName = labelName.getDbName();
         Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
-        analyzerSqlStmt();
         // check its insert stmt,currently only support insert stmt
         //todo when support other stmt,need to check stmt type and generate jobInstance
         JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
@@ -164,6 +157,7 @@ public class CreateJobStmt extends DdlStmt {
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
         String originStmt = getOrigStmt().originStmt;
         String executeSql = parseExecuteSql(originStmt, jobName, comment);
+        analyzerSqlStmt(executeSql);
         // create job use label name as its job name
         InsertJob job = new InsertJob(jobName,
                 JobStatus.RUNNING,
@@ -191,22 +185,20 @@ public class CreateJobStmt extends DdlStmt {
         }
     }
 
-    private void checkStmtSupport() throws AnalysisException {
-        if (supportStmtClassNamesCache.contains(doStmt.getClass().getSimpleName())) {
-            return;
-        }
-        for (Class<? extends DdlStmt> clazz : supportStmtSuperClass) {
-            if (clazz.isAssignableFrom(doStmt.getClass())) {
-                supportStmtClassNamesCache.add(doStmt.getClass().getSimpleName());
-                return;
+    private void analyzerSqlStmt(String sql) throws UserException {
+        NereidsParser parser = new NereidsParser();
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        if (logicalPlan instanceof InsertIntoTableCommand) {
+            InsertIntoTableCommand insertIntoTableCommand = (InsertIntoTableCommand) logicalPlan;
+            try {
+                insertIntoTableCommand.initPlan(ConnectContext.get(), ConnectContext.get().getExecutor());
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage());
             }
-        }
-        throw new AnalysisException("Not support " + doStmt.getClass().getSimpleName() + " type in job");
-    }
 
-    private void analyzerSqlStmt() throws UserException {
-        checkStmtSupport();
-        doStmt.analyze(analyzer);
+        } else {
+            throw new AnalysisException("Not support this sql : " + sql);
+        }
     }
 
     /**

@@ -69,8 +69,8 @@ public:
 
     ~PipelineFragmentContext();
 
-    std::vector<std::shared_ptr<TRuntimeProfileTree>> collect_realtime_profile_x() const;
-    std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile_x() const;
+    std::vector<std::shared_ptr<TRuntimeProfileTree>> collect_realtime_profile() const;
+    std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile() const;
 
     bool is_timeout(timespec now) const;
 
@@ -141,19 +141,20 @@ public:
 
 private:
     Status _build_pipelines(ObjectPool* pool, const doris::TPipelineFragmentParams& request,
-                            const DescriptorTbl& descs, OperatorXPtr* root, PipelinePtr cur_pipe);
+                            const DescriptorTbl& descs, OperatorPtr* root, PipelinePtr cur_pipe);
     Status _create_tree_helper(ObjectPool* pool, const std::vector<TPlanNode>& tnodes,
                                const doris::TPipelineFragmentParams& request,
-                               const DescriptorTbl& descs, OperatorXPtr parent, int* node_idx,
-                               OperatorXPtr* root, PipelinePtr& cur_pipe, int child_idx);
+                               const DescriptorTbl& descs, OperatorPtr parent, int* node_idx,
+                               OperatorPtr* root, PipelinePtr& cur_pipe, int child_idx,
+                               const bool followed_by_shuffled_join);
 
     Status _create_operator(ObjectPool* pool, const TPlanNode& tnode,
                             const doris::TPipelineFragmentParams& request,
-                            const DescriptorTbl& descs, OperatorXPtr& op, PipelinePtr& cur_pipe,
-                            int parent_idx, int child_idx);
+                            const DescriptorTbl& descs, OperatorPtr& op, PipelinePtr& cur_pipe,
+                            int parent_idx, int child_idx, const bool followed_by_shuffled_join);
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ObjectPool* pool, const TPlanNode& tnode,
-                                                   const DescriptorTbl& descs, OperatorXPtr& op,
+                                                   const DescriptorTbl& descs, OperatorPtr& op,
                                                    PipelinePtr& cur_pipe, int parent_idx,
                                                    int child_idx);
 
@@ -241,7 +242,7 @@ private:
 
     int _timeout = -1;
 
-    OperatorXPtr _root_op = nullptr;
+    OperatorPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
     std::vector<std::vector<std::unique_ptr<PipelineTask>>> _tasks;
 
@@ -253,7 +254,7 @@ private:
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"
 #endif
-    DataSinkOperatorXPtr _sink = nullptr;
+    DataSinkOperatorPtr _sink = nullptr;
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif

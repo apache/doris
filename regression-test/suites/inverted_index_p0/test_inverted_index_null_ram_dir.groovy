@@ -105,6 +105,7 @@ suite("test_inverted_index_null_ram_dir") {
                 (7,'tengxun','qie','addr gg','lj',null),
                 (8,'tengxun2','qie',null,'lj',800)
         """
+        sql """ set enable_common_expr_pushdown = true """
 
         // select all data
         qt_select_0 "SELECT * FROM ${tableName} ORDER BY id"

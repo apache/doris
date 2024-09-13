@@ -19,7 +19,7 @@ import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.Http
 import org.apache.doris.regression.util.NodeType
 
-suite('test_compaction_with_visible_version') {
+suite('test_compaction_with_visible_version', 'docker') {
     def options = new ClusterOptions()
     def compaction_keep_invisible_version_min_count = 50L
     options.feConfigs += [

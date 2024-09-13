@@ -125,6 +125,23 @@ g1	1	2	3	4	p1
 g2	1	2	3	4	p2
 
 -- !sql --
+bool_col	tinyint	Yes	true	\N	NONE
+tinyint_col	tinyint	Yes	true	\N	NONE
+smallint_col	smallint	Yes	true	\N	NONE
+int_col	int	Yes	true	\N	NONE
+bigint_col	bigint	Yes	true	\N	NONE
+largeint_col	char(85)	Yes	true	\N	NONE
+float_col	float	Yes	true	\N	NONE
+double_col	double	Yes	true	\N	NONE
+decimal_col	decimal(10,5)	Yes	true	\N	NONE
+decimal_col2	decimal(30,10)	Yes	true	\N	NONE
+date_col	date	Yes	true	\N	NONE
+datetime_col	datetime(6)	Yes	true	\N	NONE
+char_col	char(85)	Yes	true	\N	NONE
+varchar_col	char(85)	Yes	true	\N	NONE
+json_col	text	Yes	true	\N	NONE
+
+-- !sql --
 doris_jdbc_catalog
 
 -- !sql --

@@ -24,6 +24,7 @@ suite("test_index_compaction_unique_keys", "nonConcurrent") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
+    sql """ set global enable_match_without_inverted_index = false """
     boolean disableAutoCompaction = false
   
     def set_be_config = { key, value ->
@@ -154,6 +155,7 @@ suite("test_index_compaction_unique_keys", "nonConcurrent") {
                 "inverted_index_storage_format" = "V1"
             );
         """
+        sql """ set enable_common_expr_pushdown = true """
 
         sql """ INSERT INTO ${tableName} VALUES (1, "andy", "andy love apple", 100); """
         sql """ INSERT INTO ${tableName} VALUES (1, "bason", "bason hate pear", 99); """
@@ -245,5 +247,6 @@ suite("test_index_compaction_unique_keys", "nonConcurrent") {
         if (has_update_be_config) {
             set_be_config.call("inverted_index_compaction_enable", invertedIndexCompactionEnable.toString())
         }
+        sql """ set global enable_match_without_inverted_index = true """
     }
 }

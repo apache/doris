@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -634,6 +635,19 @@ public class OneRangePartitionEvaluator
         Expression dateChild = date.child(0);
         if (partitionSlotContainsNull.containsKey(dateChild)) {
             partitionSlotContainsNull.put(date, true);
+        }
+        return computeMonotonicFunctionRange(result);
+    }
+
+    @Override
+    public EvaluateRangeResult visitConvertTz(ConvertTz convertTz, EvaluateRangeInput context) {
+        EvaluateRangeResult result = super.visitConvertTz(convertTz, context);
+        if (!(result.result instanceof ConvertTz)) {
+            return result;
+        }
+        Expression converTzChild = convertTz.child(0);
+        if (partitionSlotContainsNull.containsKey(converTzChild)) {
+            partitionSlotContainsNull.put(convertTz, true);
         }
         return computeMonotonicFunctionRange(result);
     }

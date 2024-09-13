@@ -480,10 +480,13 @@ public class StatisticsUtil {
             //                         dbName,
             //                         StatisticConstants.HISTOGRAM_TBL_NAME));
         } catch (Throwable t) {
+            LOG.info("stat table does not exist, db_name: {}, table_name: {}", dbName,
+                        StatisticConstants.TABLE_STATISTIC_TBL_NAME);
             return false;
         }
         if (Config.isCloudMode()) {
             if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).availableBackendsExists()) {
+                LOG.info("there are no available backends");
                 return false;
             }
             try (AutoCloseConnectContext r = buildConnectContext()) {
@@ -981,12 +984,7 @@ public class StatisticsUtil {
         if (column == null) {
             return false;
         }
-        try {
-            if (!table.getDatabase().getCatalog().enableAutoAnalyze()) {
-                return false;
-            }
-        } catch (Throwable t) {
-            LOG.warn("Failed to get catalog property. {}", t.getMessage());
+        if (!table.autoAnalyzeEnabled()) {
             return false;
         }
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();

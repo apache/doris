@@ -66,7 +66,10 @@ public class DispatchTaskHandler<T extends AbstractJob> implements WorkHandler<T
                 }
                 JobType jobType = event.getJob().getJobType();
                 for (AbstractTask task : tasks) {
-                    disruptorMap.get(jobType).publishEvent(task, event.getJob().getJobConfig());
+                    if (!disruptorMap.get(jobType).publishEvent(task, event.getJob().getJobConfig())) {
+                        task.cancel();
+                        continue;
+                    }
                     log.info("dispatch timer job success, job id is {},  task id is {}",
                             event.getJob().getJobId(), task.getTaskId());
                 }

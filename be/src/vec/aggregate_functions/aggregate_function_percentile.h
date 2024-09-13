@@ -162,13 +162,6 @@ public:
 
     String get_name() const override { return "percentile_approx"; }
 
-    DataTypePtr get_return_type() const override {
-        if (IAggregateFunction::version < AGG_FUNCTION_NULLABLE) {
-            return make_nullable(std::make_shared<DataTypeFloat64>());
-        }
-        return std::make_shared<DataTypeFloat64>();
-    }
-
     void reset(AggregateDataPtr __restrict place) const override {
         AggregateFunctionPercentileApprox::data(place).reset();
     }
@@ -186,30 +179,6 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
         AggregateFunctionPercentileApprox::data(place).read(buf);
-    }
-
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        if (IAggregateFunction::version < AGG_FUNCTION_NULLABLE) {
-            ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
-            double result = AggregateFunctionPercentileApprox::data(place).get();
-
-            if (std::isnan(result)) {
-                nullable_column.insert_default();
-            } else {
-                auto& col = assert_cast<ColumnFloat64&>(nullable_column.get_nested_column());
-                col.get_data().push_back(result);
-                nullable_column.get_null_map_data().push_back(0);
-            }
-        } else {
-            auto& col = assert_cast<ColumnFloat64&>(to);
-            double result = AggregateFunctionPercentileApprox::data(place).get();
-
-            if (std::isnan(result)) {
-                col.insert_default();
-            } else {
-                col.get_data().push_back(result);
-            }
-        }
     }
 };
 
@@ -256,6 +225,23 @@ public:
             this->data(place).add(sources.get_element(row_num), quantile.get_element(row_num));
         }
     }
+
+    DataTypePtr get_return_type() const override {
+        return make_nullable(std::make_shared<DataTypeFloat64>());
+    }
+
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        auto& nullable_column = assert_cast<ColumnNullable&>(to);
+        double result = AggregateFunctionPercentileApprox::data(place).get();
+
+        if (std::isnan(result)) {
+            nullable_column.insert_default();
+        } else {
+            auto& col = assert_cast<ColumnFloat64&>(nullable_column.get_nested_column());
+            col.get_data().push_back(result);
+            nullable_column.get_null_map_data().push_back(0);
+        }
+    }
 };
 
 class AggregateFunctionPercentileApproxTwoParams : public AggregateFunctionPercentileApprox {
@@ -270,6 +256,19 @@ public:
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         this->data(place).init();
         this->data(place).add(sources.get_element(row_num), quantile.get_element(row_num));
+    }
+
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
+
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        auto& col = assert_cast<ColumnFloat64&>(to);
+        double result = AggregateFunctionPercentileApprox::data(place).get();
+
+        if (std::isnan(result)) {
+            col.insert_default();
+        } else {
+            col.get_data().push_back(result);
+        }
     }
 };
 
@@ -319,6 +318,23 @@ public:
             this->data(place).add(sources.get_element(row_num), quantile.get_element(row_num));
         }
     }
+
+    DataTypePtr get_return_type() const override {
+        return make_nullable(std::make_shared<DataTypeFloat64>());
+    }
+
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        auto& nullable_column = assert_cast<ColumnNullable&>(to);
+        double result = AggregateFunctionPercentileApprox::data(place).get();
+
+        if (std::isnan(result)) {
+            nullable_column.insert_default();
+        } else {
+            auto& col = assert_cast<ColumnFloat64&>(nullable_column.get_nested_column());
+            col.get_data().push_back(result);
+            nullable_column.get_null_map_data().push_back(0);
+        }
+    }
 };
 
 class AggregateFunctionPercentileApproxThreeParams : public AggregateFunctionPercentileApprox {
@@ -336,6 +352,19 @@ public:
 
         this->data(place).init(compression.get_element(row_num));
         this->data(place).add(sources.get_element(row_num), quantile.get_element(row_num));
+    }
+
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
+
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        auto& col = assert_cast<ColumnFloat64&>(to);
+        double result = AggregateFunctionPercentileApprox::data(place).get();
+
+        if (std::isnan(result)) {
+            col.insert_default();
+        } else {
+            col.get_data().push_back(result);
+        }
     }
 };
 
@@ -390,6 +419,23 @@ public:
                                               quantile.get_element(row_num));
         }
     }
+
+    DataTypePtr get_return_type() const override {
+        return make_nullable(std::make_shared<DataTypeFloat64>());
+    }
+
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        auto& nullable_column = assert_cast<ColumnNullable&>(to);
+        double result = AggregateFunctionPercentileApprox::data(place).get();
+
+        if (std::isnan(result)) {
+            nullable_column.insert_default();
+        } else {
+            auto& col = assert_cast<ColumnFloat64&>(nullable_column.get_nested_column());
+            col.get_data().push_back(result);
+            nullable_column.get_null_map_data().push_back(0);
+        }
+    }
 };
 
 class AggregateFunctionPercentileApproxWeightedThreeParams
@@ -410,6 +456,19 @@ public:
         this->data(place).init();
         this->data(place).add_with_weight(sources.get_element(row_num), weight.get_element(row_num),
                                           quantile.get_element(row_num));
+    }
+
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
+
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        auto& col = assert_cast<ColumnFloat64&>(to);
+        double result = AggregateFunctionPercentileApprox::data(place).get();
+
+        if (std::isnan(result)) {
+            col.insert_default();
+        } else {
+            col.get_data().push_back(result);
+        }
     }
 };
 
@@ -467,6 +526,23 @@ public:
                                               quantile.get_element(row_num));
         }
     }
+
+    DataTypePtr get_return_type() const override {
+        return make_nullable(std::make_shared<DataTypeFloat64>());
+    }
+
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        auto& nullable_column = assert_cast<ColumnNullable&>(to);
+        double result = AggregateFunctionPercentileApprox::data(place).get();
+
+        if (std::isnan(result)) {
+            nullable_column.insert_default();
+        } else {
+            auto& col = assert_cast<ColumnFloat64&>(nullable_column.get_nested_column());
+            col.get_data().push_back(result);
+            nullable_column.get_null_map_data().push_back(0);
+        }
+    }
 };
 
 class AggregateFunctionPercentileApproxWeightedFourParams
@@ -488,6 +564,19 @@ public:
         this->data(place).init(compression.get_element(row_num));
         this->data(place).add_with_weight(sources.get_element(row_num), weight.get_element(row_num),
                                           quantile.get_element(row_num));
+    }
+
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
+
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        auto& col = assert_cast<ColumnFloat64&>(to);
+        double result = AggregateFunctionPercentileApprox::data(place).get();
+
+        if (std::isnan(result)) {
+            col.insert_default();
+        } else {
+            col.get_data().push_back(result);
+        }
     }
 };
 

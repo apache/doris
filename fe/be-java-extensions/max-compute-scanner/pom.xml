@@ -43,6 +43,7 @@ under the License.
         <dependency>
             <groupId>com.aliyun.odps</groupId>
             <artifactId>odps-sdk-core</artifactId>
+            <version>${maxcompute.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.codehaus.jackson</groupId>
@@ -53,6 +54,11 @@ under the License.
                     <artifactId>jackson-mapper-asl</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.aliyun.odps</groupId>
+            <artifactId>odps-sdk-table-api</artifactId>
+            <version>${maxcompute.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.arrow</groupId>

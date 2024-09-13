@@ -62,7 +62,6 @@ public:
                     const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     bool need_more_input_data(RuntimeState* state) const override;

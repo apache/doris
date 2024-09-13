@@ -44,6 +44,7 @@ import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.mvrewrite.MVExprEquivalent;
 import org.apache.doris.statistics.ExprStats;
@@ -996,8 +997,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         this.fn = fn;
     }
 
-    // Append a flattened version of this expr, including all children, to 'container'.
     protected void treeToThriftHelper(TExpr container) {
+        treeToThriftHelper(container, ((expr, exprNode) -> expr.toThrift(exprNode)));
+    }
+
+    // Append a flattened version of this expr, including all children, to 'container'.
+    protected void treeToThriftHelper(TExpr container, ExprVisitor visitor) {
         TExprNode msg = new TExprNode();
         msg.type = type.toThrift();
         msg.num_children = children.size();
@@ -1009,11 +1014,15 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         msg.output_scale = getOutputScale();
         msg.setIsNullable(nullableFromNereids.isPresent() ? nullableFromNereids.get() : isNullable());
-        toThrift(msg);
+        visitor.visit(this, msg);
         container.addToNodes(msg);
         for (Expr child : children) {
-            child.treeToThriftHelper(container);
+            child.treeToThriftHelper(container, visitor);
         }
+    }
+
+    public interface ExprVisitor {
+        void visit(Expr expr, TExprNode exprNode);
     }
 
     public static Type getAssignmentCompatibleType(List<Expr> children) {
@@ -2191,6 +2200,16 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // [["1", "2", "3"], ["1"], ["3"]]
     public String getStringValueForArray(FormatOptions options) {
         return null;
+    }
+
+    public final TExpr normalize(Normalizer normalizer) {
+        TExpr result = new TExpr();
+        treeToThriftHelper(result, (expr, texprNode) -> expr.normalize(texprNode, normalizer));
+        return result;
+    }
+
+    protected void normalize(TExprNode msg, Normalizer normalizer) {
+        this.toThrift(msg);
     }
 
     public static Expr getFirstBoundChild(Expr expr, List<TupleId> tids) {

@@ -140,6 +140,10 @@ TxnErrorCode FdbTxnKv::get_partition_boundaries(std::vector<std::string>* bounda
     return TxnErrorCode::TXN_OK;
 }
 
+double FdbTxnKv::get_client_thread_busyness() const {
+    return fdb_database_get_main_thread_busyness(database_->db());
+}
+
 } // namespace doris::cloud
 
 namespace doris::cloud::fdb {

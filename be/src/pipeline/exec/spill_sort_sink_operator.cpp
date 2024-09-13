@@ -23,6 +23,7 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
+
 SpillSortSinkLocalState::SpillSortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
         : Base(parent, state) {
     _finish_dependency = std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
@@ -76,6 +77,7 @@ Status SpillSortSinkLocalState::close(RuntimeState* state, Status execsink_statu
     dec_running_big_mem_op_num(state);
     return Status::OK();
 }
+
 Status SpillSortSinkLocalState::setup_in_memory_sort_op(RuntimeState* state) {
     _runtime_state = RuntimeState::create_unique(
             nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
@@ -118,23 +120,20 @@ Status SpillSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
     _name = "SPILL_SORT_SINK_OPERATOR";
 
     _sort_sink_operator->set_dests_id(DataSinkOperatorX<LocalStateType>::dests_id());
-    RETURN_IF_ERROR(_sort_sink_operator->set_child(DataSinkOperatorX<LocalStateType>::_child_x));
+    RETURN_IF_ERROR(_sort_sink_operator->set_child(DataSinkOperatorX<LocalStateType>::_child));
     return _sort_sink_operator->init(tnode, state);
 }
 
-Status SpillSortSinkOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<LocalStateType>::prepare(state));
-    RETURN_IF_ERROR(_sort_sink_operator->prepare(state));
-    return Status::OK();
-}
 Status SpillSortSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<LocalStateType>::open(state));
     return _sort_sink_operator->open(state);
 }
+
 Status SpillSortSinkOperatorX::revoke_memory(RuntimeState* state) {
     auto& local_state = get_local_state(state);
     return local_state.revoke_memory(state);
 }
+
 size_t SpillSortSinkOperatorX::revocable_mem_size(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
     if (!local_state.Base::_shared_state->sink_status.ok()) {
@@ -142,6 +141,7 @@ size_t SpillSortSinkOperatorX::revocable_mem_size(RuntimeState* state) const {
     }
     return _sort_sink_operator->get_revocable_mem_size(local_state._runtime_state.get());
 }
+
 Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block,
                                     bool eos) {
     auto& local_state = get_local_state(state);
@@ -175,6 +175,7 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
     }
     return Status::OK();
 }
+
 Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
     if (!_shared_state->is_spilled) {
         _shared_state->is_spilled = true;

@@ -24,6 +24,7 @@ import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.PartitionType;
@@ -38,6 +39,7 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -192,6 +194,15 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                 }
 
             }
+            Map<String, String> properties = catalog.getProperties();
+            if (properties.containsKey(HMSProperties.HIVE_METASTORE_TYPE)
+                    && properties.get(HMSProperties.HIVE_METASTORE_TYPE).equals(HMSProperties.DLF_TYPE)) {
+                for (Column column : stmt.getColumns()) {
+                    if (column.hasDefaultValue()) {
+                        throw new UserException("Default values are not supported with `DLF` catalog.");
+                    }
+                }
+            }
             String comment = stmt.getComment();
             Optional<String> location = Optional.ofNullable(props.getOrDefault(LOCATION_URI_KEY, null));
             HiveTableMetadata hiveTableMeta;
@@ -285,7 +296,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean databaseExist(String dbName) {
-        return listDatabaseNames().contains(dbName);
+        return listDatabaseNames().contains(dbName.toLowerCase());
     }
 
     @Override

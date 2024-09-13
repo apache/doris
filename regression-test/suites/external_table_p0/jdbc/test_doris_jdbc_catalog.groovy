@@ -228,6 +228,9 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     sql """insert into test_insert_order(gameid,did,cid,bid,aid,pname) select 'g2',4,3,2,1,'p2'""";
     qt_sql """select * from test_insert_order order by gameid, aid, bid, cid, did;"""
 
+    // test query tvf
+    qt_sql """desc function query("catalog" = "doris_jdbc_catalog", "query" = "select * from regression_test_jdbc_catalog_p0.base");"""
+
     //clean
     qt_sql """select current_catalog()"""
     sql "switch internal"

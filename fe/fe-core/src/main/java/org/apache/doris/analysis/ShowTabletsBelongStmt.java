@@ -36,7 +36,7 @@ import java.util.List;
  * syntax:
  * SHOW TABLETS BELONG tablet_ids
  */
-public class ShowTabletsBelongStmt extends ShowStmt {
+public class ShowTabletsBelongStmt extends ShowStmt implements NotFallbackInParser {
     private List<Long> tabletIds;
 
     private static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()

@@ -29,7 +29,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 // Show plugins statement.
 // TODO(zhaochun): only for support MySQL
-public class ShowPluginsStmt extends ShowStmt {
+public class ShowPluginsStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Name", ScalarType.createVarchar(64)))

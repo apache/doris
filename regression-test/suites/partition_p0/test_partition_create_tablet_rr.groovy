@@ -18,7 +18,7 @@ import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 import org.apache.doris.regression.suite.SuiteCluster
 
-suite("test_partition_create_tablet_rr") {
+suite("test_partition_create_tablet_rr", "docker") {
     def options = new ClusterOptions()
     options.beNum = 1
     options.feConfigs.add('disable_balance=true')

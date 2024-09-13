@@ -50,18 +50,18 @@ public:
     }
 
     // Add operators for pipelineX
-    Status add_operator(OperatorXPtr& op);
+    Status add_operator(OperatorPtr& op);
     // prepare operators for pipelineX
     Status prepare(RuntimeState* state);
 
-    Status set_sink(DataSinkOperatorXPtr& sink_operator);
+    Status set_sink(DataSinkOperatorPtr& sink_operator);
 
-    DataSinkOperatorXBase* sink_x() { return _sink_x.get(); }
-    OperatorXs& operator_xs() { return operatorXs; }
-    DataSinkOperatorXPtr sink_shared_pointer() { return _sink_x; }
+    DataSinkOperatorXBase* sink() { return _sink.get(); }
+    Operators& operators() { return _operators; }
+    DataSinkOperatorPtr sink_shared_pointer() { return _sink; }
 
     [[nodiscard]] const RowDescriptor& output_row_desc() const {
-        return operatorXs.back()->row_desc();
+        return _operators.back()->row_desc();
     }
 
     [[nodiscard]] PipelineId id() const { return _pipeline_id; }
@@ -74,7 +74,7 @@ public:
         if (target_data_distribution.distribution_type != ExchangeType::BUCKET_HASH_SHUFFLE &&
             target_data_distribution.distribution_type != ExchangeType::HASH_SHUFFLE) {
             return true;
-        } else if (operatorXs.front()->ignore_data_hash_distribution()) {
+        } else if (_operators.front()->ignore_data_hash_distribution()) {
             if (_data_distribution.distribution_type ==
                         target_data_distribution.distribution_type &&
                 (_data_distribution.partition_exprs.empty() ||
@@ -93,7 +93,7 @@ public:
         }
     }
     void init_data_distribution() {
-        set_data_distribution(operatorXs.front()->required_data_distribution());
+        set_data_distribution(_operators.front()->required_data_distribution());
     }
     void set_data_distribution(const DataDistribution& data_distribution) {
         _data_distribution = data_distribution;
@@ -108,7 +108,7 @@ public:
     bool need_to_create_task() const { return _num_tasks > _num_tasks_created; }
     void set_num_tasks(int num_tasks) {
         _num_tasks = num_tasks;
-        for (auto& op : operatorXs) {
+        for (auto& op : _operators) {
             op->set_parallel_tasks(_num_tasks);
         }
     }
@@ -119,10 +119,10 @@ public:
         fmt::format_to(debug_string_buffer,
                        "Pipeline [id: {}, _num_tasks: {}, _num_tasks_created: {}]", _pipeline_id,
                        _num_tasks, _num_tasks_created);
-        for (size_t i = 0; i < operatorXs.size(); i++) {
-            fmt::format_to(debug_string_buffer, "\n{}", operatorXs[i]->debug_string(i));
+        for (size_t i = 0; i < _operators.size(); i++) {
+            fmt::format_to(debug_string_buffer, "\n{}", _operators[i]->debug_string(i));
         }
-        fmt::format_to(debug_string_buffer, "\n{}", _sink_x->debug_string(operatorXs.size()));
+        fmt::format_to(debug_string_buffer, "\n{}", _sink->debug_string(_operators.size()));
         return fmt::to_string(debug_string_buffer);
     }
 
@@ -146,12 +146,10 @@ private:
 
     // Operators for pipelineX. All pipeline tasks share operators from this.
     // [SourceOperator -> ... -> SinkOperator]
-    OperatorXs operatorXs;
-    DataSinkOperatorXPtr _sink_x = nullptr;
+    Operators _operators;
+    DataSinkOperatorPtr _sink = nullptr;
 
     std::shared_ptr<ObjectPool> _obj_pool;
-
-    Operators _operators;
 
     // Input data distribution of this pipeline. We do local exchange when input data distribution
     // does not match the target data distribution.

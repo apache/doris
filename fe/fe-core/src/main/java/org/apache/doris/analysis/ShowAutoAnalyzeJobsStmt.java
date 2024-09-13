@@ -43,7 +43,7 @@ import com.google.common.collect.ImmutableList;
  *            [PRIORITY = ["HIGH"|"MID"|"LOW"]]
  *        ]
  */
-public class ShowAutoAnalyzeJobsStmt extends ShowStmt {
+public class ShowAutoAnalyzeJobsStmt extends ShowStmt implements NotFallbackInParser {
     private static final String PRIORITY = "priority";
     private static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("catalog_name")

@@ -27,7 +27,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-public class ShowTabletStorageFormatStmt extends ShowStmt {
+public class ShowTabletStorageFormatStmt extends ShowStmt implements NotFallbackInParser {
     private boolean verbose;
 
     public ShowTabletStorageFormatStmt(boolean verbose) {

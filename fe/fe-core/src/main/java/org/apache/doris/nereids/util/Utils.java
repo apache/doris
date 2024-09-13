@@ -327,6 +327,71 @@ public class Utils {
                 ).collect(ImmutableList.toImmutableList());
     }
 
+    /** getAllCombinations */
+    public static <T> List<List<T>> getAllCombinations(List<T> list, int itemNum) {
+        List<List<T>> result = Lists.newArrayList();
+        generateCombinations(list, itemNum, 0, Lists.newArrayList(), result);
+        return result;
+    }
+
+    private static <T> void generateCombinations(
+            List<T> list, int n, int start, List<T> current, List<List<T>> result) {
+        if (current.size() == n) {
+            result.add(new ArrayList<>(current));
+            return;
+        }
+
+        for (int i = start; i < list.size(); i++) {
+            current.add(list.get(i));
+            generateCombinations(list, n, i + 1, current, result);
+            current.remove(current.size() - 1);
+        }
+    }
+
+    public static <T> List<List<T>> allPermutations(List<T> list) {
+        List<List<T>> result = new ArrayList<>();
+        generatePermutations(new ArrayList<>(list), new ArrayList<>(), result);
+        return result;
+    }
+
+    private static <T> void generatePermutations(List<T> list, List<T> current, List<List<T>> result) {
+        if (!current.isEmpty()) {
+            result.add(new ArrayList<>(current));
+        }
+
+        for (int i = 0; i < list.size(); i++) {
+            T element = list.remove(i);
+            current.add(element);
+            generatePermutations(list, current, result);
+            current.remove(current.size() - 1);
+            list.add(i, element);
+        }
+    }
+
+    /** permutations */
+    public static <T> List<List<T>> permutations(List<T> list) {
+        list = new ArrayList<>(list);
+        List<List<T>> result = new ArrayList<>();
+        if (list.isEmpty()) {
+            result.add(new ArrayList<>());
+            return result;
+        }
+
+        T firstElement = list.get(0);
+        List<T> rest = list.subList(1, list.size());
+        List<List<T>> recursivePermutations = permutations(rest);
+
+        for (List<T> smallerPermutated : recursivePermutations) {
+            for (int index = 0; index <= smallerPermutated.size(); index++) {
+                List<T> temp = new ArrayList<>(smallerPermutated);
+                temp.add(index, firstElement);
+                result.add(temp);
+            }
+        }
+
+        return result;
+    }
+
     public static <T> List<T> copyRequiredList(List<T> list) {
         return ImmutableList.copyOf(Objects.requireNonNull(list, "non-null list is required"));
     }

@@ -49,6 +49,10 @@ public class RangePartitionItem extends PartitionItem {
         return toString();
     }
 
+    public String getItemsSql() {
+        return toPartitionKeyDesc().toSql();
+    }
+
     @Override
     public boolean isDefaultPartition() {
         return false;

@@ -24,7 +24,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 // deprecated stmt, use will be guided to a specific url to get profile from
 // web browser
-public class ShowQueryProfileStmt extends ShowStmt {
+public class ShowQueryProfileStmt extends ShowStmt implements NotFallbackInParser {
     private String queryIdPath;
 
     public ShowQueryProfileStmt(String queryIdPath) {

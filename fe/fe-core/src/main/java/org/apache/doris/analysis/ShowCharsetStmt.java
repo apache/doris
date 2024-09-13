@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-public class ShowCharsetStmt extends ShowStmt {
+public class ShowCharsetStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Charset", ScalarType.createVarchar(20)))

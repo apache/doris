@@ -369,35 +369,6 @@ static const unsigned int T8_7[256] = {
         0xCF56CE31, 0x14124958, 0x5D2E347F, 0xE54C35A1, 0xAC704886, 0x7734CFEF, 0x3E08B2C8,
         0xC451B7CC, 0x8D6DCAEB, 0x56294D82, 0x1F1530A5};
 
-unsigned int crc32c_lut(char const* b, unsigned int off, unsigned int len, unsigned int crc) {
-    unsigned int localCrc = crc;
-    while (len > 7) {
-        unsigned int c0 = b[off++] ^ localCrc;
-        unsigned int c1 = b[off++] ^ (localCrc >>= 8);
-        unsigned int c2 = b[off++] ^ (localCrc >>= 8);
-        unsigned int c3 = b[off++] ^ (localCrc >>= 8);
-
-        localCrc = (T8_7[c0 & 0xff] ^ T8_6[c1 & 0xff]) ^ (T8_5[c2 & 0xff] ^ T8_4[c3 & 0xff]);
-
-        c0 = b[off++] & 0xff;
-        c1 = b[off++] & 0xff;
-        c2 = b[off++] & 0xff;
-        c3 = b[off++] & 0xff;
-
-        localCrc ^= (T8_3[c0] ^ T8_2[c1]) ^ (T8_1[c2] ^ T8_0[c3]);
-
-        len -= 8;
-    }
-
-    while (len > 0) {
-        localCrc = (localCrc >> 8) ^ T8_0[(localCrc ^ b[off++]) & 0xffL];
-        len--;
-    }
-
-    // Publish crc out to object
-    return localCrc;
-}
-
 Status gen_timestamp_string(std::string* out_string) {
     time_t now = time(nullptr);
     tm local_tm;
@@ -412,10 +383,6 @@ Status gen_timestamp_string(std::string* out_string) {
 
     *out_string = time_suffix;
     return Status::OK();
-}
-
-int operator-(const BinarySearchIterator& left, const BinarySearchIterator& right) {
-    return *left - *right;
 }
 
 Status read_write_test_file(const std::string& test_file_path) {
@@ -654,15 +621,6 @@ bool valid_ipv4(const std::string& value_str) {
 
 bool valid_ipv6(const std::string& value_str) {
     return IPv6Value::is_valid_string(value_str.c_str(), value_str.size());
-}
-
-void write_log_info(char* buf, size_t buf_len, const char* fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-
-    vsnprintf(buf, buf_len, fmt, args);
-
-    va_end(args);
 }
 
 } // namespace doris

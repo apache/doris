@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-public class UnlockTablesStmt extends StatementBase {
+public class UnlockTablesStmt extends StatementBase implements NotFallbackInParser {
     @Override
     public String toSql() {
         return "UNLOCK TABLES";

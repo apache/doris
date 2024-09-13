@@ -30,7 +30,6 @@ import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -38,7 +37,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
-import org.apache.doris.plugin.audit.AuditLoaderPlugin;
+import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -55,8 +54,6 @@ import java.util.Optional;
 
 public class InternalSchemaInitializer extends Thread {
 
-    public static final int TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS = 5;
-
     private static final Logger LOG = LogManager.getLogger(InternalSchemaInitializer.class);
 
     public InternalSchemaInitializer() {
@@ -72,17 +69,17 @@ public class InternalSchemaInitializer extends Thread {
                 FrontendNodeType feType = Env.getCurrentEnv().getFeType();
                 if (feType.equals(FrontendNodeType.INIT) || feType.equals(FrontendNodeType.UNKNOWN)) {
                     LOG.warn("FE is not ready");
-                    Thread.sleep(5000);
+                    Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
                     continue;
                 }
                 Thread.currentThread()
-                        .join(TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS * 1000L);
+                        .join(Config.resource_not_ready_sleep_seconds * 1000L);
                 createDb();
                 createTbl();
             } catch (Throwable e) {
                 LOG.warn("Statistics storage initiated failed, will try again later", e);
                 try {
-                    Thread.sleep(5000);
+                    Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
                 } catch (InterruptedException ex) {
                     LOG.info("Sleep interrupted. {}", ex.getMessage());
                 }
@@ -98,7 +95,7 @@ public class InternalSchemaInitializer extends Thread {
         Database database = op.get();
         modifyTblReplicaCount(database, StatisticConstants.TABLE_STATISTIC_TBL_NAME);
         modifyTblReplicaCount(database, StatisticConstants.PARTITION_STATISTIC_TBL_NAME);
-        modifyTblReplicaCount(database, AuditLoaderPlugin.AUDIT_LOG_TABLE);
+        modifyTblReplicaCount(database, AuditLoader.AUDIT_LOG_TABLE);
     }
 
     @VisibleForTesting
@@ -154,7 +151,7 @@ public class InternalSchemaInitializer extends Thread {
                 }
             }
             try {
-                Thread.sleep(5000);
+                Thread.sleep(Config.resource_not_ready_sleep_seconds *  1000);
             } catch (InterruptedException t) {
                 // IGNORE
             }
@@ -200,10 +197,6 @@ public class InternalSchemaInitializer extends Thread {
             }
         };
 
-        if (Config.isCloudMode() && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
-            properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, FeConstants.BUILT_IN_STORAGE_VAULT_NAME);
-        }
-
         PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
                 tableName, InternalSchema.getCopiedSchema(statsTableName),
@@ -215,7 +208,7 @@ public class InternalSchemaInitializer extends Thread {
 
     private static CreateTableStmt buildAuditTblStmt() throws UserException {
         TableName tableName = new TableName("",
-                FeConstants.INTERNAL_DB_NAME, AuditLoaderPlugin.AUDIT_LOG_TABLE);
+                FeConstants.INTERNAL_DB_NAME, AuditLoader.AUDIT_LOG_TABLE);
 
         String engineName = "olap";
         ArrayList<String> dupKeys = Lists.newArrayList("query_id", "time", "client_ip");
@@ -238,13 +231,9 @@ public class InternalSchemaInitializer extends Thread {
             }
         };
 
-        if (Config.isCloudMode() && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
-            properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, FeConstants.BUILT_IN_STORAGE_VAULT_NAME);
-        }
-
         PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
-                tableName, InternalSchema.getCopiedSchema(AuditLoaderPlugin.AUDIT_LOG_TABLE),
+                tableName, InternalSchema.getCopiedSchema(AuditLoader.AUDIT_LOG_TABLE),
                 engineName, keysDesc, partitionDesc, distributionDesc,
                 properties, null, "Doris internal audit table, DO NOT MODIFY IT", null);
         StatisticsUtil.analyze(createTableStmt);
@@ -286,7 +275,7 @@ public class InternalSchemaInitializer extends Thread {
         }
 
         // 3. check audit table
-        optionalStatsTbl = db.getTable(AuditLoaderPlugin.AUDIT_LOG_TABLE);
+        optionalStatsTbl = db.getTable(AuditLoader.AUDIT_LOG_TABLE);
         return optionalStatsTbl.isPresent();
     }
 

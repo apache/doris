@@ -62,6 +62,7 @@ suite("insert_group_commit_with_large_data") {
             DUPLICATE KEY(`id`, `name`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES (
+                "group_commit_interval_ms" = "40",
                 "replication_num" = "1"
             );
             """

@@ -30,7 +30,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.ListUtil;
-import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
@@ -232,13 +231,6 @@ public class ListPartitionInfo extends PartitionInfo {
                 idxInternal++;
             }
             sb.append(")");
-
-            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
-                if (!p.equals("")) {
-                    sb.append(" (\"" + PropertyAnalyzer.PROPERTIES_STORAGE_POLICY + "\" = \"");
-                    sb.append(p).append("\")");
-                }
-            });
 
             if (partitionId != null) {
                 partitionId.add(entry.getKey());

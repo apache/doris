@@ -842,7 +842,7 @@ public class Column implements GsonPostProcessable {
             }
         }
 
-        if (this.aggregationType != other.aggregationType) {
+        if (!Objects.equals(this.aggregationType, other.aggregationType)) {
             throw new DdlException("Can not change aggregation type");
         }
 

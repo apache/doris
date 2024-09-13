@@ -159,6 +159,7 @@ suite("test_single_replica_compaction_with_format_v2", "inverted_index_format_v2
             """
 
         sql """ sync """
+        sql """ set enable_common_expr_pushdown = true """
 
         qt_select_default """ SELECT * FROM ${tableName} t WHERE city MATCH 'Beijing' ORDER BY user_id,date,city,age,sex,last_visit_date,last_update_date,last_visit_date_not_null,cost,max_dwell_time,min_dwell_time; """
 
