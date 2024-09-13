@@ -47,6 +47,12 @@ public class SelectHintTest {
                 return ctx;
             }
         };
+        new MockUp<Env>() {
+            @Mock
+            public boolean isMaster() {
+                return true;
+            }
+        };
     }
 
     @Test
