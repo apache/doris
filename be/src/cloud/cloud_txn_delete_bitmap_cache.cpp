@@ -154,11 +154,11 @@ void CloudTxnDeleteBitmapCache::set_tablet_txn_info(
 }
 
 Status CloudTxnDeleteBitmapCache::update_tablet_txn_info(TTransactionId transaction_id,
-                                                       int64_t tablet_id,
-                                                       DeleteBitmapPtr delete_bitmap,
-                                                       const RowsetIdUnorderedSet& rowset_ids,
-                                                       PublishStatus publish_status,
-                                                       TxnPublishInfo publish_info) {
+                                                         int64_t tablet_id,
+                                                         DeleteBitmapPtr delete_bitmap,
+                                                         const RowsetIdUnorderedSet& rowset_ids,
+                                                         PublishStatus publish_status,
+                                                         TxnPublishInfo publish_info) {
     {
         std::unique_lock<std::shared_mutex> wlock(_rwlock);
         TxnKey txn_key(transaction_id, tablet_id);
