@@ -1638,7 +1638,7 @@ public:
                 const size_t pad_times = (len - str_char_size) / pad_char_size;
                 const size_t pad_remainder_len = pad_index[(len - str_char_size) % pad_char_size];
                 const size_t new_capacity = str_len + size_t(pad_times + 1) * pad_len;
-                ColumnString::check_chars_length(new_capacity, 0);
+                ColumnString::check_chars_length(buffer_len + new_capacity, i);
                 buffer.reserve(buffer_len + new_capacity);
                 if constexpr (!Impl::is_lpad) {
                     memcpy(buffer.data() + buffer_len, str_data, str_len);

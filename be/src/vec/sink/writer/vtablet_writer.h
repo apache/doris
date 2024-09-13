@@ -413,6 +413,8 @@ protected:
     // send block to slave BE rely on this. dont reconstruct it.
     std::shared_ptr<WriteBlockCallback<PTabletWriterAddBlockResult>> _send_block_callback = nullptr;
 
+    int64_t _wg_id = -1;
+
     bool _is_incremental;
 };
 

@@ -50,11 +50,9 @@ suite("test_auto_partition_behavior") {
     result = sql "show partitions from unique_table"
     assertEquals(result.size(), 10)
     // add partition
-    try {
+    test {
         sql """ alter table unique_table add partition padd values in ("Xxx") """
-        fail()
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("is conflict with current partitionKeys"))
+        exception "is conflict with current partitionKeys"
     }
     // drop partition
     def partitions = sql "show partitions from unique_table order by PartitionName"
@@ -94,11 +92,9 @@ suite("test_auto_partition_behavior") {
     result = sql "show partitions from dup_table"
     assertEquals(result.size(), 10)
     // add partition
-    try {
+    test {
         sql """ alter table dup_table add partition padd values in ("Xxx") """
-        fail()
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("is conflict with current partitionKeys"))
+        exception "is conflict with current partitionKeys"
     }
     // drop partition
     partitions = sql "show partitions from dup_table order by PartitionName"
@@ -168,11 +164,9 @@ suite("test_auto_partition_behavior") {
         );
         """
     sql """ insert into rewrite values ("Xxx"); """
-    try {
+    test {
         sql """ insert overwrite table rewrite partition(p1) values ("") """
-        fail()
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Insert has filtered data in strict mode"))
+        exception "Insert has filtered data in strict mode"
     }
     sql """ insert overwrite table rewrite partition(p1) values ("Xxx") """
     qt_sql_overwrite """ select * from rewrite """ // Xxx
@@ -297,6 +291,9 @@ suite("test_auto_partition_behavior") {
     part_result = sql " show tablets from test_change "
     assertEquals(part_result.size, 52 * replicaNum)
 
+
+
+    // test not auto partition have expr.
     test {
         sql """
             CREATE TABLE not_auto_expr (
@@ -310,4 +307,11 @@ suite("test_auto_partition_behavior") {
         """
         exception "Non-auto partition table not support partition expr!"
     }
+
+
+    // test insert empty
+    sql "create table if not exists empty_range like test_change"
+    sql "insert into test_change select * from empty_range"
+    sql "create table if not exists empty_list like long_value"
+    sql "insert into long_value select * from empty_list"
 }

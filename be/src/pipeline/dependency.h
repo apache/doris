@@ -35,6 +35,7 @@
 #include "pipeline/exec/join/process_hash_table_probe.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
+#include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/spill/spill_stream.h"
 
@@ -541,6 +542,12 @@ public:
     const int _child_count;
 };
 
+struct CacheSharedState : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(CacheSharedState)
+public:
+    DataQueue data_queue;
+};
+
 class MultiCastDataStreamer;
 
 struct MultiCastSharedState : public BasicSharedState {
@@ -649,8 +656,8 @@ public:
 };
 
 using SetHashTableVariants =
-        std::variant<std::monostate,
-                     vectorized::MethodSerialized<HashMap<StringRef, RowRefListWithFlags>>,
+        std::variant<std::monostate, vectorized::SetSerializedHashTableContext,
+                     vectorized::SetMethodOneString,
                      vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt8>,
                      vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt16>,
                      vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt32>,
@@ -728,6 +735,12 @@ public:
             case TYPE_DATETIMEV2:
                 hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt64>>();
                 break;
+            case TYPE_CHAR:
+            case TYPE_VARCHAR:
+            case TYPE_STRING: {
+                hash_table_variants->emplace<vectorized::SetMethodOneString>();
+                break;
+            }
             case TYPE_LARGEINT:
             case TYPE_DECIMALV2:
             case TYPE_DECIMAL128I:

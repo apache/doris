@@ -112,6 +112,7 @@ suite("test_analyze_mv") {
     sql """create database test_analyze_mv"""
     sql """use test_analyze_mv"""
     sql """set global force_sample_analyze=false"""
+    sql """set global enable_auto_analyze=false"""
 
     sql """CREATE TABLE mvTestDup (
             key1 bigint NOT NULL,

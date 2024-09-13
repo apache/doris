@@ -21,8 +21,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.scheduler.constants.TaskType;
 
-import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.EventTranslatorThreeArg;
+import com.lmax.disruptor.LiteTimeoutBlockingWaitStrategy;
 import com.lmax.disruptor.TimeoutException;
 import com.lmax.disruptor.WorkHandler;
 import com.lmax.disruptor.dsl.Disruptor;
@@ -44,7 +44,7 @@ import java.util.concurrent.TimeUnit;
 @Log4j2
 public class TaskDisruptor implements Closeable {
 
-    private  Disruptor<TaskEvent> disruptor;
+    private Disruptor<TaskEvent> disruptor;
     private static final int DEFAULT_RING_BUFFER_SIZE = Config.async_task_queen_size;
 
     private static final int consumerThreadCount = Config.async_task_consumer_thread_num;
@@ -74,7 +74,7 @@ public class TaskDisruptor implements Closeable {
     public void start() {
         CustomThreadFactory exportTaskThreadFactory = new CustomThreadFactory("export-task-consumer");
         disruptor = new Disruptor<>(TaskEvent.FACTORY, DEFAULT_RING_BUFFER_SIZE, exportTaskThreadFactory,
-                ProducerType.SINGLE, new BlockingWaitStrategy());
+                ProducerType.SINGLE, new LiteTimeoutBlockingWaitStrategy(10, TimeUnit.MILLISECONDS));
         WorkHandler<TaskEvent>[] workers = new TaskHandler[consumerThreadCount];
         for (int i = 0; i < consumerThreadCount; i++) {
             workers[i] = new TaskHandler();
@@ -109,7 +109,7 @@ public class TaskDisruptor implements Closeable {
         try {
             disruptor.publishEvent(TRANSLATOR, jobId, taskId, taskType);
         } catch (Exception e) {
-            log.error("tryPublish failed, jobId: {}", jobId, e);
+            log.warn("tryPublish failed, jobId: {}", jobId, e);
         }
     }
 
@@ -127,7 +127,7 @@ public class TaskDisruptor implements Closeable {
         try {
             disruptor.publishEvent(TRANSLATOR, taskId, 0L, TaskType.TRANSIENT_TASK);
         } catch (Exception e) {
-            log.error("tryPublish failed, taskId: {}", taskId, e);
+            log.warn("tryPublish failed, taskId: {}", taskId, e);
         }
     }
 
