@@ -519,9 +519,7 @@ void ColumnNullable::get_permutation(bool reverse, size_t limit, int null_direct
 
 void ColumnNullable::reserve(size_t n) {
     get_nested_column().reserve(n);
-    bool origin_flag = _need_update_has_null;
-    get_null_map_data().reserve(n);
-    restore_update_flag(origin_flag);
+    get_null_map_data(false).reserve(n);
 }
 
 void ColumnNullable::resize(size_t n) {

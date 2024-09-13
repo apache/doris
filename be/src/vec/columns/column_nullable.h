@@ -56,48 +56,55 @@ public:
     NullMapProvider(MutableColumnPtr&& null_map) : _null_map(std::move(null_map)) {}
     void reset_null_map(MutableColumnPtr&& null_map) { _null_map = std::move(null_map); }
 
-    // Return the column that represents the byte map. if want use null_map, just call this.
+    // return the column that represents the byte map. if want use null_map, just call this.
     const ColumnPtr& get_null_map_column_ptr() const { return _null_map; }
-    MutableColumnPtr get_null_map_column_ptr() {
-        _need_update_has_null = true;
+    // for functions getting nullmap, we assume it will modify it. so set `_need_update_has_null` to true. if you know it wouldn't,
+    // call with arg false. but for the ops which will set _has_null themselves, call `update_has_null()`
+    MutableColumnPtr get_null_map_column_ptr(bool may_change = true) {
+        if (may_change) {
+            _need_update_has_null = true;
+        }
         return _null_map->assume_mutable();
     }
-    IColumn::WrappedPtr& get_null_map() {
-        _need_update_has_null = true;
+    ColumnUInt8::WrappedPtr& get_null_map(bool may_change = true) {
+        if (may_change) {
+            _need_update_has_null = true;
+        }
         return _null_map;
     }
 
-    ColumnUInt8& get_null_map_column() {
-        _need_update_has_null = true;
+    ColumnUInt8& get_null_map_column(bool may_change = true) {
+        if (may_change) {
+            _need_update_has_null = true;
+        }
         return assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*_null_map);
     }
     const ColumnUInt8& get_null_map_column() const {
         return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*_null_map);
     }
 
-    NullMap& get_null_map_data() { return get_null_map_column().get_data(); }
+    NullMap& get_null_map_data(bool may_change = true) {
+        return get_null_map_column(may_change).get_data();
+    }
     const NullMap& get_null_map_data() const { return get_null_map_column().get_data(); }
 
-    void clear_null_map() { _null_map->clear(); }
+    void clear_null_map() { assert_cast<ColumnUInt8*>(_null_map.get())->clear(); }
 
-    /**
-     * `get_null_map_column()` with non-const caller will always set `_need_update_has_null` to true. If you called but not
-     *  modify value, use this to restore it with the origin value you saved before calling get_null_map_column.
-     * For example, insert `false` to null_map, wrap your code with {xxx = _need_update_has_null; restore_update_flag(xxx);}.
-     *  but insert `true`, append with {_has_null = true; _need_update_has_null = false;}.
-    */
-    void restore_update_flag(bool before) { _need_update_has_null = before; }
+    void update_has_null(bool new_value) {
+        _has_null = new_value;
+        _need_update_has_null = false;
+    }
 
-    /**
- * Here we have three variables which serve for `has_null()` judgement. If we have known the nullity of object, no need
- *  to check through the `null_map` to get the answer until the next time we modify it. Here `_has_null` is just the answer
- *  we cached. `_need_update_has_null` indicates there's modification or not since we got `_has_null()` last time. So in 
- *  `_has_null()` we can check the two vars to know if there's need to update `has_null` or not.
- * If you just want QUERY BUT NOT MODIFY, make sure the caller is const. There will be no perf overhead for const overload.
- *  Otherwise, this class, as the base class, will make it no possible to directly visit `null_map` forgetting to change the
- *  protected flags. Just call the interface is ok.
- */
 protected:
+    /**
+    * Here we have three variables which serve for `has_null()` judgement. If we have known the nullity of object, no need
+    *  to check through the `null_map` to get the answer until the next time we modify it. Here `_has_null` is just the answer
+    *  we cached. `_need_update_has_null` indicates there's modification or not since we got `_has_null()` last time. So in 
+    *  `_has_null()` we can check the two vars to know if there's need to update `has_null` or not.
+    * If you just want QUERY BUT NOT MODIFY, make sure the caller is const. There will be no perf overhead for const overload.
+    *  Otherwise, this class, as the base class, will make it no possible to directly visit `null_map` forgetting to change the
+    *  protected flags. Just call the interface is ok.
+    */
     bool _need_update_has_null = true;
     bool _has_null = true;
 
@@ -202,9 +209,7 @@ public:
             _has_null = true;
             _need_update_has_null = false;
         } else {
-            bool origin_flag = _need_update_has_null;
-            get_null_map_data().push_back(0);
-            restore_update_flag(origin_flag);
+            _push_false_to_nullmap(1);
         }
     }
 
@@ -466,11 +471,8 @@ private:
     template <bool negative>
     void apply_null_map_impl(const ColumnUInt8& map);
 
-    void _push_false_to_nullmap(size_t num) {
-        bool origin_flag = _need_update_has_null;
-        get_null_map_column().insert_many_vals(0, num);
-        restore_update_flag(origin_flag);
-    }
+    // push not null value wouldn't change the nullity. no need to update _has_null
+    void _push_false_to_nullmap(size_t num) { get_null_map_column(false).insert_many_vals(0, num); }
 
     WrappedPtr nested_column;
 };

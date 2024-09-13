@@ -272,6 +272,14 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DATEV2;
     } else if (std::is_same_v<ReturnType, DateTimeV2>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DATETIMEV2;
+    } else if (std::is_same_v<ReturnType, Decimal128V2>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMALV2;
+    } else if (std::is_same_v<ReturnType, Decimal32>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL32;
+    } else if (std::is_same_v<ReturnType, Decimal64>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL64;
+    } else if (std::is_same_v<ReturnType, Decimal128V3>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL128I;
     } else {
         fn_ctx_return.type = doris::PrimitiveType::INVALID_TYPE;
     }
