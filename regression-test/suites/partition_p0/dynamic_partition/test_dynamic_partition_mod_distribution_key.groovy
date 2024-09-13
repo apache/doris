@@ -39,7 +39,7 @@ suite("test_dynamic_partition_mod_distribution_key") {
                 v INT ${aggType}
             ) ${key} 
             PARTITION BY RANGE(k1) ()
-            DISTRIBUTED BY HASH(k1) BUCKETS 1
+            DISTRIBUTED BY HASH(k1, k2) BUCKETS 1
             PROPERTIES (
                 "dynamic_partition.enable"="true",
                 "dynamic_partition.end"="3",
