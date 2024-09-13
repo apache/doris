@@ -21,6 +21,7 @@
 
 #include <memory>
 #include <utility>
+#include <variant>
 
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -72,7 +73,7 @@ public:
         std::string format_str;
         // Check if the format string is null or exceeds the length limit.
         bool is_valid = true;
-        time_format_type::TimeFormatType format_type = time_format_type::TimeFormatType::None;
+        time_format_type::FormatImplVariant format_type;
     };
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
@@ -85,7 +86,7 @@ public:
         if (context->get_num_args() == 1) {
             // default argument
             state->format_str = "yyyy-MM-dd HH:mm:ss";
-            state->format_type = time_format_type::TimeFormatType::yyyy_MM_dd_HH_mm_ss;
+            state->format_type = time_format_type::yyyy_MM_dd_HH_mm_ssImpl {};
             return IFunction::open(context, scope);
         }
 
@@ -107,7 +108,7 @@ public:
 
         // Preprocess special format strings.
         state->format_str = format_str;
-        state->format_type = time_format_type::string_to_type(state->format_str);
+        state->format_type = time_format_type::string_to_impl(state->format_str);
 
         return IFunction::open(context, scope);
     }
@@ -171,47 +172,18 @@ public:
             return Status::OK();
         }
 
-        auto execute_for_format_type = [&]<typename Impl>() {
-            size_t offset = 0;
-            for (int i = 0; i < len; ++i) {
-                null_map[i] = Transform::template execute<Impl>(ts[i], format, res_data, offset,
-                                                                context->state()->timezone_obj());
-                res_offsets[i] = offset;
-            }
-            res_data.resize(offset);
-        };
-
-        switch (format_state->format_type) {
-        case time_format_type::TimeFormatType::None: {
-            execute_for_format_type.template operator()<time_format_type::NoneImpl>();
-            break;
-        }
-        case time_format_type::TimeFormatType::yyyyMMdd: {
-            execute_for_format_type.template operator()<time_format_type::yyyyMMddImpl>();
-            break;
-        }
-        case time_format_type::TimeFormatType::yyyy_MM_dd: {
-            execute_for_format_type.template operator()<time_format_type::yyyy_MM_ddImpl>();
-            break;
-        }
-        case time_format_type::TimeFormatType::yyyy_MM_dd_HH_mm_ss: {
-            execute_for_format_type
-                    .template operator()<time_format_type::yyyy_MM_dd_HH_mm_ssImpl>();
-            break;
-        }
-        case time_format_type::TimeFormatType::yyyy_MM: {
-            execute_for_format_type.template operator()<time_format_type::yyyy_MMImpl>();
-            break;
-        }
-        case time_format_type::TimeFormatType::yyyyMM: {
-            execute_for_format_type.template operator()<time_format_type::yyyyMMImpl>();
-            break;
-        }
-        case time_format_type::TimeFormatType::yyyy: {
-            execute_for_format_type.template operator()<time_format_type::yyyyImpl>();
-            break;
-        }
-        }
+        std::visit(
+                [&](auto type) {
+                    using Impl = decltype(type);
+                    size_t offset = 0;
+                    for (int i = 0; i < len; ++i) {
+                        null_map[i] = Transform::template execute<Impl>(
+                                ts[i], format, res_data, offset, context->state()->timezone_obj());
+                        res_offsets[i] = offset;
+                    }
+                    res_data.resize(offset);
+                },
+                format_state->format_type);
         return Status::OK();
     }
 };

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <variant>
+
 #include "vec/common/string_ref.h"
 namespace doris::vectorized {
 
@@ -154,6 +156,27 @@ struct yyyyImpl {
         return i;
     }
 };
+
+using FormatImplVariant = std::variant<NoneImpl, yyyyMMddImpl, yyyy_MM_ddImpl,
+                                       yyyy_MM_dd_HH_mm_ssImpl, yyyy_MMImpl, yyyyMMImpl, yyyyImpl>;
+
+inline FormatImplVariant string_to_impl(const std::string& format) {
+    if (format == "yyyyMMdd") {
+        return yyyyMMddImpl {};
+    } else if (format == "yyyy-MM-dd") {
+        return yyyy_MM_ddImpl {};
+    } else if (format == "yyyy-MM-dd HH:mm:ss") {
+        return yyyy_MM_dd_HH_mm_ssImpl {};
+    } else if (format == "yyyy-MM") {
+        return yyyy_MMImpl {};
+    } else if (format == "yyyyMM") {
+        return yyyyMMImpl {};
+    } else if (format == "yyyy") {
+        return yyyyImpl {};
+    } else {
+        return NoneImpl {};
+    }
+}
 
 } // namespace time_format_type
 
