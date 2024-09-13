@@ -33,6 +33,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
@@ -42,11 +43,13 @@ import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.PartitionsProcDir;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hudi.source.HudiCachedPartitionProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
@@ -78,6 +81,7 @@ import org.apache.doris.thrift.TMaterializedViewsMetadataParams;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPartitionValuesMetadataParams;
 import org.apache.doris.thrift.TPartitionsMetadataParams;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TRow;
@@ -204,7 +208,8 @@ public class MetadataGenerator {
         }
         TFetchSchemaTableDataResult result;
         TMetadataTableRequestParams params = request.getMetadaTableParams();
-        switch (request.getMetadaTableParams().getMetadataType()) {
+        TMetadataType metadataType = request.getMetadaTableParams().getMetadataType();
+        switch (metadataType) {
             case ICEBERG:
                 result = icebergMetadataResult(params);
                 break;
@@ -232,11 +237,17 @@ public class MetadataGenerator {
             case TASKS:
                 result = taskMetadataResult(params);
                 break;
+            case PARTITION_VALUES:
+                result = partitionValuesMetadataResult(params);
+                break;
             default:
                 return errorResult("Metadata table params is not set.");
         }
         if (result.getStatus().getStatusCode() == TStatusCode.OK) {
-            filterColumns(result, params.getColumnsName(), params.getMetadataType(), params);
+            if (metadataType != TMetadataType.PARTITION_VALUES) {
+                // partition_values' result already sorted by column names
+                filterColumns(result, params.getColumnsName(), params.getMetadataType(), params);
+            }
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("getMetadataTable() end.");
@@ -1459,4 +1470,72 @@ public class MetadataGenerator {
             }
         }
     }
+
+    private static TFetchSchemaTableDataResult partitionValuesMetadataResult(TMetadataTableRequestParams params) {
+        if (!params.isSetPartitionValuesMetadataParams()) {
+            return errorResult("partition values metadata params is not set.");
+        }
+
+        TPartitionValuesMetadataParams metaParams = params.getPartitionValuesMetadataParams();
+        String ctlName = metaParams.getCatalog();
+        String dbName = metaParams.getDatabase();
+        String tblName = metaParams.getTable();
+        List<TRow> dataBatch;
+        try {
+            TableIf table = PartitionValuesTableValuedFunction.analyzeAndGetTable(ctlName, dbName, tblName);
+            TableType tableType = table.getType();
+            switch (tableType) {
+                case HMS_EXTERNAL_TABLE:
+                    dataBatch = partitionValuesMetadataResultForHmsTable((HMSExternalTable) table,
+                            params.getColumnsName());
+                    break;
+                default:
+                    return errorResult("not support table type " + tableType.name());
+            }
+            TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+            result.setDataBatch(dataBatch);
+            result.setStatus(new TStatus(TStatusCode.OK));
+            return result;
+        } catch (Throwable t) {
+            LOG.warn("error when get partition values metadata. {}.{}.{}", ctlName, dbName, tblName, t);
+            return errorResult("error when get partition values metadata: " + Util.getRootCauseMessage(t));
+        }
+    }
+
+    private static List<TRow> partitionValuesMetadataResultForHmsTable(HMSExternalTable tbl, List<String> colNames)
+            throws AnalysisException {
+        List<Column> partitionCols = tbl.getPartitionColumns();
+        List<Integer> colIdxs = Lists.newArrayList();
+        for (String colName : colNames) {
+            for (int i = 0; i < partitionCols.size(); ++i) {
+                if (partitionCols.get(i).getName().equalsIgnoreCase(colName)) {
+                    colIdxs.add(i);
+                }
+            }
+        }
+        if (colIdxs.size() != colNames.size()) {
+            throw new AnalysisException(
+                    "column " + colNames + " does not match partition columns of table " + tbl.getName());
+        }
+
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) tbl.getCatalog());
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
+                tbl.getDbName(), tbl.getName(), tbl.getPartitionColumnTypes());
+        Map<Long, List<String>> valuesMap = hivePartitionValues.getPartitionValuesMap();
+        List<TRow> dataBatch = Lists.newArrayList();
+        for (Map.Entry<Long, List<String>> entry : valuesMap.entrySet()) {
+            TRow trow = new TRow();
+            List<String> values = entry.getValue();
+            if (values.size() != partitionCols.size()) {
+                continue;
+            }
+            for (Integer idx : colIdxs) {
+                trow.addToColumnValue(new TCell().setStringVal(values.get(idx))); // COLUMN_VALUE
+            }
+            dataBatch.add(trow);
+        }
+        return dataBatch;
+    }
+
 }
