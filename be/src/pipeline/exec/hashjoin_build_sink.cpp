@@ -336,22 +336,22 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
                     switch (_build_expr_ctxs[0]->root()->result_type()) {
                     case TYPE_BOOLEAN:
                     case TYPE_TINYINT:
-                        _shared_state->hash_table_variants->emplace<I8HashTableContext>();
+                        _shared_state->hash_table_variants->emplace<I8HashTableContext>(state);
                         break;
                     case TYPE_SMALLINT:
-                        _shared_state->hash_table_variants->emplace<I16HashTableContext>();
+                        _shared_state->hash_table_variants->emplace<I16HashTableContext>(state);
                         break;
                     case TYPE_INT:
                     case TYPE_FLOAT:
                     case TYPE_DATEV2:
-                        _shared_state->hash_table_variants->emplace<I32HashTableContext>();
+                        _shared_state->hash_table_variants->emplace<I32HashTableContext>(state);
                         break;
                     case TYPE_BIGINT:
                     case TYPE_DOUBLE:
                     case TYPE_DATETIME:
                     case TYPE_DATE:
                     case TYPE_DATETIMEV2:
-                        _shared_state->hash_table_variants->emplace<I64HashTableContext>();
+                        _shared_state->hash_table_variants->emplace<I64HashTableContext>(state);
                         break;
                     case TYPE_LARGEINT:
                     case TYPE_DECIMALV2:
@@ -369,23 +369,24 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
                                         : type_ptr->get_type_id();
                         vectorized::WhichDataType which(idx);
                         if (which.is_decimal32()) {
-                            _shared_state->hash_table_variants->emplace<I32HashTableContext>();
+                            _shared_state->hash_table_variants->emplace<I32HashTableContext>(state);
                         } else if (which.is_decimal64()) {
-                            _shared_state->hash_table_variants->emplace<I64HashTableContext>();
+                            _shared_state->hash_table_variants->emplace<I64HashTableContext>(state);
                         } else {
-                            _shared_state->hash_table_variants->emplace<I128HashTableContext>();
+                            _shared_state->hash_table_variants->emplace<I128HashTableContext>(
+                                    state);
                         }
                         break;
                     }
                     case TYPE_CHAR:
                     case TYPE_VARCHAR:
                     case TYPE_STRING: {
-                        _shared_state->hash_table_variants->emplace<MethodOneString>();
+                        _shared_state->hash_table_variants->emplace<MethodOneString>(state);
                         break;
                     }
                     default:
                         _shared_state->hash_table_variants
-                                ->emplace<vectorized::SerializedHashTableContext>();
+                                ->emplace<vectorized::SerializedHashTableContext>(state);
                     }
                     return;
                 }
@@ -404,9 +405,9 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
                 }
 
                 if (!try_get_hash_map_context_fixed<JoinHashMap, HashCRC32>(
-                            *_shared_state->hash_table_variants, data_types)) {
+                            state, *_shared_state->hash_table_variants, data_types)) {
                     _shared_state->hash_table_variants
-                            ->emplace<vectorized::SerializedHashTableContext>();
+                            ->emplace<vectorized::SerializedHashTableContext>(state);
                 }
             },
             _shared_state->join_op_variants,

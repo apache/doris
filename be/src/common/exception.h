@@ -152,3 +152,19 @@ inline const std::string& Exception::to_string() const {
             return Status::Error<false>(e.code(), e.to_string());                                \
         }                                                                                        \
     } while (0);
+
+#define LOOP_BATCH_RETURN_IF_CANCELLED(state, start_row, num_rows, DATA_BATCH_SIZE, stmts) \
+    do {                                                                                   \
+        auto batch_num = (num_rows + DATA_BATCH_SIZE - 1) / DATA_BATCH_SIZE;               \
+        for (size_t batch_idx = 0, kk = start_row; batch_idx != batch_num; ++batch_idx) {  \
+            if (state->is_cancelled()) {                                                   \
+                auto status = state->cancel_reason();                                      \
+                throw Exception(status.code(), status.to_string());                        \
+            }                                                                              \
+            for (size_t j = 0; j != DATA_BATCH_SIZE && kk != num_rows; ++kk, ++j) {        \
+                {                                                                          \
+                    stmts;                                                                 \
+                }                                                                          \
+            }                                                                              \
+        }                                                                                  \
+    } while (0);

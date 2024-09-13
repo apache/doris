@@ -298,8 +298,8 @@ constexpr auto init_partition_hash_method =
         init_hash_method<PartitionedHashMapVariants, PartitionDataPtr>;
 
 Status PartitionSortSinkLocalState::_init_hash_method() {
-    RETURN_IF_ERROR(
-            init_partition_hash_method(_partitioned_data.get(), _partition_expr_ctxs, true));
+    RETURN_IF_ERROR(init_partition_hash_method(_state, _partitioned_data.get(),
+                                               _partition_expr_ctxs, true));
     return Status::OK();
 }
 

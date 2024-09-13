@@ -709,23 +709,26 @@ public:
     std::atomic<bool> ready_for_read = false;
 
     /// called in setup_local_state
-    void hash_table_init() {
+    void hash_table_init(RuntimeState* state) {
         using namespace vectorized;
         if (child_exprs_lists[0].size() == 1 && (!build_not_ignore_null[0])) {
             // Single column optimization
             switch (child_exprs_lists[0][0]->root()->result_type()) {
             case TYPE_BOOLEAN:
             case TYPE_TINYINT:
-                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt8>>();
+                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt8>>(
+                        state);
                 break;
             case TYPE_SMALLINT:
-                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt16>>();
+                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt16>>(
+                        state);
                 break;
             case TYPE_INT:
             case TYPE_FLOAT:
             case TYPE_DATEV2:
             case TYPE_DECIMAL32:
-                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt32>>();
+                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt32>>(
+                        state);
                 break;
             case TYPE_BIGINT:
             case TYPE_DOUBLE:
@@ -733,21 +736,23 @@ public:
             case TYPE_DATE:
             case TYPE_DECIMAL64:
             case TYPE_DATETIMEV2:
-                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt64>>();
+                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt64>>(
+                        state);
                 break;
             case TYPE_CHAR:
             case TYPE_VARCHAR:
             case TYPE_STRING: {
-                hash_table_variants->emplace<vectorized::SetMethodOneString>();
+                hash_table_variants->emplace<vectorized::SetMethodOneString>(state);
                 break;
             }
             case TYPE_LARGEINT:
             case TYPE_DECIMALV2:
             case TYPE_DECIMAL128I:
-                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt128>>();
+                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt128>>(
+                        state);
                 break;
             default:
-                hash_table_variants->emplace<SetSerializedHashTableContext>();
+                hash_table_variants->emplace<SetSerializedHashTableContext>(state);
             }
             return;
         }
@@ -763,8 +768,8 @@ public:
                                             : ctx->root()->data_type());
         }
         if (!try_get_hash_map_context_fixed<NormalHashMap, HashCRC32, RowRefListWithFlags>(
-                    *hash_table_variants, data_types)) {
-            hash_table_variants->emplace<SetSerializedHashTableContext>();
+                    state, *hash_table_variants, data_types)) {
+            hash_table_variants->emplace<SetSerializedHashTableContext>(state);
         }
     }
 };

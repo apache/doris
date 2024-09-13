@@ -21,6 +21,7 @@
 
 #include <limits>
 
+#include "runtime/runtime_state.h"
 #include "vec/columns/column_filter_helper.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_table.h"
@@ -72,14 +73,14 @@ public:
     std::vector<uint8_t>& get_visited() { return visited; }
 
     template <int JoinOpType, bool with_other_conjuncts>
-    void build(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
-               size_t num_elem) {
+    void build(RuntimeState* state, const Key* __restrict keys,
+               const uint32_t* __restrict bucket_nums, size_t num_elem) {
         build_keys = keys;
-        for (size_t i = 1; i < num_elem; i++) {
-            uint32_t bucket_num = bucket_nums[i];
-            next[i] = first[bucket_num];
-            first[bucket_num] = i;
-        }
+        LOOP_BATCH_RETURN_IF_CANCELLED(state, 1, num_elem, 4096, {
+            auto bucket_num = bucket_nums[kk];
+            next[kk] = first[bucket_num];
+            first[bucket_num] = kk;
+        });
         if constexpr ((JoinOpType != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
                        JoinOpType != TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) ||
                       !with_other_conjuncts) {
