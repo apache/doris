@@ -361,7 +361,8 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
                 content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
             } catch (const std::exception& e) {
                 return Status::InvalidArgument("invalid HTTP header CONTENT_LENGTH={}: {}",
-                                            http_req->header(HttpHeaders::CONTENT_LENGTH), e.what());
+                                               http_req->header(HttpHeaders::CONTENT_LENGTH),
+                                               e.what());
             }
             if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
                 ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
