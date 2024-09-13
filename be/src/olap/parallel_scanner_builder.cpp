@@ -165,9 +165,6 @@ Status ParallelScannerBuilder<ParentType>::_load() {
         if (!_state->skip_delete_predicate()) {
             read_source.fill_delete_predicates();
         }
-        bool enable_segment_cache = _state->query_options().__isset.enable_segment_cache
-                                            ? _state->query_options().enable_segment_cache
-                                            : true;
 
         for (auto& rs_split : read_source.rs_splits) {
             auto rowset = rs_split.rs_reader->rowset();
