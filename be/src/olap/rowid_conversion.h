@@ -22,6 +22,7 @@
 
 #include "olap/olap_common.h"
 #include "olap/utils.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
@@ -33,17 +34,26 @@ namespace doris {
 class RowIdConversion {
 public:
     RowIdConversion() = default;
-    ~RowIdConversion() = default;
+    ~RowIdConversion() { RELEASE_THREAD_MEM_TRACKER(_seg_rowid_map_mem_used); }
 
     // resize segment rowid map to its rows num
     void init_segment_map(const RowsetId& src_rowset_id, const std::vector<uint32_t>& num_rows) {
+        size_t mem_used = 0;
         for (size_t i = 0; i < num_rows.size(); i++) {
             uint32_t id = _segments_rowid_map.size();
             _segment_to_id_map.emplace(std::pair<RowsetId, uint32_t> {src_rowset_id, i}, id);
             _id_to_segment_map.emplace_back(src_rowset_id, i);
             _segments_rowid_map.emplace_back(std::vector<std::pair<uint32_t, uint32_t>>(
                     num_rows[i], std::pair<uint32_t, uint32_t>(UINT32_MAX, UINT32_MAX)));
+            mem_used += sizeof(std::pair<uint32_t, uint32_t>) * _segments_rowid_map[i].capacity();
         }
+        //NOTE: manually count _segments_rowid_map's memory here, because _segments_rowid_map could be used by indexCompaction.
+        // indexCompaction is a thridparty code, it's too complex to modify it.
+        // refer compact_column.
+        mem_used +=
+                sizeof(std::vector<std::pair<uint32_t, uint32_t>>) * _segments_rowid_map.capacity();
+        _seg_rowid_map_mem_used = mem_used;
+        CONSUME_THREAD_MEM_TRACKER(mem_used);
     }
 
     // set dst rowset id
@@ -115,6 +125,7 @@ private:
     // value indicates row id of destination segment.
     // <UINT32_MAX, UINT32_MAX> indicates current row not exist.
     std::vector<std::vector<std::pair<uint32_t, uint32_t>>> _segments_rowid_map;
+    size_t _seg_rowid_map_mem_used {0};
 
     // Map source segment to 0 to n
     std::map<std::pair<RowsetId, uint32_t>, uint32_t> _segment_to_id_map;
