@@ -3708,7 +3708,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableSegmentCache(enableSegmentCache);
         tResult.setInListValueCountThreshold(inListValueCountThreshold);
-        tResult.setMinimumOperatorMemoryRequiredKB(minimumOperatorMemoryRequiredKB);
+        tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
         return tResult;
     }
 
