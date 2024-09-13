@@ -268,6 +268,7 @@ Status PartialUpdateReadPlan::fill_missing_columns(
                 old_value_block, default_value_block));
     }
     auto mutable_default_value_columns = default_value_block.mutate_columns();
+
     // fill all missing value from mutable_old_columns, need to consider default value and null value
     for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
         // `use_default_or_null_flag[idx] == false` doesn't mean that we should read values from the old row

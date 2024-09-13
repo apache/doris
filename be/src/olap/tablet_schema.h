@@ -407,6 +407,7 @@ public:
         _auto_increment_column = auto_increment_column;
     }
     std::string auto_increment_column() const { return _auto_increment_column; }
+
     void set_table_id(int64_t table_id) { _table_id = table_id; }
     int64_t table_id() const { return _table_id; }
     void set_db_id(int64_t db_id) { _db_id = db_id; }
