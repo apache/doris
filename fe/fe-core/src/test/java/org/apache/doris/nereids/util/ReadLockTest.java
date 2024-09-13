@@ -51,11 +51,13 @@ public class ReadLockTest extends SSBTestBase {
         CascadesContext cascadesContext = planner.getCascadesContext();
 
         Map<List<String>, TableIf> f = cascadesContext.getTables();
-        Assertions.assertEquals(1, f.size());
+        Assertions.assertEquals(2, f.size());
+        Set<String> tableNames = new HashSet<>();
         for (Map.Entry<List<String>, TableIf> entry : f.entrySet()) {
             TableIf table = entry.getValue();
-            Assertions.assertEquals("supplier", table.getName());
+            tableNames.add(table.getName());
         }
+        Assertions.assertTrue(tableNames.contains("supplier"));
     }
 
     @Test

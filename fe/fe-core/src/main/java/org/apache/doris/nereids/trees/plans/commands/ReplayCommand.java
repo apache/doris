@@ -18,10 +18,14 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.Minidump;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
+import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -38,9 +42,15 @@ public class ReplayCommand extends Command implements NoForward {
 
     private final String dumpFileFullPath;
 
-    public ReplayCommand(PlanType type, String dumpFileFullPath) {
+    private final LogicalPlan plan;
+
+    private final ReplayType replayType;
+
+    public ReplayCommand(PlanType type, String dumpFileFullPath, LogicalPlan plan, ReplayType replayType) {
         super(type);
         this.dumpFileFullPath = dumpFileFullPath;
+        this.plan = plan;
+        this.replayType = replayType;
     }
 
     public String getDumpFileFullPath() {
@@ -50,32 +60,35 @@ public class ReplayCommand extends Command implements NoForward {
     /**
      * explain level.
      */
-    public enum ExplainLevel {
-        NONE(false),
-        NORMAL(false),
-        VERBOSE(false),
-        TREE(false),
-        GRAPH(false),
-        DUMP(false),
-        PARSED_PLAN(true),
-        ANALYZED_PLAN(true),
-        REWRITTEN_PLAN(true),
-        OPTIMIZED_PLAN(true),
-        SHAPE_PLAN(true),
-        MEMO_PLAN(true),
-        DISTRIBUTED_PLAN(true),
-        ALL_PLAN(true)
-        ;
-
-        public final boolean isPlanLevel;
-
-        ExplainLevel(boolean isPlanLevel) {
-            this.isPlanLevel = isPlanLevel;
-        }
+    public enum ReplayType {
+        DUMP,
+        PLAY
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        if (this.replayType == ReplayType.DUMP) {
+            handleDump(ctx, executor);
+        } else if (this.replayType == ReplayType.PLAY) {
+            handleLoad();
+        }
+    }
+
+    private void handleDump(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(plan, ctx.getStatementContext());
+        MinidumpUtils.openDump();
+        executor.setParsedStmt(logicalPlanAdapter);
+        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        if (ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
+            ctx.getStatementContext().addPlannerHook(InitMaterializationContextHook.INSTANCE);
+        }
+        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        executor.setPlanner(planner);
+        executor.checkBlockRules();
+        executor.handleReplayStmt(MinidumpUtils.getHttpGetString());
+    }
+
+    private void handleLoad() throws Exception {
         // 1. check fe version, if not matched throw exception
         // 2. load every thing from minidump file and replace original ones
         Minidump minidump = MinidumpUtils.loadMinidumpInputs(dumpFileFullPath);

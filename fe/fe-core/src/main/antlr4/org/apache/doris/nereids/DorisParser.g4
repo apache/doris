@@ -138,7 +138,7 @@ supportedDmlStatement
         TO filePath=STRING_LITERAL
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
-    | replayCommand filePath=STRING_LITERAL                                   #replay
+    | replayCommand                                                    #replay
     ;
 
 supportedCreateStatement
@@ -1001,7 +1001,11 @@ planType
     ;
 
 replayCommand
-    : REPLAY DUMP;
+    : REPLAYER replayType;
+
+replayType
+    : DUMP query
+    | PLAY filePath=STRING_LITERAL;
 
 mergeType
     : APPEND

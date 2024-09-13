@@ -78,6 +78,8 @@ public class MinidumpUtils {
 
     private static String DUMP_FILE_FULL_PATH = null;
 
+    private static String HTTP_GET_STRING = null;
+
     private static boolean dump = false;
 
     private static final int FE_VERSION_PREFIX_LENGTH = 13;
@@ -94,14 +96,19 @@ public class MinidumpUtils {
         return DUMP_FILE_FULL_PATH;
     }
 
+    public static String getHttpGetString() {
+        return HTTP_GET_STRING;
+    }
+
     /**
      * Saving of minidump file to fe log path
      */
-    public static void saveMinidumpString(JSONObject minidump, String dumpName) {
-        String feVersion = FrontendsProcNode.getCurrentFrontendVersion(Env.getCurrentEnv())
-                .substring(FE_VERSION_PREFIX_LENGTH);
-        String dumpPath = MinidumpUtils.DUMP_PATH + File.separator + feVersion + "_" + dumpName;
+    public static void saveMinidumpString(JSONObject minidump, String querId) {
+        String dumpPath = MinidumpUtils.DUMP_PATH + File.separator + "_" + querId;
+        String feAddress = FrontendsProcNode.getCurrentFrontendVersion(Env.getCurrentEnv()).getHost();
+        int feHttpPort = Config.http_port;
         MinidumpUtils.DUMP_FILE_FULL_PATH = dumpPath + ".json";
+        MinidumpUtils.HTTP_GET_STRING = "http://" + feAddress + ":" + feHttpPort + "/api/minidump?query_id=" + querId;
         String jsonMinidump = minidump.toString(4);
         try (FileWriter file = new FileWriter(MinidumpUtils.DUMP_FILE_FULL_PATH)) {
             file.write(jsonMinidump);
@@ -143,9 +150,16 @@ public class MinidumpUtils {
     /**
      * Load minidump to memory using string
      */
-    public static Minidump jsonMinidumpLoadFromString(String inputString) throws IOException {
+    public static Minidump jsonMinidumpLoadFromString(String inputString) throws Exception {
         // Parse the JSON string back into a JSON object
         JSONObject inputJSON = new JSONObject(inputString);
+        String dumpFeVersion = inputJSON.getString("FeVersion");
+        String currFeVersion = FrontendsProcNode.getCurrentFrontendVersion(Env.getCurrentEnv()).getVersion()
+                .substring(FE_VERSION_PREFIX_LENGTH);
+        if (!currFeVersion.equals(dumpFeVersion)) {
+            throw new AnalysisException("fe version:" + currFeVersion
+                    + " does not match dump fe version: " + dumpFeVersion);
+        }
         SessionVariable newSessionVariable = new SessionVariable();
         newSessionVariable.readFromJson(inputJSON.getString("SessionVariable"));
         String sql = inputJSON.getString("Sql");
@@ -186,7 +200,7 @@ public class MinidumpUtils {
     /**
      * Loading of minidump file
      */
-    public static Minidump jsonMinidumpLoad(String dumpFilePath) throws IOException {
+    public static Minidump jsonMinidumpLoad(String dumpFilePath) throws Exception {
         // open file, read file, put them into minidump object
         try (FileInputStream inputStream = new FileInputStream(dumpFilePath)) {
             StringBuilder sb = new StringBuilder();
@@ -225,16 +239,12 @@ public class MinidumpUtils {
      * @return minidump messages in memory
      */
     public static Minidump loadMinidumpInputs(String minidumpPath) throws AnalysisException {
-        String feVersion = FrontendsProcNode.getCurrentFrontendVersion(Env.getCurrentEnv())
-                .substring(FE_VERSION_PREFIX_LENGTH);
-        String dumpVersion = minidumpPath.substring(minidumpPath.length() - 49, minidumpPath.length() - 39);
-        if (!feVersion.equals(dumpVersion)) {
-            throw new AnalysisException("fe version:" + feVersion + " does not match dump fe version: " + dumpVersion);
-        }
         Minidump minidump = null;
         try {
             minidump = MinidumpUtils.jsonMinidumpLoad(minidumpPath);
-        } catch (IOException e) {
+        } catch (AnalysisException e) {
+            throw e;
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
         setConnectContext(minidump);
@@ -343,11 +353,11 @@ public class MinidumpUtils {
      */
     public static void serializeOutputToDumpFile(Plan resultPlan) {
         ConnectContext connectContext = ConnectContext.get();
-        if (connectContext.getSessionVariable().isPlayNereidsDump()) {
+        if (!isDump()) {
             return;
         }
         connectContext.getMinidump().put("ResultPlan", ((AbstractPlan) resultPlan).toJson());
-        if (MinidumpUtils.isDump()) {
+        if (isDump()) {
             saveMinidumpString(connectContext.getMinidump(), DebugUtil.printId(connectContext.queryId()));
         }
     }
@@ -516,7 +526,12 @@ public class MinidumpUtils {
         ConnectContext connectContext = ConnectContext.get();
         // Create a JSON object
         JSONObject jsonObj = new JSONObject();
-        jsonObj.put("Sql", connectContext.getStatementContext().getOriginStatement().originStmt);
+        String feVersion = FrontendsProcNode.getCurrentFrontendVersion(Env.getCurrentEnv()).getVersion()
+                .substring(FE_VERSION_PREFIX_LENGTH);
+        jsonObj.put("FeVersion", feVersion);
+        String sql = connectContext.getStatementContext().getOriginStatement().originStmt;
+        String sqlWithOutReplayCommand = sql.substring(14);
+        jsonObj.put("Sql", sqlWithOutReplayCommand);
         // add session variable
         int beNumber = connectContext.getEnv().getClusterInfo().getBackendsNumber(true);
         connectContext.getSessionVariable().setBeNumberForTest(beNumber);
@@ -547,7 +562,7 @@ public class MinidumpUtils {
             throws IOException {
         ConnectContext connectContext = ConnectContext.get();
         // when playing minidump file, we do not save input again.
-        if (connectContext.getSessionVariable().isPlayNereidsDump()) {
+        if (!isDump()) {
             return;
         }
 

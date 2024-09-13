@@ -2932,6 +2932,28 @@ public class StmtExecutor {
         context.getState().setEof();
     }
 
+    public void handleReplayStmt(String result) throws IOException {
+        ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
+                .addColumn(new Column("Plan Replayer dump url",
+                ScalarType.createVarchar(20)))
+                .build();
+        if (context.getConnectType() == ConnectType.MYSQL) {
+            sendMetaData(metaData);
+
+            // Send result set.
+            for (String item : result.split("\n")) {
+                serializer.reset();
+                serializer.writeLenEncodedString(item);
+                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            }
+        } else if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
+            context.getFlightSqlChannel()
+                    .addResult(DebugUtil.printId(context.queryId()), context.getRunningQuery(), metaData, result);
+            context.setReturnResultFromLocal(true);
+        }
+        context.getState().setEof();
+    }
+
     private void handleLoadStmt() {
         try {
             LoadStmt loadStmt = (LoadStmt) parsedStmt;

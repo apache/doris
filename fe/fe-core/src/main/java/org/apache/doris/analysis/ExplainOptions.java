@@ -27,7 +27,6 @@ public class ExplainOptions {
     private boolean isTree;
     private boolean isGraph;
     private boolean showPlanProcess;
-    private boolean isDump;
 
     private ExplainCommand.ExplainLevel explainLevel;
 
@@ -48,10 +47,6 @@ public class ExplainOptions {
 
     public boolean isTree() {
         return explainLevel == ExplainLevel.TREE || isTree;
-    }
-
-    public boolean isDump() {
-        return explainLevel == ExplainLevel.DUMP || isDump;
     }
 
     public boolean isGraph() {
