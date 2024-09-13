@@ -658,7 +658,7 @@ endif()
 
 if (NOT OS_MACOSX)
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-        -lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread
+        -lrt -l:libbfd.a -liberty -lc -lm -ldl -lsframe -pthread
     )
 else()
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
