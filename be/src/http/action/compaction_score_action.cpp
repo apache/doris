@@ -37,10 +37,6 @@
 #include <string_view>
 #include <vector>
 
-#include "cloud/cloud_storage_engine.h"
-#include "cloud/cloud_tablet.h"
-#include "cloud/cloud_tablet_mgr.h"
-#include "cloud/config.h"
 #include "common/status.h"
 #include "http/http_channel.h"
 #include "http/http_handler_with_auth.h"
@@ -90,49 +86,6 @@ struct LocalCompactionScoreAccessor final : CompactionScoresAccessor {
     TabletManager* tablet_mgr;
 };
 
-struct CloudCompactionScoresAccessor final : CompactionScoresAccessor {
-    CloudCompactionScoresAccessor(CloudTabletMgr& tablet_mgr) : tablet_mgr(tablet_mgr) {}
-
-    std::vector<CompactionScoreResult> get_all_tablet_compaction_scores() override {
-        auto tablets = get_all_tablets();
-        std::span<CloudTabletSPtr> s = {tablets.begin(), tablets.end()};
-        return calculate_compaction_scores(s);
-    }
-
-    Status sync_meta() {
-        auto tablets = get_all_tablets();
-        LOG(INFO) << "start to sync meta from ms";
-
-        MonotonicStopWatch stopwatch;
-        stopwatch.start();
-
-        for (const auto& tablet : tablets) {
-            RETURN_IF_ERROR(tablet->sync_meta());
-            RETURN_IF_ERROR(tablet->sync_rowsets());
-        }
-
-        stopwatch.stop();
-        LOG(INFO) << "sync meta finish, time=" << stopwatch.elapsed_time() << "ns";
-
-        return Status::OK();
-    }
-
-    std::vector<CloudTabletSPtr> get_all_tablets() {
-        auto weak_tablets = tablet_mgr.get_weak_tablets();
-        std::vector<CloudTabletSPtr> tablets;
-        tablets.reserve(weak_tablets.size());
-        for (auto& weak_tablet : weak_tablets) {
-            if (auto tablet = weak_tablet.lock();
-                tablet != nullptr and tablet->tablet_state() == TABLET_RUNNING) {
-                tablets.push_back(std::move(tablet));
-            }
-        }
-        return tablets;
-    }
-
-    CloudTabletMgr& tablet_mgr;
-};
-
 static rapidjson::Value jsonfy_tablet_compaction_score(
         const CompactionScoreResult& result, rapidjson::MemoryPoolAllocator<>& allocator) {
     rapidjson::Value node;
@@ -160,11 +113,6 @@ CompactionScoreAction::CompactionScoreAction(ExecEnv* exec_env, TPrivilegeHier::
         : HttpHandlerWithAuth(exec_env, hier, type),
           _accessor(std::make_unique<LocalCompactionScoreAccessor>(tablet_mgr)) {}
 
-CompactionScoreAction::CompactionScoreAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
-                                             TPrivilegeType::type type, CloudTabletMgr& tablet_mgr)
-        : HttpHandlerWithAuth(exec_env, hier, type),
-          _accessor(std::make_unique<CloudCompactionScoresAccessor>(tablet_mgr)) {}
-
 void CompactionScoreAction::handle(HttpRequest* req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HttpHeaders::JsonType.data());
     auto top_n_param = req->param(TOP_N);
@@ -185,36 +133,15 @@ void CompactionScoreAction::handle(HttpRequest* req) {
         }
     }
 
-    auto sync_meta_param = req->param(SYNC_META);
-    bool sync_meta = DEFAULT_SYNC_META;
-    if (!sync_meta_param.empty() and !config::is_cloud_mode()) {
-        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST,
-                                "param `sync_meta` is only available for cloud mode");
-        return;
-    }
-    if (sync_meta_param == "true") {
-        sync_meta = true;
-    } else if (sync_meta_param == "false") {
-        sync_meta = false;
-    } else if (!sync_meta_param.empty()) {
-        auto msg = fmt::format("invalid argument: sync_meta={}", sync_meta_param);
-        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, msg);
-        return;
-    }
-
     std::string result;
-    if (auto st = _handle(top_n, sync_meta, &result); !st) {
+    if (auto st = _handle(top_n, &result); !st) {
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, st.to_json());
         return;
     }
     HttpChannel::send_reply(req, HttpStatus::OK, result);
 }
 
-Status CompactionScoreAction::_handle(size_t top_n, bool sync_meta, std::string* result) {
-    if (sync_meta) {
-        DCHECK(config::is_cloud_mode());
-        RETURN_IF_ERROR(static_cast<CloudCompactionScoresAccessor*>(_accessor.get())->sync_meta());
-    }
+Status CompactionScoreAction::_handle(size_t top_n, std::string* result) {
 
     auto scores = _accessor->get_all_tablet_compaction_scores();
     top_n = std::min(top_n, scores.size());
