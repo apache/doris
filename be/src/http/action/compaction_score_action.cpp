@@ -50,7 +50,6 @@
 namespace doris {
 
 const std::string TOP_N = "top_n";
-const std::string SYNC_META = "sync_meta";
 const std::string COMPACTION_SCORE = "compaction_score";
 constexpr size_t DEFAULT_TOP_N = std::numeric_limits<size_t>::max();
 constexpr bool DEFAULT_SYNC_META = false;
