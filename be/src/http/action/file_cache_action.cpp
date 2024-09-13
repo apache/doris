@@ -91,9 +91,9 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
         if (segment_path.empty()) {
             st = Status::InvalidArgument("missing parameter: {} is required", SEGMENT_PATH.data());
         } else {
-            io::UInt128Wrapper a = io::BlockFileCache::hash(segment_path);
+            io::UInt128Wrapper res = io::BlockFileCache::hash(segment_path);
             EasyJson json;
-            json[HASH.data()] = a.to_string();
+            json[HASH.data()] = res.to_string();
             *json_metrics = json.ToString();
         }
     } else {
