@@ -665,9 +665,11 @@ public:
 
     virtual bool is_date_type() const { return is_date; }
     virtual bool is_datetime_type() const { return is_date_time; }
+    virtual bool is_timestamp_type() const { return is_timestamp; }
 
     virtual void set_date_type() { is_date = true; }
     virtual void set_datetime_type() { is_date_time = true; }
+    virtual void set_timestamp_type() { is_timestamp = true; }
 
     void copy_date_types(const IColumn& col) {
         if (col.is_date_type()) {
@@ -676,11 +678,16 @@ public:
         if (col.is_datetime_type()) {
             set_datetime_type();
         }
+
+        if (col.is_timestamp_type()) {
+            set_timestamp_type();
+        }
     }
 
     // todo(wb): a temporary implemention, need re-abstract here
     bool is_date = false;
     bool is_date_time = false;
+    bool is_timestamp = false;
 
 protected:
     template <typename Derived>

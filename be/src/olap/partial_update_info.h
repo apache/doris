@@ -61,8 +61,10 @@ private:
             const auto& column = tablet_schema.column(cur_cid);
             if (column.has_default_value()) {
                 std::string default_value;
-                if (UNLIKELY(tablet_schema.column(cur_cid).type() ==
-                                     FieldType::OLAP_FIELD_TYPE_DATETIMEV2 &&
+                if (UNLIKELY((tablet_schema.column(cur_cid).type() ==
+                                      FieldType::OLAP_FIELD_TYPE_DATETIMEV2 ||
+                              tablet_schema.column(cur_cid).type() ==
+                                      FieldType::OLAP_FIELD_TYPE_TIMESTAMP) &&
                              to_lower(tablet_schema.column(cur_cid).default_value())
                                              .find(to_lower("CURRENT_TIMESTAMP")) !=
                                      std::string::npos)) {

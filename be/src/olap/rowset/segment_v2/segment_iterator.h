@@ -340,6 +340,8 @@ private:
                     _short_key[cid]->set_date_type();
                 } else if (field->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
                     _short_key[cid]->set_datetime_type();
+                } else if (field->type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMP) {
+                    _short_key[cid]->set_timestamp_type();
                 }
             }
         } else {

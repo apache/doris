@@ -147,6 +147,9 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
         return std::make_unique<OlapColumnDataConvertorDateTimeV2>();
     }
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMP: {
+        return std::make_unique<OlapColumnDataConvertorTimestamp>();
+    }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
         return std::make_unique<OlapColumnDataConvertorDecimal>();
     }

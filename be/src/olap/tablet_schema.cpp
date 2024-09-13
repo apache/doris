@@ -109,6 +109,8 @@ FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
         return FieldType::OLAP_FIELD_TYPE_DATEV2;
     case PrimitiveType::TYPE_DATETIMEV2:
         return FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
+    case PrimitiveType::TYPE_TIMESTAMP:
+        return FieldType::OLAP_FIELD_TYPE_TIMESTAMP;
     case PrimitiveType::TYPE_TIMEV2:
         return FieldType::OLAP_FIELD_TYPE_TIMEV2;
     case PrimitiveType::TYPE_DECIMAL32:
@@ -173,7 +175,7 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
     } else if (0 == upper_type_str.compare("DATETIMEV2")) {
         type = FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
     } else if (0 == upper_type_str.compare("TIMESTAMP")) {
-        type = FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
+        type = FieldType::OLAP_FIELD_TYPE_TIMESTAMP;
     } else if (0 == upper_type_str.compare("DATETIME")) {
         type = FieldType::OLAP_FIELD_TYPE_DATETIME;
     } else if (0 == upper_type_str.compare("DECIMAL32")) {
@@ -311,6 +313,9 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
 
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         return "DATETIMEV2";
+
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMP:
+        return "TIMESTAMP";
 
     case FieldType::OLAP_FIELD_TYPE_DECIMAL:
         return "DECIMAL";

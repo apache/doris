@@ -199,6 +199,12 @@ struct PrimitiveTypeTraits<TYPE_DATETIMEV2> {
     using ColumnType = vectorized::ColumnVector<vectorized::UInt64>;
 };
 template <>
+struct PrimitiveTypeTraits<TYPE_TIMESTAMP> {
+    using CppType = DateV2Value<DateTimeV2ValueType>;
+    using StorageFieldType = uint64_t;
+    using ColumnType = vectorized::ColumnVector<vectorized::UInt64>;
+};
+template <>
 struct PrimitiveTypeTraits<TYPE_DATEV2> {
     using CppType = DateV2Value<DateV2ValueType>;
     using StorageFieldType = uint32_t;

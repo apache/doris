@@ -214,6 +214,25 @@ public:
         }
     }
 
+    void insert_timestamp_column(const char* data_ptr, size_t num) {
+        data.reserve(data.size() + num);
+        size_t value_size = sizeof(uint64_t);
+        for (int i = 0; i < num; i++) {
+            const char* cur_ptr = data_ptr + value_size * i;
+            uint64_t value = *reinterpret_cast<const uint64_t*>(cur_ptr);
+
+            DateV2Value<DateTimeV2ValueType> tmp;
+
+            tmp = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(value);
+            // todo sec_offset from runtime state
+            tmp.date_add_interval<TimeUnit::SECOND>(TimeInterval {TimeUnit::SECOND, 3600, false});
+
+            value = binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(tmp);
+
+            this->insert_data(reinterpret_cast<char*>(&value), 0);
+        }
+    }
+
     /*
         use by date, datetime, basic type
     */
@@ -222,6 +241,8 @@ public:
             insert_date_column(data_ptr, num);
         } else if (IColumn::is_date_time) {
             insert_datetime_column(data_ptr, num);
+        } else if (IColumn::is_timestamp) {
+            insert_timestamp_column(data_ptr, num);
         } else {
             insert_many_raw_data(data_ptr, num);
         }

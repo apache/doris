@@ -37,6 +37,7 @@ public:
     static bool find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz);
 
     static const std::string default_time_zone;
+    static const std::string utc_time_zone;
 
 private:
     // for ut only

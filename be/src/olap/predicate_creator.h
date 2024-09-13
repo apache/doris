@@ -223,6 +223,10 @@ std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldType& ty
         return std::make_unique<CustomPredicateCreator<TYPE_DATETIMEV2, PT, ConditionType>>(
                 timestamp_from_datetime_v2);
     }
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMP: {
+        return std::make_unique<CustomPredicateCreator<TYPE_TIMESTAMP, PT, ConditionType>>(
+                timestamp_from_datetime_v2);
+    }
     case FieldType::OLAP_FIELD_TYPE_BOOL: {
         return std::make_unique<CustomPredicateCreator<TYPE_BOOLEAN, PT, ConditionType>>(
                 [](const std::string& condition) {

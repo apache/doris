@@ -152,6 +152,7 @@ public:
     // if possible, use timezone_obj() rather than timezone()
     const std::string& timezone() const { return _timezone; }
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
+    long sec_offset() const { return _sec_offset; }
     const std::string& user() const { return _user; }
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
@@ -648,6 +649,7 @@ private:
     int32_t _nano_seconds;
     std::string _timezone;
     cctz::time_zone _timezone_obj;
+    long _sec_offset;
 
     TUniqueId _query_id;
     // fragment id for each TPipelineFragmentParams

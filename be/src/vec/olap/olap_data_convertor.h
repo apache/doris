@@ -394,6 +394,48 @@ private:
         const uint64_t* values_ = nullptr;
     };
 
+    class OlapColumnDataConvertorTimestamp : public OlapColumnDataConvertorBase {
+    public:
+        OlapColumnDataConvertorTimestamp() = default;
+        ~OlapColumnDataConvertorTimestamp() override = default;
+
+        void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
+                               size_t num_rows) override {
+            OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos, num_rows);
+        }
+
+        const void* get_data() const override { return values_; }
+
+        const void* get_data_at(size_t offset) const override {
+            assert(offset < _num_rows);
+            UInt8 null_flag = 0;
+            if (get_nullmap()) {
+                null_flag = get_nullmap()[offset];
+            }
+            return null_flag ? nullptr : values_ + offset;
+        }
+
+        Status convert_to_olap() override {
+            const vectorized::ColumnVector<uint64_t>* column_data = nullptr;
+            if (_nullmap) {
+                auto nullable_column =
+                        assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
+                column_data = assert_cast<const vectorized::ColumnVector<uint64_t>*>(
+                        nullable_column->get_nested_column_ptr().get());
+            } else {
+                column_data = assert_cast<const vectorized::ColumnVector<uint64_t>*>(
+                        _typed_column.column.get());
+            }
+
+            assert(column_data);
+            values_ = (const uint64_t*)(column_data->get_data().data()) + _row_pos;
+            return Status::OK();
+        }
+
+    private:
+        const uint64_t* values_ = nullptr;
+    };
+
     // decimalv3 don't need to do any convert
     template <typename T>
     class OlapColumnDataConvertorDecimalV3

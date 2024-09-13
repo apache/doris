@@ -719,6 +719,11 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {
     using UnsignedCppType = uint64_t;
 };
 template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMP> {
+    using CppType = uint64_t;
+    using UnsignedCppType = uint64_t;
+};
+template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME> {
     using CppType = int64_t;
     using UnsignedCppType = uint64_t;
@@ -1257,6 +1262,45 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
         : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {
+    static Status from_string(void* buf, const std::string& scan_key, const int precision,
+                              const int scale) {
+        DateV2Value<DateTimeV2ValueType> datetimev2_value;
+        std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
+
+        if (datetimev2_value.from_date_format_str(date_format.data(), date_format.size(),
+                                                  scan_key.data(), scan_key.size())) {
+            *reinterpret_cast<CppType*>(buf) = datetimev2_value.to_date_int_val();
+        } else {
+            *reinterpret_cast<CppType*>(buf) = MIN_DATETIME_V2;
+        }
+
+        return Status::OK();
+    }
+    static std::string to_string(const void* src) {
+        CppType tmp = *reinterpret_cast<const CppType*>(src);
+        DateV2Value<DateTimeV2ValueType> value =
+                binary_cast<CppType, DateV2Value<DateTimeV2ValueType>>(tmp);
+        string format = "%Y-%m-%d %H:%i:%s.%f";
+        string res;
+        res.resize(30 + SAFE_FORMAT_STRING_MARGIN);
+        value.to_format_string_conservative(format.c_str(), format.size(), res.data(),
+                                            30 + SAFE_FORMAT_STRING_MARGIN);
+        return res;
+    }
+
+    static void set_to_max(void* buf) {
+        // max is 9999 * 16 * 32 + 12 * 32 + 31;
+        *reinterpret_cast<CppType*>(buf) = MAX_DATETIME_V2;
+    }
+    static void set_to_min(void* buf) {
+        // min is 0 * 16 * 32 + 1 * 32 + 1;
+        *reinterpret_cast<CppType*>(buf) = MIN_DATETIME_V2;
+    }
+};
+
+template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMP>
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMP> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         DateV2Value<DateTimeV2ValueType> datetimev2_value;
