@@ -27,6 +27,7 @@
 #include "runtime/fragment_mgr.h"
 #include "util/mem_info.h"
 #include "util/runtime_profile.h"
+#include "vec/spill/spill_stream.h"
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
@@ -555,7 +556,7 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
         if (eos) {
             VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", hash join sink "
                        << node_id() << " sink eos, set_ready_to_read"
-                       << ", task id: " << state->task_id() << ", need spil: " << need_to_spill;
+                       << ", task id: " << state->task_id() << ", need spill: " << need_to_spill;
 
             if (!need_to_spill) {
                 if (UNLIKELY(!local_state._shared_state->inner_runtime_state)) {
@@ -596,6 +597,8 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
     if (need_to_spill) {
         RETURN_IF_ERROR(local_state._partition_block(state, in_block, 0, rows));
         if (eos) {
+            return revoke_memory(state);
+        } else if (revocable_mem_size(state) > vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
             return revoke_memory(state);
         }
     } else {

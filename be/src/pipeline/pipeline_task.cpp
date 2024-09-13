@@ -396,15 +396,22 @@ Status PipelineTask::execute(bool* eos) {
                     bool is_high_wartermark = false;
                     bool is_low_wartermark = false;
                     workload_group->check_mem_used(&is_low_wartermark, &is_high_wartermark);
-                    if (is_low_wartermark || is_high_wartermark) {
-                        /// The larger reserved memory size is likely due to a larger available revocable size.
-                        /// If the available memory for revoking is large enough, here trigger revoking proactively.
-                        if (_sink->revocable_mem_size(_state) > 512L * 1024 * 1024) {
-                            LOG(INFO) << "query: " << print_id(query_id)
-                                      << " has big memory to revoke.";
-                            RETURN_IF_ERROR(_sink->revoke_memory(_state));
-                        }
 
+                    /// The larger reserved memory size is likely due to a larger available revocable size.
+                    /// If the available memory for revoking is large enough, here trigger revoking proactively.
+                    bool need_to_pause = false;
+                    const auto revocable_mem_size = _sink->revocable_mem_size(_state);
+                    if (revocable_mem_size > 1024L * 1024 * 1024) {
+                        LOG(INFO) << "query: " << print_id(query_id)
+                                  << ", task id: " << _state->task_id()
+                                  << " has big memory to revoke: " << revocable_mem_size;
+                        RETURN_IF_ERROR(_sink->revoke_memory(_state));
+                        need_to_pause = true;
+                    } else {
+                        need_to_pause = is_low_wartermark || is_high_wartermark;
+                    }
+
+                    if (need_to_pause) {
                         _memory_sufficient_dependency->block();
                         ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
                                 _state->get_query_ctx()->shared_from_this());
