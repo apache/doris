@@ -37,28 +37,28 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute[DistributionSpecGather]
 ----------PhysicalQuickSort[LOCAL_SORT]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((ws1.ca_county = ws3.ca_county)) otherCondition=((if((web_sales > 0.00), (cast(web_sales as DECIMALV3(38, 8)) / web_sales), NULL) > if((store_sales > 0.00), (cast(store_sales as DECIMALV3(38, 8)) / store_sales), NULL)))
+--------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((ws1.ca_county = ws3.ca_county)) otherCondition=((if((web_sales > 0.00), (cast(web_sales as DECIMALV3(38, 8)) / web_sales), NULL) > if((store_sales > 0.00), (cast(store_sales as DECIMALV3(38, 8)) / store_sales), NULL))) build RFs:RF8 ca_county->[ca_county]
 ----------------PhysicalProject
 ------------------filter((ws3.d_qoy = 3) and (ws3.d_year = 2000))
---------------------PhysicalCteConsumer ( cteId=CTEId#1 )
+--------------------PhysicalCteConsumer ( cteId=CTEId#1 ) apply RFs: RF8
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((ss2.ca_county = ss3.ca_county)) otherCondition=()
+------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((ss2.ca_county = ss3.ca_county)) otherCondition=() build RFs:RF7 ca_county->[ca_county]
 --------------------PhysicalProject
 ----------------------filter((ss3.d_qoy = 3) and (ss3.d_year = 2000))
-------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF7
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((ws1.ca_county = ws2.ca_county)) otherCondition=((if((web_sales > 0.00), (cast(web_sales as DECIMALV3(38, 8)) / web_sales), NULL) > if((store_sales > 0.00), (cast(store_sales as DECIMALV3(38, 8)) / store_sales), NULL)))
-------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((ss1.ca_county = ws1.ca_county)) otherCondition=()
---------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((ss1.ca_county = ss2.ca_county)) otherCondition=()
+----------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((ws1.ca_county = ws2.ca_county)) otherCondition=((if((web_sales > 0.00), (cast(web_sales as DECIMALV3(38, 8)) / web_sales), NULL) > if((store_sales > 0.00), (cast(store_sales as DECIMALV3(38, 8)) / store_sales), NULL))) build RFs:RF6 ca_county->[ca_county,ca_county,ca_county]
+------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((ss1.ca_county = ws1.ca_county)) otherCondition=() build RFs:RF5 ca_county->[ca_county,ca_county]
+--------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((ss1.ca_county = ss2.ca_county)) otherCondition=() build RFs:RF4 ca_county->[ca_county]
 ----------------------------PhysicalProject
 ------------------------------filter((ss1.d_qoy = 1) and (ss1.d_year = 2000))
---------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF4 RF5 RF6
 ----------------------------PhysicalProject
 ------------------------------filter((ss2.d_qoy = 2) and (ss2.d_year = 2000))
---------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF5 RF6
 --------------------------PhysicalProject
 ----------------------------filter((ws1.d_qoy = 1) and (ws1.d_year = 2000))
-------------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
+------------------------------PhysicalCteConsumer ( cteId=CTEId#1 ) apply RFs: RF6
 ------------------------PhysicalProject
 --------------------------filter((ws2.d_qoy = 2) and (ws2.d_year = 2000))
 ----------------------------PhysicalCteConsumer ( cteId=CTEId#1 )

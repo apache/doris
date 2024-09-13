@@ -65,9 +65,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN shuffle] hashCondition=((curr_yr.i_brand_id = prev_yr.i_brand_id) and (curr_yr.i_category_id = prev_yr.i_category_id) and (curr_yr.i_class_id = prev_yr.i_class_id) and (curr_yr.i_manufact_id = prev_yr.i_manufact_id)) otherCondition=(((cast(cast(sales_cnt as DECIMALV3(17, 2)) as DECIMALV3(23, 8)) / cast(sales_cnt as DECIMALV3(17, 2))) < 0.900000))
+------------hashJoin[INNER_JOIN shuffle] hashCondition=((curr_yr.i_brand_id = prev_yr.i_brand_id) and (curr_yr.i_category_id = prev_yr.i_category_id) and (curr_yr.i_class_id = prev_yr.i_class_id) and (curr_yr.i_manufact_id = prev_yr.i_manufact_id)) otherCondition=(((cast(cast(sales_cnt as DECIMALV3(17, 2)) as DECIMALV3(23, 8)) / cast(sales_cnt as DECIMALV3(17, 2))) < 0.900000)) build RFs:RF12 i_brand_id->[i_brand_id];RF13 i_class_id->[i_class_id];RF14 i_category_id->[i_category_id];RF15 i_manufact_id->[i_manufact_id]
 --------------filter((curr_yr.d_year = 2002))
-----------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF12 RF13 RF14 RF15
 --------------filter((prev_yr.d_year = 2001))
 ----------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
