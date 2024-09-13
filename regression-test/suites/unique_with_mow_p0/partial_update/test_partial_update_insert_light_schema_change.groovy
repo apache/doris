@@ -264,11 +264,11 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
             sql "sync"
 
             // test insert data with all key column, should fail because
-            // it don't have any value columns
+            // it inserts a new row in strict mode
             sql "set enable_unique_key_partial_update=true;"
             test {
                 sql "insert into ${tableName}(c0,c1) values(1, 1);"
-                exception "INTERNAL_ERROR"
+                exception "Insert has filtered data in strict mode"
             }
             sql "insert into ${tableName}(c0,c1,c2) values(1,0,10);"
             sql "set enable_unique_key_partial_update=false;"
