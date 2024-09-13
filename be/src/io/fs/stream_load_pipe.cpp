@@ -113,7 +113,7 @@ Status StreamLoadPipe::read_one_message(std::unique_ptr<uint8_t[]>* data, size_t
 Status StreamLoadPipe::append_and_flush(const char* data, size_t size, size_t proto_byte_size) {
     SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->stream_load_pipe_tracker());
     ByteBufferPtr buf;
-    RETURN_IF_ERROR(ByteBuffer::allocate(128 * 1024, &buf));
+    RETURN_IF_ERROR(ByteBuffer::allocate(BitUtil::RoundUpToPowerOfTwo(size + 1), &buf));
     buf->put_bytes(data, size);
     buf->flip();
     return _append(buf, proto_byte_size);
