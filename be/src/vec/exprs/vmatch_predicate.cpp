@@ -22,28 +22,24 @@
 #pragma clang diagnostic ignored "-Wshadow-field"
 #endif
 
-#include <CLucene/analysis/LanguageBasedAnalyzer.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h> // IWYU pragma: keep
 #include <gen_cpp/Exprs_types.h>
 #include <glog/logging.h>
 #include <stddef.h>
 
-#include <algorithm>
 #include <memory>
 #include <ostream>
 #include <string_view>
 #include <vector>
 
-#include "CLucene/analysis/standard95/StandardAnalyzer.h"
 #include "common/status.h"
+#include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/core/columns_with_type_and_name.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -61,13 +57,13 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
             get_inverted_index_parser_type_from_string(node.match_predicate.parser_type);
     _inverted_index_ctx->parser_mode = node.match_predicate.parser_mode;
     _inverted_index_ctx->char_filter_map = node.match_predicate.char_filter_map;
-    _analyzer = InvertedIndexReader::create_analyzer(_inverted_index_ctx.get());
-    _analyzer->set_lowercase(node.match_predicate.parser_lowercase);
-    if (node.match_predicate.parser_stopwords == "none") {
-        _analyzer->set_stopwords(nullptr);
+    if (node.match_predicate.parser_lowercase) {
+        _inverted_index_ctx->lower_case = INVERTED_INDEX_PARSER_TRUE;
     } else {
-        _analyzer->set_stopwords(&lucene::analysis::standard95::stop_words);
+        _inverted_index_ctx->lower_case = INVERTED_INDEX_PARSER_FALSE;
     }
+    _inverted_index_ctx->stop_words = node.match_predicate.parser_stopwords;
+    _analyzer = inverted_index::InvertedIndexAnalyzer::create_analyzer(_inverted_index_ctx.get());
     _inverted_index_ctx->analyzer = _analyzer.get();
 }
 
