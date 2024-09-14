@@ -52,7 +52,7 @@ AggregateFunctionPtr create_aggregate_function_map_agg(const std::string& name,
     if (type.idx == TypeIndex::DateV2) {
         return create_agg_function_map_agg<UInt32>(argument_types, result_is_nullable);
     }
-    if (type.idx == TypeIndex::DateTimeV2) {
+    if (type.idx == TypeIndex::DateTimeV2 || type.idx == TypeIndex::Timestamp) {
         return create_agg_function_map_agg<UInt64>(argument_types, result_is_nullable);
     }
 

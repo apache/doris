@@ -66,7 +66,7 @@ AggregateFunctionPtr create_aggregate_function_histogram(const std::string& name
     if (type.idx == TypeIndex::DateV2) {
         return create_agg_function_histogram<UInt32>(argument_types, result_is_nullable);
     }
-    if (type.idx == TypeIndex::DateTimeV2) {
+    if (type.idx == TypeIndex::DateTimeV2 || type.idx == TypeIndex::Timestamp) {
         return create_agg_function_histogram<UInt64>(argument_types, result_is_nullable);
     }
 

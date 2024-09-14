@@ -640,7 +640,8 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     M(Date, ColumnInt64)            \
     M(DateTime, ColumnInt64)        \
     M(DateV2, ColumnUInt32)         \
-    M(DateTimeV2, ColumnUInt64)
+    M(DateTimeV2, ColumnUInt64)     \
+    M(Timestamp, ColumnUInt64)
 
 #define IP_TYPE_TO_COLUMN_TYPE(M) \
     M(IPv4, ColumnIPv4)           \
