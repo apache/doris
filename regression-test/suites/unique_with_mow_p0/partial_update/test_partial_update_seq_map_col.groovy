@@ -27,7 +27,6 @@ suite("test_partial_update_seq_map_col", "p0") {
             }
             sql "set enable_insert_strict=false;"
             sql "set enable_unique_key_partial_update=true;"
-            sql "set show_hidden_columns=true;"
             sql "sync;"
 
             def tableName = "test_partial_update_seq_map_col1"
@@ -36,6 +35,10 @@ suite("test_partial_update_seq_map_col", "p0") {
                 `k` BIGINT NOT NULL,
                 `c1` int,
                 `c2` datetime(6) null default current_timestamp(6),
+                c3 int,
+                c4 int,
+                c5 int,
+                c6 int
                 ) UNIQUE KEY(`k`)
                 DISTRIBUTED BY HASH(`k`) BUCKETS 1
                 PROPERTIES (
@@ -47,8 +50,26 @@ suite("test_partial_update_seq_map_col", "p0") {
             sql "insert into ${tableName}(k,c1) values(2,2);"
             sql "insert into ${tableName}(k,c1) values(3,3);"
             sql "insert into ${tableName}(k,c1) values(4,4);"
-            order_qt_sql1 "select k,c1 from ${tableName} where c2=__DORIS_SEQUENCE_COL__;"
-
+            order_qt_sql1 "select k,c1,c3 from ${tableName} where c2=__DORIS_SEQUENCE_COL__;"
+            // update column which is not sequence map col
+            if (use_nereids) {
+                explain {
+                    sql "update ${tableName} set c3=20 where c1<=2;"
+                    contains "IS_PARTIAL_UPDATE: false"
+                }
+            }
+            sql "update ${tableName} set c3=20 where c1<=2;"
+            order_qt_sql1 "select k,c1,c3 from ${tableName} where c2=__DORIS_SEQUENCE_COL__;"
+            // update sequence map col
+            if (use_nereids) {
+                explain {
+                    sql "update ${tableName} set c2='2099-09-10 12:00:00.977174' where k>2;"
+                    contains "IS_PARTIAL_UPDATE: false"
+                }
+            }
+            sql "update ${tableName} set c2='2099-09-10 12:00:00.977174' where k>2;"
+            order_qt_sql1 "select k,c1,c3 from ${tableName} where c2=__DORIS_SEQUENCE_COL__;"
+            order_qt_sql1 "select k,c1,c2,c3,__DORIS_SEQUENCE_COL__ from ${tableName} where c1>2;"
 
             tableName = "test_partial_update_seq_map_col2"
             sql """ DROP TABLE IF EXISTS ${tableName} """
