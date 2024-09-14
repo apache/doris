@@ -1572,6 +1572,9 @@ public class Env {
                     VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
                             SessionVariable.ENABLE_MATERIALIZED_VIEW_REWRITE,
                             "true");
+                    VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
+                            SessionVariable.ENABLE_NEREIDS_DML_WITH_PIPELINE,
+                            "true");
                 }
             }
 
