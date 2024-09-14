@@ -2655,7 +2655,8 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         boolean enableDeleteOnDeletePredicate = false;
         try {
-            enableDeleteOnDeletePredicate = PropertyAnalyzer.analyzeEnableDeleteOnDeletePredicate(properties);
+            enableDeleteOnDeletePredicate = PropertyAnalyzer.analyzeEnableDeleteOnDeletePredicate(properties,
+                    enableUniqueKeyMergeOnWrite);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
@@ -2687,6 +2688,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (info != null) {
                     storageVaultName = info.first;
                     storageVaultId = info.second;
+                    LOG.info("Using default storage vault: name={}, id={}", storageVaultName, storageVaultId);
                 } else {
                     throw new DdlException("No default storage vault."
                             + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
@@ -2710,9 +2712,12 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             olapTable.setStorageVaultName(storageVaultName);
             storageVaultId = env.getStorageVaultMgr().getVaultIdByName(storageVaultName);
-            if (storageVaultId != null && !storageVaultId.isEmpty()) {
-                olapTable.setStorageVaultId(storageVaultId);
+            if (Strings.isNullOrEmpty(storageVaultId)) {
+                throw new DdlException("Storage vault '" + storageVaultName + "' does not exist. "
+                        + "You can use `SHOW STORAGE VAULT` to get all available vaults, "
+                        + "or create a new one with `CREATE STORAGE VAULT`.");
             }
+            olapTable.setStorageVaultId(storageVaultId);
         }
 
         // check `update on current_timestamp`

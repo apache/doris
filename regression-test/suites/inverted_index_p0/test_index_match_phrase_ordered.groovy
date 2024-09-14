@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_index_match_phrase_ordered", "p0"){
+suite("test_index_match_phrase_ordered", "nonConcurrent"){
     def indexTbName1 = "test_index_match_phrase_ordered"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
@@ -49,6 +49,8 @@ suite("test_index_match_phrase_ordered", "p0"){
 
     try {
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true; """
+        GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
 
         qt_sql """ select count() from ${indexTbName1} where b match_phrase 'the lazy'; """
         qt_sql """ select count() from ${indexTbName1} where b match_phrase 'the lazy ~1'; """
@@ -82,6 +84,6 @@ suite("test_index_match_phrase_ordered", "p0"){
         qt_sql """ select count() from ${indexTbName1} where b match_phrase 'the quick ~6'; """
         qt_sql """ select count() from ${indexTbName1} where b match_phrase 'the quick ~6+'; """
     } finally {
-        //try_sql("DROP TABLE IF EXISTS ${testTable}")
+        GetDebugPoint().disableDebugPointForAllBEs("VMatchPredicate.execute")
     }
 }

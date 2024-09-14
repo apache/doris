@@ -19,6 +19,7 @@
 
 #include <event2/bufferevent.h>
 #include <event2/http.h>
+#include <gen_cpp/FrontendService_types.h>
 
 #include <string>
 #include <vector>
@@ -37,6 +38,7 @@
 #include "http/action/checksum_action.h"
 #include "http/action/clear_cache_action.h"
 #include "http/action/compaction_action.h"
+#include "http/action/compaction_score_action.h"
 #include "http/action/config_action.h"
 #include "http/action/debug_point_action.h"
 #include "http/action/download_action.h"
@@ -45,6 +47,7 @@
 #include "http/action/health_action.h"
 #include "http/action/http_stream.h"
 #include "http/action/jeprofile_actions.h"
+#include "http/action/load_channel_action.h"
 #include "http/action/load_stream_action.h"
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
@@ -185,6 +188,10 @@ Status HttpService::start() {
     // Register BE LoadStream action
     LoadStreamAction* load_stream_action = _pool.add(new LoadStreamAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/load_streams", load_stream_action);
+
+    // Register BE LoadChannel action
+    LoadChannelAction* load_channel_action = _pool.add(new LoadChannelAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/load_channels", load_channel_action);
 
     // Register Tablets Info action
     TabletsInfoAction* tablets_info_action =
@@ -381,6 +388,11 @@ void HttpService::register_local_handler(StorageEngine& engine) {
             new ShowNestedIndexFileAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/show_nested_index_file",
                                       show_nested_index_file_action);
+
+    CompactionScoreAction* compaction_score_action = _pool.add(new CompactionScoreAction(
+            _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, engine.tablet_manager()));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction_score",
+                                      compaction_score_action);
 }
 
 void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
@@ -417,6 +429,10 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
             new ShowNestedIndexFileAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/show_nested_index_file",
                                       show_nested_index_file_action);
+    CompactionScoreAction* compaction_score_action = _pool.add(new CompactionScoreAction(
+            _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, engine.tablet_mgr()));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction_score",
+                                      compaction_score_action);
 }
 // NOLINTEND(readability-function-size)
 

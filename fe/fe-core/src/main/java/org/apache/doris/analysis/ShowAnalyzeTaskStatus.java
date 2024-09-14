@@ -26,7 +26,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 /**
  * SHOW ANALYZE TASK STATUS [JOB_ID]
  */
-public class ShowAnalyzeTaskStatus extends ShowStmt {
+public class ShowAnalyzeTaskStatus extends ShowStmt implements NotFallbackInParser {
 
     private static final ShowResultSetMetaData ROW_META_DATA =
             ShowResultSetMetaData.builder()

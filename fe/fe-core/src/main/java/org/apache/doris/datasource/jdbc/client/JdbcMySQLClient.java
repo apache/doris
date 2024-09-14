@@ -35,6 +35,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 
@@ -174,7 +175,7 @@ public class JdbcMySQLClient extends JdbcClient {
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
         // For Doris type
         if (isDoris) {
-            return dorisTypeToDoris(fieldSchema.getDataTypeName().orElse("unknown").toUpperCase());
+            return dorisTypeToDoris(fieldSchema);
         }
         // For mysql type: "INT UNSIGNED":
         // fieldSchema.getDataTypeName().orElse("unknown").split(" ")[0] == "INT"
@@ -319,7 +320,8 @@ public class JdbcMySQLClient extends JdbcClient {
         return fieldtoType;
     }
 
-    private Type dorisTypeToDoris(String type) {
+    private Type dorisTypeToDoris(JdbcFieldSchema fieldSchema) {
+        String type = fieldSchema.getDataTypeName().orElse("unknown").toUpperCase();
         if (type == null || type.isEmpty()) {
             return Type.UNSUPPORTED;
         }
@@ -329,7 +331,9 @@ public class JdbcMySQLClient extends JdbcClient {
         // For ARRAY type
         if (upperType.startsWith("ARRAY")) {
             String innerType = upperType.substring(6, upperType.length() - 1).trim();
-            Type arrayInnerType = dorisTypeToDoris(innerType);
+            JdbcFieldSchema innerFieldSchema = new JdbcFieldSchema(fieldSchema);
+            innerFieldSchema.setDataTypeName(Optional.of(innerType));
+            Type arrayInnerType = dorisTypeToDoris(innerFieldSchema);
             return ArrayType.create(arrayInnerType, true);
         }
 
@@ -356,9 +360,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 return Type.DOUBLE;
             case "DECIMAL":
             case "DECIMALV3": {
-                String[] params = upperType.substring(openParen + 1, upperType.length() - 1).split(",");
-                int precision = Integer.parseInt(params[0].trim());
-                int scale = Integer.parseInt(params[1].trim());
+                int precision = fieldSchema.getColumnSize().orElse(0);
+                int scale = fieldSchema.getDecimalDigits().orElse(0);
                 return createDecimalOrStringType(precision, scale);
             }
             case "DATE":
@@ -374,11 +377,11 @@ public class JdbcMySQLClient extends JdbcClient {
                 return ScalarType.createDatetimeV2Type(scale);
             }
             case "CHAR":
-            case "VARCHAR": {
-                int length = Integer.parseInt(upperType.substring(openParen + 1, upperType.length() - 1));
-                return baseType.equals("CHAR")
-                    ? ScalarType.createCharType(length) : ScalarType.createVarcharType(length);
-            }
+                ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
+                charType.setLength(fieldSchema.getColumnSize().orElse(0));
+                return charType;
+            case "VARCHAR":
+                return ScalarType.createVarcharType(fieldSchema.getColumnSize().orElse(0));
             case "STRING":
             case "TEXT":
             case "JSON":

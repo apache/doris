@@ -1041,7 +1041,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             final TMasterOpResult result = new TMasterOpResult();
             try {
                 result.setGroupCommitLoadBeId(Env.getCurrentEnv().getGroupCommitManager()
-                        .selectBackendForGroupCommitInternal(info.groupCommitLoadTableId, info.cluster, info.isCloud));
+                        .selectBackendForGroupCommitInternal(info.groupCommitLoadTableId, info.cluster));
             } catch (LoadException | DdlException e) {
                 throw new TException(e.getMessage());
             }
@@ -3007,6 +3007,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isCleanTables()) {
             properties.put(RestoreStmt.PROP_CLEAN_TABLES, "true");
         }
+        if (request.isAtomicRestore()) {
+            properties.put(RestoreStmt.PROP_ATOMIC_RESTORE, "true");
+        }
 
         AbstractBackupTableRefClause restoreTableRefClause = null;
         if (request.isSetTableRefs()) {
@@ -3311,9 +3314,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         InvalidateStatsTarget target = GsonUtils.GSON.fromJson(request.key, InvalidateStatsTarget.class);
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         TableStatsMeta tableStats = analysisManager.findTableStatsStatus(target.tableId);
-        if (tableStats == null) {
-            return new TStatus(TStatusCode.OK);
-        }
         PartitionNames partitionNames = null;
         if (target.partitions != null) {
             partitionNames = new PartitionNames(false, new ArrayList<>(target.partitions));
@@ -3350,7 +3350,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        Table table = db.getTable(tableId).get();
+        OlapTable table = (OlapTable) (db.getTable(tableId).get());
         if (table == null) {
             errorStatus.setErrorMsgs(
                     (Lists.newArrayList(String.format("dbId=%d tableId=%d is not exists", dbId, tableId))));
@@ -3432,6 +3432,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TTabletLocation> tablets = Lists.newArrayList();
         for (String partitionName : addPartitionClauseMap.keySet()) {
             Partition partition = table.getPartition(partitionName);
+            if (partition == null) {
+                String partInfos = table.getAllPartitions().stream()
+                        .map(partitionArg -> partitionArg.getName() + partitionArg.getId())
+                        .collect(Collectors.joining(", "));
+
+                errorStatus.setErrorMsgs(Lists.newArrayList("get partition " + partitionName + " failed"));
+                result.setStatus(errorStatus);
+                LOG.warn("send create partition error status: {}, {}", result, partInfos);
+                return result;
+            }
             TOlapTablePartition tPartition = new TOlapTablePartition();
             tPartition.setId(partition.getId());
             int partColNum = partitionInfo.getPartitionColumns().size();

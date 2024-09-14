@@ -267,8 +267,9 @@ public abstract class AbstractPhysicalJoin<
 
     @Override
     public String toString() {
-        List<Object> args = Lists.newArrayList("type", joinType,
+        List<Object> args = Lists.newArrayList(
                 "stats", statistics,
+                "type", joinType,
                 "hashCondition", hashJoinConjuncts,
                 "otherCondition", otherJoinConjuncts,
                 "markCondition", markJoinConjuncts);

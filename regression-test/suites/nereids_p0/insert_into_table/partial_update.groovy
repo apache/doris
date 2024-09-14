@@ -281,7 +281,6 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
 
             sql "set enable_unique_key_partial_update=false;"
             sql "set enable_insert_strict = false;"
-            sql "set enable_fallback_to_original_planner=true;"
             sql "sync;"
         }
     }

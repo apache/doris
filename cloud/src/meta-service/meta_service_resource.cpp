@@ -254,6 +254,8 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
         }
     }
 
+    response->set_enable_storage_vault(instance.enable_storage_vault());
+
     // Iterate all the resources to return to the rpc caller
     if (!instance.resource_ids().empty()) {
         std::string storage_vault_start = storage_vault_key({instance.instance_id(), ""});
@@ -2336,9 +2338,8 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
         std::find_if(instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
                      [](const std::string& name) { return name == BUILT_IN_STORAGE_VAULT_NAME; }) ==
                 instance.storage_vault_names().end()) {
-        code = MetaServiceCode::STORAGE_VAULT_NOT_FOUND;
-        msg = "instance has no built in storage vault";
-        return;
+        LOG_EVERY_N(INFO, 100) << "There is no builtin vault in instance "
+                               << instance.instance_id();
     }
 
     auto get_cluster_mysql_user = [](const ClusterPB& c, std::set<std::string>* mysql_users) {

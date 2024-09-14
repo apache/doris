@@ -18,7 +18,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 
-suite('test_clone_no_missing_version') {
+suite('test_clone_no_missing_version', 'docker') {
     def tbl = 'tbl_test_clone_no_missing_version'
     def options = new ClusterOptions()
     options.feConfigs += [

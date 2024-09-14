@@ -76,6 +76,7 @@ public class View extends Table implements GsonPostProcessable {
     private String inlineViewDef;
 
     // for persist
+    @SerializedName("sm")
     private long sqlMode = 0L;
 
     // View definition created by parsing inlineViewDef_ into a QueryStmt.
@@ -222,7 +223,14 @@ public class View extends Table implements GsonPostProcessable {
         sb.append(type);
         sb.append(Util.getSchemaSignatureString(fullSchema));
         sb.append(inlineViewDef);
-        sb.append(sqlMode);
+
+        // ATTN: sqlMode is missing when persist view, so we should not append it here.
+        //
+        // To keep compatible with the old version, without sqlMode, if the signature of views
+        // are the same, we think the should has the same sqlMode. (since the sqlMode doesn't
+        // effect the parsing of inlineViewDef, otherwise the parsing will fail),
+        //
+        // sb.append(sqlMode);
         String md5 = DigestUtils.md5Hex(sb.toString());
         if (LOG.isDebugEnabled()) {
             LOG.debug("get signature of view {}: {}. signature string: {}", name, md5, sb.toString());
