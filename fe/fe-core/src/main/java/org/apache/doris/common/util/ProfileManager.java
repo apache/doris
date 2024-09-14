@@ -159,6 +159,7 @@ public class ProfileManager extends MasterDaemon {
 
     // The visiablity of ProfileManager() is package level, so that we can write ut for it.
     ProfileManager() {
+        super("profile-manager", Config.profile_manager_gc_interval_seconds * 1000);
         lock = new ReentrantReadWriteLock(true);
         readLock = lock.readLock();
         writeLock = lock.writeLock();

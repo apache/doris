@@ -381,7 +381,9 @@ public class CreateMTMVInfo {
         List<Expression> functionCollectResult = MaterializedViewUtils.extractNondeterministicFunction(plan);
         if (!CollectionUtils.isEmpty(functionCollectResult)) {
             throw new AnalysisException(String.format(
-                    "can not contain invalid expression, the expression is %s",
+                    "can not contain nonDeterministic expression, the expression is %s. "
+                            + "Should add 'enable_nondeterministic_function'  = 'true' property "
+                            + "when create materialized view if you know the property real meaning entirely",
                     functionCollectResult.stream().map(Expression::toString).collect(Collectors.joining(","))));
         }
     }

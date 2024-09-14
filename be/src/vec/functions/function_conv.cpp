@@ -205,13 +205,20 @@ struct ConvStringImpl {
                                ColumnString* result_column, NullMap& result_null_map,
                                size_t index) {
         StringRef str = data_column->get_data_at(index);
+        auto new_size = str.size;
+        // eg: select conv('1.464868',10,2); the result should be return 1.
+        // But StringParser::string_to_int will PARSE_FAILURE and return 0,
+        // so should handle the point part of number firstly if need convert '1.464868' to number 1
+        if (auto pos = str.to_string_view().find_first_of('.'); pos != std::string::npos) {
+            new_size = pos;
+        }
         StringParser::ParseResult parse_res;
         // select conv('ffffffffffffff', 24, 2);
         // if 'ffffffffffffff' parse as int64_t will be overflow, will be get max value: std::numeric_limits<int64_t>::max()
         // so change it parse as uint64_t, and return value could still use int64_t, in function decimal_to_base could handle it.
         // But if the value is still overflow in uint64_t, will get max value of uint64_t
         int64_t decimal_num =
-                StringParser::string_to_int<uint64_t>(str.data, str.size, src_base, &parse_res);
+                StringParser::string_to_int<uint64_t>(str.data, new_size, src_base, &parse_res);
         if (src_base < 0 && decimal_num >= 0) {
             result_null_map[index] = true;
             result_column->insert_default();

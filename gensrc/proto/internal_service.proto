@@ -107,6 +107,7 @@ message PTabletWriterOpenRequest {
     optional bool write_file_cache = 17;
     optional string storage_vault_id = 18;
     optional int32 sender_id = 19;
+    optional int64 workload_group_id = 20;
 };
 
 message PTabletWriterOpenResult {
@@ -232,6 +233,7 @@ enum PFragmentRequestVersion {
     VERSION_1 = 1;  // only one TExecPlanFragmentParams in request
     VERSION_2 = 2;  // multi TExecPlanFragmentParams in request
     VERSION_3 = 3;  // multi TPipelineFragmentParams in request
+    VERSION_4 = 4; // multi TPipelineFragmentParams with optimized common fields in request. Used by 2.1
 };
 
 message PExecPlanFragmentRequest {
