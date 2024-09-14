@@ -628,6 +628,27 @@ public class StmtExecutor {
             }
         } else {
             context.getState().setIsQuery(true);
+            if (isForwardToMaster()) {
+                // some times the follower's meta data is out of date.
+                // so we need forward the query to master until the meta data is sync with master
+                if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
+                    throw new UserException("Forward master command is not supported for prepare statement");
+                }
+                if (isProxy) {
+                    // This is already a stmt forwarded from other FE.
+                    // If we goes here, means we can't find a valid Master FE(some error happens).
+                    // To avoid endless forward, throw exception here.
+                    throw new NereidsException(new UserException("The statement has been forwarded to master FE("
+                            + Env.getCurrentEnv().getSelfNode().getHost() + ") and failed to execute"
+                            + " because Master FE is not ready. You may need to check FE's status"));
+                }
+                redirectStatus = RedirectStatus.NO_FORWARD;
+                forwardToMaster();
+                if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
+                    context.setQueryId(masterOpExecutor.getQueryId());
+                }
+                return;
+            }
             if (context.getSessionVariable().enableProfile) {
                 ConnectContext.get().setStatsErrorEstimator(new StatsErrorEstimator());
             }
