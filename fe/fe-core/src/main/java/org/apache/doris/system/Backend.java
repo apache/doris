@@ -188,7 +188,7 @@ public class Backend implements Writable {
     }
 
     public String getCloudClusterStatus() {
-        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_STATUS, String.valueOf(Cloud.ClusterStatus.UNKNOWN));
+        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_STATUS, String.valueOf(Cloud.ClusterStatus.NORMAL));
     }
 
     public void setCloudClusterStatus(final String clusterStatus) {
