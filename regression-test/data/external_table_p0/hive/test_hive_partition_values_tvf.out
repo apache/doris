@@ -88,11 +88,16 @@ t_int	text	No	false	\N	NONE
 t_float	text	No	false	\N	NONE
 t_string	text	No	false	\N	NONE
 
--- !sql91 --
+-- !sql93 --
 t_int	text	No	false	\N	NONE
 
--- !sql92 --
+-- !sql94 --
 t_int	text	No	false	\N	NONE
+
+-- !sql95 --
+100	0.3	test3
+__HIVE_DEFAULT_PARTITION__	0.1	test1
+__HIVE_DEFAULT_PARTITION__	0.2	test2
 
 -- !sql101 --
 k1	int	Yes	true	\N	

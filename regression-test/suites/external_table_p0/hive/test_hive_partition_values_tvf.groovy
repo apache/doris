@@ -79,8 +79,9 @@ suite("test_hive_partition_values_tvf", "p0,external,hive,external_docker,extern
         // 10. test desc
         qt_sql91 """desc orc_partitioned_columns\$partitions"""
         qt_sql92 """desc function partition_values("catalog" = "${catalog_name}", "database" = "multi_catalog", "table" = "orc_partitioned_columns");"""
-        qt_sql91 """desc orc_partitioned_one_column\$partitions"""
-        qt_sql92 """desc function partition_values("catalog" = "${catalog_name}", "database" = "multi_catalog", "table" = "orc_partitioned_one_column");"""
+        qt_sql93 """desc orc_partitioned_one_column\$partitions"""
+        qt_sql94 """desc function partition_values("catalog" = "${catalog_name}", "database" = "multi_catalog", "table" = "orc_partitioned_one_column");"""
+        qt_sql95 """select * from partition_values("catalog" = "${catalog_name}", "database" = "multi_catalog", "table" = "orc_partitioned_columns") order by t_int, t_float"""
 
         // 11. test non partition table
         test {
