@@ -61,11 +61,14 @@ import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.awaitility.Awaitility;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * insert into select command implementation
@@ -82,8 +85,8 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
     private LogicalPlan logicalQuery;
     private Optional<String> labelName;
     private final Optional<LogicalPlan> cte;
-    private volatile boolean isCancelled = false;
-    private volatile boolean isRunning = false;
+    private AtomicBoolean isCancelled = new AtomicBoolean(false);
+    private AtomicBoolean isRunning = new AtomicBoolean(false);
 
     /**
      * constructor
@@ -161,8 +164,8 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             partitionNames = new ArrayList<>();
         }
         InsertOverwriteManager insertOverwriteManager = Env.getCurrentEnv().getInsertOverwriteManager();
-        insertOverwriteManager.recordRunningTableOrException(targetTable.getDatabase().getId(), targetTable.getId());
-        isRunning = true;
+        insertOverwriteManager.recordRunningTableOrException(targetTable.getDatabase(), targetTable);
+        isRunning.set(true);
         long taskId = 0;
         try {
             if (isAutoDetectOverwrite()) {
@@ -175,35 +178,35 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                 insertOverwriteManager.taskGroupSuccess(taskId, (OlapTable) targetTable);
             } else {
                 List<String> tempPartitionNames = InsertOverwriteUtil.generateTempPartitionNames(partitionNames);
-                if (isCancelled) {
-                    LOG.info("insert overwrite isCancelled before registerTask, queryId: {}", ctx.getQueryIdentifier());
+                if (isCancelled.get()) {
+                    LOG.info("insert overwrite is cancelled before registerTask, queryId: {}", ctx.getQueryIdentifier());
                     return;
                 }
                 taskId = insertOverwriteManager
                         .registerTask(targetTable.getDatabase().getId(), targetTable.getId(), tempPartitionNames);
-                if (isCancelled) {
-                    LOG.info("insert overwrite isCancelled before addTempPartitions, queryId: {}",
+                if (isCancelled.get()) {
+                    LOG.info("insert overwrite is cancelled before addTempPartitions, queryId: {}",
                             ctx.getQueryIdentifier());
                     // not need deal temp partition
                     insertOverwriteManager.taskSuccess(taskId);
                     return;
                 }
                 InsertOverwriteUtil.addTempPartitions(targetTable, partitionNames, tempPartitionNames);
-                if (isCancelled) {
-                    LOG.info("insert overwrite isCancelled before insertInto, queryId: {}", ctx.getQueryIdentifier());
+                if (isCancelled.get()) {
+                    LOG.info("insert overwrite is cancelled before insertInto, queryId: {}", ctx.getQueryIdentifier());
                     insertOverwriteManager.taskFail(taskId);
                     return;
                 }
                 insertInto(ctx, executor, tempPartitionNames);
-                if (isCancelled) {
-                    LOG.info("insert overwrite isCancelled before replacePartition, queryId: {}",
+                if (isCancelled.get()) {
+                    LOG.info("insert overwrite is cancelled before replacePartition, queryId: {}",
                             ctx.getQueryIdentifier());
                     insertOverwriteManager.taskFail(taskId);
                     return;
                 }
                 InsertOverwriteUtil.replacePartition(targetTable, partitionNames, tempPartitionNames);
-                if (isCancelled) {
-                    LOG.info("insert overwrite isCancelled before taskSuccess, do nothing, queryId: {}",
+                if (isCancelled.get()) {
+                    LOG.info("insert overwrite is cancelled before taskSuccess, do nothing, queryId: {}",
                             ctx.getQueryIdentifier());
                 }
                 insertOverwriteManager.taskSuccess(taskId);
@@ -220,7 +223,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             ConnectContext.get().setSkipAuth(false);
             insertOverwriteManager
                     .dropRunningRecord(targetTable.getDatabase().getId(), targetTable.getId());
-            isRunning = false;
+            isRunning.set(false);
         }
     }
 
@@ -228,35 +231,19 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
      * cancel insert overwrite
      */
     public void cancel() {
-        this.isCancelled = true;
+        this.isCancelled.set(true);
     }
 
     /**
      * wait insert overwrite not running
      */
     public void waitNotRunning() {
-        long waitMaxTimeMills = 10 * 1000L;
-        long waitTime = 0;
-        while (true) {
-            if (!isRunning) {
-                break;
-            }
-            if (waitTime >= waitMaxTimeMills) {
-                LOG.warn("waiting time exceeds {} ms, stop wait, labelName: {}", waitMaxTimeMills,
-                        labelName.isPresent() ? labelName.get() : "");
-                break;
-            }
-            try {
-                Thread.sleep(100);
-                waitTime += 100;
-            } catch (InterruptedException e) {
-                LOG.warn(e);
-                break;
-            }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("insert overwrite waitNotRunning, labelName: {}",
-                        labelName.isPresent() ? labelName.get() : "");
-            }
+        long waitMaxTimeSecond = 10L;
+        try {
+            Awaitility.await().atMost(waitMaxTimeSecond, TimeUnit.SECONDS).untilFalse(isRunning);
+        } catch (Exception e) {
+            LOG.warn("waiting time exceeds {} second, stop wait, labelName: {}", waitMaxTimeSecond,
+                    labelName.isPresent() ? labelName.get() : "", e);
         }
     }
 

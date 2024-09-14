@@ -17,8 +17,10 @@
 
 package org.apache.doris.insertoverwrite;
 
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -283,15 +285,18 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
      * If the current table id has a running insert overwrite, throw an exception.
      * If not, record it in runningTables
      *
-     * @param dbId Run the dbId for insert overwrite
-     * @param tableId Run the tableId for insert overwrite
+     * @param db Run the db for insert overwrite
+     * @param table Run the table for insert overwrite
      */
-    public void recordRunningTableOrException(long dbId, long tableId) {
+    public void recordRunningTableOrException(DatabaseIf db, TableIf table) {
+        long dbId = db.getId();
+        long tableId = table.getId();
         runningLock.writeLock().lock();
         try {
             if (runningTables.containsKey(dbId) && runningTables.get(dbId).contains(tableId)) {
                 throw new AnalysisException(
-                        String.format("insert overwrite is running on db: %s, table: %s", dbId, tableId));
+                        String.format("Not allowed running Insert Overwrite on same table: %s.%s", db.getFullName(),
+                                table.getName()));
             }
             if (runningTables.containsKey(dbId)) {
                 runningTables.get(dbId).add(tableId);
