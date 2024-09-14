@@ -464,11 +464,12 @@ Status VMetaScanner::_build_tasks_metadata_request(const TMetaScanRange& meta_sc
     return Status::OK();
 }
 
-Status VMetaScanner::_build_partition_values_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                   TFetchSchemaTableDataRequest* request) {
+Status VMetaScanner::_build_partition_values_metadata_request(
+        const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
     VLOG_CRITICAL << "VMetaScanner::_build_partition_values_metadata_request";
     if (!meta_scan_range.__isset.partition_values_params) {
-        return Status::InternalError("Can not find TPartitionValuesMetadataParams from meta_scan_range.");
+        return Status::InternalError(
+                "Can not find TPartitionValuesMetadataParams from meta_scan_range.");
     }
 
     // create request
@@ -477,7 +478,8 @@ Status VMetaScanner::_build_partition_values_metadata_request(const TMetaScanRan
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::PARTITION_VALUES);
-    metadata_table_params.__set_partition_values_metadata_params(meta_scan_range.partition_values_params);
+    metadata_table_params.__set_partition_values_metadata_params(
+            meta_scan_range.partition_values_params);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();
