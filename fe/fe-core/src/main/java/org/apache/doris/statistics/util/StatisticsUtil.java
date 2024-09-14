@@ -227,8 +227,8 @@ public class StatisticsUtil {
         sessionVariable.enableMaterializedViewRewrite = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
-        connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
-        connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
+        connectContext.setQualifiedUser(UserIdentity.ADMIN.getQualifiedUser());
+        connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
         connectContext.setStartTime();
         if (Config.isCloudMode()) {
             AutoCloseConnectContext ctx = new AutoCloseConnectContext(connectContext);
