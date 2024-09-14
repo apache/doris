@@ -81,7 +81,7 @@ suite("test_create_table") {
                     "enable_unique_key_merge_on_write" = "true"
              );
         """
-        exception "Key cluster column[c_addresses] doesn't exist"
+        exception "Cluster key column[c_addresses] doesn't exist"
     }
 
     // mow unique table with duplicate cluster keys
