@@ -20,18 +20,24 @@ package org.apache.doris.nereids.trees.expressions.functions.executable;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DecimalV3Type;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 
 /**
  * executable functions:
@@ -596,4 +602,472 @@ public class NumericArithmetic {
         return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(
                 t1.getPrecision(), t1.getScale() - t2.getScale()), result);
     }
+
+    /**
+     * coalesce
+     */
+    @ExecFunction(name = "coalesce")
+    public static Expression coalesce(Literal first, Literal... second) {
+        if (!(first instanceof NullLiteral)) {
+            return first;
+        }
+        for (Literal secondLiteral : second) {
+            if (!(secondLiteral instanceof NullLiteral)) {
+                return secondLiteral;
+            }
+        }
+        return first;
+    }
+
+    /**
+     * round
+     */
+    @ExecFunction(name = "round")
+    public static Expression round(DecimalV3Literal first) {
+        return first.round(0);
+    }
+
+    /**
+     * round
+     */
+    @ExecFunction(name = "round")
+    public static Expression round(DecimalV3Literal first, IntegerLiteral second) {
+        return first.round(second.getValue());
+    }
+
+    /**
+     * round
+     */
+    @ExecFunction(name = "round")
+    public static Expression round(DoubleLiteral first) {
+        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        return new DoubleLiteral(middleResult.round(0).getDouble());
+    }
+
+    /**
+     * round
+     */
+    @ExecFunction(name = "round")
+    public static Expression round(DoubleLiteral first, IntegerLiteral second) {
+        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        return new DoubleLiteral(middleResult.round(second.getValue()).getDouble());
+    }
+
+    /**
+     * ceil
+     */
+    @ExecFunction(name = "ceil")
+    public static Expression ceil(DecimalV3Literal first) {
+        return first.roundCeiling(0);
+    }
+
+    /**
+     * ceil
+     */
+    @ExecFunction(name = "ceil")
+    public static Expression ceil(DecimalV3Literal first, IntegerLiteral second) {
+        return first.roundCeiling(second.getValue());
+    }
+
+    /**
+     * ceil
+     */
+    @ExecFunction(name = "ceil")
+    public static Expression ceil(DoubleLiteral first) {
+        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        return new DoubleLiteral(middleResult.roundCeiling(0).getDouble());
+    }
+
+    /**
+     * ceil
+     */
+    @ExecFunction(name = "ceil")
+    public static Expression ceil(DoubleLiteral first, IntegerLiteral second) {
+        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        return new DoubleLiteral(middleResult.roundCeiling(second.getValue()).getDouble());
+    }
+
+    /**
+     * floor
+     */
+    @ExecFunction(name = "floor")
+    public static Expression floor(DecimalV3Literal first) {
+        return first.roundFloor(0);
+    }
+
+    /**
+     * floor
+     */
+    @ExecFunction(name = "floor")
+    public static Expression floor(DecimalV3Literal first, IntegerLiteral second) {
+        return first.roundFloor(second.getValue());
+    }
+
+    /**
+     * floor
+     */
+    @ExecFunction(name = "floor")
+    public static Expression floor(DoubleLiteral first) {
+        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        return new DoubleLiteral(middleResult.roundFloor(0).getDouble());
+    }
+
+    /**
+     * floor
+     */
+    @ExecFunction(name = "floor")
+    public static Expression floor(DoubleLiteral first, IntegerLiteral second) {
+        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        return new DoubleLiteral(middleResult.roundFloor(second.getValue()).getDouble());
+    }
+
+    /**
+     * exp
+     */
+    @ExecFunction(name = "exp")
+    public static Expression exp(DoubleLiteral first) {
+        return new DoubleLiteral(Math.exp(first.getValue()));
+    }
+
+    /**
+     * ln
+     */
+    @ExecFunction(name = "ln")
+    public static Expression ln(DoubleLiteral first) {
+        return new DoubleLiteral(Math.log1p(first.getValue()));
+    }
+
+    /**
+     * log
+     */
+    @ExecFunction(name = "log")
+    public static Expression log(DoubleLiteral first, DoubleLiteral second) {
+        return new DoubleLiteral(Math.log(first.getValue()) / Math.log(second.getValue()));
+    }
+
+    /**
+     * log2
+     */
+    @ExecFunction(name = "log2")
+    public static Expression log2(DoubleLiteral first) {
+        return new DoubleLiteral(Math.log(first.getValue()) / Math.log(2.0));
+    }
+
+    /**
+     * log10
+     */
+    @ExecFunction(name = "log10")
+    public static Expression log10(DoubleLiteral first) {
+        return new DoubleLiteral(Math.log10(first.getValue()));
+    }
+
+    /**
+     * sqrt
+     */
+    @ExecFunction(name = "sqrt")
+    public static Expression sqrt(DoubleLiteral first) {
+        if (first.getValue() < 0) {
+            return new NullLiteral(first.getDataType());
+        }
+        return new DoubleLiteral(Math.sqrt(first.getValue()));
+    }
+
+    /**
+     * power
+     */
+    @ExecFunction(name = "power")
+    public static Expression power(DoubleLiteral first, DoubleLiteral second) {
+        return new DoubleLiteral(Math.pow(first.getValue(), second.getValue()));
+    }
+
+    /**
+     * sin
+     */
+    @ExecFunction(name = "sin")
+    public static Expression sin(DoubleLiteral first) {
+        return new DoubleLiteral(Math.sin(first.getValue()));
+    }
+
+    /**
+     * cos
+     */
+    @ExecFunction(name = "cos")
+    public static Expression cos(DoubleLiteral first) {
+        return new DoubleLiteral(Math.cos(first.getValue()));
+    }
+
+    /**
+     * tan
+     */
+    @ExecFunction(name = "tan")
+    public static Expression tan(DoubleLiteral first) {
+        return new DoubleLiteral(Math.tan(first.getValue()));
+    }
+
+    /**
+     * asin
+     */
+    @ExecFunction(name = "asin")
+    public static Expression asin(DoubleLiteral first) {
+        return new DoubleLiteral(Math.asin(first.getValue()));
+    }
+
+    /**
+     * acos
+     */
+    @ExecFunction(name = "acos")
+    public static Expression acos(DoubleLiteral first) {
+        return new DoubleLiteral(Math.acos(first.getValue()));
+    }
+
+    /**
+     * atan
+     */
+    @ExecFunction(name = "atan")
+    public static Expression atan(DoubleLiteral first) {
+        return new DoubleLiteral(Math.atan(first.getValue()));
+    }
+
+    /**
+     * atan2
+     */
+    @ExecFunction(name = "atan2")
+    public static Expression atan2(DoubleLiteral first, DoubleLiteral second) {
+        return new DoubleLiteral(Math.atan2(first.getValue(), second.getValue()));
+    }
+
+    /**
+     * sign
+     */
+    @ExecFunction(name = "sign")
+    public static Expression sign(DoubleLiteral first) {
+        if (first.getValue() < 0) {
+            return new TinyIntLiteral((byte) -1);
+        } else if (first.getValue() == 0) {
+            return new TinyIntLiteral((byte) 0);
+        } else {
+            return new TinyIntLiteral((byte) 1);
+        }
+    }
+
+    /**
+     * bit_count
+     */
+    @ExecFunction(name = "bit_count")
+    public static Expression bitCount(TinyIntLiteral first) {
+        return new TinyIntLiteral((byte) Integer.bitCount(first.getValue() & 0xFF));
+    }
+
+    /**
+     * bit_count
+     */
+    @ExecFunction(name = "bit_count")
+    public static Expression bitCount(SmallIntLiteral first) {
+        return new TinyIntLiteral((byte) Integer.bitCount(first.getValue() & 0xFFFF));
+    }
+
+    /**
+     * bit_count
+     */
+    @ExecFunction(name = "bit_count")
+    public static Expression bitCount(IntegerLiteral first) {
+        return new TinyIntLiteral((byte) Integer.bitCount(first.getValue()));
+    }
+
+    /**
+     * bit_count
+     */
+    @ExecFunction(name = "bit_count")
+    public static Expression bitCount(BigIntLiteral first) {
+        return new TinyIntLiteral((byte) Long.bitCount(first.getValue()));
+    }
+
+    /**
+     * bit_count
+     */
+    @ExecFunction(name = "bit_count")
+    public static Expression bitCount(LargeIntLiteral first) {
+        if (first.getValue().compareTo(BigInteger.ZERO) < 0) {
+            return new SmallIntLiteral((short) (128 - first.getValue().bitCount()));
+        } else {
+            return new SmallIntLiteral((short) first.getValue().bitCount());
+        }
+    }
+
+    /**
+     * bit_length
+     */
+    @ExecFunction(name = "bit_length")
+    public static Expression bitLength(VarcharLiteral first) {
+        byte[] byteArray = first.getValue().getBytes(StandardCharsets.UTF_8);  // Convert to bytes in UTF-8
+        int byteLength = byteArray.length;
+        return new IntegerLiteral(byteLength * Byte.SIZE);
+    }
+
+    /**
+     * bit_length
+     */
+    @ExecFunction(name = "bit_length")
+    public static Expression bitLength(StringLiteral first) {
+        byte[] byteArray = first.getValue().getBytes(StandardCharsets.UTF_8);  // Convert to bytes in UTF-8
+        int byteLength = byteArray.length;
+        return new IntegerLiteral(byteLength * Byte.SIZE);
+    }
+
+    /**
+     * cbrt
+     */
+    @ExecFunction(name = "cbrt")
+    public static Expression cbrt(DoubleLiteral first) {
+        return new DoubleLiteral(Math.cbrt(first.getValue()));
+    }
+
+    /**
+     * cosh
+     */
+    @ExecFunction(name = "cosh")
+    public static Expression cosh(DoubleLiteral first) {
+        return new DoubleLiteral(Math.cosh(first.getValue()));
+    }
+
+    /**
+     * tanh
+     */
+    @ExecFunction(name = "cosh")
+    public static Expression tanh(DoubleLiteral first) {
+        return new DoubleLiteral(Math.tanh(first.getValue()));
+    }
+
+    /**
+     * dexp
+     */
+    @ExecFunction(name = "dexp")
+    public static Expression dexp(DoubleLiteral first) {
+        return new DoubleLiteral(Math.exp(first.getValue()));
+    }
+
+    /**
+     * dlog1
+     */
+    @ExecFunction(name = "dlog1")
+    public static Expression dlog1(DoubleLiteral first) {
+        return new DoubleLiteral(Math.log1p(first.getValue()));
+    }
+
+    /**
+     * dlog10
+     */
+    @ExecFunction(name = "dlog10")
+    public static Expression dlog10(DoubleLiteral first) {
+        return new DoubleLiteral(Math.log10(first.getValue()));
+    }
+
+    /**
+     * dsqrt
+     */
+    @ExecFunction(name = "dsqrt")
+    public static Expression dsqrt(DoubleLiteral first) {
+        if (first.getValue() < 0) {
+            return new NullLiteral(first.getDataType());
+        }
+        return new DoubleLiteral(Math.sqrt(first.getValue()));
+    }
+
+    /**
+     * dpower
+     */
+    @ExecFunction(name = "dpow")
+    public static Expression dpow(DoubleLiteral first, DoubleLiteral second) {
+        return new DoubleLiteral(Math.pow(first.getValue(), second.getValue()));
+    }
+
+    /**
+     * fmod
+     */
+    @ExecFunction(name = "fmod")
+    public static Expression fmod(DoubleLiteral first, DoubleLiteral second) {
+        return new DoubleLiteral(first.getValue() / second.getValue());
+    }
+
+    /**
+     * fmod
+     */
+    @ExecFunction(name = "fmod")
+    public static Expression fmod(FloatLiteral first, FloatLiteral second) {
+        return new FloatLiteral(first.getValue() / second.getValue());
+    }
+
+    /**
+     * fpow
+     */
+    @ExecFunction(name = "fpow")
+    public static Expression fpow(DoubleLiteral first, DoubleLiteral second) {
+        return new DoubleLiteral(Math.pow(first.getValue(), second.getValue()));
+    }
+
+    /**
+     * radians
+     */
+    @ExecFunction(name = "radians")
+    public static Expression radians(DoubleLiteral first) {
+        return new DoubleLiteral(Math.toRadians(first.getValue()));
+    }
+
+    /**
+     * degrees
+     */
+    @ExecFunction(name = "degrees")
+    public static Expression degrees(DoubleLiteral first) {
+        return new DoubleLiteral(Math.toDegrees(first.getValue()));
+    }
+
+    /**
+     * xor
+     */
+    @ExecFunction(name = "xor")
+    public static Expression xor(BooleanLiteral first, BooleanLiteral second) {
+        return BooleanLiteral.of(Boolean.logicalXor(first.getValue(), second.getValue()));
+    }
+
+    /**
+     * pi
+     */
+    @ExecFunction(name = "pi")
+    public static Expression pi() {
+        return DoubleLiteral.of(Math.PI);
+    }
+
+    /**
+     * E
+     */
+    @ExecFunction(name = "e")
+    public static Expression mathE() {
+        return DoubleLiteral.of(Math.E);
+    }
+
+    /**
+     * truncate
+     */
+    @ExecFunction(name = "truncate")
+    public static Expression truncate(DecimalV3Literal first, IntegerLiteral second) {
+        if (first.getValue().compareTo(BigDecimal.ZERO) == 0) {
+            return first;
+        } else {
+            if (first.getValue().scale() < second.getValue()) {
+                return first;
+            }
+            if (second.getValue() < 0) {
+                double factor = Math.pow(10, Math.abs(second.getValue()));
+                return new DecimalV3Literal(
+                    DecimalV3Type.createDecimalV3Type(first.getValue().precision(), 0),
+                    BigDecimal.valueOf(Math.floor(first.getDouble() / factor) * factor));
+            }
+            if (first.getValue().compareTo(BigDecimal.ZERO) == -1) {
+                return first.roundCeiling(second.getValue());
+            } else {
+                return first.roundFloor(second.getValue());
+            }
+        }
+    }
+
 }
