@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
+import org.apache.doris.nereids.trees.expressions.functions.table.PartitionValues;
 import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
 import org.apache.doris.nereids.trees.expressions.functions.table.Query;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
@@ -59,7 +60,8 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(Partitions.class, "partitions"),
             tableValued(Jobs.class, "jobs"),
             tableValued(Tasks.class, "tasks"),
-            tableValued(Query.class, "query")
+            tableValued(Query.class, "query"),
+            tableValued(PartitionValues.class, "partition_values")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();
