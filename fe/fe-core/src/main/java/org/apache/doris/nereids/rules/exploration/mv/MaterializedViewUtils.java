@@ -459,15 +459,16 @@ public class MaterializedViewUtils {
                         + "but now is %s", relation.getClass().getSimpleName()));
                 return null;
             }
-            SlotReference contextPartitionColumn = getContextPartitionColumn(context);
-            if (contextPartitionColumn == null) {
+            Set<SlotReference> contextPartitionColumnSet = getContextPartitionColumn(context);
+            if (contextPartitionColumnSet.isEmpty()) {
                 context.addFailReason(String.format("mv partition column is not from table when relation check, "
-                        + "mv partition column is %s", context.getMvPartitionColumn()));
+                        + "mv partition column map is %s", context.getPartitionAndRollupExpressionMap()));
                 return null;
             }
             // Check the table which mv partition column belonged to is same as the current check relation or not
-            if (!((LogicalCatalogRelation) relation).getTable().getFullQualifiers().equals(
-                    contextPartitionColumn.getTable().map(TableIf::getFullQualifiers).orElse(ImmutableList.of()))) {
+            if (contextPartitionColumnSet.stream().noneMatch(columnSlot ->
+                    columnSlot.getTable().map(TableIf::getFullQualifiers).orElse(ImmutableList.of())
+                            .equals(((LogicalCatalogRelation) relation).getTable().getFullQualifiers()))) {
                 context.addFailReason(String.format("mv partition column name is not belonged to current check , "
                                 + "table, current table is %s",
                         ((LogicalCatalogRelation) relation).getTable().getFullQualifiers()));
@@ -501,7 +502,6 @@ public class MaterializedViewUtils {
                 return null;
             }
             Set<Column> partitionColumnSet = new HashSet<>(relatedTable.getPartitionColumns());
-            Set<SlotReference> contextPartitionColumnSet = getContextPartitionColumn(context);
             if (contextPartitionColumnSet.isEmpty()) {
                 return null;
             }
