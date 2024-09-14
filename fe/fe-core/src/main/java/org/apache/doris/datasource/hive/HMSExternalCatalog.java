@@ -17,9 +17,9 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -49,6 +49,7 @@ import org.apache.doris.transaction.TransactionManagerFactory;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import lombok.Getter;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -295,10 +296,20 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public Optional<TableValuedFunction> getMetaTableFunction(TableIf table, String sourceNameWithMetaName) {
+    public Optional<TableValuedFunction> getMetaTableFunction(String dbName, String sourceNameWithMetaName) {
         for (MetaTableFunction metaFunction : MetaTableFunction.values()) {
             if (metaFunction.containsMetaTable(sourceNameWithMetaName)) {
-                return Optional.of(metaFunction.createFunction(table));
+                return Optional.of(metaFunction.createFunction(name, dbName, sourceNameWithMetaName));
+            }
+        }
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<TableValuedFunctionRef> getMetaTableFunctionRef(String dbName, String sourceNameWithMetaName) {
+        for (MetaTableFunction metaFunction : MetaTableFunction.values()) {
+            if (metaFunction.containsMetaTable(sourceNameWithMetaName)) {
+                return Optional.of(metaFunction.createFunctionRef(name, dbName, sourceNameWithMetaName));
             }
         }
         return Optional.empty();
@@ -325,12 +336,14 @@ public class HMSExternalCatalog extends ExternalCatalog {
      * eg: tbl$partitions
      */
     private enum MetaTableFunction {
-        PARTITIONS;
+        PARTITIONS("partition_values");
 
         private final String suffix;
+        private final String tvfName;
 
-        MetaTableFunction() {
+        MetaTableFunction(String tvfName) {
             this.suffix = "$" + name().toLowerCase();
+            this.tvfName = tvfName;
         }
 
         boolean containsMetaTable(String tableName) {
@@ -341,12 +354,30 @@ public class HMSExternalCatalog extends ExternalCatalog {
             return tableName.substring(0, tableName.length() - suffix.length());
         }
 
-        public TableValuedFunction createFunction(TableIf table) {
+        public TableValuedFunction createFunction(String ctlName, String dbName, String sourceNameWithMetaName) {
             switch (this) {
                 case PARTITIONS:
-                    List<String> nameParts = Lists.newArrayList(table.getDatabase().getCatalog().getName(),
-                            table.getDatabase().getFullName(), table.getName());
+                    List<String> nameParts = Lists.newArrayList(ctlName, dbName,
+                            getSourceTableName(sourceNameWithMetaName));
                     return PartitionValues.create(nameParts);
+                default:
+                    throw new AnalysisException("Unsupported meta function type: " + this);
+            }
+        }
+
+        public TableValuedFunctionRef createFunctionRef(String ctlName, String dbName, String sourceNameWithMetaName) {
+            switch (this) {
+                case PARTITIONS:
+                    Map<String, String> params = Maps.newHashMap();
+                    params.put("catalog", ctlName);
+                    params.put("database", dbName);
+                    params.put("tblName", getSourceTableName(sourceNameWithMetaName));
+                    try {
+                        return new TableValuedFunctionRef(tvfName, null, params);
+                    } catch (org.apache.doris.common.AnalysisException e) {
+                        LOG.warn("should not happen. {}.{}.{}", ctlName, dbName, tblName);
+                        return null;
+                    }
                 default:
                     throw new AnalysisException("Unsupported meta function type: " + this);
             }

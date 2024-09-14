@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -212,7 +213,11 @@ public interface CatalogIf<T extends DatabaseIf> {
         return Pair.of(tableName, "");
     }
 
-    default Optional<TableValuedFunction> getMetaTableFunction(TableIf table, String sourceNameWithMetaName) {
+    default Optional<TableValuedFunction> getMetaTableFunction(String dbName, String sourceNameWithMetaName) {
+        return Optional.empty();
+    }
+
+    default Optional<TableValuedFunctionRef> getMetaTableFunctionRef(String dbName, String sourceNameWithMetaName) {
         return Optional.empty();
     }
 }
