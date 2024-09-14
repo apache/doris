@@ -61,6 +61,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DbUtil;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
@@ -394,6 +395,12 @@ public class RestoreJob extends AbstractJob {
         checkIfNeedCancel();
 
         if (status.ok()) {
+            if (state != RestoreJobState.PENDING && label.equals(
+                    DebugPointUtil.getDebugParamOrDefault("FE.PAUSE_NON_PENDING_RESTORE_JOB", ""))) {
+                LOG.info("pause restore job by debug point: {}", this);
+                return;
+            }
+
             switch (state) {
                 case PENDING:
                     checkAndPrepareMeta();
@@ -534,6 +541,8 @@ public class RestoreJob extends AbstractJob {
 
                 if (isAtomicRestore) {
                     // We will create new OlapTable in atomic restore, so does not set the RESTORE state.
+                    // Instead, set table in atomic restore state, to forbid the alter table operation.
+                    olapTbl.setInAtomicRestore();
                     continue;
                 }
 
@@ -1376,11 +1385,6 @@ public class RestoreJob extends AbstractJob {
 
         // replay set all existing tables's state to RESTORE
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
-            if (isAtomicRestore) {
-                // Atomic restore will creates new replica of the OlapTable.
-                continue;
-            }
-
             Table tbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
             if (tbl == null) {
                 continue;
@@ -1388,6 +1392,12 @@ public class RestoreJob extends AbstractJob {
             OlapTable olapTbl = (OlapTable) tbl;
             tbl.writeLock();
             try {
+                if (isAtomicRestore) {
+                    // Atomic restore will creates new replica of the OlapTable.
+                    olapTbl.setInAtomicRestore();
+                    continue;
+                }
+
                 olapTbl.setState(OlapTableState.RESTORE);
                 // set restore status for partitions
                 BackupOlapTableInfo tblInfo = jobInfo.backupOlapTableObjects.get(tableName);
@@ -2323,6 +2333,10 @@ public class RestoreJob extends AbstractJob {
                         || olapTbl.getState() == OlapTableState.RESTORE_WITH_LOAD) {
                     olapTbl.setState(OlapTableState.NORMAL);
                 }
+                if (olapTbl.isInAtomicRestore()) {
+                    olapTbl.clearInAtomicRestore();
+                    LOG.info("table {} set state from atomic restore to normal", tableName);
+                }
 
                 BackupOlapTableInfo tblInfo = jobInfo.backupOlapTableObjects.get(tableName);
                 for (Map.Entry<String, BackupPartitionInfo> partitionEntry : tblInfo.partitions.entrySet()) {
@@ -2522,7 +2536,7 @@ public class RestoreJob extends AbstractJob {
         return sb.toString();
     }
 
-    private String tableAliasWithAtomicRestore(String tableName) {
+    public static String tableAliasWithAtomicRestore(String tableName) {
         return ATOMIC_RESTORE_TABLE_PREFIX + tableName;
     }
 }

@@ -1737,6 +1737,10 @@ public class OlapTable extends Table {
         if (state != OlapTableState.NORMAL) {
             throw new DdlException("Table[" + name + "]'s state is not NORMAL. Do not allow doing ALTER ops");
         }
+        if (tableProperty != null && tableProperty.isInAtomicRestore()) {
+            throw new DdlException("Table[" + name + "] is in atomic restore state. "
+                    + "Do not allow doing ALTER ops");
+        }
     }
 
     public boolean isStable(SystemInfoService infoService, TabletScheduler tabletScheduler, String clusterName) {
@@ -1972,6 +1976,21 @@ public class OlapTable extends Table {
             return tableProperty.getEstimatePartitionSize();
         }
         return "";
+    }
+
+    public void setInAtomicRestore() {
+        getOrCreatTableProperty().setInAtomicRestore().buildInAtomicRestore();
+    }
+
+    public void clearInAtomicRestore() {
+        getOrCreatTableProperty().clearInAtomicRestore().buildInAtomicRestore();
+    }
+
+    public boolean isInAtomicRestore() {
+        if (tableProperty != null) {
+            return tableProperty.isInAtomicRestore();
+        }
+        return false;
     }
 
     public boolean getEnableLightSchemaChange() {
