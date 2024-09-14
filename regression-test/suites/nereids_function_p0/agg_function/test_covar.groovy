@@ -77,6 +77,19 @@ suite("test_covar") {
     (4, 4, 10)
     """
     qt_sql "select covar(x,y) from test_covar"
-    
-    sql """ DROP TABLE IF EXISTS test_covar """
+
+    qt_sql_input_nullable_without_key """
+    select covar(x,y) from test_covar;
+    """
+    qt_sql_input_nullable_with_key """
+    select covar(x,y) from test_covar group by id order by id; 
+    """
+
+    qt_sql_input_non_nullable_without_key """
+    select covar(non_nullable(x),non_nullable(y)) from test_covar;
+    """
+
+    qt_sql_input_nullable_with_key """
+    select covar(non_nullable(x),non_nullable(y)) from test_covar group by id order by id;
+    """
 }
