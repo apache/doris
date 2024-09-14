@@ -323,9 +323,14 @@ Status MemTable::_sort_by_cluster_keys() {
     }
     Tie tie = Tie(0, mutable_block.rows());
 
-    for (auto i : _tablet_schema->cluster_key_idxes()) {
+    for (auto cid : _tablet_schema->cluster_key_idxes()) {
+        auto index = _tablet_schema->field_index(cid);
+        if (index == -1) {
+            return Status::InternalError("could not find cluster key column with unique_id=" +
+                                         std::to_string(cid) + " in tablet schema");
+        }
         auto cmp = [&](const RowInBlock* lhs, const RowInBlock* rhs) -> int {
-            return mutable_block.compare_one_column(lhs->_row_pos, rhs->_row_pos, i, -1);
+            return mutable_block.compare_one_column(lhs->_row_pos, rhs->_row_pos, index, -1);
         };
         _sort_one_column(row_in_blocks, tie, cmp);
     }

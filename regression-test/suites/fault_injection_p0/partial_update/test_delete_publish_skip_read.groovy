@@ -86,7 +86,7 @@ suite("test_delete_publish_skip_read", "nonConcurrent") {
             sql "insert into ${table1}(k1,c1,c2) values(1,999,999),(2,888,888),(3,777,777);"
         }
 
-        Thread.sleep(500)
+        Thread.sleep(1000)
 
         def t2 = Thread.start {
             sql "insert into ${table1}(k1,__DORIS_DELETE_SIGN__) values(2,1);"

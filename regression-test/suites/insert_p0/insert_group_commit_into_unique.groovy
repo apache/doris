@@ -87,7 +87,7 @@ suite("insert_group_commit_into_unique") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES (
                 "replication_num" = "1",
-                "group_commit_interval_ms" = "100"
+                "group_commit_interval_ms" = "500"
             );
             """
 
@@ -173,7 +173,7 @@ suite("insert_group_commit_into_unique") {
             PROPERTIES (
                 "replication_num" = "1",
                 "function_column.sequence_col" = "score",
-                "group_commit_interval_ms" = "100"
+                "group_commit_interval_ms" = "500"
             );
             """
 
@@ -260,7 +260,7 @@ suite("insert_group_commit_into_unique") {
             PROPERTIES (
                 "replication_num" = "1",
                 "function_column.sequence_type" = "int",
-                "group_commit_interval_ms" = "100"
+                "group_commit_interval_ms" = "500"
             );
             """
 
