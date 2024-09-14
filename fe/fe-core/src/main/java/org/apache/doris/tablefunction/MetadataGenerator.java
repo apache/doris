@@ -1482,7 +1482,7 @@ public class MetadataGenerator {
         String tblName = metaParams.getTable();
         List<TRow> dataBatch;
         try {
-            TableIf table = PartitionValuesTableValuedFunction.analyzeAndGetTable(ctlName, dbName, tblName);
+            TableIf table = PartitionValuesTableValuedFunction.analyzeAndGetTable(ctlName, dbName, tblName, false);
             TableType tableType = table.getType();
             switch (tableType) {
                 case HMS_EXTERNAL_TABLE:

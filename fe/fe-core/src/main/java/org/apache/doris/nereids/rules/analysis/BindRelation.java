@@ -368,9 +368,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return scan;
     }
 
-    private Optional<LogicalPlan> handleMetaTable(TableIf table, UnboundRelation unboundRelation) {
+    private Optional<LogicalPlan> handleMetaTable(TableIf table, UnboundRelation unboundRelation,
+            List<String> qualifiedTableName) {
         Optional<TableValuedFunction> tvf = table.getDatabase().getCatalog().getMetaTableFunction(
-                table, unboundRelation.getNameParts().get(2));
+                table, qualifiedTableName.get(2));
         if (tvf.isPresent()) {
             return Optional.of(new LogicalTVFRelation(unboundRelation.getRelationId(), tvf.get()));
         }
@@ -385,15 +386,16 @@ public class BindRelation extends OneAnalysisRuleFactory {
             statementContext.addIndexInSqlToString(pair,
                     Utils.qualifiedNameWithBackquote(qualifiedTableName));
         });
-        List<String> qualifierWithoutTableName = Lists.newArrayList();
-        qualifierWithoutTableName.addAll(qualifiedTableName.subList(0, qualifiedTableName.size() - 1));
 
         // Handle meta table like "table_name$partitions"
-        Optional<LogicalPlan> logicalPlan = handleMetaTable(table, unboundRelation);
+        // qualifiedTableName should be like "ctl.db.tbl$partitions"
+        Optional<LogicalPlan> logicalPlan = handleMetaTable(table, unboundRelation, qualifiedTableName);
         if (logicalPlan.isPresent()) {
             return logicalPlan.get();
         }
 
+        List<String> qualifierWithoutTableName = Lists.newArrayList();
+        qualifierWithoutTableName.addAll(qualifiedTableName.subList(0, qualifiedTableName.size() - 1));
         boolean isView = false;
         try {
             switch (table.getType()) {

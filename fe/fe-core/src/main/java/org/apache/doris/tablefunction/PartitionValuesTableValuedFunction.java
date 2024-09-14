@@ -84,7 +84,7 @@ public class PartitionValuesTableValuedFunction extends MetadataTableValuedFunct
         if (StringUtils.isEmpty(catalogName) || StringUtils.isEmpty(dbName) || StringUtils.isEmpty(tableName)) {
             throw new AnalysisException("catalog, database and table are required");
         }
-        this.table = analyzeAndGetTable(catalogName, dbName, tableName);
+        this.table = analyzeAndGetTable(catalogName, dbName, tableName, true);
         this.catalogName = catalogName;
         this.databaseName = dbName;
         this.tableName = tableName;
@@ -93,14 +93,19 @@ public class PartitionValuesTableValuedFunction extends MetadataTableValuedFunct
         }
     }
 
-    public static TableIf analyzeAndGetTable(String catalogName, String dbName, String tableName) {
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), catalogName, dbName,
-                        tableName, PrivPredicate.SHOW)) {
-            String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("SHOW PARTITIONS",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    catalogName + ": " + dbName + ": " + tableName);
-            throw new AnalysisException(message);
+    public static TableIf analyzeAndGetTable(String catalogName, String dbName, String tableName, boolean checkAuth) {
+        if (checkAuth) {
+            // This method will be called at 2 places:
+            // One is when planing the query, which should check the privilege of the user.
+            // the other is when BE call FE to fetch partition values, which should not check the privilege.
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkTblPriv(ConnectContext.get(), catalogName, dbName,
+                            tableName, PrivPredicate.SHOW)) {
+                String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("SHOW PARTITIONS",
+                        ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                        catalogName + ": " + dbName + ": " + tableName);
+                throw new AnalysisException(message);
+            }
         }
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         if (catalog == null) {
