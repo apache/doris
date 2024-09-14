@@ -336,26 +336,26 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
         Database db = null;
         List<Table> tableList = null;
-        try {
-            db = getDb();
-            tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
-        } catch (MetaNotFoundException e) {
-            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                    .add("database_id", dbId)
-                    .add("error_msg", "db has been deleted when job is loading")
-                    .build(), e);
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
-            return;
-        }
         int retryTimes = 0;
-        boolean finishJob = false;
-        while (!finishJob) {
+        while (true) {
             try {
+                db = getDb();
+                tableList = db.getTablesOnIdOrderOrThrowException(
+                        Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
                 if (Config.isCloudMode()) {
                     MetaLockUtils.commitLockTables(tableList);
                 } else {
                     MetaLockUtils.writeLockTablesOrMetaException(tableList);
                 }
+            } catch (MetaNotFoundException e) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                        .add("database_id", dbId)
+                        .add("error_msg", "db has been deleted when job is loading")
+                        .build(), e);
+                cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
+                return;
+            }
+            try {
                 LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
                         .add("txn_id", transactionId)
                         .add("msg", "Load job try to commit txn")
@@ -364,7 +364,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                         dbId, tableList, transactionId, commitInfos, getLoadJobFinalOperation());
                 afterLoadingTaskCommitTransaction(tableList);
                 afterCommit();
-                finishJob = true;
+                return;
             } catch (UserException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                         .add("database_id", dbId)
@@ -374,14 +374,14 @@ public class BrokerLoadJob extends BulkLoadJob {
                 if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
                     retryTimes++;
                     if (retryTimes >= Config.mow_calculate_delete_bitmap_retry_times) {
-                        LOG.warn("cancelJob because up to max retry time");
+                        LOG.warn("cancelJob {} because up to max retry time", id);
                         cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true,
                                 true);
-                        finishJob = true;
+                        return;
                     }
                 } else {
                     cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
-                    finishJob = true;
+                    return;
                 }
             } finally {
                 if (Config.isCloudMode()) {
