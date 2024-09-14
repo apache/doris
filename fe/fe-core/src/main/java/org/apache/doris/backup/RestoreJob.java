@@ -908,7 +908,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 if (Env.isStoredTableNamesLowerCase()) {
                     tableName = tableName.toLowerCase();
                 }
-                if (isAtomicRestore) {
+                if (restoreTbl.getType() == TableType.OLAP && isAtomicRestore) {
                     tableName = tableAliasWithAtomicRestore(tableName);
                 }
                 restoreTbl.setName(tableName);
