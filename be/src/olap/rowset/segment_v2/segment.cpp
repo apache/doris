@@ -246,10 +246,10 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
                 options_with_pruned_predicates.col_id_to_predicates[pred->column_id()]
                         ->add_column_predicate(SingleColumnBlockPredicate::create_unique(pred));
             }
-            return iter->get()->init(options_with_pruned_predicates);
+            return iter->get()->init(options_with_pruned_predicates, NULL);
         }
     }
-    return iter->get()->init(read_options);
+    return iter->get()->init(read_options, NULL);
 }
 
 Status Segment::_parse_footer(SegmentFooterPB* footer) {

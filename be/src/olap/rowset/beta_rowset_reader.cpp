@@ -319,13 +319,11 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     return Status::OK();
 }
 
-Status BetaRowsetReader::init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits,
-                              ctz::time_zone timezone) {
+Status BetaRowsetReader::init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits) {
     _read_context = read_context;
     _read_context->rowset_id = _rowset->rowset_id();
     _segment_offsets = rs_splits.segment_offsets;
     _segment_row_ranges = rs_splits.segment_row_ranges;
-    _timezone_obj = timezone;
     return Status::OK();
 }
 

@@ -195,7 +195,7 @@ public:
     void operator=(const TabletReader&) = delete;
 
     // Initialize TabletReader with tablet, data version and fetch range.
-    virtual Status init(const ReaderParams& read_params);
+    virtual Status init(const ReaderParams& read_params, const cctz::time_zone& timezone);
 
     // Read next block with aggregation.
     // Return OK and set `*eof` to false when next block is read

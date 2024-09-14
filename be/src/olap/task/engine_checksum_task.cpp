@@ -96,7 +96,8 @@ Status EngineChecksumTask::_compute_checksum() {
         input_size += rowset->data_disk_size();
     }
 
-    auto res = reader.init(reader_params);
+    cctz::time_zone utc_tz {};
+    auto res = reader.init(reader_params, utc_tz);
     if (!res.ok()) {
         LOG(WARNING) << "initiate reader fail. res = " << res;
         return res;

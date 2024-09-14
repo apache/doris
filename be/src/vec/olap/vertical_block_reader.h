@@ -55,7 +55,7 @@ public:
     ~VerticalBlockReader() override;
 
     // Initialize VerticalBlockReader with tablet, data version and fetch range.
-    Status init(const ReaderParams& read_params) override;
+    Status init(const ReaderParams& read_params, const cctz::time_zone& timezone) override;
     Status init(const ReaderParams& read_params, CompactionSampleInfo* sample_info);
 
     Status next_block_with_aggregation(Block* block, bool* eof) override;

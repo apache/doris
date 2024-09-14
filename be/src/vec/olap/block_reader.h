@@ -45,7 +45,7 @@ public:
     ~BlockReader() override;
 
     // Initialize BlockReader with tablet, data version and fetch range.
-    Status init(const ReaderParams& read_params) override;
+    Status init(const ReaderParams& read_params, const cctz::time_zone& timezone) override;
 
     Status next_block_with_aggregation(Block* block, bool* eof) override;
 
@@ -70,7 +70,7 @@ private:
     // to minimize the comparison time in merge heap.
     Status _unique_key_next_block(Block* block, bool* eof);
 
-    Status _init_collect_iter(const ReaderParams& read_params, cctz::time_zone timezone);
+    Status _init_collect_iter(const ReaderParams& read_params, const cctz::time_zone& timezone);
 
     Status _init_agg_state(const ReaderParams& read_params);
 

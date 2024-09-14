@@ -42,7 +42,7 @@ using namespace ErrorCode;
 
 namespace vectorized {
 
-Status VStatisticsIterator::init(const StorageReadOptions& opts) {
+Status VStatisticsIterator::init(const StorageReadOptions& opts, const cctz::time_zone& timezone) {
     if (!_init) {
         _push_down_agg_type_opt = opts.push_down_agg_type_opt;
 
@@ -201,7 +201,7 @@ public:
     ~VAutoIncrementIterator() override = default;
 
     // NOTE: Currently, this function will ignore StorageReadOptions
-    Status init(const StorageReadOptions& opts) override;
+    Status init(const StorageReadOptions& opts, const cctz::time_zone& timezone) override;
 
     Status next_batch(Block* block) override {
         int row_idx = 0;
@@ -259,7 +259,7 @@ private:
     size_t _rows_returned;
 };
 
-Status VAutoIncrementIterator::init(const StorageReadOptions& opts) {
+Status VAutoIncrementIterator::init(const StorageReadOptions& opts, const cctz::time_zone& timezone) {
     return Status::OK();
 }
 
@@ -326,7 +326,7 @@ Status VMergeIteratorContext::_load_next_block() {
     return Status::OK();
 }
 
-Status VMergeIterator::init(const StorageReadOptions& opts) {
+Status VMergeIterator::init(const StorageReadOptions& opts, const cctz::time_zone& timezone) {
     if (_origin_iters.empty()) {
         return Status::OK();
     }
@@ -361,7 +361,7 @@ public:
 
     ~VUnionIterator() override = default;
 
-    Status init(const StorageReadOptions& opts) override;
+    Status init(const StorageReadOptions& opts, const cctz::time_zone& timezone) override;
 
     Status next_batch(Block* block) override;
 
@@ -383,7 +383,7 @@ private:
     std::vector<RowwiseIteratorUPtr> _origin_iters;
 };
 
-Status VUnionIterator::init(const StorageReadOptions& opts) {
+Status VUnionIterator::init(const StorageReadOptions& opts, const cctz::time_zone& timezone) {
     if (_origin_iters.empty()) {
         return Status::OK();
     }
@@ -395,7 +395,7 @@ Status VUnionIterator::init(const StorageReadOptions& opts) {
 
     _read_options = opts;
     _cur_iter = std::move(_origin_iters.back());
-    RETURN_IF_ERROR(_cur_iter->init(_read_options));
+    RETURN_IF_ERROR(_cur_iter->init(_read_options, timezone));
     _schema = &_cur_iter->schema();
     return Status::OK();
 }
@@ -407,7 +407,7 @@ Status VUnionIterator::next_batch(Block* block) {
             _origin_iters.pop_back();
             if (!_origin_iters.empty()) {
                 _cur_iter = std::move(_origin_iters.back());
-                RETURN_IF_ERROR(_cur_iter->init(_read_options));
+                RETURN_IF_ERROR(_cur_iter->init(_read_options, NULL));
             } else {
                 _cur_iter = nullptr;
             }

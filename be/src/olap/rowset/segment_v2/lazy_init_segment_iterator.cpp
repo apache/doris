@@ -25,7 +25,7 @@ LazyInitSegmentIterator::LazyInitSegmentIterator(std::shared_ptr<Segment> segmen
 
 /// Here do not use the argument of `opts`,
 /// see where the iterator is created in `BetaRowsetReader::get_segment_iterators`
-Status LazyInitSegmentIterator::init(const StorageReadOptions& /*opts*/, cctz::time_zone timezone) {
+Status LazyInitSegmentIterator::init(const StorageReadOptions& /*opts*/, const cctz::time_zone& timezone) {
     _need_lazy_init = false;
     _timezone_obj = timezone;
     if (_inner_iterator) {

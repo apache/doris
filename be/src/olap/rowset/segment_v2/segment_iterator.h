@@ -122,7 +122,7 @@ public:
     ~SegmentIterator() override;
 
     [[nodiscard]] Status init_iterators();
-    [[nodiscard]] Status init(const StorageReadOptions& opts) override;
+    [[nodiscard]] Status init(const StorageReadOptions& opts, const cctz::time_zone& timezone) override;
     [[nodiscard]] Status next_batch(vectorized::Block* block) override;
 
     // Get current block row locations. This function should be called

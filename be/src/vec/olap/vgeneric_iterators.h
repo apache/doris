@@ -52,7 +52,7 @@ public:
 
     ~VStatisticsIterator() override = default;
 
-    Status init(const StorageReadOptions& opts) override;
+    Status init(const StorageReadOptions& opts, const cctz::time_zone& timezone) override;
 
     Status next_batch(Block* block) override;
 
@@ -196,7 +196,7 @@ public:
 
     ~VMergeIterator() override = default;
 
-    Status init(const StorageReadOptions& opts) override;
+    Status init(const StorageReadOptions& opt, const cctz::time_zone& timezone) override;
 
     Status next_batch(Block* block) override { return _next_batch(block); }
     Status next_block_view(BlockView* block_view) override { return _next_batch(block_view); }

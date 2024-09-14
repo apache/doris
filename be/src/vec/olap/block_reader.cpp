@@ -119,7 +119,7 @@ bool BlockReader::_rowsets_overlapping(const ReaderParams& read_params) {
     }
     return false;
 }
-Status BlockReader::_init_collect_iter(const ReaderParams& read_params, cctz::time_zone timezone) {
+Status BlockReader::_init_collect_iter(const ReaderParams& read_params, const cctz::time_zone& timezone) {
     auto res = _capture_rs_readers(read_params);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
@@ -206,8 +206,8 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-Status BlockReader::init(const ReaderParams& read_params, cctz::time_zone timezone) {
-    RETURN_IF_ERROR(TabletReader::init(read_params));
+Status BlockReader::init(const ReaderParams& read_params, const cctz::time_zone& timezone) {
+    RETURN_IF_ERROR(TabletReader::init(read_params, timezone));
 
     int32_t return_column_size = read_params.origin_return_columns->size();
     _return_columns_loc.resize(read_params.return_columns.size());

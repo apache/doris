@@ -210,7 +210,7 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
     }
 }
 
-Status VerticalBlockReader::init(const ReaderParams& read_params) {
+Status VerticalBlockReader::init(const ReaderParams& read_params, const cctz::time_zone& timezone) {
     return init(read_params, nullptr);
 }
 
@@ -222,7 +222,8 @@ Status VerticalBlockReader::init(const ReaderParams& read_params,
     } else {
         _reader_context.batch_size = opts.block_row_max;
     }
-    RETURN_IF_ERROR(TabletReader::init(read_params));
+    cctz::time_zone utc_tz {};
+    RETURN_IF_ERROR(TabletReader::init(read_params, utc_tz));
 
     auto status = _init_collect_iter(read_params, sample_info);
     if (!status.ok()) [[unlikely]] {

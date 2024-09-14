@@ -33,11 +33,11 @@ public:
 
     ~LazyInitSegmentIterator() override = default;
 
-    Status init(const StorageReadOptions& opts) override;
+    Status init(const StorageReadOptions& opts, const cctz::time_zone& timezone) override;
 
     Status next_batch(Block* block) override {
         if (UNLIKELY(_need_lazy_init)) {
-            RETURN_IF_ERROR(init(_read_options));
+            RETURN_IF_ERROR(init(_read_options, _timezone_obj));
             DCHECK(_inner_iterator != nullptr);
         }
 
