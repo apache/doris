@@ -279,7 +279,10 @@ struct WhichDataType {
     bool is_date() const { return idx == TypeIndex::Date; }
     bool is_date_time() const { return idx == TypeIndex::DateTime; }
     bool is_date_v2() const { return idx == TypeIndex::DateV2; }
-    bool is_date_time_v2() const { return idx == TypeIndex::DateTimeV2; }
+    bool is_date_time_v2() const {
+        return (idx == TypeIndex::DateTimeV2 || idx == TypeIndex::Timestamp);
+    }
+    bool is_timestamp() const { return idx == TypeIndex::Timestamp; }
     bool is_date_or_datetime() const { return is_date() || is_date_time(); }
     bool is_date_v2_or_datetime_v2() const { return is_date_v2() || is_date_time_v2(); }
 

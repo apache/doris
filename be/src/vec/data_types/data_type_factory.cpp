@@ -150,8 +150,9 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         nested = std::make_shared<vectorized::DataTypeDateV2>();
         break;
     case TYPE_DATETIMEV2:
-    case TYPE_TIMESTAMP:
         nested = vectorized::create_datetimev2(col_desc.scale);
+    case TYPE_TIMESTAMP:
+        nested = vectorized::create_datetimev2(col_desc.scale, 1);
         break;
     case TYPE_DATETIME:
         nested = std::make_shared<vectorized::DataTypeDateTime>();
@@ -299,6 +300,9 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
         break;
     case TypeIndex::DateTimeV2:
         nested = std::make_shared<DataTypeDateTimeV2>();
+        break;
+    case TypeIndex::Timestamp:
+        nested = std::make_shared<DataTypeDateTimeV2>(0, 1);
         break;
     case TypeIndex::DateTime:
         nested = std::make_shared<vectorized::DataTypeDateTime>();

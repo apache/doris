@@ -127,6 +127,7 @@ Status init_hash_method(DataVariants* agg_data, const vectorized::VExprContextSP
             case TYPE_DATE:
             case TYPE_DATETIME:
             case TYPE_DATETIMEV2:
+            case TYPE_TIMESTAMP:
             case TYPE_LARGEINT:
             case TYPE_DECIMALV2:
             case TYPE_DECIMAL32:

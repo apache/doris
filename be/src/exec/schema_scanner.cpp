@@ -348,7 +348,7 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
                     reinterpret_cast<char*>(data), 0);
             break;
         }
-
+        case TYPE_TIMESTAMP:
         case TYPE_DATETIMEV2: {
             uint64_t num = *reinterpret_cast<uint64_t*>(data);
             assert_cast<vectorized::ColumnDateTimeV2*>(col_ptr)->insert_value(num);

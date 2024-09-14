@@ -181,6 +181,7 @@ Status VMetaScanner::_fill_block_with_remote_data(const std::vector<MutableColum
                         ->insert_value(data);
                 break;
             }
+            case TYPE_TIMESTAMP:
             case TYPE_DATETIMEV2: {
                 uint64_t data = _batch_data[_row_idx].column_value[col_idx].longVal;
                 reinterpret_cast<vectorized::ColumnVector<vectorized::UInt64>*>(col_ptr)

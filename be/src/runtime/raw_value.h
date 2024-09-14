@@ -86,6 +86,7 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const PrimitiveT
         return HashUtil::zlib_crc_hash(v, 4, seed);
     }
 
+    case TYPE_TIMESTAMP:
     case TYPE_DATETIMEV2: {
         return HashUtil::zlib_crc_hash(v, 8, seed);
     }

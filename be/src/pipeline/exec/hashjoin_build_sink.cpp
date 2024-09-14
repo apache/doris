@@ -351,6 +351,7 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
                     case TYPE_DATETIME:
                     case TYPE_DATE:
                     case TYPE_DATETIMEV2:
+                    case TYPE_TIMESTAMP:
                         _shared_state->hash_table_variants->emplace<I64HashTableContext>();
                         break;
                     case TYPE_LARGEINT:

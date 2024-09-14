@@ -63,7 +63,7 @@ std::string cast_to_string(T value, int scale) {
         return std::to_string(static_cast<int>(value));
     } else if constexpr (primitive_type == TYPE_LARGEINT) {
         return vectorized::int128_to_string(value);
-    } else if constexpr (primitive_type == TYPE_DATETIMEV2) {
+    } else if constexpr (primitive_type == TYPE_DATETIMEV2 || primitive_type == TYPE_TIMESTAMP) {
         DateV2Value<DateTimeV2ValueType> datetimev2_val =
                 static_cast<DateV2Value<DateTimeV2ValueType>>(value);
         char buf[30];
@@ -438,6 +438,7 @@ private:
                                                   primitive_type == PrimitiveType::TYPE_STRING ||
                                                   primitive_type == PrimitiveType::TYPE_BOOLEAN ||
                                                   primitive_type == PrimitiveType::TYPE_DATETIME ||
+                                                  primitive_type == PrimitiveType::TYPE_TIMESTAMP ||
                                                   primitive_type == PrimitiveType::TYPE_DATETIMEV2;
 
     // range value except leaf node of and node in compound expr tree

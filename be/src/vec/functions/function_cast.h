@@ -2513,9 +2513,11 @@ protected:
                                 type->get_type_id() == TypeIndex::DateTime);
         // 4. from_type is not DateTimeV2/DateV2, to_type is DateTimeV2/DateV2
         need_to_be_nullable |= (arguments[0].type->get_type_id() != TypeIndex::DateV2 &&
-                                arguments[0].type->get_type_id() != TypeIndex::DateTimeV2) &&
+                                arguments[0].type->get_type_id() != TypeIndex::DateTimeV2 &&
+                                arguments[0].type->get_type_id() != TypeIndex::Timestamp) &&
                                (type->get_type_id() == TypeIndex::DateV2 ||
-                                type->get_type_id() == TypeIndex::DateTimeV2);
+                                type->get_type_id() == TypeIndex::DateTimeV2 ||
+                                type->get_type_id() == TypeIndex::Timestamp);
         if (need_to_be_nullable && !type->is_nullable()) {
             return make_nullable(type);
         }

@@ -95,6 +95,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         *result = std::make_shared<arrow::Date32Type>();
         break;
     case TYPE_DATETIMEV2:
+    case TYPE_TIMESTAMP:
         if (type.scale > 3) {
             *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO);
         } else if (type.scale > 0) {

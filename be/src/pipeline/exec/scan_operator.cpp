@@ -879,12 +879,12 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
         }
     } else if constexpr ((PrimitiveType == TYPE_DECIMALV2) || (PrimitiveType == TYPE_CHAR) ||
                          (PrimitiveType == TYPE_VARCHAR) || (PrimitiveType == TYPE_HLL) ||
-                         (PrimitiveType == TYPE_DATETIMEV2) || (PrimitiveType == TYPE_TINYINT) ||
-                         (PrimitiveType == TYPE_SMALLINT) || (PrimitiveType == TYPE_INT) ||
-                         (PrimitiveType == TYPE_BIGINT) || (PrimitiveType == TYPE_LARGEINT) ||
-                         (PrimitiveType == TYPE_IPV4) || (PrimitiveType == TYPE_IPV6) ||
-                         (PrimitiveType == TYPE_DECIMAL32) || (PrimitiveType == TYPE_DECIMAL64) ||
-                         (PrimitiveType == TYPE_DECIMAL128I) ||
+                         (PrimitiveType == TYPE_TIMESTAMP) || (PrimitiveType == TYPE_DATETIMEV2) ||
+                         (PrimitiveType == TYPE_TINYINT) || (PrimitiveType == TYPE_SMALLINT) ||
+                         (PrimitiveType == TYPE_INT) || (PrimitiveType == TYPE_BIGINT) ||
+                         (PrimitiveType == TYPE_LARGEINT) || (PrimitiveType == TYPE_IPV4) ||
+                         (PrimitiveType == TYPE_IPV6) || (PrimitiveType == TYPE_DECIMAL32) ||
+                         (PrimitiveType == TYPE_DECIMAL64) || (PrimitiveType == TYPE_DECIMAL128I) ||
                          (PrimitiveType == TYPE_DECIMAL256) || (PrimitiveType == TYPE_STRING) ||
                          (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2)) {
         if constexpr (IsFixed) {

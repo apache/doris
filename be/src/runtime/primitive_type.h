@@ -55,6 +55,7 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
     case TYPE_STRING:
     case TYPE_DATETIME:
     case TYPE_DATETIMEV2:
+    case TYPE_TIMESTAMP:
     case TYPE_TIMEV2:
     case TYPE_DECIMALV2:
     case TYPE_DECIMAL32:
@@ -88,7 +89,7 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
 
 constexpr bool is_date_type(PrimitiveType type) {
     return type == TYPE_DATETIME || type == TYPE_DATE || type == TYPE_DATETIMEV2 ||
-           type == TYPE_DATEV2;
+           type == TYPE_TIMESTAMP || type == TYPE_DATEV2;
 }
 
 constexpr bool is_string_type(PrimitiveType type) {

@@ -63,6 +63,7 @@ namespace doris::vectorized {
     M(TypeIndex::Date, ColumnVector<Int64>, Int64)                  \
     M(TypeIndex::DateV2, ColumnVector<UInt32>, UInt32)              \
     M(TypeIndex::DateTime, ColumnVector<Int64>, Int64)              \
+    M(TypeIndex::Timestamp, ColumnVector<UInt64>, UInt64)           \
     M(TypeIndex::DateTimeV2, ColumnVector<UInt64>, UInt64)
 
 Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
@@ -467,6 +468,7 @@ std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
     case TYPE_TIME:
         return "datetimev1";
     case TYPE_DATETIMEV2:
+    case TYPE_TIMESTAMP:
         [[fallthrough]];
     case TYPE_TIMEV2: {
         buffer << "datetimev2(" << type->get_scale() << ")";
@@ -551,6 +553,7 @@ std::string JniConnector::get_jni_type(const TypeDescriptor& desc) {
     case TYPE_TIME:
         return "datetimev1";
     case TYPE_DATETIMEV2:
+    case TYPE_TIMESTAMP:
         [[fallthrough]];
     case TYPE_TIMEV2: {
         buffer << "datetimev2(" << desc.scale << ")";

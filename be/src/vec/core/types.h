@@ -99,7 +99,8 @@ enum class TypeIndex {
     Decimal256 = 45,
     IPv4 = 46,
     IPv6 = 47,
-    Int256
+    Int256 = 48,
+    Timestamp
 };
 
 struct Consted {
@@ -930,6 +931,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return "AggState";
     case TypeIndex::Time:
         return "Time";
+    case TypeIndex::Timestamp:
+        return "Timestamp";
     }
 
     LOG(FATAL) << "__builtin_unreachable";

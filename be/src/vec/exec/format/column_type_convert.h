@@ -328,6 +328,16 @@ struct SafeCastString<TYPE_DATETIMEV2> {
 };
 
 template <>
+struct SafeCastString<TYPE_TIMESTAMP> {
+    static bool safe_cast_string(
+            const char* startptr, const int buffer_size,
+            PrimitiveTypeTraits<TYPE_TIMESTAMP>::ColumnType::value_type* value, int scale) {
+        ReadBuffer buffer(reinterpret_cast<const unsigned char*>(startptr), buffer_size);
+        return read_datetime_v2_text_impl<UInt64>(*value, buffer, scale);
+    }
+};
+
+template <>
 struct SafeCastString<TYPE_DATE> {
     static bool safe_cast_string(const char* startptr, const int buffer_size,
                                  PrimitiveTypeTraits<TYPE_DATE>::ColumnType::value_type* value) {
@@ -393,6 +403,9 @@ public:
                         _dst_type_desc->get_precision(), _dst_type_desc->get_scale());
             } else if constexpr (DstPrimitiveType == TYPE_DATETIMEV2) {
                 can_cast = SafeCastString<TYPE_DATETIMEV2>::safe_cast_string(
+                        string_value.data, string_value.size, &value, _dst_type_desc->get_scale());       
+            } else if constexpr (DstPrimitiveType == TYPE_TIMESTAMP) {
+                can_cast = SafeCastString<TYPE_TIMESTAMP>::safe_cast_string(
                         string_value.data, string_value.size, &value, _dst_type_desc->get_scale());
             } else {
                 can_cast = SafeCastString<DstPrimitiveType>::safe_cast_string(

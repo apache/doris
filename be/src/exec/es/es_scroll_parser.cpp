@@ -671,6 +671,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
             RETURN_IF_ERROR((fill_date_int<DateV2Value<DateV2ValueType>, uint32_t>(
                     col, type, pure_doc_value, col_ptr, time_zone)));
             break;
+        case TYPE_TIMESTAMP:
         case TYPE_DATETIMEV2: {
             RETURN_IF_ERROR((fill_date_int<DateV2Value<DateTimeV2ValueType>, uint64_t>(
                     col, type, pure_doc_value, col_ptr, time_zone)));

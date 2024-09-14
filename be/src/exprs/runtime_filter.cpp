@@ -92,6 +92,8 @@ PColumnType to_proto(PrimitiveType type) {
         return PColumnType::COLUMN_TYPE_DATEV2;
     case TYPE_DATETIMEV2:
         return PColumnType::COLUMN_TYPE_DATETIMEV2;
+    case TYPE_TIMESTAMP:
+        return PColumnType::COLUMN_TYPE_TIMESTAMP;
     case TYPE_DATETIME:
         return PColumnType::COLUMN_TYPE_DATETIME;
     case TYPE_DECIMALV2:
@@ -142,6 +144,8 @@ PrimitiveType to_primitive_type(PColumnType type) {
         return TYPE_DATEV2;
     case PColumnType::COLUMN_TYPE_DATETIMEV2:
         return TYPE_DATETIMEV2;
+    case PColumnType::COLUMN_TYPE_TIMESTAMP:
+        return TYPE_TIMESTAMP;
     case PColumnType::COLUMN_TYPE_DATETIME:
         return TYPE_DATETIME;
     case PColumnType::COLUMN_TYPE_DECIMALV2:
@@ -629,6 +633,7 @@ public:
             });
             break;
         }
+        case TYPE_TIMESTAMP:
         case TYPE_DATETIMEV2: {
             batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
                 auto date_v2_val = column.longval();
@@ -785,6 +790,7 @@ public:
             int32_t max_val = minmax_filter->max_val().intval();
             return _context->minmax_func->assign(&min_val, &max_val);
         }
+        case TYPE_TIMESTAMP:
         case TYPE_DATETIMEV2: {
             int64_t min_val = minmax_filter->min_val().longval();
             int64_t max_val = minmax_filter->max_val().longval();
@@ -1575,6 +1581,7 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
                 });
         return;
     }
+    case TYPE_TIMESTAMP:
     case TYPE_DATETIMEV2: {
         batch_copy<DateV2Value<DateTimeV2ValueType>>(
                 filter, it,
@@ -1694,6 +1701,7 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
         filter->mutable_max_val()->set_intval(*reinterpret_cast<const int32_t*>(max_data));
         return;
     }
+    case TYPE_TIMESTAMP:
     case TYPE_DATETIMEV2: {
         filter->mutable_min_val()->set_longval(*reinterpret_cast<const int64_t*>(min_data));
         filter->mutable_max_val()->set_longval(*reinterpret_cast<const int64_t*>(max_data));

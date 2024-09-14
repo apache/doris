@@ -139,6 +139,7 @@ public:
                 ARROW_RETURN_NOT_OK(builder.Append(buf, len));
                 break;
             }
+            case vectorized::TypeIndex::Timestamp:
             case vectorized::TypeIndex::DateTimeV2: {
                 char buf[64];
                 const DateV2Value<DateTimeV2ValueType>* time_val =

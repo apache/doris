@@ -211,7 +211,11 @@ void DataTypeDateTimeV2::to_pb_column_meta(PColumnMeta* col_meta) const {
 }
 
 MutableColumnPtr DataTypeDateTimeV2::create_column() const {
-    return DataTypeNumberBase<UInt64>::create_column();
+    auto col = DataTypeNumberBase<UInt64>::create_column();
+    if (is_timestamp()) {
+        col->set_timestamp_type();
+    }
+    return col;
 }
 
 void DataTypeDateTimeV2::cast_to_date_time(const UInt64 from, Int64& to) {

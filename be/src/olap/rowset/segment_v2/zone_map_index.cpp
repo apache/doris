@@ -200,6 +200,7 @@ ZoneMapIndexReader::~ZoneMapIndexReader() {
     M(TYPE_DATETIME)             \
     M(TYPE_DATEV2)               \
     M(TYPE_DATETIMEV2)           \
+    M(TYPE_TIMESTAMP)            \
     M(TYPE_IPV4)                 \
     M(TYPE_IPV6)                 \
     M(TYPE_VARCHAR)              \

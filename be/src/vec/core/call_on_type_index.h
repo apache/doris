@@ -230,6 +230,7 @@ bool call_on_index_and_data_type(TypeIndex number, F&& f) {
     case TypeIndex::DateV2:
         return f(TypePair<DataTypeDateV2, T>());
     case TypeIndex::DateTimeV2:
+    case TypeIndex::Timestamp:
         return f(TypePair<DataTypeDateTimeV2, T>());
     case TypeIndex::DateTime:
         return f(TypePair<DataTypeDateTime, T>());

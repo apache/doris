@@ -40,6 +40,7 @@ namespace doris::vectorized::converter {
     M(TYPE_DATETIME)              \
     M(TYPE_DATE)                  \
     M(TYPE_DATETIMEV2)            \
+    M(TYPE_TIMESTAMP)             \
     M(TYPE_DATEV2)
 
 #define FOR_ALL_LOGICAL_TYPES(M) \
@@ -59,6 +60,7 @@ namespace doris::vectorized::converter {
     M(TYPE_DATETIME)             \
     M(TYPE_DATE)                 \
     M(TYPE_DATETIMEV2)           \
+    M(TYPE_TIMESTAMP)            \
     M(TYPE_DATEV2)
 
 static bool _is_numeric_type(PrimitiveType type) {

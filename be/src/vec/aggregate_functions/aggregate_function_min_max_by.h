@@ -230,7 +230,7 @@ AggregateFunctionPtr create_aggregate_function_min_max_by_impl(const DataTypes& 
                 AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<UInt32>>>>(
                 argument_types, result_is_nullable);
     }
-    if (which.idx == TypeIndex::DateTimeV2) {
+    if (which.idx == TypeIndex::DateTimeV2 || which.idx == TypeIndex::Timestamp) {
         return creator_without_type::create<
                 AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<UInt64>>>>(
                 argument_types, result_is_nullable);
@@ -279,7 +279,7 @@ AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
                                                          SingleValueDataFixed<UInt32>>(
                 argument_types, result_is_nullable);
     }
-    if (which.idx == TypeIndex::DateTimeV2) {
+    if (which.idx == TypeIndex::DateTimeV2 || which.idx == TypeIndex::Timestamp) {
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
                                                          SingleValueDataFixed<UInt64>>(
                 argument_types, result_is_nullable);

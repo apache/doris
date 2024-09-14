@@ -184,6 +184,7 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
         extra_convert_func(str, true);
         break;
     }
+    case TYPE_TIMESTAMP:
     case TYPE_DATETIMEV2: {
         DateV2Value<DateTimeV2ValueType> value =
                 binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(int64_t*)item);

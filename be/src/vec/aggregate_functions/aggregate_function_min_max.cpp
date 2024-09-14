@@ -63,7 +63,7 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<UInt32>>>>(
                 argument_types, result_is_nullable);
     }
-    if (which.idx == TypeIndex::DateTimeV2) {
+    if (which.idx == TypeIndex::DateTimeV2 || which.idx == TypeIndex::Timestamp) {
         return creator_without_type::create<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<UInt64>>>>(
                 argument_types, result_is_nullable);

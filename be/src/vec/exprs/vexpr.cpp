@@ -107,6 +107,10 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATETIMEV2>(data, &node, precision, scale));
         break;
     }
+    case TYPE_TIMESTAMP: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_TIMESTAMP>(data, &node, precision, scale));
+        break;
+    }
     case TYPE_DATE: {
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATE>(data, &node));
         break;

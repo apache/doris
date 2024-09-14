@@ -100,6 +100,7 @@ public:
     M(TYPE_DATETIME)          \
     M(TYPE_DATEV2)            \
     M(TYPE_DATETIMEV2)        \
+    M(TYPE_TIMESTAMP)         \
     M(TYPE_CHAR)              \
     M(TYPE_VARCHAR)           \
     M(TYPE_STRING)            \

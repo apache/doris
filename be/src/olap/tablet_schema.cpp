@@ -428,6 +428,7 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     case TPrimitiveType::DATETIME:
         return 8;
     case TPrimitiveType::DATETIMEV2:
+    case TPrimitiveType::TIMESTAMP:
         return 8;
     case TPrimitiveType::FLOAT:
         return 4;
