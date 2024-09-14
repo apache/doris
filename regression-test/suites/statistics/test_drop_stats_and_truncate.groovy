@@ -175,6 +175,54 @@ suite("test_drop_stats_and_truncate") {
     columns = all_columns.split(",");
     assertEquals(9, columns.size())
 
+    sql """drop table part"""
+    sql """CREATE TABLE `part` (
+            `id` INT NULL,
+            `colint` INT NULL,
+            `coltinyint` tinyint NULL,
+            `colsmallint` smallINT NULL,
+            `colbigint` bigINT NULL,
+            `collargeint` largeINT NULL,
+            `colfloat` float NULL,
+            `coldouble` double NULL,
+            `coldecimal` decimal(27, 9) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        COMMENT 'OLAP'
+        PARTITION BY RANGE(`id`)
+        (
+            PARTITION p1 VALUES [("-2147483648"), ("10000")),
+            PARTITION p2 VALUES [("10000"), ("20000")),
+            PARTITION p3 VALUES [("20000"), ("30000"))
+        )
+        DISTRIBUTED BY HASH(`id`) BUCKETS 3
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        )
+    """
+    sql """analyze table part with sync"""
+    sql """Insert into part values (1, 1, 1, 1, 1, 1, 1.1, 1.1, 1.1)"""
+    result = sql """show table stats part"""
+    assertEquals("true", result[0][6])
+    sql """truncate table part partition(p1)"""
+    result = sql """show table stats part"""
+    assertEquals("true", result[0][6])
+    sql """analyze table part with sample rows 100 with sync"""
+    result = sql """show table stats part"""
+    if (result[0][6].equals("true")) {
+        result = """show index stats part part"""
+        logger.info("Report not ready. index stats: " + result)
+        sql """analyze table part with sample rows 100 with sync"""
+        result = sql """show table stats part"""
+    }
+    if (result[0][6].equals("true")) {
+        result = """show index stats part part"""
+        logger.info("Report not ready. index stats: " + result)
+        sql """analyze table part with sample rows 100 with sync"""
+        result = sql """show table stats part"""
+    }
+    assertEquals("false", result[0][6])
+
     sql """drop database if exists test_drop_stats_and_truncate"""
 }
 
