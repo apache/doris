@@ -2230,14 +2230,23 @@ private:
         const size_t new_size = old_size + str_ref.size;
         column_string_chars.resize(new_size);
         memcpy(column_string_chars.data() + old_size, str_ref.data, str_ref.size);
-        for (size_t i = 0, utf8_char_len = 0; i < str_ref.size; i += utf8_char_len) {
-            utf8_char_len = UTF8_BYTE_LENGTH[(unsigned char)str_ref.data[i]];
+        if (simd::VStringFunctions::is_ascii(str_ref)) {
+            for (size_t i = 0; i < str_ref.size; i++) {
+                string_pos++;
+                column_string_offsets.push_back(string_pos);
+                (*dest_nested_null_map).push_back(false);
+                dest_pos++;
+            }
+        } else {
+            for (size_t i = 0, utf8_char_len = 0; i < str_ref.size; i += utf8_char_len) {
+                utf8_char_len = UTF8_BYTE_LENGTH[(unsigned char)str_ref.data[i]];
 
-            string_pos += utf8_char_len;
-            column_string_offsets.push_back(string_pos);
+                string_pos += utf8_char_len;
+                column_string_offsets.push_back(string_pos);
 
-            (*dest_nested_null_map).push_back(false);
-            dest_pos++;
+                (*dest_nested_null_map).push_back(false);
+                dest_pos++;
+            }
         }
     }
 };
