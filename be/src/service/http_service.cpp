@@ -343,9 +343,9 @@ Status HttpService::start() {
             new ReportAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_TASK"));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/report/task", report_task_action);
 
-    CompactionScoreAction* compaction_score_action = _pool.add(new CompactionScoreAction(
-            _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, _env->get_storage_engine()
-                                                                        ->tablet_manager()));
+    CompactionScoreAction* compaction_score_action =
+            _pool.add(new CompactionScoreAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN,
+                                                _env->get_storage_engine()->tablet_manager()));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction_score",
                                       compaction_score_action);
     _ev_http_server->start();
