@@ -658,8 +658,8 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
     // update delete bitmap info, in order to avoid recalculation when trying again
-    _engine.txn_delete_bitmap_cache().update_tablet_txn_info(
-            txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::PREPARE);
+    RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
+            txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::PREPARE));
 
     if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update &&
         rowset_writer->num_rows() > 0) {
@@ -684,9 +684,9 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
     // store the delete bitmap with sentinel marks in txn_delete_bitmap_cache because if the txn is retried for some reason,
     // it will use the delete bitmap from txn_delete_bitmap_cache when re-calculating the delete bitmap, during which it will do
     // delete bitmap correctness check. If we store the new_delete_bitmap, the delete bitmap correctness check will fail
-    _engine.txn_delete_bitmap_cache().update_tablet_txn_info(txn_id, tablet_id(), delete_bitmap,
-                                                             cur_rowset_ids, PublishStatus::SUCCEED,
-                                                             txn_info->publish_info);
+    RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
+            txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::SUCCEED,
+            txn_info->publish_info));
 
     return Status::OK();
 }
