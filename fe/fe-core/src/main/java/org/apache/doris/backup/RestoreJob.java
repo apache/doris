@@ -100,6 +100,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Table.Cell;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -1239,6 +1240,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             MaterializedIndexMeta indexMeta = localTbl.getIndexMetaByIndexId(restoredIdx.getId());
             List<Index> indexes = restoredIdx.getId() == localTbl.getBaseIndexId()
                                     ? localTbl.getCopiedIndexes() : null;
+            List<Integer> clusterKeyIndexes = null;
+            if (indexMeta.getIndexId() == localTbl.getBaseIndexId() || localTbl.isShadowIndex(indexMeta.getIndexId())) {
+                clusterKeyIndexes = OlapTable.getClusterKeyIndexes(indexMeta.getSchema());
+            }
             for (Tablet restoreTablet : restoredIdx.getTablets()) {
                 TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                         restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);
@@ -1281,6 +1286,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         task.setBaseTablet(baseTablet.first, baseTablet.second);
                         LOG.info("set base tablet {} for replica {} in restore job {}, tablet id={}",
                                 baseTablet.first, restoreReplica.getId(), jobId, restoreTablet.getId());
+                    }
+                    if (!CollectionUtils.isEmpty(clusterKeyIndexes)) {
+                        task.setClusterKeyIndexes(clusterKeyIndexes);
+                        LOG.info("table: {}, partition: {}, index: {}, tablet: {}, cluster key indexes: {}",
+                                localTbl.getId(), restorePart.getId(), restoredIdx.getId(), restoreTablet.getId(),
+                                clusterKeyIndexes);
                     }
                     batchTask.addTask(task);
                 }
