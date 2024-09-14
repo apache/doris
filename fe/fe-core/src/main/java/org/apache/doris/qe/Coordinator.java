@@ -2888,10 +2888,9 @@ public class Coordinator implements CoordInterface {
         // Has to use synchronized to ensure there are not concurrent update threads. Or the done
         // state maybe update wrong and will lose data. see https://github.com/apache/doris/pull/29802/files.
         public synchronized boolean updatePipelineStatus(TReportExecStatusParams params) {
-            // The fragment or instance is not finished, still need handle the report to update the load progress.
-            // Otherwise the load progress (ScannedRows/LoadBytes) won't be updated before any instance is done.
+            // The fragment or instance is not finished, not need update
             if (!params.done) {
-                return true;
+                return false;
             }
             if (this.done) {
                 // duplicate packet
