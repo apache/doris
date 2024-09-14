@@ -63,5 +63,6 @@ private:
     std::shared_ptr<Segment> _segment;
     StorageReadOptions _read_options;
     RowwiseIteratorUPtr _inner_iterator;
+    cctz::time_zone _timezone_obj;
 };
 } // namespace doris::segment_v2

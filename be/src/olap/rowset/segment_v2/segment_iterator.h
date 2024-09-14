@@ -535,6 +535,7 @@ private:
             _column_predicate_inverted_index_status;
 
     DorisCallOnce<Status> _init_single_inverted_index_iterator;
+    cctz::time_zone _timezone_obj;
 };
 
 } // namespace segment_v2

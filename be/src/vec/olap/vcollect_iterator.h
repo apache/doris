@@ -53,7 +53,8 @@ public:
     // Hold reader point to get reader params
     ~VCollectIterator();
 
-    void init(TabletReader* reader, bool ori_data_overlapping, bool force_merge, bool is_reverse);
+    void init(TabletReader* reader, bool ori_data_overlapping, bool force_merge, bool is_reverse,
+              cctz::time_zone timezone);
 
     Status add_child(const RowSetSplits& rs_splits);
 

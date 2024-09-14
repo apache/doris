@@ -62,7 +62,7 @@ namespace vectorized {
 VCollectIterator::~VCollectIterator() = default;
 
 void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, bool force_merge,
-                            bool is_reverse) {
+                            bool is_reverse, cctz::time_zone timezone) {
     _reader = reader;
 
     // when aggregate is enabled or key_type is DUP_KEYS, we don't merge

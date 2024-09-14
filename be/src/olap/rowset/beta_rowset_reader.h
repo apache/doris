@@ -127,6 +127,7 @@ private:
     bool _empty = false;
     size_t _topn_limit = 0;
     uint64_t _merged_rows = 0;
+    cctz::time_zone _timezone_obj;
 };
 
 } // namespace doris

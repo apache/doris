@@ -119,7 +119,7 @@ bool BlockReader::_rowsets_overlapping(const ReaderParams& read_params) {
     }
     return false;
 }
-Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
+Status BlockReader::_init_collect_iter(const ReaderParams& read_params, cctz::time_zone timezone) {
     auto res = _capture_rs_readers(read_params);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
@@ -132,7 +132,7 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     // check if rowsets are noneoverlapping
     _is_rowsets_overlapping = _rowsets_overlapping(read_params);
     _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
-                        read_params.read_orderby_key_reverse);
+                        read_params.read_orderby_key_reverse, timezone);
 
     std::vector<RowsetReaderSharedPtr> valid_rs_readers;
 
@@ -206,7 +206,7 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-Status BlockReader::init(const ReaderParams& read_params) {
+Status BlockReader::init(const ReaderParams& read_params, cctz::time_zone timezone) {
     RETURN_IF_ERROR(TabletReader::init(read_params));
 
     int32_t return_column_size = read_params.origin_return_columns->size();
@@ -226,7 +226,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
         }
     }
 
-    auto status = _init_collect_iter(read_params);
+    auto status = _init_collect_iter(read_params, timezone);
     if (!status.ok()) [[unlikely]] {
         if (!config::is_cloud_mode()) {
             static_cast<Tablet*>(_tablet.get())->report_error(status);

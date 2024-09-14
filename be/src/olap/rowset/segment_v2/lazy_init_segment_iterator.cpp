@@ -25,14 +25,15 @@ LazyInitSegmentIterator::LazyInitSegmentIterator(std::shared_ptr<Segment> segmen
 
 /// Here do not use the argument of `opts`,
 /// see where the iterator is created in `BetaRowsetReader::get_segment_iterators`
-Status LazyInitSegmentIterator::init(const StorageReadOptions& /*opts*/) {
+Status LazyInitSegmentIterator::init(const StorageReadOptions& /*opts*/, cctz::time_zone timezone) {
     _need_lazy_init = false;
+    _timezone_obj = timezone;
     if (_inner_iterator) {
         return Status::OK();
     }
 
     RETURN_IF_ERROR(_segment->new_iterator(_schema, _read_options, &_inner_iterator));
-    return _inner_iterator->init(_read_options);
+    return _inner_iterator->init(_read_options, timezone);
 }
 
 } // namespace doris::segment_v2

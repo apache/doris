@@ -268,11 +268,12 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
           _inited(false),
           _pool(new ObjectPool) {}
 
-Status SegmentIterator::init(const StorageReadOptions& opts) {
+Status SegmentIterator::init(const StorageReadOptions& opts, cctz::time_zone timezone) {
     auto status = _init_impl(opts);
     if (!status.ok() && !config::disable_segment_cache) {
         _segment->remove_from_segment_cache();
     }
+    _timezone_obj = timezone;
     return status;
 }
 

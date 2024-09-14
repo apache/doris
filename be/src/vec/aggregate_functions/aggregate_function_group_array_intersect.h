@@ -65,8 +65,8 @@ constexpr PrimitiveType type_to_primitive_type() {
         return TYPE_DATEV2;
     } else if constexpr (std::is_same_v<T, DateTimeV2>) {
         return TYPE_DATETIMEV2;
-    // } else if constexpr (std::is_same_v<T, Timestamp>) {
-    //     return TYPE_TIMESTAMP;
+        // } else if constexpr (std::is_same_v<T, Timestamp>) {
+        //     return TYPE_TIMESTAMP;
     } else {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Only for changing Numeric type or Date(DateTime)V2 type to PrimitiveType");

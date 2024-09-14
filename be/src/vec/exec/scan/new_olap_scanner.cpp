@@ -234,7 +234,7 @@ Status NewOlapScanner::open(RuntimeState* state) {
     auto* timer = ((pipeline::OlapScanLocalState*)_local_state)->_reader_init_timer;
     SCOPED_TIMER(timer);
 
-    auto res = _tablet_reader->init(_tablet_reader_params);
+    auto res = _tablet_reader->init(_tablet_reader_params, state->timezone_obj());
     if (!res.ok()) {
         std::stringstream ss;
         ss << "failed to initialize storage reader. tablet="
