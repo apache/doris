@@ -60,6 +60,17 @@ class HttpCliAction implements SuiteAction {
         this.uri = uri
     }
 
+    void header(String key, String value) {
+        this.headers.put(key, value)
+    }
+
+    void basicAuthorization(String user, String password) {
+        String credentials = user + ":" + (password.is(null) ? "" : password)
+        String encodedCredentials = Base64.getEncoder().encodeToString(credentials.getBytes())
+        String headerValue = "Basic " + encodedCredentials;
+        headers.put("Authorization", headerValue)
+    }
+
     void body(Closure<String> bodySupplier) {
         this.body = bodySupplier.call()
     }
