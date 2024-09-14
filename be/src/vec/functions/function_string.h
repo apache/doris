@@ -3176,26 +3176,39 @@ public:
                         size_t result, size_t input_rows_count) const override {
         // We need a local variable to hold a reference to the converted column.
         // So that the converted column will not be released before we use it.
-        auto col_origin =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto col_origin_str = assert_cast<const ColumnString*>(col_origin.get());
-        auto col_old =
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        auto col_old_str = assert_cast<const ColumnString*>(col_old.get());
-        auto col_new =
-                block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
-        auto col_new_str = assert_cast<const ColumnString*>(col_new.get());
+        ColumnPtr col[3];
+        bool col_const[3];
+        for (size_t i = 0; i < 3; ++i) {
+            std::tie(col[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
+
+        const auto* col_origin_str = assert_cast<const ColumnString*>(col[0].get());
+        const auto* col_old_str = assert_cast<const ColumnString*>(col[1].get());
+        const auto* col_new_str = assert_cast<const ColumnString*>(col[2].get());
 
         ColumnString::MutablePtr col_res = ColumnString::create();
-        for (int i = 0; i < input_rows_count; ++i) {
-            StringRef origin_str = col_origin_str->get_data_at(i);
-            StringRef old_str = col_old_str->get_data_at(i);
-            StringRef new_str = col_new_str->get_data_at(i);
 
-            std::string result = replace(origin_str.to_string(), old_str.to_string_view(),
-                                         new_str.to_string_view());
-            col_res->insert_data(result.data(), result.length());
-        }
+        std::visit(
+                [&](auto origin_str_const, auto old_str_const, auto new_str_const) {
+                    for (int i = 0; i < input_rows_count; ++i) {
+                        StringRef origin_str =
+                                col_origin_str->get_data_at(index_check_const<origin_str_const>(i));
+                        StringRef old_str =
+                                col_old_str->get_data_at(index_check_const<old_str_const>(i));
+                        StringRef new_str =
+                                col_new_str->get_data_at(index_check_const<new_str_const>(i));
+
+                        std::string result =
+                                replace(origin_str.to_string(), old_str.to_string_view(),
+                                        new_str.to_string_view());
+
+                        col_res->insert_data(result.data(), result.length());
+                    }
+                },
+                vectorized::make_bool_variant(col_const[0]),
+                vectorized::make_bool_variant(col_const[1]),
+                vectorized::make_bool_variant(col_const[2]));
 
         block.replace_by_position(result, std::move(col_res));
         return Status::OK();
@@ -3212,16 +3225,29 @@ private:
                 if (new_str.empty()) {
                     return str;
                 }
-                std::string result;
-                ColumnString::check_chars_length(
-                        str.length() * (new_str.length() + 1) + new_str.length(), 0);
-                result.reserve(str.length() * (new_str.length() + 1) + new_str.length());
-                for (char c : str) {
+                if (simd::VStringFunctions::is_ascii({str.data(), str.size()})) {
+                    std::string result;
+                    ColumnString::check_chars_length(
+                            str.length() * (new_str.length() + 1) + new_str.length(), 0);
+                    result.reserve(str.length() * (new_str.length() + 1) + new_str.length());
+                    for (char c : str) {
+                        result += new_str;
+                        result += c;
+                    }
                     result += new_str;
-                    result += c;
+                    return result;
+                } else {
+                    std::string result;
+                    result.reserve(str.length() * (new_str.length() + 1) + new_str.length());
+                    for (size_t i = 0, utf8_char_len = 0; i < str.size(); i += utf8_char_len) {
+                        utf8_char_len = UTF8_BYTE_LENGTH[(unsigned char)str[i]];
+                        result += new_str;
+                        result.append(&str[i], utf8_char_len);
+                    }
+                    result += new_str;
+                    ColumnString::check_chars_length(result.size(), 0);
+                    return result;
                 }
-                result += new_str;
-                return result;
             }
         } else {
             std::string::size_type pos = 0;
