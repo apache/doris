@@ -371,11 +371,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
                     Map<String, String> params = Maps.newHashMap();
                     params.put("catalog", ctlName);
                     params.put("database", dbName);
-                    params.put("tblName", getSourceTableName(sourceNameWithMetaName));
+                    params.put("table", getSourceTableName(sourceNameWithMetaName));
                     try {
                         return new TableValuedFunctionRef(tvfName, null, params);
                     } catch (org.apache.doris.common.AnalysisException e) {
-                        LOG.warn("should not happen. {}.{}.{}", ctlName, dbName, tblName);
+                        LOG.warn("should not happen. {}.{}.{}", ctlName, dbName, sourceNameWithMetaName);
                         return null;
                     }
                 default:
@@ -384,3 +384,4 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
     }
 }
+
