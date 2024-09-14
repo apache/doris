@@ -167,7 +167,7 @@ suite("test_full_compaction") {
             assert tabletJson.rowsets instanceof List
             rowsetCount +=((List<String>) tabletJson.rowsets).size()
         }
-        def cloudMode = isCloudMode.call()
+        def cloudMode = isCloudMode()
         if (cloudMode) {
             assert (rowsetCount == 2)
         } else {
