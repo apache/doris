@@ -123,14 +123,21 @@ suite("test_analyze_mtmv") {
 	    l_partkey,
 	    l_suppkey;
     """
-	    sql """REFRESH MATERIALIZED VIEW mv1 AUTO"""
-	    while(true) {
-                Thread.sleep(1000)
-		def result = sql """select * from mv_infos("database"="test_analyze_mtmv") where Name="mv1";"""
-		if (result[0][5] == "SUCCESS") {
-		    break;
-		}
-	    }
+    sql """REFRESH MATERIALIZED VIEW mv1 AUTO"""
+    boolean refreshed = false;
+    for (int i = 0; i < 300; i++) {
+        Thread.sleep(1000)
+        def result = sql """select * from mv_infos("database"="test_analyze_mtmv") where Name="mv1";"""
+        logger.info("refresh mv info:" + result)
+        if (result[0][5] == "SUCCESS") {
+            refreshed = true;
+            break;
+        }
+        if (result[0][5] == "FAIL") {
+            throw new Exception("Refresh mv failed.")
+        }
+    }
+    assertTrue(refreshed)
 
     def dup_sql1 = """select * from mv1 order by l_shipdate;"""
 	    qt_sql1 dup_sql1

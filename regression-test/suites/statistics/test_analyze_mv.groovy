@@ -111,6 +111,7 @@ suite("test_analyze_mv") {
     sql """drop database if exists test_analyze_mv"""
     sql """create database test_analyze_mv"""
     sql """use test_analyze_mv"""
+    sql """set global enable_auto_analyze=false"""
 
     sql """CREATE TABLE mvTestDup (
             key1 bigint NOT NULL,
