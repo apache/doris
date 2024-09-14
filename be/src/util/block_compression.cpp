@@ -53,6 +53,7 @@
 #include "gutil/endian.h"
 #include "gutil/strings/substitute.h"
 #include "orc/OrcFile.hh"
+#include "runtime/thread_context.h"
 #include "util/bit_util.h"
 #include "util/defer_op.h"
 #include "util/faststring.h"
@@ -99,10 +100,16 @@ private:
         ENABLE_FACTORY_CREATOR(Context);
 
     public:
-        Context() : ctx(nullptr) { buffer = std::make_unique<faststring>(); }
+        Context() : ctx(nullptr) {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                    ExecEnv::GetInstance()->block_compression_mem_tracker());
+            buffer = std::make_unique<faststring>();
+        }
         LZ4_stream_t* ctx;
         std::unique_ptr<faststring> buffer;
         ~Context() {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                    ExecEnv::GetInstance()->block_compression_mem_tracker());
             if (ctx) {
                 LZ4_freeStream(ctx);
             }
@@ -115,7 +122,11 @@ public:
         static Lz4BlockCompression s_instance;
         return &s_instance;
     }
-    ~Lz4BlockCompression() { _ctx_pool.clear(); }
+    ~Lz4BlockCompression() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                ExecEnv::GetInstance()->block_compression_mem_tracker());
+        _ctx_pool.clear();
+    }
 
     Status compress(const Slice& input, faststring* output) override {
         if (input.size > INT_MAX) {
@@ -144,7 +155,13 @@ public:
                 compressed_buf.size = max_len;
             } else {
                 // reuse context buffer if max_len <= MAX_COMPRESSION_BUFFER_FOR_REUSE
-                context->buffer->resize(max_len);
+                {
+                    // context->buffer is resuable between queries, should accouting to
+                    // global tracker.
+                    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                            ExecEnv::GetInstance()->block_compression_mem_tracker());
+                    context->buffer->resize(max_len);
+                }
                 compressed_buf.data = reinterpret_cast<char*>(context->buffer->data());
                 compressed_buf.size = max_len;
             }
@@ -253,10 +270,16 @@ private:
         ENABLE_FACTORY_CREATOR(CContext);
 
     public:
-        CContext() : ctx(nullptr) { buffer = std::make_unique<faststring>(); }
+        CContext() : ctx(nullptr) {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                    ExecEnv::GetInstance()->block_compression_mem_tracker());
+            buffer = std::make_unique<faststring>();
+        }
         LZ4F_compressionContext_t ctx;
         std::unique_ptr<faststring> buffer;
         ~CContext() {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                    ExecEnv::GetInstance()->block_compression_mem_tracker());
             if (ctx) {
                 LZ4F_freeCompressionContext(ctx);
             }
@@ -282,6 +305,8 @@ public:
         return &s_instance;
     }
     ~Lz4fBlockCompression() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                ExecEnv::GetInstance()->block_compression_mem_tracker());
         _ctx_c_pool.clear();
         _ctx_d_pool.clear();
     }
@@ -326,8 +351,12 @@ private:
                 compressed_buf.data = reinterpret_cast<char*>(output->data());
                 compressed_buf.size = max_len;
             } else {
-                // reuse context buffer if max_len <= MAX_COMPRESSION_BUFFER_FOR_REUSE
-                context->buffer->resize(max_len);
+                {
+                    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                            ExecEnv::GetInstance()->block_compression_mem_tracker());
+                    // reuse context buffer if max_len <= MAX_COMPRESSION_BUFFER_FOR_REUSE
+                    context->buffer->resize(max_len);
+                }
                 compressed_buf.data = reinterpret_cast<char*>(context->buffer->data());
                 compressed_buf.size = max_len;
             }
@@ -482,10 +511,16 @@ private:
         ENABLE_FACTORY_CREATOR(Context);
 
     public:
-        Context() : ctx(nullptr) { buffer = std::make_unique<faststring>(); }
+        Context() : ctx(nullptr) {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                    ExecEnv::GetInstance()->block_compression_mem_tracker());
+            buffer = std::make_unique<faststring>();
+        }
         LZ4_streamHC_t* ctx;
         std::unique_ptr<faststring> buffer;
         ~Context() {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                    ExecEnv::GetInstance()->block_compression_mem_tracker());
             if (ctx) {
                 LZ4_freeStreamHC(ctx);
             }
@@ -498,7 +533,11 @@ public:
         static Lz4HCBlockCompression s_instance;
         return &s_instance;
     }
-    ~Lz4HCBlockCompression() { _ctx_pool.clear(); }
+    ~Lz4HCBlockCompression() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                ExecEnv::GetInstance()->block_compression_mem_tracker());
+        _ctx_pool.clear();
+    }
 
     Status compress(const Slice& input, faststring* output) override {
         std::unique_ptr<Context> context;
@@ -519,7 +558,12 @@ public:
                 compressed_buf.data = reinterpret_cast<char*>(output->data());
                 compressed_buf.size = max_len;
             } else {
-                context->buffer->resize(max_len);
+                {
+                    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                            ExecEnv::GetInstance()->block_compression_mem_tracker());
+                    // reuse context buffer if max_len <= MAX_COMPRESSION_BUFFER_FOR_REUSE
+                    context->buffer->resize(max_len);
+                }
                 compressed_buf.data = reinterpret_cast<char*>(context->buffer->data());
                 compressed_buf.size = max_len;
             }
@@ -781,10 +825,16 @@ private:
         ENABLE_FACTORY_CREATOR(CContext);
 
     public:
-        CContext() : ctx(nullptr) { buffer = std::make_unique<faststring>(); }
+        CContext() : ctx(nullptr) {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                    ExecEnv::GetInstance()->block_compression_mem_tracker());
+            buffer = std::make_unique<faststring>();
+        }
         ZSTD_CCtx* ctx;
         std::unique_ptr<faststring> buffer;
         ~CContext() {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                    ExecEnv::GetInstance()->block_compression_mem_tracker());
             if (ctx) {
                 ZSTD_freeCCtx(ctx);
             }
@@ -810,6 +860,8 @@ public:
         return &s_instance;
     }
     ~ZstdBlockCompression() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                ExecEnv::GetInstance()->block_compression_mem_tracker());
         _ctx_c_pool.clear();
         _ctx_d_pool.clear();
     }
@@ -843,8 +895,12 @@ public:
                 compressed_buf.data = reinterpret_cast<char*>(output->data());
                 compressed_buf.size = max_len;
             } else {
-                // reuse context buffer if max_len <= MAX_COMPRESSION_BUFFER_FOR_REUSE
-                context->buffer->resize(max_len);
+                {
+                    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                            ExecEnv::GetInstance()->block_compression_mem_tracker());
+                    // reuse context buffer if max_len <= MAX_COMPRESSION_BUFFER_FOR_REUSE
+                    context->buffer->resize(max_len);
+                }
                 compressed_buf.data = reinterpret_cast<char*>(context->buffer->data());
                 compressed_buf.size = max_len;
             }

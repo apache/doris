@@ -39,7 +39,7 @@ EngineAlterTabletTask::EngineAlterTabletTask(const TAlterTabletReqV2& request)
                              ->get_storage_engine()
                              ->memory_limitation_bytes_per_thread_for_schema_change();
     _mem_tracker = MemTrackerLimiter::create_shared(
-            MemTrackerLimiter::Type::SCHEMA_CHANGE,
+            MemTrackerLimiter::Type::OTHER,
             fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                         std::to_string(_alter_tablet_req.base_tablet_id),
                         std::to_string(_alter_tablet_req.new_tablet_id)),

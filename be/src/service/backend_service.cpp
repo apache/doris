@@ -102,7 +102,7 @@ void _ingest_binlog(IngestBinlogArg* arg) {
     const auto& local_tablet_uid = local_tablet->tablet_uid();
 
     std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
-            MemTrackerLimiter::Type::SCHEMA_CHANGE, fmt::format("IngestBinlog#TxnId={}", txn_id));
+            MemTrackerLimiter::Type::OTHER, fmt::format("IngestBinlog#TxnId={}", txn_id));
     SCOPED_ATTACH_TASK(mem_tracker);
 
     auto& request = arg->request;
