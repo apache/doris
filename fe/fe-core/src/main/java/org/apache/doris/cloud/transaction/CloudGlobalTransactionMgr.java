@@ -151,7 +151,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private TxnStateCallbackFactory callbackFactory;
     private final Map<Long, Long> subTxnIdToTxnId = new ConcurrentHashMap<>();
-    private Map<Long, AtomicInteger> countMap = new ConcurrentHashMap<>();
+    private Map<Long, AtomicInteger> waitToCommitTxnCountMap = new ConcurrentHashMap<>();
 
     public CloudGlobalTransactionMgr() {
         this.callbackFactory = new TxnStateCallbackFactory();
@@ -965,7 +965,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             long tableId = tableList.get(i).getId();
             LOG.info("start commit txn=" + transactionId + ",table=" + tableId);
         }
-        for (Map.Entry<Long, AtomicInteger> entry : countMap.entrySet()) {
+        for (Map.Entry<Long, AtomicInteger> entry : waitToCommitTxnCountMap.entrySet()) {
             if (entry.getValue().get() > 5) {
                 LOG.info("now table {} commitAndPublishTransaction queue is {}", entry.getKey(),
                         entry.getValue().get());
@@ -1740,11 +1740,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     private void increaseCount(List<Table> tableList) {
         for (int i = 0; i < tableList.size(); i++) {
             long tableId = tableList.get(i).getId();
-            if (countMap.containsKey(tableId)) {
-                countMap.get(tableId).addAndGet(1);
+            if (waitToCommitTxnCountMap.containsKey(tableId)) {
+                waitToCommitTxnCountMap.get(tableId).addAndGet(1);
             } else {
-                countMap.put(tableId, new AtomicInteger());
-                countMap.get(tableId).addAndGet(1);
+                waitToCommitTxnCountMap.put(tableId, new AtomicInteger());
+                waitToCommitTxnCountMap.get(tableId).addAndGet(1);
             }
         }
     }
@@ -1752,7 +1752,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     private void decreaseCount(List<Table> tableList) {
         for (int i = 0; i < tableList.size(); i++) {
             long tableId = tableList.get(i).getId();
-            countMap.get(tableId).decrementAndGet();
+            waitToCommitTxnCountMap.get(tableId).decrementAndGet();
         }
     }
 }
