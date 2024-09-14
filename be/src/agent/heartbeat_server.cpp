@@ -246,32 +246,47 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     }
 
     if (master_info.__isset.meta_service_endpoint != config::is_cloud_mode()) {
+        LOG(WARNING) << "Detected mismatch in cloud mode configuration between FE and BE. "
+                     << "FE cloud mode: "
+                     << (master_info.__isset.meta_service_endpoint ? "true" : "false")
+                     << ", BE cloud mode: " << (config::is_cloud_mode() ? "true" : "false");
         return Status::InvalidArgument<false>(
                 "fe and be do not work in same mode, fe cloud mode: {},"
                 " be cloud mode: {}",
                 master_info.__isset.meta_service_endpoint, config::is_cloud_mode());
     }
 
-    if (master_info.__isset.meta_service_endpoint && config::meta_service_endpoint.empty() &&
-        !master_info.meta_service_endpoint.empty()) {
-        auto st = config::set_config("meta_service_endpoint", master_info.meta_service_endpoint,
-                                     true);
-        LOG(INFO) << "set config meta_service_endpoing " << master_info.meta_service_endpoint << " "
-                  << st;
-    }
+    if (master_info.__isset.meta_service_endpoint) {
+        if (config::meta_service_endpoint.empty() &&
+            !master_info.meta_service_endpoint.empty()) {
+            auto st = config::set_config("meta_service_endpoint", master_info.meta_service_endpoint,
+                                         true);
+            LOG(INFO) << "set config meta_service_endpoing " << master_info.meta_service_endpoint
+                      << " " << st;
+        }
 
-    if (config::cluster_id == -1 && master_info.cluster_id != -1) {
-        auto st = config::set_config("cluster_id", std::to_string(master_info.cluster_id), true);
-        config::set_cloud_unique_id(std::to_string(master_info.cluster_id));
-        LOG(INFO) << "set config cluster_id " << master_info.cluster_id << " " << st;
-    }
+        if (config::cluster_id == -1 && master_info.cluster_id != -1) {
+            auto st = config::set_config("cluster_id", std::to_string(master_info.cluster_id), true);
+            config::set_cloud_unique_id(std::to_string(master_info.cluster_id));
+            LOG(INFO) << "set config cluster_id " << master_info.cluster_id << " " << st;
 
-    if (config::cluster_id != master_info.cluster_id && master_info.cluster_id != -1) {
-        LOG(WARNING) << "fe and be run in different cluster, fe in cluster_id: "
-                     << master_info.cluster_id << " while be in cluster_id: " << config::cluster_id;
-        return Status::InvalidArgument<false>(
-                "cluster_id in be and fe are different, fe: {}, be : {}", master_info.cluster_id,
-                config::cluster_id);
+        }
+
+        if (config::cluster_id == -1 && master_info.cluster_id != -1) {
+            auto st = config::set_config("cluster_id", std::to_string(master_info.cluster_id), true);
+            config::set_cloud_unique_id(std::to_string(master_info.cluster_id));
+            LOG(INFO) << "set config unique_id according to cluster_id " << master_info.cluster_id
+                      << " " << st;
+        }
+
+        if (config::cluster_id != master_info.cluster_id && master_info.cluster_id != -1) {
+            LOG(WARNING) << "fe and be run in different cluster, fe in cluster_id: "
+                         << master_info.cluster_id << " while be in cluster_id: "
+                         << config::cluster_id;
+            return Status::InvalidArgument<false>(
+                    "cluster_id in be and fe are different, fe: {}, be : {}",
+                    master_info.cluster_id, config::cluster_id);
+        }
     }
 
     return Status::OK();
