@@ -269,7 +269,6 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                     config::set_config("cluster_id", std::to_string(master_info.cluster_id), true);
             config::set_cloud_unique_id(std::to_string(master_info.cluster_id));
             LOG(INFO) << "set config cluster_id " << master_info.cluster_id << " " << st;
-
         }
 
         if (config::cluster_id == -1 && master_info.cluster_id != -1) {
