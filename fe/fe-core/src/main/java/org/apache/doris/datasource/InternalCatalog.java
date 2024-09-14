@@ -59,6 +59,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.TypeDef;
+import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.ColocateGroupSchema;
@@ -928,8 +929,14 @@ public class InternalCatalog implements CatalogIf<Database> {
                 OlapTable olapTable = (OlapTable) table;
                 if ((olapTable.getState() != OlapTableState.NORMAL)) {
                     throw new DdlException("The table [" + tableName + "]'s state is " + olapTable.getState()
-                            + ", cannot be dropped." + " please cancel the operation on olap table firstly."
+                            + ", cannot be dropped. please cancel the operation on olap table firstly."
                             + " If you want to forcibly drop(cannot be recovered),"
+                            + " please use \"DROP table FORCE\".");
+                }
+                if (olapTable.isInAtomicRestore()) {
+                    throw new DdlException("The table [" + tableName + "]'s state is in atomic restore"
+                            + ", cannot be dropped. please cancel the restore operation on olap table"
+                            + " firstly. If you want to forcibly drop(cannot be recovered),"
                             + " please use \"DROP table FORCE\".");
                 }
             }
@@ -1225,6 +1232,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
+        }
+        if (db.getTable(RestoreJob.tableAliasWithAtomicRestore(tableName)).isPresent()) {
+            ErrorReport.reportDdlException(
+                    "table[{}] is in atomic restore, please cancel the restore operation firstly",
+                    ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
         }
 
         if (engineName.equals("olap")) {
