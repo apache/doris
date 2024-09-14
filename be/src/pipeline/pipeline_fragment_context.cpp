@@ -363,7 +363,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFragmentParams& request,
                                                       ThreadPool* thread_pool) {
     _total_tasks = 0;
-    int target_size = request.local_params.size();
+    const auto target_size = request.local_params.size();
     _tasks.resize(target_size);
     _fragment_instance_ids.resize(target_size);
     _runtime_filter_states.resize(target_size);
@@ -459,7 +459,6 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
         for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
             auto& pipeline = _pipelines[pip_idx];
             if (pipeline->num_tasks() > 1 || i == 0) {
-                auto cur_task_id = _total_tasks++;
                 DCHECK(_task_runtime_states[pip_idx][i] == nullptr)
                         << print_id(_task_runtime_states[pip_idx][i]->fragment_instance_id()) << " "
                         << pipeline->debug_string();
@@ -546,7 +545,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
     if (target_size > 1 &&
         (_runtime_state->query_options().__isset.parallel_prepare_threshold &&
          target_size > _runtime_state->query_options().parallel_prepare_threshold)) {
-        Status prepare_status[target_size];
+        std::vector<Status> prepare_status(target_size);
         std::mutex m;
         std::condition_variable cv;
         int prepare_done = 0;
