@@ -283,8 +283,6 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         finalizeCommand();
 
         ctx.setCommand(MysqlCommand.COM_SLEEP);
-        ctx.clear();
-        executor = null;
     }
 
     public void loop() {
