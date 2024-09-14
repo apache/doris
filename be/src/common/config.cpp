@@ -54,7 +54,7 @@ DEFINE_String(custom_config_dir, "${DORIS_HOME}/conf");
 DEFINE_String(jdbc_drivers_dir, "${DORIS_HOME}/jdbc_drivers");
 
 // cluster id
-DEFINE_Int32(cluster_id, "-1");
+DEFINE_mInt32(cluster_id, "-1");
 // port on which BackendService is exported
 DEFINE_Int32(be_port, "9060");
 
