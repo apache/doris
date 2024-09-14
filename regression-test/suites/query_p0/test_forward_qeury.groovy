@@ -43,10 +43,6 @@ suite("test_forward_query") {
 
         cluster.injectDebugPoints(NodeType.FE, ['StmtExecutor.forward_all_queries' : [forwardAllQueries:true]])
 
-        try {
-            sql """ SELECT * FROM ${tbl} """
-        } catch (Exception ignored) {
-            assertTrue(false)
-        }
+        sql """ SELECT * FROM ${tbl} """
     }
 }
