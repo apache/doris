@@ -189,8 +189,8 @@ public abstract class StorageVault {
 
     public static final ShowResultSetMetaData STORAGE_VAULT_META_DATA =
             ShowResultSetMetaData.builder()
-                .addColumn(new Column("StorageVaultName", ScalarType.createVarchar(100)))
-                .addColumn(new Column("StorageVaultId", ScalarType.createVarchar(20)))
+                .addColumn(new Column("Name", ScalarType.createVarchar(100)))
+                .addColumn(new Column("Id", ScalarType.createVarchar(20)))
                 .addColumn(new Column("Propeties", ScalarType.createVarchar(65535)))
                 .addColumn(new Column("IsDefault", ScalarType.createVarchar(5)))
                 .build();
