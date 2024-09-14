@@ -19,10 +19,6 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_full_compaction") {
     def tableName = "test_full_compaction"
-    def isCloudMode = {
-        def ret = sql_return_maparray  """show backends"""
-        ret.Tag[0].contains("cloud_cluster_name")
-    }
 
     try {
         String backend_id;

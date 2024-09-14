@@ -21,11 +21,8 @@ suite("test_nereids_row_policy") {
     def user='row_policy_user'
     def tokens = context.config.jdbcUrl.split('/')
     def url=tokens[0] + "//" + tokens[2] + "/" + dbName + "?"
-    def isCloudMode = {
-        def ret = sql_return_maparray  """show backends"""
-        ret.Tag[0].contains("cloud_cluster_name")
-    }
-    def cloudMode = isCloudMode.call()
+
+    def cloudMode = isCloudMode()
     //cloud-mode
     if (cloudMode) {
         def clusters = sql " SHOW CLUSTERS; "
