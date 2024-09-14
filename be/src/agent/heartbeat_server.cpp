@@ -266,9 +266,11 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     }
 
     if (master_info.__isset.cloud_unique_id) {
-        if (!config::cloud_unique_id.empty() && config::cloud_unique_id != master_info.cloud_unique_id) {
+        if (!config::cloud_unique_id.empty() &&
+            config::cloud_unique_id != master_info.cloud_unique_id) {
             LOG(ERROR) << "Cloud unique ID mismatch between FE and BE. FE cloud unique ID: "
-                       << master_info.cloud_unique_id << ", BE cloud unique ID: " << config::cloud_unique_id;
+                       << master_info.cloud_unique_id
+                       << ", BE cloud unique ID: " << config::cloud_unique_id;
             return Status::InvalidArgument<false>(
                     "fe and be do not work with same cloud unique ID, fe cloud unique ID: {},"
                     " be cloud unique ID: {}",
