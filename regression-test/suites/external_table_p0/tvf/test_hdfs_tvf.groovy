@@ -326,6 +326,8 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
                         "format" = "${format}") order by c1;
                 """
 
+            order_qt_create_view """ select * from test_hdfs_tvf_create_view order by c1 limit 20; """
+
             sql """
                 alter view test_hdfs_tvf_create_view as
                 select c1 from HDFS(
@@ -334,6 +336,8 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
                         "column_separator" = ",",
                         "format" = "${format}") order by c1;
                 """
+
+            order_qt_alter_view """ select * from test_hdfs_tvf_create_view order by c1 limit 20; """
         } finally {
         }
     }
