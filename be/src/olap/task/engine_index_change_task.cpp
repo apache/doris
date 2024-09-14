@@ -17,6 +17,7 @@
 
 #include "olap/task/engine_index_change_task.h"
 
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 
 namespace doris {
@@ -28,7 +29,9 @@ EngineIndexChangeTask::EngineIndexChangeTask(
             MemTrackerLimiter::Type::SCHEMA_CHANGE,
             fmt::format("EngineIndexChangeTask#tabletId={}",
                         std::to_string(_alter_inverted_index_req.tablet_id)),
-            config::memory_limitation_per_thread_for_schema_change_bytes);
+            ExecEnv::GetInstance()
+                    ->get_storage_engine()
+                    ->memory_limitation_bytes_per_thread_for_schema_change());
 }
 
 Status EngineIndexChangeTask::execute() {
