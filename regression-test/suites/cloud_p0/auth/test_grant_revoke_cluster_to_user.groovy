@@ -98,7 +98,7 @@ suite("test_grant_revoke_cluster_to_user", "cloud_auth") {
     sql """create user ${user3} identified by 'Cloud12345'"""
     sql """GRANT SELECT_PRIV ON *.*.* TO '${user3}'@'%'"""
     result = connect(user = "${user3}", password = 'Cloud12345', url = context.config.jdbcUrl) {
-            sql """SHOW COMPUTE GROUPS"""
+            sql """SHOW CLUSTERS"""
     }
     // not grant any cluster to user3
     assertTrue(result.isEmpty())
@@ -119,7 +119,7 @@ suite("test_grant_revoke_cluster_to_user", "cloud_auth") {
 
     // admin role user can grant cluster to use
     result = connect(user = "${user1}", password = 'Cloud12345', url = context.config.jdbcUrl) {
-            sql """GRANT USAGE_PRIV ON COMPUTE GROUP '${cluster1}' TO '${user1}'"""
+            sql """GRANT USAGE_PRIV ON CLUSTER '${cluster1}' TO '${user1}'"""
     }
 
     // case run user(default root), and show grant again, should be same result
@@ -177,7 +177,7 @@ suite("test_grant_revoke_cluster_to_user", "cloud_auth") {
     } 
 
     sql """SET PROPERTY FOR '${user2}' 'default_cloud_cluster' = '${validCluster}'"""
-    result = sql """REVOKE USAGE_PRIV ON COMPUTE GROUP '${validCluster}' FROM '${user2}'"""
+    result = sql """REVOKE USAGE_PRIV ON CLUSTER '${validCluster}' FROM '${user2}'"""
     assertEquals(result[0][0], 0)
     connect(user = "${user2}", password = 'Cloud12345', url = context.config.jdbcUrl) {
         test {

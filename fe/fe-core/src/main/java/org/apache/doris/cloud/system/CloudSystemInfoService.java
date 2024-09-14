@@ -841,7 +841,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
     private String tryCreateComputeGroup(String clusterName, String clusterId) throws UserException {
         if (Strings.isNullOrEmpty(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())) {
-            throw new DdlException("unable to create cluster due to empty cloud_instance_id");
+            throw new DdlException("unable to create compute group due to empty cluster_id");
         }
 
         Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()

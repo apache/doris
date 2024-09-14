@@ -98,8 +98,8 @@ public class CloudEnv extends Env {
     @Override
     public void initialize(String[] args) throws Exception {
         if (Strings.isNullOrEmpty(Config.cloud_unique_id) && Config.cluster_id == -1) {
-            throw new UserException("cluser_id must be specified in fe.conf if deployed "
-                                    + "in dissaggregated, because fe should known to which it belongs");
+            throw new UserException("cluster_id must be specified in fe.conf if deployed "
+                                    + "in cloud mode, because FE should known to which it belongs");
         }
 
         if (Strings.isNullOrEmpty(Config.cloud_unique_id)) {
