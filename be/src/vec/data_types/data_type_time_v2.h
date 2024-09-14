@@ -112,7 +112,8 @@ class DataTypeDateTimeV2 final : public DataTypeNumberBase<UInt64> {
 public:
     static constexpr bool is_parametric = true;
 
-    DataTypeDateTimeV2(UInt32 scale = 0) : _scale(scale) {
+    DataTypeDateTimeV2(UInt32 scale = 0, bool is_timestamp = 0)
+            : _scale(scale), _is_timestamp(is_timestamp) {
         if (UNLIKELY(scale > 6)) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scale {} is out of bounds", scale);
         }
@@ -162,6 +163,7 @@ public:
     MutableColumnPtr create_column() const override;
 
     UInt32 get_scale() const override { return _scale; }
+    bool is_timestamp() const { return _is_timestamp; }
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
@@ -173,9 +175,10 @@ public:
 
 private:
     UInt32 _scale;
+    bool _is_timestamp;
 };
 
-DataTypePtr create_datetimev2(UInt64 scale);
+DataTypePtr create_datetimev2(UInt64 scale, bool is_timestamp = 0);
 
 template <typename DataType>
 constexpr bool IsDataTypeDateTimeV2 = false;

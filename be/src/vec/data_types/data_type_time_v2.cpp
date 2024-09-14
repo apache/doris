@@ -244,12 +244,12 @@ void DataTypeDateTimeV2::cast_to_date_v2(const UInt64 from, UInt32& to) {
     to = from >> TIME_PART_LENGTH;
 }
 
-DataTypePtr create_datetimev2(UInt64 scale_value) {
+DataTypePtr create_datetimev2(UInt64 scale_value, bool is_timestamp) {
     if (scale_value > 6) {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "scale_value {} > 6",
                                scale_value);
     }
-    return std::make_shared<DataTypeDateTimeV2>(scale_value);
+    return std::make_shared<DataTypeDateTimeV2>(scale_value, is_timestamp);
 }
 
 } // namespace doris::vectorized
